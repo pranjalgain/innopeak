@@ -1,0 +1,57 @@
+# Stress Test Scenario
+# Tests the application under extreme load conditions
+
+config:
+  target: 'http://localhost:3000'
+  phases:
+    # Gradual ramp up
+    - duration: 60
+      arrivalRate: 10
+      rampTo: 100
+      name: 'Ramp up'
+
+    # Sustained high load
+    - duration: 120
+      arrivalRate: 100
+      name: 'Sustained high load'
+
+    # Spike test
+    - duration: 30
+      arrivalRate: 200
+      name: 'Spike test'
+
+    # Recovery test
+    - duration: 60
+      arrivalRate: 200
+      rampTo: 10
+      name: 'Recovery test'
+
+  plugins: {}
+
+scenarios:
+  - name: 'Stress Test - Health Check'
+    weight: 40
+    flow:
+      - get:
+          url: '/health'
+          expect:
+            - statusCode: 200
+      - think: 0.5
+
+  - name: 'Stress Test - Metrics'
+    weight: 30
+    flow:
+      - get:
+          url: '/metrics'
+          expect:
+            - statusCode: 200
+      - think: 0.5
+
+  - name: 'Stress Test - Dev Tools'
+    weight: 30
+    flow:
+      - get:
+          url: '/dev-tools'
+          expect:
+            - statusCode: 200
+      - think: 1

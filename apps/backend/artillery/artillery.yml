@@ -1,0 +1,91 @@
+# Artillery Load Testing Configuration
+# This is the main configuration file for Artillery load tests
+
+config:
+  # Target URL for load testing
+  target: 'http://localhost:3000'
+
+  # Default phases for load testing
+  phases:
+    # Warm-up phase
+    - duration: 30
+      arrivalRate: 5
+      name: 'Warm up'
+
+    # Ramp up phase
+    - duration: 60
+      arrivalRate: 10
+      rampTo: 50
+      name: 'Ramp up load'
+
+    # Sustained load phase
+    - duration: 120
+      arrivalRate: 50
+      name: 'Sustained load'
+
+    # Ramp down phase
+    - duration: 30
+      arrivalRate: 50
+      rampTo: 5
+      name: 'Ramp down'
+
+  # Default payload for requests
+  payload:
+    path: './data/test-data.json'
+    fields:
+      - 'userId'
+      - 'email'
+      - 'name'
+
+  # Default variables
+  variables:
+    baseUrl: 'http://localhost:3000'
+    apiVersion: 'v1'
+
+  # Default plugins
+  plugins: {}
+
+  # Default processor
+  processor: './processors/load-test-processor.js'
+
+# Default scenarios
+scenarios:
+  - name: 'Health Check Load Test'
+    weight: 30
+    flow:
+      - get:
+          url: '/{{ apiVersion }}/health'
+          capture:
+            - json: '$.status'
+              as: 'healthStatus'
+      - think: 1
+      - get:
+          url: '/{{ apiVersion }}/health/health-ui'
+      - think: 2
+
+  - name: 'Metrics Load Test'
+    weight: 20
+    flow:
+      - get:
+          url: '/{{ apiVersion }}/metrics'
+      - think: 1
+
+  - name: 'Dev Tools Load Test'
+    weight: 20
+    flow:
+      - get:
+          url: '/{{ apiVersion }}/dev-tools'
+      - think: 2
+
+  - name: 'Mixed API Load Test'
+    weight: 30
+    flow:
+      - get:
+          url: '/{{ apiVersion }}/health'
+      - think: 1
+      - get:
+          url: '/{{ apiVersion }}/metrics'
+      - think: 1
+      - get:
+          url: '/{{ apiVersion }}/dev-tools'
+      - think: 2

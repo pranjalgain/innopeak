@@ -1,0 +1,5 @@
+.lint_template:
+  stage: lint
+  script:
+    - echo "🧹 ESLint"
+    - pnpm lint

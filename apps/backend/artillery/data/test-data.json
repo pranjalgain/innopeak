@@ -1,0 +1,27 @@
+[
+  {
+    "userId": "user-001",
+    "email": "test1@example.com",
+    "name": "Test User 1"
+  },
+  {
+    "userId": "user-002",
+    "email": "test2@example.com",
+    "name": "Test User 2"
+  },
+  {
+    "userId": "user-003",
+    "email": "test3@example.com",
+    "name": "Test User 3"
+  },
+  {
+    "userId": "user-004",
+    "email": "test4@example.com",
+    "name": "Test User 4"
+  },
+  {
+    "userId": "user-005",
+    "email": "test5@example.com",
+    "name": "Test User 5"
+  }
+]

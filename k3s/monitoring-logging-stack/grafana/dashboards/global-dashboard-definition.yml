@@ -1,0 +1,42 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-definition
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'node-exporter'
+        orgId: 1
+        folder: 'kubernetes'
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/kubernetes/node-exporter
+      - name: 'kube-state-metrics'
+        orgId: 1
+        folder: 'kubernetes'
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/kubernetes/kube-state-metrics
+      - name: 'blackbox-exporter'
+        orgId: 1
+        folder: 'kubernetes'
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/kubernetes/blackbox-exporter
+      - name: 'backend-apm'
+        orgId: 1
+        folder: 'custom'
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/custom/backend-apm

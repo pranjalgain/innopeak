@@ -1,0 +1,147 @@
+{
+  "title": "NestJS Application - Production Metrics",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Total API Requests Rate",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 4 },
+      "datasource": "prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(api_requests_total[1m]))",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API Error Rate (5xx Errors)",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 4 },
+      "datasource": "prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(api_request_errors_total[1m]))",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Current Error % (API)",
+      "gridPos": { "x": 0, "y": 4, "w": 6, "h": 3 },
+      "datasource": "prometheus",
+      "targets": [
+        {
+          "expr": "(sum(rate(api_request_errors_total[5m])) / sum(rate(api_requests_total[5m]))) * 100",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Concurrent API Requests",
+      "gridPos": { "x": 6, "y": 4, "w": 6, "h": 3 },
+      "datasource": "prometheus",
+      "targets": [
+        {
+          "expr": "concurrent_http_requests",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "P90 / P99 API Latency (seconds)",
+      "gridPos": { "x": 0, "y": 7, "w": 24, "h": 6 },
+      "datasource": "prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(api_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P90 Latency",
+          "format": "time_series"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(api_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P99 Latency",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Slowest APIs (Top 5)",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 6 },
+      "datasource": "prometheus",
+      "targets": [
+        {
+          "expr": "topk(5, rate(api_request_duration_seconds_sum[5m]) / rate(api_request_duration_seconds_count[5m]))",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "type": "piechart",
+      "title": "Browser Usage (Top 5)",
+      "gridPos": { "x": 12, "y": 13, "w": 6, "h": 6 },
+      "datasource": "prometheus",
+      "targets": [
+        {
+          "expr": "topk(5, api_requests_by_user_agent)",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "Referer Domains (Top 5)",
+      "gridPos": { "x": 18, "y": 13, "w": 6, "h": 6 },
+      "datasource": "prometheus",
+      "targets": [
+        {
+          "expr": "topk(5, api_requests_by_referer)",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "Mobile vs Web Requests",
+      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 6 },
+      "datasource": "prometheus",
+      "targets": [
+        {
+          "expr": "sum(total_mobile_requests)",
+          "legendFormat": "Mobile"
+        },
+        {
+          "expr": "sum(total_web_requests)",
+          "legendFormat": "Web"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" }
+      }
+    }
+  ]
+}

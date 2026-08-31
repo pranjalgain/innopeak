@@ -1,0 +1,16 @@
+{
+  "recommendations": [
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint",
+    "ms-vscode.vscode-typescript-next",
+    "ms-vscode.vscode-json",
+    "redhat.vscode-yaml",
+    "ms-vscode.vscode-docker",
+    "ms-vscode-remote.remote-containers",
+    "github.vscode-pull-request-github",
+    "ms-vscode.vscode-github-actions",
+    "ms-vscode.test-adapter-converter",
+    "ms-vscode.extension-test-runner",
+    "bradlc.vscode-tailwindcss"
+  ]
+}

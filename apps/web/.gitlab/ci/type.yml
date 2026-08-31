@@ -1,0 +1,7 @@
+.type_check_template:
+  stage: type
+  script:
+    - echo "🔎 Type check"
+    - pnpm type:check
+    - echo "🧭 Circular deps"
+    - pnpm type:circular

@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: node_exporter
+    ports:
+      - "9100:9100"
+    restart: always
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    container_name: promtail
+    volumes:
+      - /home/app1/.pm2/logs:/app1-logs ##Use these when the apps are hosted in the same server
+      - /home/app2/.pm2/logs:/app2-logs ## These will mount the app logs to the container, you can adjust the promtail config accordingly
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml
+    command: -config.file=/etc/promtail/promtail-config.yml
+    restart: always

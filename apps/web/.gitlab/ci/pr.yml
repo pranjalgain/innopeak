@@ -1,0 +1,25 @@
+workflow:
+  rules:
+    # Only for Merge Requests whose TARGET is master/main/staging/feature-*
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" &&
+        $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(master|main|staging|feature-.*)$/
+    - when: never
+
+stages: [type, lint, build]
+
+mr:type:
+  extends: [.type_check_template]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+mr:lint:
+  extends: [.lint_template]
+  needs: ["mr:type"]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+mr:build:
+  extends: [.build_template]
+  needs: ["mr:lint"]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"

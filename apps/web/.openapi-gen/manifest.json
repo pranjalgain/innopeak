@@ -1,0 +1,46 @@
+{
+  "configPath": "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/openapi-gen.config.mts",
+  "outputFile": "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/public/openapi.json",
+  "diagnostics": [
+    {
+      "code": "inferred-body",
+      "severity": "info",
+      "message": "Inferred request body schema from handler validation: CreateUserSchema",
+      "routePath": "/users",
+      "metadata": {
+        "schemaName": "CreateUserSchema"
+      }
+    }
+  ],
+  "performance": {
+    "prepareTemplateMs": 0.04712499999999409,
+    "loadCustomFragmentsMs": 0.0002499999999940883,
+    "prepareDocumentMs": 0.04737499999998818,
+    "scanRouteFilesMs": 0.8555000000000064,
+    "deriveRoutePathMs": 0.1448740000000157,
+    "filterRouteCandidatesMs": 0.009500000000002728,
+    "sourcePrecheckMs": 2.8527930000000765,
+    "readRouteFilesMs": 2.611624000000006,
+    "parseRouteFilesMs": 1.2237930000000574,
+    "analyzeRouteFilesMs": 3.0244579999999814,
+    "typescriptResponseInferenceMs": 1789.2452079999998,
+    "processRouteFilesMs": 1793.6485819999998,
+    "registerRouteMs": 5.337999999999909,
+    "getSchemaContentMs": 4.3797910000000115,
+    "createRequestParamsMs": 0.09916700000002265,
+    "createRequestBodyMs": 0,
+    "processResponsesMs": 0.3119580000005726,
+    "createResponseSchemaMs": 0,
+    "buildOperationsMs": 5.626584000000037,
+    "sortAndMergePathsMs": 0.1729169999998703,
+    "buildPathsMs": 0.1729169999998703,
+    "defaultComponentsAndErrorsMs": 0.08654100000012477,
+    "mergeSchemasMs": 0.0338329999999587,
+    "zodPreScanMs": 14.506542000000024,
+    "zodPreprocessMs": 1.3693750000001614,
+    "zodConvertMs": 4.206250000000182,
+    "finalizeDocumentMs": 1.3275000000003274,
+    "totalMs": 1820.9289159999998,
+    "scanRoutesMs": 1800.130666
+  }
+}

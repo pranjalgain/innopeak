@@ -1,0 +1,67 @@
+# Complete Workflow Load Test Scenario
+# Tests the complete user workflow under various load conditions
+
+config:
+  target: 'http://localhost:3000'
+  phases:
+    # Light load test
+    - duration: 30
+      arrivalRate: 3
+      name: 'Light load'
+
+    # Medium load test
+    - duration: 60
+      arrivalRate: 8
+      name: 'Medium load'
+
+    # Heavy load test
+    - duration: 90
+      arrivalRate: 15
+      name: 'Heavy load'
+
+  plugins: {}
+
+scenarios:
+  - name: 'Complete Workflow Test'
+    weight: 100
+    flow:
+      # Step 1: Check health
+      - get:
+          url: '/health'
+          capture:
+            - json: '$.status'
+              as: 'healthStatus'
+          expect:
+            - statusCode: 200
+      - think: 1
+
+      # Step 2: View health UI
+      - get:
+          url: '/health/health-ui'
+          expect:
+            - statusCode: 200
+            - contentType: 'text/html'
+      - think: 2
+
+      # Step 3: Check metrics
+      - get:
+          url: '/metrics'
+          expect:
+            - statusCode: 200
+            - contentType: 'text/plain'
+      - think: 1
+
+      # Step 4: Access dev tools
+      - get:
+          url: '/dev-tools'
+          expect:
+            - statusCode: 200
+            - contentType: 'text/html'
+      - think: 3
+
+      # Step 5: Final health check
+      - get:
+          url: '/health'
+          expect:
+            - statusCode: 200
+      - think: 1

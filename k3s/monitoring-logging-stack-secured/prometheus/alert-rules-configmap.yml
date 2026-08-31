@@ -1,0 +1,144 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: monitoring
+data:
+  node.rules: |
+    groups:
+    - name: node-exporter
+      rules:
+        - alert: HighMemoryUsageAcrossNodes
+          expr: |
+            100 - (
+              avg(node_memory_MemAvailable_bytes) /
+              avg(node_memory_MemTotal_bytes)
+            ) * 100 > 80
+          for: 0s
+          labels:
+            team: devops
+            severity: critical
+          annotations:
+            summary: "High memory usage across all nodes (Free RAM percentage > 80%) | Current Value: {{ $value }}%"
+            description: |
+              The free RAM percentage across all nodes is above 80%, which could indicate that
+              the system is running low on memory. This may lead to potential performance degradation
+              or out-of-memory (OOM) issues.
+            dashboard: "<grafana.com>"
+
+        # Alert for high free RAM percentage per node
+        - alert: HighMemoryUsagePerNode
+          expr: |
+            100 - (
+              avg by (instance) (node_memory_MemAvailable_bytes) /
+              avg by (instance) (node_memory_MemTotal_bytes)
+            ) * 100 > 80
+          for: 0s
+          labels:
+            team: devops
+            severity: critical
+          annotations:
+            summary: "High memory usage on node {{ $labels.instance }} (Free RAM percentage > 80%) | Current Value: {{ $value }}%"
+            description: |
+              The free RAM percentage on node {{ $labels.instance }} is above 80%, indicating
+              that this specific node is running low on memory. This could result in performance
+              issues or potential OOM errors for workloads.
+            dashboard: "<grafana.com>"
+
+        # Alert for high free disk percentage across all nodes
+        - alert: HighDiskUsageAcrossNodes
+          expr: |
+            (1 - (sum(node_filesystem_free_bytes{mountpoint="/"}) / sum(node_filesystem_size_bytes{mountpoint="/"}))) * 100 > 80
+          for: 0s
+          labels:
+            team: devops
+            severity: critical
+          annotations:
+            summary: "High disk usage across all nodes (Free disk space percentage < 20%) | Current Value: {{ $value }}%"
+            description: |
+              The disk space usage across all nodes has exceeded 80%, meaning less than
+              20% of disk space is remaining. If this persists, nodes may run out of disk space,
+              potentially leading to storage issues or application failures.
+            dashboard: "<grafana.com>"
+
+        # Alert for high free disk percentage per node
+        - alert: HighDiskUsagePerNode
+          expr: |
+            (1 - (sum by (instance) (node_filesystem_free_bytes{mountpoint="/"}) / sum by (instance) (node_filesystem_size_bytes{mountpoint="/"}))) * 100 > 80
+          for: 0s
+          labels:
+            team: devops
+            severity: critical
+          annotations:
+            summary: "High disk usage on node {{ $labels.instance }} (Free disk space percentage < 20%) | Current Value: {{ $value }}%"
+            description: |
+              The disk space usage on node {{ $labels.instance }} has exceeded 80%, meaning
+              less than 20% of disk space is remaining. This could lead to storage-related problems,
+              such as the inability to write logs or application failures.
+            dashboard: "<grafana.com>"
+
+        # Alert for high CPU usage across all nodes
+        - alert: HighCPUUsageAcrossNodes
+          expr: |
+            100 * (1 - avg(rate(node_cpu_seconds_total{job="node-exporter", mode="idle"}[5m]))) > 80
+          for: 0s
+          labels:
+            team: devops
+            severity: critical
+          annotations:
+            summary: "High CPU usage across all nodes (CPU usage > 80%) | Current Value: {{ printf \"%.2f\" $value }}%"
+            description: |
+              The CPU usage across all nodes has exceeded 80%, which may indicate that the nodes
+              are under heavy load. This could result in performance degradation and slow response times
+              for applications.
+            dashboard: "<grafana.com>"
+
+        # Alert for high CPU usage per node
+        - alert: HighCPUUsagePerNode
+          expr: |
+            100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{job="node-exporter", mode="idle"}[5m]))) > 80
+          for: 0s
+          labels:
+            team: devops
+            severity: critical
+          annotations:
+            summary: "High CPU usage on node {{ $labels.instance }} (CPU usage > 80%) | Current Value: {{ printf \"%.2f\" $value }}%"
+            description: |
+              The CPU usage on node {{ $labels.instance }} has exceeded 80% for extended periods.
+              This could indicate that the node is under heavy load, which may lead to performance
+              degradation, high latency, and potential downtime.
+            dashboard: "<grafana.com>"
+
+  blackbox-exporter.rules: |
+    groups:
+      - name: blackbox.rules
+        rules:
+          - alert: BlackboxTargetDown
+            expr: probe_success == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Blackbox probe failed for {{ $labels.instance }}"
+              description: "Probe failed for {{ $labels.instance }} for more than 2 minutes"
+
+  custom-app.rules: |
+    groups:
+    - name: endpoint_availability_alerts
+      rules:
+        # Alert for the <deployment-name-from-manifest's-metadata> service endpoint
+        - alert: BackendProdEndpointDown
+          expr: |
+            absent (kube_endpoint_address{namespace="<namespace>", endpoint="<app-name>"}) == 1
+          for: 5m
+          labels:
+            team: devops
+            severity: critical
+          annotations:
+            summary: "Backend service endpoint is down (endpoint: {{ $labels.endpoint }}, namespace: {{ $labels.namespace }})"
+            description: |
+              The <app-name> endpoint in the <namespace> namespace has no active addresses.
+              This may indicate that the service is not reachable or all its pods are down.
+              Investigate immediately.
+            dashboard: "<grafana.com>"

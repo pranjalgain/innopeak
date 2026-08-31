@@ -1,0 +1,53 @@
+# Health Check Load Test Scenario
+# Tests the health check endpoints under various load conditions
+
+config:
+  target: 'http://localhost:3000'
+  phases:
+    # Light load test
+    - duration: 30
+      arrivalRate: 10
+      name: 'Light load'
+
+    # Medium load test
+    - duration: 60
+      arrivalRate: 25
+      name: 'Medium load'
+
+    # Heavy load test
+    - duration: 90
+      arrivalRate: 50
+      name: 'Heavy load'
+
+    # Spike test
+    - duration: 30
+      arrivalRate: 100
+      name: 'Spike test'
+
+  plugins: {}
+
+scenarios:
+  - name: 'Health Check API Test'
+    weight: 100
+    flow:
+      - get:
+          url: '/health'
+          capture:
+            - json: '$.status'
+              as: 'healthStatus'
+            - json: '$.data.info.google.status'
+              as: 'googleStatus'
+            - json: '$.data.info.redis.status'
+              as: 'redisStatus'
+            - json: '$.data.info.database.status'
+              as: 'databaseStatus'
+          expect:
+            - statusCode: 200
+            - hasProperty: 'status'
+      - think: 1
+      - get:
+          url: '/health/health-ui'
+          expect:
+            - statusCode: 200
+            - contentType: 'text/html'
+      - think: 2

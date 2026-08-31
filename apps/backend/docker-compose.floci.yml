@@ -1,0 +1,122 @@
+# version: '3.6'
+#
+# AWS-emulated local stack (DEPLOYMENT_TARGET=aws). Swaps `postgres-db`/`redis` for a single
+# Floci (floci.io) service that emulates RDS (real Postgres) and ElastiCache (real Redis)
+# underneath — no application code change needed beyond connection endpoints. Provision
+# RDS/ElastiCache/SQS/S3/Secrets Manager against it via `infra/floci/` (Terraform).
+#
+# Metrics/logs/tracing (Prometheus/Grafana/Loki/Promtail/push-gateway/Jaeger) are unchanged from
+# docker-compose.yml — copied verbatim, no CloudWatch integration.
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - '${PROMETHEUS_PORT}:9090'
+    volumes:
+      - ./apm/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./apm/rules.yml:/etc/prometheus/rules.yml
+      - ./apm/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/etc/prometheus
+    environment:
+      - NESTJS_METRICS_TARGET=${NESTJS_METRICS_TARGET}
+      - NODE_EXPORTER_TARGET=${NODE_EXPORTER_TARGET}
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - '${GRAFANA_PORT}:3000'
+    volumes:
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    networks:
+      - monitoring
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - '${NODE_EXPORTER_PORT}:9100'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  loki:
+    image: grafana/loki:2.7.0
+    ports:
+      - '${LOKI_PORT}:3100'
+    user: '0:0'
+    volumes:
+      - ./loki-config.dev.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki-data
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:latest
+    ports:
+      - '${PROMTAIL_PORT}:9080'
+    volumes:
+      - ./logs:/logs
+      - ./promtail-config.yml:/etc/promtail/promtail-config.yml
+    command: -config.file=/etc/promtail/promtail-config.yml
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  prometheus-push-gateway:
+    image: prom/pushgateway:latest
+    ports:
+      - '${PROMETHEUS_PUSH_GATEWAY_PORT}:9091'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # Emulates RDS (real Postgres container), ElastiCache (real Redis container), SQS, S3 and
+  # Secrets Manager. RDS/ElastiCache proxy TCP connections to Docker containers Floci spawns
+  # itself, so it needs the Docker socket plus a reachable port range for those containers.
+  floci:
+    image: floci/floci:latest
+    ports:
+      - '${FLOCI_PORT}:4566' # Unified AWS-service edge endpoint
+      - '6379-6399:6379-6399' # ElastiCache-backing Redis containers
+      - '7001-7099:7001-7099' # RDS-backing Postgres containers
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - floci_data:/app/data
+    environment:
+      FLOCI_STORAGE_MODE: persistent
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - '${JAEGER_PORT}:16686' # UI
+      - '${JAEGER_COLLECTOR_PORT}:14268' # HTTP collector
+      - '${OTLP_PORT}:4318' # OTLP HTTP endpoint
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+volumes:
+  floci_data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana_data:
+    driver: local
+  loki_data:
+    driver: local
+
+networks:
+  monitoring:
+    driver: bridge

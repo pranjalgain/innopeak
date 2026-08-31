@@ -1,0 +1,44 @@
+# Copy to terraform.tfvars and fill in real values before `pnpm run infra:floci:up`.
+# terraform.tfvars is gitignored — never commit real secrets.
+
+app_secrets = {
+  CORS_ORIGINS         = "http://localhost:3000"
+  JWT_SECRET           = "change-me"
+  JWT_REFRESH_SECRET   = "change-me"
+
+  GOOGLE_CLIENT_ID     = ""
+  GOOGLE_CLIENT_SECRET = ""
+  GOOGLE_CALLBACK_URL  = "http://localhost:3000/v1/auth/google/callback"
+  GITHUB_CLIENT_ID     = ""
+  GITHUB_CLIENT_SECRET = ""
+  GITHUB_CALLBACK_URL  = "http://localhost:3000/v1/auth/github/callback"
+
+  STORAGE_PROVIDER      = "s3"
+  CLOUDINARY_CLOUD_NAME = ""
+  CLOUDINARY_API_KEY    = ""
+  CLOUDINARY_API_SECRET = ""
+
+  EMAIL_PROVIDER = "ses"
+  SMTP_HOST      = ""
+  SMTP_PORT      = "587"
+  SMTP_USER      = ""
+  SMTP_PASSWORD  = ""
+  EMAIL_FROM     = "noreply@example.com"
+
+  SMS_PROVIDER        = "sns"
+  TWILIO_ACCOUNT_SID  = ""
+  TWILIO_AUTH_TOKEN   = ""
+  TWILIO_PHONE_NUMBER = ""
+  AWS_SNS_SENDER_ID   = ""
+
+  FCM_PROJECT_ID  = ""
+  FCM_PRIVATE_KEY = ""
+  FCM_CLIENT_EMAIL = ""
+
+  ANTHROPIC_API_KEY   = ""
+  CLAUDE_DEFAULT_MODEL = "claude-sonnet-5"
+  OPENAI_API_KEY      = ""
+  AI_DEFAULT_PROVIDER = "claude"
+
+  AGENT_API_ALLOWED_DOMAINS = ""
+}

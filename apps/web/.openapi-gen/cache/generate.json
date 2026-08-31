@@ -1,0 +1,914 @@
+{
+  "configPath": "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/openapi-gen.config.mts",
+  "diagnostics": [
+    {
+      "code": "inferred-body",
+      "severity": "info",
+      "message": "Inferred request body schema from handler validation: CreateUserSchema",
+      "routePath": "/users",
+      "metadata": {
+        "schemaName": "CreateUserSchema"
+      }
+    }
+  ],
+  "fingerprint": "c72f331793dad8d2f0e3a4d84a6efd17943be60c28ab393007332efa7e3ea480",
+  "inputCount": 10,
+  "inputs": {
+    "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/openapi-gen.config.mts": {
+      "hash": "64390cde78d00bc5468ffe24054fbb0506a1561ba2b8f865bab5d2f719ea0883",
+      "mtimeMs": 1785758707370.2642,
+      "size": 2391
+    },
+    "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/package.json": {
+      "hash": "9d89bd34932af82a651ef6a1e46d91bb0a4a3f64d7ab1d09d525c08603ec77b3",
+      "mtimeMs": 1785758703333.6943,
+      "size": 6697
+    },
+    "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/pnpm-lock.yaml": {
+      "hash": "4b621c9c9bafea14ac7ce51a53dba9239a4b726e5307543940afa0ec7490c608",
+      "mtimeMs": 1785757019878.7258,
+      "size": 525623
+    },
+    "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/src/app/api/health/route.ts": {
+      "hash": "fe10e15732d1bd2096f7c88b58d8c531c1b71ffd9b21773a304cd1a2b85b9f6a",
+      "mtimeMs": 1767159148781,
+      "size": 233
+    },
+    "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/src/app/api/openapi/[id]/route.ts": {
+      "hash": "e430e57a10affbcf335b5bc2a08437a0a8caee241c767598d9d3bcf611eab031",
+      "mtimeMs": 1767159148781.53,
+      "size": 415
+    },
+    "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/src/app/api/sentry-example-api/route.ts": {
+      "hash": "b38c2f5fa327cb40f0c705b986b9a29d44442b6f4dd06fbcba69c050c14efc31",
+      "mtimeMs": 1767159148781.9182,
+      "size": 500
+    },
+    "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/src/app/api/simple-users/route.ts": {
+      "hash": "f625d177ab665061e2bfc8a840b34529655e91cda293ad7bbdaee092355bcda3",
+      "mtimeMs": 1767159148782.291,
+      "size": 371
+    },
+    "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/src/app/api/users/route.ts": {
+      "hash": "52e06fec66931dbe2e4e8a2d81f5739382276d3e25fb55b946845a29835baec0",
+      "mtimeMs": 1767159148782.673,
+      "size": 2558
+    },
+    "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/src/interfaces/openapi.ts": {
+      "hash": "996a3cc031d4d9b0610bbccc6614ee07dd3b2d4972518678d5712ab17778d4dd",
+      "mtimeMs": 1767159148807.0479,
+      "size": 298
+    },
+    "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/tsconfig.json": {
+      "hash": "084b2947072159118a669835749ed8d112339e5de3111291be2b28f19e5b09ee",
+      "mtimeMs": 1785759026753.2546,
+      "size": 1017
+    }
+  },
+  "outputFile": "/Users/saurabhsrivastava/ResearchWork/nextjs-coe/public/openapi.json",
+  "performance": {
+    "prepareTemplateMs": 0.04712499999999409,
+    "loadCustomFragmentsMs": 0.0002499999999940883,
+    "prepareDocumentMs": 0.04737499999998818,
+    "scanRouteFilesMs": 0.8555000000000064,
+    "deriveRoutePathMs": 0.1448740000000157,
+    "filterRouteCandidatesMs": 0.009500000000002728,
+    "sourcePrecheckMs": 2.8527930000000765,
+    "readRouteFilesMs": 2.611624000000006,
+    "parseRouteFilesMs": 1.2237930000000574,
+    "analyzeRouteFilesMs": 3.0244579999999814,
+    "typescriptResponseInferenceMs": 1789.2452079999998,
+    "processRouteFilesMs": 1793.6485819999998,
+    "registerRouteMs": 5.337999999999909,
+    "getSchemaContentMs": 4.3797910000000115,
+    "createRequestParamsMs": 0.09916700000002265,
+    "createRequestBodyMs": 0,
+    "processResponsesMs": 0.3119580000005726,
+    "createResponseSchemaMs": 0,
+    "buildOperationsMs": 5.626584000000037,
+    "sortAndMergePathsMs": 0.1729169999998703,
+    "buildPathsMs": 0.1729169999998703,
+    "defaultComponentsAndErrorsMs": 0.08654100000012477,
+    "mergeSchemasMs": 0.0338329999999587,
+    "zodPreScanMs": 14.506542000000024,
+    "zodPreprocessMs": 1.3693750000001614,
+    "zodConvertMs": 4.206250000000182,
+    "finalizeDocumentMs": 1.3275000000003274,
+    "totalMs": 1820.9289159999998,
+    "scanRoutesMs": 1800.130666
+  },
+  "routeFragments": {
+    "src/app/api/health/route.ts": {
+      "cacheKey": "{\"authPresets\":{\"bearer\":\"BearerAuth\",\"basic\":\"BasicAuth\",\"apikey\":\"ApiKeyAuth\"},\"defaultResponseSet\":\"common\",\"errorConfig\":{\"template\":{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\",\"example\":\"{{ERROR_MESSAGE}}\"},\"code\":{\"type\":\"string\",\"example\":\"{{ERROR_CODE}}\"}}},\"codes\":{\"400\":{\"description\":\"Bad Request\",\"variables\":{\"ERROR_MESSAGE\":\"Invalid request parameters\",\"ERROR_CODE\":\"BAD_REQUEST\"}},\"401\":{\"description\":\"Unauthorized\",\"variables\":{\"ERROR_MESSAGE\":\"Authentication required\",\"ERROR_CODE\":\"UNAUTHORIZED\"}},\"403\":{\"description\":\"Forbidden\",\"variables\":{\"ERROR_MESSAGE\":\"Access denied\",\"ERROR_CODE\":\"FORBIDDEN\"}},\"404\":{\"description\":\"Not Found\",\"variables\":{\"ERROR_MESSAGE\":\"Resource not found\",\"ERROR_CODE\":\"NOT_FOUND\"}},\"409\":{\"description\":\"Conflict\",\"variables\":{\"ERROR_MESSAGE\":\"Resource already exists\",\"ERROR_CODE\":\"CONFLICT\"}},\"500\":{\"description\":\"Internal Server Error\",\"variables\":{\"ERROR_MESSAGE\":\"An unexpected error occurred\",\"ERROR_CODE\":\"INTERNAL_ERROR\"}}}},\"excludeSchemas\":[],\"framework\":{\"kind\":\"nextjs\",\"router\":\"app\"},\"ignoreRoutes\":[],\"includeOpenApiRoutes\":false,\"openapiVersion\":\"3.0\",\"responseSets\":{\"common\":[\"400\",\"500\"],\"auth\":[\"400\",\"401\",\"403\",\"500\"],\"public\":[\"400\",\"500\"]},\"routePath\":\"/health\",\"schemaBackends\":[\"zod\"],\"schemaFiles\":[]}",
+      "diagnostics": [],
+      "internalSchemas": {},
+      "mtimeMs": 1767159148781,
+      "paths": {
+        "/health": {
+          "get": {
+            "operationId": "get-health",
+            "summary": "Simple health check endpoint",
+            "description": "",
+            "tags": [
+              "Health"
+            ],
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "Successful response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object"
+                    }
+                  }
+                }
+              },
+              "400": {
+                "$ref": "#/components/responses/400"
+              },
+              "500": {
+                "$ref": "#/components/responses/500"
+              }
+            }
+          }
+        }
+      },
+      "schemas": {},
+      "size": 233,
+      "tags": {
+        "Health": {
+          "name": "Health"
+        }
+      },
+      "webhooks": {}
+    },
+    "src/app/api/openapi/[id]/route.ts": {
+      "cacheKey": "{\"authPresets\":{\"bearer\":\"BearerAuth\",\"basic\":\"BasicAuth\",\"apikey\":\"ApiKeyAuth\"},\"defaultResponseSet\":\"common\",\"errorConfig\":{\"template\":{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\",\"example\":\"{{ERROR_MESSAGE}}\"},\"code\":{\"type\":\"string\",\"example\":\"{{ERROR_CODE}}\"}}},\"codes\":{\"400\":{\"description\":\"Bad Request\",\"variables\":{\"ERROR_MESSAGE\":\"Invalid request parameters\",\"ERROR_CODE\":\"BAD_REQUEST\"}},\"401\":{\"description\":\"Unauthorized\",\"variables\":{\"ERROR_MESSAGE\":\"Authentication required\",\"ERROR_CODE\":\"UNAUTHORIZED\"}},\"403\":{\"description\":\"Forbidden\",\"variables\":{\"ERROR_MESSAGE\":\"Access denied\",\"ERROR_CODE\":\"FORBIDDEN\"}},\"404\":{\"description\":\"Not Found\",\"variables\":{\"ERROR_MESSAGE\":\"Resource not found\",\"ERROR_CODE\":\"NOT_FOUND\"}},\"409\":{\"description\":\"Conflict\",\"variables\":{\"ERROR_MESSAGE\":\"Resource already exists\",\"ERROR_CODE\":\"CONFLICT\"}},\"500\":{\"description\":\"Internal Server Error\",\"variables\":{\"ERROR_MESSAGE\":\"An unexpected error occurred\",\"ERROR_CODE\":\"INTERNAL_ERROR\"}}}},\"excludeSchemas\":[],\"framework\":{\"kind\":\"nextjs\",\"router\":\"app\"},\"ignoreRoutes\":[],\"includeOpenApiRoutes\":false,\"openapiVersion\":\"3.0\",\"responseSets\":{\"common\":[\"400\",\"500\"],\"auth\":[\"400\",\"401\",\"403\",\"500\"],\"public\":[\"400\",\"500\"]},\"routePath\":\"/openapi/{id}\",\"schemaBackends\":[\"zod\"],\"schemaFiles\":[]}",
+      "diagnostics": [],
+      "internalSchemas": {},
+      "mtimeMs": 1767159148781.53,
+      "paths": {
+        "/openapi/{id}": {
+          "get": {
+            "operationId": "get-openapi-{id}",
+            "summary": "Get OpenApi information",
+            "description": "Fetches detailed OpenApi information by ID",
+            "tags": [
+              "Openapi"
+            ],
+            "parameters": [
+              {
+                "in": "path",
+                "name": "id",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "description": "OpenApi ID"
+                },
+                "description": "OpenApi ID",
+                "example": "123"
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/OpenApiResponse"
+                    }
+                  }
+                }
+              },
+              "400": {
+                "$ref": "#/components/responses/400"
+              },
+              "500": {
+                "$ref": "#/components/responses/500"
+              }
+            }
+          }
+        }
+      },
+      "schemas": {},
+      "size": 415,
+      "tags": {
+        "Openapi": {
+          "name": "Openapi"
+        }
+      },
+      "webhooks": {}
+    },
+    "src/app/api/sentry-example-api/route.ts": {
+      "cacheKey": "{\"authPresets\":{\"bearer\":\"BearerAuth\",\"basic\":\"BasicAuth\",\"apikey\":\"ApiKeyAuth\"},\"defaultResponseSet\":\"common\",\"errorConfig\":{\"template\":{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\",\"example\":\"{{ERROR_MESSAGE}}\"},\"code\":{\"type\":\"string\",\"example\":\"{{ERROR_CODE}}\"}}},\"codes\":{\"400\":{\"description\":\"Bad Request\",\"variables\":{\"ERROR_MESSAGE\":\"Invalid request parameters\",\"ERROR_CODE\":\"BAD_REQUEST\"}},\"401\":{\"description\":\"Unauthorized\",\"variables\":{\"ERROR_MESSAGE\":\"Authentication required\",\"ERROR_CODE\":\"UNAUTHORIZED\"}},\"403\":{\"description\":\"Forbidden\",\"variables\":{\"ERROR_MESSAGE\":\"Access denied\",\"ERROR_CODE\":\"FORBIDDEN\"}},\"404\":{\"description\":\"Not Found\",\"variables\":{\"ERROR_MESSAGE\":\"Resource not found\",\"ERROR_CODE\":\"NOT_FOUND\"}},\"409\":{\"description\":\"Conflict\",\"variables\":{\"ERROR_MESSAGE\":\"Resource already exists\",\"ERROR_CODE\":\"CONFLICT\"}},\"500\":{\"description\":\"Internal Server Error\",\"variables\":{\"ERROR_MESSAGE\":\"An unexpected error occurred\",\"ERROR_CODE\":\"INTERNAL_ERROR\"}}}},\"excludeSchemas\":[],\"framework\":{\"kind\":\"nextjs\",\"router\":\"app\"},\"ignoreRoutes\":[],\"includeOpenApiRoutes\":false,\"openapiVersion\":\"3.0\",\"responseSets\":{\"common\":[\"400\",\"500\"],\"auth\":[\"400\",\"401\",\"403\",\"500\"],\"public\":[\"400\",\"500\"]},\"routePath\":\"/sentry-example-api\",\"schemaBackends\":[\"zod\"],\"schemaFiles\":[]}",
+      "diagnostics": [],
+      "internalSchemas": {},
+      "mtimeMs": 1767159148781.9182,
+      "paths": {
+        "/sentry-example-api": {
+          "get": {
+            "operationId": "get-sentry-example-api",
+            "summary": "A faulty API route to test Sentry's error monitoring",
+            "description": "",
+            "tags": [
+              "Sentry-example-api"
+            ],
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "Successful response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object"
+                    }
+                  }
+                }
+              },
+              "400": {
+                "$ref": "#/components/responses/400"
+              },
+              "500": {
+                "$ref": "#/components/responses/500"
+              }
+            }
+          }
+        }
+      },
+      "schemas": {},
+      "size": 500,
+      "tags": {
+        "Sentry-example-api": {
+          "name": "Sentry-example-api"
+        }
+      },
+      "webhooks": {}
+    },
+    "src/app/api/simple-users/route.ts": {
+      "cacheKey": "{\"authPresets\":{\"bearer\":\"BearerAuth\",\"basic\":\"BasicAuth\",\"apikey\":\"ApiKeyAuth\"},\"defaultResponseSet\":\"common\",\"errorConfig\":{\"template\":{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\",\"example\":\"{{ERROR_MESSAGE}}\"},\"code\":{\"type\":\"string\",\"example\":\"{{ERROR_CODE}}\"}}},\"codes\":{\"400\":{\"description\":\"Bad Request\",\"variables\":{\"ERROR_MESSAGE\":\"Invalid request parameters\",\"ERROR_CODE\":\"BAD_REQUEST\"}},\"401\":{\"description\":\"Unauthorized\",\"variables\":{\"ERROR_MESSAGE\":\"Authentication required\",\"ERROR_CODE\":\"UNAUTHORIZED\"}},\"403\":{\"description\":\"Forbidden\",\"variables\":{\"ERROR_MESSAGE\":\"Access denied\",\"ERROR_CODE\":\"FORBIDDEN\"}},\"404\":{\"description\":\"Not Found\",\"variables\":{\"ERROR_MESSAGE\":\"Resource not found\",\"ERROR_CODE\":\"NOT_FOUND\"}},\"409\":{\"description\":\"Conflict\",\"variables\":{\"ERROR_MESSAGE\":\"Resource already exists\",\"ERROR_CODE\":\"CONFLICT\"}},\"500\":{\"description\":\"Internal Server Error\",\"variables\":{\"ERROR_MESSAGE\":\"An unexpected error occurred\",\"ERROR_CODE\":\"INTERNAL_ERROR\"}}}},\"excludeSchemas\":[],\"framework\":{\"kind\":\"nextjs\",\"router\":\"app\"},\"ignoreRoutes\":[],\"includeOpenApiRoutes\":false,\"openapiVersion\":\"3.0\",\"responseSets\":{\"common\":[\"400\",\"500\"],\"auth\":[\"400\",\"401\",\"403\",\"500\"],\"public\":[\"400\",\"500\"]},\"routePath\":\"/simple-users\",\"schemaBackends\":[\"zod\"],\"schemaFiles\":[]}",
+      "diagnostics": [],
+      "internalSchemas": {},
+      "mtimeMs": 1767159148782.291,
+      "paths": {
+        "/simple-users": {
+          "get": {
+            "operationId": "get-simple-users",
+            "summary": "Simple GET endpoint that returns 2 hardcoded users",
+            "description": "",
+            "tags": [
+              "Simple-users"
+            ],
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "Successful response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object"
+                    }
+                  }
+                }
+              },
+              "400": {
+                "$ref": "#/components/responses/400"
+              },
+              "500": {
+                "$ref": "#/components/responses/500"
+              }
+            }
+          }
+        }
+      },
+      "schemas": {},
+      "size": 371,
+      "tags": {
+        "Simple-users": {
+          "name": "Simple-users"
+        }
+      },
+      "webhooks": {}
+    },
+    "src/app/api/users/route.ts": {
+      "cacheKey": "{\"authPresets\":{\"bearer\":\"BearerAuth\",\"basic\":\"BasicAuth\",\"apikey\":\"ApiKeyAuth\"},\"defaultResponseSet\":\"common\",\"errorConfig\":{\"template\":{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\",\"example\":\"{{ERROR_MESSAGE}}\"},\"code\":{\"type\":\"string\",\"example\":\"{{ERROR_CODE}}\"}}},\"codes\":{\"400\":{\"description\":\"Bad Request\",\"variables\":{\"ERROR_MESSAGE\":\"Invalid request parameters\",\"ERROR_CODE\":\"BAD_REQUEST\"}},\"401\":{\"description\":\"Unauthorized\",\"variables\":{\"ERROR_MESSAGE\":\"Authentication required\",\"ERROR_CODE\":\"UNAUTHORIZED\"}},\"403\":{\"description\":\"Forbidden\",\"variables\":{\"ERROR_MESSAGE\":\"Access denied\",\"ERROR_CODE\":\"FORBIDDEN\"}},\"404\":{\"description\":\"Not Found\",\"variables\":{\"ERROR_MESSAGE\":\"Resource not found\",\"ERROR_CODE\":\"NOT_FOUND\"}},\"409\":{\"description\":\"Conflict\",\"variables\":{\"ERROR_MESSAGE\":\"Resource already exists\",\"ERROR_CODE\":\"CONFLICT\"}},\"500\":{\"description\":\"Internal Server Error\",\"variables\":{\"ERROR_MESSAGE\":\"An unexpected error occurred\",\"ERROR_CODE\":\"INTERNAL_ERROR\"}}}},\"excludeSchemas\":[],\"framework\":{\"kind\":\"nextjs\",\"router\":\"app\"},\"ignoreRoutes\":[],\"includeOpenApiRoutes\":false,\"openapiVersion\":\"3.0\",\"responseSets\":{\"common\":[\"400\",\"500\"],\"auth\":[\"400\",\"401\",\"403\",\"500\"],\"public\":[\"400\",\"500\"]},\"routePath\":\"/users\",\"schemaBackends\":[\"zod\"],\"schemaFiles\":[]}",
+      "diagnostics": [
+        {
+          "code": "inferred-body",
+          "severity": "info",
+          "message": "Inferred request body schema from handler validation: CreateUserSchema",
+          "routePath": "/users",
+          "metadata": {
+            "schemaName": "CreateUserSchema"
+          }
+        }
+      ],
+      "internalSchemas": {},
+      "mtimeMs": 1767159148782.673,
+      "paths": {
+        "/users": {
+          "get": {
+            "operationId": "get-users",
+            "summary": "GET /api/users - Fetch all users",
+            "description": "",
+            "tags": [
+              "Users"
+            ],
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "Successful response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        },
+                        "users": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "email": {
+                                "type": "string"
+                              },
+                              "createdAt": {
+                                "type": "object",
+                                "properties": {
+                                  "toString": {
+                                    "type": "object"
+                                  },
+                                  "toDateString": {
+                                    "type": "object"
+                                  },
+                                  "toTimeString": {
+                                    "type": "object"
+                                  },
+                                  "toLocaleString": {
+                                    "type": "object"
+                                  },
+                                  "toLocaleDateString": {
+                                    "type": "object"
+                                  },
+                                  "toLocaleTimeString": {
+                                    "type": "object"
+                                  },
+                                  "valueOf": {
+                                    "type": "object"
+                                  },
+                                  "getTime": {
+                                    "type": "object"
+                                  },
+                                  "getFullYear": {
+                                    "type": "object"
+                                  },
+                                  "getUTCFullYear": {
+                                    "type": "object"
+                                  },
+                                  "getMonth": {
+                                    "type": "object"
+                                  },
+                                  "getUTCMonth": {
+                                    "type": "object"
+                                  },
+                                  "getDate": {
+                                    "type": "object"
+                                  },
+                                  "getUTCDate": {
+                                    "type": "object"
+                                  },
+                                  "getDay": {
+                                    "type": "object"
+                                  },
+                                  "getUTCDay": {
+                                    "type": "object"
+                                  },
+                                  "getHours": {
+                                    "type": "object"
+                                  },
+                                  "getUTCHours": {
+                                    "type": "object"
+                                  },
+                                  "getMinutes": {
+                                    "type": "object"
+                                  },
+                                  "getUTCMinutes": {
+                                    "type": "object"
+                                  },
+                                  "getSeconds": {
+                                    "type": "object"
+                                  },
+                                  "getUTCSeconds": {
+                                    "type": "object"
+                                  },
+                                  "getMilliseconds": {
+                                    "type": "object"
+                                  },
+                                  "getUTCMilliseconds": {
+                                    "type": "object"
+                                  },
+                                  "getTimezoneOffset": {
+                                    "type": "object"
+                                  },
+                                  "setTime": {
+                                    "type": "object"
+                                  },
+                                  "setMilliseconds": {
+                                    "type": "object"
+                                  },
+                                  "setUTCMilliseconds": {
+                                    "type": "object"
+                                  },
+                                  "setSeconds": {
+                                    "type": "object"
+                                  },
+                                  "setUTCSeconds": {
+                                    "type": "object"
+                                  },
+                                  "setMinutes": {
+                                    "type": "object"
+                                  },
+                                  "setUTCMinutes": {
+                                    "type": "object"
+                                  },
+                                  "setHours": {
+                                    "type": "object"
+                                  },
+                                  "setUTCHours": {
+                                    "type": "object"
+                                  },
+                                  "setDate": {
+                                    "type": "object"
+                                  },
+                                  "setUTCDate": {
+                                    "type": "object"
+                                  },
+                                  "setMonth": {
+                                    "type": "object"
+                                  },
+                                  "setUTCMonth": {
+                                    "type": "object"
+                                  },
+                                  "setFullYear": {
+                                    "type": "object"
+                                  },
+                                  "setUTCFullYear": {
+                                    "type": "object"
+                                  },
+                                  "toUTCString": {
+                                    "type": "object"
+                                  },
+                                  "toISOString": {
+                                    "type": "object"
+                                  },
+                                  "toJSON": {
+                                    "type": "object"
+                                  },
+                                  "__@toPrimitive@120": {
+                                    "type": "object"
+                                  }
+                                },
+                                "required": [
+                                  "toString",
+                                  "toDateString",
+                                  "toTimeString",
+                                  "toLocaleString",
+                                  "toLocaleDateString",
+                                  "toLocaleTimeString",
+                                  "valueOf",
+                                  "getTime",
+                                  "getFullYear",
+                                  "getUTCFullYear",
+                                  "getMonth",
+                                  "getUTCMonth",
+                                  "getDate",
+                                  "getUTCDate",
+                                  "getDay",
+                                  "getUTCDay",
+                                  "getHours",
+                                  "getUTCHours",
+                                  "getMinutes",
+                                  "getUTCMinutes",
+                                  "getSeconds",
+                                  "getUTCSeconds",
+                                  "getMilliseconds",
+                                  "getUTCMilliseconds",
+                                  "getTimezoneOffset",
+                                  "setTime",
+                                  "setMilliseconds",
+                                  "setUTCMilliseconds",
+                                  "setSeconds",
+                                  "setUTCSeconds",
+                                  "setMinutes",
+                                  "setUTCMinutes",
+                                  "setHours",
+                                  "setUTCHours",
+                                  "setDate",
+                                  "setUTCDate",
+                                  "setMonth",
+                                  "setUTCMonth",
+                                  "setFullYear",
+                                  "setUTCFullYear",
+                                  "toUTCString",
+                                  "toISOString",
+                                  "toJSON",
+                                  "__@toPrimitive@120"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name",
+                              "email",
+                              "createdAt"
+                            ]
+                          }
+                        },
+                        "total": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "users",
+                        "total"
+                      ]
+                    }
+                  }
+                }
+              },
+              "400": {
+                "$ref": "#/components/responses/400"
+              },
+              "500": {
+                "$ref": "#/components/responses/500"
+              }
+            }
+          },
+          "delete": {
+            "operationId": "delete-users",
+            "summary": "DELETE /api/users - Reset all users (for testing)",
+            "description": "",
+            "tags": [
+              "Users"
+            ],
+            "parameters": [],
+            "responses": {
+              "200": {
+                "description": "Successful response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "message"
+                      ]
+                    }
+                  }
+                }
+              },
+              "400": {
+                "$ref": "#/components/responses/400"
+              },
+              "500": {
+                "$ref": "#/components/responses/500"
+              }
+            }
+          },
+          "post": {
+            "operationId": "post-users",
+            "summary": "POST /api/users - Create a new user",
+            "description": "",
+            "tags": [
+              "Users"
+            ],
+            "parameters": [],
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CreateUserSchema"
+                  }
+                }
+              }
+            },
+            "responses": {
+              "201": {
+                "description": "Successful response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
+                        },
+                        "user": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "email": {
+                              "type": "string"
+                            },
+                            "createdAt": {
+                              "type": "object",
+                              "properties": {
+                                "toString": {
+                                  "type": "object"
+                                },
+                                "toDateString": {
+                                  "type": "object"
+                                },
+                                "toTimeString": {
+                                  "type": "object"
+                                },
+                                "toLocaleString": {
+                                  "type": "object"
+                                },
+                                "toLocaleDateString": {
+                                  "type": "object"
+                                },
+                                "toLocaleTimeString": {
+                                  "type": "object"
+                                },
+                                "valueOf": {
+                                  "type": "object"
+                                },
+                                "getTime": {
+                                  "type": "object"
+                                },
+                                "getFullYear": {
+                                  "type": "object"
+                                },
+                                "getUTCFullYear": {
+                                  "type": "object"
+                                },
+                                "getMonth": {
+                                  "type": "object"
+                                },
+                                "getUTCMonth": {
+                                  "type": "object"
+                                },
+                                "getDate": {
+                                  "type": "object"
+                                },
+                                "getUTCDate": {
+                                  "type": "object"
+                                },
+                                "getDay": {
+                                  "type": "object"
+                                },
+                                "getUTCDay": {
+                                  "type": "object"
+                                },
+                                "getHours": {
+                                  "type": "object"
+                                },
+                                "getUTCHours": {
+                                  "type": "object"
+                                },
+                                "getMinutes": {
+                                  "type": "object"
+                                },
+                                "getUTCMinutes": {
+                                  "type": "object"
+                                },
+                                "getSeconds": {
+                                  "type": "object"
+                                },
+                                "getUTCSeconds": {
+                                  "type": "object"
+                                },
+                                "getMilliseconds": {
+                                  "type": "object"
+                                },
+                                "getUTCMilliseconds": {
+                                  "type": "object"
+                                },
+                                "getTimezoneOffset": {
+                                  "type": "object"
+                                },
+                                "setTime": {
+                                  "type": "object"
+                                },
+                                "setMilliseconds": {
+                                  "type": "object"
+                                },
+                                "setUTCMilliseconds": {
+                                  "type": "object"
+                                },
+                                "setSeconds": {
+                                  "type": "object"
+                                },
+                                "setUTCSeconds": {
+                                  "type": "object"
+                                },
+                                "setMinutes": {
+                                  "type": "object"
+                                },
+                                "setUTCMinutes": {
+                                  "type": "object"
+                                },
+                                "setHours": {
+                                  "type": "object"
+                                },
+                                "setUTCHours": {
+                                  "type": "object"
+                                },
+                                "setDate": {
+                                  "type": "object"
+                                },
+                                "setUTCDate": {
+                                  "type": "object"
+                                },
+                                "setMonth": {
+                                  "type": "object"
+                                },
+                                "setUTCMonth": {
+                                  "type": "object"
+                                },
+                                "setFullYear": {
+                                  "type": "object"
+                                },
+                                "setUTCFullYear": {
+                                  "type": "object"
+                                },
+                                "toUTCString": {
+                                  "type": "object"
+                                },
+                                "toISOString": {
+                                  "type": "object"
+                                },
+                                "toJSON": {
+                                  "type": "object"
+                                },
+                                "__@toPrimitive@120": {
+                                  "type": "object"
+                                }
+                              },
+                              "required": [
+                                "toString",
+                                "toDateString",
+                                "toTimeString",
+                                "toLocaleString",
+                                "toLocaleDateString",
+                                "toLocaleTimeString",
+                                "valueOf",
+                                "getTime",
+                                "getFullYear",
+                                "getUTCFullYear",
+                                "getMonth",
+                                "getUTCMonth",
+                                "getDate",
+                                "getUTCDate",
+                                "getDay",
+                                "getUTCDay",
+                                "getHours",
+                                "getUTCHours",
+                                "getMinutes",
+                                "getUTCMinutes",
+                                "getSeconds",
+                                "getUTCSeconds",
+                                "getMilliseconds",
+                                "getUTCMilliseconds",
+                                "getTimezoneOffset",
+                                "setTime",
+                                "setMilliseconds",
+                                "setUTCMilliseconds",
+                                "setSeconds",
+                                "setUTCSeconds",
+                                "setMinutes",
+                                "setUTCMinutes",
+                                "setHours",
+                                "setUTCHours",
+                                "setDate",
+                                "setUTCDate",
+                                "setMonth",
+                                "setUTCMonth",
+                                "setFullYear",
+                                "setUTCFullYear",
+                                "toUTCString",
+                                "toISOString",
+                                "toJSON",
+                                "__@toPrimitive@120"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "email",
+                            "createdAt"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "user",
+                        "message"
+                      ]
+                    }
+                  }
+                }
+              },
+              "400": {
+                "$ref": "#/components/responses/400"
+              },
+              "409": {
+                "description": "Successful response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        },
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "error"
+                      ]
+                    }
+                  }
+                }
+              },
+              "500": {
+                "$ref": "#/components/responses/500"
+              }
+            }
+          }
+        }
+      },
+      "schemas": {
+        "CreateUserSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "email": {
+              "type": "string",
+              "format": "email",
+              "maxLength": 255
+            }
+          },
+          "required": [
+            "name",
+            "email"
+          ]
+        }
+      },
+      "size": 2558,
+      "tags": {
+        "Users": {
+          "name": "Users"
+        }
+      },
+      "webhooks": {}
+    }
+  },
+  "updatedAt": "2026-08-03T12:21:34.109Z"
+}

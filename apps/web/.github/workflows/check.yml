@@ -1,0 +1,36 @@
+name: Check
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - development
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Check
+    runs-on: [self-hosted, check-code] # Use 'your-tag' for your runner tag
+    steps:
+      - uses: actions/checkout@v3
+      - run: echo "node_version=$(cat .github/nodejs.version)" >> $GITHUB_ENV
+      - name: "use node ${NODE_VERSION}"
+        uses: actions/setup-node@v3
+        with:
+          node-version: "${NODE_VERSION}"
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Lint check
+        run: yarn lint
+      - name: Format check
+        run: yarn prettier
+      - name: Unit & Integration tests
+        run: yarn test
+      - name: Smoke & Acceptance tests
+        run: |
+          yarn build-storybook --quiet
+          npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
+            "npx http-server storybook-static --port 6006 --silent" \
+            "npx wait-on tcp:127.0.0.1:6006 && yarn test-storybook"

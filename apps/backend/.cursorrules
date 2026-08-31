@@ -1,0 +1,199 @@
+# NestJS Enterprise Boilerplate - Cursor Rules
+
+## Project Overview
+Enterprise NestJS 11 boilerplate with:
+- TypeScript (strict mode), Drizzle ORM (SQL-first), Redis, BullMQ queues
+- JWT + OAuth + API Keys + MFA authentication with RBAC
+- Media uploads (S3/Cloudinary), Email (SMTP/SES), SMS (Twilio/SNS), Push notifications (FCM)
+- AI integration (Claude/OpenAI), RAG pipeline (pgvector), Agent framework
+- OpenTelemetry tracing, Prometheus metrics, Winston logging, Grafana dashboards
+- Health checks, background workers, rate limiting, caching
+
+## Architecture & Design Patterns
+
+### Repository Pattern (MANDATORY — Centralized under src/db/)
+- ALL repositories live in `src/db/repositories/<domain>/`
+- `DBModule` (@Global) registers and exports all repositories
+- ANY module can inject ANY repository without cross-module coupling
+- Controllers NEVER call DB directly
+- Services NEVER call DB directly — they call repositories
+- Call flow: Controller → Service → Repository (@db/repositories/...) → Drizzle DB
+- Import: `import { UsersRepository } from '@db/repositories/users/users.repository'`
+
+### Provider/Strategy Pattern
+- Swappable implementations via abstract base classes
+- Concrete providers selected at module level via factory + ConfigService
+- Examples: StorageProvider (S3/Cloudinary), EmailProvider (SMTP/SES), SmsProvider (Twilio/SNS), AiProvider (Claude/OpenAI)
+
+### Facade Pattern
+- Service layer orchestrates multiple repositories and providers
+- Single entry point for complex operations
+
+### Module Structure (standard for every domain)
+```
+src/<module>/                              # Business logic module
+├── <module>.module.ts                     # Module definition with providers
+├── <module>.controller.ts                 # HTTP endpoints (thin, delegates to service)
+├── <module>.service.ts                    # Business logic (Facade)
+├── providers/
+│   ├── <abstract>.provider.ts             # Abstract base class
+│   └── <impl>.provider.ts                 # Concrete implementations
+├── dto/                                   # Request/response DTOs
+├── interfaces/                            # TypeScript interfaces
+└── guards/ or decorators/                 # Module-specific
+
+src/db/repositories/<module>/              # Data access (separate)
+└── <module>.repository.ts                 # Drizzle queries ONLY
+```
+
+## Database — Drizzle ORM (SQL-First)
+
+### Workflow
+1. Create migration: `pnpm db:create-migration <name>`
+2. Write raw SQL in `src/db/drizzle/migrations/<name>.sql`
+3. Apply: `pnpm db:migrate`
+4. Introspect: `pnpm db:introspect` (generates schema.ts)
+5. Add relations manually to schema.ts if needed
+
+### Repository Queries (in src/db/repositories/<domain>/)
+```typescript
+// File: src/db/repositories/users/users.repository.ts
+@Injectable()
+export class UserRepository {
+  constructor(private readonly dbService: DBService) {}
+
+  async findById(id: string) {
+    const results = await this.dbService.db
+      .select()
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
+    return results[0];
+  }
+}
+
+// File: src/users/users.service.ts — imports from @db/repositories/
+import { UsersRepository } from '@db/repositories/users/users.repository';
+```
+
+## NestJS Conventions
+
+### Controllers
+- Use `@Controller({ path: '<route>', version: '1' })` for URI versioning
+- Route names from `src/common/route-names.ts`
+- Swagger decorators: @ApiTags, @ApiOperation, @ApiBearerAuth, @ApiResponse
+- Auth decorators: @Public(), @Roles(), @Permissions(), @CurrentUser()
+- Keep controllers thin — delegate ALL logic to services
+
+### Services
+- Contain business logic only
+- Inject repositories for DB access, providers for external services
+- Never import Drizzle schema or DBService directly
+
+### DTOs
+- Use class-validator for validation
+- Use @nestjs/swagger decorators for API docs
+- Separate: CreateXDto, UpdateXDto, XResponseDto
+
+### Auth Guards (applied globally)
+Order: ThrottlerGuard → JwtAuthGuard → RolesGuard → PermissionsGuard
+- @Public() skips JWT guard
+- @Roles('admin', 'user') — OR logic
+- @Permissions('users:read', 'users:write') — AND logic
+
+## TypeScript Strictness
+
+This project uses VERY strict TypeScript:
+- `exactOptionalPropertyTypes: true` — cannot assign `undefined` to optional properties
+- `noUncheckedIndexedAccess: true` — array/object index access returns `T | undefined`
+- `noUnusedLocals: true` / `noUnusedParameters: true`
+- `ConfigService.get<T>()` returns `T | undefined` — always use `?? defaultValue`
+
+### Common Fix Patterns
+```typescript
+// BAD: exactOptionalPropertyTypes violation
+const config = { credentials: maybeUndefined }; // Error if undefined
+
+// GOOD: conditional assignment
+const config: SomeConfig = { region };
+if (credentials) {
+  config.credentials = credentials;
+}
+```
+
+## Path Aliases
+```
+@common/*, @config/*, @db/*, @redis/*, @otel/*, @bg/*,
+@auth/*, @users/*, @media/*, @email/*, @sms/*, @notifications/*, @ai/*,
+@metrics/*, @health/*
+```
+
+## File Naming
+- Files: kebab-case (`user.service.ts`, `jwt-auth.guard.ts`)
+- Classes: PascalCase (`UserService`, `JwtAuthGuard`)
+- Methods/variables: camelCase
+- Constants: UPPER_CASE
+
+## Import Organization
+1. External packages (@nestjs/*, third-party)
+2. Internal aliases (@common/*, @db/*, etc.)
+3. Relative imports (./* )
+
+## SOLID Principles
+
+### Single Responsibility
+- Each class has one reason to change
+- Controllers: HTTP only. Services: logic only. Repositories: DB only.
+
+### Open/Closed
+- Abstract provider classes for extensibility
+- New providers extend without modifying existing code
+
+### Liskov Substitution
+- All concrete providers can replace their abstract base classes
+
+### Interface Segregation
+- Focused interfaces (AiProvider, EmailProvider, SmsProvider)
+- No fat interfaces
+
+### Dependency Inversion
+- Inject abstractions, not concretions
+- DI throughout via NestJS container
+
+## Security
+- Helmet for security headers
+- ThrottlerGuard for rate limiting
+- Input validation via ValidationPipe (global)
+- Sanitize user input (sanitize-html)
+- Never expose internal errors to clients
+
+## Testing
+- Unit tests: `*.spec.ts` — mock repositories, test services
+- E2E tests: `*.e2e-spec.ts` — test full HTTP flow
+- Playwright: functional + e2e + unit
+- Artillery: load + stress testing
+- Run `pnpm pre-commit` before pushing
+
+## Anti-Patterns to AVOID
+- Business logic in controllers
+- DB calls in services (use repositories)
+- Using `any` type
+- Hardcoding configuration (use ConfigService)
+- Circular dependencies
+- Skipping validation
+- Creating files unnecessarily
+- Over-engineering with premature abstractions
+- Synchronous I/O operations
+
+## Documentation
+- `CLAUDE.md` — Primary AI agent instructions
+- `docs/conventions/` — Detailed patterns (module-structure, sql-first-workflow, testing-patterns, api-patterns, provider-pattern)
+- `.env.example` — All environment variables
+
+## Development Workflow
+1. Create feature branch
+2. Read `CLAUDE.md` and `docs/conventions/` for patterns
+3. Create SQL migration → Apply → Introspect
+4. Implement: Repository → Service → Controller → DTOs
+5. Run `pnpm type-check && pnpm lint:check && pnpm test`
+6. Create pull request

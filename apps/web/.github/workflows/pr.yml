@@ -1,0 +1,54 @@
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches:
+      - master
+      - main
+      - staging
+      - "feature-*" # NOTE: matches "feature-something" (no slash)
+
+jobs:
+  pr-raise:
+    name: pr-raise
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+
+    # Cancel in-progress runs for the same PR when new commits arrive
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: test
+        run: pnpm test --if-present
+
+      - name: eslint
+        run: pnpm lint
+
+      - name: build
+        run: pnpm build

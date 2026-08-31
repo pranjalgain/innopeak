@@ -1,0 +1,6 @@
+include:
+  - local: .gitlab/ci/base.yml
+  - local: .gitlab/ci/jobs/type.yml
+  - local: .gitlab/ci/jobs/lint.yml
+  - local: .gitlab/ci/jobs/build.yml
+  - local: .gitlab/ci/pipelines/mr.yml

@@ -1,0 +1,72 @@
+doctype html
+html
+  head
+    title= title
+    meta(charset="UTF-8")
+    meta(name="viewport", content="width=device-width, initial-scale=1")
+    link(rel="stylesheet", href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css")
+    style.
+      body {
+        background-color: #f4f4f4;
+        color: #222;
+        font-family: 'Segoe UI', sans-serif;
+        padding-top: 80px;
+      }
+
+      .header-bar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        background-color: #f8f9fa;
+        padding: 1rem;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        text-align: left;
+        z-index: 999;
+      }
+
+      .depth-card {
+        border-radius: 12px;
+        background-color: #fff;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      }
+
+      .badge-depth {
+        font-size: 1rem;
+      }
+
+  body
+  .header-bar.d-flex.justify-content-between.align-items-center.px-4.py-3.shadow-sm.bg-light
+    h4.mb-0(style="color: #333;") SQS Queues
+    a.btn.btn-outline-secondary.btn-sm(href="/dev-tools") ← Back to Dev Tools
+
+  .container.py-5
+    if !isAws
+      .alert.alert-info
+        | SQS queue visibility only applies when <code>DEPLOYMENT_TARGET=aws</code>. This environment is
+        | running in <code>local</code> mode — use Bull Board instead.
+    else if queues.length === 0
+      .alert.alert-warning
+        | No SQS queues are configured. Make sure the <code>&lt;QUEUE&gt;_QUEUE_URL</code> env vars are set
+        | (Terraform writes these into Secrets Manager automatically — see infra/floci/secrets.tf).
+    else
+      .depth-card.p-4
+        table.table.table-hover.mb-0
+          thead
+            tr
+              th Queue
+              th Main queue depth
+              th Dead-letter depth
+          tbody
+            each queue in queues
+              tr
+                td= queue.queueName
+                td
+                  span.badge.badge-depth(class=queue.mainDepth > 0 ? 'bg-warning text-dark' : 'bg-success')= queue.mainDepth
+                td
+                  if queue.dlqDepth === null
+                    span.text-muted —
+                  else
+                    span.badge.badge-depth(class=queue.dlqDepth > 0 ? 'bg-danger' : 'bg-success')= queue.dlqDepth
+
+      a.btn.btn-primary.mt-4(href="/dev-tools/queues") Refresh

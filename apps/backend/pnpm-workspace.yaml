@@ -1,0 +1,18 @@
+# pnpm workspace configuration
+# This file defines the workspace structure for pnpm
+
+packages:
+  # Include the current directory as a workspace package
+  - '.'
+
+  # If you have multiple packages in subdirectories, include them here
+  # - 'packages/*'
+  # - 'apps/*'
+  # - 'libs/*'
+
+# Forced transitive dependency versions (pnpm >=9 reads overrides from here instead of
+# package.json's "pnpm.overrides" — kept in both places since this repo pins pnpm@8.15.0
+# via packageManager but contributors may have a newer global pnpm).
+# See README.md "Dependency override exceptions" for why each entry exists and when to remove it.
+overrides:
+  uuid: ^11.1.1

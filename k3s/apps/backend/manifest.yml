@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-prod
+  namespace: <namespace-name>
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend-prod
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: backend-prod
+    spec:
+      imagePullSecrets:
+      - name: docker-creds
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: backend-prod
+        image: <image-uri>
+        imagePullPolicy: Always
+        envFrom:
+        - configMapRef:
+            name: backend-configmap
+        resources:
+          requests:
+            cpu: "1000m"
+            memory: "1024Mi"
+          limits:
+            cpu: "2000m"
+            memory: "2048Mi"
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+      - name: nginx-sidecar
+        image: nginx:alpine
+        ports:
+          - name: nginx-metrics
+            containerPort: 9010
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+          - name: nginx-sidecar-config
+            mountPath: /etc/nginx/nginx.conf
+            subPath: nginx.conf
+          - name: nginx-cache
+            mountPath: /var/cache/nginx
+          - name: nginx-run
+            mountPath: /var/run
+          - name: nginx-tmp
+            mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: nginx-sidecar-config
+          configMap:
+            name: nginx-sidecar-config
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: nginx-tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-prod
+  namespace: <namespace-name>
+spec:
+  selector:
+    app: backend-prod
+  ports:
+    - name: backend-port
+      protocol: TCP
+      port: <svc-port> ##port in which your service should run. Note: this cannot de duplicate in type LoadBalancer.
+      targetPort: <app-port> ##port in which your app runs
+    - name: nginx-metrics
+      protocol: TCP
+      port: 9010
+      targetPort: 9010
+  type: LoadBalancer

@@ -1,0 +1,28 @@
+groups:
+  - name: nestjs-application-rules
+    interval: 30s # How often to compute
+
+    rules:
+      # === API REQUEST RATES ===
+      - record: nestjs:api_requests_total:rate5m
+        expr: sum(rate(api_requests_total[5m]))
+
+      # === API ERROR RATE ===
+      - record: nestjs:api_error_rate_percent
+        expr: (sum(rate(api_request_errors_total[5m])) / sum(rate(api_requests_total[5m]))) * 100
+
+      # === P90 Latency ===
+      - record: nestjs:api_latency_p90
+        expr: histogram_quantile(0.90, sum(rate(api_request_duration_seconds_bucket[5m])) by (le))
+
+      # === P99 Latency ===
+      - record: nestjs:api_latency_p99
+        expr: histogram_quantile(0.99, sum(rate(api_request_duration_seconds_bucket[5m])) by (le))
+
+      # === Total Mobile Requests (Optional if needed separately) ===
+      - record: nestjs:mobile_requests_total
+        expr: sum(total_mobile_requests)
+
+      # === Total Web Requests (Optional if needed separately) ===
+      - record: nestjs:web_requests_total
+        expr: sum(total_web_requests)

@@ -1,0 +1,28 @@
+doctype html
+html
+  head
+    title 404 - Page Not Found
+    link(rel="stylesheet", href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css")
+    style.
+      body {
+        background-color: #f8f9fa;
+        color: #333;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .container {
+        text-align: center;
+      }
+      .logo {
+        max-width: 120px;
+        margin-bottom: 1rem;
+      }
+  body
+    .container
+      img.logo(src="/assets/logo.svg", alt="SaleMate")
+      h1.display-4 Page Not Found
+      p.lead The path "#{path}" does not exist.
+      p.text-muted Please check the URL or navigate back to the homepage.
+      a.btn.btn-primary(href="/") Go to Home

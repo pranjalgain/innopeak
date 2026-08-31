@@ -1,0 +1,6 @@
+# node-exporter requires host-level access by design.
+# These are accepted trade-offs — suppressing to reduce noise.
+KSV-0009
+KSV-0010
+KSV-0024
+KSV-0121

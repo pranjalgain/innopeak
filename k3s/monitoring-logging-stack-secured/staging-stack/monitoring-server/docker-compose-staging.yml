@@ -1,0 +1,120 @@
+# version: '3.6'
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    env_file:
+      - .env
+    ports:
+      - '${PROMETHEUS_PORT}:9090'
+    volumes:
+      - ./monitoring-logging-configs/prometheus/prometheus-staging.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/etc/prometheus
+    command: 
+      - '--storage.tsdb.retention.time=15d'
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    environment:
+      - NESTJS_METRICS_TARGET=${NESTJS_METRICS_TARGET}
+      - NODE_EXPORTER_TARGET=${NODE_EXPORTER_TARGET}
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    env_file:
+      - .env
+    ports:
+      - '${GRAFANA_PORT}:3000'
+    volumes:
+      - ./monitoring-logging-configs/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring-logging-configs/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring-logging-configs/grafana/provisioning/dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    networks:
+      - monitoring
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    env_file:
+      - .env
+    ports:
+      - '${NODE_EXPORTER_PORT}:9100'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  loki:
+    image: grafana/loki:2.7.0
+    container_name: loki
+    env_file:
+      - .env
+    ports:
+      - '${LOKI_PORT}:3100'
+    user: '0:0'
+    volumes:
+      - ./monitoring-logging-configs/loki/loki-config.staging.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki-data
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # promtail:
+  #   image: grafana/promtail:latest
+  #   container_name: promtail
+  #   env_file:
+  #     - .env
+  #   ports:
+  #     - '${PROMTAIL_PORT}:9080'
+  #   volumes:
+  #     - /home/app1/.pm2/logs:/app1-logs ##Use these when the apps are hosted in the same server
+  #     - /home/app2/.pm2/logs:/app2-logs ## These will mount the app logs to the container, you can adjust the promtail config accordingly
+  #     - ./monitoring-logging-configs/promtail/promtail-config-staging.yml:/etc/promtail/promtail-config.yml
+  #   command: -config.file=/etc/promtail/promtail-config.yml
+  #   restart: unless-stopped
+  #   networks:
+  #     - monitoring
+
+  prometheus-push-gateway:
+    image: prom/pushgateway:latest
+    env_file:
+      - .env
+    container_name: prometheus-push-gateway
+    ports:
+      - '${PROMETHEUS_PUSH_GATEWAY_PORT}:9091'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    env_file:
+      - .env
+    container_name: jaeger
+    ports:
+      - "${JAEGER_PORT}:16686"            # UI
+      - "${JAEGER_COLLECTOR_PORT}:14268"  # HTTP collector
+      - "${OTLP_PORT}:4318"               # OTLP HTTP endpoint
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana_data:
+    driver: local
+  loki_data:
+    driver: local
+
+networks:
+  monitoring:
+    driver: bridge

@@ -1,0 +1,61 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role
+                    operator: In
+                    values:
+                      - monitoring
+      tolerations:
+        - key: "monitoring-only"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      containers:
+        - name: loki
+          image: grafana/loki:2.9.3
+          args:
+            - "-config.file=/etc/loki/local-config.yaml"
+          volumeMounts:
+            - name: loki-config
+              mountPath: /etc/loki/local-config.yaml
+              subPath: local-config.yaml
+            - name: loki-data
+              mountPath: /loki
+      volumes:
+        - name: loki-config
+          configMap:
+            name: loki-config
+        - name: loki-data
+          persistentVolumeClaim:
+            claimName: loki-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  type: ClusterIP
+  selector:
+    app: loki
+  ports:
+    - port: 3100
+      targetPort: 3100

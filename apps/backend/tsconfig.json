@@ -1,0 +1,81 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ESNext",
+    "moduleResolution": "Node",
+    // `moduleResolution: "Node"` (aka "node10") and bare `baseUrl` are deprecated in favor of
+    // "Node16"/"NodeNext"/"Bundler" and baseUrl-less `paths`, slated for removal in TypeScript 7.0.
+    // Migrating requires reworking every path alias and is tracked separately — this silences the
+    // forward-looking warning without changing current (correct, tested) resolution behavior.
+    // "5.0" is the value this repo's pinned TypeScript (5.9.2) understands; if your editor shows
+    // a newer TS's deprecation warnings (e.g. asking for "6.0"), make sure it's using this
+    // project's local TypeScript (VS Code: "TypeScript: Select TypeScript Version" → workspace).
+    "ignoreDeprecations": "5.0",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "incremental": true,
+    "skipLibCheck": true,
+    // Strict type checking for better code quality
+    "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "strictBindCallApply": true,
+    "strictFunctionTypes": true,
+    "strictPropertyInitialization": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUncheckedIndexedAccess": true,
+    // Additional strict checks
+    "maxNodeModuleJsDepth": 20,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "importsNotUsedAsValues": "remove",
+    // Path mapping for clean imports
+    "baseUrl": "./src",
+    "paths": {
+      "@common/*": ["common/*"],
+      "@middlewares/*": ["middlewares/*"],
+      "@interceptors/*": ["interceptors/*"],
+      "@config/*": ["config/*"],
+      "@logger/*": ["logger/*"],
+      "@db/*": ["db/*"],
+      "@redis/*": ["redis/*"],
+      "@otel/*": ["otel/*"],
+      "@bg/*": ["background/*"],
+      "@cron/*": ["background/cron/*"],
+      "@email-queue/*": ["background/queue/email/*"],
+      "@notification-queue/*": ["background/queue/notification/*"],
+      "@dead-letter-queue/*": ["background/queue/dead-letter/*"],
+      "@metrics/*": ["api/metrics/*"],
+      "@health/*": ["api/health/*"],
+      "@auth/*": ["auth/*"],
+      "@users/*": ["users/*"],
+      "@media/*": ["media/*"],
+      "@email/*": ["email/*"],
+      "@sms/*": ["sms/*"],
+      "@notifications/*": ["notifications/*"],
+      "@ai/*": ["ai/*"]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage"
+  ]
+}

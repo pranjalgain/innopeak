@@ -7,7 +7,12 @@
     "docs:dev": "pnpm --filter documentation start",
     "docs:build": "pnpm --filter documentation build",
     "docs:clear": "pnpm --filter documentation clear",
-    "docs:serve": "pnpm --filter documentation serve"
+    "docs:serve": "pnpm --filter documentation serve",
+    "backend:up": "pnpm --filter backend local:up",
+    "backend:down": "pnpm --filter backend db:dev:rm",
+    "web:dev": "pnpm --filter web dev",
+    "web:start": "pnpm --filter web start",
+    "web:build": "pnpm --filter web build"
   },
   "private": true,
   "dependencies": {

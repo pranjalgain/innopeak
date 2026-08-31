@@ -1,0 +1,11 @@
+{
+  "npmName": "@geekyants/client-sdk",
+  "npmVersion": "1.0.0",
+  "supportsES6": true,
+  "typescriptThreePlus": true,
+  "withInterfaces": true,
+  "withSeparateModelsAndApi": true,
+  "useSingleRequestParameter": true,
+  "apiPackage": "api",
+  "modelPackage": "models"
+}

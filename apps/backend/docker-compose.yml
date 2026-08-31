@@ -1,0 +1,133 @@
+# version: '3.6'
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - '${PROMETHEUS_PORT}:9090'
+    volumes:
+      - ./apm/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./apm/rules.yml:/etc/prometheus/rules.yml
+      - ./apm/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/etc/prometheus
+    environment:
+      - NESTJS_METRICS_TARGET=${NESTJS_METRICS_TARGET}
+      - NODE_EXPORTER_TARGET=${NODE_EXPORTER_TARGET}
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - '${GRAFANA_PORT}:3000'
+    volumes:
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    networks:
+      - monitoring
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - '${NODE_EXPORTER_PORT}:9100'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  loki:
+    image: grafana/loki:2.7.0
+    ports:
+      - '${LOKI_PORT}:3100'
+    user: '0:0'
+    volumes:
+      - ./loki-config.dev.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki-data
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:latest
+    ports:
+      - '${PROMTAIL_PORT}:9080'
+    volumes:
+      - ./logs:/logs
+      - ./promtail-config.yml:/etc/promtail/promtail-config.yml
+    command: -config.file=/etc/promtail/promtail-config.yml
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  prometheus-push-gateway:
+    image: prom/pushgateway:latest
+    ports:
+      - '${PROMETHEUS_PUSH_GATEWAY_PORT}:9091'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  postgres-db:
+    image: 'pgvector/pgvector:pg17'
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST_AUTH_METHOD: trust
+      TZ: UTC
+    ports:
+      - '${POSTGRES_PORT}:5432'
+    restart: unless-stopped
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - monitoring
+
+  redis:
+    image: 'redis:latest'
+    ports:
+      - '${REDIS_PORT}:6379'
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: [
+        'redis-server',
+        '--requirepass',
+        '${REDIS_PASSWORD}', # Enable password if provided
+        '--appendonly',
+        'yes', # Enable AOF for data persistence (optional)
+      ]
+    user: 'redis'
+    networks:
+      - monitoring
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - '${JAEGER_PORT}:16686' # UI
+      - '${JAEGER_COLLECTOR_PORT}:14268' # HTTP collector
+      - '${OTLP_PORT}:4318' # OTLP HTTP endpoint
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+volumes:
+  db_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana_data:
+    driver: local
+  loki_data:
+    driver: local
+
+networks:
+  monitoring:
+    driver: bridge

@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model audit_logs {
+  id              Int       @id @default(autoincrement())
+  event_timestamp DateTime? @default(now()) @db.Timestamptz(6)
+  requested_api   String?   @db.VarChar(255)
+  app_version     String?   @db.VarChar(50)
+  system_name     String?   @db.VarChar(100)
+  system_version  String?   @db.VarChar(50)
+  user_agent      String?
+  ip_address      String?   @db.VarChar(45)
+  country         String?   @db.VarChar(100)
+  host_name       String?   @db.VarChar(255)
+  table_name      String?   @db.VarChar(100)
+  operation_type  String?   @db.VarChar(50)
+  severity        String?   @db.VarChar(20)
+  description     String?
+  details         Json?
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([country], map: "idx_audit_logs_country")
+  @@index([event_timestamp], map: "idx_audit_logs_event_timestamp")
+  @@index([requested_api], map: "idx_audit_logs_requested_api")
+  @@index([severity], map: "idx_audit_logs_severity")
+  @@index([table_name, operation_type], map: "idx_audit_logs_table_operation")
+}
+
+model db_audit_logs {
+  id              Int       @id @default(autoincrement())
+  event_timestamp DateTime? @default(now()) @db.Timestamptz(6)
+  table_name      String    @db.VarChar(100)
+  operation_type  String    @db.VarChar(10)
+  db_user         String?   @db.VarChar(100)
+  db_name         String?   @db.VarChar(100)
+  old_value       Json?
+  new_value       Json?
+  triggered_by    String?   @default(dbgenerated("CURRENT_USER"))
+}

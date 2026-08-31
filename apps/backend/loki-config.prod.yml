@@ -1,0 +1,52 @@
+auth_enabled: true
+
+server:
+  http_listen_port: 3100
+  log_level: warn # Only log warnings and errors to reduce noise in production
+  grpc_listen_port: 9095 # gRPC for ingestion (Optional)
+
+ingester:
+  lifecycler:
+    ring:
+      kvstore:
+        store: memberlist # For multi-node environments, use memberlist
+      replication_factor: 3 # Increase replication factor for redundancy
+  chunk_idle_period: 5m
+  chunk_retain_period: 1m
+  max_transfer_retries: 10
+
+schema_config:
+  configs:
+    - from: 2023-01-01
+      store: boltdb-shipper
+      object_store: s3 # Use S3 for better durability and scalability
+      schema: v11
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  aws:
+    s3: s3://your-s3-bucket-name
+    access_key_id: YOUR_AWS_ACCESS_KEY_ID
+    secret_access_key: YOUR_AWS_SECRET_ACCESS_KEY
+    region: your-region
+
+  boltdb_shipper:
+    active_index_directory: /data/loki/boltdb-shipper-active
+    cache_location: /data/loki/boltdb-shipper-cache
+    shared_store: aws # Use S3 as the shared store
+
+limits_config:
+  enforce_metric_name: false
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  max_streams_per_user: 10000 # Limit the number of streams a user can create
+  max_entries_limit_per_query: 5000 # Set a limit to prevent overuse
+
+chunk_store_config:
+  max_look_back_period: 672h # Allow look-back for up to 28 days (4 weeks)
+
+table_manager:
+  retention_deletes_enabled: true
+  retention_period: 720h # Retain logs for 30 days (720 hours)

@@ -1,0 +1,87 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role
+                    operator: In
+                    values:
+                      - monitoring
+      tolerations:
+        - key: "monitoring-only"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      containers:
+        - name: grafana
+          image: grafana/grafana:latest
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: "admin"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: "admin"
+            - name: GF_FEATURE_TOGGLES_ENABLE
+              value: "traceqlEditor"
+            - name: GF_LOG_LEVEL
+              value: "debug"
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboards
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboard-node-exporter
+              mountPath: /var/lib/grafana/dashboards/kubernetes/node-exporter
+            - name: dashboard-kube-state-metrics
+              mountPath: /var/lib/grafana/dashboards/kubernetes/kube-state-metrics
+            - name: dashboard-blackbox-exporter
+              mountPath: /var/lib/grafana/dashboards/kubernetes/blackbox-exporter
+            - name: apm-backend-dashboard
+              mountPath: /var/lib/grafana/dashboards/custom/backend-apm
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasource
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards-definition
+        - name: dashboard-node-exporter
+          configMap:
+            name: grafana-dashboard-node-exporter
+        - name: dashboard-kube-state-metrics
+          configMap:
+            name: grafana-dashboard-kube-state-metrics
+        - name: dashboard-blackbox-exporter
+          configMap:
+            name: grafana-dashboard-blackbox-exporter
+        - name: apm-backend-dashboard
+          configMap:
+            name: grafana-dashboard-backend-prod
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  type: LoadBalancer
+  selector:
+    app: grafana
+  ports:
+    - port: 3131
+      targetPort: 3000

@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-sidecar-config
+  namespace: <namespace-name>
+data:
+  nginx.conf: |
+    events {}
+
+    http {
+      server {
+        listen 9010;
+
+        location /v1/metrics {
+          access_log off;
+          proxy_pass http://127.0.0.1:<backend-port>/v1/metrics;
+
+          proxy_set_header Referer "https://<prometheus-endpoint>";
+          proxy_set_header User-Agent "Prometheus-Proxy";
+
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+      }
+    }

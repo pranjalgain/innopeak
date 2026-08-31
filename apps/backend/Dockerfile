@@ -1,0 +1,39 @@
+# ─── Stage 1: Dependencies ──────────────────────────────────────────────────
+FROM node:20-alpine AS deps
+RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# ─── Stage 2: Build ─────────────────────────────────────────────────────────
+FROM node:20-alpine AS build
+RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN pnpm run build:api
+
+# ─── Stage 3: Production ────────────────────────────────────────────────────
+FROM node:20-alpine AS production
+RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY --from=deps --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/views ./views
+COPY --from=build --chown=node:node /app/assets ./assets
+COPY --chown=node:node package.json ./
+
+RUN mkdir -p logs && chown node:node logs
+
+USER node
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/health || exit 1
+
+# Default: run the API server. Override with CMD ["node", "dist/worker.main.js"] for worker
+CMD ["node", "dist/main.js"]

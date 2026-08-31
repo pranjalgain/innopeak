@@ -1,0 +1,108 @@
+{
+  // Package manager settings
+  "npm.packageManager": "pnpm",
+  "yarn.packageManager": "pnpm",
+  "pnpm.packageManager": "pnpm",
+
+  // TypeScript settings
+  "typescript.preferences.includePackageJsonAutoImports": "auto",
+  "typescript.suggest.autoImports": true,
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  "typescript.preferences.importModuleSpecifier": "relative",
+
+  // ESLint settings
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+  "eslint.format.enable": true,
+  "eslint.codeActionsOnSave.mode": "all",
+
+  // Prettier settings
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": true,
+  "editor.formatOnType": false,
+  "prettier.requireConfig": true,
+
+  // File associations
+  "files.associations": {
+    "*.pug": "pug",
+    "*.sql": "sql"
+  },
+
+  // Editor settings
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false,
+  "editor.rulers": [100],
+  "editor.wordWrap": "wordWrapColumn",
+  "editor.wordWrapColumn": 100,
+
+  // File settings
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+  "files.trimTrailingWhitespace": true,
+
+  // Search settings
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/coverage": true,
+    "**/.pnpm-store": true,
+    "**/pnpm-lock.yaml": true
+  },
+
+  // Files to exclude from explorer
+  "files.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true,
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/coverage": true,
+    "**/.pnpm-store": true
+  },
+
+  // Terminal settings
+  "terminal.integrated.defaultProfile.osx": "zsh",
+  "terminal.integrated.env.osx": {
+    "NODE_ENV": "development"
+  },
+
+  // NestJS specific settings
+  "typescript.preferences.includePackageJsonAutoImports": "auto",
+  "typescript.suggest.autoImports": true,
+
+  // Auto-save settings
+  "files.autoSave": "onFocusChange",
+
+  // Bracket pair colorization
+  "editor.bracketPairColorization.enabled": true,
+  "editor.guides.bracketPairs": true,
+
+  // Code lens
+  "typescript.referencesCodeLens.enabled": true,
+  "typescript.implementationsCodeLens.enabled": true,
+
+  // Emmet
+  "emmet.includeLanguages": {
+    "typescript": "html",
+    "javascript": "html"
+  },
+
+  // Git settings
+  "git.ignoreLimitWarning": true,
+  "git.autofetch": true,
+
+  // Workspace specific settings
+  "typescript.preferences.includePackageJsonAutoImports": "auto",
+  "typescript.suggest.autoImports": true,
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  "yaml.schemas": {
+    "file:///Users/sureshk/.vscode/extensions/atlassian.atlascode-3.4.6/resources/schemas/pipelines-schema.json": "bitbucket-pipelines.yml",
+    "https://www.artillery.io/schema.json": []
+  }
+}

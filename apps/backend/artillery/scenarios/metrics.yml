@@ -1,0 +1,39 @@
+# Metrics Load Test Scenario
+# Tests the metrics endpoint under various load conditions
+
+config:
+  target: 'http://localhost:3000'
+  phases:
+    # Light load test
+    - duration: 30
+      arrivalRate: 5
+      name: 'Light load'
+
+    # Medium load test
+    - duration: 60
+      arrivalRate: 15
+      name: 'Medium load'
+
+    # Heavy load test
+    - duration: 90
+      arrivalRate: 30
+      name: 'Heavy load'
+
+  plugins: {}
+
+scenarios:
+  - name: 'Metrics API Test'
+    weight: 100
+    flow:
+      - get:
+          url: '/metrics'
+          expect:
+            - statusCode: 200
+            - contentType: 'text/plain'
+      - think: 2
+      - get:
+          url: '/metrics'
+          expect:
+            - statusCode: 200
+            - contains: 'process_cpu_user_seconds_total'
+      - think: 1

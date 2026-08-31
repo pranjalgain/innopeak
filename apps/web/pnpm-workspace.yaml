@@ -1,0 +1,33 @@
+allowBuilds:
+  "@posthog/cli": true
+  "@sentry/cli": true
+  better-sqlite3: true
+  core-js: true
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+  vue-demi: true
+minimumReleaseAgeExclude:
+  - tsx@4.23.5
+onlyBuiltDependencies:
+  - "@posthog/cli"
+  - "@sentry/cli"
+  - "@tailwindcss/oxide"
+  - "@vercel/speed-insights"
+  - better-sqlite3
+  - core-js
+  - esbuild
+  - protobufjs
+  - sharp
+  - unrs-resolver
+  - vue-demi
+overrides:
+  typescript-eslint: 8.65.0
+  "@typescript-eslint/eslint-plugin": 8.65.0
+  "@typescript-eslint/parser": 8.65.0
+  "@typescript-eslint/utils": 8.65.0
+  "@typescript-eslint/type-utils": 8.65.0
+  "@typescript-eslint/typescript-estree": 8.65.0
+peerDependencyRules:
+  allowedVersions:
+    eslint: "10"

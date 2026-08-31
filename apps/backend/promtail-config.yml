@@ -1,0 +1,18 @@
+server:
+  http_listen_port: 9080 # Ensure this matches the port used in docker-compose
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push # Assuming Promtail is configured to push to Loki service
+
+scrape_configs:
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          __path__: /logs/*.log
