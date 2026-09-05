@@ -48,11 +48,11 @@ This is a **Monorepo** containing multiple applications and shared libraries man
   - **Updates**: Keep documentation current with code changes
   - **Requirement**: **ALWAYS** create comprehensive documentation in `apps/documentation/docs/` before implementing any significant feature or architectural change
 - **Database Development Standards:**
-  - **SQL-First Approach**: Always write SQL migration files first, then generate Prisma schema from database
-  - **Migration Files**: Create detailed SQL migrations with proper indexes, constraints, and relationships
+  - **SQL-First Approach**: Always write raw SQL migration files first, then regenerate the Drizzle schema from the database. Never use Drizzle Kit to generate migrations.
+  - **Migration Files**: Create detailed SQL migrations with proper indexes, constraints, and relationships, under `src/db/drizzle/migrations/`
   - **One Migration File Per Module**: Maintain one consolidated migration file per functional module (e.g., `auth_module.sql`, `user_management.sql`). Update the same file with all migrations required for that module rather than creating multiple separate files
-  - **Schema Generation**: Use `pnpm prisma:dbpull` to generate Prisma schema after applying SQL migrations
-  - **Workflow**: SQL Migration → Apply to DB → Generate Prisma Schema → Implement Code
+  - **Schema Generation**: Use `pnpm db:introspect` to regenerate the Drizzle schema (`src/db/drizzle/schema.ts`) after applying SQL migrations
+  - **Workflow**: SQL Migration → Update `meta/_journal.json` → Apply to DB (`pnpm db:migrate`) → Regenerate Drizzle Schema (`pnpm db:introspect`) → Implement Code
 - **Getting Started:** Refer to individual app README files for setup instructions, Located at `apps/{APP_NAME}/README.md`. These contain:
   - How to start/stop the application
   - Access URLs and credentials

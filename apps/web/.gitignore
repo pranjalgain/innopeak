@@ -43,6 +43,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local docker-compose volume data (postgres/mysql/redis)
+/data
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

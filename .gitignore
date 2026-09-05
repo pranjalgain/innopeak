@@ -42,3 +42,8 @@ Thumbs.db
 
 .nx/cache
 .nx/workspace-data
+
+# Stray per-package lockfiles — apps/* are pnpm workspace members,
+# so the root pnpm-lock.yaml is the only real one.
+apps/*/pnpm-lock.yaml
+libs/*/pnpm-lock.yaml

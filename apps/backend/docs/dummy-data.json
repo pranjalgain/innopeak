@@ -1,0 +1,434 @@
+{
+  "_note": "Illustrative dummy data for frontend mockups, matching the column names/enum values in apps/backend/src/db/drizzle/migrations/ (split module-wise across 0000_foundation.sql through 0005_notifications.sql). IDs are readable slugs, not real UUIDs, for easy cross-referencing while building UI.",
+
+  "tenant": {
+    "id": "tenant_coastal",
+    "name": "The Coastal Table",
+    "status": "active",
+    "created_at": "2026-06-02T09:12:00Z"
+  },
+
+  "tenant_settings": {
+    "id": "settings_coastal",
+    "tenant_id": "tenant_coastal",
+    "escalation_rating_threshold": 3,
+    "auto_post_enabled": false,
+    "review_data_retention_months": 24
+  },
+
+  "users": [
+    {
+      "id": "user_maria",
+      "tenant_id": "tenant_coastal",
+      "name": "Maria Delgado",
+      "email": "maria@coastaltable.com",
+      "role": "owner",
+      "status": "active",
+      "avatar_initials": "MD",
+      "email_verified_at": "2026-06-02T09:20:00Z"
+    },
+    {
+      "id": "user_james",
+      "tenant_id": "tenant_coastal",
+      "name": "James Okafor",
+      "email": "james@coastaltable.com",
+      "role": "member",
+      "status": "active",
+      "avatar_initials": "JO"
+    },
+    {
+      "id": "user_priya",
+      "tenant_id": "tenant_coastal",
+      "name": "Priya Nair",
+      "email": "priya@coastaltable.com",
+      "role": "member",
+      "status": "invited",
+      "avatar_initials": "PN"
+    }
+  ],
+
+  "review_provider_connections": [
+    {
+      "id": "conn_google_1",
+      "tenant_id": "tenant_coastal",
+      "connected_by_user_id": "user_maria",
+      "provider": "google",
+      "provider_account_id": "accounts/108327761122",
+      "status": "active",
+      "token_expires_at": "2026-09-08T09:12:00Z"
+    }
+  ],
+
+  "locations": [
+    {
+      "id": "loc_downtown",
+      "tenant_id": "tenant_coastal",
+      "provider_connection_id": "conn_google_1",
+      "provider": "google",
+      "external_location_id": "locations/9182736450",
+      "name": "The Coastal Table — Downtown",
+      "address": "214 Harbor St, Portland, ME 04101",
+      "status": "active",
+      "last_synced_at": "2026-09-01T14:15:00Z",
+      "last_sync_status": "ok",
+      "onboarding_backfill_completed_at": "2026-06-03T10:00:00Z"
+    }
+  ],
+
+  "blocklist_terms": [
+    { "id": "block_1", "tenant_id": "tenant_coastal", "term": "lawsuit", "is_active": true },
+    { "id": "block_2", "tenant_id": "tenant_coastal", "term": "lawyer", "is_active": true },
+    { "id": "block_3", "tenant_id": "tenant_coastal", "term": "food poisoning", "is_active": true },
+    { "id": "block_4", "tenant_id": "tenant_coastal", "term": "health inspector", "is_active": true }
+  ],
+
+  "reviews": [
+    {
+      "id": "rev_01",
+      "tenant_id": "tenant_coastal",
+      "location_id": "loc_downtown",
+      "external_review_id": "gbp_rev_a1",
+      "reviewer_name": "Thomas Reilly",
+      "rating": 5,
+      "review_text": "Best seafood in Portland, hands down. The scallops were perfectly seared and our server Priya knew the wine list inside out. Will absolutely be back.",
+      "reviewed_at": "2026-08-29T18:42:00Z",
+      "sentiment": "positive",
+      "classification": "auto_reply_candidate",
+      "escalation_reason": null,
+      "matched_keywords": null,
+      "status": "responded"
+    },
+    {
+      "id": "rev_02",
+      "tenant_id": "tenant_coastal",
+      "location_id": "loc_downtown",
+      "external_review_id": "gbp_rev_a2",
+      "reviewer_name": "Nadia Farouk",
+      "rating": 4,
+      "review_text": "Lovely atmosphere and the lobster roll was great. Only knock is we waited almost 15 minutes just to get water on a Tuesday night.",
+      "reviewed_at": "2026-08-30T20:05:00Z",
+      "sentiment": "positive",
+      "classification": "auto_reply_candidate",
+      "escalation_reason": null,
+      "matched_keywords": null,
+      "status": "in_review"
+    },
+    {
+      "id": "rev_03",
+      "tenant_id": "tenant_coastal",
+      "location_id": "loc_downtown",
+      "external_review_id": "gbp_rev_a3",
+      "reviewer_name": "Connor Blake",
+      "rating": 2,
+      "review_text": "Reservation for 7pm, wasn't seated until 7:40 with no apology. Food was fine but honestly not worth the wait or the price.",
+      "reviewed_at": "2026-08-31T07:15:00Z",
+      "sentiment": "negative",
+      "classification": "escalated",
+      "escalation_reason": "low_rating",
+      "matched_keywords": null,
+      "status": "in_review"
+    },
+    {
+      "id": "rev_04",
+      "tenant_id": "tenant_coastal",
+      "location_id": "loc_downtown",
+      "external_review_id": "gbp_rev_a4",
+      "reviewer_name": "Grace Whitfield",
+      "rating": 1,
+      "review_text": "Sent back a dish that was clearly undercooked and the kitchen argued with our server about it in front of us. Won't be returning.",
+      "reviewed_at": "2026-08-22T19:30:00Z",
+      "sentiment": "negative",
+      "classification": "escalated",
+      "escalation_reason": "low_rating",
+      "matched_keywords": null,
+      "status": "responded"
+    },
+    {
+      "id": "rev_05",
+      "tenant_id": "tenant_coastal",
+      "location_id": "loc_downtown",
+      "external_review_id": "gbp_rev_a5",
+      "reviewer_name": "Marcus Yee",
+      "rating": 5,
+      "review_text": "My uncle is a lawyer and even he agreed this was the best deal in town for the tasting menu. Incredible value, ask for the corner table.",
+      "reviewed_at": "2026-09-01T12:03:00Z",
+      "sentiment": "positive",
+      "classification": "escalated",
+      "escalation_reason": "blocklist_match",
+      "matched_keywords": ["lawyer"],
+      "status": "in_review"
+    },
+    {
+      "id": "rev_06",
+      "tenant_id": "tenant_coastal",
+      "location_id": "loc_downtown",
+      "external_review_id": "gbp_rev_a6",
+      "reviewer_name": "Estelle Park",
+      "rating": 3,
+      "review_text": "Solid brunch spot. Nothing blew me away but nothing disappointed either. The mimosas were generous, I'll give them that.",
+      "reviewed_at": "2026-09-01T13:40:00Z",
+      "sentiment": "neutral",
+      "classification": "pending_classification",
+      "escalation_reason": null,
+      "matched_keywords": null,
+      "status": "new"
+    },
+    {
+      "id": "rev_07",
+      "tenant_id": "tenant_coastal",
+      "location_id": "loc_downtown",
+      "external_review_id": "gbp_rev_a7",
+      "reviewer_name": "Diego Alonso",
+      "rating": 4,
+      "review_text": "Great date-night spot. Ambience is a 10/10, food is a solid 8. Would come back for a special occasion.",
+      "reviewed_at": "2026-08-18T21:10:00Z",
+      "sentiment": "positive",
+      "classification": "auto_reply_candidate",
+      "escalation_reason": null,
+      "matched_keywords": null,
+      "status": "dismissed"
+    },
+    {
+      "id": "rev_08",
+      "tenant_id": "tenant_coastal",
+      "location_id": "loc_downtown",
+      "external_review_id": "gbp_rev_a8",
+      "reviewer_name": "Holly Bergstrom",
+      "rating": 2,
+      "review_text": "Charged us for a bottle of wine we never ordered and it took three attempts to get it corrected on the bill. Food was good otherwise.",
+      "reviewed_at": "2026-08-27T22:18:00Z",
+      "sentiment": "negative",
+      "classification": "escalated",
+      "escalation_reason": "low_rating",
+      "matched_keywords": null,
+      "status": "in_review"
+    },
+    {
+      "id": "rev_09",
+      "tenant_id": "tenant_coastal",
+      "location_id": "loc_downtown",
+      "external_review_id": "gbp_rev_a9",
+      "reviewer_name": "Owen Castillo",
+      "rating": 5,
+      "review_text": "Been coming here since they opened. Consistently excellent, and the staff remembers regulars by name. That's rare these days.",
+      "reviewed_at": "2026-05-14T17:55:00Z",
+      "sentiment": "positive",
+      "classification": null,
+      "escalation_reason": null,
+      "matched_keywords": null,
+      "status": "responded",
+      "_note": "backfilled — predates this system, imported reply only"
+    },
+    {
+      "id": "rev_10",
+      "tenant_id": "tenant_coastal",
+      "location_id": "loc_downtown",
+      "external_review_id": "gbp_rev_a10",
+      "reviewer_name": "Aisha Bello",
+      "rating": 3,
+      "review_text": "Portions felt small for the price point but the flavors were on point. Might be back if I'm craving something specific.",
+      "reviewed_at": "2026-08-15T20:00:00Z",
+      "sentiment": "neutral",
+      "classification": "auto_reply_candidate",
+      "escalation_reason": null,
+      "matched_keywords": null,
+      "status": "responded"
+    }
+  ],
+
+  "review_responses": [
+    {
+      "id": "resp_01a",
+      "review_id": "rev_01",
+      "response_type": "auto_reply_suggestion",
+      "content": "Thank you so much, Thomas! We'll be sure to pass your kind words to Priya and the kitchen team. Looking forward to your next visit.",
+      "source": "ai_generated",
+      "status": "posted",
+      "created_by_user_id": null,
+      "approved_by_user_id": "user_maria",
+      "posted_at": "2026-08-29T21:00:00Z"
+    },
+    {
+      "id": "resp_02a",
+      "review_id": "rev_02",
+      "response_type": "auto_reply_suggestion",
+      "content": "Thanks for the kind words about the lobster roll and atmosphere, Nadia! We're sorry about the wait for water — we're working on tightening up service during peak hours.",
+      "source": "ai_generated",
+      "status": "pending_approval",
+      "created_by_user_id": null,
+      "approved_by_user_id": null,
+      "posted_at": null
+    },
+    {
+      "id": "resp_03a",
+      "review_id": "rev_03",
+      "generation_group_id": "grp_rev03",
+      "response_type": "escalation_snippet",
+      "content": "Connor, I'm sorry about the wait and that no one acknowledged it — that's not the experience we want for a reservation. I'd like to make this right; please reach out to me directly at maria@coastaltable.com.",
+      "source": "ai_generated",
+      "status": "pending_approval",
+      "created_by_user_id": null,
+      "approved_by_user_id": null,
+      "posted_at": null
+    },
+    {
+      "id": "resp_03b",
+      "review_id": "rev_03",
+      "generation_group_id": "grp_rev03",
+      "response_type": "escalation_snippet",
+      "content": "Thank you for the honest feedback, Connor. A 40-minute wait past your reservation time is on us, no excuses. I'd love the chance to make it right on your next visit — please email me directly.",
+      "source": "ai_generated",
+      "status": "pending_approval",
+      "created_by_user_id": null,
+      "approved_by_user_id": null,
+      "posted_at": null
+    },
+    {
+      "id": "resp_04a",
+      "review_id": "rev_04",
+      "generation_group_id": "grp_rev04",
+      "response_type": "escalation_snippet",
+      "content": "Grace, I'm truly sorry — that's not how we want any table to be treated, especially around a fair send-back. I've addressed this directly with the kitchen team and would welcome the chance to host you again.",
+      "source": "human_edited",
+      "status": "posted",
+      "created_by_user_id": null,
+      "approved_by_user_id": "user_maria",
+      "posted_at": "2026-08-23T09:40:00Z"
+    },
+    {
+      "id": "resp_04b",
+      "review_id": "rev_04",
+      "generation_group_id": "grp_rev04",
+      "response_type": "escalation_snippet",
+      "content": "We're sorry to hear about your experience, Grace. This has been shared with our kitchen team directly.",
+      "source": "ai_generated",
+      "status": "superseded",
+      "created_by_user_id": null,
+      "approved_by_user_id": null,
+      "posted_at": null
+    },
+    {
+      "id": "resp_05a",
+      "review_id": "rev_05",
+      "generation_group_id": "grp_rev05",
+      "response_type": "escalation_snippet",
+      "content": "Thank you, Marcus — so glad the tasting menu delivered! We'll save the corner table for your next visit.",
+      "source": "ai_generated",
+      "status": "pending_approval",
+      "created_by_user_id": null,
+      "approved_by_user_id": null,
+      "posted_at": null
+    },
+    {
+      "id": "resp_08a",
+      "review_id": "rev_08",
+      "response_type": "escalation_snippet",
+      "content": "Holly, I'm sorry for the billing mix-up and the runaround getting it fixed — that shouldn't take three tries. I've flagged this with our front-of-house team so it doesn't happen again.",
+      "source": "ai_generated",
+      "status": "post_failed",
+      "created_by_user_id": null,
+      "approved_by_user_id": "user_james",
+      "error_message": "Provider API returned 429 Too Many Requests — rate limited, retry scheduled."
+    },
+    {
+      "id": "resp_09a",
+      "review_id": "rev_09",
+      "response_type": "auto_reply_suggestion",
+      "content": "Owen, it means the world that you keep coming back — thank you for being part of the Coastal Table family!",
+      "source": "imported",
+      "status": "posted",
+      "created_by_user_id": null,
+      "approved_by_user_id": null,
+      "posted_at": "2026-05-15T10:00:00Z"
+    },
+    {
+      "id": "resp_10a",
+      "review_id": "rev_10",
+      "response_type": "auto_reply_suggestion",
+      "content": "Thanks for the feedback, Aisha! We're always tuning portion sizes against feedback like this — hope to have you back soon.",
+      "source": "human_manual",
+      "status": "posted",
+      "created_by_user_id": "user_james",
+      "approved_by_user_id": "user_james",
+      "posted_at": "2026-08-16T11:20:00Z"
+    }
+  ],
+
+  "notification_recipients": [
+    { "id": "nrecip_1", "tenant_id": "tenant_coastal", "user_id": "user_maria", "notification_type": "escalation", "channel": "both", "is_active": true },
+    { "id": "nrecip_2", "tenant_id": "tenant_coastal", "user_id": "user_james", "notification_type": "escalation", "channel": "email", "is_active": true }
+  ],
+
+  "notifications": [
+    {
+      "id": "notif_1",
+      "review_id": "rev_03",
+      "recipient_user_id": "user_maria",
+      "type": "escalation",
+      "channel": "teams",
+      "status": "sent",
+      "sent_at": "2026-08-31T07:16:00Z",
+      "read_at": "2026-08-31T08:02:00Z"
+    },
+    {
+      "id": "notif_2",
+      "review_id": "rev_05",
+      "recipient_user_id": "user_maria",
+      "type": "escalation",
+      "channel": "email",
+      "status": "sent",
+      "sent_at": "2026-09-01T12:04:00Z",
+      "read_at": null
+    },
+    {
+      "id": "notif_3",
+      "review_id": "rev_08",
+      "recipient_user_id": "user_james",
+      "type": "escalation",
+      "channel": "email",
+      "status": "sent",
+      "sent_at": "2026-08-27T22:20:00Z",
+      "read_at": "2026-08-28T09:11:00Z"
+    }
+  ],
+
+  "sync_runs": [
+    {
+      "id": "sync_1",
+      "location_id": "loc_downtown",
+      "trigger": "scheduled",
+      "started_at": "2026-09-01T14:00:00Z",
+      "completed_at": "2026-09-01T14:00:42Z",
+      "status": "ok",
+      "reviews_fetched": 2
+    },
+    {
+      "id": "sync_2",
+      "location_id": "loc_downtown",
+      "trigger": "scheduled",
+      "started_at": "2026-09-01T13:45:00Z",
+      "completed_at": "2026-09-01T13:45:38Z",
+      "status": "ok",
+      "reviews_fetched": 0
+    },
+    {
+      "id": "sync_3",
+      "location_id": "loc_downtown",
+      "trigger": "backfill",
+      "started_at": "2026-06-02T10:05:00Z",
+      "completed_at": "2026-06-02T10:11:20Z",
+      "status": "ok",
+      "reviews_fetched": 187
+    }
+  ],
+
+  "dashboard_summary": {
+    "reviews_last_30_days": 24,
+    "average_rating_last_30_days": 4.1,
+    "pending_approval_count": 4,
+    "escalated_open_count": 3,
+    "auto_reply_candidate_open_count": 1,
+    "response_rate_last_30_days": 0.92,
+    "rating_distribution": { "1": 1, "2": 3, "3": 5, "4": 7, "5": 8 }
+  }
+}

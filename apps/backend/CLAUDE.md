@@ -55,18 +55,36 @@ The project uses maximum strictness. Key implications:
 
 ## Architecture Patterns
 
-### Repository Pattern (Centralized under src/db/)
-ALL repositories live in `src/db/repositories/<domain>/`. The global `DBModule` registers and exports all repositories, so any business module can inject any repository without cross-module coupling.
+### Repository + DB Service Pattern (Centralized under src/db/)
+**Target convention (all new modules) — four layers, not three:**
+```
+Controller (HTTP layer only) -> Service (business logic) -> DB Service (data-layer abstraction)
+                                                           -> Repository (Drizzle queries only)
+                             -> Provider (external services)
+```
+A `<Module>DbService` sits between the business Service and the Repository — it's what the
+Service actually depends on for data access (composes repository calls, owns multi-repository
+transactions, maps rows to domain types), while the Repository stays purely mechanical (one
+table/cluster, raw Drizzle queries, no composition). A Service never imports a Repository
+directly and never runs a Drizzle query itself. Don't confuse `<Module>DbService` with the
+existing global `DBService` (`src/db/db.service.ts`) — that's the raw connection holder a
+Repository injects, one layer below. Full detail + worked example:
+`apps/backend/docs/conventions/module-structure.md`.
 
-```
-Controller (HTTP layer) -> Service (business logic/facade) -> Repository (DB access via @db/repositories/...)
-                                                           -> Provider (external services)
-```
+Both the Repository and the DB Service live in `src/db/repositories/<domain>/`, centralized
+(not inside the business module). The global `DBModule` registers and exports both, so any
+business module can inject any domain's DB Service without cross-module coupling.
 
 **Repository location**: `src/db/repositories/<domain>/<name>.repository.ts`
-**Import pattern**: `import { UsersRepository } from '@db/repositories/users/users.repository'`
+**DB Service location**: `src/db/repositories/<domain>/<name>.db-service.ts`
+**Import pattern**: `import { UsersDbService } from '@db/repositories/users/users.db-service'`
 
-Existing repository domains:
+**Status**: this four-layer shape is not yet adopted anywhere — every existing repository domain
+below still follows the older three-layer shape (Service -> Repository directly, no DB Service).
+Don't copy their current code as the pattern; migrating them is a separate, explicitly-scoped
+task. New modules follow the four-layer convention from the start.
+
+Existing repository domains (pre-DB-Service, not yet migrated):
 - `src/db/repositories/auth/` — auth, token, mfa, api-key, oauth
 - `src/db/repositories/users/` — users
 - `src/db/repositories/media/` — media
@@ -94,23 +112,60 @@ Same abstract-provider shape as above, for the background-job transport:
 
 ### Module Structure (follow for every new domain module)
 
+**All new module APIs live under `src/api/<module_name>/`** (not directly under `src/<module>/`
+— that's the older, pre-convention location several existing modules still use, see "Existing
+Modules" below).
+
 ```
-src/<module>/                          # Business logic module
-  <module>.module.ts
-  <module>.controller.ts               # HTTP layer only, @Controller({ path: RouteNames.X, version: '1' })
-  <module>.service.ts                  # Business logic (Facade pattern)
+src/api/<module>/                      # Business logic module (HTTP layer + orchestration)
+  swagger/
+    <module>.swagger.ts                # ALL Swagger decorators for this controller, composed
+                                        # via applyDecorators(...) — one file per controller, one
+                                        # decorator per route in the controller itself. Never
+                                        # inline @ApiOperation/@ApiResponse on the controller.
+  constants/
+    <module>.constants.ts              # Module-local constants only — NOT user-facing messages
+  types/
+    <name>.type.ts                     # Module-local domain types/interfaces
+  dto/                                 # class-validator + class-transformer + @nestjs/swagger —
+                                        # every @ApiProperty needs an `example`, no exceptions
   providers/
     <abstract>.provider.ts             # Abstract base class
     <impl>.provider.ts                 # Concrete implementation(s)
-  dto/                                 # class-validator + class-transformer + @nestjs/swagger
-  interfaces/
-  guards/ or decorators/               # If module-specific
+  <module>.module.ts
+  <module>.controller.ts               # HTTP layer ONLY: bind params, call one service method,
+                                        # wrap with ResponseUtil, return. No computation.
+  <module>.service.ts                  # Business logic — depends on DB Service(s)/Provider(s),
+                                        # never a Repository directly.
 
 src/db/repositories/<module>/          # Data access (separate from business module)
   <module>.repository.ts               # Drizzle queries only
+  <module>.db-service.ts               # <Module>DbService — abstraction between Service and
+                                        # Repository, see "Repository + DB Service Pattern" above
 ```
 
+If a module has more than one controller or more than one business service, group them into
+`controllers/`/`services/` subfolders (with matching `swagger/<controller-name>.swagger.ts` per
+controller) instead of flat files at the module root. Every method on every layer declares an
+explicit return type — never inferred, never `any`.
+
+**Messages**: every user-facing string (exception messages, custom success messages passed to
+`ResponseUtil.success`) comes from `src/common/constants/messages.constants.ts` (create it the
+first time a module needs it) — never an inline literal.
+
+**Docs first**: write `apps/documentation/docs/backend/<module>/overview.md` +
+`api-reference.md` (mirror `apps/documentation/docs/backend/auth/`) and get them confirmed
+*before* writing code — see "Module Development Workflow" in the root `CLAUDE.md`.
+
+Full convention with a worked end-to-end example (controller, swagger file, service, DB service,
+repository, DTOs): `apps/backend/docs/conventions/module-structure.md`.
+
 ### Existing Modules
+
+All rows below predate the `src/api/<module>/` + DB Service convention above and have **not**
+been migrated to it — they're listed at their actual current path, not where a new module of the
+same kind would go today. Building a *new* module under one of these names (or splitting one of
+these apart) still means `src/api/<module_name>/`, per "Module Structure" above.
 
 | Module | Path | Purpose |
 |--------|------|---------|
@@ -125,7 +180,7 @@ src/db/repositories/<module>/          # Data access (separate from business mod
 | Gateway | `src/gateway/` | WebSocket gateway (Socket.IO) |
 | Audit | `src/common/audit/` | Application-level audit logging (`@AuditLog()` decorator) |
 | Export | `src/common/export/` | CSV/PDF/Excel data export service |
-| Health | `src/api/health/` | Health checks (DB, Redis, memory, HTTP) |
+| Health | `src/api/health/` | Health checks (DB, Redis, memory, HTTP) — already under `src/api/`, but predates the swagger/constants/types subfolder convention |
 | Metrics | `src/api/metrics/` | Prometheus metrics |
 | Tracing | `src/api/tracing/` | OpenTelemetry distributed tracing |
 | Dev Tools | `src/api/dev-tools/` | Developer tools dashboard (+ SQS queue-depth panel in `aws` mode) |
@@ -155,21 +210,40 @@ src/db/repositories/<module>/          # Data access (separate from business mod
 - Business controllers: `@Controller({ path: RouteNames.X, version: '1' })` — URI versioning at `/v1/...`
 - Infrastructure controllers (health, metrics, tracing, dev-tools): `@Controller({ path: RouteNames.X, version: VERSION_NEUTRAL })` — no version prefix (`/health`, `/metrics`)
 - Always use `RouteNames` enum for controller paths — never raw strings
-- No business logic — delegate to services
+- No business logic, no computation — bind params, call exactly one service method, wrap the
+  result with `ResponseUtil` (`src/common/helpers/response.utils.ts`), return it
+- Every route carries exactly one Swagger decorator, composed in that controller's
+  `swagger/<name>.swagger.ts` — never inline `@ApiOperation`/`@ApiResponse`/etc. on the method
 - Register all route slugs in `src/common/route-names.ts`
+- Every method declares an explicit return type (e.g. `Promise<ApiResponse<PaymentResponseDto>>`)
 
 ### Services
-- Orchestrate repositories and providers (Facade pattern)
-- No direct DB calls — use repository methods
+- Orchestrate DB Service(s) and Provider(s) (Facade pattern)
+- No direct DB calls, no Repository import — go through the module's `<Module>DbService`
+- Every method declares an explicit return type
+
+### DB Services (new layer — `src/db/repositories/<domain>/<name>.db-service.ts`)
+- The abstraction a Service depends on for data access — composes Repository calls, owns any
+  transaction spanning more than one Repository call, maps rows to domain `types/`
+- No business rules, no Provider calls — still data-layer, just above raw queries
+- Not the same class as the global `DBService` (`src/db/db.service.ts`, the raw connection
+  holder) — a `<Module>DbService` injects `<Module>Repository`, not `DBService` directly
 
 ### DTOs
 - Use `class-validator` decorators for validation
 - Use `class-transformer` for transformation
-- Use `@nestjs/swagger` decorators (`@ApiProperty()`) for API docs
+- Use `@nestjs/swagger` decorators (`@ApiProperty()`/`@ApiPropertyOptional()`) for API docs —
+  every property needs an `example`, no exceptions
 
 ### Repositories
 - Only place that imports from `@db/*` and runs Drizzle queries
-- One repository per domain module
+- One repository per domain module, one table/tightly-related cluster per method — no
+  cross-repository composition (that's the DB Service's job)
+
+### Messages
+- Every user-facing string (exception messages, custom success messages) comes from
+  `src/common/constants/messages.constants.ts` — never an inline literal in a controller,
+  service, or DB service
 
 ## Deployment Target (Floci/AWS emulation)
 
