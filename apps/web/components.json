@@ -12,9 +12,9 @@
   },
   "aliases": {
     "components": "@/components",
-    "utils": "@/lib/utils",
+    "utils": "@/app/_libs/utils/cn",
     "ui": "@/components/ui",
-    "lib": "@/lib",
+    "lib": "@/app/_libs",
     "hooks": "@/hooks"
   },
   "iconLibrary": "react-icons"

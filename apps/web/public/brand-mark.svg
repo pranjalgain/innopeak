@@ -1,7 +1,10 @@
-<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="64" height="64" rx="18" fill="#2563EB"/>
-  <path d="M18 20.5L30.5 13V27.5L18 35V20.5Z" fill="white"/>
-  <path d="M33.5 36.5L46 29V43.5L33.5 51V36.5Z" fill="white"/>
-  <path d="M33.5 13L46 20.5V35L33.5 27.5V13Z" fill="white" fill-opacity="0.72"/>
-  <path d="M18 38L30.5 30.5V45L18 52.5V38Z" fill="white" fill-opacity="0.72"/>
+<svg width="64" height="64" viewBox="190.91 38.72 43.33 74.31" xmlns="http://www.w3.org/2000/svg">
+  <path
+    fill="#db2568"
+    d="M222.41,74.78h-19.67l-9.83-17.03,9.83-17.03h19.67l9.83,17.03-9.83,17.03ZM203.9,72.78h17.36l8.68-15.03-8.68-15.03h-17.36l-8.68,15.03,8.68,15.03Z"
+  />
+  <polygon
+    fill="#db2568"
+    points="221.8 78.96 203.29 78.96 194.04 94.99 203.29 111.03 221.81 111.03 231.06 94.99 221.8 78.96"
+  />
 </svg>

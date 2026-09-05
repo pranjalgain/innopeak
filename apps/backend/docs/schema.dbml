@@ -1,0 +1,575 @@
+// Google Business Profile Review Management — MVP Schema
+// Source of truth: apps/backend/src/db/drizzle/migrations/ (the actual migrations, split module-wise
+// across 0000_foundation.sql through 0006_prompts.sql) —
+// this file is a DBML export of that migration for dbdiagram.io, kept in sync with it by hand.
+// PLAN.md is the original design narrative; where it disagreed with the implemented migration
+// (see the classification enum note below), the migration and this file are authoritative.
+// To use: go to https://dbdiagram.io/d, create a new diagram, and paste this file's contents
+// (or File > Import > DBML if working in an existing diagram).
+//
+// Target: PostgreSQL 18. All table `id` columns default to `uuidv7()` (time-ordered, PG18 core
+// built-in) rather than `gen_random_uuid()` — not shown per-column below since DBML's plain
+// `[pk]` doesn't carry default expressions in this file's style, kept minimal like the original.
+//
+// A few constraints from the migration can't be expressed in DBML and are called out as table
+// Notes instead of silently dropped: partial/conditional unique indexes (Postgres `WHERE`
+// clauses) and the case-insensitive unique constraint on blocklist_terms.
+
+//////////////////////////////////////////////////////////////////////////
+// Enums
+//////////////////////////////////////////////////////////////////////////
+
+Enum audit_operation_type {
+  INSERT
+  UPDATE
+  DELETE
+}
+
+Enum tenant_status {
+  pending_activation
+  active
+  suspended
+}
+
+Enum tenant_identity_provider {
+  entra_id
+  google_workspace
+}
+
+Enum user_identity_provider {
+  entra_id
+  google
+}
+
+Enum user_role {
+  owner
+  member
+}
+
+Enum user_status {
+  pending_verification
+  invited
+  active
+  disabled
+}
+
+Enum token_purpose {
+  verify_email
+  invite
+  reset
+}
+
+Enum platform_admin_status {
+  invited
+  active
+  disabled
+}
+
+Enum platform_admin_invite_purpose {
+  invite
+  reset
+}
+
+// The review-SOURCE integration (Google Business Profile today; Yelp/Facebook/TripAdvisor/etc.
+// later via ALTER TYPE ... ADD VALUE). Distinct from user_identity_provider above even though
+// both currently contain 'google' — that one is "which IdP did this person log in with,"
+// this one is "which review platform is this data from." Per-provider API/auth logic lives in
+// code as separate Provider classes (ReviewProvider abstract base + GoogleBusinessProfileProvider
+// first implementation), mirroring this codebase's existing Email/SMS/AI Provider pattern.
+Enum review_provider {
+  google
+}
+
+Enum google_connection_status {
+  // Name kept as-is despite being provider-agnostic in practice — describes OAuth connection
+  // health for any review_provider, not just Google.
+  active
+  needs_reauth
+}
+
+Enum location_status {
+  active
+  inactive
+}
+
+Enum sync_health_status {
+  ok
+  error
+}
+
+Enum review_sentiment {
+  // inferred — not pinned to specific values in PLAN.md
+  positive
+  neutral
+  negative
+}
+
+Enum review_classification {
+  auto_reply_candidate
+  escalated
+  pending_classification
+}
+
+Enum escalation_reason {
+  low_rating
+  blocklist_match
+}
+
+Enum review_status {
+  new
+  in_review
+  responded
+  dismissed
+}
+
+Enum response_type {
+  auto_reply_suggestion
+  escalation_snippet
+}
+
+Enum response_source {
+  ai_generated
+  human_edited
+  human_manual
+  imported
+}
+
+Enum response_status {
+  draft
+  pending_approval
+  approved
+  rejected
+  posted
+  post_failed
+  superseded
+}
+
+Enum notification_type {
+  escalation
+}
+
+Enum notification_channel_pref {
+  email
+  teams
+  both
+}
+
+Enum notification_channel {
+  email
+  teams
+}
+
+Enum notification_status {
+  // inferred — not pinned to specific values in PLAN.md
+  pending
+  sent
+  failed
+}
+
+Enum sync_trigger {
+  scheduled
+  backfill
+}
+
+Enum sync_run_status {
+  running
+  ok
+  error
+}
+
+// Which reply category a prompt is for — drives which prompt the generation pipeline selects
+// for a given review. Distinct from review_classification: 'escalated' lines up 1:1, but
+// review_classification's 'auto_reply_candidate' splits into 'positive'/'neutral' here with no
+// column yet recording which of the two a given review is (see 0006_prompts.sql's own note and
+// PLAN.md §3 — sentiment is computed but does not drive routing in MVP).
+Enum prompt_category {
+  positive
+  neutral
+  escalated
+}
+
+Enum prompt_tone {
+  friendly
+  professional
+  formal
+  playful
+  empathetic
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Shared audit infrastructure
+//////////////////////////////////////////////////////////////////////////
+
+Table audit_logs {
+  id integer [pk, increment, note: 'serial, not uuidv7() — this table predates and is unrelated to the domain tables\' PK convention']
+  event_timestamp timestamp [default: `now()`]
+  table_name varchar [not null]
+  operation_type audit_operation_type [not null]
+  tenant_id uuid [note: 'extracted generically from whichever row the trigger fired on, not a real column reference — NULL for the handful of platform-level tables that have no tenant_id of their own (tenants itself, platform_admins and its two child tables). No FK: this table is defined before tenants exists, and audit history should survive a tenant being deleted rather than cascade-deleting with it.']
+  db_user varchar [note: 'the Postgres role that executed the write (session_user) — not an application user; there is no FK to users']
+  db_name varchar [note: 'the Postgres database name (current_database())']
+  old_value jsonb [note: 'full row snapshot — present on UPDATE/DELETE']
+  new_value jsonb [note: 'full row snapshot — present on INSERT/UPDATE']
+  triggered_by varchar [default: 'current_user', note: 'a Postgres role/trigger name (session_user or TG_NAME), bounded like table_name/db_user/db_name above']
+
+  Note: '''Populated automatically by a single AFTER INSERT OR UPDATE OR DELETE trigger (log_db_changes()) attached to every domain table below — not written to by application code, so there is no way for a write to any domain table to skip being logged here.
+
+  This is deliberately the only audit log table in this schema (see PLAN.md §6.1): an earlier design also had a separate app-level, opt-in event table, dropped because it had no tenant_id/user_id column, zero actual usage, and the same GDPR redaction burden as this table for none of its automatic-coverage benefit.
+
+  GDPR note (PLAN.md §6.1): because old_value/new_value capture the full row, the retention/erasure job that anonymizes a reviews row must also redact every matching audit_logs row (matched by table_name and the row's id inside the JSON) — not just the row created by the anonymizing UPDATE itself, since every earlier snapshot of that row also carried the un-redacted value. Four indexes support these lookups, not expressible as plain DBML indexes: a btree each on table_name and tenant_id, and GIN indexes on old_value and new_value.'''
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Platform-level tables (not tenant-scoped)
+//////////////////////////////////////////////////////////////////////////
+
+Table platform_admins {
+  id uuid [pk]
+  email varchar [unique, not null]
+  password_hash varchar [note: 'nullable — social-login-only admins will not have one']
+  invited_by_platform_admin_id uuid [note: 'null only for the first, seeded admin']
+  status platform_admin_status [not null]
+
+  Note: '''Exactly one row is seeded at deployment time (no public signup path). Every subsequent row is created via an existing admin invite — see PLAN.md §4.3c.
+  Enforced at the DB level: a partial unique index on (TRUE) WHERE invited_by_platform_admin_id IS NULL guarantees at most one root row can ever exist, not expressible as a plain DBML unique.'''
+}
+
+Table platform_admin_identities {
+  id uuid [pk]
+  platform_admin_id uuid [not null]
+  provider user_identity_provider [not null]
+  provider_user_id varchar [not null]
+
+  indexes {
+    (provider, provider_user_id) [unique]
+  }
+}
+
+Table platform_admin_invites {
+  id uuid [pk]
+  platform_admin_id uuid [not null]
+  token_hash varchar [unique, not null]
+  purpose platform_admin_invite_purpose [not null]
+  expires_at timestamp [not null]
+  used_at timestamp [note: 'nullable; consume via UPDATE ... WHERE used_at IS NULL (compare-and-swap)']
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Tenant & auth
+//////////////////////////////////////////////////////////////////////////
+
+Table tenants {
+  id uuid [pk]
+  name varchar [not null]
+  created_by_platform_admin_id uuid [note: 'null for the normal self-registration path; set only for support-assisted tenant creation']
+  status tenant_status [not null]
+
+  Note: 'pending_activation is set at creation, before the owner has verified/activated; flips to active the moment the owner user status becomes active. suspended is a separate, platform-admin-triggered disable action.'
+}
+
+Table tenant_identity_providers {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  provider tenant_identity_provider [not null]
+  provider_tenant_id varchar [not null, note: 'the external directory/org ID for that provider']
+  is_active boolean [not null, default: true]
+
+  indexes {
+    (provider, provider_tenant_id) [unique]
+  }
+}
+
+Table users {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  name varchar [not null]
+  email varchar [not null]
+  password_hash varchar [note: 'nullable — social-login-only owners will not have one']
+  email_verified_at timestamp
+  invited_by_user_id uuid [note: 'null for a self-registered owner (§4.3a) and for a platform-admin-provisioned owner (§4.3d, whose inviter is a platform_admins row, not a users row); set only when a member is invited by an owner (§4.3b)']
+  role user_role [not null]
+  status user_status [not null]
+  anonymized_at timestamp [note: 'GDPR erasure for staff (owner/member are data subjects too): set on an erasure request alongside nulling name/email/password_hash and deleting user_identities rows. The row itself is never deleted, so no FK to users ever needs to tolerate a missing row for GDPR reasons — mirrors reviews.anonymized_at.']
+
+  indexes {
+    (tenant_id, email) [unique]
+    invited_by_user_id
+  }
+}
+
+Table user_identities {
+  id uuid [pk]
+  user_id uuid [not null]
+  provider user_identity_provider [not null]
+  provider_user_id varchar [not null]
+  email varchar [not null, note: 'IdP claim at login time, may differ from users.email']
+
+  indexes {
+    (provider, provider_user_id) [unique]
+  }
+}
+
+Table password_reset_tokens {
+  id uuid [pk]
+  user_id uuid [not null]
+  token_hash varchar [unique, not null]
+  purpose token_purpose [not null]
+  expires_at timestamp [not null]
+  used_at timestamp [note: 'nullable; consume via UPDATE ... WHERE used_at IS NULL (compare-and-swap)']
+
+  Note: 'Covers owner email verification, member invite, and forgot-password reset — same one-time-link mechanic, different purpose.'
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Review provider connection & locations
+//////////////////////////////////////////////////////////////////////////
+
+Table review_provider_connections {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  connected_by_user_id uuid [not null]
+  provider review_provider [not null]
+  provider_account_id varchar [not null, note: 'e.g. the Google account ID — scoped per provider, not globally unique']
+  credential_reference varchar [not null, note: 'pointer into a secrets manager, never the raw token']
+  token_expires_at timestamp
+  status google_connection_status [not null]
+
+  indexes {
+    (tenant_id, provider, provider_account_id) [unique]
+  }
+
+  Note: 'Renamed from an originally Google-only "google_connections" — generalized to any review-source provider. The app dispatches to a provider-specific implementation (GoogleBusinessProfileProvider today) based on the provider column, mirroring this codebase\'s existing Provider/Strategy pattern for Email/SMS/AI.'
+}
+
+Table locations {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  provider_connection_id uuid [not null]
+  provider review_provider [not null, note: 'denormalized from review_provider_connections.provider — avoids a join on the poller\'s hot 15-minute-cycle path']
+  external_location_id varchar [not null]
+  name varchar [not null]
+  address varchar
+  status location_status [not null, note: 'is this location still valid/connected at all']
+  last_synced_at timestamp
+  last_sync_status sync_health_status [note: 'did the most recent poll attempt succeed']
+  last_sync_error text [note: 'why the most recent poll attempt failed, if it did']
+  onboarding_backfill_completed_at timestamp [note: 'gates live polling/classification until backfill (§7) finishes']
+
+  indexes {
+    (provider_connection_id, external_location_id) [unique]
+  }
+}
+
+Table user_locations {
+  id uuid [pk]
+  user_id uuid [not null]
+  location_id uuid [not null]
+
+  indexes {
+    (user_id, location_id) [unique]
+  }
+
+  Note: 'Redundant for MVP (one tenant, one location) but kept for the multi-location future implied by "one location for MVP."'
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Reviews & responses
+//////////////////////////////////////////////////////////////////////////
+
+Table reviews {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  location_id uuid [not null]
+  external_review_id varchar [not null]
+  external_reviewer_id varchar [note: 'nullable, best-effort erasure key when the provider API exposes one — indexed for GDPR erasure lookups']
+  rating integer [not null, note: 'CHECK (rating BETWEEN 1 AND 5)']
+  review_text text
+  reviewer_name varchar
+  reviewed_at timestamp [note: 'when the reviewer originally posted on the provider']
+  external_updated_at timestamp [note: 'drives edit detection on re-poll (§8.6)']
+  sentiment review_sentiment
+  classification review_classification [not null, default: 'pending_classification', note: 'PLAN.md\'s ER diagram narrative listed only 2 values; the implemented migration uses all 3 with this default, matching PLAN.md §2 prose and removing NULL-vs-pending_classification ambiguity']
+  escalation_reason escalation_reason
+  matched_keywords jsonb [note: 'which blocklist term(s) matched, when escalation_reason = blocklist_match']
+  status review_status [not null]
+  anonymized_at timestamp [note: 'set once PII purged by retention job or erasure request (§6)']
+  removed_upstream_at timestamp [note: 'set when the poller detects the reviewer deleted their review upstream']
+
+  indexes {
+    (location_id, external_review_id) [unique]
+  }
+}
+
+Table review_responses {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  review_id uuid [not null]
+  generation_group_id uuid [note: 'groups 2-3 escalation snippets generated together; not a foreign key to another table']
+  response_type response_type [not null]
+  content text [not null]
+  source response_source [not null]
+  status response_status [not null]
+  created_by_user_id uuid [note: 'null for AI-generated or imported rows']
+  approved_by_user_id uuid [note: 'null until a human approves']
+  posted_at timestamp
+  error_message text
+  generation_metadata jsonb [note: 'model name/version, region, token counts — loose fields that don\'t need indexing/joining, unlike prompt_version_id below']
+  prompt_version_id uuid [note: 'added by 0006_prompts.sql — which exact prompt_versions row generated this draft. Null for imported/human_manual rows (response_source), which never went through a prompt at all.']
+  original_content text [note: 'added by 0006_prompts.sql — the AI\'s pre-edit text, so prompt-performance stats can tell an as-is approval from an edited one. Null until 0006 is backfilled for pre-migration rows.']
+  decided_at timestamp [note: 'added by 0006_prompts.sql — when status became terminal (approved/rejected/posted/post_failed/superseded); half of the average-time-to-decision figure in prompt analytics']
+
+  Note: '''Two partial unique indexes from PLAN.md §2/§7/§8.5 are not expressible in DBML (Postgres partial indexes):
+  UNIQUE (review_id) WHERE status IN ('approved', 'posted') — only one reply live/in-flight per review, the provider has no reply ID.
+  UNIQUE (review_id) WHERE source = 'imported' — makes the backfill job idempotent on retry.'''
+}
+
+//////////////////////////////////////////////////////////////////////////
+// AI reply prompts — added by 0006_prompts.sql, not yet applied to any
+// database and not yet introspected into src/db/drizzle/schema.ts.
+//////////////////////////////////////////////////////////////////////////
+
+Table prompts {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  category prompt_category [not null]
+  name varchar [not null]
+  description varchar
+  tone prompt_tone [not null, default: 'professional']
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+
+  indexes {
+    (tenant_id, category) [unique]
+  }
+
+  Note: 'One row per tenant per reply category (positive/neutral/escalated) — the owner-facing label shown in Settings → Prompts. The template text itself lives on prompt_versions, never here. tone is a live setting updated in place, independent of the (append-only) template — there is exactly one owner per tenant today, so it is not split into a separate per-user table.'
+}
+
+Table prompt_versions {
+  id uuid [pk]
+  prompt_id uuid [not null]
+  version integer [not null, note: 'CHECK (version > 0)']
+  template text [not null]
+  created_by_user_id uuid
+  created_at timestamp [not null, default: `now()`]
+
+  indexes {
+    (prompt_id, version) [unique]
+  }
+
+  Note: '''Append-only: every edit inserts a new row, never updates one, so an owner's prior wording stays auditable/comparable against approval-rate stats. No "current version" pointer column on either this table or prompts — the current version is MAX(version) WHERE prompt_id = ?, a cheap index-only lookup against the unique index above. Mirrors this schema's existing preference for deriving state from an immutable log (review_responses' status transitions) over a redundant pointer a version-insert could forget to update.'''
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Settings & blocklist
+//////////////////////////////////////////////////////////////////////////
+
+Table tenant_settings {
+  id uuid [pk]
+  tenant_id uuid [not null, unique]
+  escalation_rating_threshold integer [not null, note: 'rating < threshold => escalate, rating >= threshold => auto-reply candidate; CHECK (escalation_rating_threshold BETWEEN 1 AND 5)']
+  auto_post_enabled boolean [not null, default: false]
+  review_data_retention_months integer [note: 'nullable = falls back to platform default']
+}
+
+Table blocklist_terms {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  term varchar [not null]
+  is_active boolean [not null, default: true]
+
+  Note: 'PLAN.md §2 specifies a case-insensitive unique constraint on (tenant_id, lower(term)) — a functional index, not expressible as a plain DBML unique.'
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Notifications
+//////////////////////////////////////////////////////////////////////////
+
+Table notification_recipients {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  user_id uuid [not null]
+  notification_type notification_type [not null]
+  channel notification_channel_pref [not null, note: 'delivery preference, distinct from notifications.channel (what was actually used)']
+  is_active boolean [not null, default: true]
+}
+
+Table notifications {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  review_id uuid [not null]
+  recipient_user_id uuid [not null]
+  generation_group_id uuid [note: 'which snippet batch was included at send time; freezes the reference, not a live join — not a foreign key']
+  type notification_type [not null]
+  channel notification_channel [not null]
+  status notification_status [not null]
+  sent_at timestamp
+  read_at timestamp [note: 'best-effort only for email (open-tracking is unreliable) — see §8']
+
+  indexes {
+    (review_id, recipient_user_id, type, generation_group_id) [unique]
+  }
+
+  Note: 'Scoped to include generation_group_id (PLAN.md §8.13) so a review escalating more than once over its lifetime (superseded and reclassified per §8.6/§8.12) can be re-notified — each escalation event gets its own generation_group_id. A plain (review_id, recipient_user_id, type) unique would have permanently blocked every escalation after the first for a given review.'
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Operability
+//////////////////////////////////////////////////////////////////////////
+
+Table sync_runs {
+  id uuid [pk]
+  tenant_id uuid [not null]
+  location_id uuid [not null]
+  trigger sync_trigger [not null]
+  started_at timestamp [not null]
+  completed_at timestamp
+  status sync_run_status [not null]
+  reviews_fetched integer
+  error_message text
+
+  Note: '''PLAN.md §8.1 specifies a partial unique index UNIQUE (location_id) WHERE status = 'running' to prevent overlapping poller runs — not expressible as a plain DBML unique. Pair with a staleness check so a crashed run (stuck at 'running') doesn't permanently block the location.'''
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Relationships
+//////////////////////////////////////////////////////////////////////////
+
+Ref: users.tenant_id > tenants.id [delete: cascade]
+Ref: users.invited_by_user_id > users.id [delete: set null]
+Ref: review_provider_connections.tenant_id > tenants.id [delete: cascade]
+Ref: review_responses.tenant_id > tenants.id [delete: cascade]
+Ref: locations.tenant_id > tenants.id [delete: cascade]
+Ref: reviews.tenant_id > tenants.id [delete: cascade]
+Ref: tenant_settings.tenant_id - tenants.id [delete: cascade]
+Ref: blocklist_terms.tenant_id > tenants.id [delete: cascade]
+Ref: notification_recipients.tenant_id > tenants.id [delete: cascade]
+Ref: notifications.tenant_id > tenants.id [delete: cascade]
+Ref: sync_runs.tenant_id > tenants.id [delete: cascade]
+Ref: tenant_identity_providers.tenant_id > tenants.id [delete: cascade]
+Ref: prompts.tenant_id > tenants.id [delete: cascade]
+Ref: tenants.created_by_platform_admin_id > platform_admins.id [delete: set null]
+
+Ref: user_identities.user_id > users.id [delete: cascade]
+Ref: password_reset_tokens.user_id > users.id [delete: cascade]
+Ref: review_provider_connections.connected_by_user_id > users.id [delete: restrict]
+Ref: review_responses.created_by_user_id > users.id [delete: set null] // created by
+Ref: review_responses.approved_by_user_id > users.id [delete: set null] // approved by
+Ref: notification_recipients.user_id > users.id [delete: cascade]
+Ref: notifications.recipient_user_id > users.id [delete: restrict]
+Ref: user_locations.user_id > users.id [delete: cascade]
+Ref: prompt_versions.created_by_user_id > users.id [delete: set null]
+Ref: user_locations.location_id > locations.id [delete: cascade]
+Ref: locations.provider_connection_id > review_provider_connections.id [delete: cascade]
+Ref: reviews.location_id > locations.id [delete: cascade]
+Ref: sync_runs.location_id > locations.id [delete: cascade]
+
+Ref: review_responses.review_id > reviews.id [delete: cascade]
+Ref: notifications.review_id > reviews.id [delete: cascade]
+
+Ref: prompt_versions.prompt_id > prompts.id [delete: cascade]
+Ref: review_responses.prompt_version_id > prompt_versions.id [delete: set null]
+
+Ref: platform_admin_identities.platform_admin_id > platform_admins.id [delete: cascade]
+Ref: platform_admin_invites.platform_admin_id > platform_admins.id [delete: cascade]
+Ref: platform_admins.invited_by_platform_admin_id > platform_admins.id [delete: set null]

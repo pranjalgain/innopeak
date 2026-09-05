@@ -5,7 +5,10 @@ import { withPostHogConfig } from "@posthog/nextjs-config";
 import { withSentryConfig } from "@sentry/nextjs";
 import { env } from "env";
 import type { RemotePattern } from "next/dist/shared/lib/image-config";
+import createNextIntlPlugin from "next-intl/plugin";
 import path from "node:path";
+
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 // const isDev = env.NODE_ENV !== "production";
 
@@ -13,7 +16,7 @@ const remotePatterns: RemotePattern[] = [];
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  outputFileTracingRoot: path.join(__dirname, "./"),
+  outputFileTracingRoot: path.join(__dirname, "../../"),
   poweredByHeader: false,
   productionBrowserSourceMaps: true, // sentry and posthog config
   skipTrailingSlashRedirect: true,
@@ -26,17 +29,13 @@ const nextConfig: NextConfig = {
   // Force Turbopack to resolve Zod via CJS to avoid ESM module splitting
   // that causes "_check is not defined" errors (https://github.com/colinhacks/zod/issues/5469)
   turbopack: {
+    root: path.join(__dirname, "../../"),
     resolveAlias: {
       zod: "zod/index.cjs",
     },
   },
   async rewrites() {
     return [
-      // Homepage rewrite
-      {
-        source: "/",
-        destination: "/home",
-      },
       // Google Tag Manager Proxy
       {
         source: "/gm",
@@ -80,34 +79,22 @@ const nextConfig: NextConfig = {
   experimental: {
     authInterrupts: true,
     inlineCss: true,
-    optimizePackageImports: [
-      "date-fns",
-      "react-hook-form",
-      "lodash-es",
-      "react-icons",
-      "recharts",
-      "react-day-picker",
-      "react-resizable-panels",
-      "vaul",
-      "tailwind-merge",
-      "zod",
-      "embla-carousel-react",
-      "input-otp",
-      "cmdk",
-    ],
+    optimizePackageImports: ["react-hook-form", "lodash-es", "react-icons", "vaul", "tailwind-merge", "zod"],
     webVitalsAttribution: ["FCP", "LCP", "CLS", "FID", "TTFB", "INP"],
   },
 };
 
+const nextConfigWithIntl = withNextIntl(nextConfig);
+
 // Conditionally apply PostHog configuration only if API keys are provided
 const withPostHog =
   env.POSTHOG_API_KEY && env.POSTHOG_ENV_ID
-    ? withPostHogConfig(nextConfig, {
+    ? withPostHogConfig(nextConfigWithIntl, {
         personalApiKey: env.POSTHOG_API_KEY, // Personal API Key
         envId: env.POSTHOG_ENV_ID, // Environment ID
         host: env.NEXT_PUBLIC_POSTHOG_HOST, // (optional), defaults to https://us.posthog.com
       })
-    : nextConfig;
+    : nextConfigWithIntl;
 
 // Conditionally apply Sentry configuration only if auth token is provided
 const withSentry = env.SENTRY_AUTH_TOKEN
@@ -134,5 +121,5 @@ export default withBundleAnalyzer({
 })(
   env.NEXT_PUBLIC_APP_ENV === "production" || env.NEXT_PUBLIC_APP_ENV === "staging"
     ? withSentry
-    : nextConfig,
+    : nextConfigWithIntl,
 );

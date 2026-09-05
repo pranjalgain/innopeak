@@ -18,6 +18,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
+      env: path.resolve(import.meta.dirname, "./env.ts"),
     },
   },
 });

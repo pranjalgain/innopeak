@@ -1,0 +1,675 @@
+{
+  "marketing": {
+    "nav": {
+      "features": "Features",
+      "howItWorks": "How it works",
+      "signIn": "Sign in",
+      "getStarted": "Get started"
+    },
+    "hero": {
+      "eyebrow": "For Google Business Profile reviews",
+      "headline": "AI drafts the reply. Your team approves every word.",
+      "subheadline": "InnoPeak watches your Google Business Profile, drafts a reply to every new review, and routes anything risky straight to the person who should see it — so nothing goes out that a human hasn't approved, and nothing slips through unanswered.",
+      "primaryCta": "Get started with Microsoft",
+      "secondaryCta": "See how it works",
+      "mockup": {
+        "reviewerName": "Marcus Yee",
+        "reviewSnippet": "Waited 40 minutes past our reservation with no apology. Food was fine but not worth it.",
+        "escalatedLabel": "Escalated · Low rating",
+        "draftLabel": "AI-drafted reply",
+        "draftText": "Marcus, I'm sorry about the wait and that no one acknowledged it — that's not the experience we want. I'd like to make this right; please reach out to me directly.",
+        "approve": "Approve",
+        "edit": "Edit",
+        "reject": "Reject"
+      }
+    },
+    "trustBar": {
+      "items": [
+        "Nothing posts without approval",
+        "Escalations reach a real person in minutes",
+        "Sign in with your work Microsoft account"
+      ]
+    },
+    "problem": {
+      "heading": "Replying to reviews doesn't scale by hand",
+      "items": [
+        {
+          "title": "Reviews pile up",
+          "description": "Every new review is a decision: ignore it, or drop what you're doing to write a reply that sounds like your business, not a form letter."
+        },
+        {
+          "title": "One bad reply is public forever",
+          "description": "A rushed or defensive response to a 1-star review does more damage than the review itself — and it never comes down."
+        },
+        {
+          "title": "Urgent reviews get buried",
+          "description": "A review that needs a manager's attention looks the same in your inbox as a glowing five-star note — until it's too late."
+        }
+      ]
+    },
+    "howItWorks": {
+      "heading": "From new review to posted reply, in four steps",
+      "description": "The same workflow every time, whether it's a five-star thank-you or a review that needs a careful response.",
+      "steps": [
+        {
+          "title": "Connect your Google Business Profile",
+          "description": "Sign in with Microsoft, connect the location once, and InnoPeak starts polling for new reviews automatically."
+        },
+        {
+          "title": "AI drafts a reply",
+          "description": "Every new review gets a reply drafted in your business's tone, referencing what the reviewer actually said."
+        },
+        {
+          "title": "You approve, edit, or reject",
+          "description": "Nothing reaches Google without a person in your business signing off. Edit a word or two, or reject it outright."
+        },
+        {
+          "title": "Risky reviews escalate automatically",
+          "description": "A low rating or a blocked term routes straight to a responsible teammate by email or Teams — before it becomes a bigger problem."
+        }
+      ]
+    },
+    "features": {
+      "heading": "Everything you need to stay on top of reviews",
+      "description": "Built around one rule: AI drafts, a human decides.",
+      "items": [
+        {
+          "title": "Review queue",
+          "description": "Every new review in one place, filtered by status and classification, so nothing gets missed."
+        },
+        {
+          "title": "AI reply drafts",
+          "description": "Drafted automatically for every review, in your voice — never posted without approval."
+        },
+        {
+          "title": "Versioned prompts & tone",
+          "description": "Tune how the AI sounds and track whether an edit actually improved your approval rate."
+        },
+        {
+          "title": "Escalation alerts",
+          "description": "Low ratings and blocked terms notify the right person immediately by email or Teams."
+        },
+        {
+          "title": "Performance dashboard",
+          "description": "Track approval rate, rating trends, and how many reviews are still waiting on you."
+        },
+        {
+          "title": "Secure by design",
+          "description": "Sign in with Microsoft SSO. Every business's data stays fully isolated from every other."
+        }
+      ]
+    },
+    "cta": {
+      "heading": "Stop choosing between fast replies and careful ones.",
+      "description": "Connect your Google Business Profile and let InnoPeak draft the first version — you always have the last word.",
+      "button": "Get started with Microsoft"
+    },
+    "footer": {
+      "tagline": "AI-assisted replies for Google Business Profile reviews — always reviewed by a human before they go out.",
+      "signIn": "Sign in",
+      "getStarted": "Get started",
+      "copyright": "© {year} InnoPeak. All rights reserved."
+    }
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "reviewQueue": "Review Queue",
+    "settings": "Settings"
+  },
+  "adminNav": {
+    "overview": "Overview",
+    "businesses": "Businesses",
+    "users": "Users",
+    "billing": "Billing",
+    "settings": "Settings"
+  },
+  "appShell": {
+    "notifications": "Notifications",
+    "accountOwnerRole": "Owner",
+    "superAdminRole": "Super Admin",
+    "signOut": "Sign out",
+    "notificationPanel": {
+      "title": "Notifications",
+      "markAllRead": "Mark all as read",
+      "empty": "You're all caught up.",
+      "toasts": {
+        "loadFailed": "Could not load notifications."
+      }
+    }
+  },
+  "auth": {
+    "login": {
+      "title": "Sign in to InnoPeak",
+      "subtitle": "Use your work Microsoft account to continue",
+      "continueWithMicrosoft": "Continue with Microsoft",
+      "continueWithGoogle": "Continue with Google",
+      "microsoft": "Microsoft",
+      "google": "Google",
+      "orDivider": "or",
+      "noAccount": "Don't have an account?",
+      "signUp": "Sign up"
+    },
+    "passwordMock": {
+      "emailLabel": "Email",
+      "emailPlaceholder": "you@company.com",
+      "passwordLabel": "Password",
+      "signIn": "Sign in",
+      "signingIn": "Signing in…"
+    },
+    "microsoftMock": {
+      "title": "Sign in with Microsoft",
+      "notice": "Mock sign-in screen for this prototype — enter any email and password to continue.",
+      "emailLabel": "Email",
+      "emailPlaceholder": "you@company.com",
+      "passwordLabel": "Password",
+      "signIn": "Sign in",
+      "signingIn": "Signing in…",
+      "backToLogin": "← Back to InnoPeak sign in"
+    },
+    "toasts": {
+      "signInFailed": "Something went wrong signing in. Please try again.",
+      "signOutFailed": "Something went wrong signing out. Please try again."
+    }
+  },
+  "onboardingConnect": {
+    "connect": {
+      "title": "Connect your Google Business Profile",
+      "description": "InnoPeak needs access to your Google Business Profile to read and respond to reviews on your behalf. You'll be asked to grant permission to manage reviews for your locations.",
+      "button": "Connect Google Business Profile"
+    },
+    "confirmLocation": {
+      "title": "We found your business",
+      "subtitle": "Confirm this is the location you'd like InnoPeak to manage.",
+      "button": "Continue"
+    },
+    "backfilling": {
+      "title": "Importing your review history",
+      "description": "This usually takes a minute. Don't close this window.",
+      "importing": "Importing historical reviews… {imported} of ~{total} imported"
+    },
+    "done": {
+      "title": "You're all set",
+      "description": "We imported {count} historical reviews and will start checking for new ones every 15 minutes.",
+      "button": "Go to Dashboard"
+    }
+  },
+  "onboardingSignup": {
+    "subtitle": "Verify your identity, then connect your Google Business Profile.",
+    "stepper": {
+      "identity": "Create account",
+      "otp": "Verify email",
+      "connect": "Connect business profile"
+    },
+    "createAccount": {
+      "nameLabel": "Full name",
+      "namePlaceholder": "Jordan Lee",
+      "emailLabel": "Email",
+      "emailPlaceholder": "you@company.com",
+      "passwordLabel": "Password",
+      "confirmPasswordLabel": "Confirm password",
+      "passwordMismatch": "Passwords don't match.",
+      "submit": "Create account",
+      "submitting": "Creating account…"
+    },
+    "otp": {
+      "title": "Verify your email",
+      "description": "We sent a 6-digit code to {email}",
+      "codeLabel": "Verification code",
+      "verifyButton": "Verify",
+      "verifying": "Verifying…",
+      "incompleteCode": "Enter the 6-digit code.",
+      "resend": "Resend code",
+      "resendIn": "Resend code in {seconds}s",
+      "toasts": {
+        "resent": "Code resent.",
+        "verifyFailed": "Could not verify this code. Please try again."
+      }
+    }
+  },
+  "dashboard": {
+    "dateRanges": {
+      "7d": "Last 7 days",
+      "30d": "Last 30 days",
+      "90d": "Last 90 days"
+    },
+    "stats": {
+      "reviews": "Reviews",
+      "averageRating": "Average rating",
+      "pendingApproval": "Pending approval",
+      "escalatedOpen": "Escalated (open)"
+    },
+    "ratingDistribution": {
+      "title": "Rating distribution",
+      "subtitle": "Based on last 30 days of reviews",
+      "starLabel": "{star, plural, one {# star} other {# stars}}"
+    },
+    "attention": {
+      "title": "Needs your attention",
+      "reviewCta": "Review →"
+    },
+    "businessProfile": {
+      "googleReviewCount": "({count, plural, one {# Google review} other {# Google reviews}})"
+    }
+  },
+  "reviewQueue": {
+    "resultCount": "{count, plural, one {# review} other {# reviews}}",
+    "filters": {
+      "allStatuses": "All statuses",
+      "allClassifications": "All classifications",
+      "searchPlaceholder": "Search by reviewer name"
+    },
+    "columns": {
+      "reviewer": "Reviewer",
+      "rating": "Rating",
+      "review": "Review",
+      "classification": "Classification",
+      "status": "Status",
+      "date": "Date"
+    },
+    "emptyState": {
+      "title": "No reviews match these filters",
+      "description": "Try clearing the status, classification, or search filters.",
+      "clearFilters": "Clear filters"
+    },
+    "toasts": {
+      "loadFailed": "Could not load reviews."
+    }
+  },
+  "reviewDetail": {
+    "backToQueue": "Review Queue",
+    "reviewStatusLabel": "Review status",
+    "notFound": "This review couldn't be found.",
+    "toasts": {
+      "loadFailed": "Could not load this review.",
+      "approved": "Reply approved.",
+      "rejected": "Reply rejected."
+    },
+    "replies": {
+      "title": "Suggested replies",
+      "description": "Two AI-drafted responses were generated for this escalation. Approving one automatically supersedes the other — only one reply can ever be posted per review.",
+      "snippetLabel": "Snippet {label}",
+      "approve": "Approve",
+      "edit": "Edit",
+      "cancelEdit": "Cancel edit",
+      "reject": "Reject",
+      "status": {
+        "pending_approval": "Pending approval",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "superseded": "Superseded"
+      },
+      "confirmation": {
+        "approved": "Approved — will post to Google Business Profile.",
+        "rejected": "Rejected — this snippet will not be used.",
+        "superseded": "Superseded — another reply was approved for this review."
+      }
+    }
+  },
+  "settings": {
+    "tabs": {
+      "general": "General",
+      "blocklist": "Blocklist",
+      "notifications": "Notifications",
+      "connection": "Connection",
+      "ai": "AI",
+      "profile": "Profile",
+      "members": "Members"
+    },
+    "general": {
+      "title": "General",
+      "description": "Core escalation and data-handling defaults for this tenant.",
+      "escalationThreshold": {
+        "label": "Escalation rating threshold",
+        "min": "1 star",
+        "max": "5 stars",
+        "helper": "Reviews below this rating are escalated to your team"
+      },
+      "autoPost": {
+        "label": "Auto-post approved replies",
+        "helper": "Automatically publish replies once approved, without a manual posting step."
+      },
+      "retention": {
+        "label": "Review data retention",
+        "suffix": "months, then reviewer PII is anonymized"
+      }
+    },
+    "blocklist": {
+      "title": "Blocklist",
+      "description": "Reviews containing any of these terms are escalated regardless of rating.",
+      "addPlaceholder": "Add a term to block…",
+      "addButton": "Add",
+      "removeTerm": "Remove {term}",
+      "empty": "No blocked terms yet."
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "Who gets notified when a review is escalated, and how.",
+      "empty": "No recipients configured yet.",
+      "channels": {
+        "email": "Email",
+        "teams": "Teams",
+        "both": "Both"
+      }
+    },
+    "connection": {
+      "title": "Connection",
+      "description": "Manage the Google Business Profile connection used to sync reviews.",
+      "lastSynced": "Last synced {date}",
+      "statusConnected": "Connected",
+      "statusDisconnected": "Disconnected",
+      "disconnectButton": "Disconnect",
+      "disconnectConfirm": "Are you sure? This location will stop syncing new reviews.",
+      "cancel": "Cancel"
+    },
+    "ai": {
+      "title": "AI Replies",
+      "description": "Control how the AI drafts replies to reviews.",
+      "replyCount": {
+        "label": "Number of AI-generated replies",
+        "option": "{count, plural, one {# reply draft} other {# reply drafts}}",
+        "helper": "How many reply drafts the AI suggests for each review — staff pick one to send."
+      },
+      "prompts": {
+        "label": "Prompt templates",
+        "helper": "Edit the prompts fed to the AI when it drafts a reply.",
+        "manageButton": "Manage prompts"
+      }
+    },
+    "profile": {
+      "title": "Your profile",
+      "description": "Your login email and password for this account.",
+      "changePicture": "Change picture",
+      "emailLabel": "Email",
+      "changePasswordTitle": "Change password",
+      "currentPasswordLabel": "Current password",
+      "newPasswordLabel": "New password",
+      "confirmPasswordLabel": "Confirm new password",
+      "passwordMismatch": "Passwords don't match.",
+      "updatePassword": "Update password",
+      "toasts": {
+        "loadFailed": "Could not load your profile.",
+        "updateFailed": "Could not save this change. Please try again.",
+        "avatarUpdated": "Profile picture updated.",
+        "passwordChanged": "Password changed."
+      }
+    },
+    "members": {
+      "title": "Team members",
+      "description": "Invite teammates to help manage reviews for this business.",
+      "emailPlaceholder": "name@company.com",
+      "inviteButton": "Invite",
+      "revoke": "Revoke",
+      "cancel": "Cancel",
+      "empty": "No team members yet.",
+      "role": {
+        "owner": "Owner",
+        "member": "Member"
+      },
+      "status": {
+        "active": "Active",
+        "invited": "Invited",
+        "pending_verification": "Pending",
+        "disabled": "Disabled"
+      },
+      "confirmRevoke": {
+        "title": "Revoke invite for {name}?",
+        "description": "This invite link will stop working immediately."
+      },
+      "toasts": {
+        "loadFailed": "Could not load team members.",
+        "invited": "Invite sent to {email}.",
+        "inviteFailed": "Could not send this invite. Please try again.",
+        "revoked": "Invite revoked.",
+        "revokeFailed": "Could not revoke this invite. Please try again."
+      }
+    },
+    "toasts": {
+      "loadFailed": "Could not load settings.",
+      "blocklistTermAdded": "Term added to blocklist.",
+      "blocklistTermRemoved": "Term removed from blocklist.",
+      "notificationChannelUpdated": "Notification channel updated.",
+      "notificationToggled": "Notification setting updated.",
+      "disconnected": "Google Business Profile disconnected.",
+      "autoPostToggled": "Auto-post setting updated.",
+      "aiReplyCountUpdated": "AI reply count updated."
+    }
+  },
+  "promptManagement": {
+    "backToSettings": "Back to Settings",
+    "title": "AI Prompts",
+    "description": "These prompts are fed to the AI when it drafts a reply to a review. Use '{{business_name}}', '{{reviewer_name}}', '{{rating}}', and '{{review_text}}' as placeholders.",
+    "edit": "Edit",
+    "versionBadge": "v{version}",
+    "updatedAt": "Updated {date} by {author}",
+    "editor": {
+      "description": "Editing here saves a new version (v{version}) — it doesn't overwrite the current one. Placeholders in double curly braces are filled in automatically.",
+      "cancel": "Cancel",
+      "saveAsNewVersion": "Save as v{version}",
+      "saving": "Saving…"
+    },
+    "tone": {
+      "label": "Tone",
+      "options": {
+        "friendly": "Friendly",
+        "professional": "Professional",
+        "formal": "Formal",
+        "playful": "Playful",
+        "empathetic": "Empathetic"
+      }
+    },
+    "history": {
+      "toggle": "{count, plural, one {# earlier version} other {# earlier versions}}",
+      "entryLabel": "v{version} · {date} · {author}"
+    },
+    "stats": {
+      "noneGenerated": "No replies generated with this prompt yet",
+      "totalGenerated": "{count, plural, one {# generated} other {# generated}}",
+      "approvalRate": "{rate}% approved",
+      "editedRate": "{rate}% needed edits",
+      "awaitingReview": "awaiting review",
+      "avgDecisionTime": "~{minutes}m to decide"
+    },
+    "toasts": {
+      "loadFailed": "Could not load prompts.",
+      "saveFailed": "Could not save this prompt. Please try again.",
+      "versionSaved": "Saved as v{version}.",
+      "toneUpdated": "Tone updated."
+    }
+  },
+  "adminOverview": {
+    "stats": {
+      "businesses": "Businesses",
+      "users": "Users",
+      "mrr": "MRR",
+      "reviewsFetched": "Reviews fetched",
+      "repliesSent": "Replies sent"
+    },
+    "toasts": {
+      "loadFailed": "Could not load the overview."
+    }
+  },
+  "adminBusinesses": {
+    "resultCount": "{count, plural, one {# business} other {# businesses}}",
+    "columns": {
+      "name": "Business",
+      "plan": "Plan",
+      "status": "Status",
+      "owner": "Owner",
+      "users": "Users",
+      "created": "Created",
+      "actions": "Actions"
+    },
+    "plan": {
+      "starter": "Starter",
+      "growth": "Growth",
+      "scale": "Scale"
+    },
+    "status": {
+      "active": "Active",
+      "suspended": "Suspended"
+    },
+    "suspend": "Suspend",
+    "reactivate": "Reactivate",
+    "cancel": "Cancel",
+    "confirmSuspend": {
+      "title": "Suspend {name}?",
+      "description": "They'll immediately lose access to their dashboard. You can reactivate them at any time."
+    },
+    "confirmReactivate": {
+      "title": "Reactivate {name}?",
+      "description": "They'll regain access to their dashboard right away."
+    },
+    "emptyState": {
+      "title": "No businesses yet",
+      "description": "New businesses will show up here once they sign up."
+    },
+    "toasts": {
+      "loadFailed": "Could not load businesses.",
+      "updateFailed": "Could not update this business. Please try again."
+    }
+  },
+  "adminUsers": {
+    "resultCount": "{count, plural, one {# user} other {# users}}",
+    "columns": {
+      "name": "User",
+      "business": "Business",
+      "role": "Role",
+      "status": "Status",
+      "lastLogin": "Last login",
+      "actions": "Actions"
+    },
+    "role": {
+      "owner": "Owner",
+      "member": "Member"
+    },
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "cancel": "Cancel",
+    "confirmDeactivate": {
+      "title": "Deactivate {name}?",
+      "description": "They'll immediately lose access to their account. You can reactivate them at any time."
+    },
+    "confirmActivate": {
+      "title": "Activate {name}?",
+      "description": "They'll regain access to their account right away."
+    },
+    "neverLoggedIn": "Never",
+    "emptyState": {
+      "title": "No users yet",
+      "description": "Users will show up here once businesses invite their team."
+    },
+    "toasts": {
+      "loadFailed": "Could not load users.",
+      "updateFailed": "Could not update this user. Please try again."
+    }
+  },
+  "adminSettings": {
+    "tabs": {
+      "profile": "Profile",
+      "members": "Members"
+    },
+    "profile": {
+      "title": "Your profile",
+      "description": "Your super admin account's login email and password.",
+      "changePicture": "Change picture",
+      "emailLabel": "Email",
+      "changePasswordTitle": "Change password",
+      "currentPasswordLabel": "Current password",
+      "newPasswordLabel": "New password",
+      "confirmPasswordLabel": "Confirm new password",
+      "updatePassword": "Update password",
+      "passwordMismatch": "New password and confirmation don't match.",
+      "toasts": {
+        "loadFailed": "Could not load your profile.",
+        "updateFailed": "Could not save this change. Please try again.",
+        "avatarUpdated": "Profile picture updated.",
+        "passwordChanged": "Password changed."
+      }
+    },
+    "invite": {
+      "title": "Invite a platform admin",
+      "description": "Send an invite to give someone else super admin access.",
+      "emailPlaceholder": "name@innopeak.com",
+      "sendButton": "Send invite",
+      "revoke": "Revoke",
+      "cancel": "Cancel",
+      "empty": "No invites sent yet.",
+      "invitedOn": "Joined {date}",
+      "expiresOn": "Expires {date}",
+      "status": {
+        "invited": "Pending",
+        "active": "Active",
+        "disabled": "Disabled"
+      },
+      "confirmRevoke": {
+        "title": "Revoke invite for {email}?",
+        "description": "This invite link will stop working immediately."
+      },
+      "toasts": {
+        "loadFailed": "Could not load invites.",
+        "sendFailed": "Could not send this invite. Please try again.",
+        "sent": "Invite sent to {email}.",
+        "revokeFailed": "Could not revoke this invite. Please try again.",
+        "revoked": "Invite revoked."
+      }
+    }
+  },
+  "adminBilling": {
+    "resultCount": "{count, plural, one {# business} other {# businesses}}",
+    "totalMrr": "Total MRR",
+    "columns": {
+      "business": "Business",
+      "plan": "Plan",
+      "mrr": "MRR",
+      "reviewsThisMonth": "Reviews this month",
+      "status": "Status"
+    },
+    "emptyState": {
+      "title": "No billing data yet",
+      "description": "Billing details will show up here once businesses are on a paid plan."
+    },
+    "toasts": {
+      "loadFailed": "Could not load billing data."
+    }
+  },
+  "common": {
+    "escalationReason": {
+      "low_rating": "Escalated · Low rating",
+      "blocklist_match": "Escalated · Blocklist match"
+    },
+    "escalationReasonShort": {
+      "low_rating": "Low rating",
+      "blocklist_match": "Blocklist match"
+    },
+    "starRatingAriaLabel": "{rating} out of 5 stars",
+    "passwordInput": {
+      "show": "Show password",
+      "hide": "Hide password"
+    },
+    "passwordRequirements": {
+      "minLength": "At least 8 characters",
+      "uppercase": "One uppercase letter",
+      "number": "One number"
+    },
+    "pagination": {
+      "previous": "Previous page",
+      "next": "Next page",
+      "pageOf": "Page {page} of {totalPages}"
+    },
+    "classification": {
+      "auto_reply_candidate": "Auto-reply candidate",
+      "escalated": "Escalated",
+      "unclassified": "Unclassified"
+    },
+    "reviewStatus": {
+      "new": "New",
+      "in_review": "In Review",
+      "responded": "Responded",
+      "dismissed": "Dismissed"
+    }
+  }
+}

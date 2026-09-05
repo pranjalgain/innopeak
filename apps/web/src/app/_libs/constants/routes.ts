@@ -10,8 +10,21 @@ export const ROUTES = {
   HOME: "/",
   REFERENCE: "/reference",
   SENTRY_EXAMPLE: "/sentry-example-page",
-  SHOWCASE: "/showcase",
   USERS: "/users",
+  LOGIN: "/login",
+  LOGIN_MICROSOFT: "/login/microsoft",
+  ONBOARDING_SIGNUP: "/onboarding/signup",
+  ONBOARDING_CONNECT: "/onboarding/connect",
+  DASHBOARD: "/dashboard",
+  REVIEW_QUEUE: "/review-queue",
+  REVIEW_DETAIL: (id: string) => `/review-queue/${id}`,
+  SETTINGS: "/settings",
+  SETTINGS_PROMPTS: "/settings/prompts",
+  ADMIN: "/admin",
+  ADMIN_BUSINESSES: "/admin/businesses",
+  ADMIN_USERS: "/admin/users",
+  ADMIN_SETTINGS: "/admin/settings",
+  ADMIN_BILLING: "/admin/billing",
 } as const;
 
 /**

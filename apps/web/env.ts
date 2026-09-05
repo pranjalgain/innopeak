@@ -18,18 +18,18 @@ export const env = createEnv({
   },
   client: {
     NEXT_PUBLIC_APP_ENV: z.enum(["development", "staging", "production"]).default("development"),
-    NEXT_PUBLIC_APP_TITLE: z.string().min(1, "App title is required").default("Create Next CoE"),
-    NEXT_PUBLIC_APP_NAME: z.string().min(1, "App name is required").default("Create Next CoE"),
+    NEXT_PUBLIC_APP_TITLE: z.string().min(1, "App title is required").default("InnoPeak"),
+    NEXT_PUBLIC_APP_NAME: z.string().min(1, "App name is required").default("InnoPeak"),
     NEXT_PUBLIC_APP_URL: z.url("App URL is required").default("http://localhost:3000"),
     NEXT_PUBLIC_APP_DESCRIPTION: z
       .string()
       .min(1, "App description is required")
-      .default("Production-ready Next.js starter"),
+      .default("AI-assisted Google Business Profile review management"),
     NEXT_PUBLIC_APP_CATEGORY: z.string().min(1, "App category is required").default("app"),
     NEXT_PUBLIC_APP_KEYWORDS: z
       .string()
       .min(1, "App keywords are required")
-      .default("nextjs,starter,boilerplate"),
+      .default("reviews,google-business-profile,ai-replies"),
     // Analytics - optional for development
     NEXT_PUBLIC_GTM_KEY: z.string().optional(),
     NEXT_PUBLIC_POSTHOG_KEY: z.string().min(47, "PostHog key is required").optional(),
@@ -40,6 +40,12 @@ export const env = createEnv({
     NEXT_PUBLIC_POSTHOG_ENVIRONMENT: z
       .enum(["development", "staging", "production"])
       .default("development"),
+    // Auth method toggles - flip per-environment to test different login/signup configurations
+    NEXT_PUBLIC_AUTH_SSO_ENABLED: z.enum(["true", "false"]).default("true"),
+    NEXT_PUBLIC_AUTH_PASSWORD_ENABLED: z.enum(["true", "false"]).default("false"),
+    NEXT_PUBLIC_AUTH_SOCIAL_ENABLED: z.enum(["true", "false"]).default("false"),
+    // Tenant-facing feature toggles - flip per-environment to test optional capabilities
+    NEXT_PUBLIC_INVITE_MEMBERS_ENABLED: z.enum(["true", "false"]).default("false"),
   },
   runtimeEnv: {
     // Private
@@ -63,5 +69,9 @@ export const env = createEnv({
     NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     NEXT_PUBLIC_POSTHOG_INGEST: process.env.NEXT_PUBLIC_POSTHOG_INGEST,
     NEXT_PUBLIC_POSTHOG_ENVIRONMENT: process.env.NEXT_PUBLIC_POSTHOG_ENVIRONMENT,
+    NEXT_PUBLIC_AUTH_SSO_ENABLED: process.env.NEXT_PUBLIC_AUTH_SSO_ENABLED,
+    NEXT_PUBLIC_AUTH_PASSWORD_ENABLED: process.env.NEXT_PUBLIC_AUTH_PASSWORD_ENABLED,
+    NEXT_PUBLIC_AUTH_SOCIAL_ENABLED: process.env.NEXT_PUBLIC_AUTH_SOCIAL_ENABLED,
+    NEXT_PUBLIC_INVITE_MEMBERS_ENABLED: process.env.NEXT_PUBLIC_INVITE_MEMBERS_ENABLED,
   },
 });
