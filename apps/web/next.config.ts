@@ -36,6 +36,15 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
+      // Backend API proxy — every `/v1/*` call is served from this app's own origin and forwarded
+      // to the NestJS API. This is what makes the auth cookies first-party: the backend's
+      // Set-Cookie comes back through this origin, so `proxy.ts` (edge middleware) and the browser
+      // both see the session on `app.example.com` even though the API lives on `api.example.com`.
+      // Without it the middleware only works when both happen to share a hostname, i.e. localhost.
+      {
+        source: "/v1/:path*",
+        destination: `${env.NEXT_PUBLIC_API_URL}/v1/:path*`,
+      },
       // Google Tag Manager Proxy
       {
         source: "/gm",

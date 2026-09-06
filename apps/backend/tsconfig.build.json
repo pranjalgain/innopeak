@@ -2,7 +2,17 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "rootDir": "./src",
-    "outDir": "./dist"
+    "outDir": "./dist",
+    // `nest build`/`nest start --watch` both compile through this config. Inherited
+    // `incremental: true` from tsconfig.json has been observed to produce a corrupted
+    // `tsconfig.build.tsbuildinfo` under Node 24 (v24.16.0 at time of writing) — the compiler
+    // reports "0 errors" but silently emits nothing, and the bad cache then poisons every
+    // subsequent build until the file is deleted by hand. `pnpm type-check` (tsconfig.json
+    // directly, noEmit) is unaffected and keeps its own incremental cache. If this turns out to
+    // be fixed by a future TypeScript/@nestjs/cli release or by pinning an LTS Node version,
+    // this override can be removed — until then it trades some rebuild speed for builds that
+    // just work.
+    "incremental": false
   },
   "exclude": [
     "node_modules",

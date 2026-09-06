@@ -156,6 +156,23 @@ export class EnvConfig {
   @IsString()
   JWT_REFRESH_SECRET?: string;
 
+  // ─── Auth (signup / verification) ────────────────────────────────────────
+
+  @IsOptional()
+  @IsString()
+  FRONTEND_URL?: string;
+
+  @IsOptional()
+  @IsNumber()
+  VERIFY_EMAIL_OTP_TTL_MINUTES?: number;
+
+  // Dev-only signup bypass: when set, signup's emailed verification token is this fixed value
+  // instead of a random one, so it can be exercised without reading a real email. Forbidden in
+  // production by the Joi schema below — never valid to set outside local/dev.
+  @IsOptional()
+  @IsString()
+  DEV_VERIFY_EMAIL_TOKEN?: string;
+
   // ─── Google OAuth ───────────────────────────────────────────────────────────
 
   @IsOptional()
@@ -285,44 +302,6 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   FCM_CLIENT_EMAIL?: string;
-
-  // ─── AI / Claude ────────────────────────────────────────────────────────
-
-  @IsOptional()
-  @IsString()
-  ANTHROPIC_API_KEY?: string;
-
-  @IsOptional()
-  @IsString()
-  CLAUDE_DEFAULT_MODEL?: string;
-
-  // ─── AI / OpenAI ──────────────────────────────────────────────────────────
-
-  @IsOptional()
-  @IsString()
-  OPENAI_API_KEY?: string;
-
-  @IsOptional()
-  @IsString()
-  OPENAI_BASE_URL?: string;
-
-  @IsOptional()
-  @IsString()
-  OPENAI_DEFAULT_MODEL?: string;
-
-  @IsOptional()
-  @IsString()
-  OPENAI_EMBEDDING_MODEL?: string;
-
-  @IsOptional()
-  @IsString()
-  AI_DEFAULT_PROVIDER?: string;
-
-  // ─── Agent Tools ────────────────────────────────────────────────────────
-
-  @IsOptional()
-  @IsString()
-  AGENT_API_ALLOWED_DOMAINS?: string;
 
   // ─── Deployment target (Floci/AWS emulation) ─────────────────────────────
 

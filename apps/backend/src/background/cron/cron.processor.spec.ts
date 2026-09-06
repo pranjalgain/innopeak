@@ -27,7 +27,10 @@ describe('CronProcessor', () => {
     }) as unknown as CronJobHandle;
 
   beforeEach(() => {
-    cronService = { sendDailyMail: jest.fn() } as unknown as jest.Mocked<CronService>;
+    cronService = {
+      sendDailyMail: jest.fn(),
+      purgeStaleAuthTokens: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<CronService>;
     dlqService = {
       addFailedJobToDLQ: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeadLetterQueueService>;
@@ -46,6 +49,26 @@ describe('CronProcessor', () => {
 
       expect(cronService.sendDailyMail).toHaveBeenCalledWith(job.data);
       expect(job.log).toHaveBeenCalled();
+    });
+
+    it('dispatches AUTH_TOKEN_CLEANUP jobs to CronService.purgeStaleAuthTokens and awaits it', async () => {
+      const job = buildJob({
+        name: CronJobName.AUTH_TOKEN_CLEANUP,
+        data: { jobType: CronJobName.AUTH_TOKEN_CLEANUP } as ICronJob,
+      });
+
+      await processor.process(job);
+
+      expect(cronService.purgeStaleAuthTokens).toHaveBeenCalledTimes(1);
+      expect(cronService.sendDailyMail).not.toHaveBeenCalled();
+      expect(job.log).toHaveBeenCalledWith(expect.stringContaining('Completed job'));
+    });
+
+    it('rethrows when the purge fails so BullMQ retries it', async () => {
+      const job = buildJob({ name: CronJobName.AUTH_TOKEN_CLEANUP });
+      cronService.purgeStaleAuthTokens.mockRejectedValue(new Error('db down'));
+
+      await expect(processor.process(job)).rejects.toThrow('db down');
     });
 
     it('throws for an unknown job name without calling the cron service', async () => {

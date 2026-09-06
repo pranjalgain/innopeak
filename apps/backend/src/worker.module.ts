@@ -3,6 +3,7 @@
 import { BackgroundModule } from '@bg/background.module';
 import { DEFAULT_JOB_OPTIONS, QueuePrefix } from '@bg/constants/job.constant';
 import { EnvConfigModule } from '@config/env-config.module';
+import { DBModule } from '@db/db.module';
 import { LoggerModule } from '@logger/logger.module';
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
@@ -23,7 +24,9 @@ const queueModule = BullModule.forRootAsync({
   inject: [REDIS_CLIENT],
 });
 
+// DBModule is @Global, so importing it once here is what lets CronService (AUTH_TOKEN_CLEANUP)
+// inject AuthDbService inside the worker process.
 @Module({
-  imports: [EnvConfigModule, LoggerModule, RedisModule, queueModule, BackgroundModule],
+  imports: [EnvConfigModule, LoggerModule, RedisModule, DBModule, queueModule, BackgroundModule],
 })
 export class WorkerModule {}

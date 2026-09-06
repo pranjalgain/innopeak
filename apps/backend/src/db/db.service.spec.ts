@@ -5,19 +5,22 @@ import { Test } from '@nestjs/testing';
 
 import { DBService } from './db.service';
 
-const mockClientInstance = {
+const mockPoolClient = {
+  release: jest.fn(),
+};
+
+const mockPoolInstance = {
   connect: jest.fn(),
   end: jest.fn(),
   query: jest.fn(),
-  on: jest.fn(),
 };
 
 jest.mock('pg', () => ({
-  Client: jest.fn().mockImplementation(() => mockClientInstance),
+  Pool: jest.fn().mockImplementation(() => mockPoolInstance),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { Client } = require('pg') as { Client: jest.Mock };
+const { Pool } = require('pg') as { Pool: jest.Mock };
 
 describe('DBService', () => {
   let target: DBService;
@@ -25,10 +28,10 @@ describe('DBService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    mockClientInstance.connect.mockReset().mockResolvedValue(undefined);
-    mockClientInstance.end.mockReset().mockResolvedValue(undefined);
-    mockClientInstance.query.mockReset().mockResolvedValue({ rows: [] });
-    mockClientInstance.on.mockReset();
+    mockPoolClient.release.mockReset();
+    mockPoolInstance.connect.mockReset().mockResolvedValue(mockPoolClient);
+    mockPoolInstance.end.mockReset().mockResolvedValue(undefined);
+    mockPoolInstance.query.mockReset().mockResolvedValue({ rows: [] });
 
     configService = {
       get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/test'),
@@ -44,9 +47,9 @@ describe('DBService', () => {
   afterEach(() => jest.clearAllMocks());
 
   describe('constructor', () => {
-    it('reads DATABASE_URL from config and constructs a pg Client with it', () => {
+    it('reads DATABASE_URL from config and constructs a pg Pool with it', () => {
       expect(configService.get).toHaveBeenCalledWith('DATABASE_URL');
-      expect(Client).toHaveBeenCalledWith({
+      expect(Pool).toHaveBeenCalledWith({
         connectionString: 'postgres://user:pass@localhost:5432/test',
       });
     });
@@ -59,7 +62,7 @@ describe('DBService', () => {
       }).compile();
       module.get(DBService);
 
-      expect(Client).toHaveBeenCalledWith({ connectionString: '' });
+      expect(Pool).toHaveBeenCalledWith({ connectionString: '' });
     });
   });
 
@@ -78,54 +81,19 @@ describe('DBService', () => {
   });
 
   describe('onModuleInit', () => {
-    it('connects the client, sets up the drizzle db and logs success', async () => {
+    it('checks out and releases a connection to confirm connectivity, sets up drizzle, and logs success', async () => {
       const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
 
       await target.onModuleInit();
 
-      expect(mockClientInstance.connect).toHaveBeenCalledTimes(1);
+      expect(mockPoolInstance.connect).toHaveBeenCalledTimes(1);
+      expect(mockPoolClient.release).toHaveBeenCalledTimes(1);
       expect(logSpy).toHaveBeenCalledWith('Database connected successfully');
-      expect(mockClientInstance.query).toHaveBeenCalledWith('LISTEN password_updates');
-    });
-
-    it('registers a notification listener that logs on the password_updates channel', async () => {
-      jest.spyOn(Logger.prototype, 'log').mockImplementation();
-      const debugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation();
-
-      await target.onModuleInit();
-
-      expect(mockClientInstance.on).toHaveBeenCalledWith('notification', expect.any(Function));
-      const notificationHandler = mockClientInstance.on.mock.calls[0]?.[1] as (msg: {
-        channel: string;
-      }) => void;
-
-      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
-      notificationHandler({ channel: 'password_updates' });
-
-      expect(debugSpy).toHaveBeenCalledWith('Received notification on channel: password_updates');
-      expect(logSpy).toHaveBeenCalledWith('Received password update notification');
-    });
-
-    it('does not log the password update message for other channels', async () => {
-      jest.spyOn(Logger.prototype, 'log').mockImplementation();
-      const debugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation();
-
-      await target.onModuleInit();
-
-      const notificationHandler = mockClientInstance.on.mock.calls[0]?.[1] as (msg: {
-        channel: string;
-      }) => void;
-
-      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
-      notificationHandler({ channel: 'other_channel' });
-
-      expect(debugSpy).toHaveBeenCalledWith('Received notification on channel: other_channel');
-      expect(logSpy).not.toHaveBeenCalledWith('Received password update notification');
     });
 
     it('logs an error and does not throw when the connection fails', async () => {
       const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
-      mockClientInstance.connect.mockRejectedValue(new Error('connection refused'));
+      mockPoolInstance.connect.mockRejectedValue(new Error('connection refused'));
 
       await expect(target.onModuleInit()).resolves.toBeUndefined();
 
@@ -135,18 +103,18 @@ describe('DBService', () => {
   });
 
   describe('onModuleDestroy', () => {
-    it('ends the client connection and logs success', async () => {
+    it('ends the pool and logs success', async () => {
       const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
 
       await target.onModuleDestroy();
 
-      expect(mockClientInstance.end).toHaveBeenCalledTimes(1);
+      expect(mockPoolInstance.end).toHaveBeenCalledTimes(1);
       expect(logSpy).toHaveBeenCalledWith('Database connection closed');
     });
 
     it('logs an error and does not throw when ending the connection fails', async () => {
       const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
-      mockClientInstance.end.mockRejectedValue(new Error('already closed'));
+      mockPoolInstance.end.mockRejectedValue(new Error('already closed'));
 
       await expect(target.onModuleDestroy()).resolves.toBeUndefined();
 
@@ -156,14 +124,14 @@ describe('DBService', () => {
 
   describe('isHealthy', () => {
     it('returns true when the health check query succeeds', async () => {
-      mockClientInstance.query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+      mockPoolInstance.query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
 
       await expect(target.isHealthy()).resolves.toBe(true);
-      expect(mockClientInstance.query).toHaveBeenCalledWith('SELECT 1');
+      expect(mockPoolInstance.query).toHaveBeenCalledWith('SELECT 1');
     });
 
     it('returns false when the health check query throws', async () => {
-      mockClientInstance.query.mockRejectedValue(new Error('connection lost'));
+      mockPoolInstance.query.mockRejectedValue(new Error('connection lost'));
 
       await expect(target.isHealthy()).resolves.toBe(false);
     });

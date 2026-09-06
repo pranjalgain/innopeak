@@ -6,14 +6,11 @@ export interface IEmailJob {
 }
 
 export interface IOtpEmailJob extends IEmailJob {
-  otp: number;
+  /** A string, not a number — a leading zero (e.g. "042913") is a real, significant digit. */
+  otp: string;
+  expiresIn?: string;
   passwordResetLink?: string;
   passwordSetLink?: string;
-}
-
-export interface IMediaUploadJob {
-  file: Express.Multer.File;
-  metadata?: Record<string, unknown>;
 }
 
 export interface ICronJob {
@@ -23,40 +20,6 @@ export interface ICronJob {
     priority?: number;
     timestamp?: number;
   };
-}
-
-export interface INotificationJob {
-  deviceFids: string[];
-  subject: string;
-  message: string;
-  url: string;
-  data: Record<string, unknown>;
-}
-
-export interface INotificationTopicJob {
-  topic: string;
-  subject: string;
-  message: string;
-  url: string;
-  data: Record<string, unknown>;
-}
-
-export interface ISendNotificationJob {
-  user_ids: string[];
-  subject: string;
-  message: string;
-  url: string;
-  notification_type: string;
-  data?: Record<string, unknown>;
-}
-
-export interface IWebhookDeliveryJob {
-  webhookId: string;
-  deliveryId: string;
-  url: string;
-  secret: string;
-  event: string;
-  payload: Record<string, unknown>;
 }
 
 export interface IDLQFailedJobData {

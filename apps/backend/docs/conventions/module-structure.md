@@ -348,8 +348,25 @@ repository call — that's fine and expected for a simple module. The layer earn
 module where one Service operation needs several repository calls composed together (a signup
 flow inserting `tenants` + `users` + `user_identities` in one transaction is exactly this shape —
 see the "Auth flows" section of `apps/documentation/docs/backend/auth/overview.md` for a flow that
-will need it once implemented) — the transaction boundary and the composition belong in the DB
-Service, not in the business Service and not duplicated across Repository methods.
+needed it once implemented, `AuthDbService`/`AuthRepository`) — the transaction boundary and the
+composition belong in the DB Service, not in the business Service and not duplicated across
+Repository methods.
+
+**Opening the transaction without the DB Service injecting `DBService` directly**: the DB Service
+needs a transaction handle to pass to each Repository call, but `db.transaction(...)` only exists
+on `DBService`'s raw connection — and "only Repositories talk to the raw connection" (above) still
+applies here. The Repository exposes a thin passthrough for exactly this:
+
+```ts
+// src/db/repositories/auth/auth.repository.ts
+async transaction<T>(fn: (tx: DrizzleTransaction) => Promise<T>): Promise<T> {
+  return this.dbService.db.transaction(fn);
+}
+```
+
+The DB Service calls `this.repo.transaction(async tx => { ...composed repository calls... })`
+instead of injecting `DBService` itself — `DBService` stays a dependency of the Repository only,
+everywhere, with no special case for the transaction-owning module.
 
 ## Repository (centralized under src/db/repositories/)
 

@@ -51,6 +51,17 @@ interface ResponseCarryingError extends Error {
   };
 }
 
+/**
+ * Shape of an error from the `http-errors` package — what Express's body-parser throws for an
+ * oversized body (`413`, `type: 'entity.too.large'`), malformed JSON (`400`), an unsupported
+ * charset (`415`), etc. These are raised by middleware *before* Nest's pipeline, so they arrive
+ * as plain Errors, not `HttpException`s; without recognising them every one surfaced as a 500.
+ */
+interface HttpClientError extends Error {
+  statusCode: number;
+  expose: boolean;
+}
+
 @Injectable()
 export class ErrorHandlerService {
   constructor(private readonly logger: LoggerService) {}
@@ -62,6 +73,10 @@ export class ErrorHandlerService {
 
     if (error instanceof HttpException) {
       return this.handleHttpException(error, context);
+    }
+
+    if (this.isHttpClientError(error)) {
+      return this.handleHttpClientError(error, context);
     }
 
     if (this.isSocialAuthError(error)) {
@@ -80,6 +95,20 @@ export class ErrorHandlerService {
       typeof candidate.code === 'string' &&
       candidate.code.length === 5 &&
       Boolean(candidate.severity)
+    );
+  }
+
+  /** Only 4xx with `expose: true` — that's `http-errors`' own contract for "safe to show the client"; a 5xx-shaped one still goes through the generic path and gets logged as unhandled. */
+  private isHttpClientError(error: unknown): error is HttpClientError {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+    const candidate = error as Partial<HttpClientError>;
+    return (
+      typeof candidate.statusCode === 'number' &&
+      candidate.statusCode >= 400 &&
+      candidate.statusCode < 500 &&
+      candidate.expose === true
     );
   }
 
@@ -122,6 +151,11 @@ export class ErrorHandlerService {
     const message = error.message;
     this.logger.warn(`${error.name} in ${context}: ${message}`, error.stack);
     return this.createErrorResponse(status, message, context, error);
+  }
+
+  private handleHttpClientError(error: HttpClientError, context: string): ApiResponse<null> {
+    this.logger.warn(`${error.name} in ${context}: ${error.message}`);
+    return this.createErrorResponse(error.statusCode as HttpStatus, error.message, context, error);
   }
 
   private handleSocialAuthError(error: ResponseCarryingError, context: string): ApiResponse<null> {

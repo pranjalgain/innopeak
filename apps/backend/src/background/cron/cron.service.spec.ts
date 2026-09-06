@@ -1,5 +1,6 @@
 import { CronJobName } from '@bg/constants/job.constant';
 import type { ICronJob } from '@bg/interfaces/job.interface';
+import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { Logger } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
@@ -8,10 +9,15 @@ import { CronService } from './cron.service';
 
 describe('CronService', () => {
   let target: CronService;
+  let authDbService: jest.Mocked<AuthDbService>;
 
   beforeEach(async () => {
+    authDbService = {
+      purgeStaleTokens: jest.fn(),
+    } as unknown as jest.Mocked<AuthDbService>;
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [CronService],
+      providers: [CronService, { provide: AuthDbService, useValue: authDbService }],
     }).compile();
     target = module.get(CronService);
   });
@@ -45,6 +51,25 @@ describe('CronService', () => {
       const result = target.sendDailyMail();
 
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe('purgeStaleAuthTokens', () => {
+    it('delegates to AuthDbService.purgeStaleTokens and logs the counts', async () => {
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+      authDbService.purgeStaleTokens.mockResolvedValue({ verifyEmailTokens: 3, refreshTokens: 12 });
+
+      await target.purgeStaleAuthTokens();
+
+      expect(authDbService.purgeStaleTokens).toHaveBeenCalledTimes(1);
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('3 stale verify_email'));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('12 stale refresh'));
+    });
+
+    it('propagates a DB failure so the job is retried / lands in the DLQ', async () => {
+      authDbService.purgeStaleTokens.mockRejectedValue(new Error('db down'));
+
+      await expect(target.purgeStaleAuthTokens()).rejects.toThrow('db down');
     });
   });
 });

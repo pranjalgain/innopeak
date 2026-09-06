@@ -60,13 +60,12 @@
       "@dead-letter-queue/*": ["background/queue/dead-letter/*"],
       "@metrics/*": ["api/metrics/*"],
       "@health/*": ["api/health/*"],
-      "@auth/*": ["auth/*"],
+      "@auth/*": ["api/auth/*"],
       "@users/*": ["users/*"],
       "@media/*": ["media/*"],
       "@email/*": ["email/*"],
       "@sms/*": ["sms/*"],
-      "@notifications/*": ["notifications/*"],
-      "@ai/*": ["ai/*"]
+      "@notifications/*": ["notifications/*"]
     }
   },
   "include": [

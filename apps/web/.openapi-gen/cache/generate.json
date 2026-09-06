@@ -1,5 +1,5 @@
 {
-  "baseDocumentFile": "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/.openapi-gen/cache/base-openapi-78f1547a4bb707037a8a1c4f9aa841f2a4602ed48701da8a7f79f45a375b9348.json",
+  "baseDocumentFile": "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/.openapi-gen/cache/base-openapi-dc04f6e2bee69b3dd6dba6c1c0aaf69117c3fa009a5c2e5b2573afc2da3574e0.json",
   "cacheVersion": 2,
   "configPath": "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/openapi-gen.config.mts",
   "diagnostics": [
@@ -13,8 +13,8 @@
       }
     }
   ],
-  "fingerprint": "78f1547a4bb707037a8a1c4f9aa841f2a4602ed48701da8a7f79f45a375b9348",
-  "inputCount": 12,
+  "fingerprint": "dc04f6e2bee69b3dd6dba6c1c0aaf69117c3fa009a5c2e5b2573afc2da3574e0",
+  "inputCount": 11,
   "inputs": {
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/openapi-gen.config.mts": {
       "hash": "64390cde78d00bc5468ffe24054fbb0506a1561ba2b8f865bab5d2f719ea0883",
@@ -22,14 +22,9 @@
       "size": 2391
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/package.json": {
-      "hash": "c80235300aeb61ba8c0cca0958a5353118e42f1bb004f16cab094736c482635c",
-      "mtimeMs": 1788420050444.8606,
-      "size": 6188
-    },
-    "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/pnpm-lock.yaml": {
-      "hash": "90b3ce23da41fc5530d45fabeda862bdc4dcd58ba7faff7c255af000a8abbbbe",
-      "mtimeMs": 1788420018536.8386,
-      "size": 524587
+      "hash": "0743298a8dd9ac2c55ec002bd9f41cee511922de00582bd6aeb619fc9218abab",
+      "mtimeMs": 1788687572773.0374,
+      "size": 6196
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/src/app/api/health/route.ts": {
       "hash": "fe10e15732d1bd2096f7c88b58d8c531c1b71ffd9b21773a304cd1a2b85b9f6a",
@@ -72,42 +67,42 @@
       "size": 1226
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/pnpm-lock.yaml": {
-      "hash": "316dff71ce2fc1b037f4d67c56c010ad0b67adbd72a8f74d0a5b98d13bfc7375",
-      "mtimeMs": 1788420077825.513,
-      "size": 1286248
+      "hash": "dd7c0ff9d8c988a968e2a0abad3fbd6814d9877c82d60b11d47afd8ad203c275",
+      "mtimeMs": 1788687574501.7844,
+      "size": 1287187
     }
   },
   "outputFile": "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/public/openapi.json",
   "performance": {
-    "prepareTemplateMs": 0.12129099999992832,
-    "loadCustomFragmentsMs": 0.0007919999999330685,
-    "prepareDocumentMs": 0.12208299999986139,
-    "scanRouteFilesMs": 0.9007500000000164,
-    "deriveRoutePathMs": 0.2114169999999831,
-    "filterRouteCandidatesMs": 0.01641600000004928,
-    "sourcePrecheckMs": 5.1087909999999965,
-    "readRouteFilesMs": 4.741791000000035,
-    "parseRouteFilesMs": 1.9516680000000406,
-    "analyzeRouteFilesMs": 5.669334999999933,
-    "typescriptResponseInferenceMs": 4969.3755,
-    "processRouteFilesMs": 4977.2235,
-    "registerRouteMs": 12.514248999999495,
-    "getSchemaContentMs": 10.697207999999591,
-    "createRequestParamsMs": 0.16516699999999673,
+    "prepareTemplateMs": 0.12799999999992906,
+    "loadCustomFragmentsMs": 0.0017909999999119464,
+    "prepareDocumentMs": 0.129790999999841,
+    "scanRouteFilesMs": 0.8460000000000036,
+    "deriveRoutePathMs": 0.2217910000001666,
+    "filterRouteCandidatesMs": 0.017125000000078217,
+    "sourcePrecheckMs": 4.105749999999944,
+    "readRouteFilesMs": 3.7312509999999293,
+    "parseRouteFilesMs": 2.0422080000003007,
+    "analyzeRouteFilesMs": 5.681790999999976,
+    "typescriptResponseInferenceMs": 8126.373165999999,
+    "processRouteFilesMs": 8134.329624999999,
+    "registerRouteMs": 11.275542999997924,
+    "getSchemaContentMs": 9.452707000000373,
+    "createRequestParamsMs": 0.16141700000002857,
     "createRequestBodyMs": 0,
-    "processResponsesMs": 0.6117909999999256,
+    "processResponsesMs": 0.6355020000021341,
     "createResponseSchemaMs": 0,
-    "buildOperationsMs": 14.545292000000131,
-    "sortAndMergePathsMs": 0.3622079999995549,
-    "buildPathsMs": 0.3622079999995549,
-    "defaultComponentsAndErrorsMs": 0.166957999999795,
-    "mergeSchemasMs": 0.06525000000056025,
-    "zodPreScanMs": 24.254042000000027,
-    "zodPreprocessMs": 2.198583000000781,
-    "zodConvertMs": 10.428834000000279,
-    "finalizeDocumentMs": 2.785791000000245,
-    "totalMs": 5027.893917,
-    "scanRoutesMs": 4992.669542
+    "buildOperationsMs": 13.317417999999861,
+    "sortAndMergePathsMs": 0.36208299999998417,
+    "buildPathsMs": 0.36208299999998417,
+    "defaultComponentsAndErrorsMs": 0.1564589999998134,
+    "mergeSchemasMs": 0.06374999999934516,
+    "zodPreScanMs": 24.416583000000173,
+    "zodPreprocessMs": 2.3177080000004935,
+    "zodConvertMs": 9.184124999999767,
+    "finalizeDocumentMs": 2.7354159999995318,
+    "totalMs": 8183.036916999999,
+    "scanRoutesMs": 8148.4930429999995
   },
   "routeFragments": {
     "src/app/api/health/route.ts": {
@@ -931,5 +926,5 @@
       "webhooks": {}
     }
   },
-  "updatedAt": "2026-09-03T07:26:11.798Z"
+  "updatedAt": "2026-09-06T09:47:29.313Z"
 }

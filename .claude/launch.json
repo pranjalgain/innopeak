@@ -5,7 +5,7 @@
       "name": "web",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "apps/web", "dev"],
-      "port": 3000
+      "port": 3002
     }
   ]
 }

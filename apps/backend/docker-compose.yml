@@ -82,7 +82,10 @@ services:
       - '${POSTGRES_PORT}:5432'
     restart: unless-stopped
     volumes:
-      - db_data:/var/lib/postgresql/data
+      # postgres:18+ manages its own major-version-namespaced subdirectory under
+      # /var/lib/postgresql — mounting at the old /var/lib/postgresql/data path makes the image
+      # refuse to start (it treats that path's mere presence as an unmigrated pre-18 layout).
+      - db_data:/var/lib/postgresql
     networks:
       - monitoring
 

@@ -1,39 +1,42 @@
--- Seed: Default admin user
--- Idempotent — skips if admin@example.com already exists
+-- Seed: Default dev admin (owner) user
+-- Idempotent — skips if a user at :'dev_admin_email' already exists.
 --
--- Default credentials:
---   Email:    admin@example.com
---   Password: Admin@123456
+-- Email and password come from the DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD env vars (see
+-- .env.example) — seed.sh reads them, hashes the password with the app's own bcrypt config,
+-- and passes both in as the `dev_admin_email` / `dev_admin_password_hash` psql variables below.
+-- Creates a tenant + owner user + tenant_settings together, already `active` and
+-- email-verified, so local testing can skip signup + email verification entirely.
 --
--- The password hash below is bcrypt($2b$10$) for "Admin@123456".
--- Regenerate with: node -e "require('bcrypt').hash('Admin@123456',10).then(console.log)"
+-- Uses \gset/\if rather than a DO $$ ... $$ block — psql's :'var' substitution doesn't reach
+-- inside dollar-quoted bodies, so a PL/pgSQL block can't see these variables at all.
 
-DO $$
-DECLARE
-  v_admin_id UUID;
-  v_role_id UUID;
-  v_hash TEXT := '$2b$10$SM7uJF386MetwydyxEfBjeKmyf9A4KHgb2gMkRXB7llN7EaaDgkKe';
-BEGIN
-  -- Skip if user already exists
-  IF EXISTS (SELECT 1 FROM users WHERE email = 'admin@example.com') THEN
-    RAISE NOTICE 'Admin user already exists, skipping';
-    RETURN;
-  END IF;
+SELECT EXISTS (SELECT 1 FROM users WHERE email = :'dev_admin_email') AS already_exists \gset
 
-  -- Insert admin user
-  INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_email_verified)
-  VALUES ('admin@example.com', v_hash, 'Admin', 'User', true, true)
-  RETURNING id INTO v_admin_id;
+\if :already_exists
+\echo 'Dev admin user already exists, skipping'
+\else
 
-  -- Assign admin role
-  SELECT id INTO v_role_id FROM roles WHERE name = 'admin';
+INSERT INTO tenants (name, status)
+VALUES ('Dev Tenant', 'active')
+RETURNING id AS tenant_id \gset
 
-  IF v_role_id IS NOT NULL THEN
-    INSERT INTO user_roles (user_id, role_id)
-    VALUES (v_admin_id, v_role_id)
-    ON CONFLICT DO NOTHING;
-    RAISE NOTICE 'Admin user created and assigned admin role';
-  ELSE
-    RAISE WARNING 'Admin role not found. Run 001_roles_permissions.sql first.';
-  END IF;
-END $$;
+INSERT INTO users (tenant_id, name, email, password_hash, role, status, email_verified_at)
+VALUES (
+  :'tenant_id',
+  'Dev Admin',
+  :'dev_admin_email',
+  :'dev_admin_password_hash',
+  'owner',
+  'active',
+  NOW()
+)
+RETURNING id AS user_id \gset
+
+INSERT INTO tenant_settings (tenant_id, escalation_rating_threshold, auto_post_enabled)
+VALUES (:'tenant_id', 3, false);
+
+\echo 'Dev admin user created'
+\echo :tenant_id
+\echo :user_id
+
+\endif

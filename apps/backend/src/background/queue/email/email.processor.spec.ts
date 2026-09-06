@@ -16,7 +16,7 @@ describe('EmailProcessor', () => {
   const otpData: IOtpEmailJob = {
     email: 'user@example.com',
     customerName: 'Jane',
-    otp: 123456,
+    otp: '123456',
   };
 
   const buildJob = (overrides: Record<string, unknown> = {}): EmailJobHandle =>
