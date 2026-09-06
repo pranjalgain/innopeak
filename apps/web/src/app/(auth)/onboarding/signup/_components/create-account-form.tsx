@@ -13,9 +13,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+export interface CreateAccountFormValues {
+  name: string;
+  businessName: string;
+  email: string;
+  password: string;
+}
+
 interface CreateAccountFormProps {
   isLoading: boolean;
-  onSubmit: (email: string) => void;
+  onSubmit: (values: CreateAccountFormValues) => void;
 }
 
 /**
@@ -29,6 +36,7 @@ interface CreateAccountFormProps {
 export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProps) {
   const t = useTranslations("onboardingSignup.createAccount");
   const [name, setName] = React.useState("");
+  const [businessName, setBusinessName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
@@ -44,14 +52,20 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
   const showMismatch = confirmBlurred && hasConfirmValue && !passwordsMatch;
 
   const canSubmit =
-    name.trim() !== "" && email.trim() !== "" && passwordValid && passwordsMatch && hasConfirmValue && !isLoading;
+    name.trim() !== "" &&
+    businessName.trim() !== "" &&
+    email.trim() !== "" &&
+    passwordValid &&
+    passwordsMatch &&
+    hasConfirmValue &&
+    !isLoading;
 
   return (
     <form
       className="flex flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (canSubmit) onSubmit(email);
+        if (canSubmit) onSubmit({ name, businessName, email, password });
       }}
     >
       <div className="flex flex-col gap-1.5">
@@ -63,6 +77,18 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
           value={name}
           onChange={(event) => setName(event.target.value)}
           autoComplete="name"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="signup-business-name">{t("businessNameLabel")}</Label>
+        <Input
+          id="signup-business-name"
+          type="text"
+          placeholder={t("businessNamePlaceholder")}
+          value={businessName}
+          onChange={(event) => setBusinessName(event.target.value)}
+          autoComplete="organization"
         />
       </div>
 

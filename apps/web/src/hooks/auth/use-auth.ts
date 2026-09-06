@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
 
+import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
 import { AuthService } from "@/app/_libs/services/auth.service";
 
 interface UseAuthResult {
@@ -9,7 +10,7 @@ interface UseAuthResult {
   loginWithPassword: (email: string) => Promise<void>;
   loginWithSocial: () => Promise<void>;
   signupWithMicrosoft: () => Promise<boolean>;
-  signupWithPassword: () => Promise<boolean>;
+  signupWithPassword: (values: CreateAccountFormValues) => Promise<boolean>;
   signupWithSocial: () => Promise<boolean>;
   verifySignupOtp: (code: string) => Promise<boolean>;
   resendSignupOtp: () => Promise<void>;
@@ -80,18 +81,21 @@ export function useAuth(): UseAuthResult {
     }
   }, [t]);
 
-  const signupWithPassword = React.useCallback(async () => {
-    setIsLoading(true);
-    try {
-      await AuthService.signupWithPassword();
-      return true;
-    } catch {
-      toast.error(t("signInFailed"));
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [t]);
+  const signupWithPassword = React.useCallback(
+    async (values: CreateAccountFormValues) => {
+      setIsLoading(true);
+      try {
+        await AuthService.signupWithPassword(values);
+        return true;
+      } catch {
+        toast.error(t("signInFailed"));
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [t],
+  );
 
   const signupWithSocial = React.useCallback(async () => {
     setIsLoading(true);

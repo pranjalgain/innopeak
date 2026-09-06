@@ -1,3 +1,4 @@
+import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
 import { SUPER_ADMIN_EMAIL } from "@/app/_libs/constants/current-owner";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { SessionService } from "@/app/_libs/services/session.service";
@@ -50,7 +51,7 @@ export class AuthService {
     await SessionService.setRole("tenant");
   }
 
-  static async signupWithPassword(): Promise<void> {
+  static async signupWithPassword(_values: CreateAccountFormValues): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 600));
     await SessionService.setRole("tenant");
   }

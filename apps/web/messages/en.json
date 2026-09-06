@@ -203,6 +203,8 @@
     "createAccount": {
       "nameLabel": "Full name",
       "namePlaceholder": "Jordan Lee",
+      "businessNameLabel": "Company name",
+      "businessNamePlaceholder": "The Coffee House",
       "emailLabel": "Email",
       "emailPlaceholder": "you@company.com",
       "passwordLabel": "Password",

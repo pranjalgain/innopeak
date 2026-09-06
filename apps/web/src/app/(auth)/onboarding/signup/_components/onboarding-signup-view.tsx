@@ -12,7 +12,10 @@ import { BackfillingStage } from "@/app/(auth)/onboarding/connect/_components/ba
 import { ConfirmLocationStage } from "@/app/(auth)/onboarding/connect/_components/confirm-location-stage";
 import { ConnectStage } from "@/app/(auth)/onboarding/connect/_components/connect-stage";
 import { DoneStage } from "@/app/(auth)/onboarding/connect/_components/done-stage";
-import { CreateAccountForm } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
+import {
+  CreateAccountForm,
+  type CreateAccountFormValues,
+} from "@/app/(auth)/onboarding/signup/_components/create-account-form";
 import { OtpVerificationStage } from "@/app/(auth)/onboarding/signup/_components/otp-verification-stage";
 import type { SignupStep } from "@/app/(auth)/onboarding/signup/_components/signup-step.types";
 import { SignupStepper } from "@/app/(auth)/onboarding/signup/_components/signup-stepper";
@@ -34,9 +37,11 @@ const PASSWORD_STEPS: SignupStep[] = ["identity", "otp", "connect"];
  * reaching step 3: Microsoft/Google already assert a verified email as
  * part of their OAuth handshake, so those skip straight to step 3 exactly
  * as before. Step 3 reuses the same Google Business Profile connect flow
- * the standalone `/onboarding/connect` screen uses — connecting there is
- * what supplies the business name/address, there's no manual "business
- * name" field anywhere in this flow.
+ * the standalone `/onboarding/connect` screen uses — connecting there
+ * supplies a *location's* name/address, a separate thing from the
+ * tenant/company name, which `CreateAccountForm` collects directly in
+ * step 1 (a tenant can have several locations, so the company name can't
+ * be derived from picking just one of them).
  */
 export function OnboardingSignupView() {
   const t = useTranslations("onboardingSignup");
@@ -59,11 +64,11 @@ export function OnboardingSignupView() {
     if (succeeded) setStep("connect");
   };
 
-  const handlePasswordSubmit = async (email: string) => {
-    const succeeded = await signupWithPassword();
+  const handlePasswordSubmit = async (values: CreateAccountFormValues) => {
+    const succeeded = await signupWithPassword(values);
     if (succeeded) {
       setViaPassword(true);
-      setSignupEmail(email);
+      setSignupEmail(values.email);
       setStep("otp");
     }
   };
@@ -109,7 +114,7 @@ export function OnboardingSignupView() {
               <p className="mb-6 text-center text-sm text-muted-foreground">{t("subtitle")}</p>
 
               {AUTH_METHODS.password ? (
-                <CreateAccountForm isLoading={isLoading} onSubmit={(email) => void handlePasswordSubmit(email)} />
+                <CreateAccountForm isLoading={isLoading} onSubmit={(values) => void handlePasswordSubmit(values)} />
               ) : null}
 
               {AUTH_METHODS.password && (AUTH_METHODS.sso || AUTH_METHODS.social) ? (

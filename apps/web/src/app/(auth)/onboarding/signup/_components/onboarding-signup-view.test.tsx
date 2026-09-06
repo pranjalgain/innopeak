@@ -19,13 +19,13 @@ function renderView() {
 }
 
 describe("OnboardingSignupView", () => {
-  test("starts on the identity step with no business-name field anywhere", () => {
+  test("starts on the identity step with SSO only (default AUTH_METHODS), no password/company-name fields", () => {
     renderView();
 
     expect(screen.getByRole("button", { name: "Continue with Microsoft" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
-    expect(screen.queryByText(/business name/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Company name")).not.toBeInTheDocument();
 
     // The SSO-only path (default AUTH_METHODS) is a 2-step stepper — no OTP step.
     expect(screen.getByText("Create account")).toBeInTheDocument();
