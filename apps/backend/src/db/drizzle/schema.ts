@@ -1,12 +1,13 @@
-import { relations, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
+  pgEnum,
   pgTable,
-  primaryKey,
   serial,
   text,
   timestamp,
@@ -15,529 +16,1051 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
-// ─── Audit Logs ─────────────────────────────────────────────────────────────
+export const auditOperationType = pgEnum('audit_operation_type', ['INSERT', 'UPDATE', 'DELETE']);
+export const escalationReason = pgEnum('escalation_reason', ['low_rating', 'blocklist_match']);
+export const googleConnectionStatus = pgEnum('google_connection_status', [
+  'active',
+  'needs_reauth',
+]);
+export const locationStatus = pgEnum('location_status', ['active', 'inactive']);
+export const notificationChannel = pgEnum('notification_channel', ['email', 'teams']);
+export const notificationChannelPref = pgEnum('notification_channel_pref', [
+  'email',
+  'teams',
+  'both',
+]);
+export const notificationStatus = pgEnum('notification_status', ['pending', 'sent', 'failed']);
+export const notificationType = pgEnum('notification_type', ['escalation']);
+export const platformAdminInvitePurpose = pgEnum('platform_admin_invite_purpose', [
+  'invite',
+  'reset',
+]);
+export const platformAdminStatus = pgEnum('platform_admin_status', [
+  'invited',
+  'active',
+  'disabled',
+]);
+export const promptCategory = pgEnum('prompt_category', ['positive', 'neutral', 'escalated']);
+export const promptTone = pgEnum('prompt_tone', [
+  'friendly',
+  'professional',
+  'formal',
+  'playful',
+  'empathetic',
+]);
+export const responseSource = pgEnum('response_source', [
+  'ai_generated',
+  'human_edited',
+  'human_manual',
+  'imported',
+]);
+export const responseStatus = pgEnum('response_status', [
+  'draft',
+  'pending_approval',
+  'approved',
+  'rejected',
+  'posted',
+  'post_failed',
+  'superseded',
+]);
+export const responseType = pgEnum('response_type', [
+  'auto_reply_suggestion',
+  'escalation_snippet',
+]);
+export const reviewClassification = pgEnum('review_classification', [
+  'auto_reply_candidate',
+  'escalated',
+  'pending_classification',
+]);
+export const reviewProvider = pgEnum('review_provider', ['google']);
+export const reviewSentiment = pgEnum('review_sentiment', ['positive', 'neutral', 'negative']);
+export const reviewStatus = pgEnum('review_status', ['new', 'in_review', 'responded', 'dismissed']);
+export const syncHealthStatus = pgEnum('sync_health_status', ['ok', 'error']);
+export const syncRunStatus = pgEnum('sync_run_status', ['running', 'ok', 'error']);
+export const syncTrigger = pgEnum('sync_trigger', ['scheduled', 'backfill']);
+export const tenantIdentityProvider = pgEnum('tenant_identity_provider', [
+  'entra_id',
+  'google_workspace',
+]);
+export const tenantStatus = pgEnum('tenant_status', ['pending_activation', 'active', 'suspended']);
+export const tokenPurpose = pgEnum('token_purpose', ['verify_email', 'invite', 'reset']);
+export const userIdentityProvider = pgEnum('user_identity_provider', ['entra_id', 'google']);
+export const userRole = pgEnum('user_role', ['owner', 'member']);
+export const userStatus = pgEnum('user_status', [
+  'pending_verification',
+  'invited',
+  'active',
+  'disabled',
+]);
 
 export const auditLogs = pgTable(
   'audit_logs',
   {
-    id: serial('id').primaryKey(),
-    eventTimestamp: timestamp('event_timestamp', { withTimezone: true }).defaultNow(),
-    requestedApi: varchar('requested_api', { length: 255 }),
-    appVersion: varchar('app_version', { length: 50 }),
-    systemName: varchar('system_name', { length: 100 }),
-    systemVersion: varchar('system_version', { length: 50 }),
-    userAgent: text('user_agent'),
-    ipAddress: varchar('ip_address', { length: 45 }),
-    country: varchar('country', { length: 100 }),
-    hostName: varchar('host_name', { length: 255 }),
-    tableName: varchar('table_name', { length: 100 }),
-    operationType: varchar('operation_type', { length: 50 }),
-    severity: varchar('severity', { length: 20 }),
-    description: text('description'),
-    details: jsonb('details'),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  },
-  table => [
-    index('idx_audit_logs_event_timestamp').on(table.eventTimestamp),
-    index('idx_audit_logs_severity').on(table.severity),
-    index('idx_audit_logs_table_operation').on(table.tableName, table.operationType),
-    index('idx_audit_logs_requested_api').on(table.requestedApi),
-    index('idx_audit_logs_country').on(table.country),
-    check(
-      'operation_type_check',
-      sql`${table.operationType} IN ('VIEW', 'INSERT', 'UPDATE', 'DELETE')`
-    ),
-    check('severity_check', sql`${table.severity} IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')`),
-  ]
-);
-
-// ─── DB Audit Logs ──────────────────────────────────────────────────────────
-
-export const dbAuditLogs = pgTable(
-  'db_audit_logs',
-  {
-    id: serial('id').primaryKey(),
-    eventTimestamp: timestamp('event_timestamp', { withTimezone: true }).defaultNow(),
+    id: serial().primaryKey().notNull(),
+    eventTimestamp: timestamp('event_timestamp', {
+      withTimezone: true,
+      mode: 'string',
+    }).defaultNow(),
     tableName: varchar('table_name', { length: 100 }).notNull(),
-    operationType: varchar('operation_type', { length: 10 }).notNull(),
+    operationType: auditOperationType('operation_type').notNull(),
+    tenantId: uuid('tenant_id'),
     dbUser: varchar('db_user', { length: 100 }),
     dbName: varchar('db_name', { length: 100 }),
     oldValue: jsonb('old_value'),
     newValue: jsonb('new_value'),
-    triggeredBy: text('triggered_by').default(sql`CURRENT_USER`),
+    triggeredBy: varchar('triggered_by', { length: 100 }).default(sql`CURRENT_USER`),
   },
   table => [
-    check('db_operation_type_check', sql`${table.operationType} IN ('INSERT', 'UPDATE', 'DELETE')`),
-  ]
-);
-
-// ─── Users ──────────────────────────────────────────────────────────────────
-
-export const users = pgTable(
-  'users',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    email: varchar('email', { length: 255 }).notNull().unique(),
-    passwordHash: varchar('password_hash', { length: 255 }),
-    firstName: varchar('first_name', { length: 100 }),
-    lastName: varchar('last_name', { length: 100 }),
-    phone: varchar('phone', { length: 20 }),
-    isActive: boolean('is_active').notNull().default(true),
-    isEmailVerified: boolean('is_email_verified').notNull().default(false),
-    mfaEnabled: boolean('mfa_enabled').notNull().default(false),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
-  },
-  table => [
-    index('idx_users_email').on(table.email),
-    index('idx_users_is_active').on(table.isActive),
-  ]
-);
-
-export const usersRelations = relations(users, ({ many }) => ({
-  userRoles: many(userRoles),
-  refreshTokens: many(refreshTokens),
-  apiKeys: many(apiKeys),
-  mfaSettings: many(mfaSettings),
-  oauthAccounts: many(oauthAccounts),
-}));
-
-// ─── Roles ──────────────────────────────────────────────────────────────────
-
-export const roles = pgTable('roles', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: varchar('name', { length: 50 }).notNull().unique(),
-  description: varchar('description', { length: 255 }),
-  isActive: boolean('is_active').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const rolesRelations = relations(roles, ({ many }) => ({
-  userRoles: many(userRoles),
-  rolePermissions: many(rolePermissions),
-}));
-
-// ─── Permissions ────────────────────────────────────────────────────────────
-
-export const permissions = pgTable(
-  'permissions',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    name: varchar('name', { length: 100 }).notNull().unique(),
-    description: varchar('description', { length: 255 }),
-    resource: varchar('resource', { length: 100 }).notNull(),
-    action: varchar('action', { length: 50 }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [index('idx_permissions_resource_action').on(table.resource, table.action)]
-);
-
-export const permissionsRelations = relations(permissions, ({ many }) => ({
-  rolePermissions: many(rolePermissions),
-}));
-
-// ─── User Roles (Many-to-Many) ─────────────────────────────────────────────
-
-export const userRoles = pgTable(
-  'user_roles',
-  {
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    roleId: uuid('role_id')
-      .notNull()
-      .references(() => roles.id, { onDelete: 'cascade' }),
-    assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [
-    primaryKey({ columns: [table.userId, table.roleId] }),
-    index('idx_user_roles_user_id').on(table.userId),
-    index('idx_user_roles_role_id').on(table.roleId),
-  ]
-);
-
-export const userRolesRelations = relations(userRoles, ({ one }) => ({
-  user: one(users, { fields: [userRoles.userId], references: [users.id] }),
-  role: one(roles, { fields: [userRoles.roleId], references: [roles.id] }),
-}));
-
-// ─── Role Permissions (Many-to-Many) ───────────────────────────────────────
-
-export const rolePermissions = pgTable(
-  'role_permissions',
-  {
-    roleId: uuid('role_id')
-      .notNull()
-      .references(() => roles.id, { onDelete: 'cascade' }),
-    permissionId: uuid('permission_id')
-      .notNull()
-      .references(() => permissions.id, { onDelete: 'cascade' }),
-  },
-  table => [
-    primaryKey({ columns: [table.roleId, table.permissionId] }),
-    index('idx_role_permissions_role_id').on(table.roleId),
-  ]
-);
-
-export const rolePermissionsRelations = relations(rolePermissions, ({ one }) => ({
-  role: one(roles, { fields: [rolePermissions.roleId], references: [roles.id] }),
-  permission: one(permissions, {
-    fields: [rolePermissions.permissionId],
-    references: [permissions.id],
-  }),
-}));
-
-// ─── Refresh Tokens ─────────────────────────────────────────────────────────
-
-export const refreshTokens = pgTable(
-  'refresh_tokens',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    tokenHash: varchar('token_hash', { length: 255 }).notNull(),
-    deviceInfo: varchar('device_info', { length: 500 }),
-    ipAddress: varchar('ip_address', { length: 45 }),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [
-    index('idx_refresh_tokens_user_id').on(table.userId),
-    index('idx_refresh_tokens_token_hash').on(table.tokenHash),
-    index('idx_refresh_tokens_expires_at').on(table.expiresAt),
-  ]
-);
-
-export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
-  user: one(users, { fields: [refreshTokens.userId], references: [users.id] }),
-}));
-
-// ─── API Keys ───────────────────────────────────────────────────────────────
-
-export const apiKeys = pgTable(
-  'api_keys',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    name: varchar('name', { length: 100 }).notNull(),
-    keyHash: varchar('key_hash', { length: 255 }).notNull(),
-    prefix: varchar('prefix', { length: 8 }).notNull(),
-    scopes: jsonb('scopes')
-      .notNull()
-      .default(sql`'[]'::jsonb`),
-    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [
-    index('idx_api_keys_user_id').on(table.userId),
-    index('idx_api_keys_prefix').on(table.prefix),
-    index('idx_api_keys_key_hash').on(table.keyHash),
-  ]
-);
-
-export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
-  user: one(users, { fields: [apiKeys.userId], references: [users.id] }),
-}));
-
-// ─── MFA Settings ───────────────────────────────────────────────────────────
-
-export const mfaSettings = pgTable(
-  'mfa_settings',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    type: varchar('type', { length: 10 }).notNull(),
-    secretEncrypted: text('secret_encrypted').notNull(),
-    isVerified: boolean('is_verified').notNull().default(false),
-    backupCodesHash: jsonb('backup_codes_hash'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [
-    uniqueIndex('idx_mfa_settings_user_type').on(table.userId, table.type),
-    check('mfa_type_check', sql`${table.type} IN ('totp', 'sms')`),
-  ]
-);
-
-export const mfaSettingsRelations = relations(mfaSettings, ({ one }) => ({
-  user: one(users, { fields: [mfaSettings.userId], references: [users.id] }),
-}));
-
-// ─── OAuth Accounts ─────────────────────────────────────────────────────────
-
-export const oauthAccounts = pgTable(
-  'oauth_accounts',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    provider: varchar('provider', { length: 20 }).notNull(),
-    providerUserId: varchar('provider_user_id', { length: 255 }).notNull(),
-    accessTokenEncrypted: text('access_token_encrypted'),
-    refreshTokenEncrypted: text('refresh_token_encrypted'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [
-    uniqueIndex('idx_oauth_accounts_provider_user').on(table.provider, table.providerUserId),
-    index('idx_oauth_accounts_user_id').on(table.userId),
-    check('oauth_provider_check', sql`${table.provider} IN ('google', 'github', 'apple')`),
-  ]
-);
-
-export const oauthAccountsRelations = relations(oauthAccounts, ({ one }) => ({
-  user: one(users, { fields: [oauthAccounts.userId], references: [users.id] }),
-}));
-
-// ─── Media ──────────────────────────────────────────────────────────────────
-
-export const media = pgTable(
-  'media',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    filename: varchar('filename', { length: 500 }).notNull(),
-    originalName: varchar('original_name', { length: 500 }).notNull(),
-    mimeType: varchar('mime_type', { length: 100 }).notNull(),
-    size: text('size').notNull(), // bigint as text for JS compatibility
-    storageProvider: varchar('storage_provider', { length: 50 }).notNull(),
-    storageKey: varchar('storage_key', { length: 1000 }).notNull(),
-    url: text('url'),
-    thumbnailUrl: text('thumbnail_url'),
-    metadata: jsonb('metadata').default(sql`'{}'::jsonb`),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [
-    index('idx_media_user_id').on(table.userId),
-    index('idx_media_storage_provider').on(table.storageProvider),
-    index('idx_media_mime_type').on(table.mimeType),
-    index('idx_media_created_at').on(table.createdAt),
-  ]
-);
-
-export const mediaRelations = relations(media, ({ one }) => ({
-  user: one(users, { fields: [media.userId], references: [users.id] }),
-}));
-
-// ─── Notifications ──────────────────────────────────────────────────────────
-
-export const notifications = pgTable(
-  'notifications',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    title: varchar('title', { length: 500 }).notNull(),
-    body: text('body').notNull(),
-    type: varchar('type', { length: 50 }).notNull(),
-    data: jsonb('data').default(sql`'{}'::jsonb`),
-    channel: varchar('channel', { length: 20 }).notNull(),
-    isRead: boolean('is_read').notNull().default(false),
-    sentAt: timestamp('sent_at', { withTimezone: true }),
-    readAt: timestamp('read_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [
-    index('idx_notifications_user_id').on(table.userId),
-    index('idx_notifications_channel').on(table.channel),
-    index('idx_notifications_is_read').on(table.userId, table.isRead),
-    index('idx_notifications_created_at').on(table.createdAt),
-    check(
-      'notification_channel_check',
-      sql`${table.channel} IN ('push', 'email', 'sms', 'in-app')`
+    index('idx_audit_logs_new_value_gin').using(
+      'gin',
+      table.newValue.asc().nullsLast().op('jsonb_ops')
+    ),
+    index('idx_audit_logs_old_value_gin').using(
+      'gin',
+      table.oldValue.asc().nullsLast().op('jsonb_ops')
+    ),
+    index('idx_audit_logs_table_name').using(
+      'btree',
+      table.tableName.asc().nullsLast().op('text_ops')
+    ),
+    index('idx_audit_logs_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
     ),
   ]
 );
 
-export const notificationsRelations = relations(notifications, ({ one }) => ({
-  user: one(users, { fields: [notifications.userId], references: [users.id] }),
-}));
-
-// ─── Device Tokens ──────────────────────────────────────────────────────────
-
-export const deviceTokens = pgTable(
-  'device_tokens',
+export const platformAdmins = pgTable(
+  'platform_admins',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    fid: text('fid').notNull(),
-    platform: varchar('platform', { length: 10 }).notNull(),
-    isActive: boolean('is_active').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    email: varchar({ length: 255 }).notNull(),
+    passwordHash: varchar('password_hash', { length: 255 }),
+    invitedByPlatformAdminId: uuid('invited_by_platform_admin_id'),
+    status: platformAdminStatus().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
   },
   table => [
-    index('idx_device_tokens_user_id').on(table.userId),
-    uniqueIndex('idx_device_tokens_fid').on(table.fid),
-    check('device_platform_check', sql`${table.platform} IN ('ios', 'android', 'web')`),
+    uniqueIndex('idx_platform_admins_email').using(
+      'btree',
+      table.email.asc().nullsLast().op('text_ops')
+    ),
+    index('idx_platform_admins_invited_by_platform_admin_id').using(
+      'btree',
+      table.invitedByPlatformAdminId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_platform_admins_single_root')
+      .using('btree', sql`(true)`)
+      .where(sql`(invited_by_platform_admin_id IS NULL)`),
+    foreignKey({
+      columns: [table.invitedByPlatformAdminId],
+      foreignColumns: [table.id],
+      name: 'platform_admins_invited_by_platform_admin_id_fkey',
+    }).onDelete('set null'),
   ]
 );
 
-export const deviceTokensRelations = relations(deviceTokens, ({ one }) => ({
-  user: one(users, { fields: [deviceTokens.userId], references: [users.id] }),
-}));
-
-// ─── Documents (RAG) ────────────────────────────────────────────────────────
-
-export const documents = pgTable('documents', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  title: varchar('title', { length: 500 }),
-  source: varchar('source', { length: 1000 }),
-  content: text('content'),
-  metadata: jsonb('metadata').default(sql`'{}'::jsonb`),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const documentsRelations = relations(documents, ({ many }) => ({
-  chunks: many(documentChunks),
-}));
-
-// ─── Document Chunks (RAG + pgvector) ───────────────────────────────────────
-
-export const documentChunks = pgTable(
-  'document_chunks',
+export const platformAdminIdentities = pgTable(
+  'platform_admin_identities',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    documentId: uuid('document_id')
-      .notNull()
-      .references(() => documents.id, { onDelete: 'cascade' }),
-    content: text('content').notNull(),
-    embedding: text('embedding'), // stored as vector(1536) in DB, handled via raw SQL
-    chunkIndex: serial('chunk_index').notNull(),
-    metadata: jsonb('metadata').default(sql`'{}'::jsonb`),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [index('idx_document_chunks_document_id').on(table.documentId)]
-);
-
-export const documentChunksRelations = relations(documentChunks, ({ one }) => ({
-  document: one(documents, { fields: [documentChunks.documentId], references: [documents.id] }),
-}));
-
-// ─── Conversations (AI Agents) ──────────────────────────────────────────────
-
-export const conversations = pgTable(
-  'conversations',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    title: varchar('title', { length: 500 }),
-    model: varchar('model', { length: 100 }).notNull(),
-    systemPrompt: text('system_prompt'),
-    metadata: jsonb('metadata').default(sql`'{}'::jsonb`),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    platformAdminId: uuid('platform_admin_id').notNull(),
+    provider: userIdentityProvider().notNull(),
+    providerUserId: varchar('provider_user_id', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
   },
   table => [
-    index('idx_conversations_user_id').on(table.userId),
-    index('idx_conversations_updated_at').on(table.updatedAt),
+    index('idx_platform_admin_identities_platform_admin_id').using(
+      'btree',
+      table.platformAdminId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_platform_admin_identities_provider_provider_user_id').using(
+      'btree',
+      table.provider.asc().nullsLast().op('text_ops'),
+      table.providerUserId.asc().nullsLast().op('text_ops')
+    ),
+    foreignKey({
+      columns: [table.platformAdminId],
+      foreignColumns: [platformAdmins.id],
+      name: 'platform_admin_identities_platform_admin_id_fkey',
+    }).onDelete('cascade'),
   ]
 );
 
-export const conversationsRelations = relations(conversations, ({ one, many }) => ({
-  user: one(users, { fields: [conversations.userId], references: [users.id] }),
-  messages: many(messages),
-}));
-
-// ─── Messages (AI Agents) ───────────────────────────────────────────────────
-
-export const messages = pgTable(
-  'messages',
+export const platformAdminInvites = pgTable(
+  'platform_admin_invites',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    conversationId: uuid('conversation_id')
-      .notNull()
-      .references(() => conversations.id, { onDelete: 'cascade' }),
-    role: varchar('role', { length: 20 }).notNull(),
-    content: text('content').notNull(),
-    toolCalls: jsonb('tool_calls'),
-    tokenCount: serial('token_count'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    platformAdminId: uuid('platform_admin_id').notNull(),
+    tokenHash: varchar('token_hash', { length: 255 }).notNull(),
+    purpose: platformAdminInvitePurpose().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true, mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
   },
   table => [
-    index('idx_messages_conversation_id').on(table.conversationId),
-    index('idx_messages_created_at').on(table.createdAt),
-    check('message_role_check', sql`${table.role} IN ('user', 'assistant', 'system', 'tool')`),
+    index('idx_platform_admin_invites_platform_admin_id').using(
+      'btree',
+      table.platformAdminId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_platform_admin_invites_token_hash').using(
+      'btree',
+      table.tokenHash.asc().nullsLast().op('text_ops')
+    ),
+    foreignKey({
+      columns: [table.platformAdminId],
+      foreignColumns: [platformAdmins.id],
+      name: 'platform_admin_invites_platform_admin_id_fkey',
+    }).onDelete('cascade'),
   ]
 );
 
-export const messagesRelations = relations(messages, ({ one }) => ({
-  conversation: one(conversations, {
-    fields: [messages.conversationId],
-    references: [conversations.id],
-  }),
-}));
-
-// ─── Webhooks ──────────────────────────────────────────────────────────────
-
-export const webhooks = pgTable(
-  'webhooks',
+export const tenants = pgTable(
+  'tenants',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    url: varchar('url', { length: 2048 }).notNull(),
-    secret: varchar('secret', { length: 255 }).notNull(),
-    events: text('events')
-      .array()
-      .notNull()
-      .default(sql`'{}'::text[]`),
-    isActive: boolean('is_active').notNull().default(true),
-    description: varchar('description', { length: 500 }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  table => [index('idx_webhooks_user_id').on(table.userId)]
-);
-
-export const webhooksRelations = relations(webhooks, ({ one, many }) => ({
-  user: one(users, { fields: [webhooks.userId], references: [users.id] }),
-  deliveries: many(webhookDeliveries),
-}));
-
-// ─── Webhook Deliveries ────────────────────────────────────────────────────
-
-export const webhookDeliveries = pgTable(
-  'webhook_deliveries',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    webhookId: uuid('webhook_id')
-      .notNull()
-      .references(() => webhooks.id, { onDelete: 'cascade' }),
-    event: varchar('event', { length: 255 }).notNull(),
-    payload: jsonb('payload').notNull(),
-    responseStatus: integer('response_status'),
-    responseBody: text('response_body'),
-    attempt: integer('attempt').notNull().default(1),
-    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
-    nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
-    status: varchar('status', { length: 50 }).notNull().default('pending'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    createdByPlatformAdminId: uuid('created_by_platform_admin_id'),
+    status: tenantStatus().default('pending_activation').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
   },
   table => [
-    index('idx_webhook_deliveries_webhook_id').on(table.webhookId),
-    index('idx_webhook_deliveries_status').on(table.status),
+    index('idx_tenants_created_by_platform_admin_id').using(
+      'btree',
+      table.createdByPlatformAdminId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_tenants_status').using('btree', table.status.asc().nullsLast().op('enum_ops')),
+    foreignKey({
+      columns: [table.createdByPlatformAdminId],
+      foreignColumns: [platformAdmins.id],
+      name: 'tenants_created_by_platform_admin_id_fkey',
+    }).onDelete('set null'),
   ]
 );
 
-export const webhookDeliveriesRelations = relations(webhookDeliveries, ({ one }) => ({
-  webhook: one(webhooks, { fields: [webhookDeliveries.webhookId], references: [webhooks.id] }),
-}));
+export const tenantIdentityProviders = pgTable(
+  'tenant_identity_providers',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    provider: tenantIdentityProvider().notNull(),
+    providerTenantId: varchar('provider_tenant_id', { length: 255 }).notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_tenant_identity_providers_provider_tenant_id').using(
+      'btree',
+      table.provider.asc().nullsLast().op('text_ops'),
+      table.providerTenantId.asc().nullsLast().op('text_ops')
+    ),
+    index('idx_tenant_identity_providers_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'tenant_identity_providers_tenant_id_fkey',
+    }).onDelete('cascade'),
+  ]
+);
+
+export const users = pgTable(
+  'users',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    email: varchar({ length: 255 }).notNull(),
+    passwordHash: varchar('password_hash', { length: 255 }),
+    emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true, mode: 'string' }),
+    invitedByUserId: uuid('invited_by_user_id'),
+    role: userRole().notNull(),
+    status: userStatus().notNull(),
+    anonymizedAt: timestamp('anonymized_at', { withTimezone: true, mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_users_invited_by_user_id').using(
+      'btree',
+      table.invitedByUserId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_users_email_active')
+      .using('btree', table.email.asc().nullsLast().op('text_ops'))
+      .where(sql`(anonymized_at IS NULL)`),
+    index('idx_users_role').using('btree', table.role.asc().nullsLast().op('enum_ops')),
+    index('idx_users_status').using('btree', table.status.asc().nullsLast().op('enum_ops')),
+    index('idx_users_tenant_id').using('btree', table.tenantId.asc().nullsLast().op('uuid_ops')),
+    uniqueIndex('idx_users_tenant_id_email').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops'),
+      table.email.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'users_tenant_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.invitedByUserId],
+      foreignColumns: [table.id],
+      name: 'users_invited_by_user_id_fkey',
+    }).onDelete('set null'),
+  ]
+);
+
+export const tenantSettings = pgTable(
+  'tenant_settings',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    escalationRatingThreshold: integer('escalation_rating_threshold').notNull(),
+    autoPostEnabled: boolean('auto_post_enabled').default(false).notNull(),
+    reviewDataRetentionMonths: integer('review_data_retention_months'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_tenant_settings_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'tenant_settings_tenant_id_fkey',
+    }).onDelete('cascade'),
+    check(
+      'tenant_settings_escalation_rating_threshold_check',
+      sql`(escalation_rating_threshold >= 1) AND (escalation_rating_threshold <= 5)`
+    ),
+  ]
+);
+
+export const blocklistTerms = pgTable(
+  'blocklist_terms',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    term: varchar({ length: 255 }).notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_blocklist_terms_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_blocklist_terms_tenant_id_lower_term').using(
+      'btree',
+      sql`tenant_id`,
+      sql`lower((term)::text)`
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'blocklist_terms_tenant_id_fkey',
+    }).onDelete('cascade'),
+  ]
+);
+
+export const userIdentities = pgTable(
+  'user_identities',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    userId: uuid('user_id').notNull(),
+    provider: userIdentityProvider().notNull(),
+    providerUserId: varchar('provider_user_id', { length: 255 }).notNull(),
+    email: varchar({ length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_user_identities_provider_provider_user_id').using(
+      'btree',
+      table.provider.asc().nullsLast().op('text_ops'),
+      table.providerUserId.asc().nullsLast().op('text_ops')
+    ),
+    index('idx_user_identities_user_id').using(
+      'btree',
+      table.userId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: 'user_identities_user_id_fkey',
+    }).onDelete('cascade'),
+  ]
+);
+
+export const passwordResetTokens = pgTable(
+  'password_reset_tokens',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    userId: uuid('user_id').notNull(),
+    tokenHash: varchar('token_hash', { length: 255 }).notNull(),
+    purpose: tokenPurpose().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true, mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_password_reset_tokens_token_hash').using(
+      'btree',
+      table.tokenHash.asc().nullsLast().op('text_ops')
+    ),
+    index('idx_password_reset_tokens_user_id').using(
+      'btree',
+      table.userId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_password_reset_tokens_user_id_purpose').using(
+      'btree',
+      table.userId.asc().nullsLast().op('uuid_ops'),
+      table.purpose.asc().nullsLast().op('enum_ops')
+    ),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: 'password_reset_tokens_user_id_fkey',
+    }).onDelete('cascade'),
+  ]
+);
+
+export const refreshTokens = pgTable(
+  'refresh_tokens',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    userId: uuid('user_id').notNull(),
+    tokenHash: varchar('token_hash', { length: 255 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_refresh_tokens_user_id').using(
+      'btree',
+      table.userId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_refresh_tokens_token_hash').using(
+      'btree',
+      table.tokenHash.asc().nullsLast().op('text_ops')
+    ),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: 'refresh_tokens_user_id_fkey',
+    }).onDelete('cascade'),
+  ]
+);
+
+export const reviewProviderConnections = pgTable(
+  'review_provider_connections',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    connectedByUserId: uuid('connected_by_user_id').notNull(),
+    provider: reviewProvider().notNull(),
+    providerAccountId: varchar('provider_account_id', { length: 255 }).notNull(),
+    credentialReference: varchar('credential_reference', { length: 255 }).notNull(),
+    tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true, mode: 'string' }),
+    status: googleConnectionStatus().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_review_provider_connections_connected_by_user_id').using(
+      'btree',
+      table.connectedByUserId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_review_provider_connections_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_review_provider_connections_tenant_provider_account').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('enum_ops'),
+      table.provider.asc().nullsLast().op('uuid_ops'),
+      table.providerAccountId.asc().nullsLast().op('enum_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'review_provider_connections_tenant_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.connectedByUserId],
+      foreignColumns: [users.id],
+      name: 'review_provider_connections_connected_by_user_id_fkey',
+    }).onDelete('restrict'),
+  ]
+);
+
+export const notificationRecipients = pgTable(
+  'notification_recipients',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    notificationType: notificationType('notification_type').notNull(),
+    channel: notificationChannelPref().notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_notification_recipients_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_notification_recipients_user_id').using(
+      'btree',
+      table.userId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'notification_recipients_tenant_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: 'notification_recipients_user_id_fkey',
+    }).onDelete('cascade'),
+  ]
+);
+
+export const locations = pgTable(
+  'locations',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    providerConnectionId: uuid('provider_connection_id').notNull(),
+    provider: reviewProvider().notNull(),
+    externalLocationId: varchar('external_location_id', { length: 255 }).notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    address: varchar({ length: 500 }),
+    status: locationStatus().notNull(),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true, mode: 'string' }),
+    lastSyncStatus: syncHealthStatus('last_sync_status'),
+    lastSyncError: text('last_sync_error'),
+    onboardingBackfillCompletedAt: timestamp('onboarding_backfill_completed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_locations_provider_connection_external_location').using(
+      'btree',
+      table.providerConnectionId.asc().nullsLast().op('text_ops'),
+      table.externalLocationId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_locations_provider_connection_id').using(
+      'btree',
+      table.providerConnectionId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_locations_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'locations_tenant_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.providerConnectionId],
+      foreignColumns: [reviewProviderConnections.id],
+      name: 'locations_provider_connection_id_fkey',
+    }).onDelete('cascade'),
+  ]
+);
+
+export const userLocations = pgTable(
+  'user_locations',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    userId: uuid('user_id').notNull(),
+    locationId: uuid('location_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_user_locations_location_id').using(
+      'btree',
+      table.locationId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_user_locations_user_id').using(
+      'btree',
+      table.userId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_user_locations_user_id_location_id').using(
+      'btree',
+      table.userId.asc().nullsLast().op('uuid_ops'),
+      table.locationId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: 'user_locations_user_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.locationId],
+      foreignColumns: [locations.id],
+      name: 'user_locations_location_id_fkey',
+    }).onDelete('cascade'),
+  ]
+);
+
+export const reviews = pgTable(
+  'reviews',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    locationId: uuid('location_id').notNull(),
+    externalReviewId: varchar('external_review_id', { length: 255 }).notNull(),
+    externalReviewerId: varchar('external_reviewer_id', { length: 255 }),
+    rating: integer().notNull(),
+    reviewText: text('review_text'),
+    reviewerName: varchar('reviewer_name', { length: 255 }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true, mode: 'string' }),
+    externalUpdatedAt: timestamp('external_updated_at', { withTimezone: true, mode: 'string' }),
+    sentiment: reviewSentiment(),
+    classification: reviewClassification().default('pending_classification').notNull(),
+    escalationReason: escalationReason('escalation_reason'),
+    matchedKeywords: jsonb('matched_keywords'),
+    status: reviewStatus().default('new').notNull(),
+    anonymizedAt: timestamp('anonymized_at', { withTimezone: true, mode: 'string' }),
+    removedUpstreamAt: timestamp('removed_upstream_at', { withTimezone: true, mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_reviews_classification').using(
+      'btree',
+      table.classification.asc().nullsLast().op('enum_ops')
+    ),
+    index('idx_reviews_external_reviewer_id').using(
+      'btree',
+      table.externalReviewerId.asc().nullsLast().op('text_ops')
+    ),
+    index('idx_reviews_location_id').using(
+      'btree',
+      table.locationId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_reviews_location_id_external_review_id').using(
+      'btree',
+      table.locationId.asc().nullsLast().op('text_ops'),
+      table.externalReviewId.asc().nullsLast().op('text_ops')
+    ),
+    index('idx_reviews_reviewed_at').using(
+      'btree',
+      table.reviewedAt.asc().nullsLast().op('timestamptz_ops')
+    ),
+    index('idx_reviews_status').using('btree', table.status.asc().nullsLast().op('enum_ops')),
+    index('idx_reviews_tenant_id').using('btree', table.tenantId.asc().nullsLast().op('uuid_ops')),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'reviews_tenant_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.locationId],
+      foreignColumns: [locations.id],
+      name: 'reviews_location_id_fkey',
+    }).onDelete('cascade'),
+    check('reviews_rating_check', sql`(rating >= 1) AND (rating <= 5)`),
+  ]
+);
+
+export const syncRuns = pgTable(
+  'sync_runs',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    locationId: uuid('location_id').notNull(),
+    trigger: syncTrigger().notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true, mode: 'string' }).notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true, mode: 'string' }),
+    status: syncRunStatus().notNull(),
+    reviewsFetched: integer('reviews_fetched'),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_sync_runs_location_id').using(
+      'btree',
+      table.locationId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_sync_runs_location_id_running')
+      .using('btree', table.locationId.asc().nullsLast().op('uuid_ops'))
+      .where(sql`(status = 'running'::sync_run_status)`),
+    index('idx_sync_runs_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'sync_runs_tenant_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.locationId],
+      foreignColumns: [locations.id],
+      name: 'sync_runs_location_id_fkey',
+    }).onDelete('cascade'),
+  ]
+);
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    reviewId: uuid('review_id').notNull(),
+    recipientUserId: uuid('recipient_user_id').notNull(),
+    generationGroupId: uuid('generation_group_id'),
+    type: notificationType().notNull(),
+    channel: notificationChannel().notNull(),
+    status: notificationStatus().notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true, mode: 'string' }),
+    readAt: timestamp('read_at', { withTimezone: true, mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_notifications_generation_group_id').using(
+      'btree',
+      table.generationGroupId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_notifications_recipient_user_id').using(
+      'btree',
+      table.recipientUserId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_notifications_review_id').using(
+      'btree',
+      table.reviewId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_notifications_review_recipient_type').using(
+      'btree',
+      table.reviewId.asc().nullsLast().op('uuid_ops'),
+      table.recipientUserId.asc().nullsLast().op('enum_ops'),
+      table.type.asc().nullsLast().op('uuid_ops'),
+      table.generationGroupId.asc().nullsLast().op('enum_ops')
+    ),
+    index('idx_notifications_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'notifications_tenant_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.reviewId],
+      foreignColumns: [reviews.id],
+      name: 'notifications_review_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.recipientUserId],
+      foreignColumns: [users.id],
+      name: 'notifications_recipient_user_id_fkey',
+    }).onDelete('restrict'),
+  ]
+);
+
+export const prompts = pgTable(
+  'prompts',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    category: promptCategory().notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    description: varchar({ length: 500 }),
+    tone: promptTone().default('professional').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_prompts_tenant_id_category').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops'),
+      table.category.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'prompts_tenant_id_fkey',
+    }).onDelete('cascade'),
+  ]
+);
+
+export const promptVersions = pgTable(
+  'prompt_versions',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    promptId: uuid('prompt_id').notNull(),
+    version: integer().notNull(),
+    template: text().notNull(),
+    createdByUserId: uuid('created_by_user_id'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_prompt_versions_prompt_id_version').using(
+      'btree',
+      table.promptId.asc().nullsLast().op('int4_ops'),
+      table.version.asc().nullsLast().op('int4_ops')
+    ),
+    foreignKey({
+      columns: [table.promptId],
+      foreignColumns: [prompts.id],
+      name: 'prompt_versions_prompt_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.createdByUserId],
+      foreignColumns: [users.id],
+      name: 'prompt_versions_created_by_user_id_fkey',
+    }).onDelete('set null'),
+    check('prompt_versions_version_check', sql`version > 0`),
+  ]
+);
+
+export const reviewResponses = pgTable(
+  'review_responses',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    reviewId: uuid('review_id').notNull(),
+    generationGroupId: uuid('generation_group_id'),
+    responseType: responseType('response_type').notNull(),
+    content: text().notNull(),
+    source: responseSource().notNull(),
+    status: responseStatus().default('draft').notNull(),
+    createdByUserId: uuid('created_by_user_id'),
+    approvedByUserId: uuid('approved_by_user_id'),
+    postedAt: timestamp('posted_at', { withTimezone: true, mode: 'string' }),
+    errorMessage: text('error_message'),
+    generationMetadata: jsonb('generation_metadata'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    promptVersionId: uuid('prompt_version_id'),
+    originalContent: text('original_content'),
+    decidedAt: timestamp('decided_at', { withTimezone: true, mode: 'string' }),
+  },
+  table => [
+    index('idx_review_responses_approved_by_user_id').using(
+      'btree',
+      table.approvedByUserId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_review_responses_created_by_user_id').using(
+      'btree',
+      table.createdByUserId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_review_responses_generation_group_id').using(
+      'btree',
+      table.generationGroupId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_review_responses_prompt_version_id').using(
+      'btree',
+      table.promptVersionId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_review_responses_review_id').using(
+      'btree',
+      table.reviewId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_review_responses_review_id_imported')
+      .using('btree', table.reviewId.asc().nullsLast().op('uuid_ops'))
+      .where(sql`(source = 'imported'::response_source)`),
+    uniqueIndex('idx_review_responses_review_id_live_reply')
+      .using('btree', table.reviewId.asc().nullsLast().op('uuid_ops'))
+      .where(sql`(status = ANY (ARRAY['approved'::response_status, 'posted'::response_status]))`),
+    index('idx_review_responses_status').using(
+      'btree',
+      table.status.asc().nullsLast().op('enum_ops')
+    ),
+    index('idx_review_responses_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'review_responses_tenant_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.reviewId],
+      foreignColumns: [reviews.id],
+      name: 'review_responses_review_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.createdByUserId],
+      foreignColumns: [users.id],
+      name: 'review_responses_created_by_user_id_fkey',
+    }).onDelete('set null'),
+    foreignKey({
+      columns: [table.approvedByUserId],
+      foreignColumns: [users.id],
+      name: 'review_responses_approved_by_user_id_fkey',
+    }).onDelete('set null'),
+    foreignKey({
+      columns: [table.promptVersionId],
+      foreignColumns: [promptVersions.id],
+      name: 'review_responses_prompt_version_id_fkey',
+    }).onDelete('set null'),
+  ]
+);

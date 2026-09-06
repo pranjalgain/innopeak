@@ -11,6 +11,10 @@ export class CronQueue {
     await this.addCronJob(CronJobName.DAILY_MAIL, data);
   }
 
+  async addAuthTokenCleanupJob(): Promise<void> {
+    await this.addCronJob(CronJobName.AUTH_TOKEN_CLEANUP);
+  }
+
   private async addCronJob(jobName: CronJobName, data?: Record<string, unknown>): Promise<void> {
     await this.queuePublisher.publish(QueueName.CRON, jobName, { jobType: jobName, data });
     this.logger.debug(`Added ${jobName} job`);

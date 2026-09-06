@@ -7,7 +7,13 @@ describe('CookieAuthMiddleware', () => {
   let middleware: CookieAuthMiddleware;
   let next: NextFunction;
 
-  const buildRequest = (overrides: Partial<Request> = {}): Request => {
+  // `cookies` is typed as always-present (`Record<string, any>`, no `| undefined`) once
+  // @types/cookie-parser augments Express's Request — but the whole point of the test below is
+  // to simulate cookie-parser NOT being registered, where `req.cookies` is genuinely `undefined`
+  // at runtime. Widening just this helper's override type keeps that scenario expressible.
+  const buildRequest = (
+    overrides: Partial<Omit<Request, 'cookies'>> & { cookies?: unknown } = {}
+  ): Request => {
     return {
       path: '/v1/users',
       headers: {},

@@ -2,21 +2,39 @@ import { EnvConfig } from '@config/env.config';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { Client } from 'pg';
+import { Pool } from 'pg';
 
 import * as schema from './drizzle/schema';
 
 export type DrizzleDB = NodePgDatabase<typeof schema>;
 
+/**
+ * The handle a repository method receives inside `dbService.db.transaction(async (tx) => ...)`.
+ * Derived from `transaction`'s own callback parameter rather than reusing `DrizzleDB`, since a
+ * transaction is a distinct (structurally narrower) generic instantiation in Drizzle's types.
+ */
+export type DrizzleTransaction = Parameters<Parameters<DrizzleDB['transaction']>[0]>[0];
+
+/**
+ * Backed by a `Pool`, not a single `Client` — load-bearing, not a style choice. Drizzle's
+ * node-postgres session only isolates `db.transaction(...)` calls when the underlying handle is a
+ * `Pool`: it checks out a dedicated connection for the transaction's lifetime and releases it on
+ * commit/rollback (see `NodePgSession.transaction`'s `isPool` branch in
+ * `drizzle-orm/node-postgres/session.js`). Against a bare `Client`, every call reuses the same one
+ * physical connection, so two concurrent `db.transaction(...)` calls (from two different requests)
+ * interleave their `BEGIN`/`COMMIT` on that single session — one request's rollback can silently
+ * discard another's already-"returned" writes. A single-connection `DBService` went unnoticed only
+ * because nothing called `db.transaction(...)` before `AuthRepository.transaction()`.
+ */
 @Injectable()
 export class DBService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DBService.name);
-  private readonly client: Client;
+  private readonly pool: Pool;
   private _db!: DrizzleDB;
 
   constructor(config: ConfigService<EnvConfig>) {
     const databaseUrl = config.get<string>('DATABASE_URL') ?? '';
-    this.client = new Client({ connectionString: databaseUrl });
+    this.pool = new Pool({ connectionString: databaseUrl });
   }
 
   get db(): DrizzleDB {
@@ -25,18 +43,16 @@ export class DBService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     try {
-      await this.client.connect();
-      this._db = drizzle(this.client, { schema });
+      // Confirms the pool can actually reach Postgres before declaring success — a `Pool`
+      // doesn't eagerly connect the way the old single `Client` did, so without this check-and-
+      // release, "Database connected successfully" would log unconditionally even against an
+      // unreachable DATABASE_URL, with the first real failure surfacing later on some unrelated
+      // request's first query instead of at boot.
+      const client = await this.pool.connect();
+      client.release();
+
+      this._db = drizzle(this.pool, { schema });
       this.logger.log('Database connected successfully');
-
-      this.client.on('notification', msg => {
-        this.logger.debug(`Received notification on channel: ${msg.channel}`);
-        if (msg.channel === 'password_updates') {
-          this.logger.log('Received password update notification');
-        }
-      });
-
-      await this.client.query('LISTEN password_updates');
     } catch (error) {
       this.logger.error('Database connection failed:', (error as Error).message);
     }
@@ -44,7 +60,7 @@ export class DBService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     try {
-      await this.client.end();
+      await this.pool.end();
       this.logger.log('Database connection closed');
     } catch (error) {
       this.logger.error('Error disconnecting from database:', (error as Error).message);
@@ -53,7 +69,7 @@ export class DBService implements OnModuleInit, OnModuleDestroy {
 
   async isHealthy(): Promise<boolean> {
     try {
-      await this.client.query('SELECT 1');
+      await this.pool.query('SELECT 1');
       return true;
     } catch {
       return false;

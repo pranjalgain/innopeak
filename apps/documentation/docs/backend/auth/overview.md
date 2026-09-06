@@ -39,7 +39,7 @@ provider — see [Auth Module — API Reference](./api-reference.md).
 |---|---|
 | `tenants` | One row per customer business. `status`: `pending_activation` \| `active` \| `suspended`. |
 | `tenant_identity_providers` | Which external directory (`entra_id`, `google_workspace`) a tenant trusts for SSO, and that directory's `provider_tenant_id`. Must be **configurable before** any user has logged in, so a first successful SSO login can't silently claim the directory for the tenant (`PLAN.md` §2). |
-| `users` | Tenant-scoped user. `role`: `owner` \| `member`. `status`: `pending_verification` \| `invited` \| `active` \| `disabled`. `password_hash` is nullable — an SSO-only user has no password. |
+| `users` | Tenant-scoped user. `role`: `owner` \| `member`. `status`: `pending_verification` \| `invited` \| `active` \| `disabled`. `password_hash` is nullable — an SSO-only user has no password. `email` is stored **normalized** (trimmed, lowercased) — the unique index on `(tenant_id, email)` is case-sensitive, so normalization happens in code on every write and comparison; see [Email normalization](./api-reference.md#email-normalization). |
 | `user_identities` | One row per (user, external provider). `provider`: `entra_id` \| `google`. Unique on `(provider, provider_user_id)` so the same external account can't attach to two app users. |
 | `password_reset_tokens` | One-time tokens for the password path, keyed by `purpose`: `verify_email` \| `invite` \| `reset`. Despite the name it also carries invite and email-verification tokens — see [Auth flows](#auth-flows). |
 | `platform_admins` | Mirrors `users` for the platform-admin hierarchy. `invited_by_platform_admin_id` nullable, with a unique partial index enforcing **at most** one root admin (`idx_platform_admins_single_root`) — zero rows satisfies it too, which is why the root admin has to be seeded. |
@@ -119,14 +119,16 @@ Execute in this fixed order for every request, each must pass:
    entirely on routes annotated `@Public()`.
 3. **`RolesGuard`** — OR logic. Reads `@Roles(...)` metadata off the handler/class; if none is
    set, passes automatically. Otherwise the authenticated user needs at least one matching role.
-4. **`PermissionsGuard`** — AND logic. Reads `@Permissions(...)` metadata; if none is set, passes
-   automatically. Otherwise the user needs every listed permission.
 
-`RolesGuard`/`PermissionsGuard` currently read `user.roles: string[]` and
-`user.permissions: string[]` off the request — a shape carried over from the generic boilerplate's
-separate `roles`/`permissions`/`user_roles`/`role_permissions` tables. **The InnoPeak schema has
-none of those tables** — `users.role` is a single enum column. This guard pair needs adapting
-before it's usable here; see [Gap](#gap-between-current-code-and-target-design).
+`RolesGuard` reads `user.role: string` off the request — a single value, matching `users.role`'s
+`user_role` enum (`owner` \| `member`) directly, not the boilerplate's `roles: string[]`.
+**`PermissionsGuard` is dropped, not adapted.** The generic boilerplate's separate
+`roles`/`permissions`/`user_roles`/`role_permissions` tables have no equivalent anywhere in the
+InnoPeak migrations, and none are needed: `PLAN.md` §2 defines the owner/member split as two fixed
+access bundles — owner gets full tenant access (Settings, review approval), member gets review
+workflow only — not a per-capability matrix that would call for one. A guard whose job is to check
+`@Permissions(...)` metadata against data this product never asked for isn't a gap to close, it's
+scope this module doesn't carry; see [Gap](#gap-between-current-code-and-target-design).
 
 ### Interceptors (global `APP_INTERCEPTOR` providers)
 
@@ -136,8 +138,9 @@ before it's usable here; see [Gap](#gap-between-current-code-and-target-design).
 ### Decorators available inside the pipeline
 
 - `@Public()` — bypasses `JwtAuthGuard` for that route.
-- `@Roles('owner', 'member')` — OR match, enforced by `RolesGuard`.
-- `@Permissions('reviews:approve', 'settings:write')` — AND match, enforced by `PermissionsGuard`.
+- `@Roles('owner', 'member')` — OR match, enforced by `RolesGuard`. This is the only
+  access-control decorator this module uses — see the guard-pipeline note above for why
+  `@Permissions(...)` isn't part of the target design.
 - `@CurrentUser()` — param decorator; extracts the authenticated user (or one field of it, e.g.
   `@CurrentUser('email')`) from `request.user`. Only valid on routes that pass `JwtAuthGuard`.
 
@@ -178,6 +181,15 @@ The login/register/change-password limits exist specifically to blunt credential
 brute-force attempts against the password path — they matter less once Microsoft SSO is the only
 path a given tenant can use, but they stay in place for the password and Google paths, which
 remain live at the API level.
+
+Two things about them worth knowing before relying on them. They are keyed **per client IP**
+(the throttler's default tracker), so behind the load balancer `trust proxy` has to be configured
+or every user shares one bucket. And per-IP is the wrong axis for credential stuffing, which
+arrives from many addresses at one account — so the password login routes also keep a
+**per-email failure counter in Redis** that locks an email out after `LOGIN_LOCKOUT_THRESHOLD`
+failures in `LOGIN_LOCKOUT_WINDOW_MINUTES`, returning the same `INVALID_CREDENTIALS` as a wrong
+password so the lockout itself can't be used to enumerate accounts. Contract and rationale in [the
+API reference](./api-reference.md#brute-force-protection-throttling-and-per-account-lockout).
 
 ## API surface
 
@@ -226,17 +238,28 @@ Mapped to the schema tables above, independent of which login method is used:
 1. **Tenant self-registration (owner)** — create `tenants` (`status = 'pending_activation'`),
    create `users` (`role = 'owner'`, `status` depends on method: `pending_verification` for
    password, `active` for SSO since the provider already verified the email), create
-   `user_identities` for the SSO case. The shipped OnboardingSignup screen supplies the business
-   name from the connected Google Business Profile rather than asking for it — see
-   `apps/documentation/docs/frontend/overview.md` — so the SSO signup route must treat
-   `businessName`/`ownerName` as optional and derive them at connect time.
-2. **Login** — password path checks `users.password_hash`; SSO path looks up
+   `user_identities` for the SSO case. `businessName` is collected directly from the owner at
+   signup, for both password and SSO — it names `tenants.name`, the tenant/company identity,
+   which is a genuinely different thing from `locations.name` (the per-location name synced
+   later from a connected Google Business Profile). One tenant can have several `locations` rows
+   (a business with multiple branches), so the tenant name can't be *derived from* a location
+   connection the way an earlier draft of this flow assumed — that conflated "the tenant's name"
+   with "this one location's name," which only holds if a tenant never has more than one
+   location. The connect step (`apps/documentation/docs/frontend/overview.md`) only ever
+   populates `locations.name` per connected location; it never touches `tenants.name`.
+2. **Login** — password path checks `users.password_hash` (subject to the per-email lockout
+   counter, see [Rate limiting](#rate-limiting-throttler)); SSO path looks up
    `user_identities(provider, provider_user_id)` and, if `tenant_identity_providers` has an active
    row for that tenant + provider, must also confirm the SSO directory matches
-   `provider_tenant_id` before issuing tokens.
+   `provider_tenant_id` before issuing tokens. **That directory check is a property of the tenant,
+   not of this flow** — it applies identically to flow 3's SSO acceptance and to flow 1's
+   returning-user case, or a tenant's "our directory only" policy has a side door. See the shared
+   rule in [the API reference](./api-reference.md#get-v1authmicrosoftcallback).
 3. **Member invite** — owner creates a `password_reset_tokens` row with `purpose = 'invite'` tied
    to a pending `users` row (`status = 'invited'`); invitee accepts via token, then either sets a
-   password or completes SSO, which flips `status` to `active`.
+   password or completes SSO (directory-checked if the tenant has a policy, and the IdP email must
+   match the invited email — compared on normalized values, see [Email
+   normalization](./api-reference.md#email-normalization)), which flips `status` to `active`.
 4. **Password reset** — `password_reset_tokens` with `purpose = 'reset'`, single-use
    (`used_at`), time-boxed (`expires_at`).
 5. **Email verification** — `purpose = 'verify_email'`, password path only. SSO logins skip this
@@ -249,7 +272,15 @@ Mapped to the schema tables above, independent of which login method is used:
 ## Session / token model
 
 - JWT access token, 15-minute expiry (`JwtModule.registerAsync`, `apps/backend/src/auth/auth.module.ts`).
-- Refresh token with rotation on use (`POST /v1/auth/refresh`).
+- Refresh token with rotation on use (`POST /v1/auth/refresh`). **Refresh also re-checks
+  `users.status` / `tenants.status` (or `platform_admins.status`) and revokes the family if the
+  principal is disabled or the tenant suspended** — this, not the 15-minute access-token TTL on
+  its own, is what makes `PLAN.md` §8.20's "suspension takes effect within one access-token
+  lifetime" true. Refresh tokens are additionally revoked wholesale on logout, password reset, and
+  password change (the last returns a fresh pair to the caller so only *other* sessions die).
+- Access and refresh tokens are signed with separate secrets; `JWT_REFRESH_SECRET` may fall back to
+  `JWT_SECRET` in non-production only, and the app must refuse to boot in production when they're
+  missing or equal — see [Configuration](./api-reference.md#configuration).
 - Both are *intended* to travel either as a bearer header or as an HttpOnly cookie (`sid` /
   `refresh_token`, or the `admin_*` variants) — `CookieAuthMiddleware` normalizes cookies into the
   `Authorization` header before the guards run, so the rest of the pipeline only ever deals with
@@ -259,9 +290,9 @@ Mapped to the schema tables above, independent of which login method is used:
   in `cookies.middleware.ts` where real platform-admin detection belongs, so this needs extending
   before the platform-admin surface can use cookies at all.
 - `JwtPayload` currently carries `sub`, `email`, `roles: string[]`, `permissions: string[]` — needs
-  to become `sub`, `tenant_id`, `email`, `role` (singular, matching the `user_role` enum) for the
-  tenant-user path, plus an equivalent shape for the platform-admin path that has no `tenant_id`
-  at all.
+  to become `sub`, `tenant_id`, `email`, `role` (singular, matching the `user_role` enum, and with
+  no `permissions` claim at all — see the guard-pipeline note above) for the tenant-user path, plus
+  an equivalent shape for the platform-admin path that has no `tenant_id` at all.
 
 ## Gap between current code and target design
 
@@ -275,12 +306,14 @@ Before this module can be considered done for InnoPeak:
 - **Add** `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_CALLBACK_URL`, and a
   tenant/directory identifier to `apps/backend/src/config/env.config.ts` (no Microsoft/Entra env
   vars exist there today — only `GOOGLE_*` and `GITHUB_*`).
-- **Replace** `RolesGuard`/`PermissionsGuard`'s `roles: string[]` / `permissions: string[]` model
-  with the schema's single `user_role` enum (`owner` \| `member`) — there are no
-  `roles`/`permissions`/`user_roles`/`role_permissions` tables anywhere in the migrations.
-  `PermissionsGuard` in particular has nothing to check against until permissions are either
-  derived from `role` in code or a real permissions table is added — don't wire it up against
-  fictional data.
+- **Replace** `RolesGuard`'s `roles: string[]` model with the schema's single `user_role` enum
+  (`owner` \| `member`). **Drop `PermissionsGuard`, `@Permissions()`, and the `permissions` JWT
+  claim entirely — not adapt them.** There are no `roles`/`permissions`/`user_roles`/
+  `role_permissions` tables anywhere in the migrations, and none are needed: `PLAN.md` §2 defines
+  the owner/member split as two fixed bundles, not a per-capability matrix, so there's no
+  requirement in this product a role-only check can't already express. Re-introduce a permissions
+  layer only if a future requirement needs *asymmetric* grants within a role (e.g. some members
+  can approve reviews and others can't) — until then it's unbuilt scope, not a gap.
 - **Add tenant scoping** everywhere: `JwtPayload`/`AuthUser` need `tenant_id`; every query in
   `auth.repository.ts` needs a `tenant_id` filter, matching how every other table in the schema is
   tenant-scoped.

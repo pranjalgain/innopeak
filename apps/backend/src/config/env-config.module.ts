@@ -55,8 +55,35 @@ const envConfig = registerAs(
       APP_LOGS_URL: process.env['APP_LOGS_URL'] ?? '',
       DEV_DOCS_URL: process.env['DEV_DOCS_URL'] ?? '',
       SERVICES_HEALTH_URL: process.env['SERVICES_HEALTH_URL'] ?? '',
+      FRONTEND_URL: process.env['FRONTEND_URL'] ?? '',
+      VERIFY_EMAIL_OTP_TTL_MINUTES: parseInt(
+        process.env['VERIFY_EMAIL_OTP_TTL_MINUTES'] ?? '10',
+        10
+      ),
+      DEV_VERIFY_EMAIL_TOKEN: process.env['DEV_VERIFY_EMAIL_TOKEN'],
+      JWT_SECRET: process.env['JWT_SECRET'] ?? '',
+      JWT_REFRESH_SECRET: process.env['JWT_REFRESH_SECRET'],
     }) as EnvConfig
 );
+
+// DEV_VERIFY_EMAIL_TOKEN's "never in production" rule is enforced by the Joi schema alone
+// (DEV_VERIFY_EMAIL_TOKEN: Joi.when(...).then(Joi.forbidden()) below) — no separate manual check
+// needed here, unlike JWT_REFRESH_SECRET just below, which has no Joi equivalent at all (Joi has
+// no built-in way to express "required and must differ from another key's value").
+
+// JWT_REFRESH_SECRET falling back to JWT_SECRET is a local-dev convenience only — if the two
+// secrets are identical in production, a leaked access token can be replayed as a refresh token,
+// which is the exact thing having a separate secret is for. See the auth API reference's
+// Configuration section.
+if (
+  process.env['NODE_ENV'] === 'production' &&
+  (!process.env['JWT_REFRESH_SECRET'] ||
+    process.env['JWT_REFRESH_SECRET'] === process.env['JWT_SECRET'])
+) {
+  throw new Error(
+    'JWT_REFRESH_SECRET must be set to a value different from JWT_SECRET in production.'
+  );
+}
 
 const validationSchema = Joi.object({
   PORT: Joi.number().port().required(),
@@ -109,6 +136,20 @@ const validationSchema = Joi.object({
   APP_LOGS_URL: Joi.string().required(),
   DEV_DOCS_URL: Joi.string().required(),
   SERVICES_HEALTH_URL: Joi.string().required(),
+  // Optional on purpose: nothing under src/ reads it yet (it's reserved for OAuth/redirect
+  // URLs), so requiring it would hard-fail boot in every environment that hasn't set it.
+  FRONTEND_URL: Joi.string().uri().allow(null, '').optional(),
+  VERIFY_EMAIL_OTP_TTL_MINUTES: Joi.number().integer().positive().default(10),
+  DEV_VERIFY_EMAIL_TOKEN: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.forbidden(),
+    otherwise: Joi.string().allow(null, ''),
+  }),
+  JWT_SECRET: Joi.string().required(),
+  // Cross-field "must differ from JWT_SECRET in production" isn't expressible in Joi without a
+  // custom validator — enforced by the manual check above instead. Falling back to JWT_SECRET in
+  // non-production is a local-dev convenience only.
+  JWT_REFRESH_SECRET: Joi.string().allow(null, ''),
 });
 
 @Module({

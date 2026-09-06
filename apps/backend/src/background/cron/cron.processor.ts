@@ -28,10 +28,6 @@ export class CronProcessor extends WorkerHost {
     super();
   }
 
-  // WorkerHost.process is declared as `abstract process(job: Job, token?: string): Promise<any>`,
-  // so this override must stay async/Promise-returning even though the current (single) job type
-  // is handled synchronously.
-  // eslint-disable-next-line @typescript-eslint/require-await
   async process(job: CronJobHandle, _token?: string): Promise<void> {
     let logString_ = `Processing job ${job.id} of type ${job.name} with data ${JSON.stringify(job.data)}...`;
     this.logger.debug(logString_, 'CronProcessor');
@@ -39,11 +35,11 @@ export class CronProcessor extends WorkerHost {
 
     try {
       switch (job.name) {
-        // CronJobName currently has a single member so this comparison is trivially true today,
-        // but the switch/default combo is kept so adding future CronJobName values fails safe.
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         case CronJobName.DAILY_MAIL:
           this.cronService.sendDailyMail(job.data);
+          break;
+        case CronJobName.AUTH_TOKEN_CLEANUP:
+          await this.cronService.purgeStaleAuthTokens();
           break;
         default:
           throw new Error(`Unknown job name: ${String(job.name)}`);

@@ -21,7 +21,7 @@ Screens (7, each at Desktop/Tablet/Mobile):
 | Review Queue | Built (`(dashboard)/review-queue`) |
 | Review Detail | Built (`(dashboard)/review-queue/[reviewId]`) |
 | Settings | Built (`(dashboard)/settings`, plus `(dashboard)/settings/prompts` for AI prompt management — not in the original design) |
-| Onboarding Signup | Built (`(auth)/onboarding/signup`) — deviates from the design: no manual business-name field for any method; identity → Connect Google Business Profile supplies it instead (2 steps for Microsoft/Google, 3 for the password path — an "identity" step gains a verify-email OTP step in between, since only the SSO/social providers assert a verified email themselves) |
+| Onboarding Signup | Built (`(auth)/onboarding/signup`) — the password path's identity step collects the tenant/company name directly (`CreateAccountForm`'s Company name field); Connect Google Business Profile only ever supplies a *location's* name, a separate thing (2 steps for Microsoft/Google, 3 for the password path — an "identity" step gains a verify-email OTP step in between, since only the SSO/social providers assert a verified email themselves) |
 | Onboarding Connect | Built (`(auth)/onboarding/connect`) |
 
 `(dashboard)`'s layout gates every screen behind it (Dashboard, Review Queue, Review Detail,
@@ -40,8 +40,9 @@ Onboarding Signup and Onboarding Connect share the same underlying Google-connec
 under `(auth)/onboarding/connect/_components`) — Signup embeds them as its step 2 (with a stepper
 header), while the standalone Connect screen renders them alone (no stepper, since that's the
 reconnect path for an already-logged-in user, not a new signup). `useOnboardingConnectFlow`'s
-mocked `location` is also what supplies the business name/address to both — nothing asks for it
-manually.
+mocked `location` supplies that location's own name/address — a separate thing from the tenant's
+company name, which the password path's identity step collects directly instead (matching the
+backend: `tenants.name` vs. per-location `locations.name`, see the auth module's overview.md).
 
 ### Prompt performance analytics (Settings → Prompts)
 

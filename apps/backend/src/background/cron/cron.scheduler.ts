@@ -17,4 +17,11 @@ export class CronScheduler implements OnModuleInit {
     this.logger.debug('Scheduling daily mail job');
     await this.cronQueue.addDailyMailJob();
   }
+
+  /** Off the midnight slot so the two daily jobs never contend for the same worker tick. */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async scheduleAuthTokenCleanup(): Promise<void> {
+    this.logger.debug('Scheduling auth token cleanup job');
+    await this.cronQueue.addAuthTokenCleanupJob();
+  }
 }

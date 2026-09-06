@@ -1,6 +1,5 @@
 import { DEFAULT_JOB_OPTIONS, QueuePrefix } from '@bg/constants/job.constant';
 import { QueueUIModule } from '@bg/queue-ui.module';
-import { AuditModule } from '@common/audit/audit.module';
 import { RouteNames } from '@common/route-names';
 import { ErrorHandlerService } from '@common/services/error-handler.service';
 import { EnvConfigModule } from '@config/env-config.module';
@@ -29,24 +28,11 @@ import { REDIS_CLIENT } from '@redis/redis.provider';
 import { redisStore } from 'cache-manager-redis-store';
 import { Redis } from 'ioredis';
 
-import { AgentsModule } from './ai/agents/agents.module';
+import { AuthModule } from './api/auth/auth.module';
+import { JwtAuthGuard } from './api/auth/guards/jwt-auth.guard';
+import { RolesGuard } from './api/auth/guards/roles.guard';
 import { DevToolsModule } from './api/dev-tools/dev-tools.module';
 import { TracingModule } from './api/tracing/tracing.module';
-// Auth & Users
-import { AuthModule } from './auth/auth.module';
-import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
-import { PermissionsGuard } from './auth/guards/permissions.guard';
-import { RolesGuard } from './auth/guards/roles.guard';
-import { GatewayModule } from './gateway/gateway.module';
-import { MediaModule } from './media/media.module';
-// Notifications
-import { NotificationsModule } from './notifications/notifications.module';
-// SMS
-import { SmsModule } from './sms/sms.module';
-import { UsersV2Module } from './users/users-v2.module';
-import { UsersModule } from './users/users.module';
-// Webhooks
-import { WebhooksModule } from './webhooks/webhooks.module';
 
 const configService = new ConfigService<EnvConfig>();
 
@@ -121,34 +107,11 @@ const cacheModule = CacheModule.registerAsync({
     queueModule,
     QueueUIModule,
 
-    // Auth & Users
+    // Auth
     AuthModule,
-    UsersModule,
-    UsersV2Module,
-
-    // Media
-    MediaModule,
-
-    // SMS
-    SmsModule,
 
     // Email
     EmailModule,
-
-    // Notifications
-    NotificationsModule,
-
-    // AI Agents
-    AgentsModule,
-
-    // Webhooks
-    WebhooksModule,
-
-    // Common
-    AuditModule,
-
-    // Real-time
-    GatewayModule,
 
     // APIs
     MetricsModule,
@@ -163,7 +126,7 @@ const cacheModule = CacheModule.registerAsync({
       provide: APP_INTERCEPTOR,
       useClass: HttpLoggingInterceptor,
     },
-    // Guard order: ThrottlerGuard → JwtAuthGuard → RolesGuard → PermissionsGuard
+    // Guard order: ThrottlerGuard → JwtAuthGuard → RolesGuard
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
@@ -175,10 +138,6 @@ const cacheModule = CacheModule.registerAsync({
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: PermissionsGuard,
     },
     {
       provide: APP_INTERCEPTOR,

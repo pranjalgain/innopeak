@@ -2,7 +2,7 @@
 
 ## Tech Stack
 
-NestJS 11, TypeScript 5.9 (very strict), Drizzle ORM (SQL-first), PostgreSQL, Redis (ioredis), BullMQ, pnpm 8.15.0. AWS SDK v3 clients (S3/SES/SNS/SQS/Secrets Manager) for both real AWS and the Floci-emulated local stack (see `DEPLOYMENT_TARGET` below).
+NestJS 11, TypeScript 5.9 (very strict), Drizzle ORM (SQL-first), PostgreSQL, Redis (ioredis), BullMQ, pnpm 8.15.0. AWS SDK v3 clients (SES/SQS/Secrets Manager) for both real AWS and the Floci-emulated local stack (see `DEPLOYMENT_TARGET` below).
 
 ## Commands
 
@@ -16,7 +16,7 @@ pnpm local:up               # Full local setup: docker + migrate + start
 pnpm db:migrate             # Apply SQL migrations
 pnpm db:introspect          # Generate Drizzle schema from DB
 pnpm db:create-migration <name>  # Create new empty SQL migration file
-pnpm db:seed                # Run raw SQL seed files (roles, admin user)
+pnpm db:seed                # Run raw SQL seed files (dev tenant + owner user)
 pnpm db:studio              # Open Drizzle Studio
 pnpm local:aws:up           # AWS-emulated stack: Floci + Terraform + start (DEPLOYMENT_TARGET=aws)
 ```
@@ -42,16 +42,31 @@ The project uses maximum strictness. Key implications:
 5. Regenerate schema: `pnpm db:introspect`
 6. Schema output: `src/db/drizzle/schema.ts`
 
-**Tables**: audit_logs, db_audit_logs, users, roles, permissions, user_roles, role_permissions, refresh_tokens, api_keys, mfa_settings, oauth_accounts, media, notifications, device_tokens, documents, document_chunks, conversations, messages, webhooks, webhook_deliveries
+**Tables** (in migration order — `src/db/drizzle/migrations/*.sql` is the source of truth):
+
+| Migration | Tables |
+|-----------|--------|
+| `0000_foundation` | audit_logs |
+| `0001_platform_admin` | platform_admins, platform_admin_identities, platform_admin_invites |
+| `0002_tenant_auth` | tenants, tenant_identity_providers, users, tenant_settings, blocklist_terms, user_identities, password_reset_tokens |
+| `0003_review_provider_locations` | review_provider_connections, notification_recipients, locations, user_locations |
+| `0004_reviews` | reviews, sync_runs, review_responses |
+| `0005_notifications` | notifications |
+| `0006_prompts` | prompts, prompt_versions |
+| `0007_auth_hardening` | refresh_tokens |
 
 ## Path Aliases (baseUrl: ./src)
 
 ```
-@common/*  @config/*  @db/*  @redis/*  @otel/*  @bg/*  @auth/*  @users/*
-@media/*  @email/*  @sms/*  @notifications/*  @ai/*  @metrics/*  @health/*
-@middlewares/*  @interceptors/*  @logger/*  @cron/*
-@email-queue/*  @notification-queue/*  @dead-letter-queue/*
+@common/*  @config/*  @db/*  @redis/*  @otel/*  @bg/*  @auth/*  @email/*
+@metrics/*  @health/*  @middlewares/*  @interceptors/*  @logger/*  @cron/*
+@email-queue/*  @dead-letter-queue/*
 ```
+
+`@auth/*` resolves to `api/auth/*`, `@metrics/*`/`@health/*` to `api/metrics/*`/`api/health/*`.
+`tsconfig.json` and `jest.config.ts` still declare `@users/*`, `@media/*`, `@sms/*`,
+`@notifications/*` and `@notification-queue/*`, but those directories no longer exist — nothing
+imports them, don't add new imports through them.
 
 ## Architecture Patterns
 
@@ -79,29 +94,20 @@ business module can inject any domain's DB Service without cross-module coupling
 **DB Service location**: `src/db/repositories/<domain>/<name>.db-service.ts`
 **Import pattern**: `import { UsersDbService } from '@db/repositories/users/users.db-service'`
 
-**Status**: this four-layer shape is not yet adopted anywhere — every existing repository domain
-below still follows the older three-layer shape (Service -> Repository directly, no DB Service).
-Don't copy their current code as the pattern; migrating them is a separate, explicitly-scoped
-task. New modules follow the four-layer convention from the start.
-
-Existing repository domains (pre-DB-Service, not yet migrated):
-- `src/db/repositories/auth/` — auth, token, mfa, api-key, oauth
-- `src/db/repositories/users/` — users
-- `src/db/repositories/media/` — media
-- `src/db/repositories/notifications/` — notifications
-- `src/db/repositories/ai/` — agents, rag
-- `src/db/repositories/webhooks/` — webhooks
-- `src/db/repositories/common/` — audit
+**Status**: `src/db/repositories/auth/` is the only repository domain that exists, and it already
+follows the four-layer shape (`auth.repository.ts` + `auth.db-service.ts`) — use it as the
+reference. New modules follow the same convention from the start.
 
 ### Provider/Strategy Pattern
 External integrations use abstract base classes with swappable implementations:
-- Media: S3Provider / CloudinaryProvider
-- Email: SmtpProvider / SesProvider
-- SMS: TwilioProvider / SnsProvider
-- AI: ClaudeProvider / OpenAiProvider
-- Notifications: FCM push
+- Email (`src/email/providers/`): `EmailProvider` -> SmtpProvider / SesProvider / NoopProvider
+- Auth verification codes (`src/api/auth/providers/`): `VerifyEmailTokenProvider` ->
+  RandomVerifyEmailTokenProvider / FixedVerifyEmailTokenProvider (the latter only when
+  `DEV_VERIFY_EMAIL_TOKEN` is set outside production)
+- Queue transport (`src/background/providers/`) — see Queue Transport Pattern below
 
-Provider selection is done via factory in module registration.
+Provider selection is done via factory in module registration, so services never branch on
+environment themselves. Worked example: `apps/backend/docs/conventions/provider-pattern.md`.
 
 ### Queue Transport Pattern (BullMQ / SQS)
 Same abstract-provider shape as above, for the background-job transport:
@@ -162,41 +168,54 @@ repository, DTOs): `apps/backend/docs/conventions/module-structure.md`.
 
 ### Existing Modules
 
-All rows below predate the `src/api/<module>/` + DB Service convention above and have **not**
-been migrated to it — they're listed at their actual current path, not where a new module of the
-same kind would go today. Building a *new* module under one of these names (or splitting one of
-these apart) still means `src/api/<module_name>/`, per "Module Structure" above.
+This is the complete list — the boilerplate modules the branch history mentions (users, media,
+sms, notifications, webhooks, gateway, ai, common/audit, common/export) have all been **deleted**,
+along with their repositories, tables and seed data. Don't reference them; a new module of any of
+those kinds starts fresh under `src/api/<module_name>/`, per "Module Structure" above.
 
 | Module | Path | Purpose |
 |--------|------|---------|
-| Auth | `src/auth/` | JWT + OAuth (Google/GitHub) + API Keys + MFA (TOTP) |
-| Users | `src/users/` | User CRUD with RBAC |
-| Media | `src/media/` | File uploads (S3/Cloudinary) |
-| Email | `src/email/` | Templated emails (SMTP/SES, Handlebars) |
-| SMS | `src/sms/` | SMS + OTP (Twilio/SNS) |
-| Notifications | `src/notifications/` | Multi-channel (FCM push, in-app) |
-| AI | `src/ai/` | Claude/OpenAI, RAG pipeline (pgvector), Agent framework |
-| Webhooks | `src/webhooks/` | Outbound webhooks with HMAC-SHA256 signatures |
-| Gateway | `src/gateway/` | WebSocket gateway (Socket.IO) |
-| Audit | `src/common/audit/` | Application-level audit logging (`@AuditLog()` decorator) |
-| Export | `src/common/export/` | CSV/PDF/Excel data export service |
-| Health | `src/api/health/` | Health checks (DB, Redis, memory, HTTP) — already under `src/api/`, but predates the swagger/constants/types subfolder convention |
+| Auth | `src/api/auth/` | Tenant signup/login, OTP email verification, JWT access + rotating refresh tokens (data access in `src/db/repositories/auth/`) |
+| Email | `src/email/` | Templated emails (SMTP/SES/Noop, Handlebars) — predates the `src/api/` convention |
+| Health | `src/api/health/` | Health checks (DB, Redis, memory, HTTP) — under `src/api/`, but predates the swagger/constants/types subfolder convention |
 | Metrics | `src/api/metrics/` | Prometheus metrics |
 | Tracing | `src/api/tracing/` | OpenTelemetry distributed tracing |
 | Dev Tools | `src/api/dev-tools/` | Developer tools dashboard (+ SQS queue-depth panel in `aws` mode) |
-| Background | `src/background/` | BullMQ queues + cron jobs (SQS in `aws` mode — see Queue Transport Pattern) |
+| Background | `src/background/` | BullMQ email + dead-letter queues and cron jobs (SQS in `aws` mode — see Queue Transport Pattern) |
 
 ## Auth System
 
-- JWT access + refresh tokens with rotation on refresh
-- Global guard order: ThrottlerGuard -> JwtAuthGuard -> RolesGuard -> PermissionsGuard
-- `@Public()` — skips JWT guard
-- `@Roles('admin', 'user')` — OR logic (any role matches)
-- `@Permissions('users:read', 'users:write')` — AND logic (all required)
-- `@CurrentUser()` — param decorator for authenticated user
-- `@ApiKeyAuth()` — for API key authenticated routes
-- Default role `user` assigned on register
-- Seed roles: admin, user, moderator with 14 permissions
+Lives in `src/api/auth/` (data access in `src/db/repositories/auth/`). Full behaviour + route
+contract: `apps/documentation/docs/backend/auth/`.
+
+**Flows** (`/v1/auth/...`, all `@Public()`)
+- `signup` — creates the tenant + its first user (role `owner`) and emails a 6-digit OTP; no
+  tokens issued yet
+- `verify-email` — consumes the OTP, activates the user, issues the first token pair;
+  `resend-verification-otp` re-sends a fresh one
+- `login` — password check first, then status: an unverified account gets a
+  "pending verification" response plus a new OTP, a verified one gets tokens
+- `refresh` / `logout` — refresh token read from its httpOnly cookie, never from the body
+
+**Tokens**
+- Access token: JWT, 15 min (`ACCESS_TOKEN_TTL_SECONDS`). Sent both as an httpOnly `access_token`
+  cookie (scoped `/`) and in the JSON body, so browsers and `Bearer`-header clients both work
+- Refresh token: opaque random 32 bytes, 7 days, stored only as a sha256 hash in `refresh_tokens`,
+  httpOnly cookie scoped to `/v1/auth`. Single-use rotation on every refresh; a reuse of an
+  already-spent token revokes every refresh token for that user
+- Every JWT carries a `type` claim (`tenant_user` | `platform_admin` | `refresh`) —
+  `JwtStrategy` rejects anything else rather than defaulting to a tenant user
+
+**Authorization**
+- Global guard order: ThrottlerGuard -> JwtAuthGuard -> RolesGuard (no permissions layer — the
+  boilerplate `PermissionsGuard`/`@Permissions()`/`@ApiKeyAuth()` and the roles/permissions
+  tables are gone)
+- Tenant user roles are exactly `owner` and `member` — a column on `users`, not an RBAC table
+- `@Public()` — skips the JWT guard
+- `@Roles('owner', 'member')` — OR logic (any listed role matches). A platform-admin token has no
+  `role` at all and fails closed on any `@Roles()` route
+- `@CurrentUser()` — param decorator for the authenticated `AuthUser` (a discriminated union:
+  narrow on `type` before trusting `tenantId`/`role`)
 - Infrastructure endpoints (health, metrics, tracing, dev-tools) use `@Public()` to bypass JWT
 
 ## Conventions
@@ -280,3 +299,4 @@ module-evaluation time), and S3/SES/SNS clients get an `endpoint` override
 5. **pnpm may not be on PATH** — Use `npx` as fallback if `pnpm` is not found
 6. **Worker process** — The app runs API and Worker concurrently. Worker entrypoint is `src/worker.main.ts`, which is a thin secrets-hydration gate — actual bootstrap logic lives in `src/worker-bootstrap.ts` (API equivalent: `src/main.ts` -> `src/bootstrap.ts`)
 7. **Path aliases in production builds** — `@common/*`, `@config/*`, etc. only resolve at runtime via `tsconfig-paths/register` (dev mode) or Nest's dev-server tooling. A plain compiled build (`nest build` / `tsc`) leaves them as literal `require('@logger/logger.service')` calls, which crash with `MODULE_NOT_FOUND` under `node dist/main.js` — `build:api`/`build:worker` run `tsc-alias -p tsconfig.build.json` after compiling specifically to rewrite them to relative paths. Don't remove that step.
+8. **`nest start --watch` needs `tsconfig-paths` registered at runtime too, and its incremental cache can wedge itself** — `nest start --watch` (unlike `build:api`) never runs `tsc-alias`, so without help it crashes the same way as pitfall #7 the moment it runs the compiled output (`Cannot find module '@config/secrets-bootstrap'`, etc.). Fixed by `api:start`/`api:start:dev`/`api:start:debug` setting `NODE_OPTIONS="-r tsconfig-paths/register" TS_NODE_BASEURL=./dist` — the `TS_NODE_BASEURL` override matters because `tsconfig.json`'s `baseUrl` points at `./src`, wrong for resolving aliases inside compiled `dist/` output. Separately: `tsconfig.build.json` (what both `nest build` and `nest start --watch` compile through) has `"incremental": false` — inheriting `tsconfig.json`'s `incremental: true` was observed (on Node v24.16.0) to leave `tsconfig.build.tsbuildinfo` in a state where the compiler reports "0 errors" but silently emits nothing, and every subsequent build stays broken until that file is deleted by hand. If a project or Node upgrade fixes this upstream, both overrides can be revisited — until then, don't remove either without reproducing a clean `pnpm start:dev` boot first.

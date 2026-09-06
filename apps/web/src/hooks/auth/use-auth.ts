@@ -2,17 +2,26 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
 
-import { AuthService } from "@/app/_libs/services/auth.service";
+import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
+import { ApiError } from "@/app/_libs/services/api-client";
+import { AuthService, type LoginResult, type VerifyOtpResult } from "@/app/_libs/services/auth.service";
+
+export interface ResendOtpResult {
+  sent: boolean;
+  message?: string;
+}
 
 interface UseAuthResult {
   loginWithMicrosoft: (email: string) => Promise<void>;
-  loginWithPassword: (email: string) => Promise<void>;
+  /** Returns null on failure (a toast is already shown) — the caller only needs to branch on a non-null result. */
+  loginWithPassword: (email: string, password: string) => Promise<LoginResult | null>;
   loginWithSocial: () => Promise<void>;
   signupWithMicrosoft: () => Promise<boolean>;
-  signupWithPassword: () => Promise<boolean>;
+  signupWithPassword: (values: CreateAccountFormValues) => Promise<boolean>;
   signupWithSocial: () => Promise<boolean>;
-  verifySignupOtp: (code: string) => Promise<boolean>;
-  resendSignupOtp: () => Promise<void>;
+  verifySignupOtp: (email: string, code: string) => Promise<VerifyOtpResult>;
+  /** Resolves to `{ sent: false }` (never rejects) so the OTP screen can always report an outcome. */
+  resendSignupOtp: (email: string) => Promise<ResendOtpResult>;
   logout: () => void;
   isLoading: boolean;
 }
@@ -42,12 +51,13 @@ export function useAuth(): UseAuthResult {
   );
 
   const loginWithPassword = React.useCallback(
-    async (email: string) => {
+    async (email: string, password: string) => {
       setIsLoading(true);
       try {
-        await AuthService.loginWithPassword(email);
+        return await AuthService.loginWithPassword(email, password);
       } catch {
         toast.error(t("signInFailed"));
+        return null;
       } finally {
         setIsLoading(false);
       }
@@ -80,18 +90,21 @@ export function useAuth(): UseAuthResult {
     }
   }, [t]);
 
-  const signupWithPassword = React.useCallback(async () => {
-    setIsLoading(true);
-    try {
-      await AuthService.signupWithPassword();
-      return true;
-    } catch {
-      toast.error(t("signInFailed"));
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [t]);
+  const signupWithPassword = React.useCallback(
+    async (values: CreateAccountFormValues) => {
+      setIsLoading(true);
+      try {
+        await AuthService.signupWithPassword(values);
+        return true;
+      } catch (error) {
+        toast.error(error instanceof ApiError && error.statusCode === 409 ? error.message : t("signInFailed"));
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [t],
+  );
 
   const signupWithSocial = React.useCallback(async () => {
     setIsLoading(true);
@@ -107,17 +120,30 @@ export function useAuth(): UseAuthResult {
   }, [t]);
 
   /** No toast here — the OTP screen shows its own "invalid code"/"resent" copy, not generic auth-failure text. */
-  const verifySignupOtp = React.useCallback(async (code: string) => {
+  const verifySignupOtp = React.useCallback(async (email: string, code: string) => {
     setIsLoading(true);
     try {
-      return await AuthService.verifySignupOtp(code);
+      return await AuthService.verifySignupOtp(email, code);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const resendSignupOtp = React.useCallback(async () => {
-    await AuthService.resendSignupOtp();
+  /**
+   * Returns whether the resend actually went out. Previously this had no error handling at all,
+   * unlike every other method here — so a throttled resend (the endpoint allows 5/min) rejected,
+   * the rejection was swallowed by the caller's `void`, and the user saw literally nothing happen.
+   */
+  const resendSignupOtp = React.useCallback(async (email: string) => {
+    try {
+      await AuthService.resendSignupOtp(email);
+      return { sent: true };
+    } catch (error) {
+      return {
+        sent: false,
+        ...(error instanceof ApiError ? { message: error.message } : {}),
+      };
+    }
   }, []);
 
   const logout = React.useCallback(() => {

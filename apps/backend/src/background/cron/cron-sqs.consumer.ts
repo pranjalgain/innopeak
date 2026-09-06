@@ -20,14 +20,13 @@ export class CronSqsConsumer extends SqsQueueConsumerBase {
     super(configService);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async process(jobName: string, data: unknown): Promise<void> {
     switch (jobName as CronJobName) {
-      // CronJobName currently has a single member so this comparison is trivially true today,
-      // but the switch/default combo is kept so adding future CronJobName values fails safe.
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       case CronJobName.DAILY_MAIL:
         this.cronService.sendDailyMail((data as ICronJob | undefined) ?? undefined);
+        break;
+      case CronJobName.AUTH_TOKEN_CLEANUP:
+        await this.cronService.purgeStaleAuthTokens();
         break;
       default:
         throw new Error(`Unknown job name: ${jobName}`);

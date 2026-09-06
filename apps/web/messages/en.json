@@ -203,6 +203,8 @@
     "createAccount": {
       "nameLabel": "Full name",
       "namePlaceholder": "Jordan Lee",
+      "businessNameLabel": "Company name",
+      "businessNamePlaceholder": "The Coffee House",
       "emailLabel": "Email",
       "emailPlaceholder": "you@company.com",
       "passwordLabel": "Password",
@@ -222,6 +224,7 @@
       "resendIn": "Resend code in {seconds}s",
       "toasts": {
         "resent": "Code resent.",
+        "resendFailed": "Could not resend the code. Please try again in a moment.",
         "verifyFailed": "Could not verify this code. Please try again."
       }
     }
@@ -653,7 +656,9 @@
     "passwordRequirements": {
       "minLength": "At least 8 characters",
       "uppercase": "One uppercase letter",
-      "number": "One number"
+      "lowercase": "One lowercase letter",
+      "number": "One number",
+      "special": "One special character"
     },
     "pagination": {
       "previous": "Previous page",

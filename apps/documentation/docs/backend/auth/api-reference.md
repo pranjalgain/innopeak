@@ -99,7 +99,7 @@ vars) — **every other row in this table is net-new**, not just the Microsoft o
 | Variable | Required | Purpose |
 |---|---|---|
 | `JWT_SECRET` | Yes | Signs access tokens. |
-| `JWT_REFRESH_SECRET` | No (falls back to `JWT_SECRET`) | Signs refresh tokens — set separately in production so an access-token leak can't be replayed as a refresh token. |
+| `JWT_REFRESH_SECRET` | **Yes in production**; falls back to `JWT_SECRET` only when `NODE_ENV !== 'production'` | Signs refresh tokens, so an access-token leak can't be replayed as a refresh token. That protection is worth nothing if the two secrets are the same, so the fallback is a local-dev convenience only: `env.config.ts` must **refuse to boot** in production when this is unset *or* equal to `JWT_SECRET` — a startup check, not a README warning. |
 | `JWT_ACCESS_EXPIRY` | No, default `15m` | Access token TTL. Currently hardcoded to 15 minutes in `auth.module.ts`; promote to an env var so staging/local can lengthen it. |
 | `JWT_REFRESH_EXPIRY` | No, default `7d` | Refresh token TTL. Currently hardcoded to 7 days (`604800` seconds) in `token.service.ts`; promote to an env var alongside `JWT_ACCESS_EXPIRY`. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` | Only if Google social auth is enabled for any tenant | Existing — Google OAuth app credentials. See the overview's [Supported login methods](./overview.md#supported-login-methods) for why this is "social auth," not "SSO," by default. |
@@ -110,20 +110,28 @@ vars) — **every other row in this table is net-new**, not just the Microsoft o
 | `FRONTEND_URL` | Yes | Base URL the OAuth callback routes redirect back to with the token pair (or error code) appended. |
 | `INVITE_TOKEN_TTL_HOURS` | No, default `72` | Expiry window written to `password_reset_tokens.expires_at` / `platform_admin_invites.expires_at` for `purpose = 'invite'`. |
 | `RESET_TOKEN_TTL_HOURS` | No, default `1` | Same, for `purpose = 'reset'`. |
-| `VERIFY_EMAIL_TOKEN_TTL_HOURS` | No, default `24` | Same, for `purpose = 'verify_email'` (tenant users only — platform admins have no email-verification step, see [Data model quick reference](#data-model-quick-reference)). |
+| `VERIFY_EMAIL_OTP_TTL_MINUTES` | No, default `10` | Expiry window for the 6-digit signup/login verification OTP (tenant users only — platform admins have no email-verification step, see [Data model quick reference](#data-model-quick-reference)). In **minutes**, not hours — this is a short numeric code, not a long-lived link. |
 | `OAUTH_STATE_TTL_MINUTES` | No, default `10` | How long a signed OAuth `state` payload (see [`GET /v1/auth/microsoft/callback`](#get-v1authmicrosoftcallback)) is accepted after issuance — bounds how long an abandoned OAuth redirect can be resumed. |
 | `JWT_REFRESH_REUSE_GRACE_SECONDS` | No, default `10` | Window during which presenting an already-rotated refresh token replays the same replacement pair instead of being treated as theft — see [`POST /v1/auth/refresh`](#post-v1authrefresh) and `PLAN.md` §8.19. |
+| `LOGIN_LOCKOUT_THRESHOLD` | No, default `10` | Consecutive failed password logins for one email (see [Email normalization](#email-normalization)) before that email is locked out — see [Brute-force protection](#brute-force-protection-throttling-and-per-account-lockout). |
+| `LOGIN_LOCKOUT_WINDOW_MINUTES` | No, default `15` | How long the failure counter lives, and how long the lockout lasts once tripped. |
 
-**Schema prerequisite not yet in the migrations**: refresh-token rotation needs a
-`refresh_tokens` table (id, `user_id` or `platform_admin_id`, `token_hash`, `revoked_at`,
-`expires_at`, `created_at`) to support revocation on logout and rotation-reuse detection. The
-grace-window replay behavior described under [`POST
-/v1/auth/refresh`](#post-v1authrefresh) needs one more thing from this same table: a way to find
-"the pair this token was replaced by" (e.g. a self-referencing `replaced_by_token_id`), not just
-whether a token is revoked — otherwise a replayed, already-rotated token has nothing to return.
-Neither the migrations nor `schema.dbml` have this table today — it's a required follow-up
-migration before refresh/logout/grace-window replay can be implemented as specified, called out
-here rather than silently assumed. See `PLAN.md` §8.19.
+**`refresh_tokens` table**: `0002_tenant_auth.sql` (`id`, `user_id`, `token_hash`, `expires_at`,
+`revoked_at`, `created_at`) — supports the "basic rotation" scope described under
+[`POST /v1/auth/refresh`](#post-v1authrefresh): single-use rotation, revoke-on-logout,
+revoke-all-on-disabled/suspended. **Tenant users only** — no `platform_admin_id` column, since
+platform-admin login doesn't exist in this codebase yet. Not yet present: a self-referencing
+`replaced_by_token_id`, which the fuller reuse-grace-window replay behavior would need (to know
+"the pair this already-rotated token was replaced by" rather than just that it's revoked) — a
+follow-up migration alongside that feature, not assumed here.
+
+**Housekeeping**: neither `refresh_tokens` nor `password_reset_tokens` is ever read for a
+revoked/used or expired row again (`findActiveRefreshToken` and `consumeVerifyEmailToken` both
+exclude them), so without a purge both tables only grow — one `refresh_tokens` row per session ever
+started. The worker's `CronJobName.AUTH_TOKEN_CLEANUP` job (`CronScheduler`, daily at 03:00 — off
+the midnight slot the existing daily job uses) calls `AuthDbService.purgeStaleTokens`, which deletes
+`verify_email` codes that are used or expired and refresh tokens that are revoked or expired, and
+logs both counts. The worker process imports `DBModule` for exactly this.
 
 ## Data model quick reference
 
@@ -179,6 +187,38 @@ that value needs to be retained.
 `platform_admin_invite_purpose` (`invite` \| `reset` — no `verify_email`, since a platform admin
 is always invited by another admin and never self-registers).
 
+### Email normalization
+
+Three things in this module hinge on two email strings being *equal*: the `(tenant_id, email)`
+uniqueness on `users` (and `idx_platform_admins_email`), the `409 EMAIL_ALREADY_MEMBER` check on
+[`POST /v1/auth/invite`](#post-v1authinvite), and — the one with a security consequence — the
+`INVITE_EMAIL_MISMATCH` comparison in the OAuth callback's `invite` branch. Both email columns are
+plain `VARCHAR(255)` with case-sensitive unique indexes (`0002_tenant_auth.sql`,
+`0001_platform_admin.sql`), so without a rule here `Jane@Corp.com` and `jane@corp.com` are two
+different users to the database, a duplicate invite sails past the `409`, and a legitimate invitee
+whose IdP reports a differently-cased address fails the mismatch check.
+
+The rule: **every email is normalized on ingress, in code, before it is stored, looked up, or
+compared** — `trim()` then lowercase the entire address. (RFC 5321 technically allows a
+case-sensitive local part; no mail provider this product will ever meet honours that, and treating
+it as significant only creates the failure modes above.) This applies to every email this module
+touches, in both directions:
+
+- Request bodies and query params: `SignupDto.email`, `LoginDto.email`, `ForgotPasswordDto.email`,
+  `InviteDto.email`, and the platform-admin equivalents — normalize in a `class-transformer`
+  `@Transform`, so validation and the service both see the canonical form.
+- IdP-reported emails: the `email`/`preferred_username` claim from Microsoft and the `email` claim
+  from Google are normalized before being written to `user_identities.email`, before the `signup`
+  branch inserts `users.email`, and before the `invite` branch compares against the invited
+  `users.email` / `platform_admins.email`.
+- Stored values are therefore always canonical; a query never needs a `lower()` on its side.
+
+**Recommended follow-up migration, not required for this to work**: a unique index on
+`(tenant_id, lower(email))` — the same shape `idx_blocklist_terms_tenant_id_lower_term` already
+uses — as a database-level backstop for any future write path that bypasses the DTO layer (a seed
+script, a support tool). Until then the code-level rule is the only enforcement, which is why it's
+stated as a hard requirement here and not a style preference.
+
 ## Tenant user API
 
 ### Registration & session
@@ -208,21 +248,20 @@ point uses consistently instead.
 #### `POST /v1/auth/signup`
 
 Owner self-registration, password path. Corresponds to the password branch of `PLAN.md` §4.3a.
-Creates the tenant, owner, and default settings together in one transaction — but first checks for
-a `pending_verification` `users` row already sitting at this exact email (an earlier, unfinished
-signup attempt): if one exists, this call **resends** the verification email against that existing
-row instead of creating a second tenant (`PLAN.md` §8.10's resumable-signup note — including the
-tie-break rule for the rare case more than one such row exists, and the missing supporting index
-this lookup needs before it ships). If none exists,
-it creates a new tenant regardless of whether this email already owns *other*, already-`active`
-tenants elsewhere — the same email legitimately owning more than one tenant is supported by design
-(`PLAN.md` §2, `users (tenant_id, email)` is scoped per-tenant, not globally unique). There is
-deliberately **no "email already registered" error** on this endpoint for that reason; see
-`PLAN.md` §8.18 for the one race this still leaves open (two truly simultaneous first-time
-signups) and why it's accepted rather than fixed.
-
-**This multi-tenant-per-email flexibility is specific to the password path.** The SSO signup
-route below has a different, harder constraint — see its own section.
+Creates the tenant, owner, and default settings together in one transaction, then emails a 6-digit
+verification **code** (not a link — see [`POST /v1/auth/verify-email`](#post-v1authverify-email)
+for why). Fails outright, with **no tenant created**, if this email is already registered anywhere
+— any status, any tenant: `findUserByEmail` is a global lookup, deliberately not scoped to
+`tenant_id` the way `users`' own composite uniqueness constraint is. That lookup is only the
+cheap fast path, though — the actual guarantee is the partial unique index
+`idx_users_email_active ON users(email) WHERE anonymized_at IS NULL`: two simultaneous signups
+for one email both pass the pre-check, and then exactly one `INSERT` commits; the loser's `23505`
+rolls back its tenant + settings and is reported as the same `409` (a check-then-insert alone was
+observed to create 4 tenants from 5 concurrent signups). Partial so an anonymized account frees
+its email for reuse. This supersedes the older
+resumable-signup design (`PLAN.md` §8.10/§8.18): the recovery path for someone who never finished
+verifying is now [`POST /v1/auth/login`](#post-v1authlogin), which resends a fresh code for a
+still-`pending_verification` account instead of signup silently resuming it.
 
 Request:
 
@@ -237,47 +276,46 @@ Request:
 
 | Field | Type | Rules |
 |---|---|---|
-| `businessName` | string | required, 1–255 chars → `tenants.name`. Ignored if this call resumes an existing pending signup — the original submission wins. |
-| `ownerName` | string | required, 1–255 chars → `users.name` |
+| `businessName` | string | **required**, 1–255 chars **after trimming** (whitespace-only is rejected) → `tenants.name`. This is the tenant/company identity — a genuinely different thing from `locations.name` (the per-location name synced later from a connected Google Business Profile). One tenant can have several `locations` rows (a business with multiple branches), so the tenant name can't be *derived from* a location connection; it's collected directly from the owner here. |
+| `ownerName` | string | required, 1–255 chars after trimming → `users.name`. |
 | `email` | string | required, valid email format |
-| `password` | string | required, 8–128 chars, upper + lower + digit + special char (same pattern as the existing `RegisterDto`) |
+| `password` | string | required, 8–128 chars, at least one upper, one lower, one digit, and one special character — where "special" is **any non-alphanumeric, non-whitespace character** (`#`, `-`, `_`, `~`, … all count; the pattern is not an allowlist). Spaces are allowed inside a passphrase; line breaks are not. `PASSWORD_PATTERN` in `auth.constants.ts`; the frontend's live checklist (`checkPasswordRequirements`) mirrors it rule-for-rule. |
 
-Success `201` (new tenant) or `200` (resumed an existing pending signup — `resumed: true`):
+Success `201`:
 
 ```json
 {
   "tenantId": "0190f3b2-...",
   "userId": "0190f3b2-...",
   "status": "pending_verification",
-  "resumed": false,
-  "message": "Verification email sent to jane@thecoffeehouse.com"
+  "message": "Verification code sent to jane@thecoffeehouse.com"
 }
 ```
 
-Errors: `400` validation only.
+Errors: `400` validation, `409 EMAIL_ALREADY_REGISTERED` (an account already exists at this email, under any status or tenant).
 
 #### `GET /v1/auth/microsoft/signup`
 
-Starts the SSO signup flow. Query params `businessName` and `ownerName` (same validation as
-above) are signed into the OAuth `state` parameter alongside `intent: 'signup'` — never trust
-`state` without verifying its signature in the callback, see [Security
-considerations](#security-considerations). Redirects (`302`) to Microsoft's consent screen.
+Starts the SSO signup flow. Query params `businessName` and `ownerName` are signed into the OAuth
+`state` parameter alongside `intent: 'signup'` — never trust `state` without verifying its
+signature in the callback, see [Security considerations](#security-considerations). Redirects
+(`302`) to Microsoft's consent screen.
 
 | Query param | Required | Notes |
 |---|---|---|
-| `businessName` | No | Signed into `state` when present. The shipped OnboardingSignup screen has no business-name field — it derives the name from the Google Business Profile connected in step 2 — so this route must not require it. See `apps/documentation/docs/frontend/overview.md`. |
-| `ownerName` | No | Same: falls back to the name the IdP reports for the authenticated account. |
+| `businessName` | **Yes**, 1–255 chars | Signed into `state`. Names `tenants.name` — the tenant/company identity, collected directly from the owner same as the password path. Distinct from `locations.name` (the per-location name synced later from a connected Google Business Profile); a tenant can have several locations, so this can't be derived from that connection. |
+| `ownerName` | No | Falls back to the name the IdP reports for the authenticated account — SSO already asserts identity, so this one genuinely can be optional. |
 
-Because both are optional, the callback's `signup` branch has to tolerate their absence and
-create the tenant with a provisional name, which the connect step then overwrites. That is the
-sequence the frontend actually implements: Microsoft SSO first, Google Business Profile second,
-business identity supplied by the latter.
+The callback's `signup` branch reads `businessName` back out of `state` and uses it as-is for
+`tenants.name`; only `ownerName`'s absence needs a fallback (the IdP-reported name).
 
 `GET /v1/auth/google/signup` is the same shape, `provider = 'google'`.
 
 #### `POST /v1/auth/login`
 
-Password login for an existing, `active` user.
+Password login. Credentials are checked **before** branching on account status — a
+`pending_verification` account is only ever revealed to a caller who already proved they know the
+password, never to anyone who merely knows the email exists.
 
 Request:
 
@@ -285,27 +323,44 @@ Request:
 { "email": "jane@thecoffeehouse.com", "password": "StrongP@ss1" }
 ```
 
-Success `200`:
+Success `200`, one of two shapes:
+
+- **Active account** — an access token in the body, exactly like [`POST /v1/auth/verify-email`](#post-v1authverify-email)'s success response, **plus** both tokens set as httpOnly cookies (`Secure` in production): `refresh_token` scoped to `/v1/auth`, `access_token` scoped to `/` — neither ever appears in a JSON body a script running on the page could read or exfiltrate. The access token's JSON copy exists purely so the frontend can keep its own record in `localStorage` (an httpOnly cookie's value is invisible to its own JS):
 
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
+  "expiresIn": 900,
   "user": {
     "id": "0190f3b2-...",
     "tenantId": "0190f3aa-...",
     "name": "Jane Doe",
     "email": "jane@thecoffeehouse.com",
     "role": "owner"
-  }
+  },
+  "hasConnectedBusiness": false
 }
 ```
 
-Errors: `401 INVALID_CREDENTIALS` (wrong password, or user has no `password_hash` — i.e. an
-SSO-only account trying the password form; the message is intentionally the same generic text as
-a wrong password, see [Security considerations](#security-considerations)), `403
-ACCOUNT_PENDING_VERIFICATION` (`status = 'pending_verification'`), `403 ACCOUNT_DISABLED`
-(`status = 'disabled'`), `403 TENANT_SUSPENDED` (`tenants.status = 'suspended'`).
+  `hasConnectedBusiness` is derived from whether a `review_provider_connections` row exists for
+  this tenant (no dedicated flag exists) — it's what the frontend uses to route to the "connect
+  your Google Business Profile" stepper instead of the dashboard.
+
+- **Still `pending_verification`** — not an error. A fresh OTP is sent and the frontend renders
+  the same OTP stepper the signup wizard uses:
+
+```json
+{
+  "status": "pending_verification",
+  "email": "jane@thecoffeehouse.com",
+  "message": "Verification code sent to jane@thecoffeehouse.com"
+}
+```
+
+Errors: `401 INVALID_CREDENTIALS` (wrong password, unknown email, or user has no `password_hash` —
+i.e. an SSO-only account trying the password form; the message is intentionally the same generic
+text for all three, see [Security considerations](#security-considerations)), `403
+ACCOUNT_DISABLED` (`status = 'disabled'`), `403 TENANT_SUSPENDED` (`tenants.status = 'suspended'`).
 
 #### `GET /v1/auth/microsoft`
 
@@ -317,16 +372,31 @@ to pass through. `302` to Microsoft. `GET /v1/auth/google` mirrors this, `provid
 The single Microsoft callback for every entry route above it. Verifies `state`'s signature and
 `OAUTH_STATE_TTL_MINUTES` freshness first, unconditionally — an invalid or expired `state` is a
 `302` to `${FRONTEND_URL}/login?error=INVALID_STATE` regardless of intent. Then branches on
-`state.intent`:
+`state.intent`.
+
+**One rule shared by every branch — the directory check.** Whenever a branch is about to issue
+tokens for a user of an *existing* tenant (the `login` branch, the `signup` branch's returning-user
+case, and the `invite` branch), and that tenant has an active `tenant_identity_providers` row for
+this provider, the IdP token's directory (`tid` claim for Entra; `hd` claim for Google Workspace)
+must equal that row's `provider_tenant_id`, or the callback fails with `?error=DIRECTORY_MISMATCH`
+and writes nothing. It is stated once here, rather than per branch, because it is a property of the
+*tenant*, not of the intent: a tenant that has opted into "our Entra directory only" has opted in for
+every way of getting a session, and a check that only ran on `login` would be a formality anyone
+could walk around by taking the invite route instead. This is the one place `MICROSOFT_TENANT_ID=common`
+is deliberately loosened at the provider level and tightened back up in application code per tenant,
+per the overview's [Frontend/backend boundary](./overview.md#frontend--backend-boundary). It does
+**not** run for a brand-new signup — the tenant being created has no `tenant_identity_providers` row
+yet, so there is nothing to check against. (`PLAN.md` §4.3b says the member-invite path doesn't check
+directories; that was written when §2 had parked `tenant_identity_providers` entirely. The moment the
+overview extended the check to login, leaving invites out stopped being a simplification and became a
+bypass — this document supersedes §4.3b on that one point.)
 
 - **`login`** — looks up `user_identities WHERE provider = 'entra_id' AND provider_user_id = <sub
-  claim>`. If found, and the owning tenant has an active `tenant_identity_providers` row for
-  `entra_id`, confirm the token's directory (`tid` claim) matches `provider_tenant_id` before
-  issuing tokens — this is the one place `MICROSOFT_TENANT_ID=common` is deliberately loosened at
-  the provider level and tightened back up in application code per tenant, per the overview's
-  [Frontend/backend boundary](./overview.md#frontend--backend-boundary). If no matching identity
-  exists at all: `302` to `${FRONTEND_URL}/login?error=NO_ACCOUNT_FOUND` — login never silently
-  creates a tenant, only the `signup` intent does that. On success: `302` to
+  claim>`. If found, run the directory check above, then confirm `users.status = 'active'` and
+  `tenants.status != 'suspended'` (the same `ACCOUNT_DISABLED` / `TENANT_SUSPENDED` outcomes as
+  [`POST /v1/auth/login`](#post-v1authlogin), delivered as `?error=` codes) before issuing tokens.
+  If no matching identity exists at all: `302` to `${FRONTEND_URL}/login?error=NO_ACCOUNT_FOUND` —
+  login never silently creates a tenant, only the `signup` intent does that. On success: `302` to
   `${FRONTEND_URL}/dashboard?access_token=...&refresh_token=...`.
 - **`signup`** — reads `businessName`/`ownerName` back out of `state`, plus the verified email +
   provider `sub` claim from Microsoft's token. **First looks up `user_identities WHERE
@@ -335,15 +405,28 @@ The single Microsoft callback for every entry route above it. Verifies `state`'s
   *globally*, not per-tenant (`PLAN.md` §2, §8.21), so the same Microsoft account can never back
   more than one `users` row anywhere in the system. If a match is found, this is functionally a
   returning user, not a new signup: skip tenant creation entirely and issue tokens for their
-  existing account exactly as the `login` branch does, `302` to
-  `${FRONTEND_URL}/dashboard?...`. Only when no match exists does it proceed, in one transaction
-  (`PLAN.md` §4.3a, SSO branch): `INSERT tenants` (`status = 'active'`), `INSERT users`
-  (`role = 'owner'`, `status = 'active'`, `email_verified_at = now()`, `password_hash = NULL`),
-  `INSERT tenant_settings` (defaults), `INSERT user_identities` (`provider = 'entra_id'`). No
-  email-verification step and no "already registered" *error* — see
+  existing account exactly as the `login` branch does — directory check and status checks
+  included — `302` to `${FRONTEND_URL}/dashboard?...`. Only when no match exists does it proceed,
+  in one transaction (`PLAN.md` §4.3a, SSO branch): `INSERT tenants` (`status = 'active'`),
+  `INSERT users` (`role = 'owner'`, `status = 'active'`, `email_verified_at = now()`,
+  `password_hash = NULL`), `INSERT tenant_settings` (defaults), `INSERT user_identities`
+  (`provider = 'entra_id'`). No email-verification step and no "already registered" *error* — see
   [`POST /v1/auth/signup`](#post-v1authsignup) for why "error" isn't the right response even
   when the account already exists. On success: `302` to
   `${FRONTEND_URL}/onboarding/connect?access_token=...&refresh_token=...`.
+
+  **The lookup-then-insert above has a race the password path doesn't.** Two callbacks for the
+  same brand-new Microsoft account (a double-click on "Continue with Microsoft" that opened two
+  consent tabs) can both find no identity, and both start the transaction. The password path's
+  version of this is accepted-not-fixed (`PLAN.md` §8.18) because there it *degrades gracefully*
+  — two tenants for one email is a supported outcome. Here it doesn't: `user_identities` is
+  globally unique on `(provider, provider_user_id)`, so the second transaction's final `INSERT`
+  fails, the whole transaction rolls back (no orphan tenant — that is what the transaction is
+  for), and without handling the user sees a `500` from a flow they did nothing wrong in. The
+  handling: catch the unique violation on `idx_user_identities_provider_provider_user_id` specifically,
+  then **re-run the identity lookup and fall through to the returning-user case** — the row that
+  won the race is now there, and this request signs into it. Any other error still propagates.
+  This is the concurrent half of `PLAN.md` §8.21, which only covers the sequential one.
 - **`invite`** — see [`GET /v1/auth/invite/:token/microsoft`](#get-v1authinvitetokenmicrosoft) in
   Team / invite below; documented there since it needs the invite token's own validation rules
   alongside it.
@@ -357,34 +440,63 @@ is no response body the SPA can read directly. Two options exist: append tokens 
 URL as above (frontend reads them from `location.search` on mount, then immediately replaces the
 URL to avoid leaving tokens in browser history), or have the callback set the `sid`/`refresh_token`
 HttpOnly cookies directly and redirect with no query params at all. **This document specifies the
-query-param approach** to match how the password-path endpoints return tokens in a JSON body
-(one token-delivery shape for the frontend to handle, not two) — but the cookie approach is
-strictly more secure (no token transiting browser history/referrer/logs) and should be revisited
-before this ships if the frontend can accommodate it.
+query-param approach**, but note that this is now the odd one out: the password-path endpoints
+(`login`, `verify-email`, `refresh`) switched to setting `refresh_token` as an httpOnly cookie —
+only `accessToken` travels in their JSON body — precisely for the "no token transiting browser
+history/referrer/logs" reason this section already called out. When OAuth is actually implemented,
+prefer the cookie approach here too, for the same reason and for consistency with the
+already-shipped password path, rather than the reverse.
 
 #### `POST /v1/auth/refresh`
 
-Request: `{ "refreshToken": "eyJ..." }`
+No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by
+`login`/`verify-email`/a prior `refresh`), never from a payload a script could construct or read.
+The response sets a fresh `access_token` cookie too, alongside the refresh cookie.
 
-Success `200`: new `{ "accessToken": "...", "refreshToken": "..." }` pair — rotation means the
-old refresh token is invalidated in the same call (needs the `refresh_tokens` table flagged in
-[Configuration](#configuration)).
+Success `200`: new `{ "accessToken": "...", "expiresIn": 900 }` body, and the `refresh_token`
+cookie is replaced with the newly-rotated token — rotation means the old refresh token is revoked
+in the same call it's presented, against the `refresh_tokens` table (`id`, `user_id`, `token_hash`,
+`expires_at`, `revoked_at`, `created_at`).
 
-If the presented token was itself already rotated out **within the last
-`JWT_REFRESH_REUSE_GRACE_SECONDS`** (default 10s), this call is treated as a harmless replay of a
-racing double-tab request, not theft: it returns the same replacement pair issued for that
-rotation instead of erroring. Reuse *outside* that window — or reuse of a token that's already
-been replayed once under the grace rule — revokes the entire token family and fails as below. See
-`PLAN.md` §8.19 for the reasoning.
+**Refresh re-checks the principal's standing, every time.** Validating the refresh token proves
+the caller *had* a session; it says nothing about whether they should still have one. Before
+issuing the new pair, resolve the token's owner and require `users.status != 'disabled'` and the
+owning `tenants.status != 'suspended'`. A failure here is `401 INVALID_REFRESH_TOKEN` (no separate
+403 — the token itself is being treated as no-longer-valid), and additionally **revokes every
+refresh token that user has** — a disabled user or suspended tenant should not be holding a live
+refresh token at all. This is the check that makes the "up to 15 minutes" bound in
+[Security considerations](#security-considerations) true: without it a suspended tenant's user
+keeps rotating refresh tokens indefinitely and the bound is fiction. It costs one indexed lookup
+per refresh (at most one every 15 minutes per session), which is why it belongs here and not on
+every access-token-bearing request.
 
-Errors: `401 INVALID_REFRESH_TOKEN` (expired, revoked, or reused outside the grace window).
+**Rotation is one atomic DB step, and strictly single-use.** `AuthDbService.rotateRefreshToken`
+revokes the presented token with a compare-and-swap (`UPDATE … SET revoked_at = now() WHERE id = ?
+AND revoked_at IS NULL`, returning the row count) and inserts the replacement's hash in the *same*
+transaction — and only if that revoke actually flipped the row. Of N concurrent refreshes with one
+cookie, exactly one gets a `200`; the rest get `401 INVALID_REFRESH_TOKEN` and no new
+`refresh_tokens` row is written for them (before this, the revoke's result was never checked and 5
+concurrent refreshes minted 5 live sessions from one token). The refresh JWT also carries
+`type: "refresh"` (see [Session / token model](#session--token-model-1)), checked after signature
+verification — so an access token can't be replayed against this route even when
+`JWT_REFRESH_SECRET` falls back to `JWT_SECRET` in local dev.
+
+**Current scope is "basic rotation" only** — single-use, revoke-on-rotate, revoke-all-on-logout.
+A documented follow-up, not yet built: a `JWT_REFRESH_REUSE_GRACE_SECONDS` window that would treat
+a rapid double-tab replay of an already-rotated token as harmless instead of an error, plus full
+token-family theft detection (revoking every token descended from a stolen one, not just that
+user's current set). Until that lands, presenting an already-rotated token is simply
+`401 INVALID_REFRESH_TOKEN` like any other invalid token — no replay tolerance.
+
+Errors: `401 INVALID_REFRESH_TOKEN` (missing cookie, expired, revoked, already-rotated-out,
+malformed, or the owning user/tenant is no longer in good standing).
 
 #### `POST /v1/auth/logout`
 
 Bearer. No request body. Revokes every refresh token belonging to the current user (all
 sessions/devices) — a single-session logout is intentionally not offered as a separate endpoint
 to keep the revocation model simple; see [Security considerations](#security-considerations) if
-that changes.
+that changes. Also clears the `refresh_token` cookie for the caller.
 
 Success `200`: `{ "message": "Logged out" }`.
 
@@ -411,24 +523,32 @@ Success `200`:
 
 | Method | Path | Auth | Throttle |
 |---|---|---|---|
-| `GET` | `/v1/auth/verify-email` | Public | 10 / min |
+| `POST` | `/v1/auth/verify-email` | Public | 10 / min |
 | `POST` | `/v1/auth/forgot-password` | Public | 5 / min |
 | `POST` | `/v1/auth/reset-password` | Public | 5 / min |
 | `POST` | `/v1/auth/change-password` | Bearer | 5 / min |
 
-#### `GET /v1/auth/verify-email`
+#### `POST /v1/auth/verify-email`
 
-Query: `?token=<raw token>`. Looks up `password_reset_tokens WHERE token_hash = hash(token) AND
+Request: `{ "email": "jane@thecoffeehouse.com", "otp": "482913" }` — a 6-digit code, **not a
+link**. A link's token could be silently consumed by an email security scanner or link-preview
+bot prefetching the URL before the real user ever saw it; a code the user has to read and type by
+hand into the frontend's OTP stepper doesn't have that exposure. Looks up
+`password_reset_tokens WHERE user_id = <resolved from email> AND token_hash = hash(otp) AND
 purpose = 'verify_email' AND used_at IS NULL AND expires_at > now()`; on match, sets
 `users.email_verified_at = now()`, `users.status = 'active'`, and the token's `used_at`. Password
 path only — SSO signups never create a `verify_email` token, see [Auth
 flows](./overview.md#auth-flows) item 5.
 
-Success `200`: `{ "message": "Email verified. You can now log in." }`.
+Success `200`: **issues a token pair**, same shape as [`POST /v1/auth/login`](#post-v1authlogin)'s
+active-account response — `accessToken`/`expiresIn`/`user`/`hasConnectedBusiness` in the JSON
+body, `refresh_token` set as an httpOnly cookie. This is safe specifically because reaching this
+screen already proved the caller knows the account's password — either they just set one at
+signup, or they just typed one at login, in the same client flow that led here.
 
-Errors: `400 INVALID_OR_EXPIRED_TOKEN` — deliberately the same message whether the token is
-malformed, already used, or expired, to avoid distinguishing "this token existed once" from "this
-token never existed."
+Errors: `400 INVALID_OR_EXPIRED_OTP` — deliberately the same message whether the code is
+malformed, already used, expired, or the account is no longer `pending_verification`, to avoid
+distinguishing "this code existed once" from "this code never existed."
 
 #### `POST /v1/auth/forgot-password`
 
@@ -456,7 +576,23 @@ Errors: `400 INVALID_OR_EXPIRED_TOKEN`, `400` validation (password complexity).
 
 Bearer. Request (existing `ChangePasswordDto`): `{ "currentPassword": "...", "newPassword": "..." }`.
 
-Success `200`: `{ "message": "Password changed" }`.
+On success, updates `password_hash` and **revokes every refresh token for the user — same as
+[`POST /v1/auth/reset-password`](#post-v1authreset-password)**. The two routes previously
+differed here, and the asymmetry was a hole: the most common reason someone changes a password is
+that they suspect it leaked, and the attacker holding a refresh token minted from the old one
+would have kept their session straight through the change. Because the caller is themselves on a
+session that just got revoked, the response hands back a fresh pair so their current tab
+continues without a re-login — the *other* sessions are the ones that die.
+
+Success `200`:
+
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
+  "message": "Password changed. Other sessions have been signed out."
+}
+```
 
 Errors: `401 INVALID_CURRENT_PASSWORD`, `400 NO_PASSWORD_SET` (SSO-only user with
 `password_hash IS NULL` — this endpoint isn't how such a user sets an initial password; that
@@ -534,11 +670,19 @@ Microsoft's consent screen. Completion happens back at [`GET
 
 - Decodes `inviteToken` from `state`, re-validates it's still unexpired/unused, and loads the
   `invited`-status `users` row it belongs to.
+- **Runs the directory check** described at the top of
+  [`GET /v1/auth/microsoft/callback`](#get-v1authmicrosoftcallback) against the invitee's
+  tenant, before looking at the email at all. An invite is a way into an *existing* tenant, so it
+  is bound by that tenant's directory policy exactly like a login is; `?error=DIRECTORY_MISMATCH`,
+  token not consumed.
 - **Confirms the IdP-verified email from this OAuth completion exactly matches that user's
-  `email`.** If it doesn't, the request is rejected as `400 INVITE_EMAIL_MISMATCH` and the token
-  is **not** consumed — this is the one check that stops someone other than the invited person
-  from accepting the link with their own unrelated Microsoft account; see [Security
-  considerations](#security-considerations).
+  `email`** — both sides normalized per [Email normalization](#email-normalization). If it
+  doesn't, the request is rejected as `400 INVITE_EMAIL_MISMATCH` and the token is **not**
+  consumed — this is the check that stops someone other than the invited person from accepting
+  the link with their own unrelated Microsoft account; see [Security
+  considerations](#security-considerations). The two checks are not redundant: the directory check
+  asks "is this the tenant's IdP?", the email check asks "is this the invited person?" — a tenant
+  without a directory policy only gets the second, a tenant with one needs both.
 - On a match: `INSERT user_identities`, `UPDATE users SET status = 'active', email_verified_at =
   now()`, consume the token with the same guarded compare-and-swap as the password path above,
   issue tokens, `302` to `${FRONTEND_URL}/dashboard?access_token=...&refresh_token=...`.
@@ -623,12 +767,26 @@ Platform-admin JWT payload:
 { "sub": "<platform_admin id>", "email": "...", "type": "platform_admin" }
 ```
 
-`type` is what lets a single `JwtStrategy` validate both without accidentally treating a
-platform-admin token as a tenant-user token (which would have `tenantId`/`role` simply
+Refresh JWT payload (signed with `JWT_REFRESH_SECRET`, only ever presented to
+[`POST /v1/auth/refresh`](#post-v1authrefresh) via the cookie):
+
+```json
+{ "sub": "<users id>", "jti": "<random>", "type": "refresh" }
+```
+
+All three `type` values are the `JwtTokenType` enum (`src/api/auth/enums/jwt-token-type.enum.ts`)
+— never a string literal at a call site.
+
+`type` is what lets a single `JwtStrategy` validate both principal shapes without accidentally
+treating a platform-admin token as a tenant-user token (which would have `tenantId`/`role` simply
 `undefined`, and any `tenant_id`-scoped query built to tolerate that quietly becomes a
-cross-tenant data leak). **Every guard and every repository query in this module must check
-`type` before trusting `tenantId` or `role`** — this is the single most important invariant in
-the whole split-hierarchy design, and it belongs in a check, not a comment.
+cross-tenant data leak). **`JwtStrategy.validate` fails closed**: it produces a request user only
+for `type: "tenant_user"` (with a string `tenantId` and a known `role`) or `type: "platform_admin"`
+(with string `sub`/`email`); a payload with any other `type`, or none at all — a refresh token
+presented as a bearer token, a JWT from another issuer sharing the secret — is `401`, not a
+tenant user with `tenantId: undefined`. **Every guard and every repository query in this module
+must still check `type` before trusting `tenantId` or `role`** — this is the single most important
+invariant in the whole split-hierarchy design, and it belongs in a check, not a comment.
 
 ## Error reference
 
@@ -639,20 +797,22 @@ programmatic branching in the frontend.
 | `statusCode` | `error` | Applies to | Meaning |
 |---|---|---|---|
 | `400` | `Validation Error` | Any endpoint with a body | One or more `class-validator` rules failed — `message` is a comma-joined list of the specific violations. |
-| `400` | `Bad Request` (`INVALID_OR_EXPIRED_TOKEN`) | verify-email, reset-password, invite preview/accept, invite SSO entry | Token not found, already used, or past `expires_at`. Same message for all three causes — see [Security considerations](#security-considerations). |
+| `400` | `Bad Request` (`INVALID_OR_EXPIRED_OTP`) | verify-email | Code not found, already used, past `expires_at`, or the account is no longer `pending_verification`. Same message for all causes — see [Security considerations](#security-considerations). |
+| `400` | `Bad Request` (`INVALID_OR_EXPIRED_TOKEN`) | reset-password, invite preview/accept, invite SSO entry | Token not found, already used, or past `expires_at`. Same message for all three causes — see [Security considerations](#security-considerations). |
 | `400` | `Bad Request` (`INVITE_EMAIL_MISMATCH`) | `GET /v1/auth/microsoft/callback` (`invite` intent) | The Microsoft/Google account used to accept the invite reported a different email than the one that was invited. Token is left unconsumed. |
 | `400` | `Bad Request` (`NO_PASSWORD_SET`) | change-password | Target user is SSO-only (`password_hash IS NULL`). |
-| `401` | `Unauthorized` (`INVALID_CREDENTIALS`) | login | Wrong password, unknown email, or an SSO-only account attempting password login — one message for all three. |
+| `401` | `Unauthorized` (`INVALID_CREDENTIALS`) | login | Wrong password, unknown email, an SSO-only account attempting password login, **or an email currently locked out** (see [Brute-force protection](#brute-force-protection-throttling-and-per-account-lockout)) — one message for all four. Note: `pending_verification` is deliberately **not** in this list — see [`POST /v1/auth/login`](#post-v1authlogin), it's a 200 with a fresh OTP, not an error. |
 | `401` | `Unauthorized` (`INVALID_CURRENT_PASSWORD`) | change-password | `currentPassword` didn't match. |
-| `401` | `Unauthorized` (`INVALID_REFRESH_TOKEN`) | refresh | Expired, revoked, or already-rotated-out refresh token. |
+| `401` | `Unauthorized` (`INVALID_REFRESH_TOKEN`) | refresh | Expired, revoked, already-rotated-out, or otherwise invalid refresh token — including one whose owning user/tenant is no longer in good standing. |
 | `401` | `Unauthorized` | Any `Bearer` route | Missing, malformed, or expired access token. |
-| `403` | `Forbidden` (`ACCOUNT_PENDING_VERIFICATION`) | login | `users.status = 'pending_verification'`. |
-| `403` | `Forbidden` (`ACCOUNT_DISABLED`) | login | `users.status = 'disabled'` or `platform_admins.status = 'disabled'`. |
-| `403` | `Forbidden` (`TENANT_SUSPENDED`) | login, any tenant-scoped route | `tenants.status = 'suspended'`. |
+| `403` | `Forbidden` (`ACCOUNT_DISABLED`) | login (also as `?error=` on an OAuth `login`/`invite` callback) | `users.status = 'disabled'` or `platform_admins.status = 'disabled'`. On **refresh**, this same condition revokes every refresh token that user has, but the response is `401 INVALID_REFRESH_TOKEN`, not a 403 — see [`POST /v1/auth/refresh`](#post-v1authrefresh). |
+| `403` | `Forbidden` (`TENANT_SUSPENDED`) | login, any tenant-scoped route (also as `?error=` on an OAuth callback) | `tenants.status = 'suspended'`. On **refresh**, same as `ACCOUNT_DISABLED` above — revokes every refresh token, responds `401 INVALID_REFRESH_TOKEN`; this is what bounds a suspended tenant's residual access to one access-token lifetime. |
 | `403` | `Forbidden` | `@Roles('owner')` routes | Authenticated as a `member`, not an `owner`. |
 | `404` | `Not Found` | (reserved) | Not currently used by this module — auth endpoints prefer `401`/`403`/`400` over `404` specifically to avoid confirming/denying resource existence (see enumeration-prevention note below). |
-| `409` | `Conflict` (`EMAIL_ALREADY_MEMBER`) | invite | Email already has an active/invited `users` row on this tenant. There is deliberately no equivalent "already registered" conflict on tenant *signup* — see [`POST /v1/auth/signup`](#post-v1authsignup). |
-| `429` | `Too Many Requests` | Any route | `ThrottlerGuard` limit exceeded for that route's tier — see the per-route throttle columns above and the overview's [Rate limiting](./overview.md#rate-limiting-throttler) section. |
+| `409` | `Conflict` (`EMAIL_ALREADY_REGISTERED`) | signup | An account already exists at this email, under any status or tenant — whether caught by the pre-check or by the `idx_users_email_active` unique violation in a concurrent-signup race. See [`POST /v1/auth/signup`](#post-v1authsignup). |
+| `409` | `Conflict` (`EMAIL_ALREADY_MEMBER`) | invite | Email already has an active/invited `users` row on this tenant. |
+| `413` | `Payload Too Large` | Any endpoint with a body | Body exceeded the global `1mb` `body-parser` limit. Raised by Express middleware before Nest's pipeline as an `http-errors` error, not an `HttpException` — `ErrorHandlerService` recognises that shape (4xx + `expose: true`) and maps it to its own status instead of a `500`. |
+| `429` | `Too Many Requests` | Any route | `ThrottlerGuard` limit exceeded for that route's tier (`Retry-After` header set) — see the per-route throttle columns above and the overview's [Rate limiting](./overview.md#rate-limiting-throttler) section. |
 | `500` | `Internal Server Error` | Any route | Unhandled exception. `traceId` is the only thing safe to show the user; full detail is server-side only, per `ErrorHandlerService.handleUnhandledError`. |
 
 OAuth-specific redirect error codes (appended as `?error=<code>` on callback failure, not JSON —
@@ -661,17 +821,29 @@ see [Conventions](#conventions)):
 | Code | Meaning |
 |---|---|
 | `NO_ACCOUNT_FOUND` | `login`-intent callback found no matching `user_identities`/`platform_admin_identities` row. |
-| `DIRECTORY_MISMATCH` | Tenant has an active `tenant_identity_providers` restriction and the IdP token's directory (`tid` claim) didn't match. |
+| `DIRECTORY_MISMATCH` | Tenant has an active `tenant_identity_providers` restriction and the IdP token's directory (`tid` claim) didn't match. Raised by the `login`, returning-user `signup`, **and `invite`** branches alike — see the shared rule at the top of [`GET /v1/auth/microsoft/callback`](#get-v1authmicrosoftcallback). |
+| `ACCOUNT_DISABLED` / `TENANT_SUSPENDED` | The `login` or `invite` branch found the identity but the user is `disabled` or the tenant `suspended` — same conditions as the JSON `403`s above, delivered as a redirect because the callback is a top-level navigation. |
 | `INVALID_STATE` | The signed `state` parameter failed verification, or is older than `OAUTH_STATE_TTL_MINUTES` — possible CSRF attempt or an expired/stale link. |
 | `INVITE_EMAIL_MISMATCH` | `invite`-intent callback's IdP email didn't match the invited email — see [`GET /v1/auth/invite/:token/microsoft`](#get-v1authinvitetokenmicrosoft). |
 | `PROVIDER_ERROR` | The IdP itself returned an error (user declined consent, provider outage, etc). |
 
 ## Security considerations
 
+- **Token generation** — hashing a guessable token protects nothing, so the generation is part of
+  the contract, not an implementation detail: the raw invite/reset/verify-email token is **32 bytes
+  from `crypto.randomBytes`** (256 bits — the same source and size `api-key.service.ts` already
+  uses), encoded **base64url** (43 chars, URL-safe without escaping in the emailed link). At that
+  entropy the 20 req/min preview endpoint below is irrelevant to brute force — the ceiling is the
+  randomness, not the rate limit — which is the point of fixing the size here rather than leaning
+  on the throttler.
 - **Token storage** — `password_reset_tokens.token_hash` and `platform_admin_invites.token_hash`
   store a hash of the token, never the raw value (mirrors how `password_hash` is never the raw
-  password). The raw token exists only in the emailed link and the client's request — a database
-  read (backup, replica lag snapshot, insider access) can't be used to mint valid tokens.
+  password). The hash is **SHA-256, hex** (64 chars, fits `VARCHAR(255)`, and deterministic so the
+  unique index on `token_hash` is the lookup key) — *not* bcrypt/argon2: those exist to slow down
+  guessing of low-entropy secrets like passwords, and would defeat the indexed lookup, which a
+  256-bit random token doesn't need. The raw token exists only in the emailed link and the client's
+  request — a database read (backup, replica lag snapshot, insider access) can't be used to mint
+  valid tokens.
 - **No user enumeration** — [`POST /v1/auth/forgot-password`](#post-v1authforgot-password) returns
   the same `200` and message whether or not the email exists, and does the same DB work either way
   (a dummy hash comparison on the not-found path) so response timing doesn't leak the answer
@@ -683,14 +855,36 @@ see [Conventions](#conventions)):
   one message, for the same reason.
 - **Password complexity** — enforced by `class-validator` at the DTO layer (`RegisterDto`,
   `ResetPasswordDto`, `ChangePasswordDto` today; the new `SignupDto`/`InviteAcceptDto` reuse the
-  same regex): 8–128 chars, at least one upper, one lower, one digit, one special character.
+  same regex, `PASSWORD_PATTERN` in `auth.constants.ts`): 8–128 chars, at least one upper, one
+  lower, one digit, one special character — "special" being any non-alphanumeric, non-whitespace
+  character rather than a fixed allowlist, so `#`/`-`/`_` passphrases aren't rejected.
   Hashing algorithm/cost factor is out of this document's scope — see `auth.service.ts`'s hashing
   utility, not duplicated here to avoid the two drifting apart.
 - **Token lifetimes** — access tokens are short (15 min) specifically so a leaked access token
   (browser XSS, log accident) has a small blast-radius window; refresh tokens are long-lived but
-  rotate on every use and are revoked wholesale on logout or password reset. See
+  rotate on every use and are revoked wholesale on logout, password reset, **password change**,
+  and on any refresh that finds the user disabled or the tenant suspended. See
   [Configuration](#configuration) for the env vars and the flagged `refresh_tokens` table
-  prerequisite.
+  prerequisite. Access and refresh tokens are signed with **different secrets in production**,
+  enforced at boot — see `JWT_REFRESH_SECRET` in [Configuration](#configuration).
+- **Both tokens travel as httpOnly cookies — the access token's JSON copy is a second, separate
+  channel, not the only one** — the tenant-user password path (`login`/`verify-email`/`refresh`)
+  sets `refresh_token` as an httpOnly, `Secure`-in-production cookie scoped to `/v1/auth`, and
+  `access_token` the same way but scoped to `/` (every route needs it, not just the auth module's
+  own). Neither is ever serialized into a response a script on the page could read directly out of
+  the cookie itself. This is the direct mitigation for the "browser XSS" scenario named above — a
+  script can forge neither cookie's value. The access token is *additionally* returned as plain
+  JSON (`TokenResponseDto.accessToken`) purely so the frontend can hold its own copy client-side
+  (`localStorage`, since an httpOnly cookie's value is invisible to its own JS) and attach it as a
+  `Bearer` header — `JwtStrategy` accepts either, cookie first, falling back to the header, so a
+  same-origin browser request authenticates from the cookie alone while a non-cookie caller
+  (Swagger UI, a future mobile client, service-to-service) still works off the header. The refresh
+  token has no such JSON copy at all — it never needs to be attached as a header anywhere.
+- **Brute-force protection is throttling *and* per-account lockout, not throttling alone** — the
+  per-IP throttles don't stop distributed credential stuffing. See [Brute-force
+  protection](#brute-force-protection-throttling-and-per-account-lockout) below for the Redis
+  failure counter that does, and why it must fail with the same `INVALID_CREDENTIALS` as a wrong
+  password.
 - **`state` signing on every OAuth entry route** — [`GET
   /v1/auth/microsoft/signup`](#get-v1authmicrosoftsignup) encodes `businessName`/`ownerName`;
   [`GET /v1/auth/invite/:token/microsoft`](#get-v1authinvitetokenmicrosoft) encodes `inviteToken`;
@@ -713,14 +907,19 @@ see [Conventions](#conventions)):
   used_at = now() WHERE id = ? AND used_at IS NULL`, not a `SELECT` followed by a separate
   `UPDATE`. Two tabs submitting the same link at once make the second call see zero rows affected
   and fail as already-used, rather than both succeeding. See `PLAN.md` §8.7.
-- **Refresh-token rotation has a deliberate reuse grace window, not strict single-use** — see
-  [`POST /v1/auth/refresh`](#post-v1authrefresh) and `PLAN.md` §8.19: strict single-use rotation
-  would log a legitimate double-tab user out everywhere on an ordinary race, which is worse than
-  the small window it would otherwise close.
+- **Refresh-token rotation is strict single-use today, atomically** — see
+  [`POST /v1/auth/refresh`](#post-v1authrefresh): revoke-and-replace is one transaction gated on
+  the revoke's row count, so a token can never mint two sessions. The cost is that a legitimate
+  double-tab race gets one `401` (that tab re-logs in); the reuse grace window that would soften
+  this (`PLAN.md` §8.19) is the documented follow-up, not yet built.
 - **Tenant suspension is not instant for a token already in a user's hand** — access tokens are
   signature-only stateless JWTs; suspending a tenant blocks new logins/refreshes immediately but
   not a request riding an access token issued before the suspension, for up to its remaining
-  15-minute lifetime. Accepted, not fixed — see `PLAN.md` §8.20 for the tradeoff.
+  15-minute lifetime. Accepted, not fixed — see `PLAN.md` §8.20 for the tradeoff. The word
+  "refreshes" in that sentence is load-bearing: the bound is only 15 minutes because
+  [`POST /v1/auth/refresh`](#post-v1authrefresh) re-checks `tenants.status` and `users.status` and
+  revokes the family on failure. An implementation that validates only the refresh token itself
+  has no bound at all.
 - **Tenant/type confusion is the highest-severity mistake available in this module** — see the
   `type` claim discussion in [Session / token model](#session--token-model-1). A guard or
   repository method that trusts `tenantId` without checking `type === 'tenant_user'` first would
@@ -728,13 +927,51 @@ see [Conventions](#conventions)):
   on how the SQL is built, `WHERE tenant_id = $1` with `$1 = undefined` can behave very differently
   from "match nothing" depending on the query builder — verify this explicitly in tests, don't
   assume.
-- **Directory restriction (`tenant_identity_providers`) is opt-in, not default** — most tenants
-  (including this engagement's client) have no row
-  here and accept any Microsoft account. Only set one up when the client explicitly wants "our
-  Entra directory only," per the overview's [Frontend/backend
-  boundary](./overview.md#frontend--backend-boundary).
+- **Directory restriction (`tenant_identity_providers`) is opt-in, not default — but once opted
+  in, it is total** — most tenants (including this engagement's client) have no row here and
+  accept any Microsoft account. Only set one up when the client explicitly wants "our Entra
+  directory only," per the overview's [Frontend/backend boundary](./overview.md#frontend--backend-boundary).
+  When a row exists it governs every SSO completion that produces a session for that tenant —
+  login, returning-user signup, and invite acceptance — not login alone; see the shared rule at the
+  top of [`GET /v1/auth/microsoft/callback`](#get-v1authmicrosoftcallback). A restriction with an
+  exception is a restriction an attacker takes the exception to.
+- **Email comparison is on normalized values, everywhere** — see [Email
+  normalization](#email-normalization). This matters most for `INVITE_EMAIL_MISMATCH`: an
+  "exact match" security check that is secretly case-sensitive both rejects legitimate invitees
+  and invites a "just compare case-insensitively here" patch that then quietly disagrees with how
+  the row was stored.
 - **Single-session logout is not offered** — [`POST
   /v1/auth/logout`](#post-v1authlogout) revokes every refresh token for the user, all devices at
   once. Acceptable for this engagement's single-user-per-tenant scope; revisit if multi-device
   "sign out of other sessions only" becomes a real requirement, since it needs the
   `refresh_tokens` table to carry a device/session identifier, not just a hash.
+
+### Brute-force protection: throttling and per-account lockout {#brute-force-protection-throttling-and-per-account-lockout}
+
+The per-route throttles in the endpoint tables are keyed on **client IP** (`@nestjs/throttler`'s
+default tracker). Two consequences follow. First, behind the load balancer Express's `trust proxy`
+must be set, or every request arrives from the LB's address, shares one bucket, and one tenant's
+burst throttles everyone. Second — the real gap — per-IP is the wrong axis for the attack the
+throttle was described as blunting: credential stuffing arrives from many addresses, a few attempts
+each, all aimed at one account, and never trips a per-IP limit.
+
+So the password login routes (`/v1/auth/login`, `/v1/platform-admin/auth/login`) additionally keep
+a **per-email failure counter in Redis**:
+
+- Key `auth:login-fail:<sha256(normalized email)>` (normalized per [Email
+  normalization](#email-normalization); hashed so the key space doesn't leak addresses to anyone
+  with Redis read access).
+- Incremented on every `INVALID_CREDENTIALS` outcome; TTL `LOGIN_LOCKOUT_WINDOW_MINUTES`; deleted
+  on a successful login.
+- Once it reaches `LOGIN_LOCKOUT_THRESHOLD`, further attempts for that email are rejected for the
+  rest of the window **with the identical `401 INVALID_CREDENTIALS`**. No distinct "locked" code —
+  a distinct code would tell an attacker both that the account exists and that they've found the
+  threshold.
+- The locked path skips the password-hash comparison, so it must also skip the DB lookup *and*
+  run the same dummy-hash delay the enumeration-prevention bullet above describes — otherwise the
+  faster response becomes the tell.
+
+This is an application-layer counter, not a `users` column: no migration, and it never touches
+`users.status`, so a lockout can't be weaponized to *disable* someone's account — only to slow the
+attacker down for one window. A legitimate user with the right password gets in the moment the
+window lapses; one who genuinely forgot has the forgot-password path, which is unaffected.

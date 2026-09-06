@@ -13,20 +13,14 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as bodyParser from 'body-parser';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import type { Request, Response } from 'express';
 import helmet from 'helmet';
 
 import * as path from 'path';
 
-import { AgentsModule } from './ai/agents/agents.module';
+import { AuthModule } from './api/auth/auth.module';
 import { AppModule } from './app.module';
-// Business modules (versioned APIs — included in Swagger docs)
-import { AuthModule } from './auth/auth.module';
-import { MediaModule } from './media/media.module';
-import { NotificationsModule } from './notifications/notifications.module';
-import { UsersV2Module } from './users/users-v2.module';
-import { UsersModule } from './users/users.module';
-import { WebhooksModule } from './webhooks/webhooks.module';
 
 export async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -47,6 +41,10 @@ export async function bootstrap(): Promise<void> {
 
   // Apply response compression
   app.use(compression());
+
+  // Parses the refresh_token cookie into req.cookies for POST /v1/auth/refresh and logout —
+  // see AuthController.
+  app.use(cookieParser());
 
   const corsOrigins = configService.get<string>('CORS_ORIGINS')?.split(',') ?? [];
 
@@ -79,20 +77,13 @@ export async function bootstrap(): Promise<void> {
   //   3. The new docs will be available at /api/v{n}
   // ─────────────────────────────────────────────────────────────────────────────
 
-  const V1_MODULES = [
-    AuthModule,
-    UsersModule,
-    MediaModule,
-    NotificationsModule,
-    AgentsModule,
-    WebhooksModule,
-  ];
+  const V1_MODULES = [AuthModule];
 
   if (!isProd) {
     // V1 API docs at /api/v1
     const v1Config = new DocumentBuilder()
-      .setTitle('Project/App Name APIs — v1')
-      .setDescription('API v1 documentation for the backend services of Project/App Name')
+      .setTitle('InnoPeak APIs — v1')
+      .setDescription('API v1 documentation for the InnoPeak backend services')
       .setVersion('1.0')
       .addBearerAuth()
       .build();
@@ -101,19 +92,7 @@ export async function bootstrap(): Promise<void> {
     });
     SwaggerModule.setup(`${RouteNames.API_DOCS}/v1`, app, v1Document);
 
-    // V2 API docs at /api/v2 (add new versioned modules here as they are created)
-    const V2_MODULES = [UsersV2Module];
-
-    const v2Config = new DocumentBuilder()
-      .setTitle('Project/App Name APIs — v2')
-      .setDescription('API v2 documentation for the backend services of Project/App Name')
-      .setVersion('2.0')
-      .addBearerAuth()
-      .build();
-    const v2Document = SwaggerModule.createDocument(app, v2Config, {
-      include: V2_MODULES,
-    });
-    SwaggerModule.setup(`${RouteNames.API_DOCS}/v2`, app, v2Document);
+    // V2 API docs (add versioned modules here once a v2 endpoint actually exists)
 
     // Default /api redirects to latest stable version
     const expressInstance = app.getHttpAdapter().getInstance();

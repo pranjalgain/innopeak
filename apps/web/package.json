@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm openapi:generate && next dev --turbopack",
+    "dev": "pnpm openapi:generate && next dev --turbopack -p 3002",
     "build:ts": "cross-env __NEXT_TEST_MODE=1 next build",
     "build": "next build",
     "analyze": "ANALYZE=true pnpm build",

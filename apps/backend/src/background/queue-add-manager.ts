@@ -1,10 +1,5 @@
 import { DEFAULT_JOB_OPTIONS, JobName, QueueName } from '@bg/constants/job.constant';
-import {
-  INotificationJob,
-  INotificationTopicJob,
-  IOtpEmailJob,
-  ISendNotificationJob,
-} from '@bg/interfaces/job.interface';
+import { IOtpEmailJob } from '@bg/interfaces/job.interface';
 import { QueuePublisherProvider } from '@bg/providers/queue-publisher.provider';
 import { Injectable, Logger } from '@nestjs/common';
 
@@ -33,21 +28,6 @@ export class AddingJobsToQueueManager {
       );
       throw error;
     }
-  }
-
-  async addSendNotificationToDeviceJob(jobName: JobName, data: INotificationJob): Promise<void> {
-    return this.addJob(QueueName.NOTIFICATION, jobName, data);
-  }
-
-  async addSendNotificationToTopicJob(
-    jobName: JobName,
-    data: INotificationTopicJob
-  ): Promise<void> {
-    return this.addJob(QueueName.NOTIFICATION, jobName, data);
-  }
-
-  async addSendNotificationJob(jobName: JobName, data: ISendNotificationJob): Promise<void> {
-    return this.addJob(QueueName.NOTIFICATION, jobName, data);
   }
 
   async addRegisterationOtpEmailJob(jobName: JobName, data: IOtpEmailJob): Promise<void> {

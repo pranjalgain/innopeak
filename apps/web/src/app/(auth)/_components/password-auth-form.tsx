@@ -9,16 +9,16 @@ import { Label } from "@/components/ui/label";
 
 interface PasswordAuthFormProps {
   isLoading: boolean;
-  onSubmit: (email: string) => void;
+  onSubmit: (email: string, password: string) => void;
   /** Overrides the submit button's label — e.g. "Sign up"/"Signing up…" when this form is reused on the signup screen. Defaults to "Sign in"/"Signing in…". */
   submitLabel?: string;
   submittingLabel?: string;
 }
 
 /**
- * Mock email/password fields — gated behind `AUTH_METHODS.password`, off by
- * default since Microsoft SSO is this app's primary sign-in method. No real
- * validation beyond non-empty, matching `MicrosoftSsoForm`'s mock rigor.
+ * Email/password fields — gated behind `AUTH_METHODS.password`, off by
+ * default since Microsoft SSO is this app's primary sign-in method. No
+ * client-side validation beyond non-empty; the backend enforces the rest.
  * Shared between login and signup — the submit label is overridable since
  * "Sign in" wouldn't make sense on the signup screen.
  */
@@ -34,7 +34,7 @@ export function PasswordAuthForm({ isLoading, onSubmit, submitLabel, submittingL
       className="flex flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        onSubmit(email);
+        onSubmit(email, password);
       }}
     >
       <div className="flex flex-col gap-1.5">

@@ -21,7 +21,10 @@ describe('SqsQueueStatusService', () => {
     configValues = {
       DEPLOYMENT_TARGET: 'aws',
       EMAIL_QUEUE_URL: 'http://localhost:4566/000000000000/nestjs-app-email',
-      NOTIFICATION_QUEUE_URL: 'http://localhost:4566/000000000000/nestjs-app-notification',
+      // A second *currently existing* queue — the notification queue this used to name was
+      // removed along with the notifications module, which left the enum and this fixture out of
+      // sync and the skip-on-error test below asserting on a queue that can never be returned.
+      CRON_QUEUE_URL: 'http://localhost:4566/000000000000/nestjs-app-cron',
     };
 
     const configService = {
@@ -101,6 +104,6 @@ describe('SqsQueueStatusService', () => {
     const result = await service.getQueueDepths();
 
     expect(result.find(q => q.queueName === 'email')).toBeUndefined();
-    expect(result.find(q => q.queueName === 'notification')).toBeDefined();
+    expect(result.find(q => q.queueName === 'cron')).toBeDefined();
   });
 });

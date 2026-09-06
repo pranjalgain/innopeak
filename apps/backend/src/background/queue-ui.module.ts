@@ -7,9 +7,6 @@ import { CronUIModule } from '@cron/cron-ui.module';
 import { DeadLetterQueueUIModule } from '@dead-letter-queue/deadletter-queue-ui.module';
 import { EmailQueueUIModule } from '@email-queue/email-queue-ui.module';
 import { Module } from '@nestjs/common';
-import { NotificationQueueUIModule } from '@notification-queue/notification-queue-ui.module';
-
-import { WebhookQueueUIModule } from './queue/webhook/webhook-queue-ui.module';
 
 @Module({
   imports: [
@@ -25,9 +22,7 @@ import { WebhookQueueUIModule } from './queue/webhook/webhook-queue-ui.module';
     }),
     DeadLetterQueueUIModule,
     CronUIModule,
-    NotificationQueueUIModule,
     EmailQueueUIModule,
-    WebhookQueueUIModule,
   ],
   providers: [AddingJobsToQueueManager],
   exports: [AddingJobsToQueueManager],

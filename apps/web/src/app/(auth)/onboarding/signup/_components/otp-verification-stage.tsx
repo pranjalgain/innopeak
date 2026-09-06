@@ -12,19 +12,30 @@ interface OtpVerificationStageProps {
   isLoading: boolean;
   onVerify: (code: string) => void;
   onResend: () => void;
+  /** Which copy to render — defaults to the signup wizard's own strings; pass a different namespace (same key shape) for a context with its own wording, e.g. a login-specific one. */
+  translationNamespace?: string;
 }
 
 const CODE_LENGTH = 6;
 const RESEND_COOLDOWN_SECONDS = 30;
+const DEFAULT_TRANSLATION_NAMESPACE = "onboardingSignup.otp";
 
 /**
- * Mock OTP entry — accepts any complete 6-digit code, same "valid once the
- * shape is right" rigor as `MicrosoftSsoForm`/`CreateAccountForm`. Only
- * reached from the password signup path; Microsoft/Google already assert a
- * verified email as part of their OAuth handshake, so those skip this step.
+ * Shared OTP entry — reached from both the signup wizard's own "otp" step
+ * (a brand-new account verifying for the first time) and the login screen's
+ * "otp" step (an existing account that never finished verifying, reached
+ * after login resends a fresh code). Microsoft/Google already assert a
+ * verified email as part of their OAuth handshake, so those skip this step
+ * entirely in both flows.
  */
-export function OtpVerificationStage({ email, isLoading, onVerify, onResend }: OtpVerificationStageProps) {
-  const t = useTranslations("onboardingSignup.otp");
+export function OtpVerificationStage({
+  email,
+  isLoading,
+  onVerify,
+  onResend,
+  translationNamespace = DEFAULT_TRANSLATION_NAMESPACE,
+}: OtpVerificationStageProps) {
+  const t = useTranslations(translationNamespace);
   const [digits, setDigits] = React.useState<string[]>(() => Array(CODE_LENGTH).fill(""));
   const [error, setError] = React.useState<string | null>(null);
   const [cooldown, setCooldown] = React.useState(0);
