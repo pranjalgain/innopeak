@@ -27,6 +27,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         navItems={NAV_ITEMS}
         navNamespace="nav"
         homeHref={ROUTES.DASHBOARD}
+        profileHref={`${ROUTES.SETTINGS}?tab=profile`}
         identity={{
           name: CURRENT_OWNER.name,
           initials: CURRENT_OWNER.initials,

@@ -7,10 +7,9 @@ import { LuBell, LuCheck, LuClock, LuTriangleAlert, LuWifiOff } from "react-icon
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { cn } from "@/app/_libs/utils/cn";
 import { formatRelativeTime } from "@/app/_libs/utils/relative-time";
-import { Pagination } from "@/components/common/pagination";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { usePagination } from "@/hooks/common/use-pagination";
+import { useInfiniteList } from "@/hooks/common/use-infinite-list";
 import { useNotifications } from "@/hooks/notifications/use-notifications";
 import type { Notification, NotificationType } from "@/types/domain";
 
@@ -76,7 +75,8 @@ export function NotificationPanel() {
   const t = useTranslations("appShell");
   const tPanel = useTranslations("appShell.notificationPanel");
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(notifications, 3);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const { visibleItems, hasMore, sentinelRef } = useInfiniteList(notifications, 10, scrollRef);
 
   return (
     <Popover>
@@ -106,16 +106,12 @@ export function NotificationPanel() {
         {notifications.length === 0 ? (
           <p className="px-3.5 py-6 text-center text-sm text-muted-foreground">{tPanel("empty")}</p>
         ) : (
-          <>
-            <div className="flex max-h-80 flex-col gap-1 overflow-y-auto p-1.5">
-              {pageItems.map((notification) => (
-                <NotificationRow key={notification.id} notification={notification} onRead={markAsRead} />
-              ))}
-            </div>
-            <div className="border-t border-border px-3.5 py-2.5">
-              <Pagination page={page} totalPages={totalPages} onPrevious={goToPreviousPage} onNext={goToNextPage} />
-            </div>
-          </>
+          <div ref={scrollRef} className="flex max-h-80 flex-col gap-1 overflow-y-auto p-1.5">
+            {visibleItems.map((notification) => (
+              <NotificationRow key={notification.id} notification={notification} onRead={markAsRead} />
+            ))}
+            {hasMore ? <div ref={sentinelRef} aria-hidden="true" className="h-px shrink-0" /> : null}
+          </div>
         )}
       </PopoverContent>
     </Popover>

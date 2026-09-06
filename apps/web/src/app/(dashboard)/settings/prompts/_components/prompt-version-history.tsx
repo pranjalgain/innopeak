@@ -37,7 +37,7 @@ export function PromptVersionHistory({ promptId, versions, getStats }: PromptVer
   const [isOpen, setIsOpen] = React.useState(false);
   const priorVersions = versions.slice(0, -1);
   const reversedPriorVersions = [...priorVersions].reverse();
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(reversedPriorVersions, 2);
+  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(reversedPriorVersions, 10);
 
   if (priorVersions.length === 0) return null;
 

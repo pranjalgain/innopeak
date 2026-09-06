@@ -2,28 +2,30 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
 
-import { AdminBillingService } from "@/app/_libs/services/admin-billing.service";
+import { AdminActivityService } from "@/app/_libs/services/admin-activity.service";
 import { AdminBusinessService } from "@/app/_libs/services/admin-business.service";
 import { AdminUserService } from "@/app/_libs/services/admin-user.service";
 import { PlatformReviewStatsService } from "@/app/_libs/services/platform-review-stats.service";
+import type { AdminBusiness, PlatformActivityEntry } from "@/types/domain";
 
 interface UseAdminOverviewResult {
+  businesses: AdminBusiness[];
   businessCount: number;
   userCount: number;
-  mrr: number;
   totalReviewsFetched: number;
   totalRepliesSent: number;
+  recentActivity: PlatformActivityEntry[];
   isLoading: boolean;
 }
 
 /** Aggregates counts across the other admin services — no dedicated mock-data of its own (except review throughput, which has none to derive from). */
 export function useAdminOverview(): UseAdminOverviewResult {
   const t = useTranslations("adminOverview.toasts");
-  const [businessCount, setBusinessCount] = React.useState(0);
+  const [businesses, setBusinesses] = React.useState<AdminBusiness[]>([]);
   const [userCount, setUserCount] = React.useState(0);
-  const [mrr, setMrr] = React.useState(0);
   const [totalReviewsFetched, setTotalReviewsFetched] = React.useState(0);
   const [totalRepliesSent, setTotalRepliesSent] = React.useState(0);
+  const [recentActivity, setRecentActivity] = React.useState<PlatformActivityEntry[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
 
   React.useEffect(() => {
@@ -32,16 +34,16 @@ export function useAdminOverview(): UseAdminOverviewResult {
     Promise.all([
       AdminBusinessService.getBusinesses(),
       AdminUserService.getUsers(),
-      AdminBillingService.getBilling(),
       PlatformReviewStatsService.get(),
+      AdminActivityService.getRecentActivity(),
     ])
-      .then(([businesses, users, billing, reviewStats]) => {
+      .then(([businessesResult, users, reviewStats, activity]) => {
         if (cancelled) return;
-        setBusinessCount(businesses.length);
+        setBusinesses(businessesResult);
         setUserCount(users.length);
-        setMrr(billing.reduce((sum, row) => sum + row.mrr, 0));
         setTotalReviewsFetched(reviewStats.totalReviewsFetched);
         setTotalRepliesSent(reviewStats.totalRepliesSent);
+        setRecentActivity(activity);
       })
       .catch(() => {
         if (!cancelled) toast.error(t("loadFailed"));
@@ -55,5 +57,13 @@ export function useAdminOverview(): UseAdminOverviewResult {
     };
   }, [t]);
 
-  return { businessCount, userCount, mrr, totalReviewsFetched, totalRepliesSent, isLoading };
+  return {
+    businesses,
+    businessCount: businesses.length,
+    userCount,
+    totalReviewsFetched,
+    totalRepliesSent,
+    recentActivity,
+    isLoading,
+  };
 }

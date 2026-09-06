@@ -24,7 +24,6 @@ export const ROUTES = {
   ADMIN_BUSINESSES: "/admin/businesses",
   ADMIN_USERS: "/admin/users",
   ADMIN_SETTINGS: "/admin/settings",
-  ADMIN_BILLING: "/admin/billing",
 } as const;
 
 /**

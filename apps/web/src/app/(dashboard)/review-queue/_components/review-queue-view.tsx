@@ -34,7 +34,7 @@ function ReviewQueueSkeleton() {
 export function ReviewQueueView() {
   const t = useTranslations("reviewQueue");
   const { filteredReviews, filters, setStatus, setClassification, setSearch, isLoading } = useReviewQueue();
-  const { page, totalPages, pageItems, setPage, goToPreviousPage, goToNextPage } = usePagination(filteredReviews, 6);
+  const { page, totalPages, pageItems, setPage, goToPreviousPage, goToNextPage } = usePagination(filteredReviews, 10);
 
   React.useEffect(() => {
     setPage(1);

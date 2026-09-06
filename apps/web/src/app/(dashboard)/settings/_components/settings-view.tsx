@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 
 import { AiSettingsSection } from "@/app/(dashboard)/settings/_components/ai-settings-section";
@@ -29,6 +30,7 @@ function SettingsSkeleton() {
 
 export function SettingsView() {
   const t = useTranslations("settings");
+  const searchParams = useSearchParams();
   const {
     settings,
     isLoading,
@@ -42,9 +44,14 @@ export function SettingsView() {
 
   if (isLoading || !settings) return <SettingsSkeleton />;
 
+  // `?tab=` drives the initial tab (e.g. the account menu's "profile" link) — falls back to
+  // "general" when the requested tab doesn't exist in the current AUTH_METHODS configuration.
+  const requestedTab = searchParams.get("tab");
+  const initialTab = requestedTab === "profile" && !AUTH_METHODS.password ? "general" : (requestedTab ?? "general");
+
   return (
     <div className="flex flex-col gap-6 p-fluid-page">
-      <Tabs defaultValue="general" className="max-w-3xl gap-5">
+      <Tabs defaultValue={initialTab} className="max-w-3xl gap-5">
         <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
           <TabsTrigger value="general">{t("tabs.general")}</TabsTrigger>
           {AUTH_METHODS.password ? <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger> : null}

@@ -10,7 +10,7 @@
       "eyebrow": "For Google Business Profile reviews",
       "headline": "AI drafts the reply. Your team approves every word.",
       "subheadline": "InnoPeak watches your Google Business Profile, drafts a reply to every new review, and routes anything risky straight to the person who should see it — so nothing goes out that a human hasn't approved, and nothing slips through unanswered.",
-      "primaryCta": "Get started with Microsoft",
+      "primaryCta": "Get started",
       "secondaryCta": "See how it works",
       "mockup": {
         "reviewerName": "Marcus Yee",
@@ -27,7 +27,7 @@
       "items": [
         "Nothing posts without approval",
         "Escalations reach a real person in minutes",
-        "Sign in with your work Microsoft account"
+        "Works directly with your Google Business Profile"
       ]
     },
     "problem": {
@@ -53,7 +53,7 @@
       "steps": [
         {
           "title": "Connect your Google Business Profile",
-          "description": "Sign in with Microsoft, connect the location once, and InnoPeak starts polling for new reviews automatically."
+          "description": "Connect your Google Business Profile location once, and InnoPeak starts polling for new reviews automatically."
         },
         {
           "title": "AI drafts a reply",
@@ -102,7 +102,7 @@
     "cta": {
       "heading": "Stop choosing between fast replies and careful ones.",
       "description": "Connect your Google Business Profile and let InnoPeak draft the first version — you always have the last word.",
-      "button": "Get started with Microsoft"
+      "button": "Get started"
     },
     "footer": {
       "tagline": "AI-assisted replies for Google Business Profile reviews — always reviewed by a human before they go out.",
@@ -120,7 +120,6 @@
     "overview": "Overview",
     "businesses": "Businesses",
     "users": "Users",
-    "billing": "Billing",
     "settings": "Settings"
   },
   "appShell": {
@@ -140,7 +139,7 @@
   "auth": {
     "login": {
       "title": "Sign in to InnoPeak",
-      "subtitle": "Use your work Microsoft account to continue",
+      "subtitle": "Sign in to continue",
       "continueWithMicrosoft": "Continue with Microsoft",
       "continueWithGoogle": "Continue with Google",
       "microsoft": "Microsoft",
@@ -238,12 +237,26 @@
       "reviews": "Reviews",
       "averageRating": "Average rating",
       "pendingApproval": "Pending approval",
-      "escalatedOpen": "Escalated (open)"
+      "escalatedOpen": "Escalated (open)",
+      "medianApprovalTime": "Median time to approval"
     },
     "ratingDistribution": {
       "title": "Rating distribution",
       "subtitle": "Based on last 30 days of reviews",
       "starLabel": "{star, plural, one {# star} other {# stars}}"
+    },
+    "approvalBreakdown": {
+      "title": "Approval breakdown",
+      "subtitle": "How AI-drafted replies were handled in this period",
+      "outcomes": {
+        "approved_as_is": "Approved as-is",
+        "approved_edited": "Edited, then approved",
+        "rejected": "Rejected"
+      }
+    },
+    "escalationBreakdown": {
+      "title": "Escalation reasons",
+      "subtitle": "Why reviews escalated in this period"
     },
     "attention": {
       "title": "Needs your attention",
@@ -482,9 +495,40 @@
     "stats": {
       "businesses": "Businesses",
       "users": "Users",
-      "mrr": "MRR",
       "reviewsFetched": "Reviews fetched",
       "repliesSent": "Replies sent"
+    },
+    "needsAttention": {
+      "title": "Needs attention",
+      "subtitle": "Businesses with a Google Business Profile connection issue",
+      "empty": "Nothing needs attention right now.",
+      "viewAll": "View all businesses →",
+      "statuses": {
+        "needs_reauth": "Needs reauth",
+        "disconnected": "Disconnected"
+      }
+    },
+    "recentBusinesses": {
+      "title": "Recent businesses",
+      "subtitle": "The newest businesses to sign up",
+      "empty": "No businesses yet.",
+      "viewAll": "View all businesses →"
+    },
+    "signupTrend": {
+      "title": "Signups",
+      "subtitle": "New businesses by month",
+      "empty": "No signups yet."
+    },
+    "activityLog": {
+      "title": "Activity",
+      "subtitle": "Recent platform admin actions",
+      "empty": "No activity yet.",
+      "messages": {
+        "business_suspended": "Suspended {businessName}",
+        "business_reactivated": "Reactivated {businessName}",
+        "admin_invite_sent": "Invited {email} as a platform admin",
+        "admin_invite_revoked": "Revoked the invite for {email}"
+      }
     },
     "toasts": {
       "loadFailed": "Could not load the overview."
@@ -494,17 +538,11 @@
     "resultCount": "{count, plural, one {# business} other {# businesses}}",
     "columns": {
       "name": "Business",
-      "plan": "Plan",
       "status": "Status",
       "owner": "Owner",
       "users": "Users",
       "created": "Created",
       "actions": "Actions"
-    },
-    "plan": {
-      "starter": "Starter",
-      "growth": "Growth",
-      "scale": "Scale"
     },
     "status": {
       "active": "Active",
@@ -618,24 +656,6 @@
         "revokeFailed": "Could not revoke this invite. Please try again.",
         "revoked": "Invite revoked."
       }
-    }
-  },
-  "adminBilling": {
-    "resultCount": "{count, plural, one {# business} other {# businesses}}",
-    "totalMrr": "Total MRR",
-    "columns": {
-      "business": "Business",
-      "plan": "Plan",
-      "mrr": "MRR",
-      "reviewsThisMonth": "Reviews this month",
-      "status": "Status"
-    },
-    "emptyState": {
-      "title": "No billing data yet",
-      "description": "Billing details will show up here once businesses are on a paid plan."
-    },
-    "toasts": {
-      "loadFailed": "Could not load billing data."
     }
   },
   "common": {

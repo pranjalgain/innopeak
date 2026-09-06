@@ -30,10 +30,27 @@ export interface DashboardStats {
   averageRating: number;
   pendingApproval: number;
   escalatedOpen: number;
+  /** Median minutes from review received to reply approved; null when nothing was approved in the range. */
+  medianApprovalTimeMinutes: number | null;
 }
 
 export interface RatingDistributionRow {
   star: 1 | 2 | 3 | 4 | 5;
+  count: number;
+  percentage: number;
+}
+
+/** Mirrors `review_responses.source`/`status` on the real schema: how a reply reached its final state. */
+export type ApprovalOutcome = "approved_as_is" | "approved_edited" | "rejected";
+
+export interface ApprovalBreakdownRow {
+  outcome: ApprovalOutcome;
+  count: number;
+  percentage: number;
+}
+
+export interface EscalationBreakdownRow {
+  reason: EscalationReason;
   count: number;
   percentage: number;
 }
@@ -216,15 +233,17 @@ export interface Notification {
   reviewId?: string;
 }
 
-export type BusinessPlan = "starter" | "growth" | "scale";
 export type BusinessStatus = "active" | "suspended";
+
+/** Mirrors the real `google_connection_status` enum, flattened with a `disconnected` case for "no connection row exists yet" (see the connections module plan). */
+export type BusinessConnectionStatus = "connected" | "needs_reauth" | "disconnected";
 
 /** A tenant as seen from the Super Admin area — "business" is this area's user-facing term for a tenant; distinct from `Tenant`, which models the current business from inside its own dashboard. */
 export interface AdminBusiness {
   id: string;
   name: string;
-  plan: BusinessPlan;
   status: BusinessStatus;
+  connectionStatus: BusinessConnectionStatus;
   ownerName: string;
   ownerEmail: string;
   userCount: number;
@@ -267,17 +286,26 @@ export interface PlatformAdminInvite {
   expiresAt: string;
 }
 
-export interface BusinessBillingInfo {
-  businessId: string;
-  businessName: string;
-  plan: BusinessPlan;
-  mrr: number;
-  reviewsThisMonth: number;
-  status: BusinessStatus;
-}
-
 /** Platform-wide review throughput, aggregated across every tenant — shown on the Super Admin overview. */
 export interface PlatformReviewStats {
   totalReviewsFetched: number;
   totalRepliesSent: number;
+}
+
+/** A platform-admin action worth surfacing on the Super Admin overview's activity feed. */
+export type PlatformActivityType =
+  | "business_suspended"
+  | "business_reactivated"
+  | "admin_invite_sent"
+  | "admin_invite_revoked";
+
+export interface PlatformActivityEntry {
+  id: string;
+  type: PlatformActivityType;
+  actorEmail: string;
+  /** The business a `business_*` entry acted on. */
+  businessName?: string;
+  /** The invitee email an `admin_invite_*` entry acted on. */
+  email?: string;
+  occurredAt: string;
 }

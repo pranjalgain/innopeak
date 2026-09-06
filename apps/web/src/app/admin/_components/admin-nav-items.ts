@@ -1,4 +1,4 @@
-import { LuBuilding2, LuCreditCard, LuLayoutDashboard, LuSettings, LuUsers } from "react-icons/lu";
+import { LuBuilding2, LuLayoutDashboard, LuSettings, LuUsers } from "react-icons/lu";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 
@@ -11,6 +11,5 @@ export const ADMIN_NAV_ITEMS = [
   { labelKey: "overview", href: ROUTES.ADMIN, icon: LuLayoutDashboard },
   { labelKey: "businesses", href: ROUTES.ADMIN_BUSINESSES, icon: LuBuilding2 },
   { labelKey: "users", href: ROUTES.ADMIN_USERS, icon: LuUsers },
-  { labelKey: "billing", href: ROUTES.ADMIN_BILLING, icon: LuCreditCard },
   { labelKey: "settings", href: ROUTES.ADMIN_SETTINGS, icon: LuSettings },
 ] as const;

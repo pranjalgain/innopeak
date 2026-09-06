@@ -32,7 +32,7 @@ export function MembersSettingsSection() {
   const tStatus = useTranslations("settings.members.status");
   const { members, isLoading, inviteMember, revokeInvite } = useTenantMembers();
   const [email, setEmail] = React.useState("");
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(members, 2);
+  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(members, 10);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

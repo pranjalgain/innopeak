@@ -16,7 +16,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -54,6 +53,8 @@ interface AppShellProps {
   navNamespace: string;
   homeHref: string;
   identity: ShellIdentity;
+  /** Where the account menu's name/role row links to — each area's own profile settings tab. */
+  profileHref: string;
   /** Off for the Super Admin shell — review-escalation notifications are a tenant concept. */
   showNotifications?: boolean;
 }
@@ -73,6 +74,7 @@ export function AppShell({
   navNamespace,
   homeHref,
   identity,
+  profileHref,
   showNotifications = true,
 }: AppShellProps) {
   const t = useTranslations(navNamespace);
@@ -142,14 +144,18 @@ export function AppShell({
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" side="top" collisionPadding={12} className="w-56">
-                  <DropdownMenuLabel>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{identity.name}</span>
-                      <span className="text-xs font-normal text-muted-foreground">{identity.roleLabel}</span>
-                    </div>
-                  </DropdownMenuLabel>
+                  <DropdownMenuItem asChild className="cursor-pointer">
+                    <Link href={profileHref as Route}>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{identity.name}</span>
+                        <span className="text-xs font-normal text-muted-foreground">{identity.roleLabel}</span>
+                      </div>
+                    </Link>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout}>{tAppShell("signOut")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={logout} className="cursor-pointer">
+                    {tAppShell("signOut")}
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </SidebarMenuItem>

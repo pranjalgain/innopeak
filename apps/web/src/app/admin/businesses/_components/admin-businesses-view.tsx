@@ -104,9 +104,8 @@ function BusinessActionButton({ business, onSuspend, onReactivate, className }: 
 export function AdminBusinessesView() {
   const t = useTranslations("adminBusinesses");
   const tStatus = useTranslations("adminBusinesses.status");
-  const tPlan = useTranslations("adminBusinesses.plan");
   const { businesses, isLoading, suspendBusiness, reactivateBusiness } = useAdminBusinesses();
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(businesses, 4);
+  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(businesses, 10);
 
   const suspend = (id: string) => void suspendBusiness(id);
   const reactivate = (id: string) => void reactivateBusiness(id);
@@ -127,7 +126,6 @@ export function AdminBusinessesView() {
               <TableHeader>
                 <TableRow className="bg-muted/55 hover:bg-muted/55">
                   <TableHead>{t("columns.name")}</TableHead>
-                  <TableHead className="w-32">{t("columns.plan")}</TableHead>
                   <TableHead className="w-32">{t("columns.status")}</TableHead>
                   <TableHead className="w-44">{t("columns.owner")}</TableHead>
                   <TableHead className="w-24">{t("columns.users")}</TableHead>
@@ -143,9 +141,6 @@ export function AdminBusinessesView() {
                     style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
                   >
                     <TableCell className="font-medium whitespace-normal">{business.name}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{tPlan(business.plan)}</Badge>
-                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={STATUS_BADGE_CLASSNAME[business.status]}>
                         {tStatus(business.status)}
@@ -181,10 +176,6 @@ export function AdminBusinessesView() {
                 </div>
 
                 <p className="text-[13px] text-muted-foreground">{business.ownerName}</p>
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant="outline">{tPlan(business.plan)}</Badge>
-                </div>
 
                 <div className="flex items-center justify-between border-t border-border pt-2.5 text-[13px]">
                   <span className="text-muted-foreground">{t("columns.users")}</span>

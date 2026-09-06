@@ -102,7 +102,7 @@ export function AdminUsersView() {
   const tRole = useTranslations("adminUsers.role");
   const tStatus = useTranslations("adminUsers.status");
   const { users, isLoading, toggleActive } = useAdminUsers();
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(users, 4);
+  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(users, 10);
 
   const toggle = (id: string) => void toggleActive(id);
 
