@@ -31,7 +31,8 @@ interface CreateAccountFormProps {
  * validation for an account that already exists. The password checklist
  * and the confirm-password mismatch message only appear once their field
  * has been blurred at least once and has a value — not on the very first
- * keystroke — then update live as the user keeps editing.
+ * keystroke — then update live as the user keeps editing, and the checklist
+ * disappears again once every requirement is met.
  */
 export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProps) {
   const t = useTranslations("onboardingSignup.createAccount");
@@ -48,7 +49,7 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
   const hasConfirmValue = confirmPassword.length > 0;
   const passwordsMatch = password === confirmPassword;
 
-  const showRequirements = passwordBlurred && password.length > 0;
+  const showRequirements = passwordBlurred && password.length > 0 && !passwordValid;
   const showMismatch = confirmBlurred && hasConfirmValue && !passwordsMatch;
 
   const canSubmit =

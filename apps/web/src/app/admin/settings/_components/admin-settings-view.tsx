@@ -48,7 +48,7 @@ function ProfileSection() {
   const hasConfirmValue = confirmPassword.length > 0;
   const passwordsMatch = newPassword === confirmPassword;
 
-  const showRequirements = newPasswordBlurred && newPassword.length > 0;
+  const showRequirements = newPasswordBlurred && newPassword.length > 0 && !newPasswordValid;
   const showMismatch = confirmBlurred && hasConfirmValue && !passwordsMatch;
 
   const canSubmitPassword = currentPassword.trim() !== "" && newPasswordValid && passwordsMatch && hasConfirmValue;
