@@ -36,6 +36,7 @@ import { RolesGuard } from './api/auth/guards/roles.guard';
 import { ConnectionsModule } from './api/connections/connections.module';
 import { DevToolsModule } from './api/dev-tools/dev-tools.module';
 import { ReviewsModule } from './api/reviews/reviews.module';
+import { SettingsModule } from './api/settings/settings.module';
 import { TracingModule } from './api/tracing/tracing.module';
 
 const configService = new ConfigService<EnvConfig>();
@@ -128,6 +129,7 @@ const cacheModule = CacheModule.registerAsync({
     DevToolsModule,
     TracingModule,
     PromptsModule,
+    SettingsModule,
   ],
   providers: [
     ErrorHandlerService,

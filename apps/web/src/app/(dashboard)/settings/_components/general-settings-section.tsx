@@ -66,8 +66,18 @@ export function GeneralSettingsSection({ general, onUpdate }: GeneralSettingsSec
               id="retention-months"
               type="number"
               min={1}
-              value={general.reviewDataRetentionMonths}
-              onChange={(event) => onUpdate({ reviewDataRetentionMonths: Number(event.target.value) })}
+              value={general.reviewDataRetentionMonths ?? ""}
+              onChange={(event) => {
+                const raw = event.target.value;
+                if (raw === "") {
+                  onUpdate({ reviewDataRetentionMonths: null });
+                  return;
+                }
+                const parsed = Number(raw);
+                if (Number.isInteger(parsed) && parsed >= 1) {
+                  onUpdate({ reviewDataRetentionMonths: parsed });
+                }
+              }}
               className="w-24"
             />
             <span className="text-[13px] text-muted-foreground">{t("retention.suffix")}</span>

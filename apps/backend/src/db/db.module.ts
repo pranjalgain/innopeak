@@ -12,6 +12,9 @@ import { PromptsRepository } from './repositories/prompts/prompts.repository';
 import { ReviewSyncDbService } from './repositories/review-sync/review-sync.db-service';
 import { ReviewSyncRepository } from './repositories/review-sync/review-sync.repository';
 import { ReviewsReadRepository } from './repositories/review-sync/reviews-read.repository';
+import { BlocklistTermsRepository } from './repositories/settings/blocklist-terms.repository';
+import { SettingsDbService } from './repositories/settings/settings.db-service';
+import { TenantSettingsRepository } from './repositories/settings/tenant-settings.repository';
 
 const repositories = [
   AuthRepository,
@@ -23,6 +26,9 @@ const repositories = [
   ReviewSyncRepository,
   ReviewsReadRepository,
   ReviewSyncDbService,
+  BlocklistTermsRepository,
+  TenantSettingsRepository,
+  SettingsDbService,
 ];
 
 @Global()

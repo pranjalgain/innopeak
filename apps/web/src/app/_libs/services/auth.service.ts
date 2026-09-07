@@ -175,4 +175,28 @@ export class AuthService {
       window.location.assign(ROUTES.LOGIN);
     }
   }
+
+  /**
+   * Rotates the password and the session. Stores the new access token the same way login does;
+   * the refresh cookie is replaced by the backend. Throws `ApiError` on 4xx/5xx.
+   *
+   * `skipRefresh` is load-bearing: a wrong current password is also a 401, and treating that as
+   * "access token expired" would rotate the session (or sign the user out) before the form ever
+   * sees the error. If the access token has actually lapsed, revive it first, then submit.
+   */
+  static async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    if (!TokenService.getAccessToken()) {
+      const revived = await this.refreshAccessToken();
+      if (!revived) {
+        throw new ApiError(401, "Invalid or expired access token.");
+      }
+    }
+
+    const data = await ApiClient.request<TokenResponse>("/v1/auth/change-password", {
+      method: "POST",
+      body: { currentPassword, newPassword },
+      skipRefresh: true,
+    });
+    TokenService.setAccessToken(data.accessToken);
+  }
 }

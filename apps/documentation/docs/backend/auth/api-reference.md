@@ -574,30 +574,59 @@ Errors: `400 INVALID_OR_EXPIRED_TOKEN`, `400` validation (password complexity).
 
 #### `POST /v1/auth/change-password`
 
-Bearer. Request (existing `ChangePasswordDto`): `{ "currentPassword": "...", "newPassword": "..." }`.
+Bearer, tenant user only (`type === 'tenant_user'`). Throttle 5 / minute. Backs Settings →
+Profile → Update password (`apps/web` `ProfileSettingsSection`, gated behind
+`AUTH_METHODS.password`). Not `@Roles('owner')` — any tenant user with a password can change
+their own; the Settings screen is owner-only in the product, but the credential belongs to the
+caller, not the tenant.
 
-On success, updates `password_hash` and **revokes every refresh token for the user — same as
-[`POST /v1/auth/reset-password`](#post-v1authreset-password)**. The two routes previously
-differed here, and the asymmetry was a hole: the most common reason someone changes a password is
-that they suspect it leaked, and the attacker holding a refresh token minted from the old one
-would have kept their session straight through the change. Because the caller is themselves on a
-session that just got revoked, the response hands back a fresh pair so their current tab
-continues without a re-login — the *other* sessions are the ones that die.
+Request (`ChangePasswordDto`):
+
+```json
+{
+  "currentPassword": "StrongP@ss1",
+  "newPassword": "NewStr0ng@Pass"
+}
+```
+
+| Field | Type | Rules |
+|---|---|---|
+| `currentPassword` | string | required, 1–128 chars. Complexity is **not** re-checked — an older password that would fail today's policy must still be accepted as proof of identity. |
+| `newPassword` | string | required, same rules as [`POST /v1/auth/signup`](#post-v1authsignup)'s `password` (8–128 chars, `PASSWORD_PATTERN`). |
+
+On success, in one transaction: updates `users.password_hash`, then **revokes every refresh
+token for that user** — same as [`POST /v1/auth/reset-password`](#post-v1authreset-password).
+The most common reason someone changes a password is that they suspect it leaked, and an
+attacker holding a refresh token minted from the old one would otherwise keep their session
+straight through the change. The caller's own session is among those revoked, so the response
+issues a **fresh token pair** and sets the same httpOnly cookies as
+[`POST /v1/auth/login`](#post-v1authlogin) (`refresh_token` scoped to `/v1/auth`, `access_token`
+scoped to `/`, plus the `session` hint). The JSON body is the same `TokenResponseDto` as login
+— **no `refreshToken` field**; a script on the page must not be able to read it. Envelope
+`message` is `Password changed. Other sessions have been signed out.`
 
 Success `200`:
 
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
-  "message": "Password changed. Other sessions have been signed out."
+  "expiresIn": 900,
+  "user": {
+    "id": "0190f3b2-...",
+    "tenantId": "0190f3aa-...",
+    "name": "Jane Doe",
+    "email": "jane@thecoffeehouse.com",
+    "role": "owner"
+  },
+  "hasConnectedBusiness": false
 }
 ```
 
-Errors: `401 INVALID_CURRENT_PASSWORD`, `400 NO_PASSWORD_SET` (SSO-only user with
-`password_hash IS NULL` — this endpoint isn't how such a user sets an initial password; that
-would be a separate "set password" flow, not modeled here since it's out of scope for a
-Microsoft-only engagement), `400` validation.
+Errors: `401 INVALID_CURRENT_PASSWORD` (`currentPassword` didn't match), `400 NO_PASSWORD_SET`
+(SSO-only user with `password_hash IS NULL` — this endpoint isn't how such a user sets an
+initial password; that would be a separate "set password" flow, not modeled here), `403` when
+the bearer is a platform-admin token (this route is tenant-user only), `400` validation, `401`
+missing/expired access token.
 
 ### Team / invite
 
@@ -806,6 +835,7 @@ programmatic branching in the frontend.
 | `401` | `Unauthorized` | Any `Bearer` route | Missing, malformed, or expired access token. |
 | `403` | `Forbidden` (`ACCOUNT_DISABLED`) | login (also as `?error=` on an OAuth `login`/`invite` callback) | `users.status = 'disabled'` or `platform_admins.status = 'disabled'`. On **refresh**, this same condition revokes every refresh token that user has, but the response is `401 INVALID_REFRESH_TOKEN`, not a 403 — see [`POST /v1/auth/refresh`](#post-v1authrefresh). |
 | `403` | `Forbidden` (`TENANT_SUSPENDED`) | login, any tenant-scoped route (also as `?error=` on an OAuth callback) | `tenants.status = 'suspended'`. On **refresh**, same as `ACCOUNT_DISABLED` above — revokes every refresh token, responds `401 INVALID_REFRESH_TOKEN`; this is what bounds a suspended tenant's residual access to one access-token lifetime. |
+| `403` | `Forbidden` (`TENANT_ONLY`) | change-password | Bearer is a `platform_admin` token — this route is tenant-user only. |
 | `403` | `Forbidden` | `@Roles('owner')` routes | Authenticated as a `member`, not an `owner`. |
 | `404` | `Not Found` | (reserved) | Not currently used by this module — auth endpoints prefer `401`/`403`/`400` over `404` specifically to avoid confirming/denying resource existence (see enumeration-prevention note below). |
 | `409` | `Conflict` (`EMAIL_ALREADY_REGISTERED`) | signup | An account already exists at this email, under any status or tenant — whether caught by the pre-check or by the `idx_users_email_active` unique violation in a concurrent-signup race. See [`POST /v1/auth/signup`](#post-v1authsignup). |
@@ -852,13 +882,13 @@ see [Conventions](#conventions)):
 - **Generic login failure message** — [`POST /v1/auth/login`](#post-v1authlogin)'s
   `INVALID_CREDENTIALS` covers wrong-password, unknown-email, and right-email-but-SSO-only with
   one message, for the same reason.
-- **Password complexity** — enforced by `class-validator` at the DTO layer (`RegisterDto`,
-  `ResetPasswordDto`, `ChangePasswordDto` today; the new `SignupDto`/`InviteAcceptDto` reuse the
-  same regex, `PASSWORD_PATTERN` in `auth.constants.ts`): 8–128 chars, at least one upper, one
-  lower, one digit, one special character — "special" being any non-alphanumeric, non-whitespace
-  character rather than a fixed allowlist, so `#`/`-`/`_` passphrases aren't rejected.
-  Hashing algorithm/cost factor is out of this document's scope — see `auth.service.ts`'s hashing
-  utility, not duplicated here to avoid the two drifting apart.
+- **Password complexity** — enforced by `class-validator` at the DTO layer (`SignupDto`,
+  `ChangePasswordDto.newPassword`; the still-unwired `ResetPasswordDto` / `InviteAcceptDto`
+  reuse the same regex, `PASSWORD_PATTERN` in `auth.constants.ts`): 8–128 chars, at least one
+  upper, one lower, one digit, one special character — "special" being any non-alphanumeric,
+  non-whitespace character rather than a fixed allowlist, so `#`/`-`/`_` passphrases aren't
+  rejected. Hashing algorithm/cost factor is out of this document's scope — see
+  `HashingService`, not duplicated here to avoid the two drifting apart.
 - **Token lifetimes** — access tokens are short (15 min) specifically so a leaked access token
   (browser XSS, log accident) has a small blast-radius window; refresh tokens are long-lived but
   rotate on every use and are revoked wholesale on logout, password reset, **password change**,

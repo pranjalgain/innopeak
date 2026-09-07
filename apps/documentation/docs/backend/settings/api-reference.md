@@ -6,12 +6,12 @@ sidebar_position: 2
 
 ## How to read this document
 
-This is the **target/spec design** for the settings module's HTTP surface. None of it exists in
-`apps/backend/src/` yet — there is no `src/api/settings/`, no `src/db/repositories/settings/`, and
-no settings slug in `src/common/route-names.ts` (see the overview's
-[Gap](./overview.md#gap-between-current-code-and-target-design)). The three tables behind it
-(`tenant_settings`, `blocklist_terms`, `notification_recipients`) are migrated and empty of
-readers. Nothing below describes code you can go and read today.
+This document is the **target/spec design** for the settings HTTP surface. **Blocklist
+`GET`/`POST`/`DELETE /v1/settings/blocklist-terms` and the `tenant_settings` singleton
+`GET`/`PUT /v1/settings` are implemented** (`src/api/settings/`). Tenant profile,
+notification-recipients, and blocklist `PATCH` are still spec only — see the overview's
+[Gap](./overview.md#gap-between-current-code-and-target-design). The tables (`tenant_settings`,
+`blocklist_terms`, `notification_recipients`) are migrated.
 
 It assumes you have read [Settings Module — Overview](./overview.md) for the data model, the
 downstream consumers of each setting, and the MVP-scope boundaries; this document turns those into
@@ -19,10 +19,9 @@ concrete request/response contracts rather than repeating them.
 
 Deliberately HTTP-contract-level only — no controller or decorator code. Each route below lives
 under `src/api/settings/` per `apps/backend/docs/conventions/module-structure.md`, split across
-four controllers with one `swagger/<controller-name>.swagger.ts` file each: the JSON shown here is
+controllers with one `swagger/<controller-name>.swagger.ts` file each: the JSON shown here is
 what that route's Swagger decorator should render as its example. Every success and error `message`
-string comes from `src/common/constants/messages.constants.ts` — which does not exist yet and must
-be created — never an inline literal.
+string comes from `src/common/constants/messages.constants.ts`, never an inline literal.
 
 Every route is part of the backend's target surface regardless of whether the shipped frontend
 calls it; several have no screen behind them today, and the overview's [MVP
@@ -327,17 +326,12 @@ Request:
 | Field | Type | Rules |
 |---|---|---|
 | `escalationRatingThreshold` | integer | required, `1`–`5` inclusive — mirrors `tenant_settings_escalation_rating_threshold_check` exactly, so a bad value is a `400` and never a database constraint violation. Matches the frontend slider's `min=1 max=5 step=1`. |
-| `autoPostEnabled` | boolean | required. Persisted as sent; the posting pipeline still requires human approval for MVP regardless (`PLAN.md` §2 — "MVP always false via app logic"). See the note below. |
+| `autoPostEnabled` | boolean | required. Persisted as sent. After a human approval, `true` moves the response `approved → posted` without a second click. |
 | `reviewDataRetentionMonths` | integer \| null | optional; `>= 1` when present. Omitted or `null` → stored as `NULL` = platform default (`PLAN.md` §6). No upper bound enforced — a very large value is functionally "keep indefinitely" and is the tenant's call. |
 
-**On `autoPostEnabled`.** `PLAN.md` §2 keeps auto-post off for MVP "via app logic," while the
-shipped General tab renders a real switch that toasts success on toggle. This endpoint **accepts
-and persists** whatever the owner set — a switch whose value is silently discarded is worse than
-one whose effect is deferred, and the column exists precisely to hold the preference. The
-alternative, rejecting `true` with a `400 AUTO_POST_NOT_AVAILABLE`, was considered and not chosen:
-it makes a control the UI renders as available fail on use. What actually needs fixing is the UI's
-helper copy, which should say approval is still required — flagged for product rather than resolved
-by making the endpoint lie in either direction.
+**On `autoPostEnabled`.** The value is persisted and nothing reads it yet — the posting pipeline
+ships separately. When it lands, approval will still be required; the flag only skips a second
+manual post step. GBP delivery is not part of this endpoint either way.
 
 Success `200` — the stored resource, same shape as [`GET /v1/settings`](#get-v1settings):
 
@@ -381,25 +375,19 @@ below.
 
 Lists the tenant's terms. Backs the Blocklist tab's chip list.
 
-Returns **both active and inactive** rows by default, because the case-insensitive unique index
-covers inactive rows too — a client that only sees active terms cannot explain why adding "Lawsuit"
-collides with nothing it can see. `?isActive=true` narrows it to what the classifier actually uses.
-Ordered by `lower(term) ASC`, matching the unique index, so the order is stable and index-served
-rather than sorted.
-
-| Query param | Type | Rules |
-|---|---|---|
-| `isActive` | boolean | optional; omitted returns every row regardless of state |
+Returns every term the tenant has. Removal is a hard `DELETE`, so there is no inactive state to
+filter on and no query parameters. Ordered by `lower(term) ASC`, matching the unique index, so the
+order is stable and index-served rather than sorted.
 
 Success `200`:
 
 ```json
 {
   "items": [
-    { "id": "0190f3c1-0a12-7b40-9e63-11c4a7f0b2d8", "term": "food poisoning", "isActive": true, "createdAt": "2026-08-11T10:04:19Z" },
-    { "id": "0190f3c1-0a12-7b40-9e63-11c4a7f0b2d9", "term": "health inspector", "isActive": true, "createdAt": "2026-08-11T10:04:31Z" },
-    { "id": "0190f3c1-0a12-7b40-9e63-11c4a7f0b2da", "term": "lawsuit", "isActive": true, "createdAt": "2026-08-11T10:03:52Z" },
-    { "id": "0190f3c1-0a12-7b40-9e63-11c4a7f0b2db", "term": "lawyer", "isActive": false, "createdAt": "2026-08-11T10:04:07Z" }
+    { "id": "0190f3c1-0a12-7b40-9e63-11c4a7f0b2d8", "term": "food poisoning", "createdAt": "2026-08-11T10:04:19Z" },
+    { "id": "0190f3c1-0a12-7b40-9e63-11c4a7f0b2d9", "term": "health inspector", "createdAt": "2026-08-11T10:04:31Z" },
+    { "id": "0190f3c1-0a12-7b40-9e63-11c4a7f0b2da", "term": "lawsuit", "createdAt": "2026-08-11T10:03:52Z" },
+    { "id": "0190f3c1-0a12-7b40-9e63-11c4a7f0b2db", "term": "lawyer", "createdAt": "2026-08-11T10:04:07Z" }
   ],
   "total": 4
 }
@@ -409,7 +397,6 @@ Success `200`:
 |---|---|---|
 | `items[].id` | string (uuid) | `blocklist_terms.id` |
 | `items[].term` | string | `blocklist_terms.term` — stored verbatim, with original casing |
-| `items[].isActive` | boolean | `blocklist_terms.is_active`; only `true` rows participate in `PLAN.md` §3 |
 | `items[].createdAt` | string (ISO 8601) | `blocklist_terms.created_at` |
 | `total` | integer | Count of returned rows. Not paginated — a keyword blocklist is tens of rows, not thousands; `total` is there so the shape does not have to change if pagination is ever added. |
 
@@ -419,26 +406,23 @@ Errors: `401`, `403` (member), `500`.
 
 Adds a term. Backs the Blocklist tab's add-term input.
 
-**A collision with an inactive row reactivates it rather than failing.** Because the unique index
-covers `is_active = false` rows, a plain insert would make any term the owner previously
-deactivated permanently un-re-addable — the row blocking the insert is one the client cannot even
-see in the default UI. So this route resolves the conflict in one statement rather than reading
-first:
+**Duplicates are decided by the database, with no read-then-write window:**
 
 ```sql
 INSERT INTO blocklist_terms (tenant_id, term)
 VALUES ($1, $2)
-ON CONFLICT (tenant_id, lower(term))
-DO UPDATE SET term = EXCLUDED.term, is_active = true, updated_at = NOW()
-WHERE blocklist_terms.is_active = false
-RETURNING *;
+ON CONFLICT (tenant_id, lower(term)) DO NOTHING
+RETURNING id, term, created_at;
 ```
 
-Three outcomes, all decided by the database with no read-then-write window: a brand-new row →
-`201`; a conflict with an **inactive** row → that row is reactivated (and its casing updated to
-what was just typed) → `200`; a conflict with an **active** row → the `WHERE` filters the
-`DO UPDATE` out, zero rows return, and the service raises `409 BLOCKLIST_TERM_EXISTS`. The `409` is
-the right answer there — the term is already doing exactly what the owner is asking for.
+Two outcomes: a brand-new row → `201`; a term the tenant already has, in any casing → zero rows
+return and the service raises `409 BLOCKLIST_TERM_EXISTS`. The `409` is the right answer — the term
+is already doing exactly what the owner is asking for.
+
+There is no reactivation path, because removal is a hard `DELETE` rather than a soft one. That is
+deliberate: `blocklist_terms` carries an audit trigger, so a delete is already recorded with its
+old row snapshot, and `reviews.matched_keywords` stores matched terms as JSONB text with no foreign
+key — so removing a term never orphans the escalation it caused.
 
 Request:
 
@@ -452,14 +436,12 @@ Request:
 |---|---|---|
 | `term` | string | required, trimmed, 1–255 chars (`VARCHAR(255) NOT NULL`), non-empty after trimming. Stored with the casing sent; matched case-insensitively. Multi-word phrases are valid — the client's own blocklist contains "food poisoning" and "health inspector". No `match_type` is accepted: `PLAN.md` §2 lists `exact`/`contains`/`regex` as a possible fast-follow, explicitly not MVP, so match semantics are the classifier's and not stored per term. |
 
-Success `201` (new row) or `200` (an inactive row was reactivated — `reactivated: true`):
+Success `201`:
 
 ```json
 {
   "id": "0190f3c1-0a12-7b40-9e63-11c4a7f0b2d8",
   "term": "food poisoning",
-  "isActive": true,
-  "reactivated": false,
   "createdAt": "2026-09-04T11:06:12Z"
 }
 ```
@@ -762,7 +744,7 @@ below; `error` is the category string the frontend branches on.
 | `404` | `BLOCKLIST_TERM_NOT_FOUND` | `PATCH`/`DELETE /v1/settings/blocklist-terms/:id` | No such term **for this tenant**. Also returned for a term that exists under a different tenant — `403` there would confirm the id exists. |
 | `404` | `RECIPIENT_NOT_FOUND` | `PATCH`/`DELETE /v1/settings/notification-recipients/:id` | Same rule, for `notification_recipients.id`. |
 | `404` | `USER_NOT_FOUND` | `POST /v1/settings/notification-recipients` | `userId` is not a `users` row in the caller's tenant. Same non-confirmation reasoning. |
-| `409` | `BLOCKLIST_TERM_EXISTS` | `POST /v1/settings/blocklist-terms`, `PATCH /v1/settings/blocklist-terms/:id` | `lower(term)` collides with an **active** row (`idx_blocklist_terms_tenant_id_lower_term`). A collision with an *inactive* row is not an error on `POST` — it reactivates and returns `200`. |
+| `409` | `BLOCKLIST_TERM_EXISTS` | `POST /v1/settings/blocklist-terms`, `PATCH /v1/settings/blocklist-terms/:id` | `lower(term)` collides with an existing row (`idx_blocklist_terms_tenant_id_lower_term`). `POST` has no reactivation path — removal is a hard `DELETE`, so every collision is a `409`. |
 | `409` | `RECIPIENT_ALREADY_EXISTS` | `POST /v1/settings/notification-recipients` | This user is already a recipient for this `notification_type`. Application-enforced until the unique index above is migrated, and therefore racy under concurrent submits. |
 | `429` | `Too Many Requests` | Every route | The global `short` tier (30 / minute) — this module sets no per-route override. |
 | `500` | `Internal Server Error` | Every route | Unhandled exception. Only `traceId` is safe to show the user. A CHECK-constraint violation reaching here (rather than surfacing as `400`) means DTO validation drifted from the schema — treat it as a bug in the DTO, not in the caller. |

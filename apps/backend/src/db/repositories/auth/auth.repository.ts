@@ -273,6 +273,16 @@ export class AuthRepository {
     return rows.length > 0;
   }
 
+  async updatePasswordHash(
+    tx: DrizzleTransaction,
+    input: { userId: string; passwordHash: string }
+  ): Promise<void> {
+    await tx
+      .update(schema.users)
+      .set({ passwordHash: input.passwordHash, updatedAt: sql`now()` })
+      .where(eq(schema.users.id, input.userId));
+  }
+
   /**
    * Scoped to `status = 'pending_verification'` defensively — a verify_email token should never
    * exist for a user in any other status today, but this guards against a stale/reused token

@@ -216,6 +216,18 @@ export class AuthDbService {
     );
   }
 
+  /**
+   * Password change: write the new hash and kill every existing session in one transaction so a
+   * crash between the two cannot leave the old password live alongside already-revoked tokens
+   * (or the reverse — a new hash with old refresh tokens still valid).
+   */
+  async updatePasswordAndRevokeSessions(userId: string, passwordHash: string): Promise<void> {
+    await this.authRepository.transaction(async tx => {
+      await this.authRepository.updatePasswordHash(tx, { userId, passwordHash });
+      await this.authRepository.revokeAllRefreshTokensForUser(tx, userId);
+    });
+  }
+
   /** Daily housekeeping (CronJobName.AUTH_TOKEN_CLEANUP): drops used/expired verify_email codes and revoked/expired refresh tokens. */
   async purgeStaleTokens(): Promise<PurgeStaleTokensResult> {
     return this.authRepository.transaction(async tx => ({

@@ -11,18 +11,24 @@ import type { BlocklistTerm } from "@/types/domain";
 
 interface BlocklistSettingsSectionProps {
   terms: BlocklistTerm[];
-  onAddTerm: (term: string) => void;
-  onRemoveTerm: (id: string) => void;
+  onAddTerm: (term: string) => Promise<boolean>;
+  onRemoveTerm: (id: string) => void | Promise<void>;
 }
 
 export function BlocklistSettingsSection({ terms, onAddTerm, onRemoveTerm }: BlocklistSettingsSectionProps) {
   const t = useTranslations("settings.blocklist");
   const [newTerm, setNewTerm] = React.useState("");
+  const [isAdding, setIsAdding] = React.useState(false);
 
-  const handleAdd = () => {
-    if (!newTerm.trim()) return;
-    onAddTerm(newTerm);
-    setNewTerm("");
+  const handleAdd = async () => {
+    if (!newTerm.trim() || isAdding) return;
+    setIsAdding(true);
+    try {
+      const added = await onAddTerm(newTerm);
+      if (added) setNewTerm("");
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   return (
@@ -46,7 +52,7 @@ export function BlocklistSettingsSection({ terms, onAddTerm, onRemoveTerm }: Blo
                   type="button"
                   variant="ghost"
                   size="icon"
-                  onClick={() => onRemoveTerm(term.id)}
+                  onClick={() => void onRemoveTerm(term.id)}
                   aria-label={t("removeTerm", { term: term.term })}
                   className="size-5 rounded-full text-muted-foreground hover:bg-background/60 hover:text-foreground"
                 >
@@ -66,12 +72,12 @@ export function BlocklistSettingsSection({ terms, onAddTerm, onRemoveTerm }: Blo
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                handleAdd();
+                void handleAdd();
               }
             }}
             className="flex-1"
           />
-          <Button type="button" onClick={handleAdd}>
+          <Button type="button" onClick={() => void handleAdd()} disabled={isAdding}>
             <LuPlus />
             {t("addButton")}
           </Button>

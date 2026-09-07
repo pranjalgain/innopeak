@@ -5,6 +5,7 @@ const EXPIRY_SKEW_SECONDS = 30;
 
 interface AccessTokenClaims {
   exp?: number;
+  email?: string;
 }
 
 /**
@@ -40,6 +41,14 @@ export class TokenService {
   static clear(): void {
     if (typeof window === "undefined") return;
     window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+  }
+
+  /** Email claim from the stored access token — display only, never used as authorization. */
+  static getEmail(): string | null {
+    const token = this.getStoredAccessToken();
+    if (!token) return null;
+    const email = this.decode(token)?.email;
+    return typeof email === "string" && email.length > 0 ? email : null;
   }
 
   /**

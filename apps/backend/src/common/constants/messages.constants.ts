@@ -27,6 +27,11 @@ export const MESSAGES = {
     INVALID_REFRESH_TOKEN: 'Invalid or expired refresh token.',
     INVALID_ACCESS_TOKEN: 'Invalid or expired access token.',
     LOGGED_OUT: 'Logged out.',
+    INVALID_CURRENT_PASSWORD: 'Current password is incorrect.',
+    NO_PASSWORD_SET:
+      'This account has no password. Sign in with the identity provider used to create it.',
+    PASSWORD_CHANGED: 'Password changed. Other sessions have been signed out.',
+    TENANT_ONLY: 'This action is only available to tenant users',
     // Thrown by @CurrentTenantUser() when a platform-admin token reaches a tenant-scoped route.
     // Says "not available" rather than "you are a platform admin" — the caller already knows what
     // it authenticated as, and naming the token type in the response tells an attacker which
@@ -66,5 +71,16 @@ export const MESSAGES = {
     MISSING_VARIABLE: (names: readonly string[]): string =>
       `Missing required prompt placeholder(s): ${names.join(', ')}`,
     TENANT_ONLY: 'Prompts are only available to tenant users',
+  },
+  SETTINGS: {
+    BLOCKLIST_LISTED: 'Blocklist terms retrieved successfully',
+    BLOCKLIST_TERM_CREATED: 'Blocklist term added',
+    BLOCKLIST_TERM_REMOVED: 'Blocklist term removed',
+    BLOCKLIST_TERM_EXISTS: 'This term is already on the blocklist',
+    BLOCKLIST_TERM_NOT_FOUND: 'Blocklist term not found',
+    TENANT_ONLY: 'Settings are only available to tenant users',
+    RETRIEVED: 'Settings retrieved successfully',
+    UPDATED: 'Settings updated',
+    TENANT_SETTINGS_MISSING: 'Tenant settings were not provisioned for this account',
   },
 } as const;

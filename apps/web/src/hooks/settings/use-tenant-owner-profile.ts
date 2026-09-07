@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { ApiError } from "@/app/_libs/services/api-client";
 import { TenantOwnerProfileService } from "@/app/_libs/services/tenant-owner-profile.service";
 import type { TenantOwnerProfile } from "@/types/domain";
 
@@ -56,8 +57,14 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
         await TenantOwnerProfileService.changePassword(currentPassword, newPassword);
         toast.success(t("passwordChanged"));
         return true;
-      } catch {
-        toast.error(t("updateFailed"));
+      } catch (error) {
+        if (error instanceof ApiError && error.statusCode === 401) {
+          toast.error(t("currentPasswordIncorrect"));
+        } else if (error instanceof ApiError && error.statusCode === 400) {
+          toast.error(error.message);
+        } else {
+          toast.error(t("updateFailed"));
+        }
         return false;
       }
     },

@@ -26,6 +26,7 @@ describe('AuthDbService', () => {
       putVerifyEmailToken: jest.fn(),
       consumeVerifyEmailToken: jest.fn(),
       activateUser: jest.fn(),
+      updatePasswordHash: jest.fn(),
       insertRefreshToken: jest.fn(),
       findActiveRefreshToken: jest.fn(),
       revokeRefreshToken: jest.fn(),
@@ -295,5 +296,15 @@ describe('AuthDbService', () => {
 
     await expect(target.hasConnectedBusiness('tenant-1')).resolves.toBe(true);
     expect(authRepository.hasConnectedBusiness).toHaveBeenCalledWith('tenant-1');
+  });
+
+  it('updatePasswordAndRevokeSessions writes the hash and revokes sessions in one transaction', async () => {
+    await target.updatePasswordAndRevokeSessions('user-1', 'new-hash');
+
+    expect(authRepository.updatePasswordHash).toHaveBeenCalledWith(tx, {
+      userId: 'user-1',
+      passwordHash: 'new-hash',
+    });
+    expect(authRepository.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(tx, 'user-1');
   });
 });

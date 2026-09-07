@@ -140,7 +140,7 @@ parameter.
 | `GET` | `/v1/settings` | Bearer, `@Roles('owner')` | Reads the `tenant_settings` singleton. |
 | `PUT` | `/v1/settings` | Bearer, `@Roles('owner')` | Full-resource replace on the singleton. Not retroactive (`PLAN.md` §8.11). |
 | `GET` | `/v1/settings/blocklist-terms` | Bearer, `@Roles('owner')` | Lists terms, active and inactive. |
-| `POST` | `/v1/settings/blocklist-terms` | Bearer, `@Roles('owner')` | Creates a term, or reactivates a matching inactive one. |
+| `POST` | `/v1/settings/blocklist-terms` | Bearer, `@Roles('owner')` | Creates a term. A case-insensitive duplicate is `409`. |
 | `PATCH` | `/v1/settings/blocklist-terms/:id` | Bearer, `@Roles('owner')` | Renames a term and/or flips `is_active`. |
 | `DELETE` | `/v1/settings/blocklist-terms/:id` | Bearer, `@Roles('owner')` | Hard delete. |
 | `GET` | `/v1/settings/notification-recipients` | Bearer, `@Roles('owner')` | Lists recipients, joined to `users` for name/email. |
@@ -150,10 +150,12 @@ parameter.
 
 **Deliberately not in this module**, despite sharing the Settings screen: the **Connection** tab
 (`review_provider_connections`, `locations`, disconnect/reconnect, sync status) belongs to the
-connections module — see `../connections/overview.md`; and the **AI** tab's "Manage prompts" link
-targets the prompts module — see `../prompts/overview.md`. Five tabs on one screen, three modules
-behind them. Don't add a connection or prompt route to `/v1/settings` just because the UI puts
-them next to each other.
+connections module — see `../connections/overview.md`; the **AI** tab's "Manage prompts" link
+targets the prompts module — see `../prompts/overview.md`; and the **Profile** tab's update-
+password form is [`POST /v1/auth/change-password`](../auth/api-reference.md#post-v1authchange-password)
+in the auth module (the credential is the caller's, not a tenant setting). Five-plus tabs on one
+screen, several modules behind them. Don't add a connection, prompt, or password route to
+`/v1/settings` just because the UI puts them next to each other.
 
 This table is a summary, not the contract — see [Settings Module — API
 Reference](./api-reference.md) for every request/response shape, field rule, and error code.
@@ -207,12 +209,10 @@ Three mismatches worth naming rather than smoothing over:
   into a `tenant_settings`-shaped object with no `tenant_settings` column to land in. See
   [Gap](#gap-between-current-code-and-target-design) — it needs a home, and this module is the
   likelier owner than prompts, since it is a generation-*count* knob rather than prompt text.
-- **`auto_post_enabled` has a live switch but a pipeline that ignores it.** `PLAN.md` §2 keeps
-  auto-post false for MVP "via app logic," while the General tab renders a real switch that toasts
-  success on toggle. This document's resolution: **persist what the owner set** (a switch that
-  silently discards its value is worse than one whose effect is deferred) and have the posting
-  pipeline continue to require human approval regardless. That makes the UI copy the thing that
-  needs fixing, not the endpoint — flagged for product rather than silently resolved either way.
+- **`auto_post_enabled` is persisted but not yet honoured.** The intended consumer moves an
+  approved reply `approved → posted` and the review to `responded` when the flag is true; that
+  posting step ships separately from this CRUD surface. The GBP `PUT` is missing too, so even
+  then "posted" will be the dashboard state, not a Google write.
 
 One accepted limitation applies to this module's whole surface: **`tenant_settings` and
 `blocklist_terms` are keyed on `tenant_id` only, never `location_id`** (`PLAN.md` §8.16). A
@@ -223,58 +223,51 @@ before a second location exists would be solving a problem with no requirement b
 mean the API takes no `locationId` parameter anywhere, and adding one later is a schema change plus
 a breaking contract change, not a query-parameter addition.
 
+## Matching semantics (classifier, not a stored per-term setting)
+
+There is no `match_type` column. An **active** term matches when `review_text` contains that term
+as a case-insensitive substring (multi-word phrases such as `food poisoning` are one term). All
+matching terms are copied onto `reviews.matched_keywords`. The rule and the apply path live in
+`src/review-pipeline/classification/` — see [Review pipeline — Classification](../review-pipeline/overview.md#classification).
+Adding a term is **not** retroactive (`PLAN.md` §8.11).
+
 ## Gap between current code and target design
 
-**None of this module exists in `apps/backend/src/` today.** Verified: `src/api/` contains only
-`dev-tools/`, `health/`, `metrics/`, and `tracing/`; `src/db/repositories/` contains `ai/`,
-`auth/`, `common/`, `media/`, `notifications/`, `users/`, and `webhooks/` — no `settings/`;
-`src/common/route-names.ts` has no settings or tenant slug; and `src/common/constants/` does not
-exist at all, so the shared messages file every user-facing string must come from has to be created
-here or by whichever module gets there first. The three tables exist and are migrated; nothing
-reads or writes them.
+**Blocklist HTTP is implemented** (`GET`/`POST`/`DELETE /v1/settings/blocklist-terms`,
+`src/api/settings/`, `src/db/repositories/settings/`). `PATCH` (rename / `is_active`) is still
+spec-only — the shipped UI only adds and removes terms. `MESSAGES.SETTINGS` and
+`RouteNames.SETTINGS` / `BLOCKLIST_TERMS` exist. `@Roles('owner')` is enforced (`RolesGuard` reads
+the JWT `role`); `tenantId` is on the tenant-user JWT.
 
-What has to be built, following
+**`GET`/`PUT /v1/settings` is implemented** (`controllers/tenant-settings.controller.ts`,
+`tenant-settings.repository.ts`). Changing `escalationRatingThreshold` is not retroactive
+(`PLAN.md` §8.11).
+
+All three fields are **stored but not yet acted on** — this module is the CRUD surface only, and
+each consumer ships separately. `escalationRatingThreshold` waits on the classifier,
+`autoPostEnabled` on the posting pipeline, and `reviewDataRetentionMonths` on the nightly GDPR
+purge (`PLAN.md` §6), which will read `NULL` as "fall back to the platform default" rather than
+"keep forever". Writing a value today changes what the API returns and nothing else.
+
+**Not built yet:** tenant profile (`/v1/tenant`) and notification-recipient routes.
+
+What remains, following
 `apps/backend/docs/conventions/module-structure.md` + `apps/backend/CLAUDE.md`:
 
-- **`src/api/settings/`** with the required `swagger/`, `constants/`, and `types/` subfolders
-  (`types/`, not `interfaces/`). Four controllers means the `controllers/` + `services/` subfolder
-  layout, not flat files at the module root:
+- **`src/api/settings/`** still needs the other two controllers (blocklist and tenant settings
+  are done):
   - `controllers/tenant-profile.controller.ts` (`/v1/tenant`),
-    `controllers/tenant-settings.controller.ts` (`/v1/settings`),
-    `controllers/blocklist-terms.controller.ts`,
     `controllers/notification-recipients.controller.ts`.
-  - **One swagger file per controller**, same base name — `swagger/tenant-profile.swagger.ts`,
-    `swagger/tenant-settings.swagger.ts`, `swagger/blocklist-terms.swagger.ts`,
-    `swagger/notification-recipients.swagger.ts` — each exporting one decorator-composing function
-    per route. Never an inline `@ApiOperation`/`@ApiResponse` on a controller method.
+  - One swagger file per controller, same base name. Never an inline `@ApiOperation`/`@ApiResponse`
+    on a controller method.
   - Controllers stay **minimal**: bind params, call exactly one service method, wrap with
-    `ResponseUtil`, return. The tenant-profile response is a join across two tables; that
-    composition belongs in the DB service, not the controller.
-- **`src/db/repositories/settings/`** with both layers: `tenant-settings.repository.ts`,
-  `blocklist-terms.repository.ts`, `notification-recipients.repository.ts`, and a
-  `settings.db-service.ts` above them. The services depend on `SettingsDbService` only and never
-  import a repository directly. The `tenants` row is reached through a **shared**
-  `TenantsRepository` under `src/db/repositories/tenants/` rather than a settings-local copy — auth
-  writes that table at signup and settings reads/updates it, which is precisely the coupling the
-  centralized-repository convention exists to allow without a circular module import.
-- **`RouteNames` entries** for `settings`, `tenant`, `blocklist-terms`, and
-  `notification-recipients` in `src/common/route-names.ts` — controller paths are never raw
-  strings.
-- **`src/common/constants/messages.constants.ts`** — every success `message` and every exception
-  message in this module comes from there. It does not exist yet.
-- **DTOs with an `example` on every `@ApiProperty`**, and an **explicit return type on every
-  method** across all four layers.
-
-Two dependencies outside this module block it:
-
-- **`RolesGuard` cannot enforce `owner` yet.** It reads `user.roles: string[]`, a shape inherited
-  from the boilerplate's `roles`/`permissions` tables, which this schema does not have — see
-  [Auth Module — Overview](../auth/overview.md#gap-between-current-code-and-target-design).
-  Settings is the first module whose entire contract depends on that being replaced with the single
-  `user_role` enum. Until it is, `@Roles('owner')` on these routes is decoration, not enforcement.
-- **`tenant_id` must be on the JWT.** Every query here is tenant-scoped and takes its scope from
-  the authenticated principal. The current `JwtPayload` has no `tenantId`; the auth module's gap
-  list already covers adding it.
+    `ResponseUtil`, return.
+- **`src/db/repositories/settings/`** still needs `notification-recipients.repository.ts`.
+  `blocklist-terms.repository.ts`, `tenant-settings.repository.ts`, and `settings.db-service.ts`
+  exist. The `tenants` row is reached through a **shared**
+  `TenantsRepository` under `src/db/repositories/tenants/` rather than a settings-local copy.
+- **`RouteNames.TENANT`** and `notification-recipients` when those routes are added.
+- **`MESSAGES.SETTINGS` keys** for those remaining routes.
 
 Required follow-up migrations, called out explicitly rather than assumed:
 
