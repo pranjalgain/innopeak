@@ -67,7 +67,6 @@
     "db:generate": "pnpm run db:migrate && pnpm run db:introspect",
     "db:studio": "pnpm exec drizzle-kit studio",
     "db:create-migration": "node scripts/create-migration.js",
-    "db:seed": "bash src/db/seeds/seed.sh",
     "db:push": "pnpm exec drizzle-kit push",
     "local:up": "pnpm run generate:prometheus && pnpm run db:dev:up && sleep 5 && pnpm run db:migrate && pnpm run start:dev",
     "local:dev:up": "pnpm run generate:prometheus && pnpm run db:dev:up && sleep 5 && pnpm run db:migrate && pnpm run start:dev",

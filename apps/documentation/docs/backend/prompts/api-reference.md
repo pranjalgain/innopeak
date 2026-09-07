@@ -125,7 +125,7 @@ Success `200`:
 | `prompts[].category` | enum | `prompts.category` — `positive` \| `neutral` \| `escalated` |
 | `prompts[].name` | string | `prompts.name`, `VARCHAR(255) NOT NULL` |
 | `prompts[].description` | string | `prompts.description` is nullable `VARCHAR(500)`; coalesced to `""` because the frontend's `AiPrompt.description` is non-optional |
-| `prompts[].currentVersion` | object | Highest-`version` `prompt_versions` row. Never null — `prompt_versions.template` is `NOT NULL` and a prompt is provisioned with v1, so a prompt with zero versions is a data-integrity fault, not an empty state |
+| `prompts[].currentVersion` | object | Highest-`version` `prompt_versions` row. Never null: a prompt is provisioned with v1, and a prompt that somehow has zero versions is **omitted from the array** rather than serialized with a null — it is logged as a warning server-side. A malformed row therefore costs one card, not the whole screen |
 | `prompts[].currentVersion.version` | integer | `prompt_versions.version`, `CHECK (version > 0)` |
 | `prompts[].currentVersion.createdAt` | string (ISO) | `prompt_versions.created_at`. Maps to the frontend's `PromptVersion.updatedAt` — the table has no `updated_at`, because a version row is never updated |
 | `prompts[].currentVersion.createdBy` | object \| null | Join on `created_by_user_id`; `null` when the FK is null or `users.name` was anonymized |
@@ -574,10 +574,9 @@ missing case:
   `averageDecisionMinutes: null`, which the frontend already renders as a distinct "none generated"
   state.
 
-One that would be, if the schema stayed as it is: **a tenant with no `prompts` rows at all**.
-`GET /v1/prompts` returns an empty array, which the Settings screen renders as three missing cards
-and the generation stage cannot recover from at all — `prompt_versions.template` is `NOT NULL` and
-there is nothing to render. Nothing in the schema or in `PLAN.md` §8.10's signup transaction
-currently creates those rows; see gap 2 in the
-[overview](./overview.md#schema-gaps--required-follow-up-migrations). That is a provisioning gap to
-close before build, not an error code to add.
+One that used to be, and no longer is: **a tenant with no `prompts` rows at all**. Every tenant is
+provisioned with three prompts and their v1 templates inside the same transaction that activates
+its first user, from `src/api/prompts/constants/default-prompts.constant.ts` — see [Default prompt
+provisioning](./overview.md#default-prompt-provisioning). `GET /v1/prompts` returning an empty
+array is therefore a data-integrity fault for any tenant created since, not a supported empty
+state. It is still not an error code: the endpoint reports what is there.

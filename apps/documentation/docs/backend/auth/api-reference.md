@@ -719,13 +719,11 @@ Differences from the tenant-user surface:
   `.../google/callback`). Platform admins are never self-registered — the first ("root") admin is
   created by a seed script, enforced at the database level by `idx_platform_admins_single_root`
   (which permits *at most* one root, so zero-admins is also a valid state — hence the seed).
-  **That seed does not exist yet**: `src/db/seeds/` holds only the boilerplate
-  `001_roles_permissions.sql` and `002_admin_user.sql`, which target `roles`/`permissions`/
-  `user_roles` — none of which any migration creates — and insert `users` columns absent from this
-  schema (`first_name`, `last_name`, `is_active`, `is_email_verified`; `users.role` itself *does*
-  exist, `0002_tenant_auth.sql:65`) — so `pnpm db:seed` would fail
-  against this schema, not seed an admin. Replacing those two files with a `platform_admins` root
-  seed is a required follow-up. Every admin after the root must arrive via
+  **That seed does not exist**: `src/db/seeds/` and `pnpm db:seed` have been removed entirely,
+  and the migration that replaced them (`0009_dev_admin_user.sql`) creates a tenant *owner*, not a
+  `platform_admins` row. No route or service writes that table either — nothing under `src/`
+  references it — so there is currently no way to create the first admin. Adding a
+  `platform_admins` root seed is a required follow-up. Every admin after the root must arrive via
   `POST /v1/platform-admin/auth/invite` from an existing admin.
 - **The invite-acceptance mechanics are identical to the tenant-user path** — `GET
   /v1/platform-admin/auth/invite/:token/microsoft` signs `{ intent: 'invite', inviteToken: token

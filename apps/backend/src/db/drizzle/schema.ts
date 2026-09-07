@@ -366,7 +366,7 @@ export const tenantSettings = pgTable(
       .primaryKey()
       .notNull(),
     tenantId: uuid('tenant_id').notNull(),
-    escalationRatingThreshold: integer('escalation_rating_threshold').notNull(),
+    escalationRatingThreshold: integer('escalation_rating_threshold').default(3).notNull(),
     autoPostEnabled: boolean('auto_post_enabled').default(false).notNull(),
     reviewDataRetentionMonths: integer('review_data_retention_months'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })

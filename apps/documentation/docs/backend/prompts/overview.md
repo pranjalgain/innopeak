@@ -133,6 +133,42 @@ split — it isn't just "more tables feels safer":
 
 ## Prompt flows
 
+### Default prompt provisioning
+
+A tenant's three prompts are not created by an API call — `idx_prompts_tenant_id_category` caps the
+set at one row per category, so there is nothing for an owner to add. They are written the moment
+the tenant becomes real: `AuthDbService.provisionTenantWorkspace` runs
+`PromptsRepository.insertDefaultsForTenant` **inside the same transaction that activates the first
+user**, so a tenant can never commit without them.
+
+The copy lives in `src/api/prompts/constants/default-prompts.constant.ts` — a TypeScript constant,
+deliberately not a migration or a seed file. Both of those run once against a database, so a tenant
+created afterwards would get nothing, which is the exact failure this closes. Keeping it in code
+also means a default is an ordinary reviewable change, and the templates are held to the same rules
+`POST /v1/prompts/:promptId/versions` enforces — `default-prompts.constant.spec.ts` asserts every
+required placeholder is present, no unknown one is, each template fits `VARCHAR(1000)`, and each is
+already sanitized. A provisioned template that failed validation would be one the owner could not
+re-save without rewriting it from scratch.
+
+Three properties worth stating, because each is load-bearing:
+
+- **Verification, not signup.** A `pending_verification` tenant may never activate; provisioning at
+  signup would strand prompt rows for accounts that never meaningfully existed. The hook sits after
+  `activateUser` succeeds, and does not run when the activation guard blocks.
+- **Idempotent.** `ON CONFLICT DO NOTHING` against the unique `(tenant_id, category)` index, with
+  the v1 `prompt_versions` insert skipped when the prompt row was already there. A tenant has more
+  than one user and each of them verifying reaches this same path, so a re-run has to be a no-op
+  rather than a 23505.
+- **`created_by_user_id` stays NULL.** These are system-provisioned, not authored by the owner. The
+  frontend renders that as "InnoPeak default" rather than "Unknown".
+
+One copy of these templates does live outside the constant: migration
+`0009_dev_admin_user.sql`, which creates the local dev owner. That account is inserted already
+`active`, so it never reaches `verifyEmail` and never gets provisioned — the migration has to seed
+its prompts itself or Settings → Prompts is blank for the primary local login, with nothing to
+backfill it. The constant remains the source of truth for real tenants, and
+`default-prompts.constant.spec.ts` fails if the two drift.
+
 ### Editing a prompt appends a version
 
 Saving an edit **never** updates a row. It inserts a new `prompt_versions` row whose `version` is
@@ -352,14 +388,17 @@ Where the frontend's shape and the backend target differ, and what has to give:
 
 ## Gap between current code and target design
 
-**List, append-version, and tone persist are implemented.** Verified against this branch:
+**List, append-version, tone persist, and default provisioning are implemented.** Verified against
+this branch:
 
 - `src/api/prompts/` (controller, service, DTOs, swagger) and
   `src/db/repositories/prompts/` (repository + DB service). Drizzle table defs live in
   `src/db/drizzle/schema.ts`.
 - `0006_prompts.sql` is in the journal (after `0005`, before `0007_auth_hardening`). Apply with
-  `pnpm db:migrate`, then seed with `003_dev_prompts.sql` (`pnpm db:seed`) so each tenant gets
-  three category rows and a v1 template.
+  `pnpm db:migrate` — that is the only step; there are no seed files and no `pnpm db:seed`. Real
+  tenants get their three category rows and v1 templates at email verification (see [Default
+  prompt provisioning](#default-prompt-provisioning)), and the dev owner created by
+  `0009_dev_admin_user.sql` gets them from that migration.
 - The Settings → Prompts screen calls `GET /v1/prompts?includeHistory=true`,
   `POST /v1/prompts/:promptId/versions`, and `PUT /v1/prompts/:promptId/tone` through
   `PromptService` / `ApiClient`. Stats and generation are still mock / unimplemented.
@@ -379,19 +418,19 @@ Called out explicitly rather than assumed, the same way the auth API reference f
    configure it, which the Settings screen has no control for today. **This blocks generation**,
    not just prompt management: without it there is no rule for which of two prompts a 3-star
    auto-reply candidate uses.
-2. **No default templates anywhere in the backend.** `prompts` and `prompt_versions` are empty on
-   a fresh tenant, and `prompt_versions.template` is `NOT NULL` — so generation has nothing to
-   render until three prompts and their v1 rows exist. `PLAN.md` §8.10 enumerates the signup
+2. ~~**No default templates anywhere in the backend.**~~ **Closed.** The three templates live in
+   `src/api/prompts/constants/default-prompts.constant.ts` and are written inside the
+   email-verification transaction — see [Default prompt
+   provisioning](#default-prompt-provisioning). Note that `PLAN.md` §8.10 enumerates the signup
    transaction as `tenants` + `users` + `tenant_settings` (+ `user_identities` on the SSO branch)
-   and does **not** include prompts; it predates these tables. Provisioning three `prompts` rows
-   and three v1 `prompt_versions` rows belongs in that same transaction, seeded from a
-   platform-default constant. The frontend's mock templates are the closest thing to agreed
-   default copy that exists, and they are not backend artifacts.
-3. **The default templates must carry the reviewer-name rule.** Per `PLAN.md` §6, not restating
-   the reviewer's name is the mitigation that lets a GDPR purge leave `review_responses.content`
-   alone. The frontend's mock templates interpolate `{{reviewer_name}}` and carry no such
-   instruction — whatever ships as the seeded default has to, or the purge design's stated
-   assumption is quietly false.
+   and still does not mention prompts; it predates these tables, and provisioning deliberately
+   hangs off verification rather than signup.
+3. **The default templates carry the reviewer-name rule; a future edit could drop it.** Per
+   `PLAN.md` §6, not restating the reviewer's name is the mitigation that lets a GDPR purge leave
+   `review_responses.content` alone. All three shipped templates end with "Do not repeat the
+   reviewer's name", but **nothing enforces it** — an owner appending a version, or a change to the
+   constant, can remove the instruction and quietly falsify the purge design's assumption. Worth a
+   validator on `POST /v1/prompts/:promptId/versions` if that assumption is to be relied on.
 4. **No composite index for the stats aggregate.** `idx_review_responses_prompt_version_id` gets
    the aggregate to the right rows, but every remaining predicate (`status`, `source`,
    `tenant_id`) and every projected column (`content`, `original_content`, `created_at`,
@@ -413,9 +452,14 @@ Called out explicitly rather than assumed, the same way the auth API reference f
    `prompts.tenant_id`, so tenant scoping there is a join, not a column predicate. The DB service
    must verify `prompt_id` belongs to the caller's tenant on every version append; there is no
    column-level guard against inserting a version onto another tenant's prompt.
-7. **Signup still does not provision prompt rows.** `003_dev_prompts.sql` backfills any tenant
-   missing the three categories. Production signup must do the same in the same transaction as
-   `tenants` + `users` (gap 2).
+7. ~~**Signup still does not provision prompt rows.**~~ **Closed**, at email verification rather
+   than at signup — see gap 2 and [Default prompt
+   provisioning](#default-prompt-provisioning). One path remains unhooked: there is no OAuth/SSO
+   signup route in the backend yet (`/v1/auth` exposes only signup, verify-email,
+   resend-verification-otp, login, refresh, logout, and the frontend's `signupWithSocial` /
+   `signupWithMicrosoft` are client-side mocks that never call the API). An SSO signup asserts an
+   already-verified email and so would activate in one step, bypassing `verifyEmail` entirely —
+   whichever code lands that route must call `provisionTenantWorkspace` itself.
 
 ### Module-structure conventions this module must follow
 

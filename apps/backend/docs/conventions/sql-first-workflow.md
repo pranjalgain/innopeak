@@ -9,7 +9,6 @@ This project uses a SQL-first approach: you write raw SQL migrations, apply them
 | `pnpm db:create-migration <name>` | Scaffold a new migration file |
 | `pnpm db:migrate` | Apply all pending migrations |
 | `pnpm db:introspect` | Regenerate schema.ts from DB |
-| `pnpm db:seed` | Run raw SQL seed files (roles, admin user) |
 | `pnpm db:studio` | Open Drizzle Studio GUI |
 
 ### Pipeline

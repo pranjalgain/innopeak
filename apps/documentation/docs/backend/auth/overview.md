@@ -376,13 +376,12 @@ Finally, four concrete defects in the current code that this module's docs assum
   windows rather than 1 minute–1 hour. See [Rate limiting](#rate-limiting-throttler).
 - **`cookie-parser` is neither installed nor registered**, so `CookieAuthMiddleware` promotes
   nothing and the cookie-based session path documented above is inert.
-- **`pnpm db:seed` cannot seed the root platform admin** — and would fail outright. `src/db/seeds/`
-  contains only the boilerplate `001_roles_permissions.sql` and `002_admin_user.sql`, which target
-  `roles`/`permissions`/`user_roles` — tables no migration creates — and insert `users` columns
-  that don't exist on this schema either (`first_name`, `last_name`, `is_active`,
-  `is_email_verified`; note `users.role` *does* exist, `0002_tenant_auth.sql:65`); `seed.sh`
-  runs every `[0-9]*.sql` with `ON_ERROR_STOP=1`. Both seed files need replacing with a
-  `platform_admins` root-admin seed.
+- **Nothing can create the root platform admin.** `src/db/seeds/`, `seed.sh` and the
+  `pnpm db:seed` script have all been removed; the dev *tenant owner* they used to create now
+  comes from migration `0009_dev_admin_user.sql`. That migration seeds `tenants` + `users` +
+  `tenant_settings` + `prompts` only — no `platform_admins` row — and no route or service writes
+  that table either (nothing under `src/` references it). So the admin surface has no reachable
+  first admin. A `platform_admins` root seed is still a required follow-up.
 
 ## Frontend / backend boundary
 

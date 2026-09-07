@@ -4,9 +4,12 @@ import { Test } from '@nestjs/testing';
 import { AuthDbService } from './auth.db-service';
 import { AuthRepository } from './auth.repository';
 
+import { PromptsRepository } from '../prompts/prompts.repository';
+
 describe('AuthDbService', () => {
   let target: AuthDbService;
   let authRepository: jest.Mocked<AuthRepository>;
+  let promptsRepository: jest.Mocked<PromptsRepository>;
   const tx = {} as never;
 
   beforeEach(async () => {
@@ -30,8 +33,16 @@ describe('AuthDbService', () => {
       transaction: jest.fn((fn: (tx: never) => unknown) => fn(tx)),
     } as unknown as jest.Mocked<AuthRepository>;
 
+    promptsRepository = {
+      insertDefaultsForTenant: jest.fn(),
+    } as unknown as jest.Mocked<PromptsRepository>;
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AuthDbService, { provide: AuthRepository, useValue: authRepository }],
+      providers: [
+        AuthDbService,
+        { provide: AuthRepository, useValue: authRepository },
+        { provide: PromptsRepository, useValue: promptsRepository },
+      ],
     }).compile();
 
     target = module.get(AuthDbService);
@@ -95,6 +106,8 @@ describe('AuthDbService', () => {
         tokenHash: input.tokenHash,
         expiresAt: input.tokenExpiresAt.toISOString(),
       });
+      // Provisioning waits for verification — this tenant may never activate.
+      expect(promptsRepository.insertDefaultsForTenant).not.toHaveBeenCalled();
     });
 
     it('returns null when a concurrent signup wins the idx_users_email_active race after the pre-check passed', async () => {
@@ -209,6 +222,28 @@ describe('AuthDbService', () => {
 
       expect(result).toBeNull();
       expect(authRepository.activateUser).not.toHaveBeenCalled();
+      expect(promptsRepository.insertDefaultsForTenant).not.toHaveBeenCalled();
+    });
+
+    it("provisions the tenant's default prompts in the same transaction as activation", async () => {
+      authRepository.findUserByEmail.mockResolvedValue(user);
+      authRepository.consumeVerifyEmailToken.mockResolvedValue(true);
+      authRepository.activateUser.mockResolvedValue(true);
+
+      await target.verifyEmail(user.email, 'code-hash');
+
+      expect(promptsRepository.insertDefaultsForTenant).toHaveBeenCalledWith(tx, user.tenantId);
+      expect(authRepository.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not provision when the activation guard blocks it', async () => {
+      authRepository.findUserByEmail.mockResolvedValue(user);
+      authRepository.consumeVerifyEmailToken.mockResolvedValue(true);
+      authRepository.activateUser.mockResolvedValue(false);
+
+      await target.verifyEmail(user.email, 'code-hash');
+
+      expect(promptsRepository.insertDefaultsForTenant).not.toHaveBeenCalled();
     });
 
     it('returns null when the code consumes but activation guard blocks it', async () => {

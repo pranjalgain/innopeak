@@ -1,7 +1,10 @@
+import { type DrizzleTransaction } from '@db/db.service';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
 
 import { ActiveRefreshToken, AuthRepository, UserByEmail } from './auth.repository';
+
+import { PromptsRepository } from '../prompts/prompts.repository';
 
 /** Index name Postgres reports as `constraint` on the 23505 a losing concurrent signup raises — see 0002_tenant_auth.sql. */
 const USERS_EMAIL_ACTIVE_INDEX = 'idx_users_email_active';
@@ -43,7 +46,10 @@ export interface VerifiedUser {
  */
 @Injectable()
 export class AuthDbService {
-  constructor(private readonly authRepository: AuthRepository) {}
+  constructor(
+    private readonly authRepository: AuthRepository,
+    private readonly promptsRepository: PromptsRepository
+  ) {}
 
   /**
    * Returns null when the email is already registered (any status, any tenant) — caller maps that
@@ -91,6 +97,24 @@ export class AuthDbService {
     }
   }
 
+  /**
+   * Everything a tenant needs before its dashboard is usable. Called at the moment the tenant
+   * becomes real — today that is email verification; a future already-verified signup path
+   * (Microsoft/Google SSO asserts a verified email, so it activates in one step) must call this
+   * too rather than repeating the inserts.
+   *
+   * Deliberately not done at signup: a `pending_verification` tenant may never activate, and
+   * provisioning there would leave prompt rows behind for accounts that never existed in any
+   * meaningful sense.
+   *
+   * Safe to call more than once — `insertDefaultsForTenant` conflicts away on the
+   * `(tenant_id, category)` unique index. That matters because a tenant can have several users,
+   * and each of them verifying reaches this same path.
+   */
+  private async provisionTenantWorkspace(tx: DrizzleTransaction, tenantId: string): Promise<void> {
+    await this.promptsRepository.insertDefaultsForTenant(tx, tenantId);
+  }
+
   /** Issues (or reissues) a verify_email code for an already-existing user — signup's resumable path, login's pending-verification path, and an explicit resend all go through this. */
   async putVerifyEmailToken(userId: string, tokenHash: string, expiresAt: string): Promise<void> {
     await this.authRepository.transaction(tx =>
@@ -123,6 +147,8 @@ export class AuthDbService {
       if (!activated) {
         return null;
       }
+
+      await this.provisionTenantWorkspace(tx, user.tenantId);
 
       return {
         id: user.id,

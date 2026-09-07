@@ -64,6 +64,20 @@
       "when": 1788763867831,
       "tag": "0008_prompt_template_varchar",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788850267831,
+      "tag": "0009_dev_admin_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788936667831,
+      "tag": "0010_tenant_settings_threshold_default",
+      "breakpoints": true
     }
   ]
 }

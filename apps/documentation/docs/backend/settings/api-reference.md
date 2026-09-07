@@ -239,11 +239,13 @@ Errors: `400` validation, `401`, `403` (authenticated as `member`), `403 TENANT_
 `POST` — there is exactly one row and the client never names it. The update is therefore a
 full-resource write on a singleton, not an item in a collection.
 
-**The row must already exist.** `escalation_rating_threshold` is `NOT NULL` with **no database
-default**, and classification cannot run without it — which is exactly why `PLAN.md` §8.10 puts
-`INSERT tenant_settings` inside the signup transaction alongside `tenants` and `users` (`PLAN.md`
-§4.3a's diagram shows the defaults it writes: `escalation_rating_threshold = 3`,
-`auto_post_enabled = false`). Neither route below creates the row. Both `404` if it is missing.
+**The row must already exist**, since classification cannot run without it — which is exactly why
+`PLAN.md` §8.10 puts `INSERT tenant_settings` inside the signup transaction alongside `tenants` and
+`users`. The *value* needs no help: `escalation_rating_threshold` is `NOT NULL DEFAULT 3`
+(`0002_tenant_auth.sql`, plus `0010_tenant_settings_threshold_default.sql` for databases that
+predate the default), so signup omits the column and inherits it, while `auto_post_enabled = false`
+is still written explicitly because "never post without a human in the MVP" is an app-level
+guarantee. Neither route below creates the row. Both `404` if it is missing.
 
 ### `GET /v1/settings`
 
