@@ -204,7 +204,7 @@ for what needs to change before it matches the InnoPeak tenant model.
 | `POST` | `/v1/auth/login` | `@Public()` | Password login. |
 | `POST` | `/v1/auth/refresh` | `@Public()` | Exchanges a refresh token for a new access/refresh pair. |
 | `POST` | `/v1/auth/logout` | Bearer | Revokes all refresh tokens for the current user. |
-| `POST` | `/v1/auth/change-password` | Bearer | Requires the current password. |
+| `POST` | `/v1/auth/change-password` | Bearer | Requires the current password. Implemented — Settings → Profile. Issues a fresh token pair and revokes every other session. |
 | `GET` | `/v1/auth/google` | `@Public()` | Redirects into Google's OAuth consent screen (`AuthGuard('google')`). |
 | `GET` | `/v1/auth/google/callback` | `@Public()` | Google OAuth callback; issues app tokens via `handleOAuthLogin`. |
 | `GET` | `/v1/auth/github` | `@Public()` | Same pattern for GitHub — not part of this product's scope, see below. |
@@ -329,8 +329,10 @@ Before this module can be considered done for InnoPeak:
   `ApiKeyService` (`ApiKeyGuard` + `@ApiKeyAuth()` decorator only — it has no controller routes) — no
   `mfa_settings` or `api_keys` tables exist anywhere in the migrations. If MFA or API keys are wanted
   later, that's a new migration + new documentation, not a retrofit onto tables that don't exist.
-- **Wire up** the already-present but unused DTOs (`forgot-password.dto.ts`,
-  `reset-password.dto.ts`, `verify-email.dto.ts`) to real controller routes per the flows above.
+- **Wire up** the still-unused password-reset DTOs (`forgot-password.dto.ts`,
+  `reset-password.dto.ts`) to real controller routes per the flows above.
+  `POST /v1/auth/change-password` (authenticated, current-password proof) and
+  `verify-email` are implemented.
 
 The gaps above are schema/business-logic gaps — this module modeling the wrong product. Separately,
 the module also predates the project's current module-structure convention

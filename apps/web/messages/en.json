@@ -445,8 +445,9 @@
       "toasts": {
         "loadFailed": "Could not load your profile.",
         "updateFailed": "Could not save this change. Please try again.",
+        "currentPasswordIncorrect": "Current password is incorrect.",
         "avatarUpdated": "Profile picture updated.",
-        "passwordChanged": "Password changed."
+        "passwordChanged": "Password changed. Other sessions have been signed out."
       },
       "errors": {
         "currentPasswordRequired": "Enter your current password.",
@@ -494,6 +495,8 @@
     },
     "toasts": {
       "loadFailed": "Could not load settings.",
+      "saveFailed": "Could not update the blocklist.",
+      "generalSaveFailed": "Could not save general settings.",
       "blocklistTermAdded": "Term added to blocklist.",
       "blocklistTermRemoved": "Term removed from blocklist.",
       "notificationChannelUpdated": "Notification channel updated.",

@@ -11,6 +11,8 @@ export enum RouteNames {
   REVIEWS = 'reviews',
   WEBHOOKS = 'webhooks',
   PROMPTS = 'prompts',
+  SETTINGS = 'settings',
+  BLOCKLIST_TERMS = 'blocklist-terms',
   API_DOCS = 'api',
   TRACING = 'tracing',
 

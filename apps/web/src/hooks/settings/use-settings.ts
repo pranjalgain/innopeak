@@ -4,35 +4,38 @@ import { toast } from "sonner";
 
 import { useConnection } from "@/app/_libs/providers/connection-provider";
 import { ConnectionService } from "@/app/_libs/services/connection.service";
-import { SettingsService } from "@/app/_libs/services/settings.service";
+import { SettingsApiError, SettingsService } from "@/app/_libs/services/settings.service";
 import type { GeneralSettings, NotificationChannel, SettingsData } from "@/types/domain";
 
 interface UseSettingsResult {
   settings: SettingsData | null;
   isLoading: boolean;
   updateGeneral: (patch: Partial<GeneralSettings>) => void;
-  addBlocklistTerm: (term: string) => void;
-  removeBlocklistTerm: (id: string) => void;
+  addBlocklistTerm: (term: string) => Promise<boolean>;
+  removeBlocklistTerm: (id: string) => Promise<void>;
   updateRecipientChannel: (id: string, channel: NotificationChannel) => void;
   toggleRecipientActive: (id: string) => void;
   disconnect: () => void;
 }
 
+const GENERAL_SAVE_DEBOUNCE_MS = 400;
+
+function isAiReplyCountOnly(patch: Partial<GeneralSettings>): boolean {
+  return patch.aiReplyCount !== undefined && Object.keys(patch).length === 1;
+}
+
 /**
- * Loads Settings once, then owns all interactive state locally — every
- * mutation updates state immediately and persists in the background via
- * `SettingsService.updateSettings` (a mock full-resource PUT for now). A
- * load failure and every discrete mutation (add/remove term, channel/active
- * toggle, disconnect) surface via toast. `updateGeneral` itself stays
- * toast-free since it also backs the continuous escalation-threshold
- * slider — toasting per-field is left to the two callers
- * (`GeneralSettingsSection`'s auto-post switch, `AiSettingsSection`'s reply
- * count select) that only ever call it for a discrete, one-shot change.
+ * Loads Settings once, then owns interactive state locally. Blocklist add/remove wait on the
+ * settings API and only update chips after success. General tab writes `PUT /v1/settings` (debounced
+ * for the slider/retention input; immediate for auto-post). `aiReplyCount` stays local. Other tabs
+ * still persist through the mock `updateSettings` PUT. `updateGeneral` stays toast-free because it
+ * also backs the continuous escalation-threshold slider.
  */
 export function useSettings(): UseSettingsResult {
   const t = useTranslations("settings.toasts");
   const [settings, setSettings] = React.useState<SettingsData | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
+  const generalSaveTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -51,6 +54,9 @@ export function useSettings(): UseSettingsResult {
 
     return () => {
       cancelled = true;
+      if (generalSaveTimer.current !== undefined) {
+        clearTimeout(generalSaveTimer.current);
+      }
     };
   }, [t]);
 
@@ -59,35 +65,86 @@ export function useSettings(): UseSettingsResult {
     void SettingsService.updateSettings(next);
   }, []);
 
+  const persistGeneral = React.useCallback(
+    (general: GeneralSettings) => {
+      void SettingsService.updateGeneralSettings({
+        escalationRatingThreshold: general.escalationRatingThreshold,
+        autoPostEnabled: general.autoPostApprovedReplies,
+        reviewDataRetentionMonths: general.reviewDataRetentionMonths,
+      }).catch((error: unknown) => {
+        toast.error(error instanceof SettingsApiError ? error.message : t("generalSaveFailed"));
+      });
+    },
+    [t],
+  );
+
   const updateGeneral = React.useCallback(
     (patch: Partial<GeneralSettings>) => {
       if (!settings) return;
-      persist({ ...settings, general: { ...settings.general, ...patch } });
+      const nextGeneral = { ...settings.general, ...patch };
+      const next = { ...settings, general: nextGeneral };
+      setSettings(next);
+
+      if (isAiReplyCountOnly(patch)) {
+        return;
+      }
+
+      if (patch.autoPostApprovedReplies !== undefined) {
+        if (generalSaveTimer.current !== undefined) {
+          clearTimeout(generalSaveTimer.current);
+        }
+        persistGeneral(nextGeneral);
+        return;
+      }
+
+      if (generalSaveTimer.current !== undefined) {
+        clearTimeout(generalSaveTimer.current);
+      }
+      generalSaveTimer.current = setTimeout(() => {
+        persistGeneral(nextGeneral);
+      }, GENERAL_SAVE_DEBOUNCE_MS);
     },
-    [settings, persist],
+    [settings, persistGeneral],
   );
 
   const addBlocklistTerm = React.useCallback(
-    (term: string) => {
-      if (!settings) return;
+    async (term: string): Promise<boolean> => {
+      if (!settings) return false;
       const trimmed = term.trim();
-      if (!trimmed) return;
-      persist({
-        ...settings,
-        blocklistTerms: [...settings.blocklistTerms, { id: `block_${Date.now()}`, term: trimmed }],
-      });
-      toast.success(t("blocklistTermAdded"));
+      if (!trimmed) return false;
+
+      try {
+        const created = await SettingsService.addBlocklistTerm(trimmed);
+        setSettings({
+          ...settings,
+          blocklistTerms: [...settings.blocklistTerms, created],
+        });
+        toast.success(t("blocklistTermAdded"));
+        return true;
+      } catch (error) {
+        toast.error(error instanceof SettingsApiError ? error.message : t("saveFailed"));
+        return false;
+      }
     },
-    [settings, persist, t],
+    [settings, t],
   );
 
   const removeBlocklistTerm = React.useCallback(
-    (id: string) => {
+    async (id: string): Promise<void> => {
       if (!settings) return;
-      persist({ ...settings, blocklistTerms: settings.blocklistTerms.filter((term) => term.id !== id) });
-      toast.success(t("blocklistTermRemoved"));
+
+      try {
+        await SettingsService.removeBlocklistTerm(id);
+        setSettings({
+          ...settings,
+          blocklistTerms: settings.blocklistTerms.filter((item) => item.id !== id),
+        });
+        toast.success(t("blocklistTermRemoved"));
+      } catch (error) {
+        toast.error(error instanceof SettingsApiError ? error.message : t("saveFailed"));
+      }
     },
-    [settings, persist, t],
+    [settings, t],
   );
 
   const updateRecipientChannel = React.useCallback(

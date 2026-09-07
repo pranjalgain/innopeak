@@ -70,14 +70,23 @@ timestamps and is generic enough to reuse anywhere else a timestamp needs the sa
 ## Toast notifications
 
 Every data-loading hook (`useSettings`, `usePrompts`, `useReviewQueue`, `useReviewDetail`,
-`useNotifications`, `useAuth`) surfaces failures via `sonner`'s `toast.error`, and discrete
-one-shot mutations (add/remove a blocklist term, toggle a setting, approve/reject a reply, save a
-prompt version, sign out) surface success via `toast.success` — both called from inside the hook,
-using a `useTranslations("<screen>.toasts")` namespace scoped to that screen/hook, never from the
-component. The one deliberate exception is `useSettings`' `updateGeneral`: it also backs a
-continuous slider, so it stays toast-free itself and the two callers that only ever invoke it for a
-discrete change (`GeneralSettingsSection`'s auto-post switch, `AiSettingsSection`'s reply-count
-select) toast on their own. High-frequency/low-stakes state (marking a notification read) is
+`useNotifications`, `useAuth`, `useTenantOwnerProfile`) surfaces failures via `sonner`'s
+`toast.error`, and discrete one-shot mutations (add/remove a blocklist term, toggle a setting,
+approve/reject a reply, save a prompt version, change password, sign out) surface success via
+`toast.success` — both called from inside the hook, using a `useTranslations("<screen>.toasts")`
+namespace scoped to that screen/hook, never from the component. Settings → Profile's password
+form (`AUTH_METHODS.password` only) calls `POST /v1/auth/change-password` through
+`TenantOwnerProfileService` → `AuthService.changePassword`; a success stores the rotated access
+token the same way login does. Avatar upload on that tab is still mock. Settings → Blocklist
+loads and mutates terms through `GET`/`POST`/`DELETE /v1/settings/blocklist-terms` (`SettingsService`);
+the chip input is cleared only after a successful add, and a 409 duplicate surfaces the backend
+message. Settings → General loads and saves the tenant singleton through `GET`/`PUT /v1/settings`
+(`escalationRatingThreshold`, `autoPostEnabled`, `reviewDataRetentionMonths`). Threshold and
+retention writes are debounced; the auto-post switch writes immediately. `aiReplyCount` stays
+local-only (no column). The one deliberate exception is `useSettings`' `updateGeneral`: it also
+backs a continuous slider, so it stays toast-free itself and the two callers that only ever invoke
+it for a discrete change (`GeneralSettingsSection`'s auto-post switch, `AiSettingsSection`'s
+reply-count select) toast on their own. High-frequency/low-stakes state (marking a notification read) is
 optimistic and silent — no toast, matching how often it fires.
 
 `src/components/ui/sonner.tsx`'s `Toaster` reads `forcedTheme ?? theme` from `useTheme()`, not

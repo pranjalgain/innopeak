@@ -29,7 +29,9 @@ import {
   SESSION_HINT_COOKIE_PATH,
   SESSION_HINT_COOKIE_VALUE,
 } from './constants/auth.constants';
+import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginPendingVerificationDto } from './dto/login-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
@@ -38,6 +40,7 @@ import { SignupDto } from './dto/signup.dto';
 import { TokenResponseDto } from './dto/token-response.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import {
+  ApiChangePassword,
   ApiLogin,
   ApiLogout,
   ApiRefresh,
@@ -45,6 +48,7 @@ import {
   ApiSignup,
   ApiVerifyEmail,
 } from './swagger/auth.swagger';
+import type { AuthUser } from './types/auth-user.type';
 
 @Controller({ path: RouteNames.AUTH, version: '1' })
 @ApiTags('Auth')
@@ -141,6 +145,21 @@ export class AuthController {
     const response = await this.authService.logout(this.readRefreshTokenCookie(req));
     this.clearSessionCookies(res);
     return ResponseUtil.success(response, response.message, HttpStatus.OK);
+  }
+
+  /** Settings → Profile. Not `@Public()` — JwtAuthGuard supplies `user`. */
+  @Post(RouteNames.CHANGE_PASSWORD)
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiChangePassword()
+  async changePassword(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ChangePasswordDto,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<ApiResponse<TokenResponseDto>> {
+    const result = await this.authService.changePassword(user, dto);
+    this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
+    return ResponseUtil.success(result.body, MESSAGES.AUTH.PASSWORD_CHANGED, HttpStatus.OK);
   }
 
   private readRefreshTokenCookie(req: Request): string | undefined {

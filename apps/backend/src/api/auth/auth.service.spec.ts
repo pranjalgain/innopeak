@@ -1,12 +1,18 @@
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { HashingService } from '@common/hashing/hashing.service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
-import { ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
 import { AuthService } from './auth.service';
+import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
@@ -31,8 +37,10 @@ describe('AuthService', () => {
       putVerifyEmailToken: jest.fn(),
       verifyEmail: jest.fn(),
       findUserForLogin: jest.fn(),
+      findUserById: jest.fn(),
       findTenantStatus: jest.fn(),
       hasConnectedBusiness: jest.fn().mockResolvedValue(false),
+      updatePasswordAndRevokeSessions: jest.fn(),
     } as unknown as jest.Mocked<AuthDbService>;
 
     hashingService = {
@@ -380,6 +388,69 @@ describe('AuthService', () => {
 
       expect(tokenService.revokeBySessionToken).not.toHaveBeenCalled();
       expect(result.message).toBeTruthy();
+    });
+  });
+
+  describe('changePassword', () => {
+    const tenantUser = {
+      type: JwtTokenType.TENANT_USER as const,
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      email: 'jane@thecoffeehouse.com',
+      role: UserRole.OWNER as const,
+    };
+    const storedUser = {
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      name: 'Jane Doe',
+      email: 'jane@thecoffeehouse.com',
+      passwordHash: 'hashed-password',
+      role: UserRole.OWNER as const,
+      status: UserStatus.ACTIVE as const,
+    };
+    const dto = { currentPassword: 'StrongP@ss1', newPassword: 'NewStr0ng@Pass' };
+
+    it('rejects a platform-admin token without looking up a user', async () => {
+      await expect(
+        target.changePassword(
+          { type: JwtTokenType.PLATFORM_ADMIN, id: 'admin-1', email: 'a@x.com' },
+          dto
+        )
+      ).rejects.toThrow(ForbiddenException);
+      expect(authDbService.findUserById).not.toHaveBeenCalled();
+    });
+
+    it('rejects an SSO-only account with no password hash', async () => {
+      authDbService.findUserById.mockResolvedValue({ ...storedUser, passwordHash: null });
+
+      await expect(target.changePassword(tenantUser, dto)).rejects.toThrow(BadRequestException);
+      expect(authDbService.updatePasswordAndRevokeSessions).not.toHaveBeenCalled();
+    });
+
+    it('rejects a wrong current password without writing a new hash', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      hashingService.compare.mockResolvedValue(false);
+
+      await expect(target.changePassword(tenantUser, dto)).rejects.toThrow(UnauthorizedException);
+      expect(authDbService.updatePasswordAndRevokeSessions).not.toHaveBeenCalled();
+    });
+
+    it('updates the hash, revokes other sessions, and issues a fresh pair', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      hashingService.compare.mockResolvedValue(true);
+      hashingService.hash.mockResolvedValue('new-hash');
+
+      const result = await target.changePassword(tenantUser, dto);
+
+      expect(authDbService.updatePasswordAndRevokeSessions).toHaveBeenCalledWith(
+        'user-1',
+        'new-hash'
+      );
+      expect(tokenService.issueTokenPair).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'user-1', tenantId: 'tenant-1' })
+      );
+      expect(result.body.accessToken).toBe('access');
+      expect(result.refreshToken).toBe('refresh');
     });
   });
 });

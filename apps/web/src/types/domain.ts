@@ -117,7 +117,8 @@ export interface NotificationRecipient {
 export interface GeneralSettings {
   escalationRatingThreshold: 1 | 2 | 3 | 4 | 5;
   autoPostApprovedReplies: boolean;
-  reviewDataRetentionMonths: number;
+  /** `null` means the platform default retention window. */
+  reviewDataRetentionMonths: number | null;
   aiReplyCount: number;
 }
 

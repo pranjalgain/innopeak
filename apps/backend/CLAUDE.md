@@ -188,6 +188,9 @@ those kinds starts fresh under `src/api/<module_name>/`, per "Module Structure" 
 | Metrics | `src/api/metrics/` | Prometheus metrics |
 | Tracing | `src/api/tracing/` | OpenTelemetry distributed tracing |
 | Dev Tools | `src/api/dev-tools/` | Developer tools dashboard (+ SQS queue-depth panel in `aws` mode) |
+| Prompts | `src/api/prompts/` | Owner prompt templates + versions (Settings → Prompts) |
+| Settings | `src/api/settings/` | Blocklist terms (`/v1/settings/blocklist-terms`); data access in `src/db/repositories/settings/` |
+| Review pipeline | `src/review-pipeline/` | Classification rule (blocklist then rating threshold). No HTTP. |
 | Background | `src/background/` | BullMQ email + dead-letter queues and cron jobs (SQS in `aws` mode — see Queue Transport Pattern) |
 
 ## Auth System

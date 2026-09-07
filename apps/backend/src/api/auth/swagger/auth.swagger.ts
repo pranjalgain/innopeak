@@ -1,6 +1,7 @@
 import { applyDecorators } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
+import { ChangePasswordDto } from '../dto/change-password.dto';
 import type { LoginPendingVerificationDto } from '../dto/login-response.dto';
 import { LoginDto } from '../dto/login.dto';
 import { ResendOtpDto } from '../dto/resend-otp.dto';
@@ -23,6 +24,74 @@ const TOKEN_RESPONSE_EXAMPLE = {
   },
   hasConnectedBusiness: false,
 };
+
+export function ApiChangePassword(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Change the current user’s password',
+      description:
+        'Requires the current password. Updates `users.password_hash`, revokes every refresh ' +
+        'token for the user, then issues a fresh pair so this tab stays signed in. Other ' +
+        'sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly ' +
+        '`refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.',
+    }),
+    ApiBody({
+      type: ChangePasswordDto,
+      examples: {
+        default: {
+          summary: 'Typical request',
+          value: { currentPassword: 'StrongP@ss1', newPassword: 'NewStr0ng@Pass' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 200,
+      description: 'Password updated; other sessions signed out; fresh tokens issued.',
+      type: TokenResponseDto,
+      examples: { default: { summary: 'Changed', value: TOKEN_RESPONSE_EXAMPLE } },
+    }),
+    ApiResponse({
+      status: 401,
+      description: 'Current password did not match, or the access token is missing/expired.',
+      examples: {
+        default: {
+          summary: 'Wrong current password',
+          value: {
+            statusCode: 401,
+            status: 'Failure',
+            message: 'Current password is incorrect.',
+            error: 'Unauthorized',
+            traceId: '38cf5d10-00cb-4e4b-8417-f9e63e877466',
+            data: null,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'SSO-only account (no password hash), or newPassword failed complexity rules.',
+      examples: {
+        noPassword: {
+          summary: 'SSO-only account',
+          value: {
+            statusCode: 400,
+            status: 'Failure',
+            message:
+              'This account has no password. Sign in with the identity provider used to create it.',
+            error: 'Bad Request',
+            traceId: '38cf5d10-00cb-4e4b-8417-f9e63e877466',
+            data: null,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 403,
+      description: 'Authenticated as a platform admin, not a tenant user.',
+    })
+  );
+}
 
 export function ApiSignup(): ReturnType<typeof applyDecorators> {
   return applyDecorators(

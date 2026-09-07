@@ -19,6 +19,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 
 import { AuthenticatedUserDto } from './dto/authenticated-user.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginPendingVerificationDto } from './dto/login-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
@@ -26,12 +27,14 @@ import { SignupResponseDto } from './dto/signup-response.dto';
 import { SignupDto } from './dto/signup.dto';
 import { TokenResponseDto } from './dto/token-response.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
 import { OtpAttemptService } from './otp-attempt.service';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
 import { TokenService } from './token.service';
+import type { AuthUser } from './types/auth-user.type';
 import { normalizeEmail } from './utils/email.utils';
 import { hashToken } from './utils/token.utils';
 
@@ -201,6 +204,39 @@ export class AuthService {
       await this.tokenService.revokeBySessionToken(rawRefreshToken);
     }
     return { message: MESSAGES.AUTH.LOGGED_OUT };
+  }
+
+  /**
+   * Proof of the current password, then a new hash + wholesale session revoke in one DB
+   * transaction, then a fresh pair so this tab stays signed in. Other devices die. See
+   * POST /v1/auth/change-password in the auth API reference.
+   */
+  async changePassword(actor: AuthUser, dto: ChangePasswordDto): Promise<TokenIssuanceResult> {
+    if (actor.type !== JwtTokenType.TENANT_USER) {
+      throw new ForbiddenException(MESSAGES.AUTH.TENANT_ONLY);
+    }
+
+    const user = await this.authDbService.findUserById(actor.id);
+    if (!user) {
+      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+    }
+
+    if (!user.passwordHash) {
+      throw new BadRequestException(MESSAGES.AUTH.NO_PASSWORD_SET);
+    }
+
+    const currentMatches = await this.hashingService.compare(
+      dto.currentPassword,
+      user.passwordHash
+    );
+    if (!currentMatches) {
+      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CURRENT_PASSWORD);
+    }
+
+    const newPasswordHash = await this.hashingService.hash(dto.newPassword);
+    await this.authDbService.updatePasswordAndRevokeSessions(user.id, newPasswordHash);
+
+    return this.buildTokenIssuanceResult(user);
   }
 
   private async issueOtp(userId: string, email: string, name: string): Promise<void> {
