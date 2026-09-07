@@ -2,7 +2,6 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
 
-import { CURRENT_OWNER } from "@/app/_libs/constants/current-owner";
 import { PromptService } from "@/app/_libs/services/prompt.service";
 import type { AiPrompt, PromptTone } from "@/types/domain";
 
@@ -48,9 +47,12 @@ export function usePrompts(): UsePromptsResult {
 
       setIsSaving(true);
       try {
-        const updated = await PromptService.createVersion(prompt, template, CURRENT_OWNER.name);
+        const updated = await PromptService.createVersion(prompt, template);
         setPrompts((prev) => prev.map((p) => (p.id === id ? updated : p)));
-        toast.success(t("versionSaved", { version: updated.versions.length }));
+        // The number the API assigned, not the array length: versions are `max(version) + 1`
+        // server-side, so a gap would make the count disagree with what the history shows.
+        const saved = updated.versions[updated.versions.length - 1];
+        toast.success(t("versionSaved", { version: saved?.version ?? updated.versions.length }));
       } catch {
         toast.error(t("saveFailed"));
       } finally {
@@ -65,9 +67,13 @@ export function usePrompts(): UsePromptsResult {
       const prompt = prompts.find((p) => p.id === id);
       if (!prompt) return;
 
-      const updated = await PromptService.updateTone(prompt, tone);
-      setPrompts((prev) => prev.map((p) => (p.id === id ? updated : p)));
-      toast.success(t("toneUpdated"));
+      try {
+        const updated = await PromptService.updateTone(prompt, tone);
+        setPrompts((prev) => prev.map((p) => (p.id === id ? updated : p)));
+        toast.success(t("toneUpdated"));
+      } catch {
+        toast.error(t("saveFailed"));
+      }
     },
     [prompts, t],
   );

@@ -28,4 +28,17 @@ export const MESSAGES = {
     INVALID_ACCESS_TOKEN: 'Invalid or expired access token.',
     LOGGED_OUT: 'Logged out.',
   },
+  PROMPTS: {
+    LISTED: 'Prompts retrieved successfully',
+    VERSION_CREATED: 'Prompt version created successfully',
+    TONE_UPDATED: 'Prompt tone updated successfully',
+    NOT_FOUND: 'Prompt not found',
+    TEMPLATE_UNCHANGED: 'Template is identical to the current version',
+    VERSION_CONFLICT: 'Another version was saved at the same time — retry after reloading',
+    UNKNOWN_VARIABLE: (names: readonly string[]): string =>
+      `Unknown prompt placeholder(s): ${names.join(', ')}`,
+    MISSING_VARIABLE: (names: readonly string[]): string =>
+      `Missing required prompt placeholder(s): ${names.join(', ')}`,
+    TENANT_ONLY: 'Prompts are only available to tenant users',
+  },
 } as const;

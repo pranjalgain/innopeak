@@ -12,10 +12,8 @@
     // `moduleResolution: "Node"` (aka "node10") and bare `baseUrl` are deprecated in favor of
     // "Node16"/"NodeNext"/"Bundler" and baseUrl-less `paths`, slated for removal in TypeScript 7.0.
     // Migrating requires reworking every path alias and is tracked separately — this silences the
-    // forward-looking warning without changing current (correct, tested) resolution behavior.
-    // "5.0" is the value this repo's pinned TypeScript (5.9.2) understands; if your editor shows
-    // a newer TS's deprecation warnings (e.g. asking for "6.0"), make sure it's using this
-    // project's local TypeScript (VS Code: "TypeScript: Select TypeScript Version" → workspace).
+    // forward-looking warning on this repo's TypeScript 5.9.2. Cursor's bundled TS 7 still flags
+    // them unless the workspace TypeScript version is selected (see .vscode/settings.json).
     "ignoreDeprecations": "5.0",
     "sourceMap": true,
     "outDir": "./dist",
@@ -61,6 +59,7 @@
       "@metrics/*": ["api/metrics/*"],
       "@health/*": ["api/health/*"],
       "@auth/*": ["api/auth/*"],
+      "@prompts/*": ["api/prompts/*"],
       "@users/*": ["users/*"],
       "@media/*": ["media/*"],
       "@email/*": ["email/*"],

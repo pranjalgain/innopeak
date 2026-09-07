@@ -20,6 +20,7 @@ import helmet from 'helmet';
 import * as path from 'path';
 
 import { AuthModule } from './api/auth/auth.module';
+import { PromptsModule } from './api/prompts/prompts.module';
 import { AppModule } from './app.module';
 
 export async function bootstrap(): Promise<void> {
@@ -77,7 +78,7 @@ export async function bootstrap(): Promise<void> {
   //   3. The new docs will be available at /api/v{n}
   // ─────────────────────────────────────────────────────────────────────────────
 
-  const V1_MODULES = [AuthModule];
+  const V1_MODULES = [AuthModule, PromptsModule];
 
   if (!isProd) {
     // V1 API docs at /api/v1

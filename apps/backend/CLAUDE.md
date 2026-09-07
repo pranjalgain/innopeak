@@ -52,8 +52,9 @@ The project uses maximum strictness. Key implications:
 | `0003_review_provider_locations` | review_provider_connections, notification_recipients, locations, user_locations |
 | `0004_reviews` | reviews, sync_runs, review_responses |
 | `0005_notifications` | notifications |
-| `0006_prompts` | prompts, prompt_versions |
+| `0006_prompts` | prompts, prompt_versions (`template VARCHAR(1000)`) |
 | `0007_auth_hardening` | refresh_tokens |
+| `0008_prompt_template_varchar` | ALTER `prompt_versions.template` TEXT → VARCHAR(1000) (already-migrated DBs) |
 
 ## Path Aliases (baseUrl: ./src)
 

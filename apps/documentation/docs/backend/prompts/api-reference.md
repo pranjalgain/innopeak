@@ -31,8 +31,7 @@ migration rather than silently assumed.
 ## Conventions
 
 - **Base path**: `/v1/prompts/...` — `RouteNames.PROMPTS`, `version: '1'` in `@Controller()`.
-  That enum entry does not exist in `src/common/route-names.ts` yet and must be added; controller
-  paths never use a raw string.
+  Controller paths never use a raw string.
 - **Auth column**: every route is `Bearer, owner` — a valid access token
   (`Authorization: Bearer <token>`, or the `sid` cookie which `CookieAuthMiddleware` promotes)
   **and** `@Roles('owner')`. Reply prompts live behind Settings, which `PLAN.md` §2 restricts to
@@ -107,7 +106,7 @@ Success `200`:
       "currentVersion": {
         "id": "0190f4a1-7c33-7e51-9a02-6d1b8f4c0aa1",
         "version": 3,
-        "template": "You are replying on behalf of {{business_name}} to a {{rating}}-star review.\n\nReview: \"{{review_text}}\"\n\nWrite a warm, genuine thank-you reply. Do not repeat the reviewer's name. Keep it under 60 words.",
+        "template": "You are replying on behalf of {{business_name}} to a {{rating}}-star review from {{reviewer_name}}.\n\nReview: \"{{review_text}}\"\n\nWrite a warm, genuine thank-you reply. Do not repeat the reviewer's name. Keep it under 60 words.",
         "createdAt": "2026-08-25T09:30:00.000Z",
         "createdBy": { "userId": "0190f3b2-1c44-7a10-8f31-2b7c9e5d0002", "name": "Jane Doe" }
       },
@@ -260,23 +259,46 @@ returns `409 PROMPT_VERSION_CONFLICT` if the retry also loses — the append-onl
 guarded compare-and-swap `PLAN.md` §8.4 specifies for `review_responses.status`. `created_by_user_id`
 comes from the authenticated request, never from the body, so it cannot be spoofed.
 
-A template byte-identical to the current version (after trimming) is rejected with
+A template identical to the current version **after sanitization** (see below) is rejected with
 `409 PROMPT_TEMPLATE_UNCHANGED` rather than appended. A no-op version is not merely untidy: it
 splits that wording's `review_responses` rows across two `prompt_version_id` values, so both
 versions' stats come back thinner than the wording's real performance and neither is comparable to
-anything.
+anything. Comparing the raw strings would treat a Windows CRLF paste of the same wording as a new
+version; both sides of the check run through the same sanitizer so the author's OS does not
+create history.
+
+The body is sanitized **before** length/placeholder validation **and** before the unchanged
+comparison — never HTML-escaped (this string is LLM input; React escapes at render):
+
+- Unicode NFC
+- CRLF and bare CR → LF
+- Null bytes stripped (a paste containing U+0000 is a Postgres `500`, not a `400`)
+- Other C0/C1 control characters stripped (LF kept)
+- Zero-width and bidi format characters stripped (U+200B–U+200F, U+202A–U+202E, U+2060–U+2064,
+  U+2066–U+2069, U+FEFF) — the invisible-instruction vector
+
+`{{placeholders}}` are then matched with `/\{\{([^}]*)\}\}/g` (any inner text, including spaces
+and camelCase). Each capture is **trimmed and lowercased** before the allowlist lookup, so
+`{{ business_name }}` is accepted and `{{businessName}}` is rejected as unknown (`businessname`)
+instead of stored as a dead token. Unknown names are listed in
+`MESSAGES.PROMPTS.UNKNOWN_VARIABLE`. Required names that are absent are listed in
+`MESSAGES.PROMPTS.MISSING_VARIABLE`. The allowlist is split into required vs optional in
+`prompts.constants.ts` so a later *optional* variable can be added without invalidating existing
+templates; making a name required is the change that would.
+
+Required today: `business_name`, `reviewer_name`, `rating`, `review_text`. Optional today: none.
 
 Request:
 
 ```json
 {
-  "template": "You are replying on behalf of {{business_name}} to a {{rating}}-star review.\n\nReview: \"{{review_text}}\"\n\nWrite a warm, genuine thank-you reply. Do not repeat the reviewer's name. Keep it under 60 words."
+  "template": "You are replying on behalf of {{business_name}} to a {{rating}}-star review from {{reviewer_name}}.\n\nReview: \"{{review_text}}\"\n\nWrite a warm, genuine thank-you reply. Do not repeat the reviewer's name. Keep it under 60 words."
 }
 ```
 
 | Field | Type | Rules |
 |---|---|---|
-| `template` | string | required, non-empty after trim, 1–20000 chars (`prompt_versions.template` is unbounded `TEXT`; the ceiling is a module-local constant guarding the model's context window, not a DB constraint). Must differ from the current version's template |
+| `template` | string | required, non-empty after sanitization + trim, 1–1000 chars. `PROMPT_TEMPLATE_MAX_LENGTH` and `prompt_versions.template VARCHAR(1000)` are the same ceiling — a higher app limit would pass DTO validation then 500 at insert. Must include every required `{{placeholder}}`, only allowlisted names, and differ from the current version after sanitization |
 
 Success `201`:
 
@@ -286,7 +308,7 @@ Success `201`:
   "version": {
     "id": "0190f4c9-2a18-7bb2-9c40-1e5a7d3f0bb2",
     "version": 4,
-    "template": "You are replying on behalf of {{business_name}} to a {{rating}}-star review.\n\nReview: \"{{review_text}}\"\n\nWrite a warm, genuine thank-you reply. Do not repeat the reviewer's name. Keep it under 60 words.",
+    "template": "You are replying on behalf of {{business_name}} to a {{rating}}-star review from {{reviewer_name}}.\n\nReview: \"{{review_text}}\"\n\nWrite a warm, genuine thank-you reply. Do not repeat the reviewer's name. Keep it under 60 words.",
     "createdAt": "2026-09-04T11:02:13.441Z",
     "createdBy": { "userId": "0190f3b2-1c44-7a10-8f31-2b7c9e5d0002", "name": "Jane Doe" },
     "isCurrent": true,
@@ -305,8 +327,9 @@ frontend currently derives it as `prompt.versions.length + 1` in `PromptService.
 which is a mock-only shortcut. `version` numbers come from the database, and after a rejected
 append or any gap they will not equal the array length.
 
-Errors: `400` validation, `401`, `403`, `404 PROMPT_NOT_FOUND`,
-`409 PROMPT_TEMPLATE_UNCHANGED`, `409 PROMPT_VERSION_CONFLICT`, `429`, `500`.
+Errors: `400` validation (length / empty), `400` unknown or missing placeholders (names listed in
+`message`), `401`, `403`, `404 PROMPT_NOT_FOUND`, `409 PROMPT_TEMPLATE_UNCHANGED`,
+`409 PROMPT_VERSION_CONFLICT`, `429`, `500`.
 
 ## Tone
 
@@ -533,12 +556,13 @@ on.
 
 | Status | Code | Route(s) | When |
 |---|---|---|---|
-| `400` | `Validation Error` | Any route with a body or query param | A `class-validator` rule failed — malformed `promptId` UUID, empty `template`, `template` over the length ceiling, `tone` outside `prompt_tone`, `version`/`pageNo`/`pageSize` non-integer or out of range. `message` is the comma-joined list of violations. |
+| `400` | `Validation Error` | Any route with a body or query param | A `class-validator` rule failed — malformed `promptId` UUID, empty `template`, `template` over 1000 chars, `tone` outside `prompt_tone`, `version`/`pageNo`/`pageSize` non-integer or out of range. `message` is the comma-joined list of violations. |
+| `400` | `Bad Request` (`UNKNOWN_VARIABLE` / `MISSING_VARIABLE`) | `POST /v1/prompts/:promptId/versions` | A `{{placeholder}}` is not on the allowlist (after trim/lowercase), or a required variable is absent. `message` names the variables. |
 | `401` | `Unauthorized` | All routes | Missing, malformed, or expired access token. |
 | `403` | `Forbidden` | All routes | Authenticated as a `member`, not an `owner`. Reply prompts are Settings-scoped (`PLAN.md` §2). Depends on `RolesGuard` being adapted to the schema's `user_role` enum first — see the auth [Gap](../auth/overview.md#gap-between-current-code-and-target-design). |
 | `404` | `Not Found` (`PROMPT_NOT_FOUND`) | `GET /v1/prompts/:promptId`, both `/versions` routes, `/tone`, `/stats` | No `prompts` row with that id **for the caller's tenant**. Deliberately `404` rather than `403` for a prompt that exists on another tenant, so the response never confirms its existence. |
 | `404` | `Not Found` (`PROMPT_VERSION_NOT_FOUND`) | `GET /v1/prompts/:promptId/stats` | `?version=N` names a version this prompt has never had. |
-| `409` | `Conflict` (`PROMPT_TEMPLATE_UNCHANGED`) | `POST /v1/prompts/:promptId/versions` | The submitted `template` is identical (after trim) to the current version's. Refused rather than appended — a no-op version splits that wording's stats across two `prompt_version_id` values. |
+| `409` | `Conflict` (`PROMPT_TEMPLATE_UNCHANGED`) | `POST /v1/prompts/:promptId/versions` | The submitted `template` is identical to the current version's after sanitization (NFC, newline normalization, stripped controls/invisibles) and trim. Refused rather than appended — a no-op version splits that wording's stats across two `prompt_version_id` values. |
 | `409` | `Conflict` (`PROMPT_VERSION_CONFLICT`) | `POST /v1/prompts/:promptId/versions` | Two concurrent appends raced for the same `version` and the retry also lost `idx_prompt_versions_prompt_id_version`. Safe to retry the request; the client should re-read the prompt first, since someone else's edit has landed. |
 | `429` | `Too Many Requests` | Any route | `ThrottlerGuard` limit for that route's tier — see the per-group throttle columns above and the auth overview's [Rate limiting](../auth/overview.md#rate-limiting-throttler). |
 | `500` | `Internal Server Error` | Any route | Unhandled exception. Only `traceId` is safe to surface; detail stays server-side per `ErrorHandlerService.handleUnhandledError`. |
