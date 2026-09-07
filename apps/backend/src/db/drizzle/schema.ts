@@ -947,7 +947,7 @@ export const promptVersions = pgTable(
       .notNull(),
     promptId: uuid('prompt_id').notNull(),
     version: integer().notNull(),
-    template: text().notNull(),
+    template: varchar({ length: 1000 }).notNull(),
     createdByUserId: uuid('created_by_user_id'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()

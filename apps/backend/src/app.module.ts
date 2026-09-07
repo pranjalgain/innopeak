@@ -23,6 +23,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { OtelModule } from '@otel/otel.module';
+import { PromptsModule } from '@prompts/prompts.module';
 import { RedisModule } from '@redis/redis.module';
 import { REDIS_CLIENT } from '@redis/redis.provider';
 import { redisStore } from 'cache-manager-redis-store';
@@ -118,6 +119,7 @@ const cacheModule = CacheModule.registerAsync({
     HealthModule,
     DevToolsModule,
     TracingModule,
+    PromptsModule,
   ],
   providers: [
     ErrorHandlerService,

@@ -27,6 +27,7 @@ const config: Config = {
     '^@notification-queue/(.*)$': '<rootDir>/background/queue/notification/$1',
     '^@metrics/(.*)$': '<rootDir>/api/metrics/$1',
     '^@health/(.*)$': '<rootDir>/api/health/$1',
+    '^@prompts/(.*)$': '<rootDir>/api/prompts/$1',
     '^@users/(.*)$': '<rootDir>/users/$1',
     '^@auth/(.*)$': '<rootDir>/api/auth/$1',
     '^@notifications/(.*)$': '<rootDir>/notifications/$1',

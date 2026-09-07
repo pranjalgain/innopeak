@@ -8,6 +8,7 @@ export enum RouteNames {
   NOTIFICATIONS = 'notifications',
   AI = 'ai',
   WEBHOOKS = 'webhooks',
+  PROMPTS = 'prompts',
   API_DOCS = 'api',
   TRACING = 'tracing',
 

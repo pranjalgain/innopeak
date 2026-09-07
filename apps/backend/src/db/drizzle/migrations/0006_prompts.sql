@@ -56,13 +56,14 @@ CREATE TRIGGER prompts_audit_trigger
 -- index-only lookup. That also sidesteps a circular FK back to prompts, and matches this
 -- schema's existing preference for deriving state from an immutable log (see review_responses'
 -- status transitions) over maintaining a redundant pointer that a version-insert could forget
--- to update.
+-- to update. template is VARCHAR(1000), matched by PROMPT_TEMPLATE_MAX_LENGTH — not unbounded
+-- TEXT — so a too-long body cannot pass the API and then 500 at insert.
 
 CREATE TABLE IF NOT EXISTS prompt_versions (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     prompt_id UUID NOT NULL REFERENCES prompts(id) ON DELETE CASCADE,
     version INTEGER NOT NULL,
-    template TEXT NOT NULL,
+    template VARCHAR(1000) NOT NULL,
     created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT prompt_versions_version_check CHECK (version > 0)

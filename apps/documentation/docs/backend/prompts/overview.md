@@ -33,19 +33,19 @@ example selection, the Azure OpenAI call, the `review_responses` insert — is d
 [Review pipeline — Overview](../review-pipeline/overview.md); this module documents only the
 prompt-shaped inputs it consumes and the analytics it reads back out.
 
-Nothing described here is implemented yet. `apps/backend/src/` contains no prompts module, no
-prompts repository, and the migration that defines these tables has not been applied or
-introspected — see [Gap between current code and target
-design](#gap-between-current-code-and-target-design), which states exactly what exists and what
-does not. For the endpoint-by-endpoint contract, see [Prompts Module — API
-Reference](./api-reference.md).
+The list, append-version, and tone slice is implemented (`GET /v1/prompts`,
+`POST /v1/prompts/:promptId/versions`, `PUT /v1/prompts/:promptId/tone`), scoped to the JWT
+tenant owner. Stats and generation are not. For the endpoint-by-endpoint contract, see
+[Prompts Module — API Reference](./api-reference.md). See
+[Gap between current code and target design](#gap-between-current-code-and-target-design)
+for what is still spec-only.
 
 ## Data model
 
 | Table | Purpose |
 |---|---|
 | `prompts` | Prompt **identity and live settings**: one row per `(tenant_id, category)`. Carries the owner-facing `name` and nullable `description` shown on the Settings card, the `category` the generation stage selects on, and `tone` — a mutable setting updated in place, same as `name`/`description`, independent of the (append-only) template. No template text on this table — deliberately. |
-| `prompt_versions` | The **immutable edit log**: `prompt_id`, a monotonic `version` (`CHECK (version > 0)`), the `template` text itself, and `created_by_user_id` (`ON DELETE SET NULL`). Insert-only; there is no `updated_at` column because a row is never updated. |
+| `prompt_versions` | The **immutable edit log**: `prompt_id`, a monotonic `version` (`CHECK (version > 0)`), the `template` itself (`VARCHAR(1000)`), and `created_by_user_id` (`ON DELETE SET NULL`). Insert-only; there is no `updated_at` column because a row is never updated. |
 
 Plus three columns `0006_prompts.sql` adds to `review_responses` (defined in
 `0004_reviews.sql`), which is what makes prompt performance computable at all:
@@ -55,6 +55,11 @@ Plus three columns `0006_prompts.sql` adds to `review_responses` (defined in
 | `prompt_version_id` | `UUID`, nullable, `REFERENCES prompt_versions(id) ON DELETE SET NULL` | Which exact version generated this draft. Nullable because `imported` and `human_manual` rows never went through a prompt. |
 | `original_content` | `TEXT`, nullable | The AI's text before any human edit. `content` is what got approved; the difference between the two is the approved-as-is / approved-after-edit split. |
 | `decided_at` | `TIMESTAMPTZ`, nullable | When the row's status became terminal. `review_responses` has `posted_at` but **no `approved_at`** — `PLAN.md` §2 recommended one and `0004_reviews.sql` did not add it, so `decided_at` is the only decision timestamp in the schema. |
+
+`prompt_versions.template` is `VARCHAR(1000) NOT NULL` — a hard ceiling at the DB layer, matched
+by `PROMPT_TEMPLATE_MAX_LENGTH = 1000`. Greenfield creates it that way in `0006_prompts.sql`;
+already-migrated environments get `0008_prompt_template_varchar.sql` (`ALTER COLUMN ... TYPE
+VARCHAR(1000)`). Seeded v1 copy is well under the limit (longest category template is 391 chars).
 
 Indexes and constraints, all verified in `0006_prompts.sql`:
 
@@ -149,6 +154,14 @@ sequenceDiagram
     API-->>Owner: 201 { version: 3 }
     Note over Owner,DB: v1 and v2 rows untouched —<br/>their stats stay attributable
 ```
+
+The submitted `template` is sanitized (NFC, CRLF→LF, strip null/control/zero-width/bidi
+characters — not HTML-escaped) before placeholder checks and before the unchanged comparison, so
+a null-byte paste cannot 500 at insert and a Windows line ending cannot mint a no-op version.
+Placeholders match `{{…}}` with inner text trimmed and lowercased against a **required** vs
+**optional** allowlist (`business_name`, `reviewer_name`, `rating`, `review_text` are required
+today; optional is empty). That split is what lets a later optional variable land without
+invalidating stored templates. Unknown and missing names are listed in the `400` message.
 
 Two consequences the API surface has to reflect:
 
@@ -292,16 +305,15 @@ Same split as the auth module's [frontend/backend
 boundary](../auth/overview.md#frontend--backend-boundary): what the UI exposes is a frontend
 decision, and the backend surface above is documented in full regardless.
 
-What the shipped frontend exercises today, all against
-`apps/web/src/app/_libs/services/prompt.service.ts` — a mock service reading
-`apps/web/src/app/_libs/mock-data/prompts.ts`, with no HTTP call anywhere:
+What the shipped frontend exercises today, against
+`apps/web/src/app/_libs/services/prompt.service.ts` (NestJS API via `ApiClient`):
 
-| Frontend capability | Where | Backend route it becomes |
+| Frontend capability | Where | Backend route |
 |---|---|---|
-| Load three prompt cards with current template | `usePrompts` → `PromptService.getPrompts` | `GET /v1/prompts` |
+| Load three prompt cards with current template | `usePrompts` → `PromptService.getPrompts` | `GET /v1/prompts?includeHistory=true` |
 | Save an edit as a new version | `usePrompts.saveNewVersion` → `PromptService.createVersion` | `POST /v1/prompts/:promptId/versions` |
-| Change tone from a select | `usePrompts.updateTone` → `PromptService.updateOwnerTone` | `PUT /v1/prompts/:promptId/tone` |
-| Expand prior versions, read-only | `prompt-version-history.tsx` | Inline in `GET /v1/prompts`, or `GET /v1/prompts/:promptId/versions` once history outgrows one page |
+| Change tone from a select | `usePrompts.updateTone` → `PromptService.updateTone` | `PUT /v1/prompts/:promptId/tone` |
+| Expand prior versions, read-only | `prompt-version-history.tsx` | Inline in `GET /v1/prompts?includeHistory=true` |
 | Per-version approval stats line | `usePromptAnalytics` → `computePromptVersionStats` | `GET /v1/prompts/:promptId/stats?version=N` |
 
 Where the frontend's shape and the backend target differ, and what has to give:
@@ -340,23 +352,19 @@ Where the frontend's shape and the backend target differ, and what has to give:
 
 ## Gap between current code and target design
 
-**Nothing in this module is implemented.** Verified against the repository:
+**List, append-version, and tone persist are implemented.** Verified against this branch:
 
-- `apps/backend/src/` contains **no** `prompts` module, no `src/api/prompts/`, and no
-  `src/db/repositories/prompts/`. The only path under `apps/backend/src` matching `prompt` at all
-  is the migration file itself.
-- **`0006_prompts.sql` has not been applied to any database, and
-  `src/db/drizzle/schema.ts` has not been regenerated from it.** The journal
-  (`src/db/drizzle/migrations/meta/_journal.json`) does carry the `0006_prompts` entry at
-  `idx: 6`, so the file is wired for `pnpm db:migrate` — but the generated schema contains no
-  `prompts`, or `prompt_versions` table, and no `promptVersionId`,
-  `originalContent` or `decidedAt` field on `review_responses`; its only `prompt`-shaped symbol is
-  an unrelated `systemPrompt` column on the boilerplate AI-agents table. Until `pnpm db:migrate`
-  and then `pnpm db:introspect` are run (in that order, per the SQL-first workflow in
-  `apps/backend/CLAUDE.md`), no Drizzle query in this module can be written at all.
-- The frontend is fully built but entirely mock-backed — `PromptService` resolves from
-  `MOCK_PROMPTS` after a `setTimeout`, and its own docstring says it "becomes a real backend call
-  once that API exists".
+- `src/api/prompts/` (controller, service, DTOs, swagger) and
+  `src/db/repositories/prompts/` (repository + DB service). Drizzle table defs live in
+  `src/db/drizzle/schema.ts`.
+- `0006_prompts.sql` is in the journal (after `0005`, before `0007_auth_hardening`). Apply with
+  `pnpm db:migrate`, then seed with `003_dev_prompts.sql` (`pnpm db:seed`) so each tenant gets
+  three category rows and a v1 template.
+- The Settings → Prompts screen calls `GET /v1/prompts?includeHistory=true`,
+  `POST /v1/prompts/:promptId/versions`, and `PUT /v1/prompts/:promptId/tone` through
+  `PromptService` / `ApiClient`. Stats and generation are still mock / unimplemented.
+
+Stats, single-prompt GET, paginated history, and the generation pipeline are still spec-only.
 
 ### Schema gaps — required follow-up migrations
 
@@ -405,8 +413,9 @@ Called out explicitly rather than assumed, the same way the auth API reference f
    `prompts.tenant_id`, so tenant scoping there is a join, not a column predicate. The DB service
    must verify `prompt_id` belongs to the caller's tenant on every version append; there is no
    column-level guard against inserting a version onto another tenant's prompt.
-7. **`RouteNames` has no `PROMPTS` entry** (`src/common/route-names.ts`), and controller paths must
-   come from that enum, never a raw string.
+7. **Signup still does not provision prompt rows.** `003_dev_prompts.sql` backfills any tenant
+   missing the three categories. Production signup must do the same in the same transaction as
+   `tenants` + `users` (gap 2).
 
 ### Module-structure conventions this module must follow
 

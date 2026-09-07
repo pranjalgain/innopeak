@@ -47,3 +47,6 @@ Thumbs.db
 # so the root pnpm-lock.yaml is the only real one.
 apps/*/pnpm-lock.yaml
 libs/*/pnpm-lock.yaml
+
+# Local knowledge-graph output — do not commit
+graphify-out/
