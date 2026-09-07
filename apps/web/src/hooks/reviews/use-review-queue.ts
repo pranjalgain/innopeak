@@ -7,12 +7,17 @@ import type { Review, ReviewQueueFilters } from "@/types/domain";
 
 interface UseReviewQueueResult {
   reviews: Review[];
-  filteredReviews: Review[];
   filters: ReviewQueueFilters;
   setStatus: (status: ReviewQueueFilters["status"]) => void;
   setClassification: (classification: ReviewQueueFilters["classification"]) => void;
   setSearch: (search: string) => void;
   isLoading: boolean;
+  total: number;
+  page: number;
+  totalPages: number;
+  setPage: (page: number) => void;
+  goToPreviousPage: () => void;
+  goToNextPage: () => void;
 }
 
 const INITIAL_FILTERS: ReviewQueueFilters = {
@@ -21,25 +26,63 @@ const INITIAL_FILTERS: ReviewQueueFilters = {
   search: "",
 };
 
+/** Matches the page the list actually renders — pagination is server-side, not a display slice. */
+const PAGE_SIZE = 10;
+
+/** Typing pause before a search reaches the API — long enough that a word is one request, not six. */
+const SEARCH_DEBOUNCE_MS = 300;
+
 /**
- * Loads every review once and filters client-side. Fine at this data
- * volume — move filtering server-side (status/classification/search as
- * query params) once the real backend and page size make that necessary.
- * A load failure surfaces via toast.
+ * The review queue, paginated **server-side**.
+ *
+ * An earlier version fetched one 50-row batch and re-sliced it into pages of 6 in the browser via
+ * `usePagination` — clicking "Next" just re-sliced the array already in memory, so it never
+ * reflected the backend's own `page`/`total`, and a business with more than 50 reviews would never
+ * show anything past row 50 no matter how many times "Next" was clicked. This fetches exactly the
+ * page being displayed, using `GET /v1/reviews`'s own `page`/`pageSize`/`meta.total`.
  */
 export function useReviewQueue(): UseReviewQueueResult {
   const t = useTranslations("reviewQueue.toasts");
   const [reviews, setReviews] = React.useState<Review[]>([]);
+  const [total, setTotal] = React.useState(0);
+  const [page, setPageState] = React.useState(1);
   const [filters, setFilters] = React.useState<ReviewQueueFilters>(INITIAL_FILTERS);
+  const [debouncedSearch, setDebouncedSearch] = React.useState("");
   const [isLoading, setIsLoading] = React.useState(true);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Only `search` is debounced. The two dropdowns are discrete choices a user makes once, so
+  // delaying them would just feel unresponsive.
+  React.useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(filters.search), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [filters.search]);
+
+  // A filter change invalidates the current page — page 3 of "escalated" may not exist once the
+  // status filter narrows the result set. Reset before the fetch below runs for the new filters,
+  // rather than fetching page 3 of the new set and only then discovering it's empty.
+  React.useEffect(() => {
+    setPageState(1);
+  }, [filters.status, filters.classification, debouncedSearch]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     setIsLoading(true);
-    ReviewService.getReviews()
+    ReviewService.getReviews({
+      page,
+      pageSize: PAGE_SIZE,
+      filters: {
+        status: filters.status,
+        classification: filters.classification,
+        search: debouncedSearch,
+      },
+    })
       .then((result) => {
-        if (!cancelled) setReviews(result);
+        if (cancelled) return;
+        setReviews(result.reviews);
+        setTotal(result.total);
       })
       .catch(() => {
         if (!cancelled) toast.error(t("loadFailed"));
@@ -51,26 +94,25 @@ export function useReviewQueue(): UseReviewQueueResult {
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, [page, filters.status, filters.classification, debouncedSearch, t]);
 
-  const filteredReviews = React.useMemo(() => {
-    const search = filters.search.trim().toLowerCase();
-    return reviews.filter((review) => {
-      const statusOk = filters.status === "all" || review.status === filters.status;
-      const classificationOk =
-        filters.classification === "all" || review.classification === filters.classification;
-      const searchOk = search === "" || review.reviewerName.toLowerCase().includes(search);
-      return statusOk && classificationOk && searchOk;
-    });
-  }, [reviews, filters]);
+  const setPage = React.useCallback(
+    (next: number) => setPageState(Math.min(Math.max(next, 1), totalPages)),
+    [totalPages],
+  );
 
   return {
     reviews,
-    filteredReviews,
     filters,
     setStatus: (status) => setFilters((prev) => ({ ...prev, status })),
     setClassification: (classification) => setFilters((prev) => ({ ...prev, classification })),
     setSearch: (search) => setFilters((prev) => ({ ...prev, search })),
     isLoading,
+    total,
+    page,
+    totalPages,
+    setPage,
+    goToPreviousPage: () => setPage(page - 1),
+    goToNextPage: () => setPage(page + 1),
   };
 }

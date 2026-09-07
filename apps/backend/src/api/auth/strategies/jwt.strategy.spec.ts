@@ -5,6 +5,7 @@ import type { ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
 
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
+import { UserRole } from '../enums/user-role.enum';
 
 describe('JwtStrategy', () => {
   let target: JwtStrategy;
@@ -22,7 +23,7 @@ describe('JwtStrategy', () => {
         sub: 'user-1',
         tenantId: 'tenant-1',
         email: 'jane@thecoffeehouse.com',
-        role: 'owner',
+        role: UserRole.OWNER,
         type: JwtTokenType.TENANT_USER,
       })
     ).toEqual({
@@ -30,7 +31,7 @@ describe('JwtStrategy', () => {
       id: 'user-1',
       tenantId: 'tenant-1',
       email: 'jane@thecoffeehouse.com',
-      role: 'owner',
+      role: UserRole.OWNER,
     });
   });
 
@@ -46,7 +47,7 @@ describe('JwtStrategy', () => {
 
   it('rejects a payload with no type claim instead of defaulting it to a tenant user', () => {
     expect(() =>
-      target.validate({ sub: 'user-1', email: 'jane@thecoffeehouse.com', role: 'owner' })
+      target.validate({ sub: 'user-1', email: 'jane@thecoffeehouse.com', role: UserRole.OWNER })
     ).toThrow(UnauthorizedException);
   });
 
@@ -65,7 +66,7 @@ describe('JwtStrategy', () => {
       target.validate({
         sub: 'user-1',
         email: 'jane@thecoffeehouse.com',
-        role: 'owner',
+        role: UserRole.OWNER,
         type: JwtTokenType.TENANT_USER,
       })
     ).toThrow(UnauthorizedException);

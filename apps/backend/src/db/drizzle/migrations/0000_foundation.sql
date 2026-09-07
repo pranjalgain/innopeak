@@ -42,7 +42,11 @@ CREATE TYPE review_sentiment AS ENUM ('positive', 'neutral', 'negative');
 CREATE TYPE review_classification AS ENUM ('auto_reply_candidate', 'escalated', 'pending_classification');
 CREATE TYPE escalation_reason AS ENUM ('low_rating', 'blocklist_match');
 CREATE TYPE review_status AS ENUM ('new', 'in_review', 'responded', 'dismissed');
-CREATE TYPE response_type AS ENUM ('auto_reply_suggestion', 'escalation_snippet');
+-- 'imported_reply' covers the owner's own historical replies pulled in by the onboarding
+-- backfill (PLAN.md §7). Those rows are neither an AI suggestion nor an escalation snippet,
+-- and review_responses.response_type is NOT NULL, so the documented backfill insert has no
+-- legal value without it.
+CREATE TYPE response_type AS ENUM ('auto_reply_suggestion', 'escalation_snippet', 'imported_reply');
 CREATE TYPE response_source AS ENUM ('ai_generated', 'human_edited', 'human_manual', 'imported');
 CREATE TYPE response_status AS ENUM ('draft', 'pending_approval', 'approved', 'rejected', 'posted', 'post_failed', 'superseded');
 CREATE TYPE notification_type AS ENUM ('escalation');

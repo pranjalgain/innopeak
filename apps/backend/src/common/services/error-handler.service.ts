@@ -150,7 +150,27 @@ export class ErrorHandlerService {
     const status = error.getStatus();
     const message = error.message;
     this.logger.warn(`${error.name} in ${context}: ${message}`, error.stack);
-    return this.createErrorResponse(status, message, context, error);
+    return this.createErrorResponse(status, message, context, error, null, this.extractCode(error));
+  }
+
+  /**
+   * An explicit machine-readable code from `new ConflictException({ message, code })`.
+   *
+   * Without it, `error` is derived from the status name alone, so two different 409s — say
+   * CONNECTION_NEEDS_REAUTH (send the owner back through consent) and LOCATION_LIMIT_REACHED
+   * (nothing to re-consent, the tenant already has a location) — are both just "Conflict", and the
+   * only thing left to branch on is the human-readable message string. Purely additive: nothing
+   * that throws a plain string message is affected.
+   */
+  private extractCode(error: HttpException): string | undefined {
+    const response = error.getResponse();
+
+    if (typeof response === 'object' && 'code' in response) {
+      const code = (response as { code?: unknown }).code;
+      return typeof code === 'string' ? code : undefined;
+    }
+
+    return undefined;
   }
 
   private handleHttpClientError(error: HttpClientError, context: string): ApiResponse<null> {
@@ -202,13 +222,14 @@ export class ErrorHandlerService {
     message: string,
     _context: string,
     _error: unknown,
-    data?: T
+    data?: T,
+    code?: string
   ): ApiResponse<T | null> {
     return {
       statusCode,
       status: 'Failure',
       message,
-      error: this.formatErrorString(HttpStatus[statusCode]),
+      error: code ?? this.formatErrorString(HttpStatus[statusCode]),
       data: data ?? null,
     };
   }
@@ -248,16 +269,39 @@ export class ErrorHandlerService {
     );
   }
 
+  /**
+   * A validation failure reaches the user verbatim (the web client shows any 4xx message as-is), so
+   * each one is normalized into a sentence before the list is joined.
+   *
+   * Three things happen: a nested-DTO field prefix is dropped (`password.too short` → `too
+   * short`), the first letter is capitalized, and terminal punctuation is added. Joining with a
+   * space rather than a comma follows from that — comma-joining strings that already end in a
+   * period reads as "…characters., Password must…".
+   *
+   * The prefix strip is skipped when it would empty the message, so a legitimately single-word
+   * message like `Required.` survives.
+   */
+  private toSentence(message: string): string {
+    const withoutPrefix = message.replace(/^[a-zA-Z0-9_.]+?\./, '');
+    const trimmed = (withoutPrefix.trim() === '' ? message : withoutPrefix).trim();
+
+    if (trimmed === '') {
+      return trimmed;
+    }
+
+    const capitalized = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    return /[.!?]$/.test(capitalized) ? capitalized : `${capitalized}.`;
+  }
+
   handleBadRequest(error: unknown, context: string): ApiResponse<unknown> {
     const responseError = this.asResponseCarryingError(error);
     const responseMessage = responseError?.response?.message;
 
     if (Array.isArray(responseMessage)) {
-      const cleanedMessages = responseMessage.map(msg => msg.replace(/^[a-zA-Z0-9_.]+?\./, ''));
       return {
         statusCode: HttpStatus.BAD_REQUEST,
         status: 'Failure',
-        message: cleanedMessages.join(', '),
+        message: responseMessage.map(msg => this.toSentence(msg)).join(' '),
         error: 'Validation Error',
       };
     }

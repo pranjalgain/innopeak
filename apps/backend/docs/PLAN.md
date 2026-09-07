@@ -217,6 +217,7 @@ erDiagram
         completed_at datetime
         status enum "running, ok, error"
         reviews_fetched int
+        reviews_total int "added — see §2 implementation note"
         error_message string
     }
 ```
@@ -272,6 +273,20 @@ Worth calling out explicitly: your original table list included `user_locations`
 - Clarify `status` enum includes a `needs_reauth` value (not just active/inactive) — this is the actual failure mode you'll hit in production when a token is revoked.
 - Add unique constraint: `(tenant_id, provider_account_id)`.
 
+> **Implementation note (`feat/google_business_connect`).** This section has no field for
+> recording that an owner *disconnected on purpose* — `status` only ever describes credential
+> health (`active`/`needs_reauth`), and there's nowhere to distinguish "revoked by Google" from
+> "owner clicked Disconnect." Added `disconnected_at TIMESTAMPTZ` (nullable), edited directly into
+> `0003_review_provider_locations.sql` per this repo's one-migration-per-module convention.
+> `findConnectionByTenant` treats a live (non-disconnected) row as authoritative over any
+> disconnected one, which is what makes **§8.8** below not quite complete: it only covers
+> reconnecting the *same* Google account. Reconnecting with a **different** account after an
+> explicit disconnect is now a supported case — a second connection row, the first kept as an
+> inactive record so its locations/review history survive — whereas a live connection to a
+> different account is still rejected as `ACCOUNT_MISMATCH`. See
+> `apps/documentation/docs/backend/connections/api-reference.md`'s `DELETE /v1/connections/google`
+> section for the full behavior.
+
 ### `locations`
 - Add unique constraint: `(provider_connection_id, external_location_id)` — required for idempotent upsert.
 - Add sync observability fields: `last_synced_at`, `last_sync_status` (enum: `ok`/`error`), `last_sync_error` (string, nullable). The 15-minute poller **will** fail sometimes (expired token, rate limit, API schema change) and you need a place to see that without digging through logs.
@@ -301,12 +316,38 @@ Worth calling out explicitly: your original table list included `user_locations`
   - When one of 2–3 sibling escalation snippets (same `generation_group_id`) gets posted, the other sibling(s) still sitting in `pending_approval` become `superseded` rather than lingering as live drafts for a review that already has a reply.
   - If a reply is edited and re-posted later, the previous `posted` row flips to `superseded` (Google's PUT overwrites the old reply, it doesn't add a new one) and the new row becomes the `posted` one.
 - Clarify `response_type` enum: `auto_reply_suggestion` vs `escalation_snippet`.
+
+  > **Implementation note.** This enum is missing the value **§7**'s own backfill actually needs.
+  > An imported historical reply is neither an AI suggestion nor an escalation snippet, and
+  > `review_responses.response_type` is `NOT NULL` — so as specified, §7's insert has no legal
+  > value to write and cannot execute against this schema. This was blocking, not cosmetic. Fixed
+  > by adding `'imported_reply'` to the enum, edited directly into `0000_foundation.sql`.
 - Clarify `status` enum: `draft` → `pending_approval` → `approved`/`rejected`/`superseded` → `posted`/`post_failed`, with `posted` → `superseded` on a later edit. See the updated **state diagram** in §4.2.
 - Clarify `source` enum needs an `imported` value — the "last 50 responses" few-shot requirement means you must backfill the client's pre-existing Google replies (posted before this system existed) into this table. See **§7 Historical Response Backfill** for the job design and its own idempotency constraint on this table.
 
 ### `tenant_settings`
 - Replace `positive_rating_threshold` + `negative_rating_threshold` with a single **`escalation_rating_threshold`** (integer): `rating < threshold` → escalate, `rating >= threshold` → auto-reply candidate.
 - `auto_post_enabled` stays as-is (MVP always false via app logic).
+
+  > **Implementation note.** Still accurate: nothing writes `true` to this column, and no code path
+  > reads it. What has changed is that its *semantics* are now pinned down and surfaced to users —
+  > Settings → General describes the toggle, and the landing page lists it as a capability.
+  >
+  > The behaviour it promises is **classification-gated, not all-or-nothing**, which follows
+  > directly from the `escalation_rating_threshold` rule one line above: an `auto_reply_candidate`
+  > review can be answered without approval, while an `escalated` one always waits for a person.
+  > That is what the `review_classification` enum was already implying — a value named
+  > "auto-reply candidate" only makes sense if auto-replying is the eventual behaviour for it.
+  >
+  > The marketing copy was reworded from absolutes to defaults to match ("nothing posts without
+  > approval" → "approval required by default"), since the two would otherwise contradict each
+  > other the moment the flag is honoured. The Settings helper was also wrong in a different way:
+  > it promised to "publish replies once approved, without a manual posting step", and there is no
+  > manual posting step — the frontend has approve/reject only.
+  >
+  > **Outstanding:** wiring the flag through the reply-posting path, and deciding whether an
+  > auto-posted reply records an `approved_by_user_id` at all. Until that lands, the UI describes
+  > intended scope rather than shipped behaviour.
 
 ### `blocklist_terms`
 - Add unique constraint (case-insensitive) on `(tenant_id, lower(term))` to prevent duplicate entries.
@@ -321,6 +362,13 @@ Worth calling out explicitly: your original table list included `user_locations`
 
 ### New table: `sync_runs`
 Needed for operability of the 15-minute poller — without it, diagnosing "why didn't review X show up" or "why did the poller stop" requires log spelunking. See ER diagram above for shape.
+
+> **Implementation note.** The shape above has `reviews_fetched` and nothing to divide it by — no
+> total, no target — so the onboarding progress bar (`GET .../backfill`) had no denominator at
+> all. Added `reviews_total INTEGER` (nullable — a provider that reports no total leaves it null,
+> and the UI shows an indeterminate bar rather than a fabricated percentage) plus
+> `idx_sync_runs_location_id_started_at` for the sync-run history endpoint's ordering. Both edited
+> directly into `0004_reviews.sql`.
 
 ---
 
@@ -641,6 +689,32 @@ sequenceDiagram
 - **Edge case**: a new business, or one that rarely replies, may have far fewer than 50 historical replies — possibly zero. Cap total pages scanned to avoid unbounded pagination against a location with thousands of unreplied reviews, and log via `sync_runs.reviews_fetched` if the 50-example target wasn't reached, so it's visible rather than silently generating from a thin example set. Defining a generic-tone fallback prompt for that case is a fast-follow, not required for MVP.
 - **No separate consent step** — this reads data already exposed by the same GBP API scope granted during the Google OAuth connection; it isn't a new data-access boundary.
 
+> **Implementation note (`feat/google_business_connect`).** `status = responded` set
+> unconditionally, as specified above, makes a review nobody ever answered display as
+> "Responded" — simply false, and a worse first impression than the flood this section is
+> written to prevent. Shipped behavior is a three-way split instead of the one-value rule:
+>
+> | Reply state | Age | `reviews.status` |
+> |---|---|---|
+> | Approved public reply | any | `responded` |
+> | No reply, or reply rejected by Google | within 60 days (`BACKFILL_ACTIONABLE_WINDOW_DAYS`) | `new` |
+> | No reply, or reply rejected by Google | older | `dismissed` |
+>
+> This section's own justification — flooding a day-one owner with drafts for years-old reviews —
+> only argues for closing *old* unreplied history. A genuinely unanswered *recent* review is
+> exactly the backlog this product exists to help clear, so it enters the live pipeline like any
+> review the poller brings in: `new`, eligible for **§8.3**'s claim-and-classify step, no special
+> case anywhere else in the pipeline. Only reviews older than the window are written off as
+> closed. Recorded in code at `ReviewSyncDbService.resolveBackfillStatus`, and in
+> `apps/documentation/docs/backend/reviews/overview.md`'s "Queue lifecycle" section — which also
+> carries the caveat that `dismissed` elsewhere in this system means a *human* explicitly
+> dismissed the review, and these rows reach it with no human action at all.
+>
+> Separately: the mock reviewer's `reviewReplyState` matters here too. Only a reply Google's
+> moderation marked `APPROVED` counts as "has a reply" above — a `PENDING` or `REJECTED` reply was
+> never actually public, so it is treated identically to no reply at all (subject to the same
+> recency split), never as `responded`.
+
 ---
 
 ## 8. Concurrency & Race Conditions
@@ -665,6 +739,30 @@ WHERE location_id = $1 AND status = 'running'
 ```
 
 A `running` row older than 30 minutes (2× the poll interval) is simply treated as if it isn't blocking, regardless of what happened to the process that created it — no new job required. The one thing this doesn't do is correct the stale row's own `status` for anyone looking directly at `sync_runs` — it stays visually `running` forever. Since the nightly GDPR retention job (§6) already runs on a schedule, it's a natural, free place to also sweep `sync_runs` rows stuck at `running` past 30 minutes and flip them to `'error'`, rather than justifying a dedicated cron just for that cosmetic cleanup.
+
+> **Implementation note.** The fix above doesn't work as written — it describes a `SELECT`
+> predicate, but *acquisition* still `INSERT`s a second `running` row, and the partial unique
+> index rejects that regardless of how old the first row is. A crashed run wedges the location
+> permanently, and since **§8.2** gates the entire live pipeline on backfill completing, that
+> tenant never ingests anything again. Shipped as reclaim-then-insert in one transaction instead:
+>
+> ```sql
+> UPDATE sync_runs SET status='error', completed_at=now(), updated_at=now(),
+>        error_message='reclaimed: no progress for 30 minutes'
+>  WHERE location_id=$1 AND status='running'
+>    AND GREATEST(started_at, updated_at) < now() - interval '30 minutes';
+>
+> INSERT INTO sync_runs (…) VALUES (…) RETURNING *;   -- still rejected by a genuinely live run
+> ```
+>
+> `GREATEST(started_at, updated_at)`, not `started_at` alone — this section's own predicate checks
+> *start* time, which would reclaim a legitimately long backfill out from under itself and start a
+> second import over the same history. Works because the job writes `reviews_fetched` (and
+> `updated_at`) after every page, so `updated_at` is a genuine heartbeat. No
+> `set_updated_at` trigger exists in this schema — every `UPDATE` writes it explicitly.
+> Completion is a compare-and-swap (`WHERE id=$1 AND status='running'`); zero rows means this run
+> was reclaimed mid-flight, so the result is discarded and `onboarding_backfill_completed_at` is
+> not set — without the CAS a reclaimed run would resurrect itself from `error` back to `ok`.
 
 ### 8.2 Backfill and the live pipeline racing on the same location
 

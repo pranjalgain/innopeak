@@ -170,13 +170,28 @@ then follows classification: `auto_reply_candidate` produces one row
 `generation_group_id` (`response_type = 'escalation_snippet'`), all at
 `status = 'pending_approval'` (`PLAN.md` §5).
 
-Two flows write `reviews` rows that bypass this module's queue entirely and should not appear in
-it as actionable work:
+Two flows write `reviews` rows outside this module's normal live-poll path:
 
 - **Backfill** (`PLAN.md` §7) — the one-time historical import inserts each pre-existing Google
-  reply as `source = 'imported'`, `status = 'posted'`, sets `reviews.status = 'responded'`
-  directly, and leaves `classification` at its default. These rows exist to feed few-shot
-  generation, not to be approved.
+  reply as `source = 'imported'`, `status = 'posted'`, and leaves `classification` at its default.
+  These reply rows exist to feed few-shot generation, not to be approved.
+
+  `reviews.status` deviates from §7's literal "always `responded`" in two ways, both recorded in
+  `ReviewSyncDbService.resolveBackfillStatus`'s doc comment:
+
+  | Reply state | Age | `reviews.status` |
+  |---|---|---|
+  | Approved public reply | any | `responded` |
+  | No reply, or reply rejected by Google | within `BACKFILL_ACTIONABLE_WINDOW_DAYS` (60) | `new` |
+  | No reply, or reply rejected by Google | older | `dismissed` |
+
+  §7's justification — a day-one owner flooded with drafts for years-old reviews abandons the
+  product — only argues for closing *old* unreplied history. A genuinely unanswered *recent*
+  review is the backlog this product exists to help clear, so it enters the live pipeline exactly
+  like one the poller just brought in: `new`, eligible for the same `§8.3` claim-and-classify step
+  below, no special case anywhere else in the pipeline. Only reviews older than the window are
+  written off as closed, and `dismissed` there still does not mean a human dismissed it — see the
+  same doc comment for that caveat.
 - **An externally-answered review** (`PLAN.md` §8.12) — someone replies directly on Google while
   our draft is still pending. The next poll imports that reply the same way and supersedes every
   non-terminal response for the review.

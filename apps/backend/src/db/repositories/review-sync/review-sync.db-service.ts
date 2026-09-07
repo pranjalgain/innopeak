@@ -1,0 +1,249 @@
+import { ReviewStatus } from '@common/enums/review-status.enum';
+import { SyncHealthStatus } from '@common/enums/sync-health-status.enum';
+import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
+import { SyncTrigger } from '@common/enums/sync-trigger.enum';
+import { isUniqueViolation } from '@db/helpers/pg-error.util';
+import { Injectable, Logger } from '@nestjs/common';
+
+import { ReviewSyncRepository, type SyncRunRow } from './review-sync.repository';
+import {
+  type ListReviewsFilter,
+  type ReviewResponseRow,
+  type ReviewRow,
+  ReviewsReadRepository,
+} from './reviews-read.repository';
+
+import { ConnectionsRepository } from '../connections/connections.repository';
+
+/** The *other* partial unique index on review_responses.review_id — see importPage's catch. */
+const LIVE_REPLY_INDEX = 'idx_review_responses_review_id_live_reply';
+
+/**
+ * How recent an unreplied review must be to enter the live pipeline as actionable backlog,
+ * rather than being written off as closed history. See `resolveBackfillStatus`'s doc comment for
+ * the full reasoning. A fixed constant for now — the same shape as `tenant_settings
+ * .escalation_rating_threshold` would make this a per-tenant choice, which is a reasonable
+ * follow-up once someone actually asks for it, not a speculative addition here.
+ */
+const BACKFILL_ACTIONABLE_WINDOW_DAYS = 60;
+
+/**
+ * `sync_runs.status` and `locations.last_sync_status` are different columns with different value
+ * sets — `SyncHealthStatus` has no `running` by design. Mapped explicitly rather than cast so
+ * widening the source union here becomes a compile error instead of writing `running` into a
+ * column that has no such value.
+ */
+const RUN_STATUS_TO_HEALTH: Record<SyncRunStatus.ERROR | SyncRunStatus.OK, SyncHealthStatus> = {
+  [SyncRunStatus.OK]: SyncHealthStatus.OK,
+  [SyncRunStatus.ERROR]: SyncHealthStatus.ERROR,
+};
+
+export interface ImportReviewInput {
+  externalReviewId: string;
+  externalReviewerId: string | null;
+  reviewerName: string | null;
+  rating: number;
+  text: string | null;
+  reviewedAt: string;
+  externalUpdatedAt: string;
+  reply: { comment: string; updatedAt: string } | null;
+}
+
+export interface ImportPageInput {
+  tenantId: string;
+  locationId: string;
+  reviews: ImportReviewInput[];
+}
+
+export interface ImportPageResult {
+  reviewsWritten: number;
+  reviewsInserted: number;
+  repliesImported: number;
+  /** Reviews whose reply lost a race against the *live-reply* index. Counted, never silent. */
+  repliesSkippedConflict: number;
+}
+
+@Injectable()
+export class ReviewSyncDbService {
+  private readonly logger = new Logger(ReviewSyncDbService.name);
+
+  constructor(
+    private readonly reviewSyncRepository: ReviewSyncRepository,
+    private readonly reviewsReadRepository: ReviewsReadRepository,
+    private readonly connectionsRepository: ConnectionsRepository
+  ) {}
+
+  /**
+   * Writes one provider page. Each review and its imported reply go in together, so a crash
+   * mid-page leaves whole reviews behind rather than reviews whose replies vanished.
+   *
+   * **Status deviates from PLAN.md §7 on purpose — see `resolveBackfillStatus`.** §7 specifies
+   * `status = 'responded'` unconditionally for every backfilled review, which is right that
+   * historical review should not flood a new owner with drafts, but wrong that a review nobody
+   * ever answered should display as "Responded." The resolution here is recency, not
+   * reply-presence alone: a genuinely unanswered *recent* review is exactly the backlog this
+   * product exists to help clear, so it enters the live pipeline as `new` like anything the
+   * poller would bring in; an unanswered *old* review is closed history, same as before.
+   */
+  async importPage(input: ImportPageInput): Promise<ImportPageResult> {
+    let reviewsWritten = 0;
+    let reviewsInserted = 0;
+    let repliesImported = 0;
+    let repliesSkippedConflict = 0;
+
+    for (const review of input.reviews) {
+      const result = await this.reviewSyncRepository.transaction(async tx => {
+        const { id, inserted } = await this.reviewSyncRepository.upsertReview(tx, {
+          tenantId: input.tenantId,
+          locationId: input.locationId,
+          externalReviewId: review.externalReviewId,
+          externalReviewerId: review.externalReviewerId,
+          rating: review.rating,
+          reviewText: review.text,
+          reviewerName: review.reviewerName,
+          reviewedAt: review.reviewedAt,
+          externalUpdatedAt: review.externalUpdatedAt,
+          status: this.resolveBackfillStatus(review),
+        });
+
+        if (!review.reply) {
+          return { inserted, replyImported: false, replyConflict: false };
+        }
+
+        try {
+          const replyImported = await this.reviewSyncRepository.insertImportedReply(tx, {
+            tenantId: input.tenantId,
+            reviewId: id,
+            content: review.reply.comment,
+            postedAt: review.reply.updatedAt,
+          });
+
+          return { inserted, replyImported, replyConflict: false };
+        } catch (error) {
+          // `review_responses` carries TWO partial unique indexes on `review_id`: one for
+          // `source = 'imported'` and one for `status IN ('approved','posted')`. An imported
+          // reply is `status = 'posted'`, so it matches both — but ON CONFLICT names only one
+          // arbiter, so a row written by the live pipeline can raise a 23505 on the *other*
+          // index that the ON CONFLICT clause cannot absorb. Counting it keeps the outcome
+          // visible; swallowing it silently would be data loss the run still reports as `ok`.
+          if (isUniqueViolation(error, LIVE_REPLY_INDEX)) {
+            return { inserted, replyImported: false, replyConflict: true };
+          }
+          throw error;
+        }
+      });
+
+      reviewsWritten += 1;
+      if (result.inserted) reviewsInserted += 1;
+      if (result.replyImported) repliesImported += 1;
+      if (result.replyConflict) repliesSkippedConflict += 1;
+    }
+
+    if (repliesSkippedConflict > 0) {
+      this.logger.warn(
+        `${repliesSkippedConflict} imported replies for location ${input.locationId} were skipped: a live reply already exists for those reviews.`
+      );
+    }
+
+    return { reviewsWritten, reviewsInserted, repliesImported, repliesSkippedConflict };
+  }
+
+  /**
+   * The backfill's status rule, and the one deliberate deviation from PLAN.md §7 in this module.
+   *
+   * §7 says every backfilled review is `status = 'responded'`, full stop — "historical record …
+   * not items that need routing or approval." That protects against the real failure mode it
+   * names (a day-one owner flooded with drafts for a decade of old reviews), but it also means a
+   * genuinely unanswered review from last week is written off identically to one from four years
+   * ago — and an unanswered *recent* review is precisely the backlog this product exists to help
+   * clear, not dead weight to hide.
+   *
+   * Three-way split instead of two:
+   *  - has an approved public reply → `responded`, any age. Nothing to draft; the tenant already
+   *    answered it.
+   *  - no reply (or one Google rejected) but **within** `BACKFILL_ACTIONABLE_WINDOW_DAYS` →
+   *    `new`. Enters the live pipeline exactly like a review the poller just brought in — it will
+   *    be classified and drafted once that stage exists, same as any other `new` row.
+   *  - no reply and **older** than the window → `dismissed`. Closed history, same as before;
+   *    excluded from classification/drafting because it never reaches `new`, not by any special
+   *    case elsewhere in the pipeline.
+   *
+   * `dismissed` here still carries the caveat recorded in `reviews/overview.md`: elsewhere in this
+   * system it means a human explicitly dismissed the review, and these rows reach it with no
+   * human action at all. That tradeoff is now scoped to genuinely old history rather than every
+   * unreplied review, which is the whole point of adding the window.
+   */
+  private resolveBackfillStatus(review: ImportReviewInput): ReviewStatus {
+    if (review.reply) {
+      return ReviewStatus.RESPONDED;
+    }
+
+    const ageMs = Date.now() - new Date(review.reviewedAt).getTime();
+    const windowMs = BACKFILL_ACTIONABLE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+    return ageMs <= windowMs ? ReviewStatus.NEW : ReviewStatus.DISMISSED;
+  }
+
+  recordProgress(
+    syncRunId: string,
+    input: { reviewsFetched: number; reviewsTotal?: number | undefined }
+  ): Promise<void> {
+    return this.reviewSyncRepository.recordSyncProgress(syncRunId, input);
+  }
+
+  /**
+   * Completes the run, and only on a genuine win writes the location's rolled-up sync snapshot and
+   * — for a successful backfill — `onboarding_backfill_completed_at`, the column that un-gates
+   * live polling. A lost CAS means this run was reclaimed as stale mid-flight and a second run is
+   * now redoing the work; letting it stamp completion would tell the owner "all set" for an import
+   * still in progress.
+   */
+  async completeRun(input: {
+    syncRunId: string;
+    locationId: string;
+    status: SyncRunStatus.ERROR | SyncRunStatus.OK;
+    reviewsFetched: number;
+    errorMessage: string | null;
+    markBackfillComplete: boolean;
+  }): Promise<boolean> {
+    const stillOwned = await this.reviewSyncRepository.completeSyncRun(input.syncRunId, {
+      status: input.status,
+      reviewsFetched: input.reviewsFetched,
+      errorMessage: input.errorMessage,
+    });
+
+    if (!stillOwned) {
+      this.logger.warn(
+        `Sync run ${input.syncRunId} was reclaimed as stale while running; not recording its result.`
+      );
+      return false;
+    }
+
+    await this.connectionsRepository.updateSyncSnapshot(input.locationId, {
+      status: RUN_STATUS_TO_HEALTH[input.status],
+      error: input.errorMessage,
+    });
+
+    if (input.status === SyncRunStatus.OK && input.markBackfillComplete) {
+      await this.connectionsRepository.markBackfillCompleted(input.locationId);
+    }
+
+    return true;
+  }
+
+  findLatestBackfillRun(locationId: string): Promise<SyncRunRow | null> {
+    return this.reviewSyncRepository.findLatestRunForLocation(locationId, SyncTrigger.BACKFILL);
+  }
+
+  listReviews(filter: ListReviewsFilter): Promise<{ reviews: ReviewRow[]; total: number }> {
+    return this.reviewsReadRepository.listReviews(filter);
+  }
+
+  findReviewForTenant(reviewId: string, tenantId: string): Promise<ReviewRow | null> {
+    return this.reviewsReadRepository.findReviewByIdForTenant(reviewId, tenantId);
+  }
+
+  findResponsesForReviews(reviewIds: string[]): Promise<ReviewResponseRow[]> {
+    return this.reviewsReadRepository.findResponsesForReviews(reviewIds);
+  }
+}

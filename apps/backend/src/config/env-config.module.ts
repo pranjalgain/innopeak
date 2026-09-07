@@ -63,6 +63,13 @@ const envConfig = registerAs(
       DEV_VERIFY_EMAIL_TOKEN: process.env['DEV_VERIFY_EMAIL_TOKEN'],
       JWT_SECRET: process.env['JWT_SECRET'] ?? '',
       JWT_REFRESH_SECRET: process.env['JWT_REFRESH_SECRET'],
+      GBP_CLIENT_ID: process.env['GBP_CLIENT_ID'],
+      GBP_CLIENT_SECRET: process.env['GBP_CLIENT_SECRET'],
+      GBP_CALLBACK_URL: process.env['GBP_CALLBACK_URL'],
+      GBP_STATE_SECRET: process.env['GBP_STATE_SECRET'],
+      CREDENTIAL_ENCRYPTION_KEY: process.env['CREDENTIAL_ENCRYPTION_KEY'],
+      DEV_GBP_MOCK: process.env['DEV_GBP_MOCK'],
+      DEV_GBP_MOCK_ACCOUNT_ID: process.env['DEV_GBP_MOCK_ACCOUNT_ID'],
     }) as EnvConfig
 );
 
@@ -83,6 +90,15 @@ if (
   throw new Error(
     'JWT_REFRESH_SECRET must be set to a value different from JWT_SECRET in production.'
   );
+}
+
+// GBP_STATE_SECRET has the same "Joi can't express this" shape as JWT_REFRESH_SECRET: the OAuth
+// `state` blob is what proves *we* minted a consent URL, and an unsigned or default-signed state
+// lets an attacker mint one naming their own tenant and mail it to a victim business owner. A
+// missing key would otherwise degrade silently to "sign with an empty string", which is not
+// signing. Only enforced in production because local dev has a documented fallback.
+if (process.env['NODE_ENV'] === 'production' && !process.env['GBP_STATE_SECRET']) {
+  throw new Error('GBP_STATE_SECRET must be set in production.');
 }
 
 const validationSchema = Joi.object({
@@ -150,6 +166,29 @@ const validationSchema = Joi.object({
   // custom validator — enforced by the manual check above instead. Falling back to JWT_SECRET in
   // non-production is a local-dev convenience only.
   JWT_REFRESH_SECRET: Joi.string().allow(null, ''),
+  // Optional for the same reason FRONTEND_URL is: a developer not working on the connections
+  // module has none of these set, and hard-failing boot for everyone else would be hostile. The
+  // routes that need them answer 503 instead — see GoogleBusinessProfileProvider.
+  GBP_CLIENT_ID: Joi.string().allow(null, ''),
+  GBP_CLIENT_SECRET: Joi.string().allow(null, ''),
+  GBP_CALLBACK_URL: Joi.string().uri().allow(null, ''),
+  // "must be set in production" is the manual check above — Joi.when can express it, but keeping
+  // both halves of the secret rules in one place beats splitting them across two mechanisms.
+  GBP_STATE_SECRET: Joi.string().allow(null, ''),
+  CREDENTIAL_ENCRYPTION_KEY: Joi.string().base64().allow(null, ''),
+  // Same rule as DEV_VERIFY_EMAIL_TOKEN above, for the same reason: a connection whose reviews are
+  // fixtures is indistinguishable from a real one in the database, so production must not be able
+  // to create one even by accident.
+  DEV_GBP_MOCK: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.forbidden(),
+    otherwise: Joi.string().valid('true', 'false').allow(null, ''),
+  }),
+  DEV_GBP_MOCK_ACCOUNT_ID: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.forbidden(),
+    otherwise: Joi.string().allow(null, ''),
+  }),
 });
 
 @Module({

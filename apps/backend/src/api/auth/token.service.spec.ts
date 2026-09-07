@@ -7,6 +7,9 @@ import { Test } from '@nestjs/testing';
 
 import { ACCESS_TOKEN_TTL_SECONDS } from './constants/auth.constants';
 import { JwtTokenType } from './enums/jwt-token-type.enum';
+import { TenantStatus } from './enums/tenant-status.enum';
+import { UserRole } from './enums/user-role.enum';
+import { UserStatus } from './enums/user-status.enum';
 import { TokenService } from './token.service';
 
 describe('TokenService', () => {
@@ -19,9 +22,9 @@ describe('TokenService', () => {
     tenantId: 'tenant-1',
     email: 'jane@thecoffeehouse.com',
     name: 'Jane Doe',
-    role: 'owner' as const,
+    role: UserRole.OWNER,
     passwordHash: 'hashed',
-    status: 'active' as const,
+    status: UserStatus.ACTIVE,
   };
 
   const validRefreshClaims = { sub: user.id, jti: 'jti-1', type: JwtTokenType.REFRESH };
@@ -158,8 +161,8 @@ describe('TokenService', () => {
     it('revokes every refresh token and rejects when the user is disabled', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
-      authDbService.findUserById.mockResolvedValue({ ...user, status: 'disabled' });
-      authDbService.findTenantStatus.mockResolvedValue({ status: 'active' });
+      authDbService.findUserById.mockResolvedValue({ ...user, status: UserStatus.DISABLED });
+      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.ACTIVE });
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
       expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
@@ -170,7 +173,7 @@ describe('TokenService', () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
       authDbService.findUserById.mockResolvedValue(user);
-      authDbService.findTenantStatus.mockResolvedValue({ status: 'suspended' });
+      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.SUSPENDED });
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
       expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
@@ -180,7 +183,7 @@ describe('TokenService', () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
       authDbService.findUserById.mockResolvedValue(user);
-      authDbService.findTenantStatus.mockResolvedValue({ status: 'active' });
+      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.ACTIVE });
       jwtService.sign.mockReturnValueOnce('new-access').mockReturnValueOnce('new-refresh');
 
       const result = await target.rotate('some-token');
@@ -212,7 +215,7 @@ describe('TokenService', () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
       authDbService.findUserById.mockResolvedValue(user);
-      authDbService.findTenantStatus.mockResolvedValue({ status: 'active' });
+      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.ACTIVE });
       authDbService.rotateRefreshToken.mockResolvedValue(false);
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);

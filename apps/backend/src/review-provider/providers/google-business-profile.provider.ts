@@ -1,0 +1,317 @@
+import { ReviewProvider as ReviewProviderKey } from '@common/enums/review-provider.enum';
+import { Logger } from '@nestjs/common';
+
+import { ReviewProvider } from './review-provider.provider';
+
+import {
+  GBP_HOSTS,
+  GBP_LOCATION_READ_MASK,
+  GBP_REVIEWS_ORDER_BY,
+  GBP_REVIEWS_PAGE_SIZE,
+  GOOGLE_OAUTH,
+} from '../constants/review-provider.constants';
+import {
+  ProviderAuthError,
+  ProviderMappingError,
+  ProviderNotConfiguredError,
+  ProviderRateLimitError,
+  ProviderUnavailableError,
+} from '../errors/provider.error';
+import { mapGbpAccount, mapGbpLocation } from '../mappers/gbp-location.mapper';
+import { mapGbpReviewPage } from '../mappers/gbp-review.mapper';
+import type {
+  GbpListAccountsResponse,
+  GbpListLocationsResponse,
+  GbpListReviewsResponse,
+  GbpTokenResponse,
+} from '../types/gbp-wire.type';
+import type {
+  ListReviewsOptions,
+  ProviderConnectionResult,
+  ProviderLocation,
+  ProviderReviewPage,
+  ProviderTokenSet,
+} from '../types/review-provider.type';
+
+export interface GbpProviderConfig {
+  clientId: string;
+  clientSecret: string;
+  callbackUrl: string;
+}
+
+/**
+ * The real Google Business Profile client. Bare `fetch` — there is no HTTP-client idiom in this
+ * codebase to follow (every other outbound call goes through an AWS SDK), and a dependency for
+ * six requests would be its own kind of surprise.
+ *
+ * **This class is also the mock's base class.** `MockGoogleBusinessProfileProvider` overrides only
+ * `request()` and the token endpoints, so pagination, both mappers, `starRatingToInt`, and the
+ * 401/403-vs-429-vs-5xx classification below are all *inherited* and genuinely exercised under
+ * `DEV_GBP_MOCK=true`. That is the point of the split: the parts most likely to be wrong are the
+ * parts the mock cannot bypass.
+ */
+export class GoogleBusinessProfileProvider extends ReviewProvider {
+  readonly providerKey = ReviewProviderKey.GOOGLE;
+  protected readonly logger = new Logger(GoogleBusinessProfileProvider.name);
+
+  constructor(protected readonly config: GbpProviderConfig) {
+    super();
+  }
+
+  /**
+   * `access_type=offline` + `prompt=consent` is what makes Google return a refresh token at all.
+   * Without `prompt=consent`, a returning owner who has already granted this client gets an
+   * access token and **no** refresh token — the connection then works for exactly one hour and
+   * then flips to `needs_reauth` with no way to recover except revoking the grant in a Google
+   * settings page most owners will never find.
+   */
+  buildAuthorizationUrl(state: string): string {
+    this.assertConfigured();
+
+    const params = new URLSearchParams({
+      client_id: this.config.clientId,
+      redirect_uri: this.config.callbackUrl,
+      response_type: 'code',
+      scope: GOOGLE_OAUTH.SCOPES.join(' '),
+      access_type: 'offline',
+      prompt: 'consent',
+      include_granted_scopes: 'true',
+      state,
+    });
+
+    return `${GOOGLE_OAUTH.AUTH_URL}?${params.toString()}`;
+  }
+
+  async exchangeCode(code: string): Promise<ProviderConnectionResult> {
+    this.assertConfigured();
+
+    const tokens = await this.postToken({
+      code,
+      client_id: this.config.clientId,
+      client_secret: this.config.clientSecret,
+      redirect_uri: this.config.callbackUrl,
+      grant_type: 'authorization_code',
+    });
+
+    const account = await this.fetchPrimaryAccount(tokens.accessToken);
+    return { tokens, account };
+  }
+
+  async refreshAccessToken(refreshToken: string): Promise<ProviderTokenSet> {
+    this.assertConfigured();
+
+    return this.postToken({
+      refresh_token: refreshToken,
+      client_id: this.config.clientId,
+      client_secret: this.config.clientSecret,
+      grant_type: 'refresh_token',
+    });
+  }
+
+  async revoke(refreshToken: string): Promise<boolean> {
+    try {
+      const response = await fetch(GOOGLE_OAUTH.REVOKE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token: refreshToken }).toString(),
+      });
+      return response.ok;
+    } catch (error) {
+      // Swallowed on purpose: an unrevoked upstream grant is a worse outcome than a tenant that
+      // cannot disconnect at all, so the caller records `credentialRevoked: false` and carries on.
+      this.logger.warn(`Failed to revoke Google credential: ${(error as Error).message}`);
+      return false;
+    }
+  }
+
+  async listLocations(accessToken: string, externalAccountId: string): Promise<ProviderLocation[]> {
+    const locations: ProviderLocation[] = [];
+    let pageToken: string | undefined;
+
+    // Paginate to exhaustion rather than returning page one: a franchise with 60 locations would
+    // otherwise be shown a confirm-location picker that silently omits the store they wanted.
+    do {
+      const params = new URLSearchParams({ readMask: GBP_LOCATION_READ_MASK, pageSize: '100' });
+      if (pageToken) {
+        params.set('pageToken', pageToken);
+      }
+
+      const response = await this.request<GbpListLocationsResponse>(
+        `${GBP_HOSTS.BUSINESS_INFORMATION}/${externalAccountId}/locations?${params.toString()}`,
+        accessToken
+      );
+
+      locations.push(...(response.locations ?? []).map(mapGbpLocation));
+      pageToken = response.nextPageToken;
+    } while (pageToken);
+
+    return locations;
+  }
+
+  async listReviews(accessToken: string, options: ListReviewsOptions): Promise<ProviderReviewPage> {
+    const params = new URLSearchParams({
+      pageSize: String(options.pageSize ?? GBP_REVIEWS_PAGE_SIZE),
+      // Newest first. The backfill stops once it has ~50 owner replies for the AI to imitate
+      // (PLAN.md §7), and without an explicit order that cap collects fifty *arbitrary* replies
+      // from whatever Google returns first — not the owner's current voice.
+      orderBy: GBP_REVIEWS_ORDER_BY,
+    });
+    if (options.pageToken) {
+      params.set('pageToken', options.pageToken);
+    }
+
+    // Note the host: reviews are on the legacy v4 API, not the Business Information one used
+    // above. See GBP_HOSTS.
+    const response = await this.request<GbpListReviewsResponse>(
+      `${GBP_HOSTS.LEGACY_V4}/${options.externalAccountId}/${options.externalLocationId}/reviews?${params.toString()}`,
+      accessToken
+    );
+
+    return mapGbpReviewPage(response);
+  }
+
+  /**
+   * The single outbound-HTTP seam. `protected` because overriding exactly this method — and
+   * nothing else — is what makes the mock a mock rather than a reimplementation.
+   */
+  protected async request<T>(url: string, accessToken: string): Promise<T> {
+    let response: Response;
+
+    try {
+      response = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+      });
+    } catch (error) {
+      // A transport failure never reached Google, so it is by definition retryable — mapping it
+      // to an auth error would send the owner through a re-consent that fixes nothing.
+      throw new ProviderUnavailableError(
+        `Google Business Profile request failed: ${(error as Error).message}`,
+        error
+      );
+    }
+
+    if (!response.ok) {
+      throw this.classifyHttpError(
+        response.status,
+        await this.safeText(response),
+        response.headers.get('retry-after')
+      );
+    }
+
+    try {
+      return (await response.json()) as T;
+    } catch (error) {
+      throw new ProviderMappingError('Google Business Profile returned a non-JSON body', error);
+    }
+  }
+
+  /**
+   * 401/403 vs. 429 vs. 5xx, and the distinction drives real product behaviour: only the first
+   * group flips the connection to `needs_reauth` and asks the owner to re-consent.
+   *
+   * 403 is deliberately grouped with 401 despite also being Google's quota-exceeded status. A
+   * genuinely quota-limited 403 costs a pointless reconnect prompt; a misread 401 leaves a dead
+   * grant retrying on a timer forever, and the owner is never told anything is wrong.
+   */
+  protected classifyHttpError(status: number, body: string, retryAfter?: string | null): Error {
+    const detail = body.slice(0, 500);
+
+    if (status === 401 || status === 403) {
+      return new ProviderAuthError(`Google rejected the credential (${status}): ${detail}`);
+    }
+
+    if (status === 429) {
+      // Retry-After is delta-seconds here; a date form is possible in HTTP generally but Google
+      // sends seconds, and anything unparseable falls back to the caller's default wait.
+      const seconds = retryAfter ? Number.parseInt(retryAfter, 10) : Number.NaN;
+      return new ProviderRateLimitError(
+        `Google rate limit hit (${status}): ${detail}`,
+        Number.isFinite(seconds) && seconds > 0 ? seconds : null
+      );
+    }
+
+    if (status >= 500) {
+      return new ProviderUnavailableError(`Google returned ${status}: ${detail}`);
+    }
+
+    // A 4xx that is not auth and not rate limiting means we asked for something wrong — a bad
+    // readMask, an unknown location. Retrying reproduces it exactly, so it is not retryable.
+    return new ProviderMappingError(`Google rejected the request (${status}): ${detail}`);
+  }
+
+  protected async postToken(form: Record<string, string>): Promise<ProviderTokenSet> {
+    let response: Response;
+
+    try {
+      response = await fetch(GOOGLE_OAUTH.TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(form).toString(),
+      });
+    } catch (error) {
+      throw new ProviderUnavailableError(
+        `Google token endpoint unreachable: ${(error as Error).message}`,
+        error
+      );
+    }
+
+    if (!response.ok) {
+      throw this.classifyHttpError(response.status, await this.safeText(response));
+    }
+
+    const body = (await response.json()) as GbpTokenResponse;
+
+    return {
+      accessToken: body.access_token,
+      // Only spread when present. Google omits `refresh_token` on every refresh, and under
+      // `exactOptionalPropertyTypes` writing `refreshToken: undefined` is a type error rather
+      // than a silent overwrite — which is the outcome we want, since overwriting a stored
+      // refresh token with undefined is how a working connection dies an hour later.
+      ...(body.refresh_token ? { refreshToken: body.refresh_token } : {}),
+      ...(body.scope ? { scope: body.scope } : {}),
+      expiresAt: new Date(Date.now() + body.expires_in * 1000),
+    };
+  }
+
+  protected async fetchPrimaryAccount(
+    accessToken: string
+  ): Promise<ProviderConnectionResult['account']> {
+    const response = await this.request<GbpListAccountsResponse>(
+      `${GBP_HOSTS.ACCOUNT_MANAGEMENT}/accounts`,
+      accessToken
+    );
+
+    const account = response.accounts?.[0];
+
+    if (!account) {
+      // The grant succeeded but authorizes no Business Profile account — common when someone
+      // consents with a personal Google account that has never claimed a business.
+      throw new ProviderMappingError(
+        'The Google account that granted access manages no Business Profile accounts'
+      );
+    }
+
+    return mapGbpAccount(account);
+  }
+
+  /**
+   * Throws only when a route actually needs Google, not at boot. A developer working on an
+   * unrelated feature has no GBP credentials, and hard-failing startup for them would be hostile;
+   * the connections routes translate this into a 503 instead.
+   */
+  protected assertConfigured(): void {
+    if (!this.config.clientId || !this.config.clientSecret || !this.config.callbackUrl) {
+      throw new ProviderNotConfiguredError(
+        'GBP_CLIENT_ID, GBP_CLIENT_SECRET and GBP_CALLBACK_URL must be set to use Google Business Profile'
+      );
+    }
+  }
+
+  private async safeText(response: Response): Promise<string> {
+    try {
+      return await response.text();
+    } catch {
+      return '<unreadable body>';
+    }
+  }
+}

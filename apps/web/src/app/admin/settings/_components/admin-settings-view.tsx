@@ -1,10 +1,16 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import * as React from "react";
+import { useForm } from "react-hook-form";
 import { LuMailPlus, LuSend } from "react-icons/lu";
 
 import { CURRENT_SUPER_ADMIN } from "@/app/_libs/constants/current-owner";
+import {
+  type InviteAdminFields,
+  inviteAdminSchema,
+} from "@/app/admin/settings/_schemas/invite-admin.schema";
 import { AvatarUpload } from "@/components/common/avatar-upload";
 import { ConfirmActionDialog } from "@/components/common/confirm-action-dialog";
 import { PasswordInput } from "@/components/common/password-input";
@@ -48,7 +54,8 @@ function ProfileSection() {
   const hasConfirmValue = confirmPassword.length > 0;
   const passwordsMatch = newPassword === confirmPassword;
 
-  const showRequirements = newPasswordBlurred && newPassword.length > 0;
+  // Hidden again once every rule passes — a column of green ticks is noise, not information.
+  const showRequirements = newPasswordBlurred && newPassword.length > 0 && !newPasswordValid;
   const showMismatch = confirmBlurred && hasConfirmValue && !passwordsMatch;
 
   const canSubmitPassword = currentPassword.trim() !== "" && newPasswordValid && passwordsMatch && hasConfirmValue;
@@ -140,14 +147,24 @@ function InviteSection() {
   const t = useTranslations("adminSettings.invite");
   const tStatus = useTranslations("adminSettings.invite.status");
   const { invites, isLoading, sendInvite, revokeInvite } = usePlatformAdminInvites();
-  const [email, setEmail] = React.useState("");
+  const schema = React.useMemo(() => inviteAdminSchema(t), [t]);
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!email.trim()) return;
-    const succeeded = await sendInvite(email.trim());
-    if (succeeded) setEmail("");
-  };
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isValid, isSubmitting },
+  } = useForm<InviteAdminFields>({
+    resolver: zodResolver(schema),
+    mode: "onTouched",
+    defaultValues: { email: "" },
+  });
+
+  // Cleared only on success, so a rejected invite leaves the address in place to correct.
+  const submitInvite = handleSubmit(async values => {
+    const succeeded = await sendInvite(values.email);
+    if (succeeded) reset();
+  });
 
   if (isLoading) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
 
@@ -158,18 +175,22 @@ function InviteSection() {
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        <form className="flex gap-2.5" onSubmit={(e) => void handleSubmit(e)}>
-          <Input
-            type="email"
-            placeholder={t("emailPlaceholder")}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="flex-1"
-          />
-          <Button type="submit" disabled={!email.trim()}>
-            <LuSend />
-            {t("sendButton")}
-          </Button>
+        <form className="flex flex-col gap-1.5" onSubmit={submitInvite} noValidate>
+          <div className="flex gap-2.5">
+            <Input
+              type="email"
+              placeholder={t("emailPlaceholder")}
+              className="flex-1"
+              {...register("email")}
+            />
+            <Button type="submit" disabled={!isValid || isSubmitting}>
+              <LuSend />
+              {t("sendButton")}
+            </Button>
+          </div>
+          {errors.email ? (
+            <p className="text-[12.5px] text-destructive">{errors.email.message}</p>
+          ) : null}
         </form>
 
         {invites.length === 0 ? (

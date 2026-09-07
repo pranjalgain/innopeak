@@ -6,6 +6,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
+import { UserRole } from '../enums/user-role.enum';
 import { AuthUser } from '../types/auth-user.type';
 import { fromAccessTokenCookie } from '../utils/jwt-cookie-extractor.util';
 
@@ -54,7 +55,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (
       payload.type === JwtTokenType.TENANT_USER &&
       typeof payload.tenantId === 'string' &&
-      (payload.role === 'member' || payload.role === 'owner')
+      (payload.role === UserRole.MEMBER || payload.role === UserRole.OWNER)
     ) {
       return {
         type: JwtTokenType.TENANT_USER,

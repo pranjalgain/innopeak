@@ -719,11 +719,12 @@ Differences from the tenant-user surface:
   `.../google/callback`). Platform admins are never self-registered — the first ("root") admin is
   created by a seed script, enforced at the database level by `idx_platform_admins_single_root`
   (which permits *at most* one root, so zero-admins is also a valid state — hence the seed).
-  **That seed does not exist**: `src/db/seeds/` and `pnpm db:seed` have been removed entirely,
-  and the migration that replaced them (`0009_dev_admin_user.sql`) creates a tenant *owner*, not a
-  `platform_admins` row. No route or service writes that table either — nothing under `src/`
-  references it — so there is currently no way to create the first admin. Adding a
-  `platform_admins` root seed is a required follow-up. Every admin after the root must arrive via
+  **That seed is `0008_dev_platform_admin.sql`**, which inserts exactly one NULL-inviter row and
+  is guarded so a replay is a no-op rather than a unique violation. Nothing else writes
+  `platform_admins` — no route, no service. The remaining gap is not creation but authentication:
+  nothing mints a `platform_admin` JWT (`JwtStrategy` validates one, `TokenService` never issues
+  one, and `/v1/auth/login` resolves through `users`), so the seeded root cannot sign in until
+  these routes are implemented. Every admin after the root must arrive via
   `POST /v1/platform-admin/auth/invite` from an existing admin.
 - **The invite-acceptance mechanics are identical to the tenant-user path** — `GET
   /v1/platform-admin/auth/invite/:token/microsoft` signs `{ intent: 'invite', inviteToken: token

@@ -57,9 +57,9 @@ Plus three columns `0006_prompts.sql` adds to `review_responses` (defined in
 | `decided_at` | `TIMESTAMPTZ`, nullable | When the row's status became terminal. `review_responses` has `posted_at` but **no `approved_at`** — `PLAN.md` §2 recommended one and `0004_reviews.sql` did not add it, so `decided_at` is the only decision timestamp in the schema. |
 
 `prompt_versions.template` is `VARCHAR(1000) NOT NULL` — a hard ceiling at the DB layer, matched
-by `PROMPT_TEMPLATE_MAX_LENGTH = 1000`. Greenfield creates it that way in `0006_prompts.sql`;
-already-migrated environments get `0008_prompt_template_varchar.sql` (`ALTER COLUMN ... TYPE
-VARCHAR(1000)`). Seeded v1 copy is well under the limit (longest category template is 391 chars).
+by `PROMPT_TEMPLATE_MAX_LENGTH = 1000`, declared that way directly in `0006_prompts.sql`. A
+database created before that line was added does not pick it up (drizzle never re-reads an applied
+migration) and has to be recreated. Seeded v1 copy is well under the limit (longest category template is 391 chars).
 
 Indexes and constraints, all verified in `0006_prompts.sql`:
 
@@ -162,12 +162,12 @@ Three properties worth stating, because each is load-bearing:
 - **`created_by_user_id` stays NULL.** These are system-provisioned, not authored by the owner. The
   frontend renders that as "InnoPeak default" rather than "Unknown".
 
-One copy of these templates does live outside the constant: migration
-`0009_dev_admin_user.sql`, which creates the local dev owner. That account is inserted already
-`active`, so it never reaches `verifyEmail` and never gets provisioned — the migration has to seed
-its prompts itself or Settings → Prompts is blank for the primary local login, with nothing to
-backfill it. The constant remains the source of truth for real tenants, and
-`default-prompts.constant.spec.ts` fails if the two drift.
+The constant is the **only** copy of these templates. An earlier dev-seed migration carried a
+duplicate, because the tenant owner it created was `active` from birth and so never reached
+`verifyEmail` — that seed now creates only a root platform admin, which has no tenant and
+therefore needs no prompts. A local dev tenant comes from `POST /v1/auth/signup` +
+`POST /v1/auth/verify-email` instead, so it is provisioned by the same code path as any real
+tenant.
 
 ### Editing a prompt appends a version
 
@@ -397,8 +397,8 @@ this branch:
 - `0006_prompts.sql` is in the journal (after `0005`, before `0007_auth_hardening`). Apply with
   `pnpm db:migrate` — that is the only step; there are no seed files and no `pnpm db:seed`. Real
   tenants get their three category rows and v1 templates at email verification (see [Default
-  prompt provisioning](#default-prompt-provisioning)), and the dev owner created by
-  `0009_dev_admin_user.sql` gets them from that migration.
+  prompt provisioning](#default-prompt-provisioning)) — including the local dev tenant, which is
+  created through that same API rather than seeded.
 - The Settings → Prompts screen calls `GET /v1/prompts?includeHistory=true`,
   `POST /v1/prompts/:promptId/versions`, and `PUT /v1/prompts/:promptId/tone` through
   `PromptService` / `ApiClient`. Stats and generation are still mock / unimplemented.

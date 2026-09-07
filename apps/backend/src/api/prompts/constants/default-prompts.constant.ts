@@ -19,9 +19,9 @@ export interface DefaultPrompt {
  * change, and the templates can be type-checked and tested against the placeholder allowlist,
  * which a SQL string literal never can be.
  *
- * `src/db/drizzle/migrations/0009_dev_admin_user.sql` carries the same three templates, because
- * the dev owner it creates is already `active` and so never reaches `verifyEmail`. Keep the two
- * in step — `default-prompts.constant.spec.ts` fails if they drift.
+ * This is the only copy. An earlier dev-seed migration carried its own duplicate, because the
+ * owner it created was `active` from birth and so never reached `verifyEmail` — that seed now
+ * creates only a root platform admin, which has no tenant and therefore needs no prompts.
  */
 export const DEFAULT_PROMPTS: readonly DefaultPrompt[] = [
   {

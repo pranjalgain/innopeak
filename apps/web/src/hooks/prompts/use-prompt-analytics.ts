@@ -22,9 +22,17 @@ export function usePromptAnalytics(): UsePromptAnalyticsResult {
   React.useEffect(() => {
     let cancelled = false;
 
-    ReviewService.getReviews()
+    // A large page rather than "everything": analytics is computed across whatever reply drafts
+    // exist, and the alternative — paginating the entire review history into the browser to
+    // average two numbers — is worse than a bounded sample. Real aggregation belongs on the
+    // server once the prompts module has an analytics endpoint.
+    ReviewService.getReviews({ pageSize: 100 })
       .then((result) => {
-        if (!cancelled) setReviews(result);
+        if (!cancelled) setReviews(result.reviews);
+      })
+      .catch(() => {
+        // Swallowed: analytics is supplementary, and a failed fetch should show empty stats
+        // rather than break the prompts screen it decorates.
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);

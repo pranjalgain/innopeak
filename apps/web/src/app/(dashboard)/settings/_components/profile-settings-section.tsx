@@ -1,8 +1,14 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import * as React from "react";
+import { useForm } from "react-hook-form";
 
+import {
+  type ChangePasswordFields,
+  changePasswordSchema,
+} from "@/app/(dashboard)/settings/_schemas/change-password.schema";
 import { CURRENT_OWNER } from "@/app/_libs/constants/current-owner";
 import { AvatarUpload } from "@/components/common/avatar-upload";
 import { PasswordInput } from "@/components/common/password-input";
@@ -17,40 +23,45 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
 
+const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
+
 /** Only reachable while `AUTH_METHODS.password` is enabled — there's no password to manage otherwise. */
 export function ProfileSettingsSection() {
   const t = useTranslations("settings.profile");
   const { profile, isLoading, updateAvatar, changePassword } = useTenantOwnerProfile();
-  const [currentPassword, setCurrentPassword] = React.useState("");
-  const [newPassword, setNewPassword] = React.useState("");
-  const [confirmPassword, setConfirmPassword] = React.useState("");
-  const [newPasswordBlurred, setNewPasswordBlurred] = React.useState(false);
-  const [confirmBlurred, setConfirmBlurred] = React.useState(false);
+  const schema = React.useMemo(() => changePasswordSchema(t), [t]);
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isValid, isSubmitting, touchedFields },
+  } = useForm<ChangePasswordFields>({
+    resolver: zodResolver(schema),
+    mode: "onTouched",
+    defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
+  });
+
+  // Mirrored into local state via `register`'s onChange rather than read with `watch()`: the
+  // checklist needs the value on every keystroke, and `watch` cannot be memoized safely.
+  const [newPasswordValue, setNewPasswordValue] = React.useState("");
+  const requirements = checkPasswordRequirements(newPasswordValue);
+  // Hidden again once every rule passes — a column of green ticks is noise, not information.
+  const showRequirements =
+    Boolean(touchedFields.newPassword) &&
+    newPasswordValue.length > 0 &&
+    !passwordMeetsRequirements(requirements);
+
+  // `reset()` only on success, so a rejected current password doesn't wipe what the owner typed.
+  const submitPassword = handleSubmit(async values => {
+    const succeeded = await changePassword(values.currentPassword, values.newPassword);
+    if (succeeded) {
+      reset();
+      setNewPasswordValue("");
+    }
+  });
 
   if (isLoading || !profile) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
-
-  const requirements = checkPasswordRequirements(newPassword);
-  const newPasswordValid = passwordMeetsRequirements(requirements);
-  const hasConfirmValue = confirmPassword.length > 0;
-  const passwordsMatch = newPassword === confirmPassword;
-
-  const showRequirements = newPasswordBlurred && newPassword.length > 0;
-  const showMismatch = confirmBlurred && hasConfirmValue && !passwordsMatch;
-
-  const canSubmitPassword = currentPassword.trim() !== "" && newPasswordValid && passwordsMatch && hasConfirmValue;
-
-  const handlePasswordSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!canSubmitPassword) return;
-    const succeeded = await changePassword(currentPassword, newPassword);
-    if (succeeded) {
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setNewPasswordBlurred(false);
-      setConfirmBlurred(false);
-    }
-  };
 
   return (
     <Card>
@@ -73,7 +84,8 @@ export function ProfileSettingsSection() {
 
         <form
           className="flex max-w-sm flex-col gap-4 border-t border-border pt-5"
-          onSubmit={(e) => void handlePasswordSubmit(e)}
+          onSubmit={submitPassword}
+          noValidate
         >
           <p className="text-sm font-medium">{t("changePasswordTitle")}</p>
 
@@ -81,20 +93,22 @@ export function ProfileSettingsSection() {
             <Label htmlFor="owner-current-password">{t("currentPasswordLabel")}</Label>
             <PasswordInput
               id="owner-current-password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
               autoComplete="current-password"
+              {...register("currentPassword")}
             />
+            {errors.currentPassword ? (
+              <p className={FIELD_ERROR_CLASS}>{errors.currentPassword.message}</p>
+            ) : null}
           </div>
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="owner-new-password">{t("newPasswordLabel")}</Label>
             <PasswordInput
               id="owner-new-password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              onBlur={() => setNewPasswordBlurred(true)}
               autoComplete="new-password"
+              {...register("newPassword", {
+                onChange: event => setNewPasswordValue(event.target.value),
+              })}
             />
             {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
           </div>
@@ -103,16 +117,16 @@ export function ProfileSettingsSection() {
             <Label htmlFor="owner-confirm-password">{t("confirmPasswordLabel")}</Label>
             <PasswordInput
               id="owner-confirm-password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              onBlur={() => setConfirmBlurred(true)}
               autoComplete="new-password"
+              {...register("confirmPassword")}
             />
-            {showMismatch ? <p className="text-[12.5px] text-destructive">{t("passwordMismatch")}</p> : null}
+            {errors.confirmPassword ? (
+              <p className={FIELD_ERROR_CLASS}>{errors.confirmPassword.message}</p>
+            ) : null}
           </div>
 
           <div>
-            <Button type="submit" variant="outline" disabled={!canSubmitPassword}>
+            <Button type="submit" variant="outline" disabled={!isValid || isSubmitting}>
               {t("updatePassword")}
             </Button>
           </div>

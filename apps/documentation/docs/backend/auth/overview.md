@@ -138,9 +138,10 @@ scope this module doesn't carry; see [Gap](#gap-between-current-code-and-target-
 ### Decorators available inside the pipeline
 
 - `@Public()` — bypasses `JwtAuthGuard` for that route.
-- `@Roles('owner', 'member')` — OR match, enforced by `RolesGuard`. This is the only
-  access-control decorator this module uses — see the guard-pipeline note above for why
-  `@Permissions(...)` isn't part of the target design.
+- `@Roles(UserRole.OWNER, UserRole.MEMBER)` — OR match, enforced by `RolesGuard`. Takes `UserRole`
+  members rather than string literals, so a typo is a compile error instead of a route nobody can
+  reach. This is the only access-control decorator this module uses — see the guard-pipeline note
+  above for why `@Permissions(...)` isn't part of the target design.
 - `@CurrentUser()` — param decorator; extracts the authenticated user (or one field of it, e.g.
   `@CurrentUser('email')`) from `request.user`. Only valid on routes that pass `JwtAuthGuard`.
 
@@ -376,12 +377,13 @@ Finally, four concrete defects in the current code that this module's docs assum
   windows rather than 1 minute–1 hour. See [Rate limiting](#rate-limiting-throttler).
 - **`cookie-parser` is neither installed nor registered**, so `CookieAuthMiddleware` promotes
   nothing and the cookie-based session path documented above is inert.
-- **Nothing can create the root platform admin.** `src/db/seeds/`, `seed.sh` and the
-  `pnpm db:seed` script have all been removed; the dev *tenant owner* they used to create now
-  comes from migration `0009_dev_admin_user.sql`. That migration seeds `tenants` + `users` +
-  `tenant_settings` + `prompts` only — no `platform_admins` row — and no route or service writes
-  that table either (nothing under `src/` references it). So the admin surface has no reachable
-  first admin. A `platform_admins` root seed is still a required follow-up.
+- **The root platform admin is seeded, but cannot yet be logged into.**
+  `0008_dev_platform_admin.sql` inserts the one row `idx_platform_admins_single_root` expects (a
+  NULL inviter), which is the only way that identity can come into existence — nothing under
+  `src/` writes `platform_admins`. What is still missing is token issuance: `JwtStrategy`
+  *validates* a `platform_admin` token, but neither `TokenService` nor `AuthService` mints one,
+  and `/v1/auth/login` resolves through `users` only. So the row is in place for when the
+  platform-admin auth routes land, and unusable until then.
 
 ## Frontend / backend boundary
 

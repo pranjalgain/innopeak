@@ -63,6 +63,10 @@
       "@users/*": ["users/*"],
       "@media/*": ["media/*"],
       "@email/*": ["email/*"],
+      "@review-provider/*": ["review-provider/*"],
+      "@connections/*": ["api/connections/*"],
+      "@reviews/*": ["api/reviews/*"],
+      "@review-sync-queue/*": ["background/queue/review-sync/*"],
       "@sms/*": ["sms/*"],
       "@notifications/*": ["notifications/*"]
     }

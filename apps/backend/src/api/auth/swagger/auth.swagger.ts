@@ -8,6 +8,8 @@ import { SignupResponseDto } from '../dto/signup-response.dto';
 import { SignupDto } from '../dto/signup.dto';
 import { TokenResponseDto } from '../dto/token-response.dto';
 import { VerifyEmailDto } from '../dto/verify-email.dto';
+import { UserRole } from '../enums/user-role.enum';
+import { UserStatus } from '../enums/user-status.enum';
 
 const TOKEN_RESPONSE_EXAMPLE = {
   accessToken: 'eyJhbGciOiJIUzI1NiIs...',
@@ -17,7 +19,7 @@ const TOKEN_RESPONSE_EXAMPLE = {
     tenantId: '0190f3aa-2a3e-7c1a-9b1e-8f2a1c3d4e5f',
     name: 'Jane Doe',
     email: 'jane@thecoffeehouse.com',
-    role: 'owner',
+    role: UserRole.OWNER,
   },
   hasConnectedBusiness: false,
 };
@@ -56,7 +58,7 @@ export function ApiSignup(): ReturnType<typeof applyDecorators> {
           value: {
             tenantId: '0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f',
             userId: '0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f',
-            status: 'pending_verification',
+            status: UserStatus.PENDING_VERIFICATION,
             message: 'Verification code sent to jane@thecoffeehouse.com',
           },
         },
@@ -179,7 +181,7 @@ export function ApiLogin(): ReturnType<typeof applyDecorators> {
         pendingVerification: {
           summary: 'Still pending verification',
           value: {
-            status: 'pending_verification',
+            status: UserStatus.PENDING_VERIFICATION,
             email: 'jane@thecoffeehouse.com',
             message: 'Verification code sent to jane@thecoffeehouse.com',
           } satisfies LoginPendingVerificationDto,

@@ -53,7 +53,14 @@ The project uses maximum strictness. Key implications:
 | `0005_notifications` | notifications |
 | `0006_prompts` | prompts, prompt_versions (`template VARCHAR(1000)`) |
 | `0007_auth_hardening` | refresh_tokens |
-| `0008_prompt_template_varchar` | ALTER `prompt_versions.template` TEXT → VARCHAR(1000) (already-migrated DBs) |
+| `0008_dev_platform_admin` | No tables. Seeds the root `platform_admins` row — the one identity with no other creation path (`idx_platform_admins_single_root` allows one NULL-inviter row; every later admin is invited). Seeds no tenant: an owner comes from `POST /v1/auth/signup` + `verify-email`. Journaled, so it applies everywhere — read its header before deploying |
+
+**Schema changes are edited into the original migration file**, not added as a follow-up `ALTER`.
+Nothing is deployed, so a local database is recreated rather than upgraded. The catch: drizzle's
+migrator walks `meta/_journal.json` by `when` timestamp and never re-reads an applied file, so an
+edited migration is a **silent no-op** on any existing database — `pnpm db:migrate` reports success
+and changes nothing. After pulling a change to an existing migration, recreate your database
+(`pnpm backend:down && pnpm backend:up`, then `pnpm db:migrate`).
 
 ## Path Aliases (baseUrl: ./src)
 
@@ -212,8 +219,10 @@ contract: `apps/documentation/docs/backend/auth/`.
   tables are gone)
 - Tenant user roles are exactly `owner` and `member` — a column on `users`, not an RBAC table
 - `@Public()` — skips the JWT guard
-- `@Roles('owner', 'member')` — OR logic (any listed role matches). A platform-admin token has no
-  `role` at all and fails closed on any `@Roles()` route
+- `@Roles(UserRole.OWNER, UserRole.MEMBER)` — OR logic (any listed role matches). Takes `UserRole`
+  members, not string literals: the parameter is typed `UserRole[]` so a raw literal is a compile
+  error rather than a value that silently never matches. A platform-admin token has no `role` at
+  all and fails closed on any `@Roles()` route
 - `@CurrentUser()` — param decorator for the authenticated `AuthUser` (a discriminated union:
   narrow on `type` before trusting `tenantId`/`role`)
 - Infrastructure endpoints (health, metrics, tracing, dev-tools) use `@Public()` to bypass JWT

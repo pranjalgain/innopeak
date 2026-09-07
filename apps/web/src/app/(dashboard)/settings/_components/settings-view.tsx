@@ -1,6 +1,8 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { AiSettingsSection } from "@/app/(dashboard)/settings/_components/ai-settings-section";
 import { BlocklistSettingsSection } from "@/app/(dashboard)/settings/_components/blocklist-settings-section";
@@ -27,8 +29,20 @@ function SettingsSkeleton() {
   );
 }
 
+/** Every tab this screen renders — used to reject an unknown `?tab=` rather than showing nothing. */
+const TABS = [
+  "general",
+  "profile",
+  "members",
+  "blocklist",
+  "notifications",
+  "connection",
+  "ai",
+] as const;
+
 export function SettingsView() {
   const t = useTranslations("settings");
+  const searchParams = useSearchParams();
   const {
     settings,
     isLoading,
@@ -40,11 +54,27 @@ export function SettingsView() {
     disconnect,
   } = useSettings();
 
+  /**
+   * `?tab=` selects the initial tab, because the OAuth callback redirects to
+   * `/settings?tab=connection&connected=1` after a reconnect. With a hardcoded
+   * `defaultValue="general"` that redirect silently landed on the General tab — the user came back
+   * from Google and appeared to be somewhere unrelated to what they had just done.
+   *
+   * Uncontrolled (`defaultValue`, not `value`) on purpose: the query param decides where the user
+   * *lands*, and clicking another tab afterwards must not be undone by the URL still saying
+   * `connection`.
+   */
+  const requestedTab = searchParams.get("tab");
+  const initialTab = React.useMemo(
+    () => (TABS.includes(requestedTab as (typeof TABS)[number]) ? requestedTab : "general"),
+    [requestedTab],
+  );
+
   if (isLoading || !settings) return <SettingsSkeleton />;
 
   return (
     <div className="flex flex-col gap-6 p-fluid-page">
-      <Tabs defaultValue="general" className="max-w-3xl gap-5">
+      <Tabs defaultValue={initialTab ?? "general"} className="max-w-3xl gap-5">
         <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
           <TabsTrigger value="general">{t("tabs.general")}</TabsTrigger>
           {AUTH_METHODS.password ? <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger> : null}

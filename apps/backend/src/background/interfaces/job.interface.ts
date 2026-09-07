@@ -22,6 +22,16 @@ export interface ICronJob {
   };
 }
 
+export interface IReviewBackfillJob {
+  tenantId: string;
+  locationId: string;
+  /** The `sync_runs` row this job owns. Completion is a CAS against it, so it must be carried. */
+  syncRunId: string;
+  connectionId: string;
+  externalAccountId: string;
+  externalLocationId: string;
+}
+
 export interface IDLQFailedJobData {
   originalQueueName: QueueName;
   originalJobId: string;

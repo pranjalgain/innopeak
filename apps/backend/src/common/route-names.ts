@@ -7,6 +7,8 @@ export enum RouteNames {
   MEDIA = 'media',
   NOTIFICATIONS = 'notifications',
   AI = 'ai',
+  CONNECTIONS = 'connections',
+  REVIEWS = 'reviews',
   WEBHOOKS = 'webhooks',
   PROMPTS = 'prompts',
   API_DOCS = 'api',
@@ -29,6 +31,19 @@ export enum RouteNames {
   RESEND_VERIFICATION_OTP = 'resend-verification-otp',
   MFA_SETUP = 'mfa/setup',
   MFA_VERIFY = 'mfa/verify',
+  // Connections module — nested segments under RouteNames.CONNECTIONS
+  GOOGLE_AUTHORIZE = 'google/authorize',
+  GOOGLE_CALLBACK = 'google/callback',
+  GOOGLE = 'google',
+  GOOGLE_AVAILABLE_LOCATIONS = 'google/available-locations',
+  LOCATIONS = 'locations',
+  LOCATION_BACKFILL = 'locations/:locationId/backfill',
+  LOCATION_SYNC_HEALTH = 'locations/:locationId/sync-health',
+  LOCATION_SYNC_RUNS = 'locations/:locationId/sync-runs',
+
+  // Reviews module
+  REVIEW_BY_ID = ':reviewId',
+
   TEST = 'test',
   CUSTOM = 'custom',
   STATUS = 'status',

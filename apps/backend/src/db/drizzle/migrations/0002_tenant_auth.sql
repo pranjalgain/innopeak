@@ -89,7 +89,9 @@ CREATE TABLE IF NOT EXISTS tenant_settings (
     -- DEFAULT 3 so the product default lives in exactly one place. Without it the column was
     -- NOT NULL with no default, forcing every writer to restate the number — signup's
     -- insertTenantSettings and the dev-admin migration both did, with nothing keeping them in
-    -- step. Already-migrated databases get it from 0010_tenant_settings_threshold_default.sql.
+    -- step. Edited here rather than added as a follow-up ALTER: nothing is deployed, so a local
+    -- database is recreated rather than upgraded. Recreate yours if it predates this line —
+    -- drizzle never re-reads an applied migration, so it will not pick this up on its own.
     escalation_rating_threshold INTEGER NOT NULL DEFAULT 3,
     auto_post_enabled BOOLEAN NOT NULL DEFAULT false,
     review_data_retention_months INTEGER,

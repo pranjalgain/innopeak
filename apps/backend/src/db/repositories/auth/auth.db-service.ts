@@ -1,3 +1,6 @@
+import { TenantStatus } from '@auth/enums/tenant-status.enum';
+import { UserRole } from '@auth/enums/user-role.enum';
+import { UserStatus } from '@auth/enums/user-status.enum';
 import { type DrizzleTransaction } from '@db/db.service';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
@@ -17,7 +20,7 @@ export interface PurgeStaleTokensResult {
 export interface SignupResult {
   tenantId: string;
   userId: string;
-  status: 'pending_verification';
+  status: UserStatus.PENDING_VERIFICATION;
   ownerName: string;
 }
 
@@ -35,7 +38,7 @@ export interface VerifiedUser {
   tenantId: string;
   email: string;
   name: string;
-  role: 'member' | 'owner';
+  role: UserRole;
 }
 
 /**
@@ -85,7 +88,7 @@ export class AuthDbService {
         return {
           tenantId: tenant.id,
           userId: user.id,
-          status: 'pending_verification' as const,
+          status: UserStatus.PENDING_VERIFICATION,
           ownerName: input.ownerName,
         };
       });
@@ -130,7 +133,7 @@ export class AuthDbService {
    */
   async verifyEmail(email: string, tokenHash: string): Promise<VerifiedUser | null> {
     const user = await this.authRepository.findUserByEmail(email);
-    if (!user || user.status !== 'pending_verification') {
+    if (!user || user.status !== UserStatus.PENDING_VERIFICATION) {
       return null;
     }
 
@@ -168,9 +171,7 @@ export class AuthDbService {
     return this.authRepository.findUserById(id);
   }
 
-  async findTenantStatus(
-    tenantId: string
-  ): Promise<{ status: 'active' | 'pending_activation' | 'suspended' } | null> {
+  async findTenantStatus(tenantId: string): Promise<{ status: TenantStatus } | null> {
     return this.authRepository.findTenantStatusById(tenantId);
   }
 
