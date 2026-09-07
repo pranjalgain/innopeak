@@ -226,3 +226,33 @@
     mask-image: linear-gradient(to bottom, black 5%, transparent 88%);
   }
 }
+
+/*
+ * Indeterminate progress sweep — used by <Progress indeterminate> when a backfill has no known
+ * total to divide by. A looping traverse rather than a pulse, so it reads as "work in progress"
+ * instead of "waiting".
+ */
+@keyframes progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@layer utilities {
+  .animate-progress-sweep {
+    animation: progress-sweep 1.4s var(--ease-fluid) infinite;
+  }
+
+  /* Respects a reduced-motion preference: hold a steady partial bar rather than looping. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-progress-sweep {
+      animation: none;
+      transform: translateX(0);
+      width: 100%;
+      opacity: 0.5;
+    }
+  }
+}

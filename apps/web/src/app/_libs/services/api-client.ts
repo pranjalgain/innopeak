@@ -28,6 +28,12 @@ interface RequestOptions {
   auth?: boolean;
   /** Internal: set on the retry after a refresh, so one request can never trigger a refresh loop. */
   skipRefresh?: boolean;
+  /**
+   * Aborts the request. Needed by anything that polls on an interval — without it, a component
+   * that unmounts mid-poll leaves the response to resolve into a setState on a dead component,
+   * and a slow backend lets successive polls stack up rather than replace each other.
+   */
+  signal?: AbortSignal;
 }
 
 const REFRESH_PATH = "/v1/auth/refresh";
@@ -118,7 +124,7 @@ export class ApiClient {
   }
 
   private static async send(path: string, options: RequestOptions): Promise<Response> {
-    const { method = "GET", body, auth = true } = options;
+    const { method = "GET", body, auth = true, signal } = options;
     const headers: Record<string, string> = { "Content-Type": "application/json" };
 
     if (auth) {
@@ -133,6 +139,7 @@ export class ApiClient {
       // URL is ever pointed back at a cross-origin backend.
       credentials: "include",
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...(signal ? { signal } : {}),
     });
   }
 }

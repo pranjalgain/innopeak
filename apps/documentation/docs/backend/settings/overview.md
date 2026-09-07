@@ -20,9 +20,8 @@ These aren't cosmetic preferences. Two of them are **direct inputs to the classi
 which channel. If `tenant_settings` doesn't exist for a tenant, that tenant cannot classify a
 single review — which is exactly why `PLAN.md` §8.10 puts its `INSERT` inside the signup
 transaction alongside `tenants` and `users`. It is the *row* that must exist, not the value:
-`escalation_rating_threshold` is `NOT NULL` **`DEFAULT 3`** (`0002_tenant_auth.sql`, backfilled
-onto already-migrated databases by `0010_tenant_settings_threshold_default.sql`), so the writer
-inherits the product default instead of restating it. This module reads and updates that row; it
+`escalation_rating_threshold` is `NOT NULL` **`DEFAULT 3`** (`0002_tenant_auth.sql`), so the
+writer inherits the product default instead of restating it. This module reads and updates that row; it
 never creates it.
 
 The consumer is the dashboard's Settings screen (`apps/web/src/app/(dashboard)/settings/`), which

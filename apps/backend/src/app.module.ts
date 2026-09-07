@@ -26,13 +26,16 @@ import { OtelModule } from '@otel/otel.module';
 import { PromptsModule } from '@prompts/prompts.module';
 import { RedisModule } from '@redis/redis.module';
 import { REDIS_CLIENT } from '@redis/redis.provider';
+import { ReviewProviderModule } from '@review-provider/review-provider.module';
 import { redisStore } from 'cache-manager-redis-store';
 import { Redis } from 'ioredis';
 
 import { AuthModule } from './api/auth/auth.module';
 import { JwtAuthGuard } from './api/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './api/auth/guards/roles.guard';
+import { ConnectionsModule } from './api/connections/connections.module';
 import { DevToolsModule } from './api/dev-tools/dev-tools.module';
+import { ReviewsModule } from './api/reviews/reviews.module';
 import { TracingModule } from './api/tracing/tracing.module';
 
 const configService = new ConfigService<EnvConfig>();
@@ -114,7 +117,12 @@ const cacheModule = CacheModule.registerAsync({
     // Email
     EmailModule,
 
+    // Google Business Profile client + credential store (@Global, shared with the worker)
+    ReviewProviderModule,
+
     // APIs
+    ConnectionsModule,
+    ReviewsModule,
     MetricsModule,
     HealthModule,
     DevToolsModule,

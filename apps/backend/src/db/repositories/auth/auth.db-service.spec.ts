@@ -1,3 +1,5 @@
+import { UserRole } from '@auth/enums/user-role.enum';
+import { UserStatus } from '@auth/enums/user-status.enum';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
@@ -67,8 +69,8 @@ describe('AuthDbService', () => {
         name: 'Jane Doe',
         email: input.email,
         passwordHash: 'hashed',
-        role: 'owner',
-        status: 'active',
+        role: UserRole.OWNER,
+        status: UserStatus.ACTIVE,
       });
 
       const result = await target.signup(input);
@@ -88,7 +90,7 @@ describe('AuthDbService', () => {
       expect(result).toEqual({
         tenantId: 'tenant-1',
         userId: 'user-1',
-        status: 'pending_verification',
+        status: UserStatus.PENDING_VERIFICATION,
         ownerName: 'Jane Doe',
       });
       expect(authRepository.insertTenant).toHaveBeenCalledWith(tx, { name: input.businessName });
@@ -192,8 +194,8 @@ describe('AuthDbService', () => {
       name: 'Jane Doe',
       email: 'jane@thecoffeehouse.com',
       passwordHash: 'hashed',
-      role: 'owner' as const,
-      status: 'pending_verification' as const,
+      role: UserRole.OWNER,
+      status: UserStatus.PENDING_VERIFICATION,
     };
 
     it('returns null when no user exists at that email', async () => {
@@ -206,7 +208,7 @@ describe('AuthDbService', () => {
     });
 
     it('returns null when the account is not pending_verification', async () => {
-      authRepository.findUserByEmail.mockResolvedValue({ ...user, status: 'active' });
+      authRepository.findUserByEmail.mockResolvedValue({ ...user, status: UserStatus.ACTIVE });
 
       const result = await target.verifyEmail(user.email, 'code-hash');
 

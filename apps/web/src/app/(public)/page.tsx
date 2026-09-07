@@ -10,6 +10,7 @@ import {
   LuSlidersHorizontal,
   LuSparkles,
   LuTriangleAlert,
+  LuZap,
 } from "react-icons/lu";
 
 import { ReviewReplyMockup } from "@/app/(public)/_components/review-reply-mockup";
@@ -24,7 +25,15 @@ interface CopyItem {
   description: string;
 }
 
-const FEATURE_ICONS = [LuList, LuSparkles, LuSlidersHorizontal, LuTriangleAlert, LuChartNoAxesCombined, LuLockKeyhole];
+const FEATURE_ICONS = [
+  LuList,
+  LuSparkles,
+  LuSlidersHorizontal,
+  LuTriangleAlert,
+  LuChartNoAxesCombined,
+  LuLockKeyhole,
+  LuZap,
+];
 
 export default function LandingPage() {
   const t = useTranslations("marketing");

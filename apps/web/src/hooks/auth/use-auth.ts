@@ -27,6 +27,21 @@ interface UseAuthResult {
 }
 
 /**
+ * A 4xx from this API carries copy written for the user — `messages.constants.ts` on the backend
+ * plus DTO validation messages — so it is shown as-is. "Invalid email or password." *is* the point
+ * of a 401 here; replacing it with "something went wrong" tells the user nothing and hides the one
+ * thing they can act on.
+ *
+ * The generic fallback is reserved for what it actually means: a 5xx, or a network failure that
+ * produced no response at all, where there is no server-authored message to show.
+ */
+function authErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof ApiError && error.statusCode >= 400 && error.statusCode < 500
+    ? error.message
+    : fallback;
+}
+
+/**
  * Auth actions for the login/onboarding screens. Wraps `AuthService` so
  * components never call it directly — swapping the mock service for a real
  * backend call later needs no change here or in any consuming component.
@@ -41,8 +56,8 @@ export function useAuth(): UseAuthResult {
       setIsLoading(true);
       try {
         await AuthService.loginWithMicrosoft(email);
-      } catch {
-        toast.error(t("signInFailed"));
+      } catch (error) {
+        toast.error(authErrorMessage(error, t("signInFailed")));
       } finally {
         setIsLoading(false);
       }
@@ -55,8 +70,8 @@ export function useAuth(): UseAuthResult {
       setIsLoading(true);
       try {
         return await AuthService.loginWithPassword(email, password);
-      } catch {
-        toast.error(t("signInFailed"));
+      } catch (error) {
+        toast.error(authErrorMessage(error, t("signInFailed")));
         return null;
       } finally {
         setIsLoading(false);
@@ -69,8 +84,8 @@ export function useAuth(): UseAuthResult {
     setIsLoading(true);
     try {
       await AuthService.loginWithSocial();
-    } catch {
-      toast.error(t("signInFailed"));
+    } catch (error) {
+      toast.error(authErrorMessage(error, t("signInFailed")));
     } finally {
       setIsLoading(false);
     }
@@ -82,8 +97,8 @@ export function useAuth(): UseAuthResult {
     try {
       await AuthService.signupWithMicrosoft();
       return true;
-    } catch {
-      toast.error(t("signInFailed"));
+    } catch (error) {
+      toast.error(authErrorMessage(error, t("signUpFailed")));
       return false;
     } finally {
       setIsLoading(false);
@@ -97,7 +112,7 @@ export function useAuth(): UseAuthResult {
         await AuthService.signupWithPassword(values);
         return true;
       } catch (error) {
-        toast.error(error instanceof ApiError && error.statusCode === 409 ? error.message : t("signInFailed"));
+        toast.error(authErrorMessage(error, t("signUpFailed")));
         return false;
       } finally {
         setIsLoading(false);
@@ -111,8 +126,8 @@ export function useAuth(): UseAuthResult {
     try {
       await AuthService.signupWithSocial();
       return true;
-    } catch {
-      toast.error(t("signInFailed"));
+    } catch (error) {
+      toast.error(authErrorMessage(error, t("signUpFailed")));
       return false;
     } finally {
       setIsLoading(false);

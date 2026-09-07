@@ -4,12 +4,20 @@ import { LuDownload } from "react-icons/lu";
 import { Progress } from "@/components/ui/progress";
 
 interface BackfillingStageProps {
-  progress: number;
-  importedCount: number;
-  totalToImport: number;
+  /** Null means the provider reported no total — render an indeterminate bar, not a fake number. */
+  progress: number | null;
+  reviewsFetched: number;
+  totalToImport: number | null;
+  /** Running unusually long. Not a failure — the import continues and the copy softens. */
+  isSlow?: boolean;
 }
 
-export function BackfillingStage({ progress, importedCount, totalToImport }: BackfillingStageProps) {
+export function BackfillingStage({
+  progress,
+  reviewsFetched,
+  totalToImport,
+  isSlow = false,
+}: BackfillingStageProps) {
   const t = useTranslations("onboardingConnect.backfilling");
 
   return (
@@ -18,10 +26,16 @@ export function BackfillingStage({ progress, importedCount, totalToImport }: Bac
         <LuDownload className="size-6 text-primary" />
       </div>
       <h1 className="text-gradient text-lg font-semibold">{t("title")}</h1>
-      <p className="text-sm text-muted-foreground">{t("description")}</p>
-      <Progress value={progress} />
+      <p className="text-sm text-muted-foreground">
+        {isSlow ? t("takingLonger") : t("description")}
+      </p>
+      <Progress value={progress ?? undefined} indeterminate={progress === null} />
       <span className="text-[13px] text-muted-foreground">
-        {t("importing", { imported: importedCount, total: totalToImport })}
+        {/* `reviewsFetched` is always real and always climbing, so "112 reviews imported" is
+            available even when "112 of 187" is not. */}
+        {totalToImport === null
+          ? t("importingUnknownTotal", { imported: reviewsFetched })
+          : t("importing", { imported: reviewsFetched, total: totalToImport })}
       </span>
     </div>
   );

@@ -5,9 +5,16 @@ import { Button } from "@/components/ui/button";
 
 interface ConnectStageProps {
   onConnect: () => void;
+  /**
+   * True while the browser is being sent to Google. Needed because this is a full-page navigation,
+   * not a fetch — there is a real gap between the click and the page leaving (the access-token
+   * refresh), and without feedback an impatient owner clicks again and starts a second OAuth flow
+   * whose state invalidates the first.
+   */
+  isLoading?: boolean;
 }
 
-export function ConnectStage({ onConnect }: ConnectStageProps) {
+export function ConnectStage({ onConnect, isLoading = false }: ConnectStageProps) {
   const t = useTranslations("onboardingConnect.connect");
 
   return (
@@ -19,8 +26,8 @@ export function ConnectStage({ onConnect }: ConnectStageProps) {
         <h1 className="text-gradient text-lg font-semibold">{t("title")}</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">{t("description")}</p>
       </div>
-      <Button type="button" size="block" onClick={onConnect}>
-        {t("button")}
+      <Button type="button" size="block" onClick={onConnect} disabled={isLoading}>
+        {isLoading ? t("connecting") : t("button")}
       </Button>
     </div>
   );

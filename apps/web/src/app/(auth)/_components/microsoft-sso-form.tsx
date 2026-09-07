@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
+import { PasswordInput } from "@/components/common/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,9 +57,8 @@ export function MicrosoftSsoForm({ isLoading, onSubmit }: MicrosoftSsoFormProps)
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="mock-sso-password">{t("passwordLabel")}</Label>
-          <Input
+          <PasswordInput
             id="mock-sso-password"
-            type="password"
             placeholder="••••••••"
             value={password}
             onChange={(event) => setPassword(event.target.value)}

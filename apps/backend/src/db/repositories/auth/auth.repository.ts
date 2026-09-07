@@ -1,3 +1,9 @@
+import { TenantStatus } from '@auth/enums/tenant-status.enum';
+import { TokenPurpose } from '@auth/enums/token-purpose.enum';
+import { UserRole } from '@auth/enums/user-role.enum';
+import { UserStatus } from '@auth/enums/user-status.enum';
+import { LocationStatus } from '@common/enums/location-status.enum';
+import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
@@ -9,8 +15,8 @@ export interface UserByEmail {
   name: string;
   email: string;
   passwordHash: string | null;
-  role: 'member' | 'owner';
-  status: 'active' | 'disabled' | 'invited' | 'pending_verification';
+  role: UserRole;
+  status: UserStatus;
 }
 
 export interface InsertedTenant {
@@ -89,7 +95,11 @@ export class AuthRepository {
       .orderBy(desc(schema.users.createdAt))
       .limit(1);
 
-    return rows[0] ?? null;
+    // Drizzle infers `role`/`status` as the pgEnum's own plain string-literal union, not the
+    // app-level enum — this repository is the one place that boundary is bridged, since the
+    // literal values are guaranteed identical (the enum's members are defined from the same
+    // strings the migration creates).
+    return (rows[0] as UserByEmail | undefined) ?? null;
   }
 
   /** Same shape as `findUserByEmail`, keyed by id — used by refresh/logout, which only have the user id (from the JWT `sub`/DB row), not the email. */
@@ -108,27 +118,43 @@ export class AuthRepository {
       .where(and(eq(schema.users.id, id), isNull(schema.users.anonymizedAt)))
       .limit(1);
 
-    return rows[0] ?? null;
+    return (rows[0] as UserByEmail | undefined) ?? null;
   }
 
-  async findTenantStatusById(
-    tenantId: string
-  ): Promise<{ status: 'active' | 'pending_activation' | 'suspended' } | null> {
+  async findTenantStatusById(tenantId: string): Promise<{ status: TenantStatus } | null> {
     const rows = await this.dbService.db
       .select({ status: schema.tenants.status })
       .from(schema.tenants)
       .where(eq(schema.tenants.id, tenantId))
       .limit(1);
 
-    return rows[0] ?? null;
+    return (rows[0] as { status: TenantStatus } | undefined) ?? null;
   }
 
   /** Row-existence is the only signal for "has this tenant connected a Google Business Profile" — no dedicated flag exists on `tenants`/`tenant_settings`. */
+  /**
+   * The same rule `GET /v1/connections` uses for `connected`: a live, active connection **and** an
+   * active location. This only drives the post-login redirect (the dashboard guard is
+   * authoritative), but a bare row-existence probe over-reported — a tenant who had disconnected
+   * still read as connected, was routed to the dashboard, and was immediately bounced back to
+   * onboarding by the guard.
+   */
   async hasConnectedBusiness(tenantId: string): Promise<boolean> {
     const rows = await this.dbService.db
-      .select({ id: schema.reviewProviderConnections.id })
-      .from(schema.reviewProviderConnections)
-      .where(eq(schema.reviewProviderConnections.tenantId, tenantId))
+      .select({ id: schema.locations.id })
+      .from(schema.locations)
+      .innerJoin(
+        schema.reviewProviderConnections,
+        eq(schema.reviewProviderConnections.id, schema.locations.providerConnectionId)
+      )
+      .where(
+        and(
+          eq(schema.locations.tenantId, tenantId),
+          eq(schema.locations.status, LocationStatus.ACTIVE),
+          eq(schema.reviewProviderConnections.status, ReviewProviderConnectionStatus.ACTIVE),
+          isNull(schema.reviewProviderConnections.disconnectedAt)
+        )
+      )
       .limit(1);
 
     return rows.length > 0;
@@ -159,8 +185,8 @@ export class AuthRepository {
         name: input.name,
         email: input.email,
         passwordHash: input.passwordHash,
-        role: 'owner',
-        status: 'pending_verification',
+        role: UserRole.OWNER,
+        status: UserStatus.PENDING_VERIFICATION,
       })
       .returning({ id: schema.users.id });
     const row = rows[0];
@@ -204,7 +230,7 @@ export class AuthRepository {
       .values({
         userId: input.userId,
         tokenHash: input.tokenHash,
-        purpose: 'verify_email',
+        purpose: TokenPurpose.VERIFY_EMAIL,
         expiresAt: input.expiresAt,
       })
       .onConflictDoUpdate({
@@ -237,7 +263,7 @@ export class AuthRepository {
         and(
           eq(schema.passwordResetTokens.userId, input.userId),
           eq(schema.passwordResetTokens.tokenHash, input.tokenHash),
-          eq(schema.passwordResetTokens.purpose, 'verify_email'),
+          eq(schema.passwordResetTokens.purpose, TokenPurpose.VERIFY_EMAIL),
           isNull(schema.passwordResetTokens.usedAt),
           gt(schema.passwordResetTokens.expiresAt, sql`now()`)
         )
@@ -257,8 +283,10 @@ export class AuthRepository {
   async activateUser(tx: DrizzleTransaction, userId: string): Promise<boolean> {
     const rows = await tx
       .update(schema.users)
-      .set({ status: 'active', emailVerifiedAt: sql`now()` })
-      .where(and(eq(schema.users.id, userId), eq(schema.users.status, 'pending_verification')))
+      .set({ status: UserStatus.ACTIVE, emailVerifiedAt: sql`now()` })
+      .where(
+        and(eq(schema.users.id, userId), eq(schema.users.status, UserStatus.PENDING_VERIFICATION))
+      )
       .returning({ id: schema.users.id });
 
     return rows.length > 0;
@@ -311,7 +339,7 @@ export class AuthRepository {
       .delete(schema.passwordResetTokens)
       .where(
         and(
-          eq(schema.passwordResetTokens.purpose, 'verify_email'),
+          eq(schema.passwordResetTokens.purpose, TokenPurpose.VERIFY_EMAIL),
           or(
             isNotNull(schema.passwordResetTokens.usedAt),
             lt(schema.passwordResetTokens.expiresAt, sql`now()`)

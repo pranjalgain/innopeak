@@ -1,11 +1,12 @@
 import type { JwtTokenType } from '../enums/jwt-token-type.enum';
+import type { UserRole } from '../enums/user-role.enum';
 
 export interface TenantAuthUser {
   type: JwtTokenType.TENANT_USER;
   id: string;
   tenantId: string;
   email: string;
-  role: 'member' | 'owner';
+  role: UserRole;
 }
 
 export interface PlatformAdminAuthUser {

@@ -66,6 +66,7 @@ export const responseStatus = pgEnum('response_status', [
 export const responseType = pgEnum('response_type', [
   'auto_reply_suggestion',
   'escalation_snippet',
+  'imported_reply',
 ]);
 export const reviewClassification = pgEnum('review_classification', [
   'auto_reply_candidate',
@@ -551,6 +552,7 @@ export const reviewProviderConnections = pgTable(
     credentialReference: varchar('credential_reference', { length: 255 }).notNull(),
     tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true, mode: 'string' }),
     status: googleConnectionStatus().notNull(),
+    disconnectedAt: timestamp('disconnected_at', { withTimezone: true, mode: 'string' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -807,6 +809,7 @@ export const syncRuns = pgTable(
     completedAt: timestamp('completed_at', { withTimezone: true, mode: 'string' }),
     status: syncRunStatus().notNull(),
     reviewsFetched: integer('reviews_fetched'),
+    reviewsTotal: integer('reviews_total'),
     errorMessage: text('error_message'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
@@ -819,6 +822,11 @@ export const syncRuns = pgTable(
     index('idx_sync_runs_location_id').using(
       'btree',
       table.locationId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_sync_runs_location_id_started_at').using(
+      'btree',
+      table.locationId.asc().nullsLast().op('uuid_ops'),
+      table.startedAt.desc().nullsFirst().op('timestamptz_ops')
     ),
     uniqueIndex('idx_sync_runs_location_id_running')
       .using('btree', table.locationId.asc().nullsLast().op('uuid_ops'))

@@ -7,6 +7,9 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
 import { AuthService } from './auth.service';
+import { TenantStatus } from './enums/tenant-status.enum';
+import { UserRole } from './enums/user-role.enum';
+import { UserStatus } from './enums/user-status.enum';
 import { OtpAttemptService } from './otp-attempt.service';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
 import { TokenService } from './token.service';
@@ -96,7 +99,7 @@ describe('AuthService', () => {
       authDbService.signup.mockResolvedValue({
         tenantId: 'tenant-1',
         userId: 'user-1',
-        status: 'pending_verification',
+        status: UserStatus.PENDING_VERIFICATION,
         ownerName: 'Jane Doe',
       });
 
@@ -113,7 +116,7 @@ describe('AuthService', () => {
         expect.objectContaining({ email: 'jane@thecoffeehouse.com', otp: '482913' })
       );
       expect(result.tenantId).toBe('tenant-1');
-      expect(result.status).toBe('pending_verification');
+      expect(result.status).toBe(UserStatus.PENDING_VERIFICATION);
     });
   });
 
@@ -143,7 +146,7 @@ describe('AuthService', () => {
         tenantId: 'tenant-1',
         email: 'jane@thecoffeehouse.com',
         name: 'Jane Doe',
-        role: 'owner',
+        role: UserRole.OWNER,
       });
 
       await target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' });
@@ -174,7 +177,7 @@ describe('AuthService', () => {
         tenantId: 'tenant-1',
         email: 'jane@thecoffeehouse.com',
         name: 'Jane Doe',
-        role: 'owner',
+        role: UserRole.OWNER,
       });
 
       const result = await target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' });
@@ -196,8 +199,8 @@ describe('AuthService', () => {
       name: 'Jane Doe',
       email: 'jane@thecoffeehouse.com',
       passwordHash: 'hashed-password',
-      role: 'owner' as const,
-      status: 'active' as const,
+      role: UserRole.OWNER,
+      status: UserStatus.ACTIVE,
     };
 
     it('throws 401 when no user exists at that email', async () => {
@@ -251,7 +254,10 @@ describe('AuthService', () => {
     });
 
     it('throws 403 for a disabled account', async () => {
-      authDbService.findUserForLogin.mockResolvedValue({ ...activeUser, status: 'disabled' });
+      authDbService.findUserForLogin.mockResolvedValue({
+        ...activeUser,
+        status: UserStatus.DISABLED,
+      });
       hashingService.compare.mockResolvedValue(true);
 
       await expect(
@@ -262,7 +268,7 @@ describe('AuthService', () => {
     it('throws 403 for a suspended tenant', async () => {
       authDbService.findUserForLogin.mockResolvedValue(activeUser);
       hashingService.compare.mockResolvedValue(true);
-      authDbService.findTenantStatus.mockResolvedValue({ status: 'suspended' });
+      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.SUSPENDED });
 
       await expect(
         target.login({ email: activeUser.email, password: 'StrongP@ss1' })
@@ -272,14 +278,17 @@ describe('AuthService', () => {
     it('reissues an OTP and returns a pending_verification result, not tokens, for an unverified account', async () => {
       authDbService.findUserForLogin.mockResolvedValue({
         ...activeUser,
-        status: 'pending_verification',
+        status: UserStatus.PENDING_VERIFICATION,
       });
       hashingService.compare.mockResolvedValue(true);
-      authDbService.findTenantStatus.mockResolvedValue({ status: 'active' });
+      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.ACTIVE });
 
       const result = await target.login({ email: activeUser.email, password: 'StrongP@ss1' });
 
-      expect(result).toMatchObject({ status: 'pending_verification', email: activeUser.email });
+      expect(result).toMatchObject({
+        status: UserStatus.PENDING_VERIFICATION,
+        email: activeUser.email,
+      });
       expect(authDbService.putVerifyEmailToken).toHaveBeenCalledWith(
         activeUser.id,
         expect.any(String),
@@ -292,7 +301,7 @@ describe('AuthService', () => {
     it('issues a token pair for a correct password on an active account', async () => {
       authDbService.findUserForLogin.mockResolvedValue(activeUser);
       hashingService.compare.mockResolvedValue(true);
-      authDbService.findTenantStatus.mockResolvedValue({ status: 'active' });
+      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.ACTIVE });
 
       const result = await target.login({ email: activeUser.email, password: 'StrongP@ss1' });
 
@@ -308,7 +317,7 @@ describe('AuthService', () => {
           id: 'user-1',
           tenantId: 'tenant-1',
           email: 'jane@thecoffeehouse.com',
-          role: 'owner',
+          role: UserRole.OWNER,
           name: 'Jane Doe',
         },
       });
@@ -330,8 +339,8 @@ describe('AuthService', () => {
         name: 'Jane Doe',
         email: 'jane@thecoffeehouse.com',
         passwordHash: 'hashed-password',
-        role: 'owner',
-        status: 'pending_verification',
+        role: UserRole.OWNER,
+        status: UserStatus.PENDING_VERIFICATION,
       });
 
       const result = await target.resendOtp({ email: 'jane@thecoffeehouse.com' });

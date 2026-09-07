@@ -8,9 +8,9 @@
     },
     "hero": {
       "eyebrow": "For Google Business Profile reviews",
-      "headline": "AI drafts the reply. Your team approves every word.",
-      "subheadline": "InnoPeak watches your Google Business Profile, drafts a reply to every new review, and routes anything risky straight to the person who should see it — so nothing goes out that a human hasn't approved, and nothing slips through unanswered.",
-      "primaryCta": "Get started with Microsoft",
+      "headline": "AI drafts the reply. You decide what goes out.",
+      "subheadline": "InnoPeak watches your Google Business Profile, drafts a reply to every new review, and routes anything risky straight to the person who should see it — approval is required by default, and nothing slips through unanswered.",
+      "primaryCta": "Get started",
       "secondaryCta": "See how it works",
       "mockup": {
         "reviewerName": "Marcus Yee",
@@ -25,9 +25,9 @@
     },
     "trustBar": {
       "items": [
-        "Nothing posts without approval",
+        "Approval required by default",
         "Escalations reach a real person in minutes",
-        "Sign in with your work Microsoft account"
+        "Works directly with your Google Business Profile"
       ]
     },
     "problem": {
@@ -53,7 +53,7 @@
       "steps": [
         {
           "title": "Connect your Google Business Profile",
-          "description": "Sign in with Microsoft, connect the location once, and InnoPeak starts polling for new reviews automatically."
+          "description": "Connect your Google Business Profile location once, and InnoPeak starts polling for new reviews automatically."
         },
         {
           "title": "AI drafts a reply",
@@ -61,7 +61,7 @@
         },
         {
           "title": "You approve, edit, or reject",
-          "description": "Nothing reaches Google without a person in your business signing off. Edit a word or two, or reject it outright."
+          "description": "By default nothing reaches Google without a person signing off — edit a word or two, or reject it outright. Once you trust the drafts, switch on auto-reply for straightforward reviews; escalated ones always wait for you."
         },
         {
           "title": "Risky reviews escalate automatically",
@@ -79,7 +79,7 @@
         },
         {
           "title": "AI reply drafts",
-          "description": "Drafted automatically for every review, in your voice — never posted without approval."
+          "description": "Drafted automatically for every review, in your voice. Nothing is posted until you approve it, unless you switch on auto-reply."
         },
         {
           "title": "Versioned prompts & tone",
@@ -96,13 +96,17 @@
         {
           "title": "Secure by design",
           "description": "Sign in with Microsoft SSO. Every business's data stays fully isolated from every other."
+        },
+        {
+          "title": "Auto-reply, when you're ready",
+          "description": "Off by default. Turn it on and straightforward reviews get answered automatically — escalated ones still wait for a person, every time."
         }
       ]
     },
     "cta": {
       "heading": "Stop choosing between fast replies and careful ones.",
       "description": "Connect your Google Business Profile and let InnoPeak draft the first version — you always have the last word.",
-      "button": "Get started with Microsoft"
+      "button": "Get started"
     },
     "footer": {
       "tagline": "AI-assisted replies for Google Business Profile reviews — always reviewed by a human before they go out.",
@@ -135,12 +139,16 @@
       "toasts": {
         "loadFailed": "Could not load notifications."
       }
+    },
+    "reconnectBanner": {
+      "message": "Your Google Business Profile connection has expired. New reviews aren't being imported until you reconnect.",
+      "action": "Reconnect"
     }
   },
   "auth": {
     "login": {
       "title": "Sign in to InnoPeak",
-      "subtitle": "Use your work Microsoft account to continue",
+      "subtitle": "Sign in to continue",
       "continueWithMicrosoft": "Continue with Microsoft",
       "continueWithGoogle": "Continue with Google",
       "microsoft": "Microsoft",
@@ -154,7 +162,11 @@
       "emailPlaceholder": "you@company.com",
       "passwordLabel": "Password",
       "signIn": "Sign in",
-      "signingIn": "Signing in…"
+      "signingIn": "Signing in…",
+      "errors": {
+        "emailInvalid": "Enter a valid email address.",
+        "passwordRequired": "Enter your password."
+      }
     },
     "microsoftMock": {
       "title": "Sign in with Microsoft",
@@ -168,6 +180,7 @@
     },
     "toasts": {
       "signInFailed": "Something went wrong signing in. Please try again.",
+      "signUpFailed": "Something went wrong creating your account. Please try again.",
       "signOutFailed": "Something went wrong signing out. Please try again."
     }
   },
@@ -175,26 +188,52 @@
     "connect": {
       "title": "Connect your Google Business Profile",
       "description": "InnoPeak needs access to your Google Business Profile to read and respond to reviews on your behalf. You'll be asked to grant permission to manage reviews for your locations.",
-      "button": "Connect Google Business Profile"
+      "button": "Connect Google Business Profile",
+      "connecting": "Redirecting to Google…"
     },
     "confirmLocation": {
       "title": "We found your business",
       "subtitle": "Confirm this is the location you'd like InnoPeak to manage.",
-      "button": "Continue"
+      "button": "Continue",
+      "subtitleMultiple": "Choose the location you'd like InnoPeak to manage.",
+      "noAddress": "No address on file"
     },
     "backfilling": {
       "title": "Importing your review history",
       "description": "This usually takes a minute. Don't close this window.",
-      "importing": "Importing historical reviews… {imported} of ~{total} imported"
+      "importing": "Importing historical reviews… {imported} of ~{total} imported",
+      "importingUnknownTotal": "Importing historical reviews… {imported} so far",
+      "takingLonger": "This is taking longer than usual. We'll keep going — you can safely close this window and come back."
     },
     "done": {
       "title": "You're all set",
       "description": "We imported {count} historical reviews and will start checking for new ones every 15 minutes.",
       "button": "Go to Dashboard"
+    },
+    "errors": {
+      "INVALID_STATE": "That connection link has expired or was already used. Please start again.",
+      "ACCESS_DENIED": "You cancelled the Google permission request. InnoPeak needs access to read your reviews.",
+      "PROVIDER_ERROR": "Google couldn't complete the connection. Please try again in a moment.",
+      "ACCOUNT_MISMATCH": "That's a different Google account from the one currently connected. To switch accounts, disconnect the current one from Settings first, then connect again.",
+      "INSUFFICIENT_SCOPE": "InnoPeak wasn't granted permission to manage reviews. Please reconnect and accept all requested permissions.",
+      "SERVER_ERROR": "Something went wrong on our end. Please try again.",
+      "UNKNOWN": "Something went wrong connecting your Google Business Profile.",
+      "loadLocationsFailed": "We couldn't load your Google locations. Please try again.",
+      "confirmFailed": "We couldn't save that location. Please try again.",
+      "needsReauth": "Your Google connection has expired. Please reconnect.",
+      "backfillFailed": "The review import didn't finish. You can retry it now."
+    },
+    "actions": {
+      "retry": "Try again",
+      "reconnect": "Reconnect Google",
+      "restart": "Start over",
+      "continue": "Continue"
     }
   },
   "onboardingSignup": {
     "subtitle": "Verify your identity, then connect your Google Business Profile.",
+    "haveAccount": "Already have an account?",
+    "signIn": "Sign in",
     "stepper": {
       "identity": "Create account",
       "otp": "Verify email",
@@ -211,7 +250,19 @@
       "confirmPasswordLabel": "Confirm password",
       "passwordMismatch": "Passwords don't match.",
       "submit": "Create account",
-      "submitting": "Creating account…"
+      "submitting": "Creating account…",
+      "errors": {
+        "nameRequired": "Enter your full name.",
+        "businessNameRequired": "Enter your company name.",
+        "emailInvalid": "Enter a valid email address.",
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordUppercase": "Password must contain an uppercase letter.",
+        "passwordLowercase": "Password must contain a lowercase letter.",
+        "passwordNumber": "Password must contain a number.",
+        "passwordSpecial": "Password must contain a special character.",
+        "confirmPasswordRequired": "Re-enter your password to confirm it."
+      }
     },
     "otp": {
       "title": "Verify your email",
@@ -328,8 +379,8 @@
         "helper": "Reviews below this rating are escalated to your team"
       },
       "autoPost": {
-        "label": "Auto-post approved replies",
-        "helper": "Automatically publish replies once approved, without a manual posting step."
+        "label": "Auto-reply to straightforward reviews",
+        "helper": "When on, reviews classified as auto-reply candidates are answered without waiting for approval. Escalated reviews always wait for a person."
       },
       "retention": {
         "label": "Review data retention",
@@ -360,6 +411,8 @@
       "lastSynced": "Last synced {date}",
       "statusConnected": "Connected",
       "statusDisconnected": "Disconnected",
+      "connectButton": "Connect Google Business Profile",
+      "connecting": "Redirecting to Google…",
       "disconnectButton": "Disconnect",
       "disconnectConfirm": "Are you sure? This location will stop syncing new reviews.",
       "cancel": "Cancel"
@@ -394,6 +447,16 @@
         "updateFailed": "Could not save this change. Please try again.",
         "avatarUpdated": "Profile picture updated.",
         "passwordChanged": "Password changed."
+      },
+      "errors": {
+        "currentPasswordRequired": "Enter your current password.",
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordUppercase": "Password must contain an uppercase letter.",
+        "passwordLowercase": "Password must contain a lowercase letter.",
+        "passwordNumber": "Password must contain a number.",
+        "passwordSpecial": "Password must contain a special character.",
+        "confirmPasswordRequired": "Re-enter your new password to confirm it."
       }
     },
     "members": {
@@ -424,6 +487,9 @@
         "inviteFailed": "Could not send this invite. Please try again.",
         "revoked": "Invite revoked.",
         "revokeFailed": "Could not revoke this invite. Please try again."
+      },
+      "errors": {
+        "emailInvalid": "Enter a valid email address to invite."
       }
     },
     "toasts": {
@@ -433,6 +499,7 @@
       "notificationChannelUpdated": "Notification channel updated.",
       "notificationToggled": "Notification setting updated.",
       "disconnected": "Google Business Profile disconnected.",
+      "disconnectFailed": "We couldn't disconnect your Google Business Profile. Please try again.",
       "autoPostToggled": "Auto-post setting updated.",
       "aiReplyCountUpdated": "AI reply count updated."
     }
@@ -591,6 +658,16 @@
         "updateFailed": "Could not save this change. Please try again.",
         "avatarUpdated": "Profile picture updated.",
         "passwordChanged": "Password changed."
+      },
+      "errors": {
+        "currentPasswordRequired": "Enter your current password.",
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordUppercase": "Password must contain an uppercase letter.",
+        "passwordLowercase": "Password must contain a lowercase letter.",
+        "passwordNumber": "Password must contain a number.",
+        "passwordSpecial": "Password must contain a special character.",
+        "confirmPasswordRequired": "Re-enter your new password to confirm it."
       }
     },
     "invite": {
@@ -618,6 +695,9 @@
         "sent": "Invite sent to {email}.",
         "revokeFailed": "Could not revoke this invite. Please try again.",
         "revoked": "Invite revoked."
+      },
+      "errors": {
+        "emailInvalid": "Enter a valid email address to invite."
       }
     }
   },

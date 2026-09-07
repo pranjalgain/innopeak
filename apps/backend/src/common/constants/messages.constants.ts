@@ -27,6 +27,32 @@ export const MESSAGES = {
     INVALID_REFRESH_TOKEN: 'Invalid or expired refresh token.',
     INVALID_ACCESS_TOKEN: 'Invalid or expired access token.',
     LOGGED_OUT: 'Logged out.',
+    // Thrown by @CurrentTenantUser() when a platform-admin token reaches a tenant-scoped route.
+    // Says "not available" rather than "you are a platform admin" — the caller already knows what
+    // it authenticated as, and naming the token type in the response tells an attacker which
+    // half of the token space they landed in.
+    TENANT_CONTEXT_REQUIRED: 'This endpoint is not available for this account type.',
+  },
+  CONNECTIONS: {
+    CONNECTION_NOT_FOUND: 'No Google Business Profile connection found for this account.',
+    // Deliberately the same message whether the location belongs to no one or to another tenant —
+    // a distinct "forbidden" would confirm the id exists somewhere, which is a tenant-enumeration
+    // oracle. The status code is 404 in both cases for the same reason.
+    LOCATION_NOT_FOUND: 'Location not found.',
+    EXTERNAL_LOCATION_NOT_FOUND:
+      'That location is not visible to the connected Google account. Reconnect and try again.',
+    CONNECTION_NEEDS_REAUTH:
+      'The Google connection has expired. Reconnect your Google Business Profile to continue.',
+    LOCATION_LIMIT_REACHED: 'This account already has an active location.',
+    BACKFILL_ALREADY_RUNNING: 'An import is already running for this location.',
+    PROVIDER_UNAVAILABLE: 'Google Business Profile is unavailable right now. Please try again.',
+    PROVIDER_NOT_CONFIGURED:
+      'Google Business Profile is not configured on this server. Contact support.',
+    DISCONNECTED: 'Google Business Profile disconnected.',
+    LOCATION_CONFIRMED: 'Location connected. Importing your review history.',
+  },
+  REVIEWS: {
+    REVIEW_NOT_FOUND: 'Review not found.',
   },
   PROMPTS: {
     LISTED: 'Prompts retrieved successfully',

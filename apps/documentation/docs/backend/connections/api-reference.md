@@ -6,13 +6,12 @@ sidebar_position: 2
 
 ## How to read this document
 
-This is the **target/spec design** for the connections module's HTTP surface. None of it is
-implemented: as the overview's
-[Gap](./overview.md#gap-between-current-code-and-target-design) records, there is no
-`src/api/connections/`, no `src/db/repositories/connections/`, and no `CONNECTIONS` entry in
-`src/common/route-names.ts` in `apps/backend/src/` today — the only file that mentions this
-module's tables is the migration that creates them. Everything below is the contract to build
-against, not a description of running code.
+This is the HTTP contract for the connections module, and it **is implemented**: every route below
+is served by `src/api/connections/` (see the overview's
+[Implementation status](./overview.md#implementation-status)). The module runs against fixtures
+under `DEV_GBP_MOCK=true` for local development and against the real Google Business Profile APIs
+once [API access setup](./google-api-setup.md) is complete. Where the running code deliberately
+deviates from an earlier draft of this contract, the route's section says so.
 
 It assumes you have read [Connections Module — Overview](./overview.md) for the data model, the
 `review_provider` vs. `user_identity_provider` distinction, and the four connection flows. This
@@ -21,8 +20,8 @@ intentionally **HTTP-contract-level only** — no controller code, no decorator 
 implementing a route below it lives under `src/api/connections/` per
 `apps/backend/docs/conventions/module-structure.md`: the JSON shown here is what that route's
 Swagger decorator (in that controller's `swagger/` file) should render as its example, and every
-success or error `message` string comes from `src/common/constants/messages.constants.ts` — which
-does not exist yet and must be created — never an inline literal.
+success or error `message` string comes from `src/common/constants/messages.constants.ts`
+(`MESSAGES.CONNECTIONS`) — never an inline literal.
 
 Every route here is part of the **backend's** target surface regardless of what the shipped UI
 calls today. The onboarding flow only ever confirms a single discovered location and the Settings
@@ -31,8 +30,8 @@ tab renders no sync history at all; that is a frontend scope decision (see the o
 
 ## Conventions
 
-- **Base path**: `/v1/connections/...` — `RouteNames.CONNECTIONS` (to be added), `version: '1'`
-  on the controller.
+- **Base path**: `/v1/connections/...` — `RouteNames.CONNECTIONS`, `version: '1'` on the
+  controller.
 - **Auth column**: `Public` — no bearer token (`@Public()`, skips `JwtAuthGuard`); used only by
   the OAuth callback, which is entered by Google, not by the SPA. `Bearer` — needs
   `Authorization: Bearer <access_token>` or the equivalent `sid` cookie, and the request's
@@ -239,18 +238,19 @@ upsert. A genuine `DELETE` on a `locations` row is a support/admin operation tha
 refuse (or wait out) any `sync_runs` row still `running` for that location; it is not this
 endpoint.
 
-This endpoint has a **known schema gap**, called out rather than papered over:
-`google_connection_status` is (`active`, `needs_reauth`) with no `disconnected` value, so there is
-nowhere on the connection row to record that the owner disconnected. Required follow-up
-migration: a nullable `review_provider_connections.disconnected_at TIMESTAMPTZ` (preferred — it
-records *when*, survives a later reconnect as history, and keeps `status` describing credential
-health rather than owner intent), or `ALTER TYPE google_connection_status ADD VALUE
-'disconnected'`. **Until one of those lands**, disconnected-ness is derived from
-"every location for this connection is `inactive`", which is why
-[`GET /v1/connections`](#get-v1connections) computes `connected` from the location's status and
-not from `connectionStatus` alone. Reconnecting is the ordinary
-[`authorize`](#get-v1connectionsgoogleauthorize) route again; it reactivates the matched location
-rather than creating a second one.
+Owner intent is recorded on `review_provider_connections.disconnected_at` (nullable
+`TIMESTAMPTZ`, added to `0003_review_provider_locations.sql`). It is kept separate from `status`
+on purpose: `status` describes credential health (`active` / `needs_reauth`), `disconnected_at`
+describes what the owner chose, and overloading one with the other would make "revoked by Google"
+and "disconnected by the owner" indistinguishable. [`GET /v1/connections`](#get-v1connections)
+still computes `connected` from the location's status as well, so both signals have to agree.
+
+Reconnecting is the ordinary [`authorize`](#get-v1connectionsgoogleauthorize) route again. With the
+**same** Google account it upserts the existing row (clearing `disconnected_at`) and reactivates the
+matched location rather than creating a second one. With a **different** Google account it creates
+a new connection row — allowed precisely because the previous one is disconnected; a live
+connection to a different account is still `ACCOUNT_MISMATCH`. The old row and its locations stay
+as inactive records so the review history survives, and every read prefers the live connection.
 
 There is no request body — the tenant's connection is identified by the bearer token's `tenantId`
 and the single `review_provider` value.
@@ -461,13 +461,16 @@ poller and classifier (`PLAN.md` §8.2). Advancing the UI on `status` alone woul
 "you're all set" screen for a location the scheduler is still refusing to enqueue. `livePollingEnabled`
 is returned as the single boolean to branch on so no caller has to know that reasoning.
 
-**The progress bar's denominator is a schema gap, and this response is honest about it.**
-`sync_runs` has `reviews_fetched INTEGER` and nothing to divide it by — no total, no target.
-`totalToImport` and `progress` are therefore `null` until a nullable `sync_runs.reviews_total`
-column is added (see the overview's
-[Gap](./overview.md#gap-between-current-code-and-target-design)), and the UI must fall back to an
-indeterminate bar rather than inventing a percentage. `reviewsFetched` is always real and always
+**The denominator comes from the provider, and only from the provider.** `sync_runs.reviews_total`
+is written once, from the first page that reports a total (Google's `totalReviewCount`), and never
+synthesized from page length — a per-page count masquerading as a total gives a bar that hits 100%
+on page one and keeps counting. When the provider reports no total, `totalToImport` and `progress`
+are `null` and the UI shows an indeterminate bar. `reviewsFetched` is always real and always
 increasing, so "112 reviews imported" is available even when "112 of 187" is not.
+
+One known mismatch in the bar's semantics: the backfill stops at ~50 *imported replies*, while
+`reviewsFetched`/`totalToImport` count *reviews*. A location with many replies can legitimately
+finish at 30%.
 
 This is the one route with a **throttle override**. At the global `short` tier a 2-second poll
 exceeds 30 requests inside the first minute and the owner's progress bar dies with a `429`
@@ -481,10 +484,10 @@ minutes, which is stricter, not looser), so it needs an explicit per-route
 | `status` | string \| null | `sync_run_status` — `running` \| `ok` \| `error`. `null` when no backfill run exists for this location yet. |
 | `trigger` | string | `sync_trigger` — always `backfill` here. |
 | `reviewsFetched` | integer \| null | `sync_runs.reviews_fetched`; nullable in the schema and typically `null` until the run completes. |
-| `totalToImport` | integer \| null | Always `null` today — no column backs it, see above. |
+| `totalToImport` | integer \| null | `sync_runs.reviews_total`. `null` when the provider reported no total — never synthesized. |
 | `progress` | integer \| null | 0–100. `null` whenever `totalToImport` is `null`; never synthesized. |
 | `errorMessage` | string \| null | `sync_runs.error_message`, populated when `status = 'error'`. Safe to show the owner alongside a retry affordance. |
-| `isStale` | boolean | `true` when `status = 'running'` and `started_at` is older than 30 minutes — `PLAN.md` §8.1's staleness tolerance, surfaced so the UI can stop polling forever behind a crashed job. |
+| `isStale` | boolean | `true` when `status = 'running'` and `GREATEST(started_at, updated_at)` is older than 30 minutes — measured from the last *progress write*, since the job bumps `updated_at` after every page. Deliberately the same predicate the acquisition reclaim uses, so the API and the lock can never disagree about whether a run is wedged. A legitimately long import is not stale. |
 | `livePollingEnabled` | boolean | `onboarding_backfill_completed_at IS NOT NULL`. The only correct signal for "advance to the done stage." |
 
 Success `200`:
@@ -597,7 +600,7 @@ Ordering is by `started_at DESC`, which currently has no supporting composite in
 indexes `location_id` and `tenant_id` separately, plus the partial unique
 `(location_id) WHERE status = 'running'`, but nothing leading with `started_at`. Fine at MVP row
 counts, listed in the overview's
-[Gap](./overview.md#gap-between-current-code-and-target-design) as a cheap follow-up.
+[Implementation status](./overview.md#implementation-status) as a cheap follow-up.
 
 | Query param | Type | Rules |
 |---|---|---|

@@ -196,7 +196,7 @@ is still mid-batch, which then hits FK violations on its next upsert. A real `DE
 
 That leaves an honest problem this module has to work around: **`google_connection_status` has no
 `disconnected` value**, so there is nowhere on the connection row to record that the owner
-disconnected. See [Gap](#gap-between-current-code-and-target-design) for the follow-up migration
+disconnected. See [Implementation status](#implementation-status) for the follow-up migration
 this needs and the interim behavior.
 
 **4. Per-poll sync-health updates.** Every pipeline run, scheduled or backfill, writes the same
@@ -273,17 +273,31 @@ row exists) hides exactly the failure the field was added to surface. The API re
 coarse `status` the current UI can consume and the underlying `connectionStatus`, so the frontend
 can start showing a third "action needed" state without an API change.
 
-## Gap between current code and target design
+## Implementation status
 
-**Nothing in this module exists in `apps/backend/src/` today.** Verified: the only file under
-`src/` that mentions `review_provider_connections`, `locations`, `user_locations`, or `sync_runs`
-is the migration that creates them. There is no `src/api/connections/`, no
-`src/db/repositories/connections/`, no `CONNECTIONS` entry in `src/common/route-names.ts`, and no
-GBP provider client anywhere. This is a from-scratch module, which is the easy case: there is no
-generic-boilerplate legacy to unpick the way [auth](../auth/overview.md#gap-between-current-code-and-target-design)
-has, only conventions to follow from the first commit.
+**This module is implemented.** `src/api/connections/` (two controllers, three services),
+`src/db/repositories/connections/` and `src/db/repositories/review-sync/`, and the provider layer
+under `src/review-provider/` all exist and are exercised end to end — with a fixture-backed mock
+behind `DEV_GBP_MOCK=true` for local development, and against the real Google APIs once the
+[API access setup](./google-api-setup.md) is complete.
 
-What has to be built, following `apps/backend/docs/conventions/module-structure.md` and
+Two deviations from the layout originally sketched below, both deliberate:
+
+- **The provider lives in `src/review-provider/`, not `src/api/connections/providers/`.** The
+  backfill job runs in the worker process, which never imports API modules, and the future poller
+  and reply-posting stages need the same client — so it is a `@Global()` module both processes
+  import, following the `src/email/` precedent.
+- **`sync_runs` has exactly one owning repository** (`review-sync`), answering the warning below
+  directly. `ConnectionsDbService` composes it with `ConnectionsRepository` inside one transaction
+  for `POST /locations`.
+
+The three schema follow-ups this document and the API reference originally flagged are also done,
+edited into the existing migration files per the repo's one-file-per-module convention:
+`response_type` gained `'imported_reply'` (without which the backfill's `review_responses` insert
+had no legal value at all), `review_provider_connections` gained `disconnected_at`, and `sync_runs`
+gained `reviews_total` plus the `(location_id, started_at DESC)` index.
+
+The layout, following `apps/backend/docs/conventions/module-structure.md` and
 `apps/backend/CLAUDE.md`:
 
 - **`src/api/connections/`** with the required subfolders — `swagger/`, `constants/`, `types/`,

@@ -1,5 +1,6 @@
 import { CurrentUser } from '@auth/decorators/current-user.decorator';
 import { Roles } from '@auth/decorators/roles.decorator';
+import { UserRole } from '@auth/enums/user-role.enum';
 import { MESSAGES } from '@common/constants/messages.constants';
 import type { ApiResponse } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
@@ -38,7 +39,7 @@ import type { AuthUser } from '../auth/types/auth-user.type';
 
 @Controller({ path: RouteNames.PROMPTS, version: '1' })
 @ApiTags('Prompts')
-@Roles('owner')
+@Roles(UserRole.OWNER)
 export class PromptsController {
   constructor(private readonly promptsService: PromptsService) {}
 

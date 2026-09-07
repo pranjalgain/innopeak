@@ -1,9 +1,10 @@
-# One queue per QueueName (src/background/constants/job.constant.ts) that has a live consumer —
-# QueueName.MEDIA_UPLOAD is excluded, it's already dead code with no processor. Each queue gets
+# One queue per QueueName (src/background/constants/job.constant.ts). Keep this list in sync with
+# that enum — `notification` and `webhook` were left here after those queues were deleted from the
+# codebase, which provisioned two queues nothing ever read. Each queue gets
 # its own transport-level DLQ via native SQS redrive; this is separate from (and in addition to)
 # the application-level DEAD_LETTER queue's own dashboard-visibility DLQ.
 locals {
-  queue_names = ["email", "notification", "webhook", "dead-letter", "cron"]
+  queue_names = ["email", "dead-letter", "cron"]
 }
 
 # SQS server-side encryption intentionally omitted — see README "Terraform security exceptions

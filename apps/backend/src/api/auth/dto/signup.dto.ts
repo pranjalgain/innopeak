@@ -19,8 +19,8 @@ export class SignupDto {
       'Leading/trailing whitespace is trimmed before validation.',
   })
   @Transform(({ value }: { value: unknown }) => trimStringInput(value))
-  @IsString({ message: 'businessName must be a string' })
-  @Length(1, 255, { message: 'businessName must be between 1 and 255 characters' })
+  @IsString({ message: 'Enter your business name.' })
+  @Length(1, 255, { message: 'Business name must be between 1 and 255 characters.' })
   businessName!: string;
 
   @ApiProperty({
@@ -30,13 +30,13 @@ export class SignupDto {
     description: 'Leading/trailing whitespace is trimmed before validation.',
   })
   @Transform(({ value }: { value: unknown }) => trimStringInput(value))
-  @IsString({ message: 'ownerName must be a string' })
-  @Length(1, 255, { message: 'ownerName must be between 1 and 255 characters' })
+  @IsString({ message: 'Enter your full name.' })
+  @Length(1, 255, { message: 'Your name must be between 1 and 255 characters.' })
   ownerName!: string;
 
   @ApiProperty({ example: 'jane@thecoffeehouse.com' })
   @Transform(({ value }: { value: unknown }) => normalizeEmailInput(value))
-  @IsEmail({}, { message: 'email must be a valid email address' })
+  @IsEmail({}, { message: 'Enter a valid email address.' })
   email!: string;
 
   @ApiProperty({
@@ -47,11 +47,11 @@ export class SignupDto {
       'At least one uppercase letter, one lowercase letter, one digit, and one special ' +
       'character (any non-alphanumeric, non-whitespace character — `#`, `-`, `_`, `~`, … all count).',
   })
-  @IsString({ message: 'password must be a string' })
-  @Length(8, 128, { message: 'password must be between 8 and 128 characters' })
+  @IsString({ message: 'Enter your password.' })
+  @Length(8, 128, { message: 'Password must be between 8 and 128 characters.' })
   @Matches(PASSWORD_PATTERN, {
     message:
-      'password must contain an uppercase letter, a lowercase letter, a digit, and a special character',
+      'Password must contain an uppercase letter, a lowercase letter, a digit, and a special character.',
   })
   password!: string;
 }

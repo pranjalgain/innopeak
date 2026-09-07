@@ -4,6 +4,7 @@ import { Request } from 'express';
 
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
+import { UserRole } from '../enums/user-role.enum';
 import { AuthUser } from '../types/auth-user.type';
 
 /**
@@ -19,7 +20,7 @@ export class RolesGuard implements CanActivate {
     // Reflector.getAllAndOverride can genuinely return undefined at runtime when
     // no metadata is set on either the handler or the class, even though the
     // declared generic type does not include `undefined`.
-    const requiredRoles = this.reflector.getAllAndOverride<string[] | undefined>(ROLES_KEY, [
+    const requiredRoles = this.reflector.getAllAndOverride<UserRole[] | undefined>(ROLES_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);

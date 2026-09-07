@@ -26,6 +26,9 @@ import { SignupResponseDto } from './dto/signup-response.dto';
 import { SignupDto } from './dto/signup.dto';
 import { TokenResponseDto } from './dto/token-response.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { TenantStatus } from './enums/tenant-status.enum';
+import { UserRole } from './enums/user-role.enum';
+import { UserStatus } from './enums/user-status.enum';
 import { OtpAttemptService } from './otp-attempt.service';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
 import { TokenService } from './token.service';
@@ -140,20 +143,20 @@ export class AuthService {
       throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CREDENTIALS);
     }
 
-    if (user.status === 'disabled') {
+    if (user.status === UserStatus.DISABLED) {
       throw new ForbiddenException(MESSAGES.AUTH.ACCOUNT_DISABLED);
     }
 
     const tenant = await this.authDbService.findTenantStatus(user.tenantId);
-    if (tenant?.status === 'suspended') {
+    if (tenant?.status === TenantStatus.SUSPENDED) {
       throw new ForbiddenException(MESSAGES.AUTH.TENANT_SUSPENDED);
     }
 
-    if (user.status === 'pending_verification') {
+    if (user.status === UserStatus.PENDING_VERIFICATION) {
       await this.issueOtp(user.id, email, user.name);
 
       const response = new LoginPendingVerificationDto();
-      response.status = 'pending_verification';
+      response.status = UserStatus.PENDING_VERIFICATION;
       response.email = email;
       response.message = MESSAGES.AUTH.LOGIN_OTP_SENT(email);
       return response;
@@ -172,7 +175,7 @@ export class AuthService {
     const email = normalizeEmail(dto.email);
     const user = await this.authDbService.findUserForLogin(email);
 
-    if (user?.status === 'pending_verification') {
+    if (user?.status === UserStatus.PENDING_VERIFICATION) {
       await this.issueOtp(user.id, email, user.name);
     }
 
@@ -215,7 +218,7 @@ export class AuthService {
     tenantId: string;
     email: string;
     name: string;
-    role: 'member' | 'owner';
+    role: UserRole;
   }): Promise<TokenIssuanceResult> {
     const tokens = await this.tokenService.issueTokenPair(user);
     return this.toTokenIssuanceResult(tokens, user);
@@ -223,7 +226,7 @@ export class AuthService {
 
   private async toTokenIssuanceResult(
     tokens: { accessToken: string; refreshToken: string; expiresIn: number },
-    user: { id: string; tenantId: string; email: string; name: string; role: 'member' | 'owner' }
+    user: { id: string; tenantId: string; email: string; name: string; role: UserRole }
   ): Promise<TokenIssuanceResult> {
     const hasConnectedBusiness = await this.authDbService.hasConnectedBusiness(user.tenantId);
 

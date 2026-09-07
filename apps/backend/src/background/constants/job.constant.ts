@@ -2,6 +2,7 @@ export enum QueueName {
   EMAIL = 'email',
   DEAD_LETTER = 'dead-letter',
   CRON = 'cron',
+  REVIEW_SYNC = 'review-sync',
 }
 
 export const QUEUE_LIST = Object.values(QueueName).filter((v): v is QueueName =>
@@ -41,6 +42,8 @@ export enum QueuePrefix {
 export enum JobName {
   OTP_EMAIL_VERIFICATION = 'email-otp-verification',
   DLQ_FAILED_JOB = 'dlq_failed_job',
+  /** One-time historical import, published after POST /v1/connections/locations commits. */
+  REVIEW_BACKFILL = 'review-backfill',
 }
 
 export enum CronJobName {

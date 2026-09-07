@@ -13,6 +13,9 @@ import {
   REFRESH_TOKEN_TTL_SECONDS,
 } from './constants/auth.constants';
 import { JwtTokenType } from './enums/jwt-token-type.enum';
+import { TenantStatus } from './enums/tenant-status.enum';
+import { UserRole } from './enums/user-role.enum';
+import { UserStatus } from './enums/user-status.enum';
 import { RefreshJwtPayload, TenantJwtPayload } from './types/jwt-payload.type';
 import { TokenResponse } from './types/token-response.type';
 import { hashToken } from './utils/token.utils';
@@ -21,7 +24,7 @@ export interface TokenSubject {
   id: string;
   tenantId: string;
   email: string;
-  role: 'member' | 'owner';
+  role: UserRole;
 }
 
 /** A signed pair plus what `refresh_tokens` needs to record it — separated from persisting so `rotate` can commit the insert atomically with the revoke. */
@@ -92,7 +95,7 @@ export class TokenService {
     }
 
     const tenant = await this.authDbService.findTenantStatus(user.tenantId);
-    if (user.status === 'disabled' || tenant?.status === 'suspended') {
+    if (user.status === UserStatus.DISABLED || tenant?.status === TenantStatus.SUSPENDED) {
       await this.revokeAll(user.id);
       throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
     }

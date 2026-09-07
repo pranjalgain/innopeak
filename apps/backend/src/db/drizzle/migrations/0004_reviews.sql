@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS sync_runs (
     completed_at TIMESTAMPTZ,
     status sync_run_status NOT NULL,
     reviews_fetched INTEGER,
+    -- Denominator for the onboarding progress bar, written once from the provider's first page.
+    -- Nullable on purpose: a provider that doesn't report a total leaves this NULL and the UI
+    -- shows an indeterminate bar rather than a fabricated percentage.
+    reviews_total INTEGER,
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -63,6 +67,8 @@ CREATE TABLE IF NOT EXISTS sync_runs (
 
 CREATE INDEX idx_sync_runs_tenant_id ON sync_runs(tenant_id);
 CREATE INDEX idx_sync_runs_location_id ON sync_runs(location_id);
+-- The sync-run history endpoint's exact ordering (most recent run for a location first).
+CREATE INDEX idx_sync_runs_location_id_started_at ON sync_runs(location_id, started_at DESC);
 
 -- Prevents overlapping poller runs for the same location (PLAN.md §8.1). Pair with an
 -- application-level staleness check so a crashed run stuck at 'running' doesn't

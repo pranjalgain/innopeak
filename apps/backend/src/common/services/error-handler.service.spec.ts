@@ -199,7 +199,7 @@ describe('ErrorHandlerService', () => {
   });
 
   describe('handleBadRequest', () => {
-    it('joins and cleans an array of validation messages', () => {
+    it('strips the field prefix and renders each validation message as a sentence', () => {
       const error = Object.assign(new Error('validation failed'), {
         response: { message: ['email.must be an email', 'password.too short'] },
       });
@@ -207,8 +207,33 @@ describe('ErrorHandlerService', () => {
       const result = target.handleBadRequest(error, 'ctx');
 
       expect(result.statusCode).toBe(HttpStatus.BAD_REQUEST);
-      expect(result.message).toBe('must be an email, too short');
+      expect(result.message).toBe('Must be an email. Too short.');
       expect(result.error).toBe('Validation Error');
+    });
+
+    it('leaves an already-formatted message alone rather than double-punctuating it', () => {
+      const error = Object.assign(new Error('validation failed'), {
+        response: {
+          message: [
+            'Password must be between 8 and 128 characters.',
+            'Enter a valid email address.',
+          ],
+        },
+      });
+
+      const result = target.handleBadRequest(error, 'ctx');
+
+      expect(result.message).toBe(
+        'Password must be between 8 and 128 characters. Enter a valid email address.'
+      );
+    });
+
+    it('keeps a single-word message that the field-prefix strip would otherwise empty', () => {
+      const error = Object.assign(new Error('validation failed'), {
+        response: { message: ['Required.'] },
+      });
+
+      expect(target.handleBadRequest(error, 'ctx').message).toBe('Required.');
     });
 
     it('falls back to a generic bad request message when no array is present', () => {

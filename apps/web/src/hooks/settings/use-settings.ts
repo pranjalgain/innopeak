@@ -2,7 +2,8 @@ import { useTranslations } from "next-intl";
 import * as React from "react";
 import { toast } from "sonner";
 
-import { GoogleConnectionService } from "@/app/_libs/services/google-connection.service";
+import { useConnection } from "@/app/_libs/providers/connection-provider";
+import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { SettingsService } from "@/app/_libs/services/settings.service";
 import type { GeneralSettings, NotificationChannel, SettingsData } from "@/types/domain";
 
@@ -117,14 +118,27 @@ export function useSettings(): UseSettingsResult {
     [settings, persist, t],
   );
 
+  const { refresh: refreshConnection } = useConnection();
+
   const disconnect = React.useCallback(() => {
     if (!settings) return;
-    // Same flag the dashboard access guard reads — flip it here too so
-    // disconnecting actually revokes dashboard access, not just this tab's view.
-    void GoogleConnectionService.setStatus("disconnected");
-    persist({ ...settings, connection: { ...settings.connection, status: "disconnected" } });
-    toast.success(t("disconnected"));
-  }, [settings, persist, t]);
+
+    // A real DELETE now, not a localStorage flag: the backend deactivates the tenant's locations
+    // and revokes the stored Google credential. The optimistic local update stays so the tab
+    // reflects the change immediately, but the authoritative state is the API's.
+    void ConnectionService.disconnect()
+      .then(async () => {
+        persist({ ...settings, connection: { ...settings.connection, status: "disconnected" } });
+        toast.success(t("disconnected"));
+        // The dashboard layout's ConnectionProvider fetched once on mount and would otherwise keep
+        // reporting "connected" until a full reload — the guard, the reconnect banner and any other
+        // reader of that context would all lag the change this tab just made.
+        await refreshConnection();
+      })
+      .catch(() => {
+        toast.error(t("disconnectFailed"));
+      });
+  }, [settings, persist, t, refreshConnection]);
 
   return {
     settings,

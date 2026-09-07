@@ -8,6 +8,7 @@ import * as React from "react";
 import { LuStore } from "react-icons/lu";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
+import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,7 +31,16 @@ export function ConnectionSettingsSection({ connection, onDisconnect }: Connecti
   const t = useTranslations("settings.connection");
   const router = useRouter();
   const [isConfirming, setIsConfirming] = React.useState(false);
+  const [isRedirecting, setIsRedirecting] = React.useState(false);
   const isConnected = connection.status === "connected";
+
+  // A full-page navigation into the OAuth flow, returning to this tab via the backend's
+  // `?tab=connection` redirect. Previously the only way back from "disconnected" was the
+  // onboarding screen, which meant Settings could break a connection but never repair one.
+  const handleConnect = () => {
+    setIsRedirecting(true);
+    void ConnectionService.startAuthorize("settings");
+  };
 
   return (
     <Card>
@@ -60,6 +70,14 @@ export function ConnectionSettingsSection({ connection, onDisconnect }: Connecti
             {isConnected ? t("statusConnected") : t("statusDisconnected")}
           </Badge>
         </div>
+
+        {!isConnected ? (
+          <div>
+            <Button type="button" onClick={handleConnect} disabled={isRedirecting}>
+              {isRedirecting ? t("connecting") : t("connectButton")}
+            </Button>
+          </div>
+        ) : null}
 
         {isConnected && !isConfirming ? (
           <div>

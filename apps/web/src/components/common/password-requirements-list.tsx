@@ -1,6 +1,13 @@
 import { useTranslations } from "next-intl";
 import { LuCheck, LuX } from "react-icons/lu";
 
+import {
+  PASSWORD_LOWERCASE_REGEX,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_NUMBER_REGEX,
+  PASSWORD_SPECIAL_REGEX,
+  PASSWORD_UPPERCASE_REGEX,
+} from "@/app/_libs/constants/password-rules";
 import { cn } from "@/app/_libs/utils/cn";
 
 export interface PasswordRequirements {
@@ -12,17 +19,17 @@ export interface PasswordRequirements {
 }
 
 /**
- * Mirrors the backend's `PASSWORD_PATTERN` (apps/backend/src/api/auth/constants/auth.constants.ts)
- * one rule at a time, so the live checklist can never show all-green for a password the API will
- * reject — "special" is any non-alphanumeric, non-whitespace character, not an allowlist.
+ * Evaluates each rule from `@/app/_libs/constants/password-rules` — the same constants the zod
+ * form schemas validate against, so the checklist can never show all-green for a password the
+ * schema (or the API behind it) will reject.
  */
 export function checkPasswordRequirements(password: string): PasswordRequirements {
   return {
-    minLength: password.length >= 8,
-    uppercase: /[A-Z]/.test(password),
-    lowercase: /[a-z]/.test(password),
-    number: /[0-9]/.test(password),
-    special: /[^A-Za-z0-9\s]/.test(password),
+    minLength: password.length >= PASSWORD_MIN_LENGTH,
+    uppercase: PASSWORD_UPPERCASE_REGEX.test(password),
+    lowercase: PASSWORD_LOWERCASE_REGEX.test(password),
+    number: PASSWORD_NUMBER_REGEX.test(password),
+    special: PASSWORD_SPECIAL_REGEX.test(password),
   };
 }
 

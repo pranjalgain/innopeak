@@ -187,6 +187,49 @@ export class EnvConfig {
   @IsString()
   GOOGLE_CALLBACK_URL?: string;
 
+  // ─── Google Business Profile (review data — NOT login) ──────────────────────
+
+  // Deliberately separate from GOOGLE_* above. Those back Google *sign-in*; these back the
+  // review-data grant, which needs entirely different scopes. Sharing one OAuth client would mean
+  // revoking review access also breaks sign-in for every user in the tenant.
+  @IsOptional()
+  @IsString()
+  GBP_CLIENT_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  GBP_CLIENT_SECRET?: string;
+
+  // Must byte-match the redirect URI registered on the Google Cloud project.
+  @IsOptional()
+  @IsString()
+  GBP_CALLBACK_URL?: string;
+
+  // HMAC key for the OAuth `state` blob. Required in production by the manual check in
+  // env-config.module.ts — an unsigned/forgeably-signed state lets an attacker graft their Google
+  // account onto someone else's tenant.
+  @IsOptional()
+  @IsString()
+  GBP_STATE_SECRET?: string;
+
+  // base64-encoded 32 bytes. Encrypts provider refresh tokens at rest in the local credential
+  // store — see LocalRedisCredentialStoreProvider.
+  @IsOptional()
+  @IsString()
+  CREDENTIAL_ENCRYPTION_KEY?: string;
+
+  // Dev-only: swaps the real Google Business Profile client for a fixture-backed one that still
+  // round-trips through our own OAuth callback. Forbidden in production by the Joi schema — a
+  // mocked business connection must never ship.
+  @IsOptional()
+  @IsString()
+  DEV_GBP_MOCK?: string;
+
+  // Dev-only: forces the mock's provider account id, so ACCOUNT_MISMATCH can be exercised.
+  @IsOptional()
+  @IsString()
+  DEV_GBP_MOCK_ACCOUNT_ID?: string;
+
   // ─── GitHub OAuth ───────────────────────────────────────────────────────────
 
   @IsOptional()
@@ -342,4 +385,8 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   CRON_QUEUE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  REVIEW_SYNC_QUEUE_URL?: string;
 }

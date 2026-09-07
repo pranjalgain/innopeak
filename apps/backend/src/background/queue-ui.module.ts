@@ -7,6 +7,7 @@ import { CronUIModule } from '@cron/cron-ui.module';
 import { DeadLetterQueueUIModule } from '@dead-letter-queue/deadletter-queue-ui.module';
 import { EmailQueueUIModule } from '@email-queue/email-queue-ui.module';
 import { Module } from '@nestjs/common';
+import { ReviewSyncQueueUIModule } from '@review-sync-queue/review-sync-queue-ui.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { Module } from '@nestjs/common';
     DeadLetterQueueUIModule,
     CronUIModule,
     EmailQueueUIModule,
+    ReviewSyncQueueUIModule,
   ],
   providers: [AddingJobsToQueueManager],
   exports: [AddingJobsToQueueManager],

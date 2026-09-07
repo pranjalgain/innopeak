@@ -1,0 +1,185 @@
+import { CurrentTenantUser } from '@auth/decorators/current-tenant-user.decorator';
+import { Public } from '@auth/decorators/public.decorator';
+import { Roles } from '@auth/decorators/roles.decorator';
+import { UserRole } from '@auth/enums/user-role.enum';
+import type { TenantAuthUser } from '@auth/types/auth-user.type';
+import { MESSAGES } from '@common/constants/messages.constants';
+import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';
+import { ResponseUtil } from '@common/helpers/response.utils';
+import { RouteNames } from '@common/route-names';
+import { isProduction } from '@config/deployment-target.util';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import type { CookieOptions, Request, Response } from 'express';
+
+import {
+  DEFAULT_RETURN_TO,
+  OAUTH_SID_COOKIE_NAME,
+  OAUTH_SID_COOKIE_PATH,
+  OAUTH_STATE_TTL_SECONDS,
+} from '../constants/connections.constants';
+import {
+  AuthorizeQueryDto,
+  ConfirmLocationDto,
+  ListLocationsQueryDto,
+} from '../dto/connection-request.dto';
+import type {
+  AvailableLocationsResponseDto,
+  ConfirmLocationResponseDto,
+  ConnectionStatusResponseDto,
+  DisconnectResponseDto,
+  LocationListResponseDto,
+} from '../dto/connection-response.dto';
+import { ConnectionsService } from '../services/connections.service';
+import {
+  ApiAuthorize,
+  ApiAvailableLocations,
+  ApiCallback,
+  ApiConfirmLocation,
+  ApiDisconnect,
+  ApiGetConnection,
+  ApiListLocations,
+} from '../swagger/connections.swagger';
+
+@Controller({ path: RouteNames.CONNECTIONS, version: '1' })
+@ApiTags('Connections')
+export class ConnectionsController {
+  constructor(private readonly connectionsService: ConnectionsService) {}
+
+  @Get()
+  @ApiGetConnection()
+  async getConnection(
+    @CurrentTenantUser() user: TenantAuthUser
+  ): Promise<ApiResponseDto<ConnectionStatusResponseDto>> {
+    const response = await this.connectionsService.getConnectionStatus(user.tenantId);
+    return ResponseUtil.success(response, undefined, HttpStatus.OK);
+  }
+
+  @Get(RouteNames.GOOGLE_AUTHORIZE)
+  @Roles(UserRole.OWNER)
+  @ApiAuthorize()
+  async authorize(
+    @CurrentTenantUser() user: TenantAuthUser,
+    @Query() query: AuthorizeQueryDto,
+    @Res() res: Response
+  ): Promise<void> {
+    const { authorizationUrl, sid } = await this.connectionsService.buildAuthorizeRedirect({
+      tenantId: user.tenantId,
+      userId: user.id,
+      returnTo: query.returnTo ?? DEFAULT_RETURN_TO,
+    });
+
+    res.cookie(OAUTH_SID_COOKIE_NAME, sid, this.oauthSidCookieOptions());
+    res.redirect(HttpStatus.FOUND, authorizationUrl);
+  }
+
+  /**
+   * `@Public()` because Google — not the SPA — performs this request and it carries no bearer
+   * token. All tenant context comes from the signed `state` plus the Redis record it names.
+   */
+  @Get(RouteNames.GOOGLE_CALLBACK)
+  @Public()
+  @ApiCallback()
+  async callback(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const query = req.query as Record<string, string | undefined>;
+
+    const redirectUrl = await this.connectionsService.handleCallback({
+      code: query['code'],
+      state: query['state'],
+      error: query['error'],
+      sid: (req.cookies as Record<string, string | undefined> | undefined)?.[OAUTH_SID_COOKIE_NAME],
+    });
+
+    // Cleared unconditionally, success or failure: the binding cookie is single-use by design, so
+    // leaving it behind would let an abandoned flow's cookie satisfy a later callback's check.
+    res.clearCookie(OAUTH_SID_COOKIE_NAME, { path: OAUTH_SID_COOKIE_PATH });
+    res.redirect(HttpStatus.FOUND, redirectUrl);
+  }
+
+  @Delete(RouteNames.GOOGLE)
+  @Roles(UserRole.OWNER)
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiDisconnect()
+  async disconnect(
+    @CurrentTenantUser() user: TenantAuthUser
+  ): Promise<ApiResponseDto<DisconnectResponseDto>> {
+    const response = await this.connectionsService.disconnect(user.tenantId);
+    return ResponseUtil.success(response, MESSAGES.CONNECTIONS.DISCONNECTED, HttpStatus.OK);
+  }
+
+  @Get(RouteNames.GOOGLE_AVAILABLE_LOCATIONS)
+  @Roles(UserRole.OWNER)
+  @ApiAvailableLocations()
+  async availableLocations(
+    @CurrentTenantUser() user: TenantAuthUser
+  ): Promise<ApiResponseDto<AvailableLocationsResponseDto>> {
+    const response = await this.connectionsService.listAvailableLocations(user.tenantId);
+    return ResponseUtil.success(response, undefined, HttpStatus.OK);
+  }
+
+  @Get(RouteNames.LOCATIONS)
+  @ApiListLocations()
+  async listLocations(
+    @CurrentTenantUser() user: TenantAuthUser,
+    @Query() query: ListLocationsQueryDto
+  ): Promise<ApiResponseDto<LocationListResponseDto>> {
+    const locations = await this.connectionsService.listLocations({
+      userId: user.id,
+      status: query.status,
+    });
+
+    return ResponseUtil.success({ locations }, undefined, HttpStatus.OK);
+  }
+
+  @Post(RouteNames.LOCATIONS)
+  @Roles(UserRole.OWNER)
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.CREATED)
+  @ApiConfirmLocation()
+  async confirmLocation(
+    @CurrentTenantUser() user: TenantAuthUser,
+    @Body() dto: ConfirmLocationDto
+  ): Promise<ApiResponseDto<ConfirmLocationResponseDto>> {
+    const response = await this.connectionsService.confirmLocation({
+      tenantId: user.tenantId,
+      userId: user.id,
+      externalLocationId: dto.externalLocationId,
+    });
+
+    return ResponseUtil.success(
+      response,
+      MESSAGES.CONNECTIONS.LOCATION_CONFIRMED,
+      HttpStatus.CREATED
+    );
+  }
+
+  /**
+   * `SameSite=Lax`, not Strict: the callback arrives as a top-level GET navigation from Google,
+   * which Lax permits and Strict does not — Strict would drop the cookie on exactly the request
+   * that needs it and make every legitimate connect fail as INVALID_STATE.
+   *
+   * Path-scoped to /v1/connections so it is never sent on any other request, and short-lived
+   * because a consent round trip that takes more than ten minutes has been abandoned.
+   */
+  private oauthSidCookieOptions(): CookieOptions {
+    return {
+      httpOnly: true,
+      secure: isProduction(),
+      sameSite: 'lax',
+      path: OAUTH_SID_COOKIE_PATH,
+      maxAge: OAUTH_STATE_TTL_SECONDS * 1000,
+    };
+  }
+}

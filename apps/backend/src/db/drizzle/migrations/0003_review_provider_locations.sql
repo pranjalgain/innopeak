@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS review_provider_connections (
     credential_reference VARCHAR(255) NOT NULL,
     token_expires_at TIMESTAMPTZ,
     status google_connection_status NOT NULL,
+    -- Separate from `status`, which describes credential health (active/needs_reauth/revoked).
+    -- This records owner *intent*: they disconnected on purpose. Overloading `status` would make
+    -- "revoked by Google" and "disconnected by the owner" indistinguishable, and only the latter
+    -- should stop us prompting them to re-authorize.
+    disconnected_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

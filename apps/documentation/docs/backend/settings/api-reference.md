@@ -242,8 +242,7 @@ full-resource write on a singleton, not an item in a collection.
 **The row must already exist**, since classification cannot run without it — which is exactly why
 `PLAN.md` §8.10 puts `INSERT tenant_settings` inside the signup transaction alongside `tenants` and
 `users`. The *value* needs no help: `escalation_rating_threshold` is `NOT NULL DEFAULT 3`
-(`0002_tenant_auth.sql`, plus `0010_tenant_settings_threshold_default.sql` for databases that
-predate the default), so signup omits the column and inherits it, while `auto_post_enabled = false`
+(`0002_tenant_auth.sql`), so signup omits the column and inherits it, while `auto_post_enabled = false`
 is still written explicitly because "never post without a human in the MVP" is an app-level
 guarantee. Neither route below creates the row. Both `404` if it is missing.
 
