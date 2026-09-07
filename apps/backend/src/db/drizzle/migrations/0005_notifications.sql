@@ -14,9 +14,11 @@ CREATE TABLE IF NOT EXISTS notifications (
     review_id UUID NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
     recipient_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     generation_group_id UUID,
-    type notification_type NOT NULL,
+    -- `notification_type` has exactly one value today.
+    type notification_type NOT NULL DEFAULT 'escalation',
     channel notification_channel NOT NULL,
-    status notification_status NOT NULL,
+    -- Queued before it is dispatched; sent/failed are terminal updates.
+    status notification_status NOT NULL DEFAULT 'pending',
     sent_at TIMESTAMPTZ,
     read_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

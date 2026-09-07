@@ -52,9 +52,11 @@ CREATE TABLE IF NOT EXISTS sync_runs (
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
     "trigger" sync_trigger NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL,
+    -- Acquisition always stamps now(); the repository wrote `sql`now()`` at every insert.
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
-    status sync_run_status NOT NULL,
+    -- A run is only ever acquired `running`; ok/error are terminal updates.
+    status sync_run_status NOT NULL DEFAULT 'running',
     reviews_fetched INTEGER,
     -- Denominator for the onboarding progress bar, written once from the provider's first page.
     -- Nullable on purpose: a provider that doesn't report a total leaves this NULL and the UI
