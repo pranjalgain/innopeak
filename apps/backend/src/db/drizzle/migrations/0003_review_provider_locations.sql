@@ -16,11 +16,13 @@ CREATE TABLE IF NOT EXISTS review_provider_connections (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     connected_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    provider review_provider NOT NULL,
+    -- `review_provider` has exactly one value; the repository hardcoded it at every insert.
+    provider review_provider NOT NULL DEFAULT 'google',
     provider_account_id VARCHAR(255) NOT NULL,
     credential_reference VARCHAR(255) NOT NULL,
     token_expires_at TIMESTAMPTZ,
-    status google_connection_status NOT NULL,
+    -- A connection is always created active; `needs_reauth` is only ever reached by an update.
+    status google_connection_status NOT NULL DEFAULT 'active',
     -- Separate from `status`, which describes credential health (active/needs_reauth/revoked).
     -- This records owner *intent*: they disconnected on purpose. Overloading `status` would make
     -- "revoked by Google" and "disconnected by the owner" indistinguishable, and only the latter
@@ -46,8 +48,10 @@ CREATE TABLE IF NOT EXISTS notification_recipients (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    notification_type notification_type NOT NULL,
-    channel notification_channel_pref NOT NULL,
+    -- `notification_type` has exactly one value today.
+    notification_type notification_type NOT NULL DEFAULT 'escalation',
+    -- A genuine preference (email | teams | both), defaulted to the channel every tenant has.
+    channel notification_channel_pref NOT NULL DEFAULT 'email',
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -68,11 +72,14 @@ CREATE TABLE IF NOT EXISTS locations (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     provider_connection_id UUID NOT NULL REFERENCES review_provider_connections(id) ON DELETE CASCADE,
-    provider review_provider NOT NULL,
+    -- Same single-valued enum. Still written explicitly by upsertLocation, which copies it off
+    -- the connection row — the default makes the column optional, not the denormalization safe.
+    provider review_provider NOT NULL DEFAULT 'google',
     external_location_id VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
     address VARCHAR(500),
-    status location_status NOT NULL,
+    -- A confirmed location starts active; `inactive` is only ever reached by disconnect.
+    status location_status NOT NULL DEFAULT 'active',
     last_synced_at TIMESTAMPTZ,
     last_sync_status sync_health_status,
     last_sync_error TEXT,
