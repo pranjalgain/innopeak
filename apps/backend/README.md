@@ -162,8 +162,7 @@ src/
 ├── config/             # Environment configuration
 ├── db/                 # Drizzle ORM + centralized repositories
 │   ├── drizzle/        #   Schema, migrations, migrate runner
-│   ├── repositories/   #   ALL repositories (auth/, users/, media/, etc.)
-│   └── seeds/          #   Raw SQL seed files
+│   └── repositories/   #   ALL repositories (auth/, prompts/)
 ├── redis/              # Redis client & health
 ├── otel/               # OpenTelemetry setup
 ├── logger/             # Winston logging
@@ -231,7 +230,6 @@ pnpm type-check         # TypeScript strict mode check
 
 ```bash
 pnpm db:migrate              # Apply SQL migrations
-pnpm db:seed                 # Run raw SQL seed files (roles, admin user)
 pnpm db:introspect           # Generate Drizzle schema from DB
 pnpm db:generate             # migrate + introspect (combined)
 pnpm db:create-migration <n> # Create new empty SQL migration

@@ -176,9 +176,12 @@ export class AuthRepository {
     tx: DrizzleTransaction,
     input: InsertTenantSettingsInput
   ): Promise<void> {
+    // `escalation_rating_threshold` is left to its column default (3) — one source of truth for
+    // the product default, in the schema. `auto_post_enabled` is written explicitly even though
+    // it defaults to false, because "never post without a human in the MVP" is an app-level
+    // guarantee (PLAN.md §8) and worth stating at the insert rather than inheriting silently.
     await tx.insert(schema.tenantSettings).values({
       tenantId: input.tenantId,
-      escalationRatingThreshold: 3,
       autoPostEnabled: false,
     });
   }

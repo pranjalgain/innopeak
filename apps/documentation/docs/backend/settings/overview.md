@@ -18,9 +18,12 @@ These aren't cosmetic preferences. Two of them are **direct inputs to the classi
 `rating` is below `tenant_settings.escalation_rating_threshold`. A third —
 `notification_recipients` — is what decides whether an escalation reaches a human at all, and on
 which channel. If `tenant_settings` doesn't exist for a tenant, that tenant cannot classify a
-single review: `escalation_rating_threshold` is `NOT NULL` **with no database default**, which is
-exactly why `PLAN.md` §8.10 puts its `INSERT` inside the signup transaction alongside `tenants`
-and `users`. This module reads and updates that row; it never creates it.
+single review — which is exactly why `PLAN.md` §8.10 puts its `INSERT` inside the signup
+transaction alongside `tenants` and `users`. It is the *row* that must exist, not the value:
+`escalation_rating_threshold` is `NOT NULL` **`DEFAULT 3`** (`0002_tenant_auth.sql`, backfilled
+onto already-migrated databases by `0010_tenant_settings_threshold_default.sql`), so the writer
+inherits the product default instead of restating it. This module reads and updates that row; it
+never creates it.
 
 The consumer is the dashboard's Settings screen (`apps/web/src/app/(dashboard)/settings/`), which
 is owner-only territory in the product — `PLAN.md` §2 defines `member` as "review workflow only
@@ -38,7 +41,7 @@ Reference](./api-reference.md).
 
 | Table | Purpose |
 |---|---|
-| `tenant_settings` | **Owned.** One row per tenant (`idx_tenant_settings_tenant_id` is a UNIQUE index, not a plain one). `escalation_rating_threshold` (`INTEGER NOT NULL`, `CHECK (… BETWEEN 1 AND 5)`), `auto_post_enabled` (`BOOLEAN NOT NULL DEFAULT false`), `review_data_retention_months` (`INTEGER`, nullable — NULL means "fall back to the platform default", `PLAN.md` §6). |
+| `tenant_settings` | **Owned.** One row per tenant (`idx_tenant_settings_tenant_id` is a UNIQUE index, not a plain one). `escalation_rating_threshold` (`INTEGER NOT NULL DEFAULT 3`, `CHECK (… BETWEEN 1 AND 5)`), `auto_post_enabled` (`BOOLEAN NOT NULL DEFAULT false`), `review_data_retention_months` (`INTEGER`, nullable — NULL means "fall back to the platform default", `PLAN.md` §6). |
 | `blocklist_terms` | **Owned.** Zero-to-many per tenant. `term` (`VARCHAR(255) NOT NULL`), `is_active` (`BOOLEAN NOT NULL DEFAULT true`). Unique on `(tenant_id, lower(term))` via `idx_blocklist_terms_tenant_id_lower_term` — an expression index, so uniqueness is case-insensitive and **covers inactive rows too**. |
 | `notification_recipients` | **Owned.** Which `users` row wants to hear about which `notification_type`, and on which channel. `user_id` is `NOT NULL` — a recipient is always an app user, never a free-text email address. `channel` is `notification_channel_pref`; `is_active` gates delivery. Indexed on `tenant_id` and `user_id`; **no unique constraint** — see [Gap](#gap-between-current-code-and-target-design). |
 | `tenants` | **Read + update only.** `name` is the one column this module writes. Tenant *creation* belongs to the auth module's signup transaction — see [Auth Module — Overview](../auth/overview.md#auth-flows). `status` (`tenant_status`) is read-only here; only a platform admin changes it. |

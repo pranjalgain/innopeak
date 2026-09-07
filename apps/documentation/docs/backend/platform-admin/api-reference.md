@@ -338,8 +338,9 @@ the concrete case where the schema simply has no way to record who invited this 
 owner's `status` is `invited`, not `pending_verification`: §4.3d states that the platform admin
 addressing the invite to a specific mailbox is the equivalent assurance a member invite carries, so
 there is no separate email-verification step. `tenant_settings` is in the transaction because
-`escalation_rating_threshold` is `NOT NULL` with no default and classification depends on the row
-existing (`PLAN.md` §8.10 — the case earlier drafts of that flow left undefined).
+classification depends on the row existing (`PLAN.md` §8.10 — the case earlier drafts of that flow
+left undefined); the insert need not name `escalation_rating_threshold`, which is
+`NOT NULL DEFAULT 3`.
 
 **Everything after the invite email is auth's, unmodified.** The owner accepts through [`POST
 /v1/auth/invite/accept`](../auth/api-reference.md#post-v1authinviteaccept) (password) or [`GET

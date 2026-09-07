@@ -1,8 +1,12 @@
-import { DBService } from '@db/db.service';
+import { DBService, type DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
+import {
+  DEFAULT_PROMPT_TONE,
+  DEFAULT_PROMPTS,
+} from '../../../api/prompts/constants/default-prompts.constant';
 import type { PromptToneValue } from '../../../api/prompts/constants/prompts.constants';
 import type {
   AppendedPromptVersion,
@@ -13,6 +17,51 @@ import type {
 @Injectable()
 export class PromptsRepository {
   constructor(private readonly dbService: DBService) {}
+
+  /**
+   * Provisions a tenant's starting prompts and their v1 templates. Takes the caller's `tx` so it
+   * joins the signup transaction — a tenant that committed without prompts is exactly the broken
+   * state this exists to prevent, and both tables have to land together or the listing sees a
+   * prompt with no versions.
+   *
+   * `ON CONFLICT DO NOTHING` against `idx_prompts_tenant_id_category` makes it re-runnable, so a
+   * retry or a later backfill over an already-provisioned tenant is a no-op rather than a 23505.
+   * `created_by_user_id` stays NULL: these are system-provisioned, not authored by the owner.
+   */
+  async insertDefaultsForTenant(tx: DrizzleTransaction, tenantId: string): Promise<void> {
+    const inserted = await tx
+      .insert(schema.prompts)
+      .values(
+        DEFAULT_PROMPTS.map(prompt => ({
+          tenantId,
+          category: prompt.category,
+          name: prompt.name,
+          description: prompt.description,
+          tone: DEFAULT_PROMPT_TONE,
+        }))
+      )
+      // Targeted rather than bare: this names `idx_prompts_tenant_id_category` as the arbiter, so
+      // any *other* unique violation stays an error instead of being silently swallowed.
+      .onConflictDoNothing({ target: [schema.prompts.tenantId, schema.prompts.category] })
+      .returning({ id: schema.prompts.id, category: schema.prompts.category });
+
+    // Only rows this statement actually created come back, so an already-provisioned category is
+    // skipped here too and keeps the version history it has.
+    const templates = new Map(DEFAULT_PROMPTS.map(prompt => [prompt.category, prompt.template]));
+    const versions = inserted.flatMap(row => {
+      const template = templates.get(row.category);
+      // Unreachable — every returned category came from DEFAULT_PROMPTS. Skipped rather than
+      // asserted past, because `noUncheckedIndexedAccess` types `Map.get` as possibly undefined
+      // and inserting `undefined` into a NOT NULL column is the worse failure.
+      return template === undefined
+        ? []
+        : [{ promptId: row.id, version: 1, template, createdByUserId: null }];
+    });
+
+    if (versions.length > 0) {
+      await tx.insert(schema.promptVersions).values(versions);
+    }
+  }
 
   async findByTenant(tenantId: string): Promise<PromptRecord[]> {
     const rows = await this.dbService.db

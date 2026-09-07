@@ -16,7 +16,6 @@ pnpm local:up               # Full local setup: docker + migrate + start
 pnpm db:migrate             # Apply SQL migrations
 pnpm db:introspect          # Generate Drizzle schema from DB
 pnpm db:create-migration <name>  # Create new empty SQL migration file
-pnpm db:seed                # Run raw SQL seed files (dev tenant + owner user)
 pnpm db:studio              # Open Drizzle Studio
 pnpm local:aws:up           # AWS-emulated stack: Floci + Terraform + start (DEPLOYMENT_TARGET=aws)
 ```
