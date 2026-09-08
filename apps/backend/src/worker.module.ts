@@ -9,6 +9,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { RedisModule } from '@redis/redis.module';
 import { REDIS_CLIENT } from '@redis/redis.provider';
+import { ReviewPipelineModule } from '@review-pipeline/review-pipeline.module';
 import { ReviewProviderModule } from '@review-provider/review-provider.module';
 import Redis from 'ioredis';
 
@@ -28,7 +29,8 @@ const queueModule = BullModule.forRootAsync({
 // DBModule is @Global, so importing it once here is what lets CronService (AUTH_TOKEN_CLEANUP)
 // inject AuthDbService inside the worker process. ReviewProviderModule is here for the same
 // reason: the review backfill runs in *this* process and needs the Google client and the
-// credential store, neither of which it could reach through an API module.
+// credential store, neither of which it could reach through an API module. ReviewPipelineModule
+// is here for the same reason again — the backfill job classifies reviews after importing them.
 @Module({
   imports: [
     EnvConfigModule,
@@ -36,6 +38,7 @@ const queueModule = BullModule.forRootAsync({
     RedisModule,
     DBModule,
     ReviewProviderModule,
+    ReviewPipelineModule,
     queueModule,
     BackgroundModule,
   ],

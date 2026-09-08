@@ -450,28 +450,29 @@ Errors: `400` validation, `401`, `403` (member), `409 BLOCKLIST_TERM_EXISTS`, `5
 
 ### `PATCH /v1/settings/blocklist-terms/:id`
 
-Renames a term and/or flips `is_active`. **No screen calls this today** — the Blocklist tab offers
-add and remove only. It is in the contract because `is_active` is the column `PLAN.md` §3 actually
-filters on, so the API needs a way to write it; muting a term without losing it is what the column
-exists for.
+Renames a term. **Spec-only — no screen calls this and it is not implemented**; the Blocklist tab
+offers add and remove only.
+
+It used to also flip `is_active`, justified by that being "the column `PLAN.md` §3 filters on."
+That was never true — no code path ever wrote or read it — so the column was dropped from
+`blocklist_terms` rather than wired up, and muting a term is not a feature. A term you no longer
+want is deleted.
 
 Renaming re-enters the same case-insensitive unique index as `POST`, so a rename onto an existing
-term (active or inactive) is a `409`. Unlike `POST`, a rename does **not** absorb the colliding row
-— merging two terms by renaming is data loss disguised as an edit; delete one and rename the other.
+term is a `409`. Unlike `POST`, a rename does **not** absorb the colliding row — merging two terms
+by renaming is data loss disguised as an edit; delete one and rename the other.
 
-Request (at least one field required):
+Request:
 
 ```json
 {
-  "term": "lawsuit threat",
-  "isActive": false
+  "term": "lawsuit threat"
 }
 ```
 
 | Field | Type | Rules |
 |---|---|---|
-| `term` | string | optional; same rules as `POST` — trimmed, 1–255 chars, non-empty |
-| `isActive` | boolean | optional |
+| `term` | string | required; same rules as `POST` — trimmed, 1–255 chars, non-empty |
 
 An empty body is `400 NO_FIELDS_TO_UPDATE` rather than a no-op `200`: a client that sent nothing
 meant to send something.
@@ -482,7 +483,6 @@ Success `200`:
 {
   "id": "0190f3c1-0a12-7b40-9e63-11c4a7f0b2da",
   "term": "lawsuit threat",
-  "isActive": false,
   "updatedAt": "2026-09-04T11:08:40Z"
 }
 ```
@@ -494,8 +494,9 @@ Errors: `400` validation, `400 NO_FIELDS_TO_UPDATE`, `401`, `403` (member),
 
 Removes a term permanently. Backs the chip's X button in the Blocklist tab.
 
-**A hard `DELETE`, not `is_active = false`.** Two reasons, and neither is convenience. First, the
-UI's affordance is a removal, not a mute — leaving a soft-deleted row behind would make the next
+**A hard `DELETE`, and there is no soft-delete alternative** — the `is_active` column that would
+have provided one has been dropped. Two reasons, and neither is convenience. First, the UI's
+affordance is a removal, not a mute — leaving a soft-deleted row behind would make the next
 `POST` of the same word return `200 reactivated: true` for something the owner believes they
 deleted. Second, deleting the row does not destroy the history of why a past review escalated:
 `reviews.matched_keywords` stores the matched term text on the review itself (`PLAN.md` §2,

@@ -409,7 +409,6 @@ export const blocklistTerms = pgTable(
       .notNull(),
     tenantId: uuid('tenant_id').notNull(),
     term: varchar({ length: 255 }).notNull(),
-    isActive: boolean('is_active').default(true).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
