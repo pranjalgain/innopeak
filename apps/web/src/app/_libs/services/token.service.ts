@@ -1,4 +1,21 @@
 const ACCESS_TOKEN_KEY = "access-token";
+/**
+ * The signed-in user's display name — set alongside the access token whenever a response carries
+ * one (login, signup, refresh, Google completion), never decoded from the JWT: the access token
+ * carries no `name` claim, only `email`/`exp`, so this is the one piece of profile data that has
+ * to be stored explicitly rather than read back out of the token itself.
+ */
+const NAME_KEY = "access-token-name";
+
+/**
+ * Whether the signed-in user has a password set — same rationale as `NAME_KEY`: the access token
+ * carries no such claim, so it's stored explicitly from whatever auth response last carried it
+ * (login, signup, refresh, change/set-password, Google completion) rather than decoded.
+ */
+const HAS_PASSWORD_KEY = "access-token-has-password";
+
+/** The tenant/company name set at signup (`tenants.name`) — same rationale as `NAME_KEY`. Read-only in Settings. */
+const BUSINESS_NAME_KEY = "access-token-business-name";
 
 /** Treat a token as expired slightly early, so one that would die mid-flight is refreshed first. */
 const EXPIRY_SKEW_SECONDS = 30;
@@ -41,6 +58,9 @@ export class TokenService {
   static clear(): void {
     if (typeof window === "undefined") return;
     window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+    window.localStorage.removeItem(NAME_KEY);
+    window.localStorage.removeItem(HAS_PASSWORD_KEY);
+    window.localStorage.removeItem(BUSINESS_NAME_KEY);
   }
 
   /** Email claim from the stored access token — display only, never used as authorization. */
@@ -49,6 +69,41 @@ export class TokenService {
     if (!token) return null;
     const email = this.decode(token)?.email;
     return typeof email === "string" && email.length > 0 ? email : null;
+  }
+
+  /** Display only, same as `getEmail` — never used as authorization. */
+  static getName(): string | null {
+    if (typeof window === "undefined") return null;
+    const name = window.localStorage.getItem(NAME_KEY);
+    return name && name.length > 0 ? name : null;
+  }
+
+  static setName(name: string): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(NAME_KEY, name);
+  }
+
+  /** Null means "unknown" (nothing stored yet) — callers fall back rather than assume either way. */
+  static getHasPassword(): boolean | null {
+    if (typeof window === "undefined") return null;
+    const value = window.localStorage.getItem(HAS_PASSWORD_KEY);
+    return value === null ? null : value === "true";
+  }
+
+  static setHasPassword(hasPassword: boolean): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(HAS_PASSWORD_KEY, String(hasPassword));
+  }
+
+  static getBusinessName(): string | null {
+    if (typeof window === "undefined") return null;
+    const name = window.localStorage.getItem(BUSINESS_NAME_KEY);
+    return name && name.length > 0 ? name : null;
+  }
+
+  static setBusinessName(businessName: string): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(BUSINESS_NAME_KEY, businessName);
   }
 
   /**

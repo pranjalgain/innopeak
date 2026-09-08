@@ -71,12 +71,23 @@ async function refreshSession(): Promise<boolean> {
 
       const envelope = (await response.json().catch(() => null)) as ApiEnvelope<{
         accessToken?: string;
+        user?: { name?: string; hasPassword?: boolean; businessName?: string };
       }> | null;
       const accessToken = envelope?.data?.accessToken;
 
       if (!accessToken) return false;
 
       TokenService.setAccessToken(accessToken);
+      // The one path a Google sign-in (redirect-only, no JSON body ever reaches this app) has for
+      // getting its display name at all: `useAuthToken` calls this the moment localStorage starts
+      // out empty, and `/v1/auth/refresh`'s response carries `user.name` same as every other
+      // token-issuing endpoint.
+      const name = envelope?.data?.user?.name;
+      if (name) TokenService.setName(name);
+      const hasPassword = envelope?.data?.user?.hasPassword;
+      if (hasPassword !== undefined) TokenService.setHasPassword(hasPassword);
+      const businessName = envelope?.data?.user?.businessName;
+      if (businessName) TokenService.setBusinessName(businessName);
       return true;
     } catch {
       return false;

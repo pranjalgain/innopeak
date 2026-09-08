@@ -1,4 +1,5 @@
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
+import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
 import { type DrizzleTransaction } from '@db/db.service';
@@ -33,12 +34,32 @@ export interface SignupInput {
   tokenExpiresAt: Date;
 }
 
+/**
+ * `'unknown'` deliberately carries no user and no reason — what it means is an AuthService-level
+ * decision (NO_ACCOUNT for a login round trip, a pending signup for a signup one), not this DB
+ * service's to make. See `resolveGoogleIdentity`.
+ */
+export type GoogleIdentityLookup = { kind: 'known'; user: VerifiedUser } | { kind: 'unknown' };
+
+/** The `tenants` columns every sign-in path needs: `status` to refuse a suspended one, `name` for the token response. */
+export interface TenantRow {
+  status: TenantStatus;
+  name: string;
+}
+
 export interface VerifiedUser {
   id: string;
   tenantId: string;
   email: string;
   name: string;
   role: UserRole;
+  passwordHash: string | null;
+  /**
+   * Carried so callers can apply the same standing checks password login does. It used to be
+   * dropped here, which is how the Google callback ended up with no way to refuse a `disabled`
+   * account — see AuthService.handleGoogleCallback.
+   */
+  status: UserStatus;
 }
 
 /**
@@ -118,6 +139,151 @@ export class AuthDbService {
     await this.promptsRepository.insertDefaultsForTenant(tx, tenantId);
   }
 
+  /**
+   * Resolves a Google identity against `user_identities`/`users` — never creates anything. Two
+   * cases sign the caller in; the third tells the caller this is a genuinely new person, and
+   * creating their tenant needs one more thing Google cannot supply.
+   *
+   *  1. **Known identity** — a `user_identities` row for this `sub`. Sign in.
+   *  2. **Known email, no identity** — the person signed up with a password and is now using the
+   *     Google button. Link the identity and sign in. Safe because Google has verified the
+   *     address, and the alternative is a dead end: the UI offers a button that cannot work.
+   *  3. **Neither** — `{ kind: 'unknown' }`. What this means depends on intent, which is a business
+   *     rule this DB service deliberately does not make: the caller (AuthService) turns it into
+   *     `NO_ACCOUNT` for a login round trip, or into a pending signup — see
+   *     `completeGoogleSignup` — for a signup one. This split used to live here, gated on whether
+   *     the caller happened to pass a `businessName`; that baked an intent-shaped decision into the
+   *     data layer, which is what `completeGoogleSignup` now exists to undo.
+   */
+  async resolveGoogleIdentity(input: {
+    providerUserId: string;
+    email: string;
+  }): Promise<GoogleIdentityLookup> {
+    const existingIdentity = await this.authRepository.findUserIdByIdentity(
+      UserIdentityProvider.GOOGLE,
+      input.providerUserId
+    );
+
+    if (existingIdentity) {
+      const user = await this.authRepository.findUserById(existingIdentity.userId);
+      // An identity row with no matching user is unreachable in practice (nothing hard-deletes a
+      // user), so this is treated the same as never having seen this person — not worth a third
+      // branch for a case that can't occur.
+      return user === null
+        ? { kind: 'unknown' }
+        : { kind: 'known', user: this.toVerifiedUser(user) };
+    }
+
+    const byEmail = await this.authRepository.findUserByEmail(input.email);
+    if (byEmail) {
+      // Google has verified this address, so linking also *finishes* a signup that stalled at the
+      // OTP screen: without this the account stayed `pending_verification` (and its tenant
+      // `pending_activation`) forever while being perfectly usable through the Google button, and
+      // password login kept mailing codes for an account that was already proven.
+      const activated = await this.authRepository.transaction(async tx => {
+        await this.authRepository.upsertUserIdentity(tx, {
+          userId: byEmail.id,
+          provider: UserIdentityProvider.GOOGLE,
+          providerUserId: input.providerUserId,
+          email: input.email,
+        });
+
+        if (byEmail.status !== UserStatus.PENDING_VERIFICATION) {
+          return false;
+        }
+
+        const promoted = await this.authRepository.activateUser(tx, byEmail.id);
+        if (promoted) {
+          await this.authRepository.activateTenant(tx, byEmail.tenantId);
+          // The OTP path provisions here too — an account that never reaches `verifyEmail` would
+          // otherwise own a tenant with no prompts.
+          await this.provisionTenantWorkspace(tx, byEmail.tenantId);
+        }
+        return promoted;
+      });
+
+      return {
+        kind: 'known',
+        user: this.toVerifiedUser(activated ? { ...byEmail, status: UserStatus.ACTIVE } : byEmail),
+      };
+    }
+
+    return { kind: 'unknown' };
+  }
+
+  /**
+   * The other half of a deferred Google signup: called once a business name has been collected,
+   * with the identity Google already verified at the callback. Same shape as the old inline
+   * creation branch of `resolveGoogleIdentity` — tenant + owner + settings + identity + prompts,
+   * one transaction — just triggered later, after the one thing Google cannot supply is known.
+   *
+   * The created owner is `active` and email-verified immediately, which is exactly the
+   * "already-verified signup path" `provisionTenantWorkspace` was written for: it never reaches
+   * `verifyEmail`, so it provisions its own workspace here or the tenant would have no prompts.
+   *
+   * Returns null on the same race `signup` guards against — someone else registered this exact
+   * email in the window between the OAuth callback and this call (a password signup, or a second
+   * Google round trip). The caller reports a clean conflict rather than a 500.
+   */
+  async completeGoogleSignup(input: {
+    providerUserId: string;
+    email: string;
+    name: string | null;
+    businessName: string;
+  }): Promise<VerifiedUser | null> {
+    const ownerName = input.name ?? input.email;
+
+    try {
+      return await this.authRepository.transaction(async tx => {
+        const tenant = await this.authRepository.insertTenant(tx, { name: input.businessName });
+        const user = await this.authRepository.insertVerifiedOwnerUser(tx, {
+          tenantId: tenant.id,
+          name: ownerName,
+          email: input.email,
+        });
+        await this.authRepository.insertTenantSettings(tx, { tenantId: tenant.id });
+        await this.authRepository.upsertUserIdentity(tx, {
+          userId: user.id,
+          provider: UserIdentityProvider.GOOGLE,
+          providerUserId: input.providerUserId,
+          email: input.email,
+        });
+        // Google already verified the owner's email, so this tenant is activated on the spot
+        // rather than waiting for an OTP round trip it will never make.
+        await this.authRepository.activateTenant(tx, tenant.id);
+        await this.provisionTenantWorkspace(tx, tenant.id);
+
+        return {
+          id: user.id,
+          tenantId: tenant.id,
+          email: input.email,
+          name: ownerName,
+          role: UserRole.OWNER,
+          // A Google signup never sets `password_hash` — there is nothing to hash yet.
+          passwordHash: null,
+          status: UserStatus.ACTIVE,
+        };
+      });
+    } catch (error) {
+      if (isUniqueViolation(error, USERS_EMAIL_ACTIVE_INDEX)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private toVerifiedUser(user: UserByEmail): VerifiedUser {
+    return {
+      id: user.id,
+      tenantId: user.tenantId,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      passwordHash: user.passwordHash,
+      status: user.status,
+    };
+  }
+
   /** Issues (or reissues) a verify_email code for an already-existing user — signup's resumable path, login's pending-verification path, and an explicit resend all go through this. */
   async putVerifyEmailToken(userId: string, tokenHash: string, expiresAt: string): Promise<void> {
     await this.authRepository.transaction(tx =>
@@ -151,6 +317,9 @@ export class AuthDbService {
         return null;
       }
 
+      // The owner's email is now proven, which is what `tenants.status` tracks — nothing else in
+      // the codebase ever moved it off its `pending_activation` default.
+      await this.authRepository.activateTenant(tx, user.tenantId);
       await this.provisionTenantWorkspace(tx, user.tenantId);
 
       return {
@@ -159,6 +328,8 @@ export class AuthDbService {
         email: user.email,
         name: user.name,
         role: user.role,
+        passwordHash: user.passwordHash,
+        status: UserStatus.ACTIVE,
       };
     });
   }
@@ -171,7 +342,7 @@ export class AuthDbService {
     return this.authRepository.findUserById(id);
   }
 
-  async findTenantStatus(tenantId: string): Promise<{ status: TenantStatus } | null> {
+  async findTenantStatus(tenantId: string): Promise<TenantRow | null> {
     return this.authRepository.findTenantStatusById(tenantId);
   }
 

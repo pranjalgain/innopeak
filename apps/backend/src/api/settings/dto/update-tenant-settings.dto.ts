@@ -37,4 +37,16 @@ export class UpdateTenantSettingsDto {
   @IsInt()
   @Min(1)
   reviewDataRetentionMonths?: number | null;
+
+  @ApiProperty({
+    example: 1,
+    minimum: 1,
+    maximum: 3,
+    description: 'How many AI-drafted reply variants to generate per review — Settings’ AI tab.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(3)
+  aiReplyCount!: number;
 }

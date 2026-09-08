@@ -9,6 +9,7 @@ import {
   pgEnum,
   pgTable,
   serial,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -370,6 +371,7 @@ export const tenantSettings = pgTable(
     escalationRatingThreshold: integer('escalation_rating_threshold').default(3).notNull(),
     autoPostEnabled: boolean('auto_post_enabled').default(false).notNull(),
     reviewDataRetentionMonths: integer('review_data_retention_months'),
+    aiReplyCount: smallint('ai_reply_count').default(1).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -390,6 +392,10 @@ export const tenantSettings = pgTable(
     check(
       'tenant_settings_escalation_rating_threshold_check',
       sql`(escalation_rating_threshold >= 1) AND (escalation_rating_threshold <= 5)`
+    ),
+    check(
+      'tenant_settings_ai_reply_count_check',
+      sql`(ai_reply_count >= 1) AND (ai_reply_count <= 3)`
     ),
   ]
 );

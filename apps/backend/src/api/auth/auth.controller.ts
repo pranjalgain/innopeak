@@ -6,9 +6,11 @@ import { isProduction } from '@config/deployment-target.util';
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -29,22 +31,42 @@ import {
   SESSION_HINT_COOKIE_PATH,
   SESSION_HINT_COOKIE_VALUE,
 } from './constants/auth.constants';
+import {
+  GOOGLE_AUTH_REDIRECT,
+  GOOGLE_AUTH_SID_COOKIE_NAME,
+  GOOGLE_AUTH_SID_COOKIE_PATH,
+  GOOGLE_AUTH_STATE_TTL_SECONDS,
+  GOOGLE_PENDING_SIGNUP_COOKIE_NAME,
+  GOOGLE_PENDING_SIGNUP_COOKIE_PATH,
+  GOOGLE_PENDING_SIGNUP_TTL_SECONDS,
+  GoogleAuthFailure,
+} from './constants/google-auth.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { AuthenticatedUserDto } from './dto/authenticated-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { CompleteGoogleSignupDto } from './dto/complete-google-signup.dto';
+import { GoogleAuthorizeQueryDto } from './dto/google-authorize-query.dto';
 import { LoginPendingVerificationDto } from './dto/login-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
+import { SetPasswordDto } from './dto/set-password.dto';
 import { SignupResponseDto } from './dto/signup-response.dto';
 import { SignupDto } from './dto/signup.dto';
 import { TokenResponseDto } from './dto/token-response.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { OAuthIntent } from './enums/oauth-intent.enum';
 import {
   ApiChangePassword,
+  ApiCompleteGoogleSignup,
+  ApiGoogleAuthorize,
+  ApiGoogleCallback,
   ApiLogin,
   ApiLogout,
+  ApiMe,
   ApiRefresh,
   ApiResendOtp,
+  ApiSetPassword,
   ApiSignup,
   ApiVerifyEmail,
 } from './swagger/auth.swagger';
@@ -147,6 +169,18 @@ export class AuthController {
     return ResponseUtil.success(response, response.message, HttpStatus.OK);
   }
 
+  /**
+   * Who is signed in, read from the database rather than reconstructed client-side. Settings'
+   * Profile tab reads this instead of trusting whatever its last sign-in happened to leave in
+   * localStorage.
+   */
+  @Get(RouteNames.ME)
+  @ApiMe()
+  async me(@CurrentUser() user: AuthUser): Promise<ApiResponse<AuthenticatedUserDto>> {
+    const profile = await this.authService.me(user);
+    return ResponseUtil.success(profile, undefined, HttpStatus.OK);
+  }
+
   /** Settings → Profile. Not `@Public()` — JwtAuthGuard supplies `user`. */
   @Post(RouteNames.CHANGE_PASSWORD)
   @Throttle({ short: { limit: 5, ttl: 60000 } })
@@ -160,6 +194,134 @@ export class AuthController {
     const result = await this.authService.changePassword(user, dto);
     this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
     return ResponseUtil.success(result.body, MESSAGES.AUTH.PASSWORD_CHANGED, HttpStatus.OK);
+  }
+
+  /** Settings → Profile, "Add password" — only for an account with no `password_hash` yet. */
+  @Post(RouteNames.SET_PASSWORD)
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiSetPassword()
+  async setPassword(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SetPasswordDto,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<ApiResponse<TokenResponseDto>> {
+    const result = await this.authService.setPassword(user, dto);
+    this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
+    return ResponseUtil.success(result.body, MESSAGES.AUTH.PASSWORD_SET, HttpStatus.OK);
+  }
+
+  /**
+   * Step one of Google sign-in. A `GET` because the browser navigates here directly — the SPA sets
+   * `window.location`, so the access cookie rides along and there is no CORS preflight.
+   *
+   * `@Public()`: signup has no session yet, and login by definition does not either.
+   */
+  @Get(RouteNames.GOOGLE)
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiGoogleAuthorize()
+  async googleAuthorize(
+    @Query() query: GoogleAuthorizeQueryDto,
+    @Res() res: Response
+  ): Promise<void> {
+    const returnTo =
+      query.intent === OAuthIntent.SIGNUP
+        ? GOOGLE_AUTH_REDIRECT.SIGNUP
+        : GOOGLE_AUTH_REDIRECT.LOGIN;
+
+    let redirect: { authorizationUrl: string; sid: string };
+    try {
+      redirect = await this.authService.buildGoogleAuthorizeRedirect({ intent: query.intent });
+    } catch {
+      // Same reasoning as the callback below: the browser navigated here, so an exception filter's
+      // JSON body would paint as a document and strand the user on an API error page. The only
+      // expected failure is an unconfigured Google client.
+      res.redirect(HttpStatus.FOUND, `${returnTo}?error=${GoogleAuthFailure.NOT_CONFIGURED}`);
+      return;
+    }
+
+    res.cookie(GOOGLE_AUTH_SID_COOKIE_NAME, redirect.sid, {
+      ...this.cookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, GOOGLE_AUTH_STATE_TTL_SECONDS),
+    });
+    res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
+  }
+
+  /**
+   * Step two. `@Public()` because Google — not the SPA — sends the browser here, carrying no
+   * bearer token; all context comes from the signed `state` plus the Redis record it names.
+   *
+   * Every outcome is a 302, success included: the browser is mid-navigation and would render a
+   * JSON body as a document. Success sets the session cookies on the way past.
+   */
+  @Get(RouteNames.GOOGLE_CALLBACK)
+  @Public()
+  @ApiGoogleCallback()
+  async googleCallback(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const query = req.query as Record<string, string | undefined>;
+
+    const outcome = await this.authService.handleGoogleCallback({
+      code: query['code'],
+      state: query['state'],
+      error: query['error'],
+      sid: (req.cookies as Record<string, string | undefined> | undefined)?.[
+        GOOGLE_AUTH_SID_COOKIE_NAME
+      ],
+    });
+
+    // Cleared unconditionally: the binding cookie is single-use by design, so leaving it behind
+    // would let an abandoned round trip satisfy a later callback's check.
+    res.clearCookie(GOOGLE_AUTH_SID_COOKIE_NAME, { path: GOOGLE_AUTH_SID_COOKIE_PATH });
+
+    if (!outcome.ok) {
+      const base =
+        outcome.intent === OAuthIntent.SIGNUP
+          ? GOOGLE_AUTH_REDIRECT.SIGNUP
+          : GOOGLE_AUTH_REDIRECT.LOGIN;
+      res.redirect(HttpStatus.FOUND, `${base}?error=${outcome.failure}`);
+      return;
+    }
+
+    if (outcome.kind === 'needs_business_name') {
+      res.cookie(GOOGLE_PENDING_SIGNUP_COOKIE_NAME, outcome.pendingSignupCookie, {
+        ...this.cookieOptions(GOOGLE_PENDING_SIGNUP_COOKIE_PATH, GOOGLE_PENDING_SIGNUP_TTL_SECONDS),
+      });
+      res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.NEEDS_BUSINESS_NAME);
+      return;
+    }
+
+    this.setSessionCookies(res, outcome.tokens.refreshToken, outcome.tokens.body.accessToken);
+    res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.SUCCESS);
+  }
+
+  /**
+   * Step three, only for a genuinely new signup: submits the one thing Google could not supply.
+   * A normal XHR endpoint, unlike the two above — there is no browser navigation to preserve here,
+   * so this returns JSON like every other auth endpoint instead of a redirect.
+   */
+  @Post(RouteNames.GOOGLE_COMPLETE_SIGNUP)
+  @Public()
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiCompleteGoogleSignup()
+  async completeGoogleSignup(
+    @Body() dto: CompleteGoogleSignupDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<ApiResponse<TokenResponseDto>> {
+    const pendingSignupCookie = (req.cookies as Record<string, string | undefined> | undefined)?.[
+      GOOGLE_PENDING_SIGNUP_COOKIE_NAME
+    ];
+
+    const result = await this.authService.completeGoogleSignup(
+      pendingSignupCookie,
+      dto.businessName
+    );
+
+    // Cleared unconditionally, same reasoning as the OAuth binding cookie: single-use by design.
+    res.clearCookie(GOOGLE_PENDING_SIGNUP_COOKIE_NAME, { path: GOOGLE_PENDING_SIGNUP_COOKIE_PATH });
+    this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
+    return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
   }
 
   private readRefreshTokenCookie(req: Request): string | undefined {

@@ -15,6 +15,20 @@ export class AuthenticatedUserDto {
   @ApiProperty({ example: 'jane@thecoffeehouse.com' })
   email!: string;
 
+  @ApiProperty({
+    example: 'The Coffee House',
+    description: 'The tenant/company name set at signup (`tenants.name`) — read-only in Settings.',
+  })
+  businessName!: string;
+
   @ApiProperty({ example: UserRole.OWNER, enum: UserRole })
   role!: UserRole;
+
+  @ApiProperty({
+    example: true,
+    description:
+      'Whether `users.password_hash` is set. `false` for a Google-only account that has never ' +
+      'set a password — Settings uses this to show "Add password" instead of "Change password".',
+  })
+  hasPassword!: boolean;
 }

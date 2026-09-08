@@ -11,6 +11,9 @@ interface UseTenantOwnerProfileResult {
   isLoading: boolean;
   updateAvatar: (avatarUrl: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
+  /** For an account with no password yet — flips `profile.hasPassword` to true on success, so the
+   *  form swaps to the normal change-password one without a reload. */
+  setPassword: (newPassword: string) => Promise<boolean>;
 }
 
 export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
@@ -71,5 +74,24 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
     [t],
   );
 
-  return { profile, isLoading, updateAvatar, changePassword };
+  const setPassword = React.useCallback(
+    async (newPassword: string) => {
+      try {
+        await TenantOwnerProfileService.setPassword(newPassword);
+        setProfile((current) => (current ? { ...current, hasPassword: true } : current));
+        toast.success(t("passwordSet"));
+        return true;
+      } catch (error) {
+        if (error instanceof ApiError && error.statusCode === 400) {
+          toast.error(error.message);
+        } else {
+          toast.error(t("updateFailed"));
+        }
+        return false;
+      }
+    },
+    [t],
+  );
+
+  return { profile, isLoading, updateAvatar, changePassword, setPassword };
 }

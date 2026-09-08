@@ -46,7 +46,7 @@ export function SettingsView() {
   const {
     settings,
     isLoading,
-    updateGeneral,
+    saveGeneral,
     addBlocklistTerm,
     removeBlocklistTerm,
     updateRecipientChannel,
@@ -86,7 +86,7 @@ export function SettingsView() {
         </TabsList>
 
         <TabsContent value="general">
-          <GeneralSettingsSection general={settings.general} onUpdate={updateGeneral} />
+          <GeneralSettingsSection general={settings.general} onSave={saveGeneral} />
         </TabsContent>
 
         <TabsContent value="blocklist">
@@ -112,7 +112,7 @@ export function SettingsView() {
         <TabsContent value="ai">
           <AiSettingsSection
             aiReplyCount={settings.general.aiReplyCount}
-            onReplyCountChange={(aiReplyCount) => updateGeneral({ aiReplyCount })}
+            onReplyCountChange={(aiReplyCount) => saveGeneral({ aiReplyCount })}
           />
         </TabsContent>
 

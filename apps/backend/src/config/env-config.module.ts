@@ -63,6 +63,9 @@ const envConfig = registerAs(
       DEV_VERIFY_EMAIL_TOKEN: process.env['DEV_VERIFY_EMAIL_TOKEN'],
       JWT_SECRET: process.env['JWT_SECRET'] ?? '',
       JWT_REFRESH_SECRET: process.env['JWT_REFRESH_SECRET'],
+      GOOGLE_AUTH_STATE_SECRET: process.env['GOOGLE_AUTH_STATE_SECRET'],
+      DEV_GOOGLE_AUTH_MOCK: process.env['DEV_GOOGLE_AUTH_MOCK'],
+      DEV_GOOGLE_AUTH_MOCK_EMAIL: process.env['DEV_GOOGLE_AUTH_MOCK_EMAIL'],
       GBP_CLIENT_ID: process.env['GBP_CLIENT_ID'],
       GBP_CLIENT_SECRET: process.env['GBP_CLIENT_SECRET'],
       GBP_CALLBACK_URL: process.env['GBP_CALLBACK_URL'],
@@ -169,6 +172,18 @@ const validationSchema = Joi.object({
   // Optional for the same reason FRONTEND_URL is: a developer not working on the connections
   // module has none of these set, and hard-failing boot for everyone else would be hostile. The
   // routes that need them answer 503 instead — see GoogleBusinessProfileProvider.
+  GOOGLE_AUTH_STATE_SECRET: Joi.string().allow(null, ''),
+  // Forbidden in production, mirroring DEV_VERIFY_EMAIL_TOKEN: a mocked sign-in must never ship.
+  DEV_GOOGLE_AUTH_MOCK: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.forbidden(),
+    otherwise: Joi.string().valid('true', 'false').allow(null, ''),
+  }),
+  DEV_GOOGLE_AUTH_MOCK_EMAIL: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.forbidden(),
+    otherwise: Joi.string().allow(null, ''),
+  }),
   GBP_CLIENT_ID: Joi.string().allow(null, ''),
   GBP_CLIENT_SECRET: Joi.string().allow(null, ''),
   GBP_CALLBACK_URL: Joi.string().uri().allow(null, ''),

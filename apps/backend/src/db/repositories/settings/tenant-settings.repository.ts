@@ -19,6 +19,7 @@ export class TenantSettingsRepository {
         escalationRatingThreshold: tenantSettings.escalationRatingThreshold,
         autoPostEnabled: tenantSettings.autoPostEnabled,
         reviewDataRetentionMonths: tenantSettings.reviewDataRetentionMonths,
+        aiReplyCount: tenantSettings.aiReplyCount,
         updatedAt: tenantSettings.updatedAt,
       })
       .from(tenantSettings)
@@ -39,6 +40,7 @@ export class TenantSettingsRepository {
         escalationRatingThreshold: write.escalationRatingThreshold,
         autoPostEnabled: write.autoPostEnabled,
         reviewDataRetentionMonths: write.reviewDataRetentionMonths,
+        aiReplyCount: write.aiReplyCount,
         updatedAt: sql`now()`,
       })
       .where(eq(tenantSettings.tenantId, tenantId))
@@ -47,6 +49,7 @@ export class TenantSettingsRepository {
         escalationRatingThreshold: tenantSettings.escalationRatingThreshold,
         autoPostEnabled: tenantSettings.autoPostEnabled,
         reviewDataRetentionMonths: tenantSettings.reviewDataRetentionMonths,
+        aiReplyCount: tenantSettings.aiReplyCount,
         updatedAt: tenantSettings.updatedAt,
       });
 
@@ -79,6 +82,7 @@ export class TenantSettingsRepository {
     escalationRatingThreshold: number;
     autoPostEnabled: boolean;
     reviewDataRetentionMonths: number | null;
+    aiReplyCount: number;
     updatedAt: string;
   }): TenantSettingsRecord {
     return {
@@ -86,6 +90,7 @@ export class TenantSettingsRepository {
       escalationRatingThreshold: row.escalationRatingThreshold,
       autoPostEnabled: row.autoPostEnabled,
       reviewDataRetentionMonths: row.reviewDataRetentionMonths,
+      aiReplyCount: row.aiReplyCount,
       updatedAt: new Date(row.updatedAt).toISOString(),
     };
   }

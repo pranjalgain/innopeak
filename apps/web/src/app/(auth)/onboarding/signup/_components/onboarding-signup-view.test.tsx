@@ -13,6 +13,10 @@ const replace = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace }),
+  // The view reads `?error=` on mount to surface a failed Google round trip — see
+  // useOAuthErrorToast. No param here, so the hook is a no-op in these tests.
+  usePathname: () => "/onboarding/signup",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 function renderView() {

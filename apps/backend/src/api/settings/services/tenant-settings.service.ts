@@ -26,6 +26,7 @@ export class TenantSettingsService {
       escalationRatingThreshold: dto.escalationRatingThreshold,
       autoPostEnabled: dto.autoPostEnabled,
       reviewDataRetentionMonths: dto.reviewDataRetentionMonths ?? null,
+      aiReplyCount: dto.aiReplyCount,
     });
     if (row === null) {
       throw new NotFoundException(MESSAGES.SETTINGS.TENANT_SETTINGS_MISSING);

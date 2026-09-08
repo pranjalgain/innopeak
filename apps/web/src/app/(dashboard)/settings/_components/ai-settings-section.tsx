@@ -12,7 +12,9 @@ import type { GeneralSettings } from "@/types/domain";
 
 interface AiSettingsSectionProps {
   aiReplyCount: GeneralSettings["aiReplyCount"];
-  onReplyCountChange: (count: number) => void;
+  /** Returns whether the save succeeded — a failure already shows its own toast, so this only
+   *  toasts on success. */
+  onReplyCountChange: (count: number) => Promise<boolean>;
 }
 
 const REPLY_COUNT_OPTIONS = [1, 2, 3];
@@ -43,8 +45,9 @@ export function AiSettingsSection({ aiReplyCount, onReplyCountChange }: AiSettin
           <Select
             value={String(aiReplyCount)}
             onValueChange={(value) => {
-              onReplyCountChange(Number(value));
-              toast.success(tToasts("aiReplyCountUpdated"));
+              void onReplyCountChange(Number(value)).then((succeeded) => {
+                if (succeeded) toast.success(tToasts("aiReplyCountUpdated"));
+              });
             }}
           >
             <SelectTrigger id="ai-reply-count" className="w-full sm:w-44">

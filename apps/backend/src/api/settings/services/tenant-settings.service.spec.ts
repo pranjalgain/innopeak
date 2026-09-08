@@ -30,6 +30,7 @@ describe('TenantSettingsService', () => {
     escalationRatingThreshold: 3,
     autoPostEnabled: false,
     reviewDataRetentionMonths: 24,
+    aiReplyCount: 1,
     updatedAt: '2026-08-28T09:12:44.000Z',
   };
 
@@ -74,12 +75,14 @@ describe('TenantSettingsService', () => {
     const result = await target.replace(tenantUser, {
       escalationRatingThreshold: 2,
       autoPostEnabled: true,
+      aiReplyCount: 1,
     });
 
     expect(settingsDbService.updateTenantSettings).toHaveBeenCalledWith('tenant-1', {
       escalationRatingThreshold: 2,
       autoPostEnabled: true,
       reviewDataRetentionMonths: null,
+      aiReplyCount: 1,
     });
     expect(result.reviewDataRetentionMonths).toBeNull();
   });

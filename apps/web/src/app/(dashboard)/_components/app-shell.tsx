@@ -11,12 +11,11 @@ import { MobileBottomNav } from "@/app/(dashboard)/_components/mobile-bottom-nav
 import { isNavItemActive, type ShellIdentity, type ShellNavItem } from "@/app/(dashboard)/_components/shell-nav";
 import { InnoPeakDiamondMark } from "@/assets/icons/innopeak-diamond-mark";
 import { InnoPeakLogo } from "@/assets/icons/innopeak-logo";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -54,6 +53,9 @@ interface AppShellProps {
   navNamespace: string;
   homeHref: string;
   identity: ShellIdentity;
+  /** Where the account menu's owner-details row links to — Settings' Profile tab for the tenant
+   *  shell, the Super Admin area's own profile tab for the admin one. */
+  profileHref: string;
   /** Off for the Super Admin shell — review-escalation notifications are a tenant concept. */
   showNotifications?: boolean;
 }
@@ -73,6 +75,7 @@ export function AppShell({
   navNamespace,
   homeHref,
   identity,
+  profileHref,
   showNotifications = true,
 }: AppShellProps) {
   const t = useTranslations(navNamespace);
@@ -86,7 +89,7 @@ export function AppShell({
   if (breakpoint === "mobile") {
     return (
       <div className="flex min-h-dvh flex-col">
-        <AppHeader title={title} identity={identity} showNotifications={showNotifications} />
+        <AppHeader title={title} identity={identity} profileHref={profileHref} showNotifications={showNotifications} />
         <main className="min-w-0 flex-1 overflow-y-auto pb-16">{children}</main>
         <MobileBottomNav navItems={navItems} navNamespace={navNamespace} homeHref={homeHref} />
       </div>
@@ -130,6 +133,7 @@ export function AppShell({
                     className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                   >
                     <Avatar className="size-8 shrink-0">
+                      {identity.avatarUrl ? <AvatarImage src={identity.avatarUrl} alt="" /> : null}
                       <AvatarFallback className="bg-accent text-xs font-medium text-accent-foreground">
                         {identity.initials}
                       </AvatarFallback>
@@ -142,14 +146,28 @@ export function AppShell({
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" side="top" collisionPadding={12} className="w-56">
-                  <DropdownMenuLabel>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{identity.name}</span>
-                      <span className="text-xs font-normal text-muted-foreground">{identity.roleLabel}</span>
-                    </div>
-                  </DropdownMenuLabel>
+                  <DropdownMenuItem asChild className="cursor-pointer">
+                    <Link href={profileHref as Route}>
+                      <div className="flex items-center gap-2.5">
+                        <Avatar className="size-8 shrink-0">
+                          {identity.avatarUrl ? <AvatarImage src={identity.avatarUrl} alt="" /> : null}
+                          <AvatarFallback className="bg-accent text-xs font-medium text-accent-foreground">
+                            {identity.initials}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate font-medium">{identity.name}</span>
+                          <span className="truncate text-xs font-normal text-muted-foreground">
+                            {identity.roleLabel}
+                          </span>
+                        </div>
+                      </div>
+                    </Link>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout}>{tAppShell("signOut")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={logout} className="cursor-pointer">
+                    {tAppShell("signOut")}
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </SidebarMenuItem>
@@ -158,7 +176,13 @@ export function AppShell({
       </Sidebar>
 
       <SidebarInset>
-        <AppHeader title={title} identity={identity} showNotifications={showNotifications} showAccountMenu={false} />
+        <AppHeader
+          title={title}
+          identity={identity}
+          profileHref={profileHref}
+          showNotifications={showNotifications}
+          showAccountMenu={false}
+        />
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
       </SidebarInset>
     </SidebarProvider>

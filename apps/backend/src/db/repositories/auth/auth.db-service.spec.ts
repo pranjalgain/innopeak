@@ -26,6 +26,7 @@ describe('AuthDbService', () => {
       putVerifyEmailToken: jest.fn(),
       consumeVerifyEmailToken: jest.fn(),
       activateUser: jest.fn(),
+      activateTenant: jest.fn(),
       updatePasswordHash: jest.fn(),
       insertRefreshToken: jest.fn(),
       findActiveRefreshToken: jest.fn(),
@@ -239,6 +240,16 @@ describe('AuthDbService', () => {
       expect(authRepository.transaction).toHaveBeenCalledTimes(1);
     });
 
+    it("moves the owner's tenant off pending_activation in that same transaction", async () => {
+      authRepository.findUserByEmail.mockResolvedValue(user);
+      authRepository.consumeVerifyEmailToken.mockResolvedValue(true);
+      authRepository.activateUser.mockResolvedValue(true);
+
+      await target.verifyEmail(user.email, 'code-hash');
+
+      expect(authRepository.activateTenant).toHaveBeenCalledWith(tx, user.tenantId);
+    });
+
     it('does not provision when the activation guard blocks it', async () => {
       authRepository.findUserByEmail.mockResolvedValue(user);
       authRepository.consumeVerifyEmailToken.mockResolvedValue(true);
@@ -272,6 +283,8 @@ describe('AuthDbService', () => {
         email: user.email,
         name: user.name,
         role: user.role,
+        passwordHash: user.passwordHash,
+        status: UserStatus.ACTIVE,
       });
       expect(authRepository.consumeVerifyEmailToken).toHaveBeenCalledWith(tx, {
         userId: user.id,

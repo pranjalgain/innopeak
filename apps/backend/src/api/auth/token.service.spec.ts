@@ -162,7 +162,10 @@ describe('TokenService', () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
       authDbService.findUserById.mockResolvedValue({ ...user, status: UserStatus.DISABLED });
-      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.ACTIVE });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'Test Tenant',
+      });
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
       expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
@@ -173,7 +176,10 @@ describe('TokenService', () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
       authDbService.findUserById.mockResolvedValue(user);
-      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.SUSPENDED });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'Test Tenant',
+      });
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
       expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
@@ -183,7 +189,10 @@ describe('TokenService', () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
       authDbService.findUserById.mockResolvedValue(user);
-      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.ACTIVE });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'Test Tenant',
+      });
       jwtService.sign.mockReturnValueOnce('new-access').mockReturnValueOnce('new-refresh');
 
       const result = await target.rotate('some-token');
@@ -208,6 +217,7 @@ describe('TokenService', () => {
         email: user.email,
         role: user.role,
         name: user.name,
+        passwordHash: user.passwordHash,
       });
     });
 
@@ -215,7 +225,10 @@ describe('TokenService', () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
       authDbService.findUserById.mockResolvedValue(user);
-      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.ACTIVE });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'Test Tenant',
+      });
       authDbService.rotateRefreshToken.mockResolvedValue(false);
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);

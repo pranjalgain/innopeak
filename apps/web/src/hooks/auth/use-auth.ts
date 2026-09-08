@@ -15,10 +15,12 @@ interface UseAuthResult {
   loginWithMicrosoft: (email: string) => Promise<void>;
   /** Returns null on failure (a toast is already shown) — the caller only needs to branch on a non-null result. */
   loginWithPassword: (email: string, password: string) => Promise<LoginResult | null>;
-  loginWithSocial: () => Promise<void>;
+  startGoogleLogin: () => void;
   signupWithMicrosoft: () => Promise<boolean>;
   signupWithPassword: (values: CreateAccountFormValues) => Promise<boolean>;
-  signupWithSocial: () => Promise<boolean>;
+  startGoogleSignup: () => void;
+  /** Returns whether it succeeded — a toast is already shown on failure. */
+  completeGoogleSignup: (businessName: string) => Promise<boolean>;
   verifySignupOtp: (email: string, code: string) => Promise<VerifyOtpResult>;
   /** Resolves to `{ sent: false }` (never rejects) so the OTP screen can always report an outcome. */
   resendSignupOtp: (email: string) => Promise<ResendOtpResult>;
@@ -80,16 +82,15 @@ export function useAuth(): UseAuthResult {
     [t],
   );
 
-  const loginWithSocial = React.useCallback(async () => {
+  /**
+   * Navigates away rather than awaiting anything, so there is no success path to handle and no
+   * `finally` to clear the spinner — the page is being replaced. Failures come back as
+   * `?error=` on the destination, which the login and signup views read on mount.
+   */
+  const startGoogleLogin = React.useCallback(() => {
     setIsLoading(true);
-    try {
-      await AuthService.loginWithSocial();
-    } catch (error) {
-      toast.error(authErrorMessage(error, t("signInFailed")));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [t]);
+    AuthService.startGoogleLogin();
+  }, []);
 
   /** Returns whether it succeeded, so the signup wizard knows to advance to step 2. */
   const signupWithMicrosoft = React.useCallback(async () => {
@@ -121,18 +122,26 @@ export function useAuth(): UseAuthResult {
     [t],
   );
 
-  const signupWithSocial = React.useCallback(async () => {
+  const startGoogleSignup = React.useCallback(() => {
     setIsLoading(true);
-    try {
-      await AuthService.signupWithSocial();
-      return true;
-    } catch (error) {
-      toast.error(authErrorMessage(error, t("signUpFailed")));
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [t]);
+    AuthService.startGoogleSignup();
+  }, []);
+
+  const completeGoogleSignup = React.useCallback(
+    async (businessName: string) => {
+      setIsLoading(true);
+      try {
+        await AuthService.completeGoogleSignup(businessName);
+        return true;
+      } catch (error) {
+        toast.error(authErrorMessage(error, t("signUpFailed")));
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [t],
+  );
 
   /** No toast here — the OTP screen shows its own "invalid code"/"resent" copy, not generic auth-failure text. */
   const verifySignupOtp = React.useCallback(async (email: string, code: string) => {
@@ -170,10 +179,11 @@ export function useAuth(): UseAuthResult {
   return {
     loginWithMicrosoft,
     loginWithPassword,
-    loginWithSocial,
+    startGoogleLogin,
     signupWithMicrosoft,
     signupWithPassword,
-    signupWithSocial,
+    startGoogleSignup,
+    completeGoogleSignup,
     verifySignupOtp,
     resendSignupOtp,
     logout,

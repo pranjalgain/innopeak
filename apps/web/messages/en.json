@@ -136,9 +136,12 @@
       "title": "Notifications",
       "markAllRead": "Mark all as read",
       "empty": "You're all caught up.",
+      "loadingMore": "Loading more…",
       "toasts": {
         "loadFailed": "Could not load notifications."
-      }
+      },
+      "loadMoreFailed": "Could not load more.",
+      "retry": "Retry"
     },
     "reconnectBanner": {
       "message": "Your Google Business Profile connection has expired. New reviews aren't being imported until you reconnect.",
@@ -182,6 +185,16 @@
       "signInFailed": "Something went wrong signing in. Please try again.",
       "signUpFailed": "Something went wrong creating your account. Please try again.",
       "signOutFailed": "Something went wrong signing out. Please try again."
+    },
+    "googleErrors": {
+      "NO_ACCOUNT": "No account found for that Google address. Sign up first.",
+      "INVALID_STATE": "That sign-in link expired or was already used. Please try again.",
+      "ACCESS_DENIED": "Google sign-in was cancelled.",
+      "EMAIL_NOT_VERIFIED": "Google has not verified that address. Verify it with Google, or use email and password.",
+      "ACCOUNT_UNAVAILABLE": "This account is not available. Contact support.",
+      "PROVIDER_ERROR": "Could not reach Google. Please try again.",
+      "NOT_CONFIGURED": "Google sign-in is not available right now. Use email and password.",
+      "fallback": "Google sign-in did not complete. Please try again."
     }
   },
   "onboardingConnect": {
@@ -280,6 +293,19 @@
       }
     }
   },
+  "onboardingBusinessName": {
+    "title": "What's your business name?",
+    "subtitle": "One last thing before you connect your Google Business Profile.",
+    "label": "Business name",
+    "placeholder": "The Coffee House",
+    "submit": "Continue",
+    "submitting": "Saving…",
+    "startOver": "Something not right?",
+    "startOverLink": "Start over",
+    "errors": {
+      "required": "Enter your business name."
+    }
+  },
   "dashboard": {
     "dateRanges": {
       "7d": "Last 7 days",
@@ -299,7 +325,7 @@
     },
     "attention": {
       "title": "Needs your attention",
-      "reviewCta": "Review →"
+      "reviewCta": "Review"
     },
     "businessProfile": {
       "googleReviewCount": "({count, plural, one {# Google review} other {# Google reviews}})"
@@ -384,8 +410,17 @@
       },
       "retention": {
         "label": "Review data retention",
-        "suffix": "months, then reviewer PII is anonymized"
-      }
+        "suffix": "months, then reviewer PII is anonymized",
+        "notSet": "Not set — reviewer PII is kept indefinitely.",
+        "add": "Add retention period",
+        "remove": "Remove",
+        "errors": {
+          "min": "Enter a number of 1 or more."
+        }
+      },
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel"
     },
     "blocklist": {
       "title": "Blocklist",
@@ -433,21 +468,30 @@
     },
     "profile": {
       "title": "Your profile",
-      "description": "Your login email and password for this account.",
+      "nameLabel": "Name",
+      "description": "Your name, login email, and password for this account.",
       "changePicture": "Change picture",
       "emailLabel": "Email",
+      "businessNameLabel": "Business name",
       "changePasswordTitle": "Change password",
       "currentPasswordLabel": "Current password",
       "newPasswordLabel": "New password",
       "confirmPasswordLabel": "Confirm new password",
       "passwordMismatch": "Passwords don't match.",
       "updatePassword": "Update password",
+      "cancel": "Cancel",
+      "addPasswordTitle": "Add a password",
+      "addPasswordDescription": "You signed up with Google. Add a password to also be able to sign in with your email and password.",
+      "addPassword": "Add password",
+      "setPassword": "Set password",
+      "settingPassword": "Setting…",
       "toasts": {
         "loadFailed": "Could not load your profile.",
         "updateFailed": "Could not save this change. Please try again.",
         "currentPasswordIncorrect": "Current password is incorrect.",
         "avatarUpdated": "Profile picture updated.",
-        "passwordChanged": "Password changed. Other sessions have been signed out."
+        "passwordChanged": "Password changed. Other sessions have been signed out.",
+        "passwordSet": "Password set. You can now also sign in with a password."
       },
       "errors": {
         "currentPasswordRequired": "Enter your current password.",
@@ -497,13 +541,13 @@
       "loadFailed": "Could not load settings.",
       "saveFailed": "Could not update the blocklist.",
       "generalSaveFailed": "Could not save general settings.",
+      "generalSaved": "Settings saved.",
       "blocklistTermAdded": "Term added to blocklist.",
       "blocklistTermRemoved": "Term removed from blocklist.",
       "notificationChannelUpdated": "Notification channel updated.",
       "notificationToggled": "Notification setting updated.",
       "disconnected": "Google Business Profile disconnected.",
       "disconnectFailed": "We couldn't disconnect your Google Business Profile. Please try again.",
-      "autoPostToggled": "Auto-post setting updated.",
       "aiReplyCountUpdated": "AI reply count updated."
     }
   },

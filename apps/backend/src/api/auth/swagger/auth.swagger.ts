@@ -1,14 +1,18 @@
 import { applyDecorators } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
+import { AuthenticatedUserDto } from '../dto/authenticated-user.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
+import { CompleteGoogleSignupDto } from '../dto/complete-google-signup.dto';
 import type { LoginPendingVerificationDto } from '../dto/login-response.dto';
 import { LoginDto } from '../dto/login.dto';
 import { ResendOtpDto } from '../dto/resend-otp.dto';
+import { SetPasswordDto } from '../dto/set-password.dto';
 import { SignupResponseDto } from '../dto/signup-response.dto';
 import { SignupDto } from '../dto/signup.dto';
 import { TokenResponseDto } from '../dto/token-response.dto';
 import { VerifyEmailDto } from '../dto/verify-email.dto';
+import { OAuthIntent } from '../enums/oauth-intent.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
 
@@ -21,6 +25,8 @@ const TOKEN_RESPONSE_EXAMPLE = {
     name: 'Jane Doe',
     email: 'jane@thecoffeehouse.com',
     role: UserRole.OWNER,
+    hasPassword: true,
+    businessName: 'The Coffee House',
   },
   hasConnectedBusiness: false,
 };
@@ -85,6 +91,58 @@ export function ApiChangePassword(): ReturnType<typeof applyDecorators> {
           },
         },
       },
+    }),
+    ApiResponse({
+      status: 403,
+      description: 'Authenticated as a platform admin, not a tenant user.',
+    })
+  );
+}
+
+export function ApiSetPassword(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Set a password for an account that has never had one',
+      description:
+        'For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to ' +
+        'prove, so unlike POST /v1/auth/change-password this takes only `newPassword`. Revokes ' +
+        'every refresh token for the user, then issues a fresh pair so this tab stays signed in. ' +
+        'Tenant-user tokens only. 400s if the account already has a password — use ' +
+        'change-password instead.',
+    }),
+    ApiBody({
+      type: SetPasswordDto,
+      examples: {
+        default: { summary: 'Typical request', value: { newPassword: 'NewStr0ng@Pass' } },
+      },
+    }),
+    ApiResponse({
+      status: 200,
+      description: 'Password set; other sessions signed out; fresh tokens issued.',
+      type: TokenResponseDto,
+      examples: { default: { summary: 'Set', value: TOKEN_RESPONSE_EXAMPLE } },
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'The account already has a password, or newPassword failed complexity rules.',
+      examples: {
+        alreadySet: {
+          summary: 'Password already set',
+          value: {
+            statusCode: 400,
+            status: 'Failure',
+            message: 'This account already has a password. Use change password instead.',
+            error: 'Bad Request',
+            traceId: '38cf5d10-00cb-4e4b-8417-f9e63e877466',
+            data: null,
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 401,
+      description: 'The access token is missing or expired.',
     }),
     ApiResponse({
       status: 403,
@@ -366,6 +424,91 @@ export function ApiResendOtp(): ReturnType<typeof applyDecorators> {
           },
         },
       },
+    })
+  );
+}
+
+export function ApiGoogleAuthorize(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Start Google sign-in or signup',
+      description:
+        "Redirects (302) to Google's consent screen and sets the `google_auth_sid` cookie that " +
+        'binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so ' +
+        'the response is a redirect rather than JSON. Carries no business name: a genuinely new ' +
+        'signup collects one afterward, at `POST /v1/auth/google/complete-signup`.',
+    }),
+    ApiQuery({ name: 'intent', enum: OAuthIntent, required: true, example: OAuthIntent.SIGNUP }),
+    ApiResponse({ status: 302, description: 'Redirect to Google' }),
+    ApiResponse({ status: 503, description: 'GOOGLE_CLIENT_ID / SECRET / CALLBACK_URL unset' })
+  );
+}
+
+export function ApiGoogleCallback(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Google sign-in callback',
+      description:
+        'Where Google returns the browser. Consumes the one-time state *before* exchanging the ' +
+        'code, then resolves the identity: a known `user_identities` row signs in; a matching ' +
+        'email links the identity and signs in; neither, under `intent=login`, is `?error=' +
+        'NO_ACCOUNT`; neither, under `intent=signup`, sets a `google_pending_signup` cookie and ' +
+        'redirects to /onboarding/business-name to collect the one thing Google cannot supply. ' +
+        'Always a 302 — success sets the session cookies, every failure appends `?error=` to ' +
+        '/login or /onboarding/signup, because a JSON body would paint as a document here.',
+    }),
+    ApiResponse({
+      status: 302,
+      description: 'Signed in, sent to collect a business name, or redirected with ?error=',
+    })
+  );
+}
+
+export function ApiCompleteGoogleSignup(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Finish a Google signup with a business name',
+      description:
+        'Only reachable after the callback set a `google_pending_signup` cookie for a ' +
+        'genuinely new person — Google returns a person, not a business, and `tenants.name` is ' +
+        'NOT NULL. Creates the tenant + owner + settings + default prompts and issues session ' +
+        'cookies, same as every other successful auth endpoint (unlike the two Google endpoints ' +
+        'above, this is a normal XHR call, not a redirect).',
+    }),
+    ApiBody({ type: CompleteGoogleSignupDto }),
+    ApiResponse({
+      status: 200,
+      description: 'Tenant created and signed in',
+      schema: { example: TOKEN_RESPONSE_EXAMPLE },
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'Missing, expired, or already-consumed pending signup',
+    }),
+    ApiResponse({ status: 409, description: 'Someone else registered this email in the meantime' })
+  );
+}
+
+export function ApiMe(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'The signed-in tenant user',
+      description:
+        'The authoritative profile for the current access token — name, email, role, the tenant ' +
+        'name, and whether a password is set. Settings reads this rather than reassembling it ' +
+        'from client-side storage, which could not answer either question for a Google sign-in ' +
+        '(a redirect-only flow that never returns a JSON body to the SPA).',
+    }),
+    ApiResponse({
+      status: 200,
+      type: AuthenticatedUserDto,
+      examples: { default: { summary: 'Signed in', value: TOKEN_RESPONSE_EXAMPLE.user } },
+    }),
+    ApiResponse({ status: 401, description: 'Missing or expired access token.' }),
+    ApiResponse({
+      status: 403,
+      description: 'Authenticated as a platform admin, not a tenant user.',
     })
   );
 }

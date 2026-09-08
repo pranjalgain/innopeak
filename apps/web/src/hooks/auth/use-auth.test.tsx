@@ -99,4 +99,21 @@ describe("useAuth error toasts", () => {
 
     expect(toastError).toHaveBeenCalledWith(messages.auth.toasts.signUpFailed);
   });
+
+  test("a failed Google-signup completion surfaces the backend's own message", async () => {
+    vi.spyOn(AuthService, "completeGoogleSignup").mockRejectedValueOnce(
+      new ApiError(400, "This signup has expired. Start again with \"Continue with Google\"."),
+    );
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    let succeeded: boolean | undefined;
+    await act(async () => {
+      succeeded = await result.current.completeGoogleSignup("The Coastal Table");
+    });
+
+    expect(succeeded).toBe(false);
+    expect(toastError).toHaveBeenCalledWith(
+      'This signup has expired. Start again with "Continue with Google".',
+    );
+  });
 });
