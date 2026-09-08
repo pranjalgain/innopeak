@@ -26,6 +26,7 @@ import { OtelModule } from '@otel/otel.module';
 import { PromptsModule } from '@prompts/prompts.module';
 import { RedisModule } from '@redis/redis.module';
 import { REDIS_CLIENT } from '@redis/redis.provider';
+import { ReviewPipelineModule } from '@review-pipeline/review-pipeline.module';
 import { ReviewProviderModule } from '@review-provider/review-provider.module';
 import { redisStore } from 'cache-manager-redis-store';
 import { Redis } from 'ioredis';
@@ -120,6 +121,9 @@ const cacheModule = CacheModule.registerAsync({
 
     // Google Business Profile client + credential store (@Global, shared with the worker)
     ReviewProviderModule,
+
+    // Review classification (@Global, shared with the worker)
+    ReviewPipelineModule,
 
     // APIs
     ConnectionsModule,

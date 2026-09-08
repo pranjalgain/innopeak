@@ -64,6 +64,7 @@
       "@media/*": ["media/*"],
       "@email/*": ["email/*"],
       "@review-provider/*": ["review-provider/*"],
+      "@review-pipeline/*": ["review-pipeline/*"],
       "@connections/*": ["api/connections/*"],
       "@reviews/*": ["api/reviews/*"],
       "@review-sync-queue/*": ["background/queue/review-sync/*"],

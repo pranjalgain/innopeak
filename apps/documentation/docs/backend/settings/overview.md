@@ -41,7 +41,7 @@ Reference](./api-reference.md).
 | Table | Purpose |
 |---|---|
 | `tenant_settings` | **Owned.** One row per tenant (`idx_tenant_settings_tenant_id` is a UNIQUE index, not a plain one). `escalation_rating_threshold` (`INTEGER NOT NULL DEFAULT 3`, `CHECK (… BETWEEN 1 AND 5)`), `auto_post_enabled` (`BOOLEAN NOT NULL DEFAULT false`), `review_data_retention_months` (`INTEGER`, nullable — NULL means "fall back to the platform default", `PLAN.md` §6). |
-| `blocklist_terms` | **Owned.** Zero-to-many per tenant. `term` (`VARCHAR(255) NOT NULL`), `is_active` (`BOOLEAN NOT NULL DEFAULT true`). Unique on `(tenant_id, lower(term))` via `idx_blocklist_terms_tenant_id_lower_term` — an expression index, so uniqueness is case-insensitive and **covers inactive rows too**. |
+| `blocklist_terms` | **Owned.** Zero-to-many per tenant. `term` (`VARCHAR(255) NOT NULL`). **No `is_active`** — a term is configured or deleted, nothing in between; see [Matching semantics](#matching-semantics-classifier-not-a-stored-per-term-setting). Unique on `(tenant_id, lower(term))` via `idx_blocklist_terms_tenant_id_lower_term` — an expression index, so uniqueness is case-insensitive. |
 | `notification_recipients` | **Owned.** Which `users` row wants to hear about which `notification_type`, and on which channel. `user_id` is `NOT NULL` — a recipient is always an app user, never a free-text email address. `channel` is `notification_channel_pref`; `is_active` gates delivery. Indexed on `tenant_id` and `user_id`; **no unique constraint** — see [Gap](#gap-between-current-code-and-target-design). |
 | `tenants` | **Read + update only.** `name` is the one column this module writes. Tenant *creation* belongs to the auth module's signup transaction — see [Auth Module — Overview](../auth/overview.md#auth-flows). `status` (`tenant_status`) is read-only here; only a platform admin changes it. |
 | `locations` | **Read-only, foreign.** Owned by the connections module (`../connections/overview.md`) and populated by the GBP sync. Supplies the provider-derived half of the tenant profile — see [MVP scope](#mvp-scope). |
@@ -81,7 +81,7 @@ surface:
 flowchart LR
     subgraph Settings["settings module (this doc)"]
         T["tenant_settings.escalation_rating_threshold"]
-        B["blocklist_terms (is_active = true)"]
+        B["blocklist_terms (every stored term)"]
         R["notification_recipients (is_active = true)"]
         RET["tenant_settings.review_data_retention_months"]
         AP["tenant_settings.auto_post_enabled"]
@@ -100,8 +100,8 @@ flowchart LR
 
 - **Threshold and blocklist → classification.** `PLAN.md` §3 runs the blocklist check *first*, so
   a review that is both low-rated and blocklist-matched records `escalation_reason =
-  'blocklist_match'` and never `low_rating` — accepted, not fixed, per `PLAN.md` §8.17. Only
-  `is_active = true` blocklist rows participate; that is the entire reason the column exists.
+  'blocklist_match'` and never `low_rating` — accepted, not fixed, per `PLAN.md` §8.17. Every
+  stored term participates; there is no per-term enable/disable.
   When a term matches, the matched text is copied onto `reviews.matched_keywords` (`PLAN.md` §2,
   `reviews`), so a past escalation stays explainable even after the term row is gone.
 - **Recipients → escalation delivery.** Every active `notification_recipients` row for
@@ -141,7 +141,7 @@ parameter.
 | `PUT` | `/v1/settings` | Bearer, `@Roles('owner')` | Full-resource replace on the singleton. Not retroactive (`PLAN.md` §8.11). |
 | `GET` | `/v1/settings/blocklist-terms` | Bearer, `@Roles('owner')` | Lists terms, active and inactive. |
 | `POST` | `/v1/settings/blocklist-terms` | Bearer, `@Roles('owner')` | Creates a term. A case-insensitive duplicate is `409`. |
-| `PATCH` | `/v1/settings/blocklist-terms/:id` | Bearer, `@Roles('owner')` | Renames a term and/or flips `is_active`. |
+| `PATCH` | `/v1/settings/blocklist-terms/:id` | Bearer, `@Roles('owner')` | Renames a term. Spec-only, never implemented; the `is_active` half it used to carry is gone. |
 | `DELETE` | `/v1/settings/blocklist-terms/:id` | Bearer, `@Roles('owner')` | Hard delete. |
 | `GET` | `/v1/settings/notification-recipients` | Bearer, `@Roles('owner')` | Lists recipients, joined to `users` for name/email. |
 | `POST` | `/v1/settings/notification-recipients` | Bearer, `@Roles('owner')` | Adds a tenant user as a recipient. |
@@ -184,10 +184,9 @@ Backend target but **not** exposed by the frontend today:
   schema and the product concept ("responsible employee", `PLAN.md` §3) fully support more than
   one, and because a tenant with zero active recipients silently escalates into the void — which
   is a state the UI currently cannot get out of.
-- **Renaming a blocklist term, or muting one via `is_active`.** The chip's X maps to a hard
-  `DELETE`; `is_active` is never written by the UI. `PATCH` is documented because `is_active` is
-  what `PLAN.md` §3 actually filters on, so a way to write it belongs in the contract even if no
-  screen calls it yet.
+- **Renaming a blocklist term.** The chip's X maps to a hard `DELETE`; there is no rename and no
+  mute. Muting was dropped outright rather than left unimplemented — the `is_active` column it
+  would have written no longer exists.
 - **Editing the business name** (`PATCH /v1/tenant`). The dashboard's business-profile card is
   read-only; the name is captured once at signup (`businessName` → `tenants.name`, see
   [`POST /v1/auth/signup`](../auth/api-reference.md#post-v1authsignup)) and never edited
@@ -225,17 +224,21 @@ a breaking contract change, not a query-parameter addition.
 
 ## Matching semantics (classifier, not a stored per-term setting)
 
-There is no `match_type` column. An **active** term matches when `review_text` contains that term
-as a case-insensitive substring (multi-word phrases such as `food poisoning` are one term). All
-matching terms are copied onto `reviews.matched_keywords`. The rule and the apply path live in
-`src/review-pipeline/classification/` — see [Review pipeline — Classification](../review-pipeline/overview.md#classification).
+There is no `match_type` column, and no `is_active` column either — every stored term matches, and
+a term you no longer want is deleted. A term matches when `review_text` contains it as a
+case-insensitive substring (multi-word phrases such as `food poisoning` are one term). All
+matching terms are copied onto `reviews.matched_keywords`. The rule and the apply path are
+implemented — `src/review-pipeline/review-classification.rule.ts` — see
+[Review pipeline — Classification](../review-pipeline/overview.md#classification--implemented).
 Adding a term is **not** retroactive (`PLAN.md` §8.11).
 
 ## Gap between current code and target design
 
 **Blocklist HTTP is implemented** (`GET`/`POST`/`DELETE /v1/settings/blocklist-terms`,
-`src/api/settings/`, `src/db/repositories/settings/`). `PATCH` (rename / `is_active`) is still
-spec-only — the shipped UI only adds and removes terms. `MESSAGES.SETTINGS` and
+`src/api/settings/`, `src/db/repositories/settings/`). `PATCH` (rename) is still spec-only — the
+shipped UI only adds and removes terms. The `is_active` half it used to carry is gone for good:
+that column was dropped from `blocklist_terms`, because nothing ever wrote it while the
+classifier's own docs claimed it was filtered on. `MESSAGES.SETTINGS` and
 `RouteNames.SETTINGS` / `BLOCKLIST_TERMS` exist. `@Roles('owner')` is enforced (`RolesGuard` reads
 the JWT `role`); `tenantId` is on the tenant-user JWT.
 
@@ -243,11 +246,15 @@ the JWT `role`); `tenantId` is on the tenant-user JWT.
 `tenant-settings.repository.ts`). Changing `escalationRatingThreshold` is not retroactive
 (`PLAN.md` §8.11).
 
-All three fields are **stored but not yet acted on** — this module is the CRUD surface only, and
-each consumer ships separately. `escalationRatingThreshold` waits on the classifier,
-`autoPostEnabled` on the posting pipeline, and `reviewDataRetentionMonths` on the nightly GDPR
-purge (`PLAN.md` §6), which will read `NULL` as "fall back to the platform default" rather than
-"keep forever". Writing a value today changes what the API returns and nothing else.
+This module is the CRUD surface only; each consumer reads it independently rather than through
+this module's code. `escalationRatingThreshold` is now acted on:
+`ReviewPipelineDbService.loadClassificationContext` reads it via
+`TenantSettingsRepository.findEscalationRatingThreshold` on every classification run — see
+[Review pipeline — Classification](../review-pipeline/overview.md#classification--implemented).
+`autoPostEnabled` and `reviewDataRetentionMonths` are still **stored but not yet acted on**, waiting
+on the posting pipeline and the nightly GDPR purge (`PLAN.md` §6) respectively; the purge will read
+a `NULL` retention value as "fall back to the platform default" rather than "keep forever." Writing
+either of those two today changes what the API returns and nothing else.
 
 **Not built yet:** tenant profile (`/v1/tenant`) and notification-recipient routes.
 

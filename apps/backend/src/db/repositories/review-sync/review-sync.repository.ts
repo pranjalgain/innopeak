@@ -1,6 +1,8 @@
+import { EscalationReason } from '@common/enums/escalation-reason.enum';
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
+import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { ReviewStatus } from '@common/enums/review-status.enum';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
@@ -42,6 +44,18 @@ export interface InsertImportedReplyInput {
   reviewId: string;
   content: string;
   postedAt: string;
+}
+
+export interface PendingClassificationRow {
+  id: string;
+  rating: number;
+  reviewText: string | null;
+}
+
+export interface ClaimClassificationInput {
+  classification: ReviewClassification.AUTO_REPLY_CANDIDATE | ReviewClassification.ESCALATED;
+  escalationReason: EscalationReason | null;
+  matchedKeywords: string[] | null;
 }
 
 const SYNC_RUN_COLUMNS = {
@@ -342,5 +356,88 @@ export class ReviewSyncRepository {
       .where(eq(schema.reviews.locationId, locationId));
 
     return rows[0]?.value ?? 0;
+  }
+
+  /**
+   * The classification queue read: `classification = 'pending_classification'` (the DB default,
+   * never touched by `upsertReview`'s `DO UPDATE SET`) **and** `status = 'new'`.
+   *
+   * Both halves are required. `status = 'new'` is what PLAN.md §7 means by "backfilled reviews
+   * skip the live workflow entirely" — `resolveBackfillStatus` deliberately sorts imported history
+   * into `responded` (already answered) and `dismissed` (old, unanswered) precisely so those rows
+   * are never routed, drafted for, or escalated about, and §7's implementation note is explicit
+   * that only a `new` row is "eligible for §8.3's claim-and-classify step, no special case
+   * anywhere else in the pipeline." Filtering on `classification` alone would classify a decade of
+   * already-answered reviews and escalate every low-rated one among them — the exact flood §7
+   * exists to prevent.
+   *
+   * Ordered oldest-review-first so that hitting `limit` truncates predictably rather than
+   * arbitrarily; `reviewed_at` is nullable, and Postgres sorts those NULLs last on ASC.
+   */
+  async findPendingClassification(
+    tenantId: string,
+    locationId: string,
+    limit: number
+  ): Promise<PendingClassificationRow[]> {
+    const rows = await this.dbService.db
+      .select({
+        id: schema.reviews.id,
+        rating: schema.reviews.rating,
+        reviewText: schema.reviews.reviewText,
+      })
+      .from(schema.reviews)
+      .where(
+        and(
+          eq(schema.reviews.tenantId, tenantId),
+          eq(schema.reviews.locationId, locationId),
+          eq(schema.reviews.classification, ReviewClassification.PENDING_CLASSIFICATION),
+          eq(schema.reviews.status, ReviewStatus.NEW)
+        )
+      )
+      .orderBy(schema.reviews.reviewedAt)
+      .limit(limit);
+
+    return rows;
+  }
+
+  /**
+   * Compare-and-set on the same two columns `findPendingClassification` selects on, the same CAS
+   * shape as `completeSyncRun`. Zero rows updated means the review is no longer a candidate:
+   * another worker classified it first (a retried backfill, an overlapping run), or a human moved
+   * it off `new` in the window between the queue read and this write. Both are "nothing to do,"
+   * not an error.
+   *
+   * **What this does and does not guarantee.** It closes PLAN.md §8.3's double-*classification*
+   * race: no review is ever classified twice. It does **not** guarantee the decision was made
+   * against current data, because the predicate omits `rating` and `review_text` — the columns
+   * `classifyReview` actually read, and the ones `upsertReview` overwrites on conflict. A run
+   * reclaimed as stale (§8.1) can therefore re-import an edited review while the reclaimed run is
+   * still mid-batch, and that run's write lands with the CAS satisfied and a stale rating behind
+   * it. Narrow, and §8.6's supersede-and-reclassify is the general owner of "content changed after
+   * classification" — but it is not closed here.
+   *
+   * `status` is re-checked but never *written*: §8.3's `status = 'new' → 'in_review'` transition
+   * belongs to the generation step, which doesn't exist in this codebase yet. Writing it here
+   * would mark a review as having a pending draft when nothing has drafted anything.
+   */
+  async claimClassification(reviewId: string, input: ClaimClassificationInput): Promise<boolean> {
+    const rows = await this.dbService.db
+      .update(schema.reviews)
+      .set({
+        classification: input.classification,
+        escalationReason: input.escalationReason,
+        matchedKeywords: input.matchedKeywords,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(schema.reviews.id, reviewId),
+          eq(schema.reviews.classification, ReviewClassification.PENDING_CLASSIFICATION),
+          eq(schema.reviews.status, ReviewStatus.NEW)
+        )
+      )
+      .returning({ id: schema.reviews.id });
+
+    return rows.length > 0;
   }
 }

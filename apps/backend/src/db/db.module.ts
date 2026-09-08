@@ -9,6 +9,7 @@ import { ConnectionsDbService } from './repositories/connections/connections.db-
 import { ConnectionsRepository } from './repositories/connections/connections.repository';
 import { PromptsDbService } from './repositories/prompts/prompts.db-service';
 import { PromptsRepository } from './repositories/prompts/prompts.repository';
+import { ReviewPipelineDbService } from './repositories/review-pipeline/review-pipeline.db-service';
 import { ReviewSyncDbService } from './repositories/review-sync/review-sync.db-service';
 import { ReviewSyncRepository } from './repositories/review-sync/review-sync.repository';
 import { ReviewsReadRepository } from './repositories/review-sync/reviews-read.repository';
@@ -29,6 +30,7 @@ const repositories = [
   BlocklistTermsRepository,
   TenantSettingsRepository,
   SettingsDbService,
+  ReviewPipelineDbService,
 ];
 
 @Global()

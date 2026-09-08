@@ -33,6 +33,7 @@ const config: Config = {
     '^@notifications/(.*)$': '<rootDir>/notifications/$1',
     '^@email/(.*)$': '<rootDir>/email/$1',
     '^@review-provider/(.*)$': '<rootDir>/review-provider/$1',
+    '^@review-pipeline/(.*)$': '<rootDir>/review-pipeline/$1',
     '^@connections/(.*)$': '<rootDir>/api/connections/$1',
     '^@reviews/(.*)$': '<rootDir>/api/reviews/$1',
     '^@review-sync-queue/(.*)$': '<rootDir>/background/queue/review-sync/$1',

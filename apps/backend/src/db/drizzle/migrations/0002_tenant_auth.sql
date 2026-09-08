@@ -120,11 +120,17 @@ CREATE TRIGGER tenant_settings_audit_trigger
 -- blocklist_terms — depends on: tenants
 -- ───────────────────────────────────────────────────────────────────────
 
+-- No `is_active`: a term is either configured or it is removed, and removal is a hard DELETE.
+-- The column existed and was never written by any code path — the Blocklist tab only adds and
+-- removes — so it read as "every stored term is active" while inviting a reader to assume the
+-- classifier filtered on it. It does not. Dropped rather than filtered, so the schema cannot
+-- imply a mute feature the product does not have. The audit trigger below preserves the history
+-- a soft delete would have kept, and `reviews.matched_keywords` stores matched terms as plain
+-- text with no FK, so removing a term never orphans the escalation it caused.
 CREATE TABLE IF NOT EXISTS blocklist_terms (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     term VARCHAR(255) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

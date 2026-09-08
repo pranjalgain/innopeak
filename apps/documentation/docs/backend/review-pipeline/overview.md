@@ -61,8 +61,8 @@ flowchart TB
         POLL --> RV[("reviews<br/>upsert on location_id, external_review_id")]
         POLL --> LOC[("locations.last_synced_at<br/>last_sync_status / last_sync_error")]
     end
-    subgraph Classification["Classification — PLAN §3"]
-        RV --> CLAIM{"CAS: status 'new' → 'in_review'"}
+    subgraph Classification["Classification — PLAN §3 — implemented"]
+        RV --> CLAIM{"CAS: classification<br/>'pending_classification' → written<br/>(status untouched — see note below)"}
         CLAIM --> BL{Active blocklist term matched?}
         BL -- yes --> ESC["classification='escalated'<br/>escalation_reason='blocklist_match'<br/>matched_keywords=[...]"]
         BL -- no --> TH{"rating &lt; escalation_rating_threshold?"}
@@ -196,62 +196,137 @@ on the raw API payload:
 > imported row in place, or narrow the index. Updating in place is smaller and is what this document
 > assumes — it has to be stated in code, because the schema does not express it.
 
-### Classification
+### Classification — implemented
 
-**Trigger.** Queued per review, immediately after that review is upserted by ingestion (or after a
-supersede re-triggers it per §8.6/§8.12). Classification is a separate job from ingestion on
-purpose: a poll that fetches 200 reviews should not hold its `sync_runs` lock open while 200
-classifications run, and a classification failure should not fail the poll.
+Unlike every other stage in this document, classification is **built** — `src/review-pipeline/`,
+with its data access in `src/db/repositories/review-pipeline/`. This subsection describes the
+actual code, not a target design; where it deliberately departs from `PLAN.md` §3/§8.3, that
+departure is called out rather than left implicit.
 
-**Inputs.** The `reviews` row (`rating`, `review_text`), the tenant's
-`tenant_settings.escalation_rating_threshold` (`NOT NULL`, CHECK between 1 and 5), and the tenant's
-active `blocklist_terms` rows. Both settings tables are keyed on `tenant_id` only, not
-`location_id` — §8.16 accepts that as a scope boundary, so a multi-location tenant shares one
-threshold and one blocklist.
+**Where it lives.**
 
-**The rule, in this exact order** (`PLAN.md` §3):
+| File | Role |
+|---|---|
+| `src/review-pipeline/review-classification.rule.ts` | Pure function `classifyReview(review, context)`. No I/O — the entire §3 decision table, unit-tested directly. |
+| `src/review-pipeline/types/classification-result.type.ts` | `ClassificationResult`, `ClassificationContext`, `ClassifiableReview` — the rule's input/output shapes. |
+| `src/review-pipeline/review-classification.service.ts` | `ReviewClassificationService`, the module's one public entrypoint: `classifyPendingReviews({ tenantId, locationId })`. |
+| `src/review-pipeline/review-pipeline.module.ts` | `@Global()`, same reasoning as `ReviewProviderModule` — the caller runs in the worker process. Imported by both `AppModule` and `WorkerModule`. |
+| `src/db/repositories/review-pipeline/review-pipeline.db-service.ts` | `ReviewPipelineDbService` — composes `ReviewSyncRepository` (the `reviews` table), `BlocklistTermsRepository`, and `TenantSettingsRepository`. Registered in the already-global `DBModule`. |
+| `src/db/repositories/review-sync/review-sync.repository.ts` | Gained two methods for this module: `findPendingClassification` (the queue read) and `claimClassification` (the CAS write). No new repository was created — `reviews` already had a single owner. |
 
-1. The review text matches an active blocklist term → `classification = 'escalated'`,
-   `escalation_reason = 'blocklist_match'`, and the matching term(s) written into
-   `matched_keywords` (`JSONB`).
-2. Otherwise `rating < tenant_settings.escalation_rating_threshold` → `classification = 'escalated'`,
-   `escalation_reason = 'low_rating'`. Strictly less than; `rating >= threshold` is a candidate.
-3. Otherwise → `classification = 'auto_reply_candidate'`.
+**Trigger, as actually wired.** Called from `ReviewSyncQueueService.runBackfill`, once per
+location, immediately after `importAllPages` finishes and before `completeRun`.
 
-**Writes.** `reviews.classification` (`review_classification`: `auto_reply_candidate` \|
-`escalated` \| `pending_classification`), `reviews.escalation_reason` (`escalation_reason`:
-`low_rating` \| `blocklist_match`, nullable — left `NULL` for a candidate),
-`reviews.matched_keywords` (only on a blocklist match), and `reviews.status` moving from `'new'` to
-`'in_review'` as part of the claim below. `reviews.sentiment` (`review_sentiment`: `positive` \|
-`neutral` \| `negative`) may also be written here; per §3 it is informational only and does not
-drive routing in MVP.
+**A classification failure fails the run.** `classifyImportedReviews` catches the error rather than
+rethrowing — the imported rows are already committed and there is no reason to discard them — but
+it reports the failure up, and `runBackfill` then completes the run as `error` with that message
+**and withholds `markBackfillComplete`**. That last part is the load-bearing half:
+`locations.onboarding_backfill_completed_at` is §8.2's live-polling gate, and
+`ConnectionsSyncService` derives `livePollingEnabled` from it under a comment calling it "the only
+correct signal for advancing the UI to 'done'." An earlier revision swallowed the error and
+stamped completion anyway, so a failure at review 500 of 1000 left `sync_runs` reading `ok`, the
+onboarding UI reading "all set", and 500 rows sitting at `pending_classification` with a single log
+line as the only trace. Recovery is re-triggering backfill for the location (confirm-location
+accepts the same location and acquires a fresh run); there is no automatic retry.
 
-Two behaviours §8 accepts rather than fixes apply directly here. Per §8.17, the order above means a
-review that is *both* low-rated and blocklist-matched only ever records `blocklist_match` —
-`escalation_reason` is single-valued and there is nowhere to put the second reason, so do not try to
-encode both by stuffing the rating into `matched_keywords`. Per §8.11, **classification is not
-retroactive**: changing the threshold or adding a blocklist term does not reclassify
-already-classified reviews. There is no reclassification job and none is planned; the only re-entry
-into this stage is §8.6/§8.12's supersede path.
+**The 15-minute poller this section originally described does not exist yet** (see
+[Ingestion](#ingestion----the-15-minute-poller) below, still unbuilt), so today classification runs
+exactly once per location: right after its one-time backfill.
 
-**Failure modes.** A tenant with no `tenant_settings` row has no threshold to compare against.
-§8.10 makes creating that row part of the signup transaction precisely so this cannot happen, but
-the classifier should still fail loudly (leaving `classification = 'pending_classification'`)
-rather than defaulting to a hardcoded 3. A blocklist match that throws leaves the review claimed at
-`in_review` and still `pending_classification` — a visible, queryable stuck state via
-`idx_reviews_classification`, which is the right outcome.
+**Inputs**, read once per `classifyPendingReviews` call via
+`ReviewPipelineDbService.loadClassificationContext(tenantId)`: every `blocklist_terms.term` for the
+tenant (`BlocklistTermsRepository.listByTenant`) and `tenant_settings.escalation_rating_threshold`
+(`TenantSettingsRepository.findEscalationRatingThreshold`).
 
-**Guard.** Double classification: §8.3 — claim the review with
-`UPDATE reviews SET status = 'in_review' WHERE id = ? AND status = 'new'` and skip on zero rows
-affected.
+There is no active/inactive distinction to honour: `blocklist_terms` has no `is_active` column, and
+removal is a hard `DELETE`. It previously did have one, unwritten by any code path and unread by
+this query — an earlier revision of this document asserted the column did not exist at all, which
+was simply wrong and is the reason the mismatch went unnoticed. The column was dropped rather than
+filtered on, so the schema no longer implies a mute feature the product does not offer.
 
-> **Required follow-up (code, not schema).** §8.3's claim predicate is `status = 'new'`, but §8.6
-> and §8.12 both re-trigger classification for a review already at `in_review` (or `responded`), so
-> as written the CAS can never succeed on the re-entry path and a supersede would silently never
-> regenerate. The supersede step must reset `reviews.status = 'new'` in the same transaction that
-> supersedes the responses. Note also that §2 defines `in_review` as "has a draft/pending response"
-> while §8.3 sets it *before* any draft exists — workable, but it means `in_review` alone does not
-> prove a draft exists; the dashboard badge is a computed combination per §2, not a column read.
+Every tenant gets a `tenant_settings` row at signup (`auth.repository.ts`), so a `null` threshold
+here means that invariant broke — `loadClassificationContext` throws rather than guessing a
+default, which fails the run rather than classifying against a guessed threshold.
+
+**The rule, in this exact order** (`PLAN.md` §3, `classifyReview` in
+`review-classification.rule.ts`):
+
+1. The review text contains any blocklist term, case-insensitively, as a substring (not a
+   whole-word match) → `classification = ESCALATED`, `escalationReason = BLOCKLIST_MATCH`,
+   `matchedKeywords` = every term that matched, in blocklist order. A `null` review text (a
+   star-only review) or an empty blocklist can never match.
+2. Otherwise `rating < escalationRatingThreshold` → `ESCALATED`, `escalationReason = LOW_RATING`.
+   Strictly less-than; a rating equal to the threshold is a candidate.
+3. Otherwise → `AUTO_REPLY_CANDIDATE`, `escalationReason = null`.
+
+Per §8.17, a review that is both low-rated and blocklist-matched only ever records
+`BLOCKLIST_MATCH` — the blocklist check runs first and returns immediately, so the rating is never
+even inspected in that case. Sentiment is not read or written anywhere in this module, matching
+§3's "informational only, does not drive routing" — there was no reason to touch
+`reviews.sentiment` for a stage that never consults it.
+
+**Eligibility — `classification = 'pending_classification'` AND `status = 'new'`.** Both halves
+matter. `status = 'new'` is what §7 means by "backfilled reviews skip the live workflow entirely":
+`ReviewSyncDbService.resolveBackfillStatus` sorts imported history into `responded` (the tenant
+already answered it) and `dismissed` (old and unanswered), and §7's implementation note is explicit
+that only a `new` row is "eligible for §8.3's claim-and-classify step, no special case anywhere
+else in the pipeline." Without that predicate the classifier would work through a decade of
+already-answered reviews and escalate every low-rated one among them — precisely the flood §7
+exists to prevent, and it would surface immediately in the dashboard, which filters on
+`classification` (`GET /v1/reviews?classification=escalated`). Reviews that are `responded` or
+`dismissed` therefore stay at `pending_classification` permanently, which is the intended terminal
+state for historical rows, not a stuck queue: the query never selects them again.
+
+**Writes**, via `ReviewPipelineDbService.applyClassification` →
+`ReviewSyncRepository.claimClassification`: `reviews.classification`, `reviews.escalation_reason`,
+`reviews.matched_keywords` (`JSONB`, from a plain `string[]`). **`reviews.status` is read but never
+written** — see the guard below for why that's a considered choice, not an oversight.
+
+**Guard — and where this deliberately departs from `PLAN.md` §8.3.** §8.3's literal SQL is
+`UPDATE reviews SET status = 'in_review' WHERE id = ? AND status = 'new'`, written for a combined
+"classify+generate" step. This codebase splits that into two modules on two branches — generation
+doesn't exist yet — and `status = 'in_review'` is specified elsewhere (§2) to mean "has a
+draft/pending response," which classification alone never produces. *Writing* that transition here
+would leave a review at `in_review` with no response, and give a future generation module no way
+to tell "classified, awaiting generation" apart from "generation already claimed this."
+
+So the claim keeps §8.3's `status = 'new'` predicate but moves the written column:
+
+```sql
+UPDATE reviews SET classification = ?, escalation_reason = ?, matched_keywords = ?
+ WHERE id = ? AND classification = 'pending_classification' AND status = 'new'
+```
+
+`classification` is already the DB-default queue marker
+(`ReviewClassification.PENDING_CLASSIFICATION`) and exists for exactly this purpose, so the CAS
+lands on it while `status` stays a re-checked precondition — matching the eligibility query above,
+which closes the window where a human moves a review off `new` between the queue read and the
+write. Zero rows affected means the review stopped being a candidate for either reason; the service
+counts it as `skipped`, not an error, and continues with the next review. This preserves §8.3's
+actual intent — no review is ever double-classified — while leaving `status` free for a future
+generation module to claim with its own `status = 'new' → 'in_review'` CAS, exactly as §8.3
+describes, once that module exists.
+
+**Batching.** `findPendingReviews` (→ `ReviewSyncRepository.findPendingClassification`) reads up to
+1000 eligible reviews per call, scoped to one `(tenantId, locationId)`, oldest `reviewed_at` first
+so that hitting the cap truncates predictably rather than arbitrarily. A single backfill is already
+bounded by `review-sync-queue.service.ts`'s own `MAX_PAGES`, so 1000 is headroom rather than an
+expected ceiling; if it's ever hit, `ReviewClassificationService` logs a warning and the remainder
+stays `pending_classification`. Note what "a future call" means today: with no poller, the only
+re-entry is another backfill run for that location, so a truncated batch or a thrown
+`loadClassificationContext` leaves the remainder unclassified until someone re-triggers backfill.
+That is acceptable at current volumes but is the strongest argument for the poller landing next. Per §8.11, classification is
+**not retroactive**: nothing here re-reads or re-classifies a review whose `classification` has
+already moved off `pending_classification`, so a later blocklist or threshold change never touches
+existing rows.
+
+**Testing.** `review-classification.rule.spec.ts` unit-tests the pure rule directly (blocklist
+precedence, case-insensitivity, substring matching, the exact rating boundary, null-text and
+empty-blocklist non-matches). `review-classification.service.spec.ts` and
+`review-pipeline.db-service.spec.ts` cover the orchestration and the CAS-skip path with mocked
+repositories, following this codebase's existing DB-service test convention
+(`review-sync.db-service.spec.ts`) rather than testing repositories directly — no repository in
+this codebase has its own spec file; only raw Drizzle queries live there.
 
 ### AI generation
 
@@ -635,12 +710,12 @@ concurrency limit of 3.
 genuinely differ — polling is I/O-bound and rate-limited per connection, generation is expensive and
 should barely retry, posting must not retry blindly at all:
 
-| Proposed `QueueName` | Job | Concurrency note |
+| `QueueName` | Job | Concurrency note |
 |---|---|---|
-| `review-sync` | Poll one location; also the one-time backfill (same upsert path, `"trigger" = 'backfill'`) | Serialized per location by §8.1's index, not by the queue |
-| `review-classify` | Classify one review | Cheap, high concurrency |
-| `review-generate` | Generate 1 or 2–3 responses for one review | Low concurrency, `attempts` overridden down |
-| `review-post` | Freshness-check then `PUT` one reply | `attempts: 1`, or an unconditional re-check per attempt |
+| `review-sync` (**exists**) | Poll one location; also the one-time backfill (same upsert path, `"trigger" = 'backfill'`) | Serialized per location by §8.1's index, not by the queue |
+| *(none — in-process)* | Classify pending reviews for one location (**exists**, `ReviewClassificationService`) | Called directly from the `review-sync` job handler after import, not queued separately — see [Classification — implemented](#classification--implemented) |
+| `review-generate` (proposed) | Generate 1 or 2–3 responses for one review | Low concurrency, `attempts` overridden down |
+| `review-post` (proposed) | Freshness-check then `PUT` one reply | `attempts: 1`, or an unconditional re-check per attempt |
 | `notification` (existing) / `email` (existing) | Escalation delivery | Reuse rather than add |
 
 Adding a queue means adding its value to the `QueueName` enum in
@@ -687,23 +762,33 @@ deployment must pin exactly one worker replica and say so.
 
 ## Gap between current code and target design
 
-**None of this pipeline exists.** `apps/backend/src/` has no reference to `sync_runs`, `reviews`,
-`review_responses`, `blocklist`, escalation, Google Business Profile, or Azure — verified by grep
-across all TypeScript under `src/`. What exists is the boilerplate's generic infrastructure
-(`src/background/`, `src/ai/`, `src/email/`, `src/notifications/`), which the pipeline builds *on*
-but which does not implement any of it. The schema, by contrast, is done: every table this document
-writes exists in the migrations, with the specific partial unique indexes §8 asks for already
-applied.
+**Historical backfill, ingestion's upsert path, and classification are built; generation,
+notification, and posting are not.** `src/background/queue/review-sync/` implements the one-time
+backfill (`ReviewSyncQueueService.runBackfill`, `ReviewSyncDbService.importPage`) against a real
+Google Business Profile client under `src/review-provider/`, and `src/review-pipeline/` implements
+classification exactly as described in [Classification — implemented](#classification--implemented)
+above, called from that same backfill job. **The 15-minute scheduled poller does not exist** — the
+Ingestion section below (and the diagram's `POLL`/`GATE`/`LOCK` nodes) describes that unbuilt
+recurring path, and its detailed critique notes (§8.1's reclaim query, §8.6, §8.12, etc.) have not
+been re-verified against the backfill code that does exist today; treat that section as target
+design still, not a description of `runBackfill`. Generation, the notification stage, and posting
+back to Google remain entirely unbuilt, same as before. The schema, by contrast, is done: every
+table this document writes exists in the migrations, with the specific partial unique indexes §8
+asks for already applied.
 
 **To build, in the background layer:**
 
 - **Two cron entries** on a `CronScheduler`-shaped class: the `'*/15 * * * *'` fan-out and the
   nightly retention/erasure/sweep job. Both enqueue; neither works inline.
-- **Four new queues** — `review-sync`, `review-classify`, `review-generate`, `review-post` — each
-  needing a `QueueName` enum value, a `*.queue.ts` producer, a BullMQ `*.processor.ts`, an
-  `*-sqs.consumer.ts`, a `*-queue.module.ts` with the `isAws` ternary, an `env.config.ts` entry for
-  its `*_QUEUE_URL`, and a Terraform entry. Reuse the existing `notification` and `email` queues for
-  escalation delivery rather than adding a fifth.
+- **`review-sync` exists** as a real queue (backfill today; the scheduled poller would reuse it).
+  Classification does **not** have its own queue — `ReviewClassificationService` is called
+  in-process from `review-sync`'s own job handler, since a per-review job would need the same
+  `pending_classification` CAS guard either way and backfill's review counts don't yet justify the
+  extra queue hop. **Two new queues remain** — `review-generate`, `review-post` — each needing a
+  `QueueName` enum value, a `*.queue.ts` producer, a BullMQ `*.processor.ts`, an `*-sqs.consumer.ts`,
+  a `*-queue.module.ts` with the `isAws` ternary, an `env.config.ts` entry for its `*_QUEUE_URL`, and
+  a Terraform entry. Reuse the existing `notification` and `email` queues for escalation delivery
+  rather than adding a third.
 - **A Teams outbound adapter.** `notification_channel` includes `teams` and
   `notification_channel_pref` includes `both`; nothing in `src/notifications/` (FCM push, in-app)
   speaks Teams. This is a new provider under the existing Provider/Strategy pattern.
@@ -736,8 +821,10 @@ applied.
   Repository directly, and never run a Drizzle query themselves. Repositories stay mechanical (one
   table, raw queries, no composition); every multi-table transaction this document requires — the
   escalation batch insert, supersede-then-post, supersede-plus-reset-status — belongs in a DB
-  Service, the layer that owns transactions spanning more than one repository call. The four-layer
-  shape is not yet adopted anywhere, so existing repository domains are not the pattern to copy.
+  Service, the layer that owns transactions spanning more than one repository call.
+  `src/db/repositories/review-pipeline/review-pipeline.db-service.ts` is a worked example: it
+  composes `ReviewSyncRepository`, `BlocklistTermsRepository`, and `TenantSettingsRepository`
+  without any of them composing each other.
 - **Explicit return types on every method**, at every layer. No inference, no `any`. Every
   user-facing string through `src/common/constants/messages.constants.ts`, which does not exist yet.
 - **If any part of this ever gets an HTTP surface** — a manual "sync now" trigger, a "regenerate"
@@ -760,6 +847,6 @@ rather than things this document can assume:
 | `idx_review_responses_review_id_imported` blocks a second external reply import (§8.12 reuses `source = 'imported'` live) | Update the existing imported row in place, or narrow the index |
 | `users.name` / `email` are `NOT NULL`, so §6.2's anonymize-in-place UPDATE cannot run | Drop `NOT NULL`, or write per-user unique placeholders (`idx_users_tenant_id_email` is unique) |
 | The platform-default retention window has no home | Column on a platform table, or an env-config value |
-| §8.3's CAS predicate `status = 'new'` cannot match on the §8.6/§8.12 re-entry path | Reset `reviews.status = 'new'` in the supersede transaction (code, not schema) |
+| ~~§8.3's CAS predicate `status = 'new'` cannot match on the §8.6/§8.12 re-entry path~~ — resolved differently: classification claims on `classification = 'pending_classification'` instead, leaving `status` for a future generation module. See [Classification — implemented](#classification--implemented). | No schema change; `status = 'new' → 'in_review'` remains available for generation to implement §8.3 as written, once it exists |
 | `prompt_category` has no `auto_reply_candidate` equivalent; mapping needs `reviews.sentiment`, which is nullable | Document an explicit fallback — see `../prompts/overview.md` |
 | §6.1's `audit_logs` redaction step | Not built; indexes for it exist |

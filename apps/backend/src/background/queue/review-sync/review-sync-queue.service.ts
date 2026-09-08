@@ -3,6 +3,7 @@ import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Injectable, Logger } from '@nestjs/common';
+import { ReviewClassificationService } from '@review-pipeline/review-classification.service';
 import {
   RATE_LIMIT_DEFAULT_WAIT_SECONDS,
   RATE_LIMIT_MAX_RETRIES,
@@ -38,7 +39,8 @@ export class ReviewSyncQueueService {
     private readonly provider: ReviewProvider,
     private readonly credentialService: ProviderCredentialService,
     private readonly connectionsDbService: ConnectionsDbService,
-    private readonly reviewSyncDbService: ReviewSyncDbService
+    private readonly reviewSyncDbService: ReviewSyncDbService,
+    private readonly reviewClassificationService: ReviewClassificationService
   ) {}
 
   async runBackfill(job: IReviewBackfillJob): Promise<void> {
@@ -52,20 +54,32 @@ export class ReviewSyncQueueService {
       const accessToken = await this.resolveAccessToken(job);
       reviewsFetched = await this.importAllPages(job, accessToken);
 
+      const classification = await this.classifyImportedReviews(job);
+
       await this.reviewSyncDbService.completeRun({
         syncRunId: job.syncRunId,
         locationId: job.locationId,
-        status: SyncRunStatus.OK,
+        status: classification.error === null ? SyncRunStatus.OK : SyncRunStatus.ERROR,
         reviewsFetched,
-        errorMessage: null,
-        // Only a successful backfill un-gates live polling (PLAN.md §8.2). The job sets it, not
-        // the HTTP handler, because until the import finishes there is nothing to poll on top of.
-        markBackfillComplete: true,
+        errorMessage: classification.error,
+        // Only a run that finished *both* halves un-gates live polling (PLAN.md §8.2). The job
+        // sets it, not the HTTP handler, because until the import finishes there is nothing to
+        // poll on top of — and a run whose classification step failed left
+        // `pending_classification` rows behind, so stamping completion would report
+        // `livePollingEnabled: true` (see ConnectionsSyncService, which calls that "the only
+        // correct signal for advancing the UI to 'done'") for a pipeline that is not done.
+        markBackfillComplete: classification.error === null,
       });
 
-      this.logger.log(
-        `Review backfill complete for location ${job.locationId}: ${reviewsFetched} reviews`
-      );
+      if (classification.error === null) {
+        this.logger.log(
+          `Review backfill complete for location ${job.locationId}: ${reviewsFetched} reviews, ${classification.classified} classified (${classification.skipped} skipped)`
+        );
+      } else {
+        this.logger.error(
+          `Review backfill for location ${job.locationId} imported ${reviewsFetched} reviews but classification failed; live polling stays gated: ${classification.error}`
+        );
+      }
     } catch (error) {
       const message = (error as Error).message;
 
@@ -86,6 +100,35 @@ export class ReviewSyncQueueService {
 
       this.logger.error(`Review backfill failed for location ${job.locationId}: ${message}`);
       throw error;
+    }
+  }
+
+  /**
+   * Reports the failure rather than throwing, so a classification error does not discard an import
+   * whose rows are already committed — but the caller still records it on the run and withholds
+   * the backfill-complete stamp. Swallowing it outright was wrong in a way worth naming: it left
+   * `sync_runs` reading `ok` with `reviews_fetched` set while `pending_classification` rows sat
+   * behind an onboarding UI that had already advanced to "you're all set".
+   *
+   * Recovery is re-triggering backfill for the location (`POST` confirm-location accepts the same
+   * location and acquires a fresh run); there is no automatic retry while the poller doesn't exist.
+   */
+  private async classifyImportedReviews(
+    job: IReviewBackfillJob
+  ): Promise<{ classified: number; skipped: number; error: string | null }> {
+    try {
+      const result = await this.reviewClassificationService.classifyPendingReviews({
+        tenantId: job.tenantId,
+        locationId: job.locationId,
+      });
+
+      return { ...result, error: null };
+    } catch (error) {
+      return {
+        classified: 0,
+        skipped: 0,
+        error: `classification failed: ${(error as Error).message}`,
+      };
     }
   }
 

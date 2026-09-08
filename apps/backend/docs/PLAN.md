@@ -353,6 +353,23 @@ Worth calling out explicitly: your original table list included `user_locations`
 - Add unique constraint (case-insensitive) on `(tenant_id, lower(term))` to prevent duplicate entries.
 - Consider a `match_type` enum (`exact`, `contains`, `regex`) as a possible fast-follow, not required for MVP.
 
+> **Implementation note (`feat/classification-sync-runs`).** `is_active` — in the ERD above and
+> implied by §3's "Matches **active** blocklist term?" — **has been dropped**, and the shipped
+> classifier matches every stored term.
+>
+> It was never a working mute: no code path wrote it, the Blocklist tab only adds and removes, and
+> `BlocklistTermsRepository.listByTenant` never filtered on it. Removal is a hard `DELETE`, which
+> is the affordance the UI actually offers. Keeping a column the schema advertised but nothing
+> honoured was the worse option — it read as a feature to anyone who found it, and the
+> classification module's own documentation asserted (wrongly) that the column did not exist,
+> which is exactly the confusion an unused column invites. If per-term muting is ever genuinely
+> wanted, it comes back as a deliberate feature with a filter in the query and a control in the
+> UI, not as a dormant column.
+>
+> Escalation history survives a delete regardless: `reviews.matched_keywords` stores matched terms
+> as plain text with no FK, and `blocklist_terms_audit_trigger` snapshots the removed row into
+> `audit_logs`.
+
 ### `notification_recipients` / `notifications`
 - **Add `channel` (enum: `email`, `teams`, `both`) to `notification_recipients`.** As originally specified, nothing records *where* a given recipient wants to be notified — `notifications.channel` only logs which channel a specific already-sent notification went out on, it's not a preference. Without a preference field on the recipient config, the system has no way to decide email vs. Teams vs. both when composing a new notification.
 - Confirm `notification_type`/`type` enums share the same domain (currently just `escalation` — no digest/summary notification type is planned).
