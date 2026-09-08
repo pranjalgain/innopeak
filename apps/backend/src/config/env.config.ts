@@ -187,6 +187,21 @@ export class EnvConfig {
   @IsString()
   GOOGLE_CALLBACK_URL?: string;
 
+  /** HMAC key for the sign-in OAuth `state` blob. Falls back to JWT_SECRET locally. */
+  @IsOptional()
+  @IsString()
+  GOOGLE_AUTH_STATE_SECRET?: string;
+
+  /** Dev-only: skips Google entirely while still routing through the real callback. */
+  @IsOptional()
+  @IsString()
+  DEV_GOOGLE_AUTH_MOCK?: string;
+
+  /** Dev-only: pins the mock's email, so repeated sign-ins resolve to one account. */
+  @IsOptional()
+  @IsString()
+  DEV_GOOGLE_AUTH_MOCK_EMAIL?: string;
+
   // ─── Google Business Profile (review data — NOT login) ──────────────────────
 
   // Deliberately separate from GOOGLE_* above. Those back Google *sign-in*; these back the

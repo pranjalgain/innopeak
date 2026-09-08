@@ -144,8 +144,13 @@ export interface SettingsData {
  * `avatarUrl` is the only field this screen lets you change directly.
  */
 export interface TenantOwnerProfile {
+  name: string;
   email: string;
   avatarUrl: string | null;
+  /** `false` for a Google/SSO-only account — Settings shows "Add password" instead of "Change password". */
+  hasPassword: boolean;
+  /** The tenant/company name set at signup (`tenants.name`) — read-only in Settings. */
+  businessName: string;
 }
 
 /** Mirrors the real `user_role`/`user_status` enums on the tenant-scoped `users` table. */

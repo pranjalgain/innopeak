@@ -14,8 +14,13 @@ import { AuthService } from './auth.service';
 import { ACCESS_TOKEN_TTL_SECONDS } from './constants/auth.constants';
 import { OtpAttemptService } from './otp-attempt.service';
 import { FixedVerifyEmailTokenProvider } from './providers/fixed-verify-email-token.provider';
+import { GoogleIdentityProvider } from './providers/google-identity.provider';
+import { GoogleOidcProvider } from './providers/google-oidc.provider';
+import { MockGoogleIdentityProvider } from './providers/mock-google-identity.provider';
 import { RandomVerifyEmailTokenProvider } from './providers/random-verify-email-token.provider';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
+import { GoogleOAuthStateService } from './services/google-oauth-state.service';
+import { PendingGoogleSignupService } from './services/pending-google-signup.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { TokenService } from './token.service';
 
@@ -36,6 +41,23 @@ const verifyEmailTokenProviderFactory = {
   inject: [ConfigService],
 };
 
+// Same DI-swap as above: DEV_GOOGLE_AUTH_MOCK routes the whole sign-in through the real callback
+// against a fabricated profile, so the flow is exercisable before an OAuth client exists. Joi
+// forbids the flag in production.
+const googleIdentityProviderFactory = {
+  provide: GoogleIdentityProvider,
+  useFactory: (configService: ConfigService<EnvConfig>): GoogleIdentityProvider => {
+    const useMock = configService.get<string>('DEV_GOOGLE_AUTH_MOCK') === 'true';
+
+    if (useMock && !isProduction()) {
+      return new MockGoogleIdentityProvider(configService);
+    }
+
+    return new GoogleOidcProvider(configService);
+  },
+  inject: [ConfigService],
+};
+
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
@@ -51,7 +73,7 @@ const verifyEmailTokenProviderFactory = {
       inject: [ConfigService],
     }),
     QueueUIModule, // for AddingJobsToQueueManager — signup/login enqueue the verification OTP
-    RedisModule, // for OtpAttemptService's per-account verify-email attempt counter
+    RedisModule, // OtpAttemptService's, GoogleOAuthStateService's, and PendingGoogleSignupService's stores
   ],
   controllers: [AuthController],
   providers: [
@@ -60,6 +82,9 @@ const verifyEmailTokenProviderFactory = {
     OtpAttemptService,
     JwtStrategy,
     verifyEmailTokenProviderFactory,
+    googleIdentityProviderFactory,
+    GoogleOAuthStateService,
+    PendingGoogleSignupService,
     { provide: HashingService, useClass: BcryptService },
   ],
 })

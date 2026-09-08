@@ -95,9 +95,19 @@ CREATE TABLE IF NOT EXISTS tenant_settings (
     escalation_rating_threshold INTEGER NOT NULL DEFAULT 3,
     auto_post_enabled BOOLEAN NOT NULL DEFAULT false,
     review_data_retention_months INTEGER,
+    -- How many AI-drafted reply variants to generate per review — Settings' AI tab. DEFAULT 1
+    -- for the same reason as escalation_rating_threshold above. Added by editing this file rather
+    -- than as a follow-up ALTER, same convention as that column — but note this one is *queried*
+    -- (tenant_settings.repository selects it), so a database that predates this line does not
+    -- merely lack a default: `GET`/`PUT /v1/settings` will fail outright with
+    -- `column "ai_reply_count" does not exist`. Recreate yours (`pnpm db:dev:rm && pnpm db:dev:up`,
+    -- then `pnpm db:migrate`) — drizzle never re-reads an applied migration, so `db:migrate`
+    -- alone reports success and changes nothing.
+    ai_reply_count SMALLINT NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT tenant_settings_escalation_rating_threshold_check CHECK (escalation_rating_threshold BETWEEN 1 AND 5)
+    CONSTRAINT tenant_settings_escalation_rating_threshold_check CHECK (escalation_rating_threshold BETWEEN 1 AND 5),
+    CONSTRAINT tenant_settings_ai_reply_count_check CHECK (ai_reply_count BETWEEN 1 AND 3)
 );
 
 CREATE UNIQUE INDEX idx_tenant_settings_tenant_id ON tenant_settings(tenant_id);

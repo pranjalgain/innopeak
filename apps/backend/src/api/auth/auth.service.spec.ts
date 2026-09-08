@@ -1,4 +1,5 @@
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
+import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import {
@@ -12,16 +13,24 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
 import { AuthService } from './auth.service';
+import { GoogleAuthFailure } from './constants/google-auth.constants';
 import { JwtTokenType } from './enums/jwt-token-type.enum';
+import { OAuthIntent } from './enums/oauth-intent.enum';
 import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
 import { OtpAttemptService } from './otp-attempt.service';
+import { GoogleIdentityProvider } from './providers/google-identity.provider';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
+import { GoogleOAuthStateService } from './services/google-oauth-state.service';
+import { PendingGoogleSignupService } from './services/pending-google-signup.service';
 import { TokenService } from './token.service';
 
 describe('AuthService', () => {
   let target: AuthService;
+  let googleIdentityProvider: jest.Mocked<GoogleIdentityProvider>;
+  let googleOAuthStateService: jest.Mocked<GoogleOAuthStateService>;
+  let pendingGoogleSignupService: jest.Mocked<PendingGoogleSignupService>;
   let authDbService: jest.Mocked<AuthDbService>;
   let hashingService: jest.Mocked<HashingService>;
   let verifyEmailTokenProvider: jest.Mocked<VerifyEmailTokenProvider>;
@@ -41,6 +50,8 @@ describe('AuthService', () => {
       findTenantStatus: jest.fn(),
       hasConnectedBusiness: jest.fn().mockResolvedValue(false),
       updatePasswordAndRevokeSessions: jest.fn(),
+      resolveGoogleIdentity: jest.fn(),
+      completeGoogleSignup: jest.fn(),
     } as unknown as jest.Mocked<AuthDbService>;
 
     hashingService = {
@@ -70,6 +81,24 @@ describe('AuthService', () => {
 
     const configService = { get: jest.fn(() => 10) } as unknown as ConfigService;
 
+    googleIdentityProvider = {
+      isConfigured: jest.fn().mockReturnValue(true),
+      buildAuthorizationUrl: jest
+        .fn()
+        .mockReturnValue('https://accounts.google.com/o/oauth2/v2/auth?x=1'),
+      fetchIdentity: jest.fn(),
+    } as unknown as jest.Mocked<GoogleIdentityProvider>;
+
+    googleOAuthStateService = {
+      mint: jest.fn().mockResolvedValue({ state: 'signed-state', sid: 'raw-sid' }),
+      consume: jest.fn(),
+    } as unknown as jest.Mocked<GoogleOAuthStateService>;
+
+    pendingGoogleSignupService = {
+      mint: jest.fn().mockResolvedValue('pending-nonce'),
+      consume: jest.fn(),
+    } as unknown as jest.Mocked<PendingGoogleSignupService>;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -80,6 +109,9 @@ describe('AuthService', () => {
         { provide: OtpAttemptService, useValue: otpAttemptService },
         { provide: AddingJobsToQueueManager, useValue: queueManager },
         { provide: ConfigService, useValue: configService },
+        { provide: GoogleIdentityProvider, useValue: googleIdentityProvider },
+        { provide: GoogleOAuthStateService, useValue: googleOAuthStateService },
+        { provide: PendingGoogleSignupService, useValue: pendingGoogleSignupService },
       ],
     }).compile();
 
@@ -155,6 +187,8 @@ describe('AuthService', () => {
         email: 'jane@thecoffeehouse.com',
         name: 'Jane Doe',
         role: UserRole.OWNER,
+        passwordHash: 'hashed-password',
+        status: UserStatus.ACTIVE,
       });
 
       await target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' });
@@ -186,6 +220,8 @@ describe('AuthService', () => {
         email: 'jane@thecoffeehouse.com',
         name: 'Jane Doe',
         role: UserRole.OWNER,
+        passwordHash: 'hashed-password',
+        status: UserStatus.ACTIVE,
       });
 
       const result = await target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' });
@@ -276,7 +312,10 @@ describe('AuthService', () => {
     it('throws 403 for a suspended tenant', async () => {
       authDbService.findUserForLogin.mockResolvedValue(activeUser);
       hashingService.compare.mockResolvedValue(true);
-      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.SUSPENDED });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'Test Tenant',
+      });
 
       await expect(
         target.login({ email: activeUser.email, password: 'StrongP@ss1' })
@@ -289,7 +328,10 @@ describe('AuthService', () => {
         status: UserStatus.PENDING_VERIFICATION,
       });
       hashingService.compare.mockResolvedValue(true);
-      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.ACTIVE });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'Test Tenant',
+      });
 
       const result = await target.login({ email: activeUser.email, password: 'StrongP@ss1' });
 
@@ -309,7 +351,10 @@ describe('AuthService', () => {
     it('issues a token pair for a correct password on an active account', async () => {
       authDbService.findUserForLogin.mockResolvedValue(activeUser);
       hashingService.compare.mockResolvedValue(true);
-      authDbService.findTenantStatus.mockResolvedValue({ status: TenantStatus.ACTIVE });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'Test Tenant',
+      });
 
       const result = await target.login({ email: activeUser.email, password: 'StrongP@ss1' });
 
@@ -327,7 +372,9 @@ describe('AuthService', () => {
           email: 'jane@thecoffeehouse.com',
           role: UserRole.OWNER,
           name: 'Jane Doe',
+          passwordHash: 'hashed-password',
         },
+        tenant: { status: TenantStatus.ACTIVE, name: 'Test Tenant' },
       });
 
       const result = await target.refresh('raw-refresh');
@@ -451,6 +498,291 @@ describe('AuthService', () => {
       );
       expect(result.body.accessToken).toBe('access');
       expect(result.refreshToken).toBe('refresh');
+    });
+  });
+
+  describe('Google sign-in', () => {
+    const identity = {
+      providerUserId: 'google-sub-1',
+      email: 'Owner@Example.com',
+      emailVerified: true,
+      name: 'Jane Doe',
+    };
+    const resolvedUser = {
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      email: 'owner@example.com',
+      name: 'Jane Doe',
+      role: UserRole.OWNER,
+      passwordHash: null,
+      status: UserStatus.ACTIVE,
+    };
+    const signupState = {
+      ok: true as const,
+      record: { intent: OAuthIntent.SIGNUP, sidHash: 'h' },
+    };
+    const loginState = {
+      ok: true as const,
+      record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+    };
+
+    describe('authorize', () => {
+      it('mints state for the given intent — no business name travels here any more', async () => {
+        await target.buildGoogleAuthorizeRedirect({ intent: OAuthIntent.SIGNUP });
+
+        expect(googleOAuthStateService.mint).toHaveBeenCalledWith({ intent: OAuthIntent.SIGNUP });
+      });
+
+      it('answers 503 rather than failing at boot when the client is unconfigured', async () => {
+        googleIdentityProvider.isConfigured.mockReturnValue(false);
+
+        await expect(
+          target.buildGoogleAuthorizeRedirect({ intent: OAuthIntent.LOGIN })
+        ).rejects.toThrow(MESSAGES.AUTH.GOOGLE_NOT_CONFIGURED);
+      });
+    });
+
+    describe('callback', () => {
+      it('signs in an existing account and normalizes the email first', async () => {
+        googleOAuthStateService.consume.mockResolvedValue(loginState);
+        googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.resolveGoogleIdentity.mockResolvedValue({
+          kind: 'known',
+          user: resolvedUser,
+        });
+        authDbService.findTenantStatus.mockResolvedValue({
+          status: TenantStatus.ACTIVE,
+          name: 'Test Tenant',
+        });
+
+        const outcome = await target.handleGoogleCallback({
+          code: 'c',
+          state: 's',
+          error: undefined,
+          sid: 'sid',
+        });
+
+        expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
+        expect(authDbService.resolveGoogleIdentity).toHaveBeenCalledWith(
+          expect.objectContaining({ email: 'owner@example.com' })
+        );
+      });
+
+      it('consumes the state before exchanging the code, so a replay costs no round trip', async () => {
+        googleOAuthStateService.consume.mockResolvedValue({ ok: false });
+
+        const outcome = await target.handleGoogleCallback({
+          code: 'c',
+          state: 'replayed',
+          error: undefined,
+          sid: 'sid',
+        });
+
+        expect(outcome).toEqual({ ok: false, failure: GoogleAuthFailure.INVALID_STATE });
+        expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+      });
+
+      it('refuses an email Google has not verified', async () => {
+        googleOAuthStateService.consume.mockResolvedValue(signupState);
+        googleIdentityProvider.fetchIdentity.mockResolvedValue({
+          ...identity,
+          emailVerified: false,
+        });
+
+        const outcome = await target.handleGoogleCallback({
+          code: 'c',
+          state: 's',
+          error: undefined,
+          sid: 'sid',
+        });
+
+        expect(outcome).toMatchObject({ failure: GoogleAuthFailure.EMAIL_NOT_VERIFIED });
+        expect(authDbService.resolveGoogleIdentity).not.toHaveBeenCalled();
+      });
+
+      it('returns NO_ACCOUNT rather than starting a pending signup on a login', async () => {
+        googleOAuthStateService.consume.mockResolvedValue(loginState);
+        googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.resolveGoogleIdentity.mockResolvedValue({ kind: 'unknown' });
+
+        const outcome = await target.handleGoogleCallback({
+          code: 'c',
+          state: 's',
+          error: undefined,
+          sid: 'sid',
+        });
+
+        expect(outcome).toMatchObject({ failure: GoogleAuthFailure.NO_ACCOUNT });
+        expect(pendingGoogleSignupService.mint).not.toHaveBeenCalled();
+      });
+
+      it('mints a pending signup rather than a tenant for a genuinely new signup', async () => {
+        googleOAuthStateService.consume.mockResolvedValue(signupState);
+        googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.resolveGoogleIdentity.mockResolvedValue({ kind: 'unknown' });
+        pendingGoogleSignupService.mint.mockResolvedValue('pending-nonce');
+
+        const outcome = await target.handleGoogleCallback({
+          code: 'c',
+          state: 's',
+          error: undefined,
+          sid: 'sid',
+        });
+
+        expect(outcome).toEqual({
+          ok: true,
+          kind: 'needs_business_name',
+          pendingSignupCookie: 'pending-nonce',
+        });
+        expect(pendingGoogleSignupService.mint).toHaveBeenCalledWith({
+          providerUserId: 'google-sub-1',
+          email: 'owner@example.com',
+          name: 'Jane Doe',
+        });
+        expect(authDbService.findTenantStatus).not.toHaveBeenCalled();
+      });
+
+      it('reports a declined consent without calling Google at all', async () => {
+        googleOAuthStateService.consume.mockResolvedValue(signupState);
+
+        const outcome = await target.handleGoogleCallback({
+          code: undefined,
+          state: 's',
+          error: 'access_denied',
+          sid: 'sid',
+        });
+
+        // Keeps the intent so the caller can send an abandoned *signup* back to the signup page
+        // rather than to /login, and spends the state either way — it is single-use.
+        expect(outcome).toEqual({
+          ok: false,
+          failure: GoogleAuthFailure.ACCESS_DENIED,
+          intent: OAuthIntent.SIGNUP,
+        });
+        expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+      });
+
+      it('still reports a declined consent when the state is unusable, just without an intent', async () => {
+        googleOAuthStateService.consume.mockResolvedValue({ ok: false });
+
+        const outcome = await target.handleGoogleCallback({
+          code: undefined,
+          state: undefined,
+          error: 'access_denied',
+          sid: undefined,
+        });
+
+        expect(outcome).toEqual({ ok: false, failure: GoogleAuthFailure.ACCESS_DENIED });
+        expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+      });
+
+      it('maps a provider failure to a redirect rather than throwing mid-navigation', async () => {
+        googleOAuthStateService.consume.mockResolvedValue(signupState);
+        googleIdentityProvider.fetchIdentity.mockRejectedValue(new Error('google is down'));
+
+        const outcome = await target.handleGoogleCallback({
+          code: 'c',
+          state: 's',
+          error: undefined,
+          sid: 'sid',
+        });
+
+        expect(outcome).toMatchObject({
+          failure: GoogleAuthFailure.PROVIDER_ERROR,
+          intent: OAuthIntent.SIGNUP,
+        });
+      });
+
+      it('refuses a disabled account, the same standing check password login applies', async () => {
+        googleOAuthStateService.consume.mockResolvedValue(loginState);
+        googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.resolveGoogleIdentity.mockResolvedValue({
+          kind: 'known',
+          user: { ...resolvedUser, status: UserStatus.DISABLED },
+        });
+
+        const outcome = await target.handleGoogleCallback({
+          code: 'c',
+          state: 's',
+          error: undefined,
+          sid: 'sid',
+        });
+
+        expect(outcome).toEqual({
+          ok: false,
+          failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+          intent: OAuthIntent.LOGIN,
+        });
+        // Refused before any token is minted — not merely revoked on the next refresh.
+        expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
+      });
+
+      it('refuses a suspended tenant even though the identity is valid', async () => {
+        googleOAuthStateService.consume.mockResolvedValue(loginState);
+        googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.resolveGoogleIdentity.mockResolvedValue({
+          kind: 'known',
+          user: resolvedUser,
+        });
+        authDbService.findTenantStatus.mockResolvedValue({
+          status: TenantStatus.SUSPENDED,
+          name: 'Test Tenant',
+        });
+
+        const outcome = await target.handleGoogleCallback({
+          code: 'c',
+          state: 's',
+          error: undefined,
+          sid: 'sid',
+        });
+
+        expect(outcome).toMatchObject({ failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE });
+      });
+    });
+
+    describe('completeGoogleSignup', () => {
+      it('creates the tenant from the pending identity and issues tokens', async () => {
+        pendingGoogleSignupService.consume.mockResolvedValue({
+          ok: true,
+          identity: {
+            providerUserId: 'google-sub-1',
+            email: 'owner@example.com',
+            name: 'Jane Doe',
+          },
+        });
+        authDbService.completeGoogleSignup.mockResolvedValue(resolvedUser);
+
+        const result = await target.completeGoogleSignup('pending-nonce', 'The Coastal Table');
+
+        expect(authDbService.completeGoogleSignup).toHaveBeenCalledWith({
+          providerUserId: 'google-sub-1',
+          email: 'owner@example.com',
+          name: 'Jane Doe',
+          businessName: 'The Coastal Table',
+        });
+        expect(result.body.accessToken).toBe('access');
+      });
+
+      it('rejects a missing, expired, or already-consumed pending signup', async () => {
+        pendingGoogleSignupService.consume.mockResolvedValue({ ok: false });
+
+        await expect(target.completeGoogleSignup(undefined, 'The Coastal Table')).rejects.toThrow(
+          MESSAGES.AUTH.GOOGLE_PENDING_SIGNUP_EXPIRED
+        );
+        expect(authDbService.completeGoogleSignup).not.toHaveBeenCalled();
+      });
+
+      it('reports a conflict when the email was claimed in the meantime', async () => {
+        pendingGoogleSignupService.consume.mockResolvedValue({
+          ok: true,
+          identity: { providerUserId: 'google-sub-1', email: 'owner@example.com', name: null },
+        });
+        authDbService.completeGoogleSignup.mockResolvedValue(null);
+
+        await expect(
+          target.completeGoogleSignup('pending-nonce', 'The Coastal Table')
+        ).rejects.toThrow(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+      });
     });
   });
 });

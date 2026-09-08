@@ -21,6 +21,7 @@ interface ApiTenantSettings {
   escalationRatingThreshold: number;
   autoPostEnabled: boolean;
   reviewDataRetentionMonths: number | null;
+  aiReplyCount: number;
   updatedAt: string;
 }
 
@@ -28,6 +29,7 @@ export interface TenantSettingsWrite {
   escalationRatingThreshold: number;
   autoPostEnabled: boolean;
   reviewDataRetentionMonths: number | null;
+  aiReplyCount: number;
 }
 
 function toStarThreshold(value: number): GeneralSettings["escalationRatingThreshold"] {
@@ -37,19 +39,19 @@ function toStarThreshold(value: number): GeneralSettings["escalationRatingThresh
   return 3;
 }
 
-function mapGeneral(api: ApiTenantSettings, aiReplyCount: number): GeneralSettings {
+function mapGeneral(api: ApiTenantSettings): GeneralSettings {
   return {
     escalationRatingThreshold: toStarThreshold(api.escalationRatingThreshold),
     autoPostApprovedReplies: api.autoPostEnabled,
     reviewDataRetentionMonths: api.reviewDataRetentionMonths,
-    aiReplyCount,
+    aiReplyCount: api.aiReplyCount,
   };
 }
 
 /**
  * Notifications remain mock until that API exists.
  * Blocklist: `GET`/`POST`/`DELETE /v1/settings/blocklist-terms`.
- * General: `GET`/`PUT /v1/settings`. `aiReplyCount` is local-only (no column).
+ * General (including `aiReplyCount`): `GET`/`PUT /v1/settings`.
  * Connection state comes from `GET /v1/connections`.
  */
 export class SettingsService {
@@ -65,7 +67,7 @@ export class SettingsService {
 
     const settings = structuredClone(MOCK_SETTINGS);
     settings.blocklistTerms = blocklist;
-    settings.general = mapGeneral(general, settings.general.aiReplyCount);
+    settings.general = mapGeneral(general);
 
     // Resolved live from GET /v1/connections — the same call the dashboard guard reads, so this
     // tab can never disagree with whether the app actually let the user in. `needs_reauth` is

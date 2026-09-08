@@ -31,6 +31,10 @@ const REDIRECT_IF_AUTHENTICATED_PATHS: string[] = [
   ROUTES.LOGIN,
   ROUTES.LOGIN_MICROSOFT,
   ROUTES.ONBOARDING_SIGNUP,
+  // Reachable only via a `google_pending_signup` cookie, not a session — but an authenticated
+  // visitor who lands here anyway (a stale tab, the back button) has nothing left to do: the
+  // pending signup it depended on is already consumed the moment a session exists.
+  ROUTES.ONBOARDING_BUSINESS_NAME,
 ];
 
 const REQUIRE_AUTH_PATHS: string[] = [
@@ -64,6 +68,7 @@ export const config = {
     "/login",
     "/login/microsoft",
     "/onboarding/signup",
+    "/onboarding/business-name",
     "/onboarding/connect",
     "/dashboard",
     "/review-queue",

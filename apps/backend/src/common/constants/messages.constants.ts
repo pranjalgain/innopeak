@@ -30,12 +30,19 @@ export const MESSAGES = {
     INVALID_CURRENT_PASSWORD: 'Current password is incorrect.',
     NO_PASSWORD_SET:
       'This account has no password. Sign in with the identity provider used to create it.',
+    PASSWORD_ALREADY_SET: 'This account already has a password. Use change password instead.',
     PASSWORD_CHANGED: 'Password changed. Other sessions have been signed out.',
+    PASSWORD_SET: 'Password set. You can now sign in with a password too.',
     TENANT_ONLY: 'This action is only available to tenant users',
     // Thrown by @CurrentTenantUser() when a platform-admin token reaches a tenant-scoped route.
     // Says "not available" rather than "you are a platform admin" — the caller already knows what
     // it authenticated as, and naming the token type in the response tells an attacker which
     // half of the token space they landed in.
+    GOOGLE_NOT_CONFIGURED:
+      'Google sign-in is not configured on this server. Contact support or use email and password.',
+    // Missing, expired, already-consumed, or the visitor never went through the Google callback.
+    GOOGLE_PENDING_SIGNUP_EXPIRED:
+      'This signup has expired. Start again with "Continue with Google".',
     TENANT_CONTEXT_REQUIRED: 'This endpoint is not available for this account type.',
   },
   CONNECTIONS: {

@@ -1,5 +1,6 @@
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { TokenPurpose } from '@auth/enums/token-purpose.enum';
+import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
 import { LocationStatus } from '@common/enums/location-status.enum';
@@ -40,6 +41,23 @@ export interface InsertOwnerUserInput {
 
 export interface InsertTenantSettingsInput {
   tenantId: string;
+}
+
+export interface InsertVerifiedOwnerUserInput {
+  tenantId: string;
+  name: string;
+  email: string;
+}
+
+export interface InsertUserIdentityInput {
+  userId: string;
+  provider: UserIdentityProvider;
+  providerUserId: string;
+  email: string;
+}
+
+export interface UserIdentityRow {
+  userId: string;
 }
 
 export interface PutVerifyEmailTokenInput {
@@ -121,14 +139,17 @@ export class AuthRepository {
     return (rows[0] as UserByEmail | undefined) ?? null;
   }
 
-  async findTenantStatusById(tenantId: string): Promise<{ status: TenantStatus } | null> {
+  /** `name` rides along even though most callers only check `status` — same row, no extra query. */
+  async findTenantStatusById(
+    tenantId: string
+  ): Promise<{ status: TenantStatus; name: string } | null> {
     const rows = await this.dbService.db
-      .select({ status: schema.tenants.status })
+      .select({ status: schema.tenants.status, name: schema.tenants.name })
       .from(schema.tenants)
       .where(eq(schema.tenants.id, tenantId))
       .limit(1);
 
-    return (rows[0] as { status: TenantStatus } | undefined) ?? null;
+    return (rows[0] as { status: TenantStatus; name: string } | undefined) ?? null;
   }
 
   /** Row-existence is the only signal for "has this tenant connected a Google Business Profile" — no dedicated flag exists on `tenants`/`tenant_settings`. */
@@ -302,6 +323,27 @@ export class AuthRepository {
     return rows.length > 0;
   }
 
+  /**
+   * Moves a tenant off the `pending_activation` default it is created with. Called wherever an
+   * owner's email becomes proven — OTP verification, or a Google signup/link, where Google has
+   * already verified it. Without this the column stayed `pending_activation` for the life of every
+   * tenant, since nothing else ever wrote it.
+   *
+   * Scoped to `pending_activation` so it can never resurrect a `suspended` tenant: suspension is
+   * an admin decision, and a member verifying their email must not undo it.
+   */
+  async activateTenant(tx: DrizzleTransaction, tenantId: string): Promise<void> {
+    await tx
+      .update(schema.tenants)
+      .set({ status: TenantStatus.ACTIVE, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.tenants.id, tenantId),
+          eq(schema.tenants.status, TenantStatus.PENDING_ACTIVATION)
+        )
+      );
+  }
+
   async insertRefreshToken(tx: DrizzleTransaction, input: InsertRefreshTokenInput): Promise<void> {
     await tx.insert(schema.refreshTokens).values({
       userId: input.userId,
@@ -381,6 +423,75 @@ export class AuthRepository {
       .update(schema.refreshTokens)
       .set({ revokedAt: sql`now()` })
       .where(and(eq(schema.refreshTokens.userId, userId), isNull(schema.refreshTokens.revokedAt)));
+  }
+
+  /** Identity lookup keyed on Google's stable `sub`, never the email — an email can be reassigned. */
+  async findUserIdByIdentity(
+    provider: UserIdentityProvider,
+    providerUserId: string
+  ): Promise<UserIdentityRow | null> {
+    const rows = await this.dbService.db
+      .select({ userId: schema.userIdentities.userId })
+      .from(schema.userIdentities)
+      .where(
+        and(
+          eq(schema.userIdentities.provider, provider),
+          eq(schema.userIdentities.providerUserId, providerUserId)
+        )
+      )
+      .limit(1);
+
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Idempotent on `idx_user_identities_provider_provider_user_id`. A second sign-in with the same
+   * Google account refreshes the recorded email rather than raising a 23505 — the email on the
+   * identity is a convenience copy, and Workspace accounts do get renamed.
+   */
+  async upsertUserIdentity(tx: DrizzleTransaction, input: InsertUserIdentityInput): Promise<void> {
+    await tx
+      .insert(schema.userIdentities)
+      .values({
+        userId: input.userId,
+        provider: input.provider,
+        providerUserId: input.providerUserId,
+        email: input.email,
+      })
+      .onConflictDoUpdate({
+        target: [schema.userIdentities.provider, schema.userIdentities.providerUserId],
+        set: { email: input.email, updatedAt: sql`now()` },
+      });
+  }
+
+  /**
+   * The SSO counterpart to `insertOwnerUser`. Created `active` with `email_verified_at` already
+   * set, and with no password hash: Google has verified the address, so there is no OTP to send
+   * and nothing to verify. That is also why this path must provision the tenant's workspace
+   * itself — it never passes through `verifyEmail`, which is where password signups get theirs.
+   */
+  async insertVerifiedOwnerUser(
+    tx: DrizzleTransaction,
+    input: InsertVerifiedOwnerUserInput
+  ): Promise<InsertedUser> {
+    const rows = await tx
+      .insert(schema.users)
+      .values({
+        tenantId: input.tenantId,
+        name: input.name,
+        email: input.email,
+        role: UserRole.OWNER,
+        status: UserStatus.ACTIVE,
+        emailVerifiedAt: sql`now()`,
+      })
+      .returning({ id: schema.users.id });
+    const row = rows[0];
+
+    if (!row) {
+      throw new Error('Failed to create user');
+    }
+
+    return row;
   }
 
   /**

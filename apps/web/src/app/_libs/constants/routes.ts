@@ -14,6 +14,7 @@ export const ROUTES = {
   LOGIN: "/login",
   LOGIN_MICROSOFT: "/login/microsoft",
   ONBOARDING_SIGNUP: "/onboarding/signup",
+  ONBOARDING_BUSINESS_NAME: "/onboarding/business-name",
   ONBOARDING_CONNECT: "/onboarding/connect",
   DASHBOARD: "/dashboard",
   REVIEW_QUEUE: "/review-queue",

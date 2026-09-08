@@ -1,6 +1,12 @@
 import { NextRequest } from "next/server";
 
 import * as Sentry from "@sentry/nextjs";
+import { EventEmitter } from "node:events";
+
+// Sentry's Node auto-instrumentation adds its own `close`/`finish` listeners on top of Next's own,
+// past the default cap of 10 per `ServerResponse` — a fixed, known interaction with tracesSampleRate: 1
+// in dev, not an actual growing leak. Raised once, before Sentry's instrumentation registers anything.
+EventEmitter.defaultMaxListeners = 20;
 
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === "nodejs") {

@@ -1,6 +1,6 @@
 import { MESSAGES } from '@common/constants/messages.constants';
 import { EnvConfig } from '@config/env.config';
-import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -79,9 +79,12 @@ export class TokenService {
    * (`AuthDbService.rotateRefreshToken`), and a revoke that changed nothing means someone else
    * already spent this token — that caller is rejected, not handed a second live session.
    */
-  async rotate(
-    rawRefreshToken: string
-  ): Promise<{ tokens: TokenResponse; user: TokenSubject & { name: string } }> {
+  async rotate(rawRefreshToken: string): Promise<{
+    tokens: TokenResponse;
+    user: TokenSubject & { name: string; passwordHash: string | null };
+    /** Handed back so `AuthService.refresh` doesn't re-query the row this method already read. */
+    tenant: TenantRow | null;
+  }> {
     const payload = this.verifyRefreshToken(rawRefreshToken);
 
     const stored = await this.authDbService.findActiveRefreshToken(hashToken(rawRefreshToken));
@@ -116,7 +119,11 @@ export class TokenService {
       throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
     }
 
-    return { tokens: signed.tokens, user: { ...subject, name: user.name } };
+    return {
+      tokens: signed.tokens,
+      user: { ...subject, name: user.name, passwordHash: user.passwordHash },
+      tenant,
+    };
   }
 
   async revokeAll(userId: string): Promise<void> {

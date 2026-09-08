@@ -12,6 +12,8 @@ export interface ShellIdentity {
   name: string;
   initials: string;
   roleLabel: string;
+  /** Optional — the Super Admin shell has no profile picture concept and omits this entirely. */
+  avatarUrl?: string | null;
 }
 
 /**

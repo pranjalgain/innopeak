@@ -26,6 +26,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         navItems={ADMIN_NAV_ITEMS}
         navNamespace="adminNav"
         homeHref={ROUTES.ADMIN}
+        profileHref={ROUTES.ADMIN_SETTINGS}
         showNotifications={false}
         identity={{
           name: CURRENT_SUPER_ADMIN.name,

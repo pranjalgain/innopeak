@@ -4,7 +4,7 @@ import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
 import { EnvConfig } from '@config/env.config';
-import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
 import {
   BadRequestException,
   ConflictException,
@@ -12,27 +12,35 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
 
+import { GoogleAuthFailure } from './constants/google-auth.constants';
 import { AuthenticatedUserDto } from './dto/authenticated-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginPendingVerificationDto } from './dto/login-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
+import { SetPasswordDto } from './dto/set-password.dto';
 import { SignupResponseDto } from './dto/signup-response.dto';
 import { SignupDto } from './dto/signup.dto';
 import { TokenResponseDto } from './dto/token-response.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtTokenType } from './enums/jwt-token-type.enum';
+import { OAuthIntent } from './enums/oauth-intent.enum';
 import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
 import { OtpAttemptService } from './otp-attempt.service';
+import { GoogleIdentityProvider } from './providers/google-identity.provider';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
+import { GoogleOAuthStateService } from './services/google-oauth-state.service';
+import { PendingGoogleSignupService } from './services/pending-google-signup.service';
 import { TokenService } from './token.service';
 import type { AuthUser } from './types/auth-user.type';
 import { normalizeEmail } from './utils/email.utils';
@@ -44,6 +52,12 @@ import { hashToken } from './utils/token.utils';
  * httpOnly cookie instead of serializing it into the response — a script on the page should
  * never be able to read it.
  */
+export type GoogleCallbackOutcome =
+  | { ok: false; failure: GoogleAuthFailure; intent?: OAuthIntent }
+  /** A genuinely new person — the caller sets `pendingSignupCookie` and redirects to collect a business name. */
+  | { ok: true; kind: 'needs_business_name'; pendingSignupCookie: string }
+  | { ok: true; kind: 'signed_in'; tokens: TokenIssuanceResult };
+
 export interface TokenIssuanceResult {
   body: TokenResponseDto;
   refreshToken: string;
@@ -51,6 +65,8 @@ export interface TokenIssuanceResult {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly authDbService: AuthDbService,
     private readonly hashingService: HashingService,
@@ -58,7 +74,10 @@ export class AuthService {
     private readonly tokenService: TokenService,
     private readonly otpAttemptService: OtpAttemptService,
     private readonly queueManager: AddingJobsToQueueManager,
-    private readonly configService: ConfigService<EnvConfig>
+    private readonly configService: ConfigService<EnvConfig>,
+    private readonly googleIdentityProvider: GoogleIdentityProvider,
+    private readonly googleOAuthStateService: GoogleOAuthStateService,
+    private readonly pendingGoogleSignupService: PendingGoogleSignupService
   ) {}
 
   /**
@@ -165,7 +184,7 @@ export class AuthService {
       return response;
     }
 
-    return this.buildTokenIssuanceResult(user);
+    return this.buildTokenIssuanceResult(user, tenant);
   }
 
   /**
@@ -187,8 +206,8 @@ export class AuthService {
 
   /** `rawRefreshToken` comes from the `refresh_token` cookie — see `AuthController.refresh`. */
   async refresh(rawRefreshToken: string): Promise<TokenIssuanceResult> {
-    const { tokens, user } = await this.tokenService.rotate(rawRefreshToken);
-    return this.toTokenIssuanceResult(tokens, user);
+    const { tokens, user, tenant } = await this.tokenService.rotate(rawRefreshToken);
+    return this.toTokenIssuanceResult(tokens, user, tenant);
   }
 
   /**
@@ -236,7 +255,54 @@ export class AuthService {
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
     await this.authDbService.updatePasswordAndRevokeSessions(user.id, newPasswordHash);
 
-    return this.buildTokenIssuanceResult(user);
+    return this.buildTokenIssuanceResult({ ...user, passwordHash: newPasswordHash });
+  }
+
+  /**
+   * The authoritative answer to "who is signed in", for screens that must not guess.
+   *
+   * Settings' Profile tab used to assemble this from localStorage the frontend had written at its
+   * last sign-in, falling back to mock data when a key was missing — which showed a stranger's
+   * name and company to anyone whose session predated those keys, and offered "Change password"
+   * to Google-only accounts that have none. Reading it from the DB per request removes the guess.
+   */
+  async me(actor: AuthUser): Promise<AuthenticatedUserDto> {
+    if (actor.type !== JwtTokenType.TENANT_USER) {
+      throw new ForbiddenException(MESSAGES.AUTH.TENANT_ONLY);
+    }
+
+    const user = await this.authDbService.findUserById(actor.id);
+    if (!user) {
+      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+    }
+
+    const tenant = await this.authDbService.findTenantStatus(user.tenantId);
+    return this.toAuthenticatedUserDto(user, tenant);
+  }
+
+  /**
+   * The other half of `changePassword` — for an account that has never had one (Google/SSO-only,
+   * `password_hash IS NULL`), so there is no current password to prove. Settings' "Add password"
+   * flow calls this instead; once it succeeds, that same account uses `changePassword` from then on.
+   */
+  async setPassword(actor: AuthUser, dto: SetPasswordDto): Promise<TokenIssuanceResult> {
+    if (actor.type !== JwtTokenType.TENANT_USER) {
+      throw new ForbiddenException(MESSAGES.AUTH.TENANT_ONLY);
+    }
+
+    const user = await this.authDbService.findUserById(actor.id);
+    if (!user) {
+      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+    }
+
+    if (user.passwordHash) {
+      throw new BadRequestException(MESSAGES.AUTH.PASSWORD_ALREADY_SET);
+    }
+
+    const newPasswordHash = await this.hashingService.hash(dto.newPassword);
+    await this.authDbService.updatePasswordAndRevokeSessions(user.id, newPasswordHash);
+
+    return this.buildTokenIssuanceResult({ ...user, passwordHash: newPasswordHash });
   }
 
   private async issueOtp(userId: string, email: string, name: string): Promise<void> {
@@ -249,29 +315,198 @@ export class AuthService {
     this.sendOtpEmail(email, name, rawOtp);
   }
 
-  private async buildTokenIssuanceResult(user: {
-    id: string;
-    tenantId: string;
-    email: string;
-    name: string;
-    role: UserRole;
-  }): Promise<TokenIssuanceResult> {
-    const tokens = await this.tokenService.issueTokenPair(user);
-    return this.toTokenIssuanceResult(tokens, user);
+  /**
+   * Step one of Google sign-in: mint the state and hand back where to send the browser.
+   *
+   * No business name here any more — see `completeGoogleSignup`. Both intents mint the same
+   * state now; the only thing that ever varied per intent was `businessName`.
+   */
+  async buildGoogleAuthorizeRedirect(input: {
+    intent: OAuthIntent;
+  }): Promise<{ authorizationUrl: string; sid: string }> {
+    if (!this.googleIdentityProvider.isConfigured()) {
+      throw new ServiceUnavailableException(MESSAGES.AUTH.GOOGLE_NOT_CONFIGURED);
+    }
+
+    const { state, sid } = await this.googleOAuthStateService.mint({ intent: input.intent });
+
+    return { authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl(state), sid };
   }
 
+  /**
+   * Step two: everything after Google redirects back. Returns a token pair to set as cookies, a
+   * pending-signup cookie value for a genuinely new person, or a failure code for the caller to
+   * put on a `?error=` redirect — never throws for an expected failure, because the browser is
+   * mid-navigation and would render a JSON body as a document.
+   *
+   * The state is consumed *before* the code is exchanged, so a replayed callback is rejected
+   * without a network round trip to Google.
+   */
+  async handleGoogleCallback(input: {
+    code: string | undefined;
+    state: string | undefined;
+    error: string | undefined;
+    sid: string | undefined;
+  }): Promise<GoogleCallbackOutcome> {
+    // Consumed before the `error` branch, not after: the state is what carries the intent, and
+    // without it a cancelled *signup* was reported with no intent and redirected to /login. It is
+    // also single-use regardless of outcome, so a declined consent should still spend it.
+    const consumed = await this.googleOAuthStateService.consume(input.state, input.sid);
+    const intent = consumed.ok ? consumed.record.intent : undefined;
+
+    if (input.error !== undefined) {
+      return { ok: false, failure: GoogleAuthFailure.ACCESS_DENIED, ...(intent ? { intent } : {}) };
+    }
+
+    if (!consumed.ok) {
+      return { ok: false, failure: GoogleAuthFailure.INVALID_STATE };
+    }
+
+    if (input.code === undefined || input.code === '') {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.PROVIDER_ERROR,
+        intent: consumed.record.intent,
+      };
+    }
+
+    let identity;
+    try {
+      identity = await this.googleIdentityProvider.fetchIdentity(input.code);
+    } catch (error) {
+      this.logger.warn(`Google identity exchange failed: ${(error as Error).message}`);
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.PROVIDER_ERROR,
+        intent: consumed.record.intent,
+      };
+    }
+
+    // Refused rather than trusted: an unverified address would let someone claim an account by
+    // registering a Google profile against an email they do not control.
+    if (!identity.emailVerified) {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.EMAIL_NOT_VERIFIED,
+        intent: consumed.record.intent,
+      };
+    }
+
+    const email = normalizeEmail(identity.email);
+    const lookup = await this.authDbService.resolveGoogleIdentity({
+      providerUserId: identity.providerUserId,
+      email,
+    });
+
+    if (lookup.kind === 'unknown') {
+      if (consumed.record.intent === OAuthIntent.LOGIN) {
+        // Login can never create a tenant it has no name for.
+        return { ok: false, failure: GoogleAuthFailure.NO_ACCOUNT, intent: consumed.record.intent };
+      }
+
+      const pendingSignupCookie = await this.pendingGoogleSignupService.mint({
+        providerUserId: identity.providerUserId,
+        email,
+        name: identity.name,
+      });
+      return { ok: true, kind: 'needs_business_name', pendingSignupCookie };
+    }
+
+    // The same standing check password login applies (`login`, above) and refresh re-applies
+    // (`TokenService.rotate`). Without it a disabled account could still sign in through the
+    // Google button — the one entry point that never looked at `users.status`.
+    if (lookup.user.status === UserStatus.DISABLED) {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+        intent: consumed.record.intent,
+      };
+    }
+
+    const tenant = await this.authDbService.findTenantStatus(lookup.user.tenantId);
+    if (tenant?.status === TenantStatus.SUSPENDED) {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+        intent: consumed.record.intent,
+      };
+    }
+
+    const tokens = await this.buildTokenIssuanceResult(lookup.user, tenant);
+    return { ok: true, kind: 'signed_in', tokens };
+  }
+
+  /**
+   * The screen after `needs_business_name` submits here: the one thing Google could not supply,
+   * against the identity it already verified at the callback. `pendingSignupCookie` is the value
+   * of the `google_pending_signup` cookie the callback set — see PendingGoogleSignupService for
+   * why that alone (no separate browser-binding cookie) is enough here.
+   */
+  async completeGoogleSignup(
+    pendingSignupCookie: string | undefined,
+    businessName: string
+  ): Promise<TokenIssuanceResult> {
+    const pending = await this.pendingGoogleSignupService.consume(pendingSignupCookie);
+    if (!pending.ok) {
+      throw new BadRequestException(MESSAGES.AUTH.GOOGLE_PENDING_SIGNUP_EXPIRED);
+    }
+
+    const user = await this.authDbService.completeGoogleSignup({
+      providerUserId: pending.identity.providerUserId,
+      email: pending.identity.email,
+      name: pending.identity.name,
+      businessName,
+    });
+
+    if (user === null) {
+      // Someone else registered this exact email in the window between the callback and this
+      // call — a password signup, or a second Google round trip for the same address.
+      throw new ConflictException(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+    }
+
+    return this.buildTokenIssuanceResult(user);
+  }
+
+  private async buildTokenIssuanceResult(
+    user: {
+      id: string;
+      tenantId: string;
+      email: string;
+      name: string;
+      role: UserRole;
+      passwordHash: string | null;
+    },
+    tenant?: TenantRow | null
+  ): Promise<TokenIssuanceResult> {
+    const tokens = await this.tokenService.issueTokenPair(user);
+    return this.toTokenIssuanceResult(tokens, user, tenant);
+  }
+
+  /**
+   * `tenant` is optional so the callers that already looked the row up for a suspension check
+   * (`login`, the Google callback, `TokenService.rotate` via `refresh`) can hand it over instead
+   * of paying for a second identical single-row query per sign-in.
+   */
   private async toTokenIssuanceResult(
     tokens: { accessToken: string; refreshToken: string; expiresIn: number },
-    user: { id: string; tenantId: string; email: string; name: string; role: UserRole }
+    user: {
+      id: string;
+      tenantId: string;
+      email: string;
+      name: string;
+      role: UserRole;
+      passwordHash: string | null;
+    },
+    prefetchedTenant?: TenantRow | null
   ): Promise<TokenIssuanceResult> {
-    const hasConnectedBusiness = await this.authDbService.hasConnectedBusiness(user.tenantId);
+    const [hasConnectedBusiness, tenant] = await Promise.all([
+      this.authDbService.hasConnectedBusiness(user.tenantId),
+      prefetchedTenant === undefined
+        ? this.authDbService.findTenantStatus(user.tenantId)
+        : Promise.resolve(prefetchedTenant),
+    ]);
 
-    const userDto = new AuthenticatedUserDto();
-    userDto.id = user.id;
-    userDto.tenantId = user.tenantId;
-    userDto.name = user.name;
-    userDto.email = user.email;
-    userDto.role = user.role;
+    const userDto = this.toAuthenticatedUserDto(user, tenant);
 
     const body = new TokenResponseDto();
     body.accessToken = tokens.accessToken;
@@ -280,6 +515,31 @@ export class AuthService {
     body.hasConnectedBusiness = hasConnectedBusiness;
 
     return { body, refreshToken: tokens.refreshToken };
+  }
+
+  /** Shared by token issuance and `me`, so the two can never disagree about the same account. */
+  private toAuthenticatedUserDto(
+    user: {
+      id: string;
+      tenantId: string;
+      email: string;
+      name: string;
+      role: UserRole;
+      passwordHash: string | null;
+    },
+    tenant: TenantRow | null
+  ): AuthenticatedUserDto {
+    const userDto = new AuthenticatedUserDto();
+    userDto.id = user.id;
+    userDto.tenantId = user.tenantId;
+    userDto.name = user.name;
+    userDto.email = user.email;
+    userDto.role = user.role;
+    userDto.hasPassword = user.passwordHash !== null;
+    // `tenant` is only ever null if the row vanished mid-request (tenant deletion mid-flight) —
+    // an empty string here is a display gap, not a reason to fail token issuance over it.
+    userDto.businessName = tenant?.name ?? '';
+    return userDto;
   }
 
   private otpExpiresAt(): Date {

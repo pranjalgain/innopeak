@@ -3,6 +3,7 @@ export interface TenantSettingsRecord {
   escalationRatingThreshold: number;
   autoPostEnabled: boolean;
   reviewDataRetentionMonths: number | null;
+  aiReplyCount: number;
   updatedAt: string;
 }
 
@@ -10,4 +11,5 @@ export interface TenantSettingsWrite {
   escalationRatingThreshold: number;
   autoPostEnabled: boolean;
   reviewDataRetentionMonths: number | null;
+  aiReplyCount: number;
 }

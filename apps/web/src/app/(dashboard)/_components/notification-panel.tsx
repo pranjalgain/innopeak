@@ -7,12 +7,13 @@ import { LuBell, LuCheck, LuClock, LuTriangleAlert, LuWifiOff } from "react-icon
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { cn } from "@/app/_libs/utils/cn";
 import { formatRelativeTime } from "@/app/_libs/utils/relative-time";
-import { Pagination } from "@/components/common/pagination";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { usePagination } from "@/hooks/common/use-pagination";
 import { useNotifications } from "@/hooks/notifications/use-notifications";
 import type { Notification, NotificationType } from "@/types/domain";
+
+/** How close to the bottom edge counts as "time to load more". */
+const NEAR_BOTTOM_PX = 80;
 
 const TYPE_ICON: Record<NotificationType, React.ComponentType<{ className?: string }>> = {
   review_escalated: LuTriangleAlert,
@@ -75,8 +76,57 @@ function NotificationRow({ notification, onRead }: NotificationRowProps) {
 export function NotificationPanel() {
   const t = useTranslations("appShell");
   const tPanel = useTranslations("appShell.notificationPanel");
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(notifications, 3);
+  const {
+    notifications,
+    unreadCount,
+    isLoading,
+    hasMore,
+    isFetchingNextPage,
+    nextPageFailed,
+    fetchNextPage,
+    retryNextPage,
+    markAsRead,
+    markAllAsRead,
+  } = useNotifications();
+
+  // The scroll container is held in *state*, not a ref, and attached with a callback ref: Radix
+  // mounts PopoverContent a commit after `open` flips, so an effect keyed on open-state ran while
+  // the element did not exist yet and had nothing to re-trigger it. Storing the node re-renders at
+  // the moment it actually attaches, which is when there is something to measure.
+  const [listEl, setListEl] = React.useState<HTMLDivElement | null>(null);
+
+  const isNearBottom = (el: HTMLDivElement) =>
+    el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+
+  const handleScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    if (isNearBottom(event.currentTarget)) fetchNextPage();
+  };
+
+  /**
+   * Tops the list up whenever the loaded rows don't actually overflow the container.
+   *
+   * A scroll handler alone was unreachable in exactly the common case: three short rows inside a
+   * 320px box leave nothing to scroll, so no scroll event ever fired, `fetchNextPage` was never
+   * called, and every notification past the first page was permanently unloadable behind a
+   * spinner that never resolved. Re-runs as rows arrive and as the popover mounts, so it keeps
+   * pulling pages until the list either overflows or runs out.
+   *
+   * `isLoading` is a dependency, not just a guard: the hook clears its in-flight latch in the same
+   * tick it flips `isLoading` to false, and without that dependency this effect's one run landed
+   * while the latch was still set, bailed, and had nothing left to wake it.
+   */
+  React.useEffect(() => {
+    if (listEl === null || isLoading || !hasMore || isFetchingNextPage || nextPageFailed) return;
+    if (isNearBottom(listEl)) fetchNextPage();
+  }, [
+    listEl,
+    notifications.length,
+    isLoading,
+    hasMore,
+    isFetchingNextPage,
+    nextPageFailed,
+    fetchNextPage,
+  ]);
 
   return (
     <Popover>
@@ -106,16 +156,34 @@ export function NotificationPanel() {
         {notifications.length === 0 ? (
           <p className="px-3.5 py-6 text-center text-sm text-muted-foreground">{tPanel("empty")}</p>
         ) : (
-          <>
-            <div className="flex max-h-80 flex-col gap-1 overflow-y-auto p-1.5">
-              {pageItems.map((notification) => (
-                <NotificationRow key={notification.id} notification={notification} onRead={markAsRead} />
-              ))}
-            </div>
-            <div className="border-t border-border px-3.5 py-2.5">
-              <Pagination page={page} totalPages={totalPages} onPrevious={goToPreviousPage} onNext={goToNextPage} />
-            </div>
-          </>
+          <div
+            ref={setListEl}
+            onScroll={handleScroll}
+            className="flex max-h-80 flex-col gap-1 overflow-y-auto p-1.5"
+          >
+            {notifications.map((notification) => (
+              <NotificationRow key={notification.id} notification={notification} onRead={markAsRead} />
+            ))}
+            {hasMore && nextPageFailed ? (
+              <div className="flex flex-col items-center gap-1 py-2">
+                <p className="text-xs text-muted-foreground">{tPanel("loadMoreFailed")}</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={retryNextPage}
+                  className="h-auto px-2 py-1 text-xs font-medium"
+                >
+                  {tPanel("retry")}
+                </Button>
+              </div>
+            ) : null}
+            {hasMore && !nextPageFailed ? (
+              <div className="py-2 text-center text-xs text-muted-foreground">
+                {isFetchingNextPage ? tPanel("loadingMore") : null}
+              </div>
+            ) : null}
+          </div>
         )}
       </PopoverContent>
     </Popover>

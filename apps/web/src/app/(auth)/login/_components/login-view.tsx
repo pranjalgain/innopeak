@@ -4,6 +4,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+
 import * as React from "react";
 
 import { AuthDivider } from "@/app/(auth)/_components/auth-divider";
@@ -16,6 +17,7 @@ import { ROUTES } from "@/app/_libs/constants/routes";
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/auth/use-auth";
+import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { useOtpVerification } from "@/hooks/auth/use-otp-verification";
 
 type LoginStep = "credentials" | "otp";
@@ -41,8 +43,9 @@ type LoginStep = "credentials" | "otp";
  */
 export function LoginView() {
   const t = useTranslations("auth.login");
+  useOAuthErrorToast();
   const router = useRouter();
-  const { loginWithPassword, loginWithSocial, verifySignupOtp, resendSignupOtp, isLoading } = useAuth();
+  const { loginWithPassword, startGoogleLogin, verifySignupOtp, resendSignupOtp, isLoading } = useAuth();
   const [step, setStep] = React.useState<LoginStep>("credentials");
   const [pendingEmail, setPendingEmail] = React.useState("");
 
@@ -97,7 +100,7 @@ export function LoginView() {
                 </Button>
                 <SocialAuthButtons
                   isLoading={isLoading}
-                  onGoogleClick={() => void loginWithSocial()}
+                  onGoogleClick={startGoogleLogin}
                   label={t("google")}
                 />
               </div>
@@ -115,7 +118,7 @@ export function LoginView() {
                 {AUTH_METHODS.social ? (
                   <SocialAuthButtons
                     isLoading={isLoading}
-                    onGoogleClick={() => void loginWithSocial()}
+                    onGoogleClick={startGoogleLogin}
                     label={t("continueWithGoogle")}
                   />
                 ) : null}

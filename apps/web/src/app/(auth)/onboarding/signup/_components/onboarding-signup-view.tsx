@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+
 import * as React from "react";
 
 import { AuthDivider } from "@/app/(auth)/_components/auth-divider";
@@ -21,6 +22,7 @@ import { OnboardingContextService } from "@/app/_libs/services/onboarding-contex
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/auth/use-auth";
+import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { useOtpVerification } from "@/hooks/auth/use-otp-verification";
 
 /** Steps 1-2 only. Step 3 ("connect") lives on its own route — see `handOffToConnect`. */
@@ -46,11 +48,12 @@ const PASSWORD_STEPS: OnboardingStep[] = ["identity", "otp", "connect"];
 export function OnboardingSignupView() {
   const t = useTranslations("onboardingSignup");
   const tLogin = useTranslations("auth.login");
+  useOAuthErrorToast();
   const router = useRouter();
   const {
     signupWithMicrosoft,
     signupWithPassword,
-    signupWithSocial,
+    startGoogleSignup,
     verifySignupOtp,
     resendSignupOtp,
     isLoading,
@@ -89,11 +92,6 @@ export function OnboardingSignupView() {
     }
   };
 
-  const handleSocialSubmit = async () => {
-    const succeeded = await signupWithSocial();
-    if (succeeded) handOffToConnect("sso");
-  };
-
   const { handleVerify: handleVerifyOtp, handleResend: handleResendOtp } = useOtpVerification({
     email: signupEmail,
     verifySignupOtp,
@@ -116,7 +114,10 @@ export function OnboardingSignupView() {
               <p className="mb-6 text-center text-sm text-muted-foreground">{t("subtitle")}</p>
 
               {AUTH_METHODS.password ? (
-                <CreateAccountForm isLoading={isLoading} onSubmit={(values) => void handlePasswordSubmit(values)} />
+                <CreateAccountForm
+                  isLoading={isLoading}
+                  onSubmit={(values) => void handlePasswordSubmit(values)}
+                />
               ) : null}
 
               {AUTH_METHODS.password && (AUTH_METHODS.sso || AUTH_METHODS.social) ? (
@@ -131,7 +132,7 @@ export function OnboardingSignupView() {
                   </Button>
                   <SocialAuthButtons
                     isLoading={isLoading}
-                    onGoogleClick={() => void handleSocialSubmit()}
+                    onGoogleClick={startGoogleSignup}
                     label={tLogin("google")}
                   />
                 </div>
@@ -153,7 +154,7 @@ export function OnboardingSignupView() {
                   {AUTH_METHODS.social ? (
                     <SocialAuthButtons
                       isLoading={isLoading}
-                      onGoogleClick={() => void handleSocialSubmit()}
+                      onGoogleClick={startGoogleSignup}
                       label={tLogin("continueWithGoogle")}
                     />
                   ) : null}

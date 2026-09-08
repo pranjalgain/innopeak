@@ -9,7 +9,11 @@ import {
   type ChangePasswordFields,
   changePasswordSchema,
 } from "@/app/(dashboard)/settings/_schemas/change-password.schema";
-import { CURRENT_OWNER } from "@/app/_libs/constants/current-owner";
+import {
+  type SetPasswordFields,
+  setPasswordSchema,
+} from "@/app/(dashboard)/settings/_schemas/set-password.schema";
+import { getInitials } from "@/app/_libs/utils/initials";
 import { AvatarUpload } from "@/components/common/avatar-upload";
 import { PasswordInput } from "@/components/common/password-input";
 import {
@@ -28,7 +32,55 @@ const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
 /** Only reachable while `AUTH_METHODS.password` is enabled — there's no password to manage otherwise. */
 export function ProfileSettingsSection() {
   const t = useTranslations("settings.profile");
-  const { profile, isLoading, updateAvatar, changePassword } = useTenantOwnerProfile();
+  const { profile, isLoading, updateAvatar, changePassword, setPassword } = useTenantOwnerProfile();
+
+  if (isLoading || !profile) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("title")}</CardTitle>
+        <CardDescription>{t("description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-6">
+        <AvatarUpload
+          avatarUrl={profile.avatarUrl}
+          initials={getInitials(profile.name)}
+          changeLabel={t("changePicture")}
+          onUpload={(avatarUrl) => void updateAvatar(avatarUrl)}
+        />
+
+        <div className="flex flex-col gap-1.5 border-t border-border pt-5">
+          <Label>{t("nameLabel")}</Label>
+          <p className="text-sm">{profile.name}</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>{t("emailLabel")}</Label>
+          <p className="text-sm">{profile.email}</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>{t("businessNameLabel")}</Label>
+          <p className="text-sm">{profile.businessName}</p>
+        </div>
+
+        {profile.hasPassword ? (
+          <ChangePasswordForm changePassword={changePassword} />
+        ) : (
+          <AddPasswordForm setPassword={setPassword} />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface ChangePasswordFormProps {
+  changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
+}
+
+function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) {
+  const t = useTranslations("settings.profile");
   const schema = React.useMemo(() => changePasswordSchema(t), [t]);
 
   const {
@@ -52,86 +104,173 @@ export function ProfileSettingsSection() {
     newPasswordValue.length > 0 &&
     !passwordMeetsRequirements(requirements);
 
+  const clearForm = () => {
+    reset();
+    setNewPasswordValue("");
+  };
+
   // `reset()` only on success, so a rejected current password doesn't wipe what the owner typed.
   const submitPassword = handleSubmit(async values => {
     const succeeded = await changePassword(values.currentPassword, values.newPassword);
-    if (succeeded) {
-      reset();
-      setNewPasswordValue("");
-    }
+    if (succeeded) clearForm();
   });
 
-  if (isLoading || !profile) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
+  return (
+    <form
+      className="flex max-w-sm flex-col gap-4 border-t border-border pt-5"
+      onSubmit={submitPassword}
+      noValidate
+    >
+      <p className="text-sm font-medium">{t("changePasswordTitle")}</p>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="owner-current-password">{t("currentPasswordLabel")}</Label>
+        <PasswordInput
+          id="owner-current-password"
+          autoComplete="current-password"
+          {...register("currentPassword")}
+        />
+        {errors.currentPassword ? (
+          <p className={FIELD_ERROR_CLASS}>{errors.currentPassword.message}</p>
+        ) : null}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="owner-new-password">{t("newPasswordLabel")}</Label>
+        <PasswordInput
+          id="owner-new-password"
+          autoComplete="new-password"
+          {...register("newPassword", {
+            onChange: event => setNewPasswordValue(event.target.value),
+          })}
+        />
+        {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="owner-confirm-password">{t("confirmPasswordLabel")}</Label>
+        <PasswordInput
+          id="owner-confirm-password"
+          autoComplete="new-password"
+          {...register("confirmPassword")}
+        />
+        {errors.confirmPassword ? (
+          <p className={FIELD_ERROR_CLASS}>{errors.confirmPassword.message}</p>
+        ) : null}
+      </div>
+
+      <div className="flex gap-2.5">
+        <Button type="button" variant="ghost" onClick={clearForm} disabled={isSubmitting}>
+          {t("cancel")}
+        </Button>
+        <Button type="submit" variant="outline" disabled={!isValid || isSubmitting}>
+          {t("updatePassword")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+interface AddPasswordFormProps {
+  setPassword: (newPassword: string) => Promise<boolean>;
+}
+
+/**
+ * Shown instead of `ChangePasswordForm` for a Google/SSO-only account — there is no current
+ * password to prove, so the fields (and the collapsed prompt in front of them) are deliberately
+ * different rather than a `ChangePasswordForm` with one field hidden.
+ */
+function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
+  const t = useTranslations("settings.profile");
+  const schema = React.useMemo(() => setPasswordSchema(t), [t]);
+  const [expanded, setExpanded] = React.useState(false);
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isValid, isSubmitting, touchedFields },
+  } = useForm<SetPasswordFields>({
+    resolver: zodResolver(schema),
+    mode: "onTouched",
+    defaultValues: { newPassword: "", confirmPassword: "" },
+  });
+
+  const [newPasswordValue, setNewPasswordValue] = React.useState("");
+  const requirements = checkPasswordRequirements(newPasswordValue);
+  const showRequirements =
+    Boolean(touchedFields.newPassword) &&
+    newPasswordValue.length > 0 &&
+    !passwordMeetsRequirements(requirements);
+
+  const collapse = () => {
+    reset();
+    setNewPasswordValue("");
+    setExpanded(false);
+  };
+
+  // On success `profile.hasPassword` flips to true and this component unmounts (replaced by
+  // `ChangePasswordForm`), so there's no local state left to clear.
+  const submitPassword = handleSubmit(async values => {
+    await setPassword(values.newPassword);
+  });
+
+  if (!expanded) {
+    return (
+      <div className="flex flex-col gap-2.5 border-t border-border pt-5">
+        <div>
+          <p className="text-sm font-medium">{t("addPasswordTitle")}</p>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">{t("addPasswordDescription")}</p>
+        </div>
+        <div>
+          <Button type="button" variant="outline" onClick={() => setExpanded(true)}>
+            {t("addPassword")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
-        <CardDescription>{t("description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-6">
-        <AvatarUpload
-          avatarUrl={profile.avatarUrl}
-          initials={CURRENT_OWNER.initials}
-          changeLabel={t("changePicture")}
-          onUpload={(avatarUrl) => void updateAvatar(avatarUrl)}
+    <form
+      className="flex max-w-sm flex-col gap-4 border-t border-border pt-5"
+      onSubmit={submitPassword}
+      noValidate
+    >
+      <p className="text-sm font-medium">{t("addPasswordTitle")}</p>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="owner-add-password">{t("newPasswordLabel")}</Label>
+        <PasswordInput
+          id="owner-add-password"
+          autoComplete="new-password"
+          {...register("newPassword", {
+            onChange: event => setNewPasswordValue(event.target.value),
+          })}
         />
+        {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
+      </div>
 
-        <div className="flex flex-col gap-1.5 border-t border-border pt-5">
-          <Label>{t("emailLabel")}</Label>
-          <p className="text-sm">{profile.email}</p>
-        </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="owner-add-confirm-password">{t("confirmPasswordLabel")}</Label>
+        <PasswordInput
+          id="owner-add-confirm-password"
+          autoComplete="new-password"
+          {...register("confirmPassword")}
+        />
+        {errors.confirmPassword ? (
+          <p className={FIELD_ERROR_CLASS}>{errors.confirmPassword.message}</p>
+        ) : null}
+      </div>
 
-        <form
-          className="flex max-w-sm flex-col gap-4 border-t border-border pt-5"
-          onSubmit={submitPassword}
-          noValidate
-        >
-          <p className="text-sm font-medium">{t("changePasswordTitle")}</p>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="owner-current-password">{t("currentPasswordLabel")}</Label>
-            <PasswordInput
-              id="owner-current-password"
-              autoComplete="current-password"
-              {...register("currentPassword")}
-            />
-            {errors.currentPassword ? (
-              <p className={FIELD_ERROR_CLASS}>{errors.currentPassword.message}</p>
-            ) : null}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="owner-new-password">{t("newPasswordLabel")}</Label>
-            <PasswordInput
-              id="owner-new-password"
-              autoComplete="new-password"
-              {...register("newPassword", {
-                onChange: event => setNewPasswordValue(event.target.value),
-              })}
-            />
-            {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="owner-confirm-password">{t("confirmPasswordLabel")}</Label>
-            <PasswordInput
-              id="owner-confirm-password"
-              autoComplete="new-password"
-              {...register("confirmPassword")}
-            />
-            {errors.confirmPassword ? (
-              <p className={FIELD_ERROR_CLASS}>{errors.confirmPassword.message}</p>
-            ) : null}
-          </div>
-
-          <div>
-            <Button type="submit" variant="outline" disabled={!isValid || isSubmitting}>
-              {t("updatePassword")}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+      <div className="flex gap-2.5">
+        <Button type="button" variant="ghost" onClick={collapse} disabled={isSubmitting}>
+          {t("cancel")}
+        </Button>
+        <Button type="submit" variant="outline" disabled={!isValid || isSubmitting}>
+          {isSubmitting ? t("settingPassword") : t("setPassword")}
+        </Button>
+      </div>
+    </form>
   );
 }

@@ -5,12 +5,14 @@ import { ApiClient, ApiError } from "@/app/_libs/services/api-client";
 import { SessionService } from "@/app/_libs/services/session.service";
 import { TokenService } from "@/app/_libs/services/token.service";
 
-interface AuthenticatedUser {
+export interface AuthenticatedUser {
   id: string;
   tenantId: string;
   name: string;
   email: string;
   role: "owner" | "member";
+  hasPassword: boolean;
+  businessName: string;
 }
 
 // No `refreshToken` field — the backend sets it as an httpOnly `refresh_token` cookie
@@ -61,6 +63,21 @@ export class AuthService {
     window.location.assign(await this.resolveLoginDestination(email));
   }
 
+  /**
+   * The authoritative "who am I" for screens that must not guess — Settings' Profile tab. Also
+   * refreshes the locally stored copies, so the shell's optimistic first paint stays in step with
+   * what the server just said.
+   */
+  static async me(): Promise<AuthenticatedUser> {
+    const user = await ApiClient.request<AuthenticatedUser>("/v1/auth/me");
+
+    TokenService.setName(user.name);
+    TokenService.setHasPassword(user.hasPassword);
+    TokenService.setBusinessName(user.businessName);
+
+    return user;
+  }
+
   /** Real password login. Does NOT redirect — the caller branches on the result (verify_needed vs. success). */
   static async loginWithPassword(email: string, password: string): Promise<LoginResult> {
     const data = await ApiClient.request<TokenResponse | { status: "pending_verification"; email: string }>(
@@ -74,15 +91,22 @@ export class AuthService {
 
     const tokenResponse = data as TokenResponse;
     TokenService.setAccessToken(tokenResponse.accessToken);
+    TokenService.setName(tokenResponse.user.name);
+    TokenService.setHasPassword(tokenResponse.user.hasPassword);
+    TokenService.setBusinessName(tokenResponse.user.businessName);
     await SessionService.setRole(
       tokenResponse.user.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL ? "super_admin" : "tenant",
     );
     return { kind: "success", hasConnectedBusiness: tokenResponse.hasConnectedBusiness };
   }
 
-  static async loginWithSocial(): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    window.location.assign(await this.resolveLoginDestination(""));
+  /**
+   * Real Google sign-in. No business name: login never creates a tenant, so an unknown identity
+   * comes back as `?error=NO_ACCOUNT` rather than silently signing someone up.
+   */
+  static startGoogleLogin(): void {
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
+    window.location.assign("/v1/auth/google?intent=login");
   }
 
   /**
@@ -110,9 +134,48 @@ export class AuthService {
     });
   }
 
-  static async signupWithSocial(): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 600));
+  /**
+   * Real Google signup. A full-page navigation rather than fetch: the browser has to follow the
+   * redirect to Google's consent screen, and the backend sets an httpOnly binding cookie on the
+   * way out that an XHR could not carry back.
+   *
+   * No business name here any more — Google returns a person, not a business, so asking for one
+   * before the redirect meant collecting it inside the *password* signup form, which read oddly
+   * for someone who never intends to set a password. The callback now sends a genuinely new
+   * signup to `/onboarding/business-name` instead; an existing or linked account still lands
+   * straight on /dashboard, same as before.
+   *
+   * Never resolves — the page is gone.
+   */
+  static startGoogleSignup(): void {
+    // Not a Next page: `/v1/*` is rewritten to the NestJS backend, which answers with a 302 to
+    // Google's consent screen. `router.push` would ask the Next router to resolve a route that
+    // does not exist in the app, and the browser must genuinely leave the origin for OAuth at all.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign("/v1/auth/google?intent=signup");
+  }
+
+  /**
+   * The screen after `startGoogleSignup` lands on `/onboarding/business-name` submits here — the
+   * one thing Google could not supply. Unlike the OAuth steps this IS a normal fetch: there is no
+   * browser navigation to preserve, and the backend's `google_pending_signup` cookie (set by the
+   * callback) rides along automatically via `credentials: "include"`.
+   *
+   * Throws `ApiError` on 400 (the pending signup expired or was already used — the caller sends
+   * the visitor back to restart) or 409 (someone else claimed the email in the meantime).
+   */
+  static async completeGoogleSignup(businessName: string): Promise<{ hasConnectedBusiness: boolean }> {
+    const data = await ApiClient.request<TokenResponse>("/v1/auth/google/complete-signup", {
+      method: "POST",
+      auth: false,
+      body: { businessName },
+    });
+    TokenService.setAccessToken(data.accessToken);
+    TokenService.setName(data.user.name);
+    TokenService.setHasPassword(data.user.hasPassword);
+    TokenService.setBusinessName(data.user.businessName);
     await SessionService.setRole("tenant");
+    return { hasConnectedBusiness: data.hasConnectedBusiness };
   }
 
   /**
@@ -128,6 +191,9 @@ export class AuthService {
         body: { email, otp: code },
       });
       TokenService.setAccessToken(data.accessToken);
+      TokenService.setName(data.user.name);
+      TokenService.setHasPassword(data.user.hasPassword);
+      TokenService.setBusinessName(data.user.businessName);
       await SessionService.setRole("tenant");
       return { verified: true, hasConnectedBusiness: data.hasConnectedBusiness };
     } catch (error) {
@@ -198,5 +264,32 @@ export class AuthService {
       skipRefresh: true,
     });
     TokenService.setAccessToken(data.accessToken);
+    TokenService.setName(data.user.name);
+    TokenService.setHasPassword(data.user.hasPassword);
+    TokenService.setBusinessName(data.user.businessName);
+  }
+
+  /**
+   * The other half of `changePassword` — for an account that has never had one (Google/SSO-only).
+   * No `currentPassword` to send: there is nothing to prove yet. Same token-storage shape as
+   * `changePassword` on success.
+   */
+  static async setPassword(newPassword: string): Promise<void> {
+    if (!TokenService.getAccessToken()) {
+      const revived = await this.refreshAccessToken();
+      if (!revived) {
+        throw new ApiError(401, "Invalid or expired access token.");
+      }
+    }
+
+    const data = await ApiClient.request<TokenResponse>("/v1/auth/set-password", {
+      method: "POST",
+      body: { newPassword },
+      skipRefresh: true,
+    });
+    TokenService.setAccessToken(data.accessToken);
+    TokenService.setName(data.user.name);
+    TokenService.setHasPassword(data.user.hasPassword);
+    TokenService.setBusinessName(data.user.businessName);
   }
 }

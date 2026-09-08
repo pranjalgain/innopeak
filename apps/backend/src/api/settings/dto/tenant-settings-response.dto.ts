@@ -15,6 +15,9 @@ export class TenantSettingsResponseDto {
   @ApiPropertyOptional({ example: 24, nullable: true })
   reviewDataRetentionMonths!: number | null;
 
+  @ApiProperty({ example: 1, minimum: 1, maximum: 3 })
+  aiReplyCount!: number;
+
   @ApiProperty({ example: '2026-08-28T09:12:44.000Z' })
   updatedAt!: string;
 
@@ -24,6 +27,7 @@ export class TenantSettingsResponseDto {
     dto.escalationRatingThreshold = row.escalationRatingThreshold;
     dto.autoPostEnabled = row.autoPostEnabled;
     dto.reviewDataRetentionMonths = row.reviewDataRetentionMonths;
+    dto.aiReplyCount = row.aiReplyCount;
     dto.updatedAt = row.updatedAt;
     return dto;
   }

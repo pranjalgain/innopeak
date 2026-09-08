@@ -24,7 +24,8 @@ interface RequireAuthProps {
  * authenticated user stay exactly where a signup/login flow sent them.
  */
 export function RequireAuth({ children, loadingFallback = null }: RequireAuthProps) {
-  const { hasToken } = useAuthToken();
+  // `reviveMissing`: a Google sign-in lands here with real cookies but empty localStorage.
+  const { hasToken } = useAuthToken({ reviveMissing: true });
 
   React.useEffect(() => {
     if (hasToken === false) {
