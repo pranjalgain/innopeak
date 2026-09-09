@@ -8,6 +8,7 @@ import { Injectable } from '@nestjs/common';
 import {
   ConnectionsRepository,
   type LocationRow,
+  type PollableLocationRow,
   type ProviderConnectionRow,
 } from './connections.repository';
 
@@ -95,6 +96,10 @@ export class ConnectionsDbService {
 
   findLocationForTenant(locationId: string, tenantId: string): Promise<LocationRow | null> {
     return this.connectionsRepository.findLocationByIdForTenant(locationId, tenantId);
+  }
+
+  findLocationsDueForPoll(): Promise<PollableLocationRow[]> {
+    return this.connectionsRepository.findLocationsDueForPoll();
   }
 
   /**

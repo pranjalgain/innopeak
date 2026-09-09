@@ -5,7 +5,7 @@ import { SyncHealthStatus } from '@common/enums/sync-health-status.enum';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 
 export interface ProviderConnectionRow {
   id: string;
@@ -33,7 +33,22 @@ export interface LocationRow {
   lastSyncStatus: SyncHealthStatus | null;
   lastSyncError: string | null;
   onboardingBackfillCompletedAt: string | null;
+  lastReviewSyncedAt: string | null;
   createdAt: string;
+}
+
+/**
+ * A location the poller may enqueue a `review-poll` job for — exactly the fields `IReviewSyncJob`
+ * needs. Deliberately excludes `lastReviewSyncedAt`: `runPoll` re-reads that cursor itself right
+ * before paginating rather than trusting a value baked into the job payload at enqueue time,
+ * since a BullMQ job can sit queued for a while before a worker picks it up.
+ */
+export interface PollableLocationRow {
+  tenantId: string;
+  locationId: string;
+  connectionId: string;
+  externalAccountId: string;
+  externalLocationId: string;
 }
 
 export interface UpsertConnectionInput {
@@ -80,6 +95,7 @@ const LOCATION_COLUMNS = {
   lastSyncStatus: schema.locations.lastSyncStatus,
   lastSyncError: schema.locations.lastSyncError,
   onboardingBackfillCompletedAt: schema.locations.onboardingBackfillCompletedAt,
+  lastReviewSyncedAt: schema.locations.lastReviewSyncedAt,
   createdAt: schema.locations.createdAt,
 } as const;
 
@@ -341,5 +357,58 @@ export class ConnectionsRepository {
         updatedAt: sql`now()`,
       })
       .where(eq(schema.locations.id, locationId));
+  }
+
+  /**
+   * Every location a `review-poll` job may be enqueued for, per PLAN.md §8.2's gate: `active`,
+   * backfilled, and its connection not `needs_reauth` — the last one isn't in §8.2 itself, but
+   * without it a dead grant gets re-polled into a fresh 401 every 15 minutes until someone notices
+   * `last_sync_error` in the UI. `deactivateLocationsForConnection` already flips a disconnected
+   * connection's locations to `inactive`, so `disconnected_at` needs no separate check here.
+   */
+  async findLocationsDueForPoll(): Promise<PollableLocationRow[]> {
+    const rows = await this.dbService.db
+      .select({
+        tenantId: schema.locations.tenantId,
+        locationId: schema.locations.id,
+        connectionId: schema.reviewProviderConnections.id,
+        externalAccountId: schema.reviewProviderConnections.providerAccountId,
+        externalLocationId: schema.locations.externalLocationId,
+      })
+      .from(schema.locations)
+      .innerJoin(
+        schema.reviewProviderConnections,
+        eq(schema.reviewProviderConnections.id, schema.locations.providerConnectionId)
+      )
+      .where(
+        and(
+          eq(schema.locations.status, LocationStatus.ACTIVE),
+          isNotNull(schema.locations.onboardingBackfillCompletedAt),
+          eq(schema.reviewProviderConnections.status, ReviewProviderConnectionStatus.ACTIVE)
+        )
+      );
+
+    return rows;
+  }
+
+  /**
+   * Monotonic on purpose — `WHERE last_review_synced_at IS NULL OR < cursor` never lets the
+   * high-water mark move backward. Without the guard, a run whose own view of "newest seen" was
+   * computed from a partial page set (a crash mid-run, a reclaim) could regress the cursor and
+   * make a later poll re-walk pages a previous run already advanced past.
+   */
+  async advanceLastReviewSyncedAt(locationId: string, cursor: string): Promise<void> {
+    await this.dbService.db
+      .update(schema.locations)
+      .set({ lastReviewSyncedAt: cursor, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.locations.id, locationId),
+          or(
+            isNull(schema.locations.lastReviewSyncedAt),
+            lt(schema.locations.lastReviewSyncedAt, cursor)
+          )
+        )
+      );
   }
 }

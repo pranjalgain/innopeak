@@ -44,6 +44,21 @@ export interface GbpReview {
   updateTime: string;
   /** The business owner's own public reply, if they left one. This is what the backfill imports. */
   reviewReply?: GbpReviewReply;
+  /**
+   * Photos/videos the reviewer attached. Real Google responses include this; it is on the wire
+   * type (rather than left off entirely) specifically so that fact is visible and documented, not
+   * silently unknown to the next reader. Untyped on purpose — this product has no review-media
+   * feature, so nothing downstream ever reads it, and modeling `ReviewMediaItem`'s full shape for
+   * data that is always discarded would be effort spent on nothing. `mapGbpReview` does not copy
+   * this field into `ProviderReview`; that omission is deliberate, see the mapper's own comment.
+   */
+  reviewMediaItems?: unknown[];
+  /**
+   * A prefilled Business Profile deep link for replying to this review. Not used — this product
+   * composes and posts replies through its own dashboard/AI flow, never by sending the owner to
+   * Google's own reply UI. Discarded by `mapGbpReview` for the same reason as `reviewMediaItems`.
+   */
+  reviewReplyUrl?: string;
 }
 
 export interface GbpListReviewsResponse {

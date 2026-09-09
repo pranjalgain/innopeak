@@ -191,7 +191,7 @@ those kinds starts fresh under `src/api/<module_name>/`, per "Module Structure" 
 | Prompts | `src/api/prompts/` | Owner prompt templates + versions (Settings → Prompts) |
 | Settings | `src/api/settings/` | Blocklist terms (`/v1/settings/blocklist-terms`); data access in `src/db/repositories/settings/` |
 | Review pipeline | `src/review-pipeline/` | Classification rule (blocklist then rating threshold). No HTTP. |
-| Background | `src/background/` | BullMQ email + dead-letter queues and cron jobs (SQS in `aws` mode — see Queue Transport Pattern) |
+| Background | `src/background/` | BullMQ email, dead-letter and review-sync queues, plus cron jobs — one of which (`review-sync-poll`, every 15 min) fans out into the review-sync queue itself (SQS in `aws` mode — see Queue Transport Pattern) |
 
 ## Auth System
 

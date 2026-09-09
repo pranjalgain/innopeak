@@ -1,5 +1,5 @@
 import { JobName, QueueName } from '@bg/constants/job.constant';
-import { IReviewBackfillJob } from '@bg/interfaces/job.interface';
+import { IReviewBackfillJob, IReviewSyncJob } from '@bg/interfaces/job.interface';
 import { DeadLetterQueueService } from '@dead-letter-queue/dead-letter-queue.service';
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
@@ -28,13 +28,19 @@ export class ReviewSyncProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<IReviewBackfillJob, void, JobName>): Promise<void> {
+  async process(job: Job<IReviewSyncJob, void, JobName>): Promise<void> {
     this.logger.debug(`Processing job ${job.id} of type ${job.name}`);
 
     try {
       switch (job.name) {
         case JobName.REVIEW_BACKFILL:
-          await this.reviewSyncQueueService.runBackfill(job.data);
+          // Safe: only a `JobName.REVIEW_BACKFILL` job is ever published with the extra
+          // `syncRunId` `IReviewBackfillJob` requires (`ReviewSyncQueue.addBackfillJob`) — this
+          // switch is what BullMQ's own typing can't express that guarantee through.
+          await this.reviewSyncQueueService.runBackfill(job.data as IReviewBackfillJob);
+          break;
+        case JobName.REVIEW_POLL:
+          await this.reviewSyncQueueService.runPoll(job.data);
           break;
         default:
           throw new Error(`Unknown job name: ${job.name}`);
@@ -49,7 +55,7 @@ export class ReviewSyncProcessor extends WorkerHost {
   }
 
   @OnWorkerEvent('failed')
-  async onFailed(job: Job<IReviewBackfillJob, void, JobName>): Promise<void> {
+  async onFailed(job: Job<IReviewSyncJob, void, JobName>): Promise<void> {
     this.logger.error(`Job ${job.id} has failed: ${job.failedReason}`);
 
     await this.dlqService.addFailedJobToDLQ({
@@ -64,7 +70,7 @@ export class ReviewSyncProcessor extends WorkerHost {
   }
 
   @OnWorkerEvent('stalled')
-  async onStalled(job: Job<IReviewBackfillJob, void, JobName>): Promise<void> {
+  async onStalled(job: Job<IReviewSyncJob, void, JobName>): Promise<void> {
     this.logger.error(`Job ${job.id} has been stalled`);
 
     await this.dlqService.addFailedJobToDLQ({

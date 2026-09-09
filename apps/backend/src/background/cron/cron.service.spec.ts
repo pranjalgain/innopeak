@@ -1,23 +1,40 @@
 import { CronJobName } from '@bg/constants/job.constant';
 import type { ICronJob } from '@bg/interfaces/job.interface';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { Logger } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
+import { ReviewSyncQueue } from '@review-sync-queue/review-sync.queue';
 
 import { CronService } from './cron.service';
 
 describe('CronService', () => {
   let target: CronService;
   let authDbService: jest.Mocked<AuthDbService>;
+  let connectionsDbService: jest.Mocked<ConnectionsDbService>;
+  let reviewSyncQueue: jest.Mocked<ReviewSyncQueue>;
 
   beforeEach(async () => {
     authDbService = {
       purgeStaleTokens: jest.fn(),
     } as unknown as jest.Mocked<AuthDbService>;
 
+    connectionsDbService = {
+      findLocationsDueForPoll: jest.fn(),
+    } as unknown as jest.Mocked<ConnectionsDbService>;
+
+    reviewSyncQueue = {
+      addPollJob: jest.fn(),
+    } as unknown as jest.Mocked<ReviewSyncQueue>;
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [CronService, { provide: AuthDbService, useValue: authDbService }],
+      providers: [
+        CronService,
+        { provide: AuthDbService, useValue: authDbService },
+        { provide: ConnectionsDbService, useValue: connectionsDbService },
+        { provide: ReviewSyncQueue, useValue: reviewSyncQueue },
+      ],
     }).compile();
     target = module.get(CronService);
   });
@@ -70,6 +87,85 @@ describe('CronService', () => {
       authDbService.purgeStaleTokens.mockRejectedValue(new Error('db down'));
 
       await expect(target.purgeStaleAuthTokens()).rejects.toThrow('db down');
+    });
+  });
+
+  describe('pollDueLocations', () => {
+    it('enqueues one poll job per eligible location, with no syncRunId in the payload', async () => {
+      connectionsDbService.findLocationsDueForPoll.mockResolvedValue([
+        {
+          tenantId: 'tenant-1',
+          locationId: 'location-1',
+          connectionId: 'connection-1',
+          externalAccountId: 'accounts/1',
+          externalLocationId: 'locations/1',
+        },
+        {
+          tenantId: 'tenant-2',
+          locationId: 'location-2',
+          connectionId: 'connection-2',
+          externalAccountId: 'accounts/2',
+          externalLocationId: 'locations/2',
+        },
+      ]);
+
+      await target.pollDueLocations();
+
+      expect(reviewSyncQueue.addPollJob).toHaveBeenCalledTimes(2);
+      expect(reviewSyncQueue.addPollJob).toHaveBeenNthCalledWith(1, {
+        tenantId: 'tenant-1',
+        locationId: 'location-1',
+        connectionId: 'connection-1',
+        externalAccountId: 'accounts/1',
+        externalLocationId: 'locations/1',
+      });
+    });
+
+    it('enqueues nothing when no location is due', async () => {
+      connectionsDbService.findLocationsDueForPoll.mockResolvedValue([]);
+
+      await target.pollDueLocations();
+
+      expect(reviewSyncQueue.addPollJob).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The cron queue is `attempts: 1, removeOnFail: true`, so a throw escaping this loop would
+     * drop every *later* location's poll for the cycle with no retry — one transient Redis blip
+     * starving every tenant after it in the list.
+     */
+    it('keeps enqueueing the remaining locations when one enqueue fails', async () => {
+      connectionsDbService.findLocationsDueForPoll.mockResolvedValue([
+        {
+          tenantId: 't1',
+          locationId: 'loc-1',
+          connectionId: 'c1',
+          externalAccountId: 'a1',
+          externalLocationId: 'l1',
+        },
+        {
+          tenantId: 't2',
+          locationId: 'loc-2',
+          connectionId: 'c2',
+          externalAccountId: 'a2',
+          externalLocationId: 'l2',
+        },
+        {
+          tenantId: 't3',
+          locationId: 'loc-3',
+          connectionId: 'c3',
+          externalAccountId: 'a3',
+          externalLocationId: 'l3',
+        },
+      ]);
+      reviewSyncQueue.addPollJob
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('redis unavailable'))
+        .mockResolvedValueOnce(undefined);
+
+      await expect(target.pollDueLocations()).resolves.toBeUndefined();
+
+      expect(reviewSyncQueue.addPollJob).toHaveBeenCalledTimes(3);
     });
   });
 });
