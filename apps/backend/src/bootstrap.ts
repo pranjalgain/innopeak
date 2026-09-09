@@ -21,6 +21,7 @@ import * as path from 'path';
 
 import { AuthModule } from './api/auth/auth.module';
 import { ConnectionsModule } from './api/connections/connections.module';
+import { DashboardModule } from './api/dashboard/dashboard.module';
 import { PromptsModule } from './api/prompts/prompts.module';
 import { ReviewsModule } from './api/reviews/reviews.module';
 import { SettingsModule } from './api/settings/settings.module';
@@ -84,7 +85,14 @@ export async function bootstrap(): Promise<void> {
   // Every business module registered in AppModule belongs here — `include` is an allowlist, so a
   // module missing from it serves its routes normally but is invisible in /api/v1. Nothing fails
   // loudly when one is forgotten; the endpoints simply do not appear.
-  const V1_MODULES = [AuthModule, ConnectionsModule, PromptsModule, ReviewsModule, SettingsModule];
+  const V1_MODULES = [
+    AuthModule,
+    ConnectionsModule,
+    DashboardModule,
+    PromptsModule,
+    ReviewsModule,
+    SettingsModule,
+  ];
 
   if (!isProd) {
     // V1 API docs at /api/v1

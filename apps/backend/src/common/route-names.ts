@@ -9,6 +9,7 @@ export enum RouteNames {
   AI = 'ai',
   CONNECTIONS = 'connections',
   REVIEWS = 'reviews',
+  DASHBOARD = 'dashboard',
   WEBHOOKS = 'webhooks',
   PROMPTS = 'prompts',
   SETTINGS = 'settings',
@@ -48,6 +49,11 @@ export enum RouteNames {
 
   // Reviews module
   REVIEW_BY_ID = ':reviewId',
+
+  // Dashboard module — nested segments under RouteNames.DASHBOARD. The `metrics` segment reuses
+  // METRICS above; a second member with the same value trips no-duplicate-enum-values.
+  DASHBOARD_RATING_DISTRIBUTION = 'rating-distribution',
+  DASHBOARD_RECENT_ESCALATED = 'recent-escalated',
 
   TEST = 'test',
   CUSTOM = 'custom',

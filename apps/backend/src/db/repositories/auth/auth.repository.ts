@@ -230,6 +230,7 @@ export class AuthRepository {
     await tx.insert(schema.tenantSettings).values({
       tenantId: input.tenantId,
       autoPostEnabled: false,
+      reviewDataRetentionMonths: null,
     });
   }
 

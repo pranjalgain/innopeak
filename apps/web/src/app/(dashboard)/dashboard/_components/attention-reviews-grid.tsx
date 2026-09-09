@@ -44,7 +44,13 @@ export function AttentionReviewsGrid({ reviews }: AttentionReviewsGridProps) {
               <p className="line-clamp-3 text-sm text-muted-foreground">{review.snippet}</p>
 
               <div className="flex min-w-0 items-center justify-between gap-2">
-                <EscalationBadge reason={review.escalationReason} short className="py-1.5" />
+                {review.escalationReason ? (
+                  <EscalationBadge reason={review.escalationReason} short className="py-1.5" />
+                ) : (
+                  // Empty span, not nothing: `justify-between` needs a first child or the CTA
+                  // slides left and the card stops lining up with its neighbours.
+                  <span />
+                )}
                 <Button asChild variant="outline" size="sm" className="shrink-0">
                   <Link href={ROUTES.REVIEW_DETAIL(review.id) as Route}>
                     {t("reviewCta")}

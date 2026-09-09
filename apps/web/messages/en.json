@@ -307,6 +307,7 @@
     }
   },
   "dashboard": {
+    "loadError": "Could not load dashboard data. Please try again.",
     "dateRanges": {
       "7d": "Last 7 days",
       "30d": "Last 30 days",

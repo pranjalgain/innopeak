@@ -16,6 +16,10 @@ interface UseDashboardStatsResult {
  * hook per screen (rather than one per service method) keeps the loading
  * state simple — the screen shows its skeleton/empty state once, not per
  * card.
+ *
+ * No tenant lookup here: the endpoints scope themselves from the access token. An earlier version
+ * fetched `AuthService.me()` first and gated the load on the result, which left the screen loading
+ * forever whenever that call failed.
  */
 export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
   const [stats, setStats] = React.useState<DashboardStats | null>(null);
@@ -30,7 +34,7 @@ export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
     setIsLoading(true);
     Promise.all([
       DashboardService.getStats(range),
-      DashboardService.getRatingDistribution(),
+      DashboardService.getRatingDistribution(range),
       DashboardService.getAttentionReviews(),
     ])
       .then(([statsResult, ratingResult, attentionResult]) => {
@@ -38,6 +42,7 @@ export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
         setStats(statsResult);
         setRatingDistribution(ratingResult);
         setAttentionReviews(attentionResult);
+        setError(null);
       })
       .catch(() => {
         if (!cancelled) setError("Could not load dashboard data.");

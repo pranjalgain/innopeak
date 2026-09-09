@@ -7,6 +7,7 @@ import { AuthDbService } from './repositories/auth/auth.db-service';
 import { AuthRepository } from './repositories/auth/auth.repository';
 import { ConnectionsDbService } from './repositories/connections/connections.db-service';
 import { ConnectionsRepository } from './repositories/connections/connections.repository';
+import { DashboardRepository } from './repositories/dashboard/dashboard.repository';
 import { PromptsDbService } from './repositories/prompts/prompts.db-service';
 import { PromptsRepository } from './repositories/prompts/prompts.repository';
 import { ReviewPipelineDbService } from './repositories/review-pipeline/review-pipeline.db-service';
@@ -30,6 +31,7 @@ const repositories = [
   BlocklistTermsRepository,
   TenantSettingsRepository,
   SettingsDbService,
+  DashboardRepository,
   ReviewPipelineDbService,
 ];
 
