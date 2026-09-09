@@ -19,7 +19,7 @@ export function DashboardView() {
   const t = useTranslations("dashboard");
   const [range, setRange] = React.useState<DateRange>("30d");
   const { data: tenant } = useTenant();
-  const { stats, ratingDistribution, attentionReviews, isLoading } = useDashboardStats(range);
+  const { stats, ratingDistribution, attentionReviews, isLoading, error } = useDashboardStats(range);
 
   const statCards = [
     {
@@ -64,6 +64,16 @@ export function DashboardView() {
           ))}
         </TabsList>
       </Tabs>
+
+      {error ? (
+        <div
+          role="alert"
+          className="animate-in fade-in zoom-in-95 flex items-center gap-3 rounded-lg bg-destructive-soft px-4 py-3 text-sm text-destructive duration-300 ease-fluid"
+        >
+          <LuTriangleAlert className="shrink-0" />
+          {t("loadError")}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-fluid lg:grid-cols-4">
         {statCards.map((card, index) => (

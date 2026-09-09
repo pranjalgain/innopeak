@@ -35,6 +35,7 @@ import { AuthModule } from './api/auth/auth.module';
 import { JwtAuthGuard } from './api/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './api/auth/guards/roles.guard';
 import { ConnectionsModule } from './api/connections/connections.module';
+import { DashboardModule } from './api/dashboard/dashboard.module';
 import { DevToolsModule } from './api/dev-tools/dev-tools.module';
 import { ReviewsModule } from './api/reviews/reviews.module';
 import { SettingsModule } from './api/settings/settings.module';
@@ -108,6 +109,7 @@ const cacheModule = CacheModule.registerAsync({
     LoggerModule,
     EventEmitterModule.forRoot(),
     RedisModule,
+    DashboardModule,
     DBModule,
     OtelModule,
     queueModule,

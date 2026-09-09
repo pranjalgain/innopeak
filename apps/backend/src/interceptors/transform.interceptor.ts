@@ -12,8 +12,17 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
     if (context.getType() === 'http') {
       const request = context.switchToHttp().getRequest<Request>();
 
-      // Exclude specific routes
-      if (request.url.includes(RouteNames.METRICS) || request.url.includes(RouteNames.HEALTH)) {
+      // Exclude specific routes (Prometheus metrics and health checks)
+      const pathname = (request.url ?? '').split('?')[0] ?? '';
+      const isMetricsOrHealth =
+        pathname === `/${RouteNames.METRICS}` ||
+        pathname === `/v1/${RouteNames.METRICS}` ||
+        pathname === `/${RouteNames.HEALTH}` ||
+        pathname.startsWith(`/${RouteNames.HEALTH}/`) ||
+        pathname === `/v1/${RouteNames.HEALTH}` ||
+        pathname.startsWith(`/v1/${RouteNames.HEALTH}/`);
+
+      if (isMetricsOrHealth) {
         // Health/metrics endpoints intentionally bypass response transformation.
         return next.handle() as unknown as Observable<ApiResponse<T>>;
       }

@@ -25,7 +25,6 @@ export type DateRange = "7d" | "30d" | "90d";
 
 export interface DashboardStats {
   range: DateRange;
-  rangeLabel: string;
   reviewCount: number;
   averageRating: number;
   pendingApproval: number;
@@ -46,7 +45,9 @@ export interface AttentionReview {
   initials: string;
   rating: number;
   snippet: string;
-  escalationReason: EscalationReason;
+  /** Null is reachable: `escalation_reason` is nullable, so a review escalated without a recorded
+   * reason renders no badge rather than a guessed one. */
+  escalationReason: EscalationReason | null;
 }
 
 export type ReviewStatus = "new" | "in_review" | "responded" | "dismissed";
