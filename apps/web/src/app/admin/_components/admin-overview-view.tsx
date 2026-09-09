@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { LuBuilding2, LuCreditCard, LuMessageSquare, LuReply, LuUsers } from "react-icons/lu";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,11 +8,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAdminOverview } from "@/hooks/admin/use-admin-overview";
 import { useCountUp } from "@/hooks/common/use-count-up";
 
-const CURRENCY_FORMATTER = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-const NUMBER_FORMATTER = new Intl.NumberFormat("en-US");
+const CURRENCY_FORMAT = { style: "currency", currency: "USD", maximumFractionDigits: 0 } as const;
 
 export function AdminOverviewView() {
   const t = useTranslations("adminOverview");
+  const format = useFormatter();
   const { businessCount, userCount, mrr, totalReviewsFetched, totalRepliesSent, isLoading } = useAdminOverview();
 
   // Each stat counts up from 0 on first load, once its real value arrives.
@@ -23,11 +23,11 @@ export function AdminOverviewView() {
   const repliesSentAnimated = useCountUp(totalRepliesSent, isLoading);
 
   const stats = [
-    { key: "businesses", value: NUMBER_FORMATTER.format(businessCountAnimated), icon: LuBuilding2 },
-    { key: "users", value: NUMBER_FORMATTER.format(userCountAnimated), icon: LuUsers },
-    { key: "mrr", value: CURRENCY_FORMATTER.format(mrrAnimated), icon: LuCreditCard },
-    { key: "reviewsFetched", value: NUMBER_FORMATTER.format(reviewsFetchedAnimated), icon: LuMessageSquare },
-    { key: "repliesSent", value: NUMBER_FORMATTER.format(repliesSentAnimated), icon: LuReply },
+    { key: "businesses", value: format.number(businessCountAnimated), icon: LuBuilding2 },
+    { key: "users", value: format.number(userCountAnimated), icon: LuUsers },
+    { key: "mrr", value: format.number(mrrAnimated, CURRENCY_FORMAT), icon: LuCreditCard },
+    { key: "reviewsFetched", value: format.number(reviewsFetchedAnimated), icon: LuMessageSquare },
+    { key: "repliesSent", value: format.number(repliesSentAnimated), icon: LuReply },
   ] as const;
 
   return (

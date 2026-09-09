@@ -369,6 +369,33 @@ export class AuthRepository {
   }
 
   /**
+   * "Does this user still have *any* live session?" — the question that separates a refresh
+   * token that lost a rotation race from one whose whole family is dead.
+   *
+   * Both cases reach `TokenService.rotate()` as "the presented token is not active", but they
+   * want opposite handling at the cookie layer: a token superseded moments ago by a concurrent
+   * refresh sits alongside a perfectly good successor (the winner's), and the browser already
+   * holds it, so the failed caller must not clear cookies. A revoked-on-logout, expired, or
+   * DB-reset-away token has no successor, and the cookies genuinely need clearing or the
+   * frontend's session hint outlives the session. See `AuthController.refresh`.
+   */
+  async hasActiveRefreshToken(userId: string): Promise<boolean> {
+    const rows = await this.dbService.db
+      .select({ id: schema.refreshTokens.id })
+      .from(schema.refreshTokens)
+      .where(
+        and(
+          eq(schema.refreshTokens.userId, userId),
+          isNull(schema.refreshTokens.revokedAt),
+          gt(schema.refreshTokens.expiresAt, sql`now()`)
+        )
+      )
+      .limit(1);
+
+    return rows.length > 0;
+  }
+
+  /**
    * Compare-and-swap, same shape as `consumeVerifyEmailToken`: the `revoked_at IS NULL` guard is
    * in the `UPDATE`'s own `WHERE`, so of N concurrent rotations of one token exactly one sees a
    * row change. Returns whether this call was that one — the caller must treat `false` as "this

@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import * as React from "react";
 import { LuChevronDown, LuChevronUp } from "react-icons/lu";
 
@@ -17,13 +17,13 @@ interface PromptVersionHistoryProps {
   getStats: (promptId: string, version?: number) => PromptVersionStats;
 }
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+const DATE_FORMAT = {
   month: "short",
   day: "numeric",
   year: "numeric",
   hour: "numeric",
   minute: "2-digit",
-});
+} as const;
 
 /**
  * Read-only list of every prior version, oldest first (excludes the current
@@ -34,6 +34,7 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
  */
 export function PromptVersionHistory({ promptId, versions, getStats }: PromptVersionHistoryProps) {
   const t = useTranslations("promptManagement.history");
+  const format = useFormatter();
   const [isOpen, setIsOpen] = React.useState(false);
   const priorVersions = versions.slice(0, -1);
   const reversedPriorVersions = [...priorVersions].reverse();
@@ -72,7 +73,7 @@ export function PromptVersionHistory({ promptId, versions, getStats }: PromptVer
               <p className="text-xs font-medium text-muted-foreground">
                 {t("entryLabel", {
                   version: version.version,
-                  date: DATE_FORMATTER.format(new Date(version.updatedAt)),
+                  date: format.dateTime(new Date(version.updatedAt), DATE_FORMAT),
                   author: version.updatedByName,
                 })}
               </p>

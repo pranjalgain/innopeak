@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import * as React from "react";
 import { useForm } from "react-hook-form";
 import { LuMailPlus, LuSend } from "react-icons/lu";
@@ -30,7 +30,7 @@ import { usePlatformAdminInvites } from "@/hooks/admin/use-platform-admin-invite
 import { usePlatformAdminProfile } from "@/hooks/admin/use-platform-admin-profile";
 import type { PlatformAdminStatus } from "@/types/domain";
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
 
 const STATUS_BADGE_CLASSNAME: Record<PlatformAdminStatus, string> = {
   active: "border-transparent bg-success-soft text-success",
@@ -146,6 +146,7 @@ function ProfileSection() {
 function InviteSection() {
   const t = useTranslations("adminSettings.invite");
   const tStatus = useTranslations("adminSettings.invite.status");
+  const format = useFormatter();
   const { invites, isLoading, sendInvite, revokeInvite } = usePlatformAdminInvites();
   const schema = React.useMemo(() => inviteAdminSchema(t), [t]);
 
@@ -209,8 +210,8 @@ function InviteSection() {
                   <p className="truncate text-sm font-medium">{invite.email}</p>
                   <p className="text-[13px] text-muted-foreground">
                     {invite.status === "invited"
-                      ? t("expiresOn", { date: DATE_FORMATTER.format(new Date(invite.expiresAt)) })
-                      : t("invitedOn", { date: DATE_FORMATTER.format(new Date(invite.invitedAt)) })}
+                      ? t("expiresOn", { date: format.dateTime(new Date(invite.expiresAt), DATE_FORMAT) })
+                      : t("invitedOn", { date: format.dateTime(new Date(invite.invitedAt), DATE_FORMAT) })}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">

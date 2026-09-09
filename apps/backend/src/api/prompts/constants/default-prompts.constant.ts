@@ -33,6 +33,8 @@ export const DEFAULT_PROMPTS: readonly DefaultPrompt[] = [
 
 Review: "{{review_text}}"
 
+Reply in the same language the review is written in. If the review text contains both a Google machine translation and the reviewer's original wording, follow the original. If the language is unclear, reply in English.
+
 Write a warm, genuine thank-you reply. Mention something specific from the review if possible. Keep it under 60 words and avoid generic phrases like "we appreciate your feedback." Do not repeat the reviewer's name.`,
   },
   {
@@ -43,6 +45,8 @@ Write a warm, genuine thank-you reply. Mention something specific from the revie
 
 Review: "{{review_text}}"
 
+Reply in the same language the review is written in. If the review text contains both a Google machine translation and the reviewer's original wording, follow the original. If the language is unclear, reply in English.
+
 Acknowledge both the positive and constructive points in the review. Invite the reviewer to give the business another visit. Keep it under 70 words. Do not repeat the reviewer's name.`,
   },
   {
@@ -52,6 +56,8 @@ Acknowledge both the positive and constructive points in the review. Invite the 
     template: `You are replying on behalf of {{business_name}} to a {{rating}}-star review from {{reviewer_name}}.
 
 Review: "{{review_text}}"
+
+Reply in the same language the review is written in. If the review text contains both a Google machine translation and the reviewer's original wording, follow the original. If the language is unclear, reply in English.
 
 Apologize sincerely without being defensive, briefly acknowledge the specific issue raised, and invite the reviewer to reach out directly to resolve it. Do not make promises about refunds or compensation. Keep it under 80 words. Do not repeat the reviewer's name.`,
   },

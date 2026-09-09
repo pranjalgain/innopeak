@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { LuUsers } from "react-icons/lu";
 
 import { cn } from "@/app/_libs/utils/cn";
@@ -16,7 +16,7 @@ import { useAdminUsers } from "@/hooks/admin/use-admin-users";
 import { usePagination } from "@/hooks/common/use-pagination";
 import type { AdminUser } from "@/types/domain";
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
 
 function AdminUsersSkeleton() {
   return (
@@ -101,6 +101,7 @@ export function AdminUsersView() {
   const t = useTranslations("adminUsers");
   const tRole = useTranslations("adminUsers.role");
   const tStatus = useTranslations("adminUsers.status");
+  const format = useFormatter();
   const { users, isLoading, toggleActive } = useAdminUsers();
   const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(users, 4);
 
@@ -163,7 +164,7 @@ export function AdminUsersView() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {user.lastLoginAt ? DATE_FORMATTER.format(new Date(user.lastLoginAt)) : t("neverLoggedIn")}
+                      {user.lastLoginAt ? format.dateTime(new Date(user.lastLoginAt), DATE_FORMAT) : t("neverLoggedIn")}
                     </TableCell>
                     <TableCell className="text-right">
                       <UserActionButton user={user} onToggleActive={toggle} />
@@ -211,7 +212,7 @@ export function AdminUsersView() {
                 <div className="flex items-center justify-between border-t border-border pt-2.5 text-[13px]">
                   <span className="text-muted-foreground">{t("columns.lastLogin")}</span>
                   <span>
-                    {user.lastLoginAt ? DATE_FORMATTER.format(new Date(user.lastLoginAt)) : t("neverLoggedIn")}
+                    {user.lastLoginAt ? format.dateTime(new Date(user.lastLoginAt), DATE_FORMAT) : t("neverLoggedIn")}
                   </span>
                 </div>
 

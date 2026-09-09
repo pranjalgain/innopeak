@@ -10,6 +10,7 @@ import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
+import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import { TokenService } from './token.service';
 
 describe('TokenService', () => {
@@ -41,6 +42,7 @@ describe('TokenService', () => {
       findUserById: jest.fn(),
       findTenantStatus: jest.fn(),
       rotateRefreshToken: jest.fn().mockResolvedValue(true),
+      hasActiveRefreshToken: jest.fn().mockResolvedValue(false),
       revokeAllRefreshTokensForUser: jest.fn(),
     } as unknown as jest.Mocked<AuthDbService>;
 
@@ -146,6 +148,50 @@ describe('TokenService', () => {
       authDbService.findActiveRefreshToken.mockResolvedValue(null);
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    /**
+     * The distinction the cookie layer depends on. Same 401 either way, but only a dead family
+     * may clear the browser's session cookies — clearing on a lost rotation race would discard
+     * the valid successor the winning request just issued. See `AuthController.refresh`.
+     */
+    it('reports a dead family (no live session left) as a plain UnauthorizedException', async () => {
+      jwtService.verify.mockReturnValue(validRefreshClaims);
+      authDbService.findActiveRefreshToken.mockResolvedValue(null);
+      authDbService.hasActiveRefreshToken.mockResolvedValue(false);
+
+      await expect(target.rotate('revoked-or-db-reset-token')).rejects.not.toBeInstanceOf(
+        RefreshTokenSupersededException
+      );
+      await expect(target.rotate('revoked-or-db-reset-token')).rejects.toThrow(
+        UnauthorizedException
+      );
+    });
+
+    it('reports a token superseded by a concurrent refresh as RefreshTokenSupersededException', async () => {
+      jwtService.verify.mockReturnValue(validRefreshClaims);
+      // Not active any more, but the user still holds a live token — the winner's successor.
+      authDbService.findActiveRefreshToken.mockResolvedValue(null);
+      authDbService.hasActiveRefreshToken.mockResolvedValue(true);
+
+      await expect(target.rotate('lost-the-race-token')).rejects.toBeInstanceOf(
+        RefreshTokenSupersededException
+      );
+      expect(authDbService.hasActiveRefreshToken).toHaveBeenCalledWith(validRefreshClaims.sub);
+    });
+
+    it('reports a lost compare-and-swap as superseded, without asking whether a session survives', async () => {
+      // The row was active when read and gone by the CAS: definitionally someone else spent it,
+      // so their successor is live and no `hasActiveRefreshToken` round trip is needed.
+      jwtService.verify.mockReturnValue(validRefreshClaims);
+      authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
+      authDbService.findUserById.mockResolvedValue(user);
+      authDbService.findTenantStatus.mockResolvedValue({ status: 'active' } as never);
+      authDbService.rotateRefreshToken.mockResolvedValue(false);
+
+      await expect(target.rotate('some-token')).rejects.toBeInstanceOf(
+        RefreshTokenSupersededException
+      );
     });
 
     it('rejects when the stored token belongs to a different user than the JWT claims', async () => {

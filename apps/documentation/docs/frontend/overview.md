@@ -187,14 +187,46 @@ Mirrors the backend's `*.interface.ts`/`*.dto.ts` separation (`apps/backend/src/
 
 ## Localization
 
-next-intl, single-locale (`en`) for now — string extraction only, no `[locale]` route segment or
-middleware. Config: `src/i18n/request.ts`. Messages: `messages/en.json`, one top-level key per
-screen/section. Use `useTranslations("namespace")` in both Server and Client Components (the root
-layout wraps `children` in `NextIntlClientProvider`). Add a locale switcher and routing only when
-a second locale is actually needed.
+next-intl, two locales — `en` (default) and `de` — cookie-only, no `[locale]` route segment or
+next-intl routing middleware; the full rationale lives in
+`apps/documentation/docs/meta/multilingual.md`. Config: `src/i18n/locales.ts` (the single place
+`en`/`de` is declared — `SUPPORTED_LOCALES`, `DEFAULT_LOCALE`, the `NEXT_LOCALE` cookie name) and
+`src/i18n/request.ts` (resolves `NEXT_LOCALE` cookie → `Accept-Language` header → `en`, in that
+order). Messages: `messages/en.json` and `messages/de.json`, one top-level key per screen/section,
+kept in lockstep — `src/i18n/messages.test.ts` asserts identical key sets and identical ICU
+placeholders (`{count, plural, ...}` etc.) between the two files. Use `useTranslations("namespace")`
+in both Server and Client Components (the root layout wraps `children` in `NextIntlClientProvider`
+and sets `<html lang>` from `getLocale()`, not a hardcoded value).
+
+`LanguageSwitcher` (`src/app/_components/language-switcher.tsx`) is the one locale-switching
+control — a standalone dropdown, not nested inside an account menu a signed-in user would have to
+open first to find it. Present in every chrome surface: the public `SiteHeader`, the `(auth)`
+layout's corner, and the dashboard/admin `AppHeader` top bar (which renders on every authenticated
+screen regardless of breakpoint — the one place a control is guaranteed visible without a click).
+It writes the `NEXT_LOCALE` cookie and calls `router.refresh()`, which re-fetches the current
+page's Server Components and therefore re-runs `request.ts` on the same round trip — no full
+reload. Icon-only (no `EN`/`DE` text label) below the `sm` breakpoint: `SiteHeader`'s fixed row has
+no slack left for both once German's longer button labels are in play at real narrow phone widths.
 
 Mock/placeholder **data** (a person's name, initials, a business name) is not UI copy and doesn't
 go through next-intl — only translate strings that are part of the interface itself.
+
+German runs longer than English throughout, sometimes by 2x for a single string — treat any
+fixed-width or fixed-height container holding translated text as a candidate for breaking, and
+check it in German rather than assuming a layout that works in English generalizes. Two real
+regressions this way, both in `apps/documentation/docs/meta/multilingual.md`'s Verification
+section with exact measurements: `SiteHeader`'s row overflowing the viewport at narrow widths, and
+`ReviewTable`'s classification/status badges — `table-fixed` pins a column's width rather than
+growing it for wide content, and `Badge` is `w-fit whitespace-nowrap` with nothing constraining it
+to the cell by default, so a long label there spills into the next column instead of scrolling or
+truncating gracefully. `ClassificationBadge`/`ReviewStatusBadge` both take an optional `className`
+for exactly this — a fixed-width table context passes `max-w-full whitespace-normal break-words`
+(wrap, not `truncate`: classification is information someone is meant to read, not decoration a
+clipped label is acceptable on) plus `min-w-0` on the containing flex column, which is what
+actually lets the wrap engage inside the cell instead of the badge pushing it wider. Their other,
+untableified callers (the mobile card list, the review detail page) don't pass it and keep the
+original unclamped, wrap-friendly behaviour — reach for this pattern before inventing a new one
+the next time translated text meets a fixed-width container.
 
 ## Local dev stack
 
