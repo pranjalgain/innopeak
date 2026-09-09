@@ -1,4 +1,6 @@
 import { ReviewStatus } from '@common/enums/review-status.enum';
+import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
+import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { Test } from '@nestjs/testing';
 
 import { ReviewSyncDbService } from './review-sync.db-service';
@@ -133,5 +135,264 @@ describe('ReviewSyncDbService.importPage', () => {
     expect(statusById.get('ext-replied')).toBe(ReviewStatus.RESPONDED);
     expect(statusById.get('ext-recent-unreplied')).toBe(ReviewStatus.NEW);
     expect(statusById.get('ext-old-unreplied')).toBe(ReviewStatus.DISMISSED);
+  });
+});
+
+describe('ReviewSyncDbService.importPollPage', () => {
+  let service: ReviewSyncDbService;
+  const upsertReview = jest.fn();
+  const insertImportedReply = jest.fn();
+  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn({}));
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    upsertReview.mockResolvedValue({ id: 'review-1', inserted: true });
+    insertImportedReply.mockResolvedValue(true);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        {
+          provide: ReviewSyncRepository,
+          useValue: { transaction, upsertReview, insertImportedReply },
+        },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  const pollReview = (
+    externalReviewId: string,
+    overrides: Partial<Parameters<typeof service.importPollPage>[0]['reviews'][0]> = {}
+  ) => ({
+    externalReviewId,
+    externalReviewerId: null,
+    reviewerName: 'Ada',
+    rating: 5,
+    text: 'Lovely',
+    reviewedAt: daysAgo(400),
+    externalUpdatedAt: new Date().toISOString(),
+    reply: null,
+    ...overrides,
+  });
+
+  /**
+   * The deliberate difference from `resolveBackfillStatus`: no age-based write-off.
+   * `resolveBackfillStatus`'s `dismissed` branch exists for one-time historical import; a review
+   * the poller just saw for the first time is live backlog however old it is.
+   */
+  it("writes an unreplied review as 'new' no matter how old it is — no age-based dismissal", async () => {
+    await service.importPollPage({
+      tenantId: 'tenant-1',
+      locationId: 'location-1',
+      reviews: [pollReview('ext-very-old-unreplied', { reviewedAt: daysAgo(400) })],
+    });
+
+    expect((upsertReview.mock.calls[0]?.[1] as { status: string }).status).toBe(ReviewStatus.NEW);
+  });
+
+  /**
+   * Reply presence *is* honoured, unlike an earlier revision that wrote `new` unconditionally.
+   * A first-sighted review can legitimately arrive already answered — the owner replied on Google
+   * inside one poll interval, or the poller was behind — and `new` there queues a review the owner
+   * has already answered for classification and, once generation exists, an AI draft that PLAN.md
+   * §8.12 says must never overwrite the owner's own words. Caught by a live poll against real
+   * data, which produced rows holding `status='new'` *and* a `posted` imported reply at once.
+   */
+  it("writes a first-sighted review that already carries the owner's reply as 'responded'", async () => {
+    await service.importPollPage({
+      tenantId: 'tenant-1',
+      locationId: 'location-1',
+      reviews: [
+        pollReview('ext-arrived-replied', {
+          reply: { comment: 'Thanks!', updatedAt: new Date().toISOString() },
+        }),
+      ],
+    });
+
+    expect((upsertReview.mock.calls[0]?.[1] as { status: string }).status).toBe(
+      ReviewStatus.RESPONDED
+    );
+  });
+
+  it('mixes the two within one page rather than forcing one outcome for the batch', async () => {
+    await service.importPollPage({
+      tenantId: 'tenant-1',
+      locationId: 'location-1',
+      reviews: [
+        pollReview('ext-replied', {
+          reply: { comment: 'Thanks!', updatedAt: new Date().toISOString() },
+        }),
+        pollReview('ext-unreplied'),
+      ],
+    });
+
+    const statusById = new Map(
+      upsertReview.mock.calls.map(call => {
+        const arg = call[1] as { externalReviewId: string; status: string };
+        return [arg.externalReviewId, arg.status];
+      })
+    );
+
+    expect(statusById.get('ext-replied')).toBe(ReviewStatus.RESPONDED);
+    expect(statusById.get('ext-unreplied')).toBe(ReviewStatus.NEW);
+  });
+});
+
+describe('ReviewSyncDbService.acquireSyncRun', () => {
+  let service: ReviewSyncDbService;
+  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn({}));
+  const acquireSyncRun = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: { transaction, acquireSyncRun } },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('returns the acquired run on success', async () => {
+    const run = { id: 'run-1', status: SyncRunStatus.RUNNING };
+    acquireSyncRun.mockResolvedValue(run);
+
+    const result = await service.acquireSyncRun({
+      tenantId: 'tenant-1',
+      locationId: 'location-1',
+      trigger: SyncTrigger.SCHEDULED,
+    });
+
+    expect(result).toBe(run);
+  });
+
+  /**
+   * PLAN.md §8.1: a second poll finding its own location already mid-run is expected and benign,
+   * not a failure — `runPoll` treats `null` as a clean no-op rather than a thrown error a job
+   * retry or DLQ entry would be the wrong response to.
+   */
+  it('returns null, not a thrown error, when a run is already genuinely active for the location', async () => {
+    acquireSyncRun.mockRejectedValue({
+      code: '23505',
+      constraint: 'idx_sync_runs_location_id_running',
+    });
+
+    const result = await service.acquireSyncRun({
+      tenantId: 'tenant-1',
+      locationId: 'location-1',
+      trigger: SyncTrigger.SCHEDULED,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('rethrows any other error', async () => {
+    acquireSyncRun.mockRejectedValue(new Error('connection terminated unexpectedly'));
+
+    await expect(
+      service.acquireSyncRun({
+        tenantId: 'tenant-1',
+        locationId: 'location-1',
+        trigger: SyncTrigger.SCHEDULED,
+      })
+    ).rejects.toThrow('connection terminated unexpectedly');
+  });
+});
+
+describe('ReviewSyncDbService.completeRun', () => {
+  let service: ReviewSyncDbService;
+  const completeSyncRun = jest.fn();
+  const updateSyncSnapshot = jest.fn();
+  const markBackfillCompleted = jest.fn();
+  const advanceLastReviewSyncedAt = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    completeSyncRun.mockResolvedValue(true);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: { completeSyncRun } },
+        { provide: ReviewsReadRepository, useValue: {} },
+        {
+          provide: ConnectionsRepository,
+          useValue: { updateSyncSnapshot, markBackfillCompleted, advanceLastReviewSyncedAt },
+        },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('advances the cursor on a successful run with a non-null timestamp', async () => {
+    await service.completeRun({
+      syncRunId: 'run-1',
+      locationId: 'location-1',
+      status: SyncRunStatus.OK,
+      reviewsFetched: 3,
+      errorMessage: null,
+      markBackfillComplete: false,
+      lastReviewSyncedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(advanceLastReviewSyncedAt).toHaveBeenCalledWith(
+      'location-1',
+      '2026-01-01T00:00:00.000Z'
+    );
+  });
+
+  it('does not advance the cursor when nothing was fetched (null timestamp)', async () => {
+    await service.completeRun({
+      syncRunId: 'run-1',
+      locationId: 'location-1',
+      status: SyncRunStatus.OK,
+      reviewsFetched: 0,
+      errorMessage: null,
+      markBackfillComplete: false,
+      lastReviewSyncedAt: null,
+    });
+
+    expect(advanceLastReviewSyncedAt).not.toHaveBeenCalled();
+  });
+
+  it('does not advance the cursor on a failed run even if a timestamp is somehow provided', async () => {
+    await service.completeRun({
+      syncRunId: 'run-1',
+      locationId: 'location-1',
+      status: SyncRunStatus.ERROR,
+      reviewsFetched: 3,
+      errorMessage: 'boom',
+      markBackfillComplete: false,
+      lastReviewSyncedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(advanceLastReviewSyncedAt).not.toHaveBeenCalled();
+  });
+
+  it('does not advance the cursor when the CAS was lost (run reclaimed as stale)', async () => {
+    completeSyncRun.mockResolvedValue(false);
+
+    const stillOwned = await service.completeRun({
+      syncRunId: 'run-1',
+      locationId: 'location-1',
+      status: SyncRunStatus.OK,
+      reviewsFetched: 3,
+      errorMessage: null,
+      markBackfillComplete: false,
+      lastReviewSyncedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(stillOwned).toBe(false);
+    expect(advanceLastReviewSyncedAt).not.toHaveBeenCalled();
   });
 });

@@ -655,6 +655,7 @@ export const locations = pgTable(
       withTimezone: true,
       mode: 'string',
     }),
+    lastReviewSyncedAt: timestamp('last_review_synced_at', { withTimezone: true, mode: 'string' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),

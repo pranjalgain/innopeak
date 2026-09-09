@@ -1,10 +1,12 @@
-import { IReviewBackfillJob } from '@bg/interfaces/job.interface';
+import { IReviewBackfillJob, IReviewSyncJob } from '@bg/interfaces/job.interface';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
+import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Injectable, Logger } from '@nestjs/common';
 import { ReviewClassificationService } from '@review-pipeline/review-classification.service';
 import {
+  GBP_REVIEWS_PAGE_SIZE,
   RATE_LIMIT_DEFAULT_WAIT_SECONDS,
   RATE_LIMIT_MAX_RETRIES,
   RATE_LIMIT_MAX_WAIT_SECONDS,
@@ -16,20 +18,59 @@ import { ReviewProvider } from '@review-provider/providers/review-provider.provi
 /**
  * PLAN.md §5 wants ~50 historical replies as few-shot examples for the AI's voice. Stopping there
  * rather than importing everything keeps a decade-old business's onboarding from taking an hour
- * for material nobody reads.
+ * for material nobody reads. Backfill-only — a poll has no reply target, it just fetches what's
+ * new.
  */
 const IMPORTED_REPLY_TARGET = 50;
 
 /**
- * A hard stop independent of the reply target, because a location can have thousands of reviews
- * and almost no owner replies — without this the "50 replies" rule alone would paginate the entire
- * history looking for a 50th that does not exist.
+ * Backfill's hard stop, independent of the reply target above — a location can have thousands of
+ * reviews and almost no owner replies, and without this the "50 replies" rule alone would
+ * paginate an entire decade looking for a 50th that does not exist.
  */
 const MAX_PAGES = 20;
 
 /**
- * The one-time historical import. Transport-agnostic (BullMQ locally, SQS on AWS) — the processor
- * and the SQS consumer both call `runBackfill` and neither contains logic.
+ * The poll's own cap, an order of magnitude above backfill's, because the two are guarding
+ * different things. Backfill's 20 pages bound a *deliberate sample* of history (PLAN.md §7).
+ * A poll is not sampling: it must cover everything newer than the location's cursor, or it leaves
+ * a gap it can never come back for — reviews below a cursor are invisible to every later poll.
+ *
+ * So this exists purely as a runaway guard (a cursor corrupted to 1970 against a location with
+ * 100k reviews), set high enough that no real business reaches it: 200 pages is 10,000 reviews
+ * arriving between two 15-minute ticks. A steady-state poll needs one page. Hitting this is
+ * therefore a genuine anomaly worth failing the run over, not routine truncation to be absorbed —
+ * see `importNewPages`.
+ */
+const MAX_POLL_PAGES = 200;
+
+interface ImportOutcome {
+  reviewsFetched: number;
+  /** The max `external_updated_at` seen this run. `null` when nothing was fetched — `completeRun`
+   *  treats that as "leave the location's cursor where it was," not "reset it." */
+  maxExternalUpdatedAt: string | null;
+}
+
+interface PollImportOutcome extends ImportOutcome {
+  /**
+   * The page cap was hit *before* reaching the location's cursor, meaning this run could not see
+   * the whole backlog. Load-bearing, not informational — see `runPoll`, which fails the run on it.
+   */
+  truncated: boolean;
+}
+
+interface ClassificationOutcome {
+  classified: number;
+  skipped: number;
+  error: string | null;
+}
+
+/**
+ * Both review ingestion paths: the one-time historical backfill (`runBackfill`) and the 15-minute
+ * scheduled poll (`runPoll`). Transport-agnostic — the processor and the SQS consumer both call
+ * into here and neither contains logic. The two entrypoints share every helper below them;
+ * `resolveBackfillStatus`'s three-way status split is the one piece of business logic that stays
+ * backfill-only, inside `ReviewSyncDbService.importPage`.
  */
 @Injectable()
 export class ReviewSyncQueueService {
@@ -49,10 +90,13 @@ export class ReviewSyncQueueService {
     );
 
     let reviewsFetched = 0;
+    let maxExternalUpdatedAt: string | null = null;
 
     try {
       const accessToken = await this.resolveAccessToken(job);
-      reviewsFetched = await this.importAllPages(job, accessToken);
+      const importResult = await this.importAllPages(job, job.syncRunId, accessToken);
+      reviewsFetched = importResult.reviewsFetched;
+      maxExternalUpdatedAt = importResult.maxExternalUpdatedAt;
 
       const classification = await this.classifyImportedReviews(job);
 
@@ -69,6 +113,7 @@ export class ReviewSyncQueueService {
         // `livePollingEnabled: true` (see ConnectionsSyncService, which calls that "the only
         // correct signal for advancing the UI to 'done'") for a pipeline that is not done.
         markBackfillComplete: classification.error === null,
+        lastReviewSyncedAt: classification.error === null ? maxExternalUpdatedAt : null,
       });
 
       if (classification.error === null) {
@@ -81,13 +126,7 @@ export class ReviewSyncQueueService {
         );
       }
     } catch (error) {
-      const message = (error as Error).message;
-
-      // A dead grant is recorded on the connection, not just reported — PLAN.md §8.14. Without
-      // this the owner sees a failed import with no indication that reconnecting is the fix.
-      if (error instanceof ProviderAuthError) {
-        await this.connectionsDbService.markNeedsReauth(job.connectionId);
-      }
+      const message = await this.handleSyncFailure(job, error);
 
       await this.reviewSyncDbService.completeRun({
         syncRunId: job.syncRunId,
@@ -96,6 +135,7 @@ export class ReviewSyncQueueService {
         reviewsFetched,
         errorMessage: message,
         markBackfillComplete: false,
+        lastReviewSyncedAt: null,
       });
 
       this.logger.error(`Review backfill failed for location ${job.locationId}: ${message}`);
@@ -104,18 +144,140 @@ export class ReviewSyncQueueService {
   }
 
   /**
+   * The 15-minute scheduled poll. Acquires its own `sync_runs` row here rather than receiving one
+   * pre-acquired in the job payload the way `runBackfill` does — `CronService.pollDueLocations`
+   * only enumerates and fans out (per this codebase's own rule that a `@Cron` method enqueues, it
+   * does not work), so nothing has claimed a run for this location yet when the job is published.
+   * Acquiring it now, not at enqueue time, is also what makes PLAN.md §8.1's overlapping-poll
+   * guard actually apply: a BullMQ job can sit queued for a while, and claiming the row only when
+   * the job truly starts is what lets a still-running previous poll block this one.
+   *
+   * A `null` acquisition (another run for this location is already genuinely active) is logged and
+   * treated as a normal, successful no-op — not a thrown error, since a job retry or a DLQ entry
+   * would be the wrong response to "someone else already has this."
+   *
+   * Also re-reads the location's `last_review_synced_at` cursor itself right before paginating,
+   * rather than trusting a value baked into the job payload, for the same staleness reason.
+   *
+   * Out of scope, same as `runBackfill`: PLAN.md §8.6 (a review edited upstream) and §8.12 (an
+   * owner replying directly on Google) both require superseding `review_responses` rows, which
+   * belongs to generation — not built yet. This only ingests and classifies, same as backfill does
+   * for its own `new` rows.
+   */
+  async runPoll(job: IReviewSyncJob): Promise<void> {
+    const run = await this.reviewSyncDbService.acquireSyncRun({
+      tenantId: job.tenantId,
+      locationId: job.locationId,
+      trigger: SyncTrigger.SCHEDULED,
+    });
+
+    if (!run) {
+      this.logger.debug(
+        `Skipping poll for location ${job.locationId}: a sync run is already active for it.`
+      );
+      return;
+    }
+
+    this.logger.log(`Starting review poll for location ${job.locationId} (run ${run.id})`);
+
+    let reviewsFetched = 0;
+    let maxExternalUpdatedAt: string | null = null;
+
+    try {
+      const [accessToken, location] = await Promise.all([
+        this.resolveAccessToken(job),
+        this.connectionsDbService.findLocationForTenant(job.locationId, job.tenantId),
+      ]);
+
+      if (!location) {
+        throw new Error(`Location ${job.locationId} not found for tenant ${job.tenantId}`);
+      }
+
+      const importResult = await this.importNewPages(
+        job,
+        run.id,
+        accessToken,
+        location.lastReviewSyncedAt
+      );
+      reviewsFetched = importResult.reviewsFetched;
+      maxExternalUpdatedAt = importResult.maxExternalUpdatedAt;
+
+      const classification = await this.classifyImportedReviews(job);
+
+      // Truncation is its own failure, independent of classification: the reviews that *were*
+      // fetched are committed and classified, but the cursor must not move (see `importNewPages`)
+      // and the run must not read `ok`, or a backlog this poll silently could not drain would look
+      // like a healthy sync in `last_sync_status`.
+      const truncationError = importResult.truncated
+        ? `hit the ${MAX_POLL_PAGES}-page cap before reaching the last-synced cursor: more than ${MAX_POLL_PAGES * GBP_REVIEWS_PAGE_SIZE} reviews are newer than it, which no real polling interval produces — the cursor was left unchanged (so nothing below the cap was skipped) and this location needs investigating rather than retrying`
+        : null;
+      const errorMessage = truncationError ?? classification.error;
+
+      await this.reviewSyncDbService.completeRun({
+        syncRunId: run.id,
+        locationId: job.locationId,
+        status: errorMessage === null ? SyncRunStatus.OK : SyncRunStatus.ERROR,
+        reviewsFetched,
+        errorMessage,
+        // A poll never sets this — it stays backfill's own signal (PLAN.md §8.2).
+        markBackfillComplete: false,
+        lastReviewSyncedAt: errorMessage === null ? maxExternalUpdatedAt : null,
+      });
+
+      if (errorMessage === null) {
+        this.logger.log(
+          `Review poll complete for location ${job.locationId}: ${reviewsFetched} reviews, ${classification.classified} classified (${classification.skipped} skipped)`
+        );
+      } else {
+        this.logger.error(
+          `Review poll for location ${job.locationId} imported ${reviewsFetched} reviews but did not complete cleanly: ${errorMessage}`
+        );
+      }
+    } catch (error) {
+      const message = await this.handleSyncFailure(job, error);
+
+      await this.reviewSyncDbService.completeRun({
+        syncRunId: run.id,
+        locationId: job.locationId,
+        status: SyncRunStatus.ERROR,
+        reviewsFetched,
+        errorMessage: message,
+        markBackfillComplete: false,
+        lastReviewSyncedAt: null,
+      });
+
+      this.logger.error(`Review poll failed for location ${job.locationId}: ${message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * PLAN.md §8.14: a dead grant is recorded on the connection, not just reported. Without this the
+   * owner sees a failed backfill or a location stuck "last synced: 3 days ago" with no indication
+   * that reconnecting is the fix. Shared by both entrypoints — §8.14 describes this as a mid-run
+   * failure, which is arguably more a polling concern (a token that was fine at backfill time can
+   * expire or be revoked at any later poll) than a backfill one.
+   */
+  private async handleSyncFailure(job: IReviewSyncJob, error: unknown): Promise<string> {
+    if (error instanceof ProviderAuthError) {
+      await this.connectionsDbService.markNeedsReauth(job.connectionId);
+    }
+    return (error as Error).message;
+  }
+
+  /**
    * Reports the failure rather than throwing, so a classification error does not discard an import
    * whose rows are already committed — but the caller still records it on the run and withholds
-   * the backfill-complete stamp. Swallowing it outright was wrong in a way worth naming: it left
-   * `sync_runs` reading `ok` with `reviews_fetched` set while `pending_classification` rows sat
-   * behind an onboarding UI that had already advanced to "you're all set".
+   * the backfill-complete stamp / cursor advance. Swallowing it outright was wrong in a way worth
+   * naming: it left `sync_runs` reading `ok` with `reviews_fetched` set while
+   * `pending_classification` rows sat behind an onboarding UI that had already advanced to "you're
+   * all set".
    *
-   * Recovery is re-triggering backfill for the location (`POST` confirm-location accepts the same
-   * location and acquires a fresh run); there is no automatic retry while the poller doesn't exist.
+   * Recovery for a failed backfill is re-triggering it (`POST` confirm-location accepts the same
+   * location and acquires a fresh run); recovery for a failed poll is simply the next 15-minute
+   * tick, since the cursor was never advanced past what this run actually classified.
    */
-  private async classifyImportedReviews(
-    job: IReviewBackfillJob
-  ): Promise<{ classified: number; skipped: number; error: string | null }> {
+  private async classifyImportedReviews(job: IReviewSyncJob): Promise<ClassificationOutcome> {
     try {
       const result = await this.reviewClassificationService.classifyPendingReviews({
         tenantId: job.tenantId,
@@ -132,7 +294,7 @@ export class ReviewSyncQueueService {
     }
   }
 
-  private async resolveAccessToken(job: IReviewBackfillJob): Promise<string> {
+  private async resolveAccessToken(job: IReviewSyncJob): Promise<string> {
     const connection = await this.connectionsDbService.findConnectionByTenant(job.tenantId);
 
     if (!connection) {
@@ -160,12 +322,17 @@ export class ReviewSyncQueueService {
    * stale-run reclaim predicate reads — a job that only wrote at the end would look stalled for
    * its entire duration and be reclaimed out from under itself.
    */
-  private async importAllPages(job: IReviewBackfillJob, accessToken: string): Promise<number> {
+  private async importAllPages(
+    job: IReviewSyncJob,
+    syncRunId: string,
+    accessToken: string
+  ): Promise<ImportOutcome> {
     let pageToken: string | undefined;
     let reviewsFetched = 0;
     let repliesImported = 0;
     let totalRecorded = false;
     let pagesRead = 0;
+    let maxExternalUpdatedAt: string | null = null;
 
     do {
       const page = await this.listReviewsWithBackoff(accessToken, {
@@ -194,8 +361,11 @@ export class ReviewSyncQueueService {
       reviewsFetched += result.reviewsWritten;
       repliesImported += result.repliesImported;
       pagesRead += 1;
+      for (const review of page.reviews) {
+        maxExternalUpdatedAt = this.newerTimestamp(maxExternalUpdatedAt, review.externalUpdatedAt);
+      }
 
-      await this.reviewSyncDbService.recordProgress(job.syncRunId, {
+      await this.reviewSyncDbService.recordProgress(syncRunId, {
         reviewsFetched,
         // Written once, from the first page that reports one — Google only sends
         // totalReviewCount on the initial response, and re-writing it every page would be a
@@ -218,7 +388,136 @@ export class ReviewSyncQueueService {
       );
     }
 
-    return reviewsFetched;
+    return { reviewsFetched, maxExternalUpdatedAt };
+  }
+
+  /**
+   * The poll counterpart to `importAllPages`. Google orders `reviews.list` `updateTime desc`
+   * (`GBP_REVIEWS_ORDER_BY`) and offers no server-side date filter, so this is the only way to
+   * fetch incrementally: walk pages, and the moment a review is seen at or before `cursor`,
+   * everything from that point in this page — and every later page — is already known, so
+   * pagination stops right there rather than re-fetching a location's entire history every cycle.
+   *
+   * `cursor === null` — a location whose `last_review_synced_at` was never seeded (a successful
+   * backfill that fetched zero reviews, or one predating that column) — is bounded by the page cap
+   * alone, and is **not** reported as truncated: with no prior watermark there is no gap to skip,
+   * so taking the newest page-cap's worth and adopting the newest timestamp as the watermark is
+   * the correct "start from here". See the `truncated` computation for why conflating the two
+   * cases made every poll of such a location fail forever.
+   *
+   * **Hitting the page cap before reaching the cursor is reported as `truncated`, and the caller
+   * treats it as a failed run.** It cannot be shrugged off as "the next cycle will catch the rest",
+   * because it will not: Google orders `updateTime desc`, so a capped run has imported the
+   * *newest* slice of the backlog and `maxExternalUpdatedAt` is the global newest. Advancing the
+   * cursor there would step straight over everything the cap cut off — permanently, since no later
+   * poll ever looks below its own cursor. Leaving the cursor alone doesn't drain it either: with
+   * this single high-water cursor the next run re-walks the identical newest slice and truncates at
+   * the identical point. So the only outcome consistent with the state we keep is to import what
+   * was fetched, hold the cursor, and surface the run as an error for a human to look at.
+   *
+   * Draining such a backlog *is* possible, but not with the state this design keeps: it would take
+   * a second, low-water cursor (page forward from the oldest un-imported review across successive
+   * runs, rather than backwards from the newest). That is deliberately not built — with
+   * `MAX_POLL_PAGES` sized as it is, truncation means something pathological (a corrupted cursor,
+   * a location with a five-figure review burst inside 15 minutes), and the right response to those
+   * is a person looking at the run, not silent multi-cycle recovery machinery that would otherwise
+   * never execute. If truncation is ever observed in practice, the low-water cursor is the fix.
+   */
+  private async importNewPages(
+    job: IReviewSyncJob,
+    syncRunId: string,
+    accessToken: string,
+    cursor: string | null
+  ): Promise<PollImportOutcome> {
+    const cursorTime = cursor === null ? null : new Date(cursor).getTime();
+
+    let pageToken: string | undefined;
+    let reviewsFetched = 0;
+    let totalRecorded = false;
+    let pagesRead = 0;
+    let maxExternalUpdatedAt: string | null = null;
+    let reachedCursor = false;
+
+    do {
+      const page = await this.listReviewsWithBackoff(accessToken, {
+        externalAccountId: job.externalAccountId,
+        externalLocationId: job.externalLocationId,
+        pageToken,
+      });
+
+      const newReviews: typeof page.reviews = [];
+      for (const review of page.reviews) {
+        if (cursorTime !== null && new Date(review.externalUpdatedAt).getTime() <= cursorTime) {
+          reachedCursor = true;
+          break;
+        }
+        newReviews.push(review);
+        maxExternalUpdatedAt = this.newerTimestamp(maxExternalUpdatedAt, review.externalUpdatedAt);
+      }
+
+      if (newReviews.length > 0) {
+        const result = await this.reviewSyncDbService.importPollPage({
+          tenantId: job.tenantId,
+          locationId: job.locationId,
+          reviews: newReviews.map(review => ({
+            externalReviewId: review.externalReviewId,
+            externalReviewerId: review.externalReviewerId,
+            reviewerName: review.reviewerName,
+            rating: review.rating,
+            text: review.text,
+            reviewedAt: review.reviewedAt,
+            externalUpdatedAt: review.externalUpdatedAt,
+            reply: review.reply
+              ? { comment: review.reply.comment, updatedAt: review.reply.updatedAt }
+              : null,
+          })),
+        });
+
+        reviewsFetched += result.reviewsWritten;
+      }
+
+      pagesRead += 1;
+
+      await this.reviewSyncDbService.recordProgress(syncRunId, {
+        reviewsFetched,
+        ...(totalRecorded || page.totalCount === null ? {} : { reviewsTotal: page.totalCount }),
+      });
+
+      if (page.totalCount !== null) {
+        totalRecorded = true;
+      }
+
+      pageToken = page.nextPageToken ?? undefined;
+    } while (pageToken && !reachedCursor && pagesRead < MAX_POLL_PAGES);
+
+    return {
+      reviewsFetched,
+      maxExternalUpdatedAt,
+      // `cursor !== null` is load-bearing, not defensive. Truncation only *skips* something when
+      // there was a prior watermark to leave a gap below; with no cursor there is no gap — this is
+      // the poller's first sight of the location, and importing the newest page-cap's worth and
+      // adopting the newest timestamp as the watermark is exactly the right "start from here"
+      // behaviour. Anything older than that is backfill's territory, not the poller's. Without
+      // this clause, a location whose backfill completed without seeding a cursor (a successful
+      // backfill that fetched zero reviews, or one that predates
+      // `locations.last_review_synced_at` existing) but which has more than
+      // MAX_POLL_PAGES × GBP_REVIEWS_PAGE_SIZE reviews would fail *every* poll forever: cursor
+      // stays null, so the next run truncates identically, so the cursor stays null.
+      truncated: cursor !== null && Boolean(pageToken) && !reachedCursor,
+    };
+  }
+
+  /**
+   * Compares numerically rather than as raw strings — both values are ISO-8601 from
+   * `externalUpdatedAt`, which in practice is always Google's UTC `Z`-suffixed `updateTime`, but a
+   * numeric comparison can never be inverted by a formatting or precision quirk a raw string
+   * comparison would be exposed to.
+   */
+  private newerTimestamp(current: string | null, candidate: string): string {
+    if (current === null) {
+      return candidate;
+    }
+    return new Date(candidate).getTime() > new Date(current).getTime() ? candidate : current;
   }
 
   /**

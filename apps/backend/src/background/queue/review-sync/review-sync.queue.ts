@@ -1,5 +1,5 @@
 import { JobName, QueueName } from '@bg/constants/job.constant';
-import { IReviewBackfillJob } from '@bg/interfaces/job.interface';
+import { IReviewBackfillJob, IReviewSyncJob } from '@bg/interfaces/job.interface';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
@@ -29,5 +29,15 @@ export class ReviewSyncQueue {
   async addBackfillJob(data: IReviewBackfillJob): Promise<void> {
     this.logger.debug(`Queueing review backfill for location ${data.locationId}`);
     await this.queue.add(JobName.REVIEW_BACKFILL, data, { attempts: 2 });
+  }
+
+  /**
+   * Plain `DEFAULT_JOB_OPTIONS` (3 attempts) rather than backfill's `attempts: 2` override — a
+   * failed poll is picked up again at the next 15-minute tick regardless, so an aggressive retry
+   * here isn't buying anything a poll cycle doesn't already provide on its own.
+   */
+  async addPollJob(data: IReviewSyncJob): Promise<void> {
+    this.logger.debug(`Queueing review poll for location ${data.locationId}`);
+    await this.queue.add(JobName.REVIEW_POLL, data);
   }
 }

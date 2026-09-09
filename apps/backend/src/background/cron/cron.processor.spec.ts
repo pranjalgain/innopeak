@@ -30,6 +30,7 @@ describe('CronProcessor', () => {
     cronService = {
       sendDailyMail: jest.fn(),
       purgeStaleAuthTokens: jest.fn().mockResolvedValue(undefined),
+      pollDueLocations: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CronService>;
     dlqService = {
       addFailedJobToDLQ: jest.fn().mockResolvedValue(undefined),
@@ -62,6 +63,18 @@ describe('CronProcessor', () => {
       expect(cronService.purgeStaleAuthTokens).toHaveBeenCalledTimes(1);
       expect(cronService.sendDailyMail).not.toHaveBeenCalled();
       expect(job.log).toHaveBeenCalledWith(expect.stringContaining('Completed job'));
+    });
+
+    it('dispatches REVIEW_SYNC_POLL jobs to CronService.pollDueLocations and awaits it', async () => {
+      const job = buildJob({
+        name: CronJobName.REVIEW_SYNC_POLL,
+        data: { jobType: CronJobName.REVIEW_SYNC_POLL } as ICronJob,
+      });
+
+      await processor.process(job);
+
+      expect(cronService.pollDueLocations).toHaveBeenCalledTimes(1);
+      expect(cronService.sendDailyMail).not.toHaveBeenCalled();
     });
 
     it('rethrows when the purge fails so BullMQ retries it', async () => {

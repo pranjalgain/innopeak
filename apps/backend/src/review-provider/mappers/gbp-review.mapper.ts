@@ -25,6 +25,13 @@ function extractReviewId(review: GbpReview): string {
   return lastSegment;
 }
 
+/**
+ * `review.reviewMediaItems` and `review.reviewReplyUrl` are real fields Google sends but are
+ * deliberately absent from `ProviderReview` below — this product has no review-media feature and
+ * never links out to Google's own reply UI, so both are discarded here rather than carried any
+ * further. See their doc comments on `GbpReview` for why they are typed at all instead of simply
+ * left off the wire type.
+ */
 export function mapGbpReview(review: GbpReview): ProviderReview {
   return {
     externalReviewId: extractReviewId(review),

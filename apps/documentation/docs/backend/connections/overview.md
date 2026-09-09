@@ -284,7 +284,8 @@ behind `DEV_GBP_MOCK=true` for local development, and against the real Google AP
 Two deviations from the layout originally sketched below, both deliberate:
 
 - **The provider lives in `src/review-provider/`, not `src/api/connections/providers/`.** The
-  backfill job runs in the worker process, which never imports API modules, and the future poller
+  backfill job runs in the worker process, which never imports API modules, and the poller (now
+  built too — see `../review-pipeline/overview.md#ingestion--the-15-minute-poller--implemented`)
   and reply-posting stages need the same client — so it is a `@Global()` module both processes
   import, following the `src/email/` precedent.
 - **`sync_runs` has exactly one owning repository** (`review-sync`), answering the warning below

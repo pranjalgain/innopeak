@@ -44,10 +44,14 @@ export enum JobName {
   DLQ_FAILED_JOB = 'dlq_failed_job',
   /** One-time historical import, published after POST /v1/connections/locations commits. */
   REVIEW_BACKFILL = 'review-backfill',
+  /** One per eligible location, fanned out by CronService.pollDueLocations every 15 minutes. */
+  REVIEW_POLL = 'review-poll',
 }
 
 export enum CronJobName {
   DAILY_MAIL = 'daily-mail',
   /** Purges used/expired verify_email codes and revoked/expired refresh tokens — see AuthDbService.purgeStaleTokens. */
   AUTH_TOKEN_CLEANUP = 'auth-token-cleanup',
+  /** Enqueues a JobName.REVIEW_POLL job per eligible location — see CronService.pollDueLocations. */
+  REVIEW_SYNC_POLL = 'review-sync-poll',
 }

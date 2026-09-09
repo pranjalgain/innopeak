@@ -18,6 +18,11 @@ import { ConnectionsRepository } from '../connections/connections.repository';
 /** The *other* partial unique index on review_responses.review_id — see importPage's catch. */
 const LIVE_REPLY_INDEX = 'idx_review_responses_review_id_live_reply';
 
+/** `UNIQUE (location_id) WHERE status = 'running'` — the index Postgres names on the 23505 a
+ * concurrent second run raises. `ConnectionsDbService.confirmLocation` guards the same index for
+ * backfill; `acquireSyncRun` below guards it for poll. */
+const SYNC_RUN_RUNNING_INDEX = 'idx_sync_runs_location_id_running';
+
 /**
  * How recent an unreplied review must be to enter the live pipeline as actionable backlog,
  * rather than being written off as closed history. See `resolveBackfillStatus`'s doc comment for
@@ -74,8 +79,36 @@ export class ReviewSyncDbService {
   ) {}
 
   /**
-   * Writes one provider page. Each review and its imported reply go in together, so a crash
-   * mid-page leaves whole reviews behind rather than reviews whose replies vanished.
+   * Acquires a `sync_runs` row for a poll — the same CAS-and-reclaim `ReviewSyncRepository`
+   * method (`acquireSyncRun`, PLAN.md §8.1) `ConnectionsDbService.confirmLocation` already uses
+   * for backfill, wrapped here so `ReviewSyncQueueService.runPoll` can call it without reaching
+   * into a Repository directly.
+   *
+   * Returns `null`, not a thrown error, when a run is already genuinely active for this location.
+   * That is an expected, benign outcome for a 15-minute cron fan-out — the previous poll (or a
+   * still-running backfill) simply hasn't finished yet — not a failure worth a job retry or a DLQ
+   * entry the way an unexpected exception would be.
+   */
+  async acquireSyncRun(input: {
+    tenantId: string;
+    locationId: string;
+    trigger: SyncTrigger;
+  }): Promise<SyncRunRow | null> {
+    try {
+      return await this.reviewSyncRepository.transaction(tx =>
+        this.reviewSyncRepository.acquireSyncRun(tx, input)
+      );
+    } catch (error) {
+      if (isUniqueViolation(error, SYNC_RUN_RUNNING_INDEX)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Writes one provider page from backfill. Each review and its imported reply go in together, so
+   * a crash mid-page leaves whole reviews behind rather than reviews whose replies vanished.
    *
    * **Status deviates from PLAN.md §7 on purpose — see `resolveBackfillStatus`.** §7 specifies
    * `status = 'responded'` unconditionally for every backfilled review, which is right that
@@ -85,7 +118,35 @@ export class ReviewSyncDbService {
    * product exists to help clear, so it enters the live pipeline as `new` like anything the
    * poller would bring in; an unanswered *old* review is closed history, same as before.
    */
-  async importPage(input: ImportPageInput): Promise<ImportPageResult> {
+  importPage(input: ImportPageInput): Promise<ImportPageResult> {
+    return this.writeReviewPage(input, review => this.resolveBackfillStatus(review));
+  }
+
+  /**
+   * The poll counterpart to `importPage`. Differs from `resolveBackfillStatus` on exactly one
+   * dimension and matches it on the other:
+   *
+   *  - **No age-based write-off.** `resolveBackfillStatus`'s `dismissed` branch exists to stop
+   *    years of historical import flooding a new owner with drafts; a review the poller just saw
+   *    for the first time is live backlog no matter how long ago it was written, so it is `new`.
+   *  - **Reply presence is still honoured.** A first-sighted review can legitimately arrive with
+   *    the owner's reply already on it — they replied on Google within one poll interval, or the
+   *    poller was behind. Writing `new` there would queue a review the owner has already answered
+   *    for classification and (once generation exists) an AI draft, and PLAN.md §8.12 is explicit
+   *    that posting over an owner's own words is the worst outcome in this system. The imported
+   *    reply is written alongside it either way, so `new` + a `posted` imported reply is a
+   *    contradiction the row should never hold.
+   */
+  importPollPage(input: ImportPageInput): Promise<ImportPageResult> {
+    return this.writeReviewPage(input, review => {
+      return review.reply ? ReviewStatus.RESPONDED : ReviewStatus.NEW;
+    });
+  }
+
+  private async writeReviewPage(
+    input: ImportPageInput,
+    resolveStatus: (review: ImportReviewInput) => ReviewStatus
+  ): Promise<ImportPageResult> {
     let reviewsWritten = 0;
     let reviewsInserted = 0;
     let repliesImported = 0;
@@ -103,7 +164,7 @@ export class ReviewSyncDbService {
           reviewerName: review.reviewerName,
           reviewedAt: review.reviewedAt,
           externalUpdatedAt: review.externalUpdatedAt,
-          status: this.resolveBackfillStatus(review),
+          status: resolveStatus(review),
         });
 
         if (!review.reply) {
@@ -192,11 +253,17 @@ export class ReviewSyncDbService {
   }
 
   /**
-   * Completes the run, and only on a genuine win writes the location's rolled-up sync snapshot and
-   * — for a successful backfill — `onboarding_backfill_completed_at`, the column that un-gates
-   * live polling. A lost CAS means this run was reclaimed as stale mid-flight and a second run is
-   * now redoing the work; letting it stamp completion would tell the owner "all set" for an import
-   * still in progress.
+   * Completes the run, and only on a genuine win writes the location's rolled-up sync snapshot,
+   * the poller's high-water mark, and — for a successful backfill — `onboarding_backfill_completed_at`,
+   * the column that un-gates live polling. A lost CAS means this run was reclaimed as stale
+   * mid-flight and a second run is now redoing the work; letting it stamp completion would tell
+   * the owner "all set" for an import still in progress.
+   *
+   * `lastReviewSyncedAt` seeds/advances from **both** triggers: backfill writes it too (not just
+   * `onboarding_backfill_completed_at`), so the location's very first poll only fetches what's
+   * newer than backfill's own cutoff instead of re-walking history backfill already imported.
+   * `null` (nothing fetched this run, or the run failed) leaves the existing cursor untouched —
+   * `ConnectionsRepository.advanceLastReviewSyncedAt` is itself monotonic on top of that.
    */
   async completeRun(input: {
     syncRunId: string;
@@ -205,6 +272,7 @@ export class ReviewSyncDbService {
     reviewsFetched: number;
     errorMessage: string | null;
     markBackfillComplete: boolean;
+    lastReviewSyncedAt: string | null;
   }): Promise<boolean> {
     const stillOwned = await this.reviewSyncRepository.completeSyncRun(input.syncRunId, {
       status: input.status,
@@ -226,6 +294,13 @@ export class ReviewSyncDbService {
 
     if (input.status === SyncRunStatus.OK && input.markBackfillComplete) {
       await this.connectionsRepository.markBackfillCompleted(input.locationId);
+    }
+
+    if (input.status === SyncRunStatus.OK && input.lastReviewSyncedAt !== null) {
+      await this.connectionsRepository.advanceLastReviewSyncedAt(
+        input.locationId,
+        input.lastReviewSyncedAt
+      );
     }
 
     return true;

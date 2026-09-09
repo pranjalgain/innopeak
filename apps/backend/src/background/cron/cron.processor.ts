@@ -41,6 +41,9 @@ export class CronProcessor extends WorkerHost {
         case CronJobName.AUTH_TOKEN_CLEANUP:
           await this.cronService.purgeStaleAuthTokens();
           break;
+        case CronJobName.REVIEW_SYNC_POLL:
+          await this.cronService.pollDueLocations();
+          break;
         default:
           throw new Error(`Unknown job name: ${String(job.name)}`);
       }

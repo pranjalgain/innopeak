@@ -22,14 +22,27 @@ export interface ICronJob {
   };
 }
 
-export interface IReviewBackfillJob {
+/** Fields every review-sync job needs, whichever trigger produced it — the base
+ * `ReviewSyncQueueService.runPoll` and its shared helpers accept. */
+export interface IReviewSyncJob {
   tenantId: string;
   locationId: string;
-  /** The `sync_runs` row this job owns. Completion is a CAS against it, so it must be carried. */
-  syncRunId: string;
   connectionId: string;
   externalAccountId: string;
   externalLocationId: string;
+}
+
+/**
+ * A backfill job additionally carries the `sync_runs` row `ConnectionsDbService.confirmLocation`
+ * already acquired before publishing — acquired synchronously in the API request so the
+ * confirm-location response can return its id immediately. A poll job has no such need and omits
+ * it: `ReviewSyncQueueService.runPoll` acquires its own run when the job actually executes (via
+ * `ReviewSyncDbService.acquireSyncRun`), since nothing needs the id before then and a BullMQ job
+ * can sit queued for a while after `CronService.pollDueLocations` publishes it.
+ */
+export interface IReviewBackfillJob extends IReviewSyncJob {
+  /** The `sync_runs` row this job owns. Completion is a CAS against it, so it must be carried. */
+  syncRunId: string;
 }
 
 export interface IDLQFailedJobData {

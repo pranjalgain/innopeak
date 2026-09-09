@@ -148,4 +148,21 @@ describe('mapGbpReviewPage', () => {
     expect(all.filter(review => review.reply !== null)).toHaveLength(MOCK_REVIEWS_WITH_REPLIES);
     expect(all.find(review => review.externalReviewId === 'ptl-008')?.reply).toBeNull();
   });
+
+  /**
+   * Both fields are real — Google's own schema lists them alongside `reviewId`,
+   * `reviewReply`, etc. This product has no review-media feature and never links out to
+   * Google's own reply UI, so they must never reach `ProviderReview`, however the wire happens
+   * to send them.
+   */
+  it('discards reviewMediaItems and reviewReplyUrl rather than carrying them through', () => {
+    const mapped = mapGbpReview({
+      ...BASE,
+      reviewMediaItems: [{ mediaFormat: 'PHOTO', name: 'accounts/1/media/xyz' }],
+      reviewReplyUrl: 'https://business.google.com/reviews/reply/abc123',
+    });
+
+    expect(mapped).not.toHaveProperty('reviewMediaItems');
+    expect(mapped).not.toHaveProperty('reviewReplyUrl');
+  });
 });

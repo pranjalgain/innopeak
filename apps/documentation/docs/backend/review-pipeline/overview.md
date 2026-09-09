@@ -55,11 +55,11 @@ flowchart TB
     GATE -- yes --> LOCK{"Acquire sync_runs lock<br/>UNIQUE location_id WHERE status='running'"}
     LOCK -- taken --> SKIP
     LOCK -- acquired --> POLL[Poller job]
-    subgraph Ingestion["Ingestion"]
-        POLL -->|list reviews| GBP[("Google Business Profile API")]
+    subgraph Ingestion["Ingestion — implemented"]
+        POLL -->|list reviews, newest updateTime first| GBP[("Google Business Profile API")]
         POLL --> SR[("sync_runs<br/>trigger='scheduled'")]
-        POLL --> RV[("reviews<br/>upsert on location_id, external_review_id")]
-        POLL --> LOC[("locations.last_synced_at<br/>last_sync_status / last_sync_error")]
+        POLL --> RV[("reviews<br/>upsert on location_id, external_review_id<br/>status='new', or 'responded' if it<br/>already carries the owner's reply")]
+        POLL --> LOC[("locations.last_synced_at, last_sync_status,<br/>last_sync_error, last_review_synced_at (cursor)")]
     end
     subgraph Classification["Classification — PLAN §3 — implemented"]
         RV --> CLAIM{"CAS: classification<br/>'pending_classification' → written<br/>(status untouched — see note below)"}
@@ -87,29 +87,56 @@ flowchart TB
 Each stage below states its trigger, inputs, exact writes, failure modes, and the concurrency
 guards it needs.
 
-### Ingestion — the 15-minute poller
+### Ingestion — the 15-minute poller — implemented
 
-**Trigger.** A cron tick every 15 minutes fans out one queued job per eligible location. Eligible
-means `locations.status = 'active'` (`location_status`) **and**
-`locations.onboarding_backfill_completed_at IS NOT NULL` — the second condition is §8.2's gate, not
-an optimization. The cron tick itself must not do any fetching; it enqueues and returns, so a slow
-GBP account cannot delay other tenants' polls.
+Ingestion — the poll half of it — is now **built**, alongside backfill and classification. This
+subsection describes the actual code; the two per-review checks it doesn't yet implement (§8.6,
+§8.12) are called out explicitly rather than left implicit, same treatment as
+[Classification](#classification--implemented) gives its own deviations.
 
-**Inputs.** The `locations` row, its `review_provider_connections` parent (for
-`credential_reference`, `token_expires_at` and `status`), and the location's high-water mark for
-"what have we already seen." That last input has no dedicated column: the pipeline derives it from
-`MAX(reviews.external_updated_at)` for the location, or refetches a bounded recent window and
-relies on the upsert to absorb the overlap. Either is acceptable; what is not acceptable is
-treating `locations.last_synced_at` as a cursor — it records when a poll *ran*, not how far it got,
-and it is written even on failure.
+**Where it lives**, beyond what backfill already established in
+`src/background/queue/review-sync/`:
+
+| File | Role |
+|---|---|
+| `src/background/cron/cron.scheduler.ts` | `scheduleReviewSyncPoll`, `@Cron('0 */15 * * * *')` — a raw expression, not a `CronExpression` member; that enum has no 15-minute constant. Enqueue-only, per this codebase's own rule for `@Cron` methods. |
+| `src/background/cron/cron.service.ts` | `CronService.pollDueLocations` — the actual fan-out. Queries eligible locations and publishes one `review-poll` job per location. Does no fetching itself. |
+| `src/db/repositories/connections/connections.repository.ts` | `findLocationsDueForPoll` — the eligibility query (below), and `advanceLastReviewSyncedAt` — the cursor write, monotonic by construction. |
+| `src/background/queue/review-sync/review-sync-queue.service.ts` | `runPoll`, the poll counterpart to `runBackfill`, plus `importNewPages`, the cursor-bounded pagination it uses instead of `importAllPages`. |
+| `src/db/repositories/review-sync/review-sync.db-service.ts` | `importPollPage` (poll's counterpart to `importPage` — see Writes below) and `acquireSyncRun`, wrapping `ReviewSyncRepository.acquireSyncRun` to turn "another run is already active" into `null` instead of a thrown error. |
+
+**Trigger, as actually wired.** `pollDueLocations`'s eligibility query is `locations.status =
+'active'` **and** `locations.onboarding_backfill_completed_at IS NOT NULL` — §8.2's gate, exactly
+as specified — **and**, beyond what §8.2 itself asks for,
+`review_provider_connections.status = 'active'`. That third condition isn't in the doc's original
+text; without it a `needs_reauth` connection gets re-polled into a fresh 401 every 15 minutes until
+someone notices `last_sync_error` in the UI, which is worse than simply not enqueueing it. The
+`@Cron` tick itself does no fetching — it calls `pollDueLocations`, which enumerates and publishes
+one `JobName.REVIEW_POLL` job per eligible location, so a slow GBP account cannot delay other
+tenants' polls.
+
+**Inputs.** The location's high-water mark for "what have we already seen" **does** have a
+dedicated column: `locations.last_review_synced_at`, added specifically for this. `runPoll` reads
+it itself, right before paginating, rather than trusting a value baked into the job payload at
+enqueue time — a BullMQ job can sit queued for a while, and `pollDueLocations` fans jobs out
+without knowing when each will actually run. `locations.last_synced_at` (no `review_` in the name)
+remains what it always was — a "when did a poll last run" timestamp, written on both success and
+failure — and is never read as a cursor, exactly as this document originally warned against.
+
+`last_review_synced_at` is seeded by backfill, not left `NULL` for a location's first poll:
+`runBackfill`'s own `completeRun` call writes it too (the max `external_updated_at` seen across
+the whole backfill), so the very first poll only fetches what's newer than backfill's own cutoff
+instead of re-walking history backfill already imported. A `NULL` cursor (a location backfilled
+before this column existed) falls back to the poll's own page cap alone — `MAX_POLL_PAGES`, not
+backfill's `MAX_PAGES`; see the truncation entry under Failure modes for why the two differ.
 
 **Writes.**
 
 | Table | Columns written | Notes |
 |---|---|---|
 | `sync_runs` | `tenant_id`, `location_id`, `"trigger" = 'scheduled'`, `started_at`, `status = 'running'` at claim; then `status`, `completed_at`, `reviews_fetched`, `error_message` at the end | `"trigger"` is a quoted identifier in `0004_reviews.sql` — it is a reserved word. `sync_trigger` is `scheduled` \| `backfill`; `sync_run_status` is `running` \| `ok` \| `error`. `status` is `NOT NULL` with **no default**, so the insert must set `'running'` explicitly. |
-| `reviews` | `tenant_id`, `location_id`, `external_review_id`, `external_reviewer_id`, `rating`, `review_text`, `reviewer_name`, `reviewed_at`, `external_updated_at` | Upserted, never blind-inserted. `classification` and `status` are left to their defaults (`pending_classification`, `new`) on insert and **not** touched on update. |
-| `locations` | `last_synced_at`, `last_sync_status` (`sync_health_status`: `ok` \| `error`), `last_sync_error` | Written on both success and failure; `last_sync_error` must be nulled on success or a stale message lingers in the UI forever. |
+| `reviews` | `tenant_id`, `location_id`, `external_review_id`, `external_reviewer_id`, `rating`, `review_text`, `reviewer_name`, `reviewed_at`, `external_updated_at`, `status` | Upserted via `ReviewSyncDbService.importPollPage`, backfill's `importPage` sibling — same upsert target, but a **two**-way status rule instead of `resolveBackfillStatus`'s three-way one: `responded` when the review arrives already carrying the owner's reply, else `new` **regardless of age**. The dropped branch is backfill's age-based `dismissed` write-off, which exists to stop years of history flooding a new owner; a first-sighted polled review is live backlog however old it is. Reply presence still counts, though — see the note under Failure modes. `classification` is left to its default (`pending_classification`) on insert; neither column is touched on conflict. |
+| `locations` | `last_synced_at`, `last_sync_status` (`sync_health_status`: `ok` \| `error`), `last_sync_error`, `last_review_synced_at` | The first three written on both success and failure, same as backfill; `last_review_synced_at` only on success, and only forward — `advanceLastReviewSyncedAt`'s `WHERE last_review_synced_at IS NULL OR < cursor` guard means a run can never regress the location's cursor. |
 
 The upsert is idempotent because of `idx_reviews_location_id_external_review_id` — a **unique**
 index on `(location_id, external_review_id)` in `0004_reviews.sql`. That is the conflict target:
@@ -124,77 +151,150 @@ reject it anyway, so raise the mapping error where it can be logged usefully.
 
 **Failure modes.**
 
-- **401/403 from GBP** — the token was revoked or expired. §8.14 prescribes the handling: set
-  `review_provider_connections.status = 'needs_reauth'` (`google_connection_status`), close the
-  `sync_runs` row as `status = 'error'` with a real `error_message`, populate
-  `locations.last_sync_status = 'error'` / `last_sync_error`, and **stop** — no retry within the run.
-- **429 / quota exhaustion** — retry with backoff *within* the run, bounded, then close the run as
-  `error`. Distinguish it from an auth failure in `error_message`; a rate limit must never flip the
-  connection to `needs_reauth`.
-- **Partial page failure** — reviews already upserted stay upserted. `reviews_fetched` records how
-  many were actually written, not how many were expected, so a partial run is visibly partial.
-- **Process crash mid-run** — the `sync_runs` row stays `'running'` forever. §8.1 handles this in
-  the lock-acquisition query rather than with a reaper cron; the cosmetic cleanup rides along on the
-  nightly retention job (see [Retention and erasure jobs](#retention-and-erasure-jobs)).
-- **Review disappeared upstream** — a reviewer can delete their review;
-  `reviews.removed_upstream_at` exists to mark it rather than leaving a stale row with no signal.
-  Detecting the absence means diffing a full listing against known rows, which an incremental poll
-  does not do — so honestly it is a full-sync-only signal until a reconciliation pass is added.
+- **401/403 from GBP** — the token was revoked or expired. Handled exactly as §8.14 prescribes, and
+  shared with backfill rather than reimplemented: `ReviewSyncQueueService.handleSyncFailure` sets
+  `review_provider_connections.status = 'needs_reauth'` on a `ProviderAuthError`, and both
+  `runBackfill`/`runPoll`'s catch blocks close the `sync_runs` row as `status = 'error'` with a real
+  `error_message`. `locations.last_sync_status`/`last_sync_error` are populated via
+  `ReviewSyncDbService.completeRun`'s call to `updateSyncSnapshot`, on both success and failure —
+  and nulled on success, so a stale message doesn't linger.
+- **429 / quota exhaustion** — `listReviewsWithBackoff`, also shared with backfill: retries with
+  Google's `Retry-After` (or a default, capped) within the run, bounded by `RATE_LIMIT_MAX_RETRIES`,
+  then lets the error propagate to close the run as `error`. Never flips the connection to
+  `needs_reauth` — only a `ProviderAuthError` does that.
+- **Partial page failure** — reviews already upserted stay upserted, same idempotent-upsert
+  guarantee as backfill. `reviewsFetched` (and, on success, `last_review_synced_at`) reflect only
+  what a run actually committed, not what it intended to fetch — a partial run is visibly partial,
+  and the next poll picks up from the real cursor rather than a promised one.
+- **Process crash mid-run** — genuinely handled, not just tolerated (see Guards below): a stale
+  `running` row is reclaimed by the *next* acquisition attempt for that location, in the same
+  transaction as the new row's insert. The nightly cosmetic sweep (flip a stale `running` row's own
+  `status` for anyone looking directly at `sync_runs`, rather than only affecting future
+  acquisitions) still rides on the nightly GDPR retention job, which doesn't exist yet — see
+  [Retention and erasure jobs](#retention-and-erasure-jobs). That gap is cosmetic now, not
+  functional: nothing depends on it to keep polling correct.
+- **A backlog bigger than one poll can drain** — hitting the poll's page cap *before* reaching the
+  cursor **fails the run** and leaves `last_review_synced_at` untouched. Polls have their own cap,
+  `MAX_POLL_PAGES` (200 pages × 50 = 10,000 reviews), an order of magnitude above backfill's
+  `MAX_PAGES` (20), because the two bound different things: backfill's cap sizes a *deliberate
+  sample* of history ([Historical backfill](#historical-backfill)), while a poll must cover
+  everything newer than its cursor or leave a gap it can never return to. At 10,000 reviews between two 15-minute ticks —
+  where a steady-state poll needs one page — reaching this cap is not a large business, it is an
+  anomaly (a cursor corrupted to 1970, say), which is why it fails loudly rather than being
+  absorbed.
+
+  It is not treated as "the next cycle will get the rest," because it would not: Google orders
+  `updateTime desc`, so a capped run has imported the *newest* slice and its max
+  `external_updated_at` is the global newest — advancing the cursor there steps permanently over
+  everything the cap cut off, since no later poll looks below its own cursor. Leaving the cursor
+  alone doesn't drain it either: the next run re-walks the identical newest slice and truncates at
+  the identical point. Given the single high-water cursor this design keeps, the only consistent
+  outcome is to keep what was fetched, refuse to move the cursor, and surface the run as an error.
+
+  Draining such a backlog *is* possible, just not with that state: it would take a second,
+  low-water cursor — page forward from the oldest un-imported review across successive runs instead
+  of backwards from the newest. That is deliberately not built. With `MAX_POLL_PAGES` sized as
+  above, truncation means something pathological, and the right response is a person reading the
+  failed run, not recovery machinery that would never otherwise execute. If truncation is ever
+  observed in production, the low-water cursor is the fix. (Under the old shared 20-page cap the
+  realistic trigger was mundane — a connection sitting `needs_reauth` for weeks, excluded from
+  polling, then reconnecting with thousands of newer reviews. Raising the cap is what moved that
+  case back inside a single poll. An earlier revision advanced the cursor here and silently lost
+  the remainder forever.)
+
+  **Only when a cursor already existed, though.** Truncation with `last_review_synced_at IS NULL`
+  is *not* a failure and does not hold the cursor back: with no prior watermark there is no gap to
+  skip below, so the run adopts the newest timestamp it saw as the starting watermark and completes
+  `ok`. Everything older than that is backfill's territory, not the poller's. Conflating the two
+  cases is its own permanent-failure bug — a location that is poll-eligible (backfill completed)
+  but never got a cursor seeded, which happens when a backfill succeeds having fetched zero reviews
+  or predates the column existing, would otherwise fail *every* poll forever: the cursor stays
+  `NULL`, so the next run truncates identically, so the cursor stays `NULL`.
+- **A first-sighted review that already carries the owner's reply** — handled, and worth naming
+  because an earlier revision of this poller got it wrong. `importPollPage` writes `responded`, not
+  `new`, when the incoming payload already has a `reviewReply`. This is *not* §8.12 (which is about
+  a reply appearing on a review we already knew about, and is still unbuilt): this is a review the
+  poller is seeing for the very first time that was already answered — the owner replied on Google
+  inside one poll interval, or the poller was behind. Writing `new` there produced rows holding
+  `status = 'new'` *and* a `posted` imported reply simultaneously, which then classified and — once
+  generation exists — would have drafted an AI reply for a review the owner had personally already
+  answered, the exact overwrite §8.12 calls the worst outcome in this system. Found by polling
+  against real data, not by reading the code.
+- **Review disappeared upstream** — still unbuilt. A reviewer can delete their review;
+  `reviews.removed_upstream_at` exists to mark it, but nothing writes it. Detecting the absence
+  means diffing a full listing against known rows, which this incremental poll does not do — so
+  honestly it would need a full-sync-only reconciliation pass, not something `importNewPages`'s
+  cursor-based approach can produce as a side effect.
 - **`reviewed_at` absent from the payload** — the column is nullable so ingestion survives, but §6
   wants this alerted on as a data-quality signal, because the retention job then falls back to
-  `created_at`.
+  `created_at`. No alerting exists for this yet, on either ingestion path.
 
-**Guards.** Overlapping runs: §8.1 — the partial unique index
-`idx_sync_runs_location_id_running` (`UNIQUE (location_id) WHERE status = 'running'`) is already in
-`0004_reviews.sql`, paired with the 30-minute staleness predicate §8.1 specifies so a crashed run
-cannot wedge the location.
+**Guards.** Overlapping runs — §8.1 — are genuinely closed, not just tolerated. The partial unique
+index `idx_sync_runs_location_id_running` (`UNIQUE (location_id) WHERE status = 'running'`) blocks a
+second concurrent run outright, and `ReviewSyncRepository.acquireSyncRun` reclaims a stale one
+*before* attempting the insert, in one transaction:
 
-> **§8.1's staleness tolerance does not work as written, and this is the one guard the whole
-> pipeline hangs off.** §8.1 deliberately avoids a reaper cron by folding staleness into the
-> lock-acquisition *query* — *"'is there already a run for this location?' becomes 'is there a
-> RECENT one?'"*. But that is a **read** predicate, and acquisition still has to `INSERT` a second
-> `status = 'running'` row for the same `location_id`, which the partial unique index rejects no
-> matter how old the existing row is. So a crashed poller wedges its location permanently:
-> `onboarding_backfill_completed_at` never gets set, and per §8.2 that gates the tenant's entire
-> live pipeline — they never ingest another review. The nightly sweep below is the only recovery
-> path, and it is unbuilt.
->
-> **Acquisition must reclaim, not just tolerate** — one transaction:
->
-> ```sql
-> UPDATE sync_runs SET status = 'error', completed_at = now(),
->        error_message = 'reclaimed: no progress for 30 minutes'
->  WHERE location_id = $1 AND status = 'running' AND started_at < now() - interval '30 minutes';
-> INSERT INTO sync_runs (tenant_id, location_id, trigger, status, started_at) VALUES (...);
-> ```
->
-> This is a defect in `PLAN.md` §8.1 itself, not just in this document — the migration comment at
-> `0004_reviews.sql:67-69` ("Pair with an application-level staleness check") inherits the same
-> assumption. A review edited upstream mid-flight: §8.6, detected by
-`external_updated_at` changing on upsert. Connection or location changing state mid-poll: §8.14 and
-§8.15 — and per §8.15 the product must never `DELETE` a `locations` row as part of "disconnect", so
-the poller may assume its location row survives the run.
+```sql
+UPDATE sync_runs SET status = 'error', completed_at = now(), updated_at = now(),
+       error_message = 'reclaimed: no progress for 30 minutes'
+ WHERE location_id = $1 AND status = 'running'
+   AND GREATEST(started_at, updated_at) < now() - interval '30 minutes';
 
-Two additional per-review checks belong in this stage, not in classification, because they depend
-on the raw API payload:
+INSERT INTO sync_runs (tenant_id, location_id, trigger, status, started_at) VALUES (...);
+-- still rejected by a genuinely live run — that's the point.
+```
 
-- **An externally authored reply appeared** — §8.12's poll-side fix. If the incoming review carries
-  a `reviewReply` and no `review_responses` row for that review is at `status = 'posted'`, someone
-  replied directly on Google. Supersede every non-terminal response for that review (`draft`,
-  `pending_approval`, `approved`) and insert the discovered reply as `source = 'imported'`,
-  `status = 'posted'`, `content = reviewReply.comment`, `posted_at = reviewReply.updateTime`, then
-  set `reviews.status = 'responded'`. This is keyed on "does a `posted` row exist", not on
-  `external_updated_at`, because a reply does not reliably bump the review's own `updateTime`.
-- **`external_updated_at` changed** — §8.6. Supersede any non-terminal response and re-trigger
-  classification.
+`GREATEST(started_at, updated_at)`, not `started_at` alone — the job writes `reviews_fetched` (and
+`updated_at`) after every page, so `updated_at` is a genuine heartbeat; keying off `started_at` only
+would reclaim a legitimately long-running import out from under itself. `ReviewSyncDbService
+.acquireSyncRun` wraps this for the poll path specifically: it catches the 23505 a genuinely live
+run still raises and returns `null` instead of letting it propagate, so `runPoll` treats "another
+poll is already active" as a clean no-op — logged, not thrown, not retried, not sent to the DLQ.
+`runBackfill` doesn't need the same wrapping: its acquisition happens synchronously inside the API
+request (`ConnectionsDbService.confirmLocation`), before the job is even published, and that
+call site already has its own exception handling for the same race.
 
-> **Required follow-up migration / design decision.** §8.12's live import writes
-> `source = 'imported'`, but `idx_review_responses_review_id_imported`
-> (`UNIQUE (review_id) WHERE source = 'imported'`) was added for §7's backfill idempotency and
-> allows exactly **one** imported row per review. If an owner edits their own manual Google reply
-> after we have imported it, the second import violates that index. Either update the existing
-> imported row in place, or narrow the index. Updating in place is smaller and is what this document
-> assumes — it has to be stated in code, because the schema does not express it.
+Both entrypoints acquire *before* doing any work and complete with a CAS
+(`WHERE id = ? AND status = 'running'`) — zero rows affected means this run was reclaimed as stale
+mid-flight, so its result (including any cursor advance) is discarded rather than resurrecting a
+run that has already been superseded.
+
+Two more guards apply as documented, unchanged from backfill: connection or location changing
+state mid-poll is §8.14 (handled, above) and §8.15 — and per §8.15 the product must never `DELETE`
+a `locations` row as part of "disconnect", so the poller may assume its location row survives the
+run.
+
+**Not implemented: the two per-review checks §8.6 and §8.12 call for.** Both would belong in this
+stage, not in classification, because they depend on the raw API payload — but both require
+superseding `review_responses` rows, which is generation's responsibility, and generation doesn't
+exist in this codebase yet. Confirmed out of scope for this poller rather than an oversight:
+
+- **An externally authored reply appeared (§8.12).** If the incoming review carries a `reviewReply`
+  and no `review_responses` row for that review is at `status = 'posted'`, someone replied directly
+  on Google. The fix supersedes every non-terminal response for that review and imports the
+  discovered reply — neither of which this poller does today.
+
+  **And it will need more than the supersede logic to become possible.** §8.12 itself notes that a
+  manual reply does not reliably bump the review's own `updateTime`; `importNewPages` only ever
+  *reaches* reviews whose `external_updated_at` is newer than the cursor. So a review imported as
+  `new` at 10:00 and answered on Google at 11:00 has an unchanged `updateTime`, every later poll
+  breaks before reaching it, and no amount of per-review logic inside `importNewPages` would ever
+  see it. Implementing §8.12's poll-side half therefore needs a *second* traversal that the cursor
+  does not drive — a re-scan of the location's non-terminal reviews (fetched individually, or via
+  a full listing on a slower cadence) — not just the `review_responses` writes generation will
+  bring. Worth recording before someone plans that work assuming the cursor is enough. §8.12's
+  *other* half, the pre-post freshness check, is unaffected: it fetches one review deliberately.
+
+  The **first-sighting** case is handled, and is a different thing: see the reply-presence note
+  under Failure modes above.
+- **`external_updated_at` changed (§8.6).** The fix supersedes any non-terminal response and
+  re-triggers classification. Also not built. Note that `upsertReview`'s `ON CONFLICT` *does*
+  refresh `external_updated_at` (and `rating`/`review_text`) on an existing review — so the data is
+  there to detect this from, the reaction to it just isn't wired up.
+
+Both are real, scoped follow-up work for whichever branch builds generation — not merely "would be
+nice," since without them a reviewer's edit or an owner's manual Google reply is silently invisible
+to everything downstream of ingestion.
 
 ### Classification — implemented
 
@@ -214,8 +314,13 @@ departure is called out rather than left implicit.
 | `src/db/repositories/review-pipeline/review-pipeline.db-service.ts` | `ReviewPipelineDbService` — composes `ReviewSyncRepository` (the `reviews` table), `BlocklistTermsRepository`, and `TenantSettingsRepository`. Registered in the already-global `DBModule`. |
 | `src/db/repositories/review-sync/review-sync.repository.ts` | Gained two methods for this module: `findPendingClassification` (the queue read) and `claimClassification` (the CAS write). No new repository was created — `reviews` already had a single owner. |
 
-**Trigger, as actually wired.** Called from `ReviewSyncQueueService.runBackfill`, once per
-location, immediately after `importAllPages` finishes and before `completeRun`.
+**Trigger, as actually wired.** Called from both `ReviewSyncQueueService.runBackfill` (once per
+location, immediately after `importAllPages` finishes and before `completeRun`) and `runPoll` (the
+same shape, after `importNewPages`) — see
+[Ingestion](#ingestion--the-15-minute-poller--implemented). `classifyPendingReviews` itself needed
+no changes to serve both: its eligibility filter
+(`classification = 'pending_classification' AND status = 'new'`) is exactly what a poll-origin row
+already satisfies, the same as a backfill-origin one.
 
 **A classification failure fails the run.** `classifyImportedReviews` catches the error rather than
 rethrowing — the imported rows are already committed and there is no reason to discard them — but
@@ -229,9 +334,11 @@ onboarding UI reading "all set", and 500 rows sitting at `pending_classification
 line as the only trace. Recovery is re-triggering backfill for the location (confirm-location
 accepts the same location and acquires a fresh run); there is no automatic retry.
 
-**The 15-minute poller this section originally described does not exist yet** (see
-[Ingestion](#ingestion----the-15-minute-poller) below, still unbuilt), so today classification runs
-exactly once per location: right after its one-time backfill.
+**The 15-minute poller is now built too** (see
+[Ingestion](#ingestion--the-15-minute-poller--implemented) below) — classification is no longer a
+one-shot-per-location thing. It runs after every backfill *and* after every poll, so a review the
+poller brings in is classified within the same run that ingested it, not left pending until the
+next backfill (there is no next backfill).
 
 **Inputs**, read once per `classifyPendingReviews` call via
 `ReviewPipelineDbService.loadClassificationContext(tenantId)`: every `blocklist_terms.term` for the
@@ -308,17 +415,23 @@ generation module to claim with its own `status = 'new' → 'in_review'` CAS, ex
 describes, once that module exists.
 
 **Batching.** `findPendingReviews` (→ `ReviewSyncRepository.findPendingClassification`) reads up to
-1000 eligible reviews per call, scoped to one `(tenantId, locationId)`, oldest `reviewed_at` first
-so that hitting the cap truncates predictably rather than arbitrarily. A single backfill is already
-bounded by `review-sync-queue.service.ts`'s own `MAX_PAGES`, so 1000 is headroom rather than an
-expected ceiling; if it's ever hit, `ReviewClassificationService` logs a warning and the remainder
-stays `pending_classification`. Note what "a future call" means today: with no poller, the only
-re-entry is another backfill run for that location, so a truncated batch or a thrown
-`loadClassificationContext` leaves the remainder unclassified until someone re-triggers backfill.
-That is acceptable at current volumes but is the strongest argument for the poller landing next. Per §8.11, classification is
-**not retroactive**: nothing here re-reads or re-classifies a review whose `classification` has
-already moved off `pending_classification`, so a later blocklist or threshold change never touches
-existing rows.
+`BATCH_LIMIT` (2000) eligible reviews per call, scoped to one `(tenantId, locationId)`, oldest
+`reviewed_at` first so that hitting the cap truncates predictably rather than arbitrarily. Sized
+with headroom above one backfill's own ceiling
+(`MAX_PAGES` × `GBP_REVIEWS_PAGE_SIZE` = 20 × 50 = 1000 in `review-sync-queue.service.ts`), not
+sitting exactly on it — an earlier revision set this to 1000, exactly the ceiling, which meant a
+maxed-out import always tripped the truncation warning even when nothing was truncated. It does
+*not* have headroom above a poll's much larger ceiling (`MAX_POLL_PAGES` = 10,000 reviews), and
+deliberately so: a poll that imports more than 2000 reviews in one tick is already the pathological
+case that fails the run, and the overflow behaviour below is exactly what should happen to it. If the cap
+is ever genuinely hit, `ReviewClassificationService` logs a warning and the remainder stays
+`pending_classification` for a later call to pick up. Before the poller existed, "a later call"
+meant someone manually re-triggering backfill; now it's simply the location's next 15-minute poll,
+since `runPoll` calls `classifyImportedReviews` too — a truncated batch or a thrown
+`loadClassificationContext` no longer strands reviews indefinitely, just until the next cycle. Per
+§8.11, classification is **not retroactive**: nothing here re-reads or re-classifies a review whose
+`classification` has already moved off `pending_classification`, so a later blocklist or threshold
+change never touches existing rows.
 
 **Testing.** `review-classification.rule.spec.ts` unit-tests the pure rule directly (blocklist
 precedence, case-insensitivity, substring matching, the exact rating boundary, null-text and
@@ -652,13 +765,14 @@ former-user record. `ON DELETE SET NULL` becomes a rare defensive fallback for a
 more drastic admin action — not the erasure path.
 
 **Sweeping stale sync runs.** §8.1 hands this job one extra chore: flip `sync_runs` rows stuck at
-`status = 'running'` past 30 minutes to `'error'`. This is **not** cosmetic, contrary to how §8.1
-frames it: until acquisition reclaims stale rows itself (see the Ingestion guard note above), this
-sweep is the *only* thing that can unwedge a location whose poller crashed — and while it is
-wedged, §8.2 blocks that tenant's entire pipeline. Build the reclaiming acquisition query and this
-sweep becomes the belt-and-braces it was meant to be; ship without either and a single crashed
-worker silently ends a tenant's ingestion. Set `completed_at` and a synthetic `error_message` while doing it, or the
-row stays ambiguous.
+`status = 'running'` past 30 minutes to `'error'`. This genuinely is cosmetic now, unlike when this
+document first described it — `ReviewSyncRepository.acquireSyncRun` already reclaims a stale row
+itself, in the same transaction as the next acquisition attempt (see the Ingestion guard section
+above), so a location is never actually wedged by a crashed run; the *next* poll or backfill
+attempt for it unwedges it on its own. What this still-unbuilt sweep would add is purely cosmetic:
+without it, a `sync_runs` row from a crash sits reading `'running'` forever to anyone looking
+directly at the table, even though nothing is actually blocked on it. Set `completed_at` and a
+synthetic `error_message` while doing it, or the row stays ambiguous about *why* it stopped.
 
 > **Required follow-up migration.** §6.2 says to null `users.name` / `email` / `password_hash`, but
 > in `0002_tenant_auth.sql` **`name` and `email` are both `NOT NULL`** — only `password_hash` is
@@ -689,22 +803,29 @@ imports `QueueTransportModule` plus one module per queue (`EmailQueueModule`,
 pipeline job belongs on this process, not the API one; `pnpm start:dev` runs both concurrently.
 
 **Cron.** `CronModule` imports `ScheduleModule.forRoot()`, and `CronScheduler` carries the `@Cron`
-decorators. The existing example is one method decorated
+decorators. The daily-mail example is one method decorated
 `@Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)` whose entire body is a call to
-`CronQueue.addDailyMailJob()`. That shape is the one to copy: **a cron method enqueues, it does not
-work.** The pipeline needs two cron entries:
+`CronQueue.addDailyMailJob()` — enqueue, don't work. The 15-minute poll follows the identical
+shape, and is **built**: `CronScheduler.scheduleReviewSyncPoll`, decorated
+`@Cron('0 */15 * * * *')` (a raw expression — there is no 15-minute `CronExpression` constant),
+whose entire body is `cronQueue.addReviewSyncPollJob()`.
 
 | Schedule | Enqueues |
 |---|---|
-| `'*/15 * * * *'` (a raw expression — there is no 15-minute `CronExpression` constant) | One `review-sync` job per eligible location: `locations.status = 'active'` AND `onboarding_backfill_completed_at IS NOT NULL` (§8.2) |
-| `CronExpression.EVERY_DAY_AT_MIDNIGHT` | The nightly retention purge, its `audit_logs` redaction step, and §8.1's stale-`sync_runs` sweep |
+| `'0 */15 * * * *'` (**built**) | One `CronJobName.REVIEW_SYNC_POLL` job |
+| `CronExpression.EVERY_DAY_AT_MIDNIGHT` | The nightly retention purge, its `audit_logs` redaction step, and §8.1's stale-`sync_runs` sweep — still unbuilt |
 
 Note carefully: `CronQueue` publishes to `QueueName.CRON` and `CronProcessor` dispatches on
 `CronJobName` with a `switch (job.name)`. So "cron" here is itself a queue — the `@Cron` tick is a
 producer, and the actual handler runs as a queued job with retries, DLQ routing, and Bull Board
-visibility like any other. The 15-minute tick should fan out to a *dedicated* pipeline queue rather
-than to `QueueName.CRON`, so a slow poll cannot starve the daily-mail job sharing that queue's
-concurrency limit of 3.
+visibility like any other. `REVIEW_SYNC_POLL`'s handler is `CronService.pollDueLocations` — it runs
+*on* `QueueName.CRON`, but does not itself do the slow, quota-consuming work a naive reading of
+"the 15-minute tick should fan out to a dedicated queue" might expect: it only reads
+`findLocationsDueForPoll` and calls `ReviewSyncQueue.addPollJob` once per location, publishing each
+location's actual poll onto the already-dedicated `review-sync` queue. The one thing on
+`QueueName.CRON` per tick is a fast enumerate-and-publish, not a slow per-location fetch, so it
+does not starve the daily-mail job sharing that queue's concurrency limit of 3 — a separate queue
+for the fan-out step itself was not needed to satisfy the original concern.
 
 **Queued jobs.** Each pipeline stage is its own queue, because their concurrency and retry profiles
 genuinely differ — polling is I/O-bound and rate-limited per connection, generation is expensive and
@@ -762,33 +883,33 @@ deployment must pin exactly one worker replica and say so.
 
 ## Gap between current code and target design
 
-**Historical backfill, ingestion's upsert path, and classification are built; generation,
-notification, and posting are not.** `src/background/queue/review-sync/` implements the one-time
-backfill (`ReviewSyncQueueService.runBackfill`, `ReviewSyncDbService.importPage`) against a real
-Google Business Profile client under `src/review-provider/`, and `src/review-pipeline/` implements
-classification exactly as described in [Classification — implemented](#classification--implemented)
-above, called from that same backfill job. **The 15-minute scheduled poller does not exist** — the
-Ingestion section below (and the diagram's `POLL`/`GATE`/`LOCK` nodes) describes that unbuilt
-recurring path, and its detailed critique notes (§8.1's reclaim query, §8.6, §8.12, etc.) have not
-been re-verified against the backfill code that does exist today; treat that section as target
-design still, not a description of `runBackfill`. Generation, the notification stage, and posting
-back to Google remain entirely unbuilt, same as before. The schema, by contrast, is done: every
-table this document writes exists in the migrations, with the specific partial unique indexes §8
-asks for already applied.
+**Historical backfill, both halves of ingestion, and classification are built; generation,
+notification, and posting are not.** `src/background/queue/review-sync/` implements both the
+one-time backfill (`ReviewSyncQueueService.runBackfill`, `ReviewSyncDbService.importPage`) and the
+15-minute scheduled poll (`runPoll`, `importPollPage`, fanned out by `CronService.pollDueLocations`
+on `CronScheduler.scheduleReviewSyncPoll`'s tick) against a real Google Business Profile client
+under `src/review-provider/`. `src/review-pipeline/` implements classification exactly as described
+in [Classification — implemented](#classification--implemented) above, called from both. The
+Ingestion section's §8.1 reclaim description, §8.14 handling, and CAS/completion mechanics are now
+verified against real code, not target design — the two per-review checks it still doesn't do
+(§8.6, §8.12) are called out explicitly in that section rather than left implicit. Generation, the
+notification stage, and posting back to Google remain entirely unbuilt, same as before. The schema,
+by contrast, is done: every table this document writes exists in the migrations, with the specific
+partial unique indexes §8 asks for already applied.
 
 **To build, in the background layer:**
 
-- **Two cron entries** on a `CronScheduler`-shaped class: the `'*/15 * * * *'` fan-out and the
-  nightly retention/erasure/sweep job. Both enqueue; neither works inline.
-- **`review-sync` exists** as a real queue (backfill today; the scheduled poller would reuse it).
-  Classification does **not** have its own queue — `ReviewClassificationService` is called
-  in-process from `review-sync`'s own job handler, since a per-review job would need the same
-  `pending_classification` CAS guard either way and backfill's review counts don't yet justify the
-  extra queue hop. **Two new queues remain** — `review-generate`, `review-post` — each needing a
-  `QueueName` enum value, a `*.queue.ts` producer, a BullMQ `*.processor.ts`, an `*-sqs.consumer.ts`,
-  a `*-queue.module.ts` with the `isAws` ternary, an `env.config.ts` entry for its `*_QUEUE_URL`, and
-  a Terraform entry. Reuse the existing `notification` and `email` queues for escalation delivery
-  rather than adding a third.
+- ~~Two cron entries~~ — **both built.** `CronScheduler.scheduleReviewSyncPoll` (the 15-minute
+  fan-out) exists; the nightly retention/erasure/sweep job (daily) does not.
+- **`review-sync` exists** as a real queue, carrying both backfill and poll. Classification does
+  **not** have its own queue — `ReviewClassificationService` is called in-process from
+  `review-sync`'s own job handler (both `runBackfill` and `runPoll`), since a per-review job would
+  need the same `pending_classification` CAS guard either way and review counts at this scale don't
+  yet justify the extra queue hop. **Two new queues remain** — `review-generate`, `review-post` —
+  each needing a `QueueName` enum value, a `*.queue.ts` producer, a BullMQ `*.processor.ts`, an
+  `*-sqs.consumer.ts`, a `*-queue.module.ts` with the `isAws` ternary, an `env.config.ts` entry for
+  its `*_QUEUE_URL`, and a Terraform entry. Reuse the existing `notification` and `email` queues for
+  escalation delivery rather than adding a third.
 - **A Teams outbound adapter.** `notification_channel` includes `teams` and
   `notification_channel_pref` includes `both`; nothing in `src/notifications/` (FCM push, in-app)
   speaks Teams. This is a new provider under the existing Provider/Strategy pattern.

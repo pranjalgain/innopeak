@@ -84,6 +84,12 @@ CREATE TABLE IF NOT EXISTS locations (
     last_sync_status sync_health_status,
     last_sync_error TEXT,
     onboarding_backfill_completed_at TIMESTAMPTZ,
+    -- The poller's high-water mark: the max `reviews.external_updated_at` seen for this location
+    -- across every successful import (backfill or scheduled poll). Google's reviews.list has no
+    -- server-side date filter and always orders `updateTime desc`, so this is what lets a poll
+    -- stop paging as soon as it reaches an already-seen review instead of re-walking full history
+    -- every 15 minutes. Seeded by backfill's own completion, not left NULL for the first poll.
+    last_review_synced_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

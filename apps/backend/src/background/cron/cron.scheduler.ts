@@ -24,4 +24,17 @@ export class CronScheduler implements OnModuleInit {
     this.logger.debug('Scheduling auth token cleanup job');
     await this.cronQueue.addAuthTokenCleanupJob();
   }
+
+  /**
+   * PLAN.md §4.1's 15-minute poll. A raw expression, not a `CronExpression` member — this
+   * library's enum has no 15-minute constant (confirmed against the installed
+   * `@nestjs/schedule` package; the closest are `EVERY_10_MINUTES`/`EVERY_30_MINUTES`). Six
+   * fields, seconds-first, matching every other entry in that enum (each starts with a literal
+   * `0` seconds field) — a five-field unix-cron expression would be silently misread here.
+   */
+  @Cron('0 */15 * * * *')
+  async scheduleReviewSyncPoll(): Promise<void> {
+    this.logger.debug('Scheduling review sync poll job');
+    await this.cronQueue.addReviewSyncPollJob();
+  }
 }

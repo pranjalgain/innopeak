@@ -3,51 +3,33 @@ import { QueueTransportModule } from '@bg/providers/queue-transport.module';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { BullBoardModule } from '@bull-board/nestjs';
 import { isProduction } from '@config/deployment-target.util';
-import { BullModule } from '@nestjs/bullmq';
-import { DynamicModule, Injectable, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
+import { ReviewSyncQueueProducerModule } from '@review-sync-queue/review-sync-queue-producer.module';
 import { ReviewSyncQueueEvents } from '@review-sync-queue/review-sync-queue.events';
-import { ReviewSyncQueue } from '@review-sync-queue/review-sync.queue';
 
-@Injectable()
-export class ReviewSyncQueueConfig {
-  static getQueueConfig(): DynamicModule {
-    return BullModule.registerQueue({
-      name: QueueName.REVIEW_SYNC,
-      streams: { events: { maxLen: 1000 } },
-      defaultJobOptions: {
-        // Kept longer than the email queue's: "did this tenant's backfill actually run, and what
-        // did it do" is a support question that gets asked days later, and the Bull Board record
-        // is the fastest answer that isn't a database query.
-        removeOnFail: { age: 7 * 24 * 3600 },
-        removeOnComplete: { age: 7 * 24 * 3600 },
-      },
-    });
-  }
-
-  static getQueueUIConfig(): DynamicModule {
-    return BullBoardModule.forFeature({
-      name: QueueName.REVIEW_SYNC,
-      adapter: BullMQAdapter,
-      options: {
-        readOnlyMode: isProduction(),
-        displayName: 'Review Sync Queue',
-        description: 'Historical review backfill and scheduled review polling',
-      },
-    });
-  }
-}
+const reviewSyncQueueUIConfig = BullBoardModule.forFeature({
+  name: QueueName.REVIEW_SYNC,
+  adapter: BullMQAdapter,
+  options: {
+    readOnlyMode: isProduction(),
+    displayName: 'Review Sync Queue',
+    description: 'Historical review backfill and scheduled review polling',
+  },
+});
 
 /**
  * Unconditionally registered, with no `isAws` branch — this queue is BullMQ in every environment
  * (see ReviewSyncQueueModule), so its Bull Board panel is always the right place to inspect it.
+ *
+ * API-only, and only additive: the Bull Board panel and its events listener on top of
+ * `ReviewSyncQueueProducerModule`, which owns the queue registration and the producer. Re-exported
+ * so this module's own importers (`ConnectionsModule`) keep resolving `ReviewSyncQueue` unchanged.
+ * Deliberately does **not** reach `ReviewSyncQueueModule` — that one carries the `@Processor`, and
+ * pulling it into the API graph would start a second review-sync worker inside the HTTP process.
  */
 @Module({
-  imports: [
-    QueueTransportModule,
-    ReviewSyncQueueConfig.getQueueConfig(),
-    ReviewSyncQueueConfig.getQueueUIConfig(),
-  ],
-  providers: [ReviewSyncQueueEvents, ReviewSyncQueue],
-  exports: [ReviewSyncQueue],
+  imports: [QueueTransportModule, ReviewSyncQueueProducerModule, reviewSyncQueueUIConfig],
+  providers: [ReviewSyncQueueEvents],
+  exports: [ReviewSyncQueueProducerModule],
 })
 export class ReviewSyncQueueUIModule {}
