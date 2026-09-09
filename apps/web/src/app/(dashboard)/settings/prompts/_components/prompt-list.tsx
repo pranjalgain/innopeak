@@ -1,4 +1,4 @@
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { LuPencil } from "react-icons/lu";
 
 import { PromptToneSelect } from "@/app/(dashboard)/settings/prompts/_components/prompt-tone-select";
@@ -16,10 +16,11 @@ interface PromptListProps {
   getStats: (promptId: string, version?: number) => PromptVersionStats;
 }
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
 
 export function PromptList({ prompts, onEdit, onToneChange, getStats }: PromptListProps) {
   const t = useTranslations("promptManagement");
+  const format = useFormatter();
 
   return (
     <div className="flex flex-col gap-4">
@@ -54,7 +55,7 @@ export function PromptList({ prompts, onEdit, onToneChange, getStats }: PromptLi
                 {current.template}
               </pre>
               <p className="mt-2 text-xs text-muted-foreground">
-                {t("updatedAt", { date: DATE_FORMATTER.format(new Date(current.updatedAt)), author: current.updatedByName })}
+                {t("updatedAt", { date: format.dateTime(new Date(current.updatedAt), DATE_FORMAT), author: current.updatedByName })}
               </p>
               <div className="mt-1">
                 <PromptVersionStatsLine stats={getStats(prompt.id, current.version)} />

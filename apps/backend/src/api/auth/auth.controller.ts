@@ -56,6 +56,7 @@ import { SignupDto } from './dto/signup.dto';
 import { TokenResponseDto } from './dto/token-response.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { OAuthIntent } from './enums/oauth-intent.enum';
+import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import {
   ApiChangePassword,
   ApiCompleteGoogleSignup,
@@ -130,6 +131,26 @@ export class AuthController {
     return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
   }
 
+  /**
+   * When the session is definitively gone — no cookie at all, a revoked/expired token, a row a
+   * dev DB reset deleted, a disabled user, a suspended tenant — `clearSessionCookies` runs before
+   * the 401 propagates.
+   *
+   * Without it, only the two real token cookies go stale; `session` (the frontend edge
+   * middleware's routing hint — see `proxy.ts`) has its own 7-day `maxAge` set once at login and
+   * nothing about a failed refresh ever touches it. The client then hard-redirects to `/login` on
+   * the 401, the middleware sees the still-present hint and bounces straight back to `/dashboard`,
+   * that remount retries the now-permanently-dead refresh, and the two sides fight forever —
+   * `POST /v1/auth/refresh` firing on every bounce until `@Throttle` starts rejecting it outright.
+   *
+   * **`RefreshTokenSupersededException` is the deliberate exception to that.** A token that lost
+   * a concurrent rotation race is also "not active", but the winner has already issued a valid
+   * successor and the browser is holding it — clearing there would throw away a live session and
+   * log the user out of every open tab, which is exactly what happens with two idle dashboard
+   * tabs waking at once (the frontend's single-flight is per-tab, so both refresh). That case
+   * gets the same 401 and the same message, and keeps its cookies; the client simply retries and
+   * succeeds with the successor. See `TokenService.rotate` for how the two are told apart.
+   */
   @Post(RouteNames.REFRESH)
   @Public()
   @Throttle({ short: { limit: 20, ttl: 60000 } })
@@ -142,12 +163,25 @@ export class AuthController {
     const rawRefreshToken = this.readRefreshTokenCookie(req);
 
     if (!rawRefreshToken) {
+      this.clearSessionCookies(res);
       throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
     }
 
-    const result = await this.authService.refresh(rawRefreshToken);
-    this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
-    return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
+    try {
+      const result = await this.authService.refresh(rawRefreshToken);
+      this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
+      return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
+    } catch (error) {
+      // Order matters: the superseded subclass IS an UnauthorizedException, so it has to be
+      // excluded explicitly or a lost race would clear the winner's cookies.
+      if (
+        error instanceof UnauthorizedException &&
+        !(error instanceof RefreshTokenSupersededException)
+      ) {
+        this.clearSessionCookies(res);
+      }
+      throw error;
+    }
   }
 
   /**

@@ -16,6 +16,7 @@ import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
+import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import { RefreshJwtPayload, TenantJwtPayload } from './types/jwt-payload.type';
 import { TokenResponse } from './types/token-response.type';
 import { hashToken } from './utils/token.utils';
@@ -78,6 +79,13 @@ export class TokenService {
    * The revoke of the spent token and the insert of its replacement are one atomic DB step
    * (`AuthDbService.rotateRefreshToken`), and a revoke that changed nothing means someone else
    * already spent this token — that caller is rejected, not handed a second live session.
+   *
+   * Two ways to fail to find an active token, and they are NOT interchangeable to the caller:
+   * the session may be genuinely gone (revoked on logout, expired, or the row deleted by a dev
+   * DB reset), or the token may simply have lost a race to a concurrent refresh that already
+   * minted a valid successor. Both are a 401 with the same message, but only the first should
+   * clear the browser's session cookies — see `RefreshTokenSupersededException` and
+   * `AuthController.refresh`. `hasActiveRefreshToken` is what tells the two apart.
    */
   async rotate(rawRefreshToken: string): Promise<{
     tokens: TokenResponse;
@@ -89,7 +97,11 @@ export class TokenService {
 
     const stored = await this.authDbService.findActiveRefreshToken(hashToken(rawRefreshToken));
     if (!stored || stored.userId !== payload.sub) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
+      // The JWT's signature already verified, so `payload.sub` is trustworthy enough to ask
+      // whether this user still holds a live session somewhere.
+      throw (await this.authDbService.hasActiveRefreshToken(payload.sub))
+        ? new RefreshTokenSupersededException()
+        : new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
     }
 
     const user = await this.authDbService.findUserById(stored.userId);
@@ -116,7 +128,10 @@ export class TokenService {
       expiresAt: signed.refreshExpiresAt,
     });
     if (!rotated) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
+      // The row was active when we read it and isn't now: a concurrent refresh spent it between
+      // the read and this compare-and-swap, and that winner's successor is live. Definitionally
+      // a lost race, so never clear the caller's cookies over it.
+      throw new RefreshTokenSupersededException();
     }
 
     return {

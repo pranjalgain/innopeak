@@ -22,6 +22,21 @@ describe('DEFAULT_PROMPTS', () => {
     expect(PROMPT_TONES).toContain(DEFAULT_PROMPT_TONE);
   });
 
+  /**
+   * The reply-language behaviour lives in the template text itself, not in a wrapper the
+   * generation module adds — so it is only guaranteed for as long as every default carries it.
+   * A German reviewer getting an English reply is the failure this prevents, and it would be
+   * invisible until someone read a generated reply.
+   */
+  it('every default tells the model to answer in the language the review was written in', () => {
+    for (const prompt of DEFAULT_PROMPTS) {
+      expect(prompt.template).toContain('Reply in the same language the review is written in.');
+      // Google can return a machine translation and the reviewer's own words in one string; the
+      // original is the one that says what language they actually wrote in.
+      expect(prompt.template).toContain('follow the original');
+    }
+  });
+
   describe.each(DEFAULT_PROMPTS.map(prompt => [prompt.category, prompt] as const))(
     '%s',
     (_category, prompt) => {

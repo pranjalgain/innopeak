@@ -1,6 +1,6 @@
 import type { Route } from "next";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import * as React from "react";
 import { LuBell, LuCheck, LuClock, LuTriangleAlert, LuWifiOff } from "react-icons/lu";
 
@@ -36,6 +36,7 @@ interface NotificationRowProps {
 
 function NotificationRow({ notification, onRead }: NotificationRowProps) {
   const Icon = TYPE_ICON[notification.type];
+  const locale = useLocale();
 
   const content = (
     <div
@@ -53,7 +54,7 @@ function NotificationRow({ notification, onRead }: NotificationRowProps) {
           {!notification.isRead ? <span className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}
         </div>
         <p className="line-clamp-2 text-xs text-muted-foreground">{notification.description}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{formatRelativeTime(notification.createdAt)}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{formatRelativeTime(notification.createdAt, locale)}</p>
       </div>
     </div>
   );

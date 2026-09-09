@@ -290,6 +290,48 @@ Mapped to the schema tables above, independent of which login method is used:
   `admin_*` variants are selected purely by *the path containing `dev-tools`* — there is a `TODO`
   in `cookies.middleware.ts` where real platform-admin detection belongs, so this needs extending
   before the platform-admin surface can use cookies at all.
+
+  > **This bullet, and the "inert until `cookie-parser` is registered" claim above, are stale —
+  > verified against current code, not assumed.** `cookie-parser` **is** registered:
+  > `app.use(cookieParser())` in `apps/backend/src/bootstrap.ts:51`. `CookieAuthMiddleware` itself
+  > (`src/middlewares/cookies.middleware.ts`) still exists and still reads `sid`/`refresh_token`/
+  > `temp_sid`, but that isn't the cookie scheme the real login/refresh flow actually issues or
+  > reads today — see the box below for what's actually in use. Whether this middleware is even
+  > wired into `AppModule.configure()` any more, and whether `sid`/`temp_sid` are dead cookie
+  > names from an earlier design, wasn't chased down as part of this note; flagging it rather than
+  > asserting either way.
+
+  > **The web app's real session cookies, as actually implemented — not what the bullets above
+  > describe.** `AuthController` (`src/api/auth/auth.controller.ts`) sets three cookies together
+  > on every token-issuing route (`setSessionCookies`): `access_token` (`Path=/`, 15 min),
+  > `refresh_token` (`Path=/v1/auth`, 7 days), and `session` — no credential, just a `"1"` flag,
+  > same `maxAge` as the refresh token, that only exists so the frontend's edge middleware
+  > (`apps/web/src/proxy.ts`) can route a visitor to `/login` vs. `/dashboard` before any client JS
+  > runs, without being fooled by the access token's 15-minute expiry into bouncing a
+  > still-refreshable, idle visitor. `POST /v1/auth/refresh` reads `refresh_token` directly via
+  > `req.cookies` (populated by the `cookie-parser` above) — not through `CookieAuthMiddleware`'s
+  > `Authorization`-header promotion.
+  >
+  > **`clearSessionCookies` runs on every path that fails to rotate *except a lost rotation
+  > race*.** `TokenService.rotate` throws `RefreshTokenSupersededException` (a subclass of
+  > `UnauthorizedException`, same 401, same message, so no new enumeration signal) when the
+  > presented token is inactive *but the user still holds a live one* — i.e. a concurrent refresh
+  > already minted the successor and the browser is holding it. `hasActiveRefreshToken(userId)`
+  > is what separates that from a genuinely dead family; the lost-CAS path is superseded by
+  > definition and skips the query. Clearing cookies there would discard the winner's valid
+  > session and log the user out of every open tab — two idle dashboard tabs waking together hit
+  > this, because the frontend's single-flight refresh is per-tab, not per-browser. Otherwise: — an unknown/revoked/reused
+  > refresh token, a missing cookie, a disabled user, a suspended tenant, or (functionally
+  > identical to a revoked token) a `refresh_tokens` row a dev DB reset removed out from under a
+  > still-cookied browser — clearing all three before the 401 propagates, not just leaving the two
+  > real tokens stale. Without it, `session` outlives a definitively dead refresh token (its own
+  > 7-day `maxAge` never got touched by the failure), so the edge middleware keeps routing the
+  > visitor to `/dashboard`, the client re-attempts the same dead refresh, and the two sides bounce
+  > forever — `POST /v1/auth/refresh` firing on every bounce until `@Throttle` starts rejecting it
+  > outright. `auth.controller.spec.ts` covers all four branches (rejected token clears and sets
+  > nothing; missing cookie clears without calling the service; a non-auth error — a `ThrottlerException`,
+  > a DB blip — clears nothing, since neither means the session is actually dead; a successful
+  > rotation sets fresh cookies without clearing first).
 - `JwtPayload` currently carries `sub`, `email`, `roles: string[]`, `permissions: string[]` — needs
   to become `sub`, `tenant_id`, `email`, `role` (singular, matching the `user_role` enum, and with
   no `permissions` claim at all — see the guard-pipeline note above) for the tenant-user path, plus
@@ -360,25 +402,35 @@ here too:
 - **Add an `example` to every DTO property** that's missing one, and an explicit return type to
   every method (controller, service, DB service, repository) currently left to inference.
 
-Finally, four concrete defects in the current code that this module's docs assume are fixed:
+Finally, four concrete defects this section originally listed as current — re-checked against
+today's code rather than left standing on trust, since re-reading this whole "Gap" section while
+documenting an unrelated fix (see the [Session / token model](#session--token-model) box above)
+turned up enough drift to distrust the rest of it too. **Three of the four are resolved; one is
+still real:**
 
-- **`src/db/drizzle/schema.ts` is stale and describes a different database.** It still declares
-  the boilerplate tables (`users` with a `role` column, `roles`, `permissions`, `user_roles`,
-  `role_permissions`, `refresh_tokens`, `api_keys`, `mfa_settings`, `oauth_accounts`, …) and has
-  never been regenerated from `0000`–`0006`. Every current auth query type-checks against tables
-  the database does not have. Run `pnpm db:migrate` then `pnpm db:introspect` before writing any
-  code against it.
-- **The `refresh_tokens` table does not exist in any migration**, yet `token.repository.ts`
-  already reads and writes `schema.refreshTokens`, and this document's
-  [Session / token model](#session--token-model) describes rotation and logout-revocation as
-  current behaviour. It needs the follow-up migration described in
-  [the API reference](./api-reference.md#configuration) before refresh or logout can work as
-  specified.
-- **Global rate limiting is effectively off** — `ThrottlerModule.forRoot`'s `ttl` values are in
-  seconds where `@nestjs/throttler` 6.5.0 expects milliseconds, so the four tiers are 60 ms–3.6 s
-  windows rather than 1 minute–1 hour. See [Rate limiting](#rate-limiting-throttler).
-- **`cookie-parser` is neither installed nor registered**, so `CookieAuthMiddleware` promotes
-  nothing and the cookie-based session path documented above is inert.
+- ~~`src/db/drizzle/schema.ts` is stale and describes a different database.~~ **Resolved.** It now
+  exports 50 tables, including `reviews` (migration `0004`, well past the `0000`–`0006` this claim
+  named) and `refreshTokens` — it has clearly been regenerated many times since this was written.
+- ~~The `refresh_tokens` table does not exist in any migration.~~ **Resolved.** It's in
+  `0007_auth_hardening.sql` (see `apps/backend/CLAUDE.md`'s migration table), and
+  `schema.ts`/`token.repository.ts` both reflect it. Session / token model's rotation and
+  logout-revocation description is accurate.
+- **Global rate limiting is effectively off — still true, verified against `app.module.ts` today.**
+  `ThrottlerModule.forRoot`'s `ttl` values are in seconds where `@nestjs/throttler` 6.5.0 expects
+  milliseconds, so the four tiers are 60 ms–3.6 s windows rather than 1 minute–1 hour. See
+  [Rate limiting](#rate-limiting-throttler).
+- ~~`cookie-parser` is neither installed nor registered.~~ **Resolved.** `app.use(cookieParser())`
+  runs in `apps/backend/src/bootstrap.ts:51`. See the box above for what actually reads the
+  resulting `req.cookies` today (`AuthController`'s own handlers, not `CookieAuthMiddleware`).
+
+Given three of four were wrong, **the rest of this "Gap" section — the module-relocation,
+tenant-scoping, Microsoft SSO, and platform-admin items above — was not re-verified here and
+should not be trusted at face value either.** This appears to be a snapshot from early in the
+module's build that was never revisited as work landed; a couple of spot checks done alongside
+this note (the module already lives at `src/api/auth/`, not `src/auth/`, and
+`src/common/constants/messages.constants.ts` already exists, both contradicting bullets above)
+suggest most of it is similarly out of date. Worth a dedicated reconciliation pass against current
+code rather than patching individual claims further as they're noticed.
 - **The root platform admin is seeded, but cannot yet be logged into.**
   `0008_dev_platform_admin.sql` inserts the one row `idx_platform_admins_single_root` expects (a
   NULL inviter), which is the only way that identity can come into existence — nothing under

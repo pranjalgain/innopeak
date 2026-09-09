@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { LuCreditCard } from "react-icons/lu";
 
 import { Pagination } from "@/components/common/pagination";
@@ -11,7 +11,7 @@ import { useAdminBilling } from "@/hooks/admin/use-admin-billing";
 import { usePagination } from "@/hooks/common/use-pagination";
 import type { BusinessStatus } from "@/types/domain";
 
-const CURRENCY_FORMATTER = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const CURRENCY_FORMAT = { style: "currency", currency: "USD", maximumFractionDigits: 0 } as const;
 
 const STATUS_BADGE_CLASSNAME: Record<BusinessStatus, string> = {
   active: "border-transparent bg-success-soft text-success",
@@ -53,6 +53,7 @@ export function AdminBillingView() {
   const t = useTranslations("adminBilling");
   const tPlan = useTranslations("adminBusinesses.plan");
   const tStatus = useTranslations("adminBusinesses.status");
+  const format = useFormatter();
   const { billing, isLoading } = useAdminBilling();
   const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(billing, 4);
 
@@ -70,7 +71,7 @@ export function AdminBillingView() {
         <>
           <div className="rounded-xl border border-border bg-card p-5 shadow-elevated">
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("totalMrr")}</p>
-            <p className="mt-1 text-2xl font-semibold">{CURRENCY_FORMATTER.format(totalMrr)}</p>
+            <p className="mt-1 text-2xl font-semibold">{format.number(totalMrr, CURRENCY_FORMAT)}</p>
           </div>
 
           {/* Desktop layout — horizontally-scrollable fixed-width table. Held back to `lg:` (not `md:`) since the icon-rail sidebar at tablet widths leaves too little room. */}
@@ -96,7 +97,7 @@ export function AdminBillingView() {
                     <TableCell>
                       <Badge variant="outline">{tPlan(row.plan)}</Badge>
                     </TableCell>
-                    <TableCell>{CURRENCY_FORMATTER.format(row.mrr)}</TableCell>
+                    <TableCell>{format.number(row.mrr, CURRENCY_FORMAT)}</TableCell>
                     <TableCell>{row.reviewsThisMonth}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={STATUS_BADGE_CLASSNAME[row.status]}>
@@ -130,7 +131,7 @@ export function AdminBillingView() {
 
                 <div className="flex items-center justify-between border-t border-border pt-2.5 text-[13px]">
                   <span className="text-muted-foreground">{t("columns.mrr")}</span>
-                  <span>{CURRENCY_FORMATTER.format(row.mrr)}</span>
+                  <span>{format.number(row.mrr, CURRENCY_FORMAT)}</span>
                 </div>
                 <div className="flex items-center justify-between text-[13px]">
                   <span className="text-muted-foreground">{t("columns.reviewsThisMonth")}</span>

@@ -360,6 +360,11 @@ export class AuthDbService {
     return this.authRepository.findActiveRefreshToken(tokenHash);
   }
 
+  /** See `AuthRepository.hasActiveRefreshToken` — distinguishes a lost rotation race from a dead session. */
+  async hasActiveRefreshToken(userId: string): Promise<boolean> {
+    return this.authRepository.hasActiveRefreshToken(userId);
+  }
+
   /**
    * Single-use rotation as one atomic step: revoke the spent token and persist its replacement in
    * the same transaction, and only persist if the revoke actually flipped the row. Returns false

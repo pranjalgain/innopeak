@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { LuBuilding2 } from "react-icons/lu";
 
 import { cn } from "@/app/_libs/utils/cn";
@@ -14,7 +14,7 @@ import { useAdminBusinesses } from "@/hooks/admin/use-admin-businesses";
 import { usePagination } from "@/hooks/common/use-pagination";
 import type { AdminBusiness, BusinessStatus } from "@/types/domain";
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
 
 const STATUS_BADGE_CLASSNAME: Record<BusinessStatus, string> = {
   active: "border-transparent bg-success-soft text-success",
@@ -105,6 +105,7 @@ export function AdminBusinessesView() {
   const t = useTranslations("adminBusinesses");
   const tStatus = useTranslations("adminBusinesses.status");
   const tPlan = useTranslations("adminBusinesses.plan");
+  const format = useFormatter();
   const { businesses, isLoading, suspendBusiness, reactivateBusiness } = useAdminBusinesses();
   const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(businesses, 4);
 
@@ -154,7 +155,7 @@ export function AdminBusinessesView() {
                     <TableCell className="truncate text-muted-foreground">{business.ownerName}</TableCell>
                     <TableCell>{business.userCount}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {DATE_FORMATTER.format(new Date(business.createdAt))}
+                      {format.dateTime(new Date(business.createdAt), DATE_FORMAT)}
                     </TableCell>
                     <TableCell className="text-right">
                       <BusinessActionButton business={business} onSuspend={suspend} onReactivate={reactivate} />
@@ -192,7 +193,7 @@ export function AdminBusinessesView() {
                 </div>
                 <div className="flex items-center justify-between text-[13px]">
                   <span className="text-muted-foreground">{t("columns.created")}</span>
-                  <span>{DATE_FORMATTER.format(new Date(business.createdAt))}</span>
+                  <span>{format.dateTime(new Date(business.createdAt), DATE_FORMAT)}</span>
                 </div>
 
                 <div className="mt-1 flex justify-end">

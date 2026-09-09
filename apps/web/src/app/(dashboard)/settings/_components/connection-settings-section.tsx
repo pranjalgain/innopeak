@@ -2,7 +2,7 @@
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 
 import * as React from "react";
 import { LuStore } from "react-icons/lu";
@@ -19,16 +19,17 @@ interface ConnectionSettingsSectionProps {
   onDisconnect: () => void;
 }
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+const DATE_FORMAT = {
   month: "short",
   day: "numeric",
   year: "numeric",
   hour: "numeric",
   minute: "2-digit",
-});
+} as const;
 
 export function ConnectionSettingsSection({ connection, onDisconnect }: ConnectionSettingsSectionProps) {
   const t = useTranslations("settings.connection");
+  const format = useFormatter();
   const router = useRouter();
   const [isConfirming, setIsConfirming] = React.useState(false);
   const [isRedirecting, setIsRedirecting] = React.useState(false);
@@ -56,7 +57,7 @@ export function ConnectionSettingsSection({ connection, onDisconnect }: Connecti
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold">{connection.businessName}</p>
             <p className="mt-0.5 text-[13px] text-muted-foreground">
-              {t("lastSynced", { date: DATE_FORMATTER.format(new Date(connection.lastSyncedAt)) })}
+              {t("lastSynced", { date: format.dateTime(new Date(connection.lastSyncedAt), DATE_FORMAT) })}
             </p>
           </div>
           <Badge

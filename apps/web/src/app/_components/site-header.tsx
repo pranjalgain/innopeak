@@ -2,6 +2,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
+import { LanguageSwitcher } from "@/app/_components/language-switcher";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { InnoPeakLogo } from "@/assets/icons/innopeak-logo";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,12 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <div className="flex items-center gap-2">
+        {/* `gap-1` below `sm` only — German's longer "Anmelden"/"Jetzt starten" leave this row
+            a few pixels short of fitting at the narrowest real phone widths (~360px) even with
+            the language switcher already reduced to icon-only there; `sm:gap-2` restores the
+            original spacing the moment there's room for it, so nothing changes above ~375px. */}
+        <div className="flex items-center gap-1 sm:gap-2">
+          <LanguageSwitcher />
           <Button asChild variant="ghost" size="sm">
             <Link href={ROUTES.LOGIN as Route}>{t("signIn")}</Link>
           </Button>

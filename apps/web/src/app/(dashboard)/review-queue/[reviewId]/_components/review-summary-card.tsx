@@ -1,4 +1,4 @@
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 
 import { getInitials } from "@/app/_libs/utils/initials";
 import { ClassificationBadge } from "@/components/common/classification-badge";
@@ -11,10 +11,11 @@ interface ReviewSummaryCardProps {
   review: Review;
 }
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
 
 export function ReviewSummaryCard({ review }: ReviewSummaryCardProps) {
   const tEscalationShort = useTranslations("common.escalationReasonShort");
+  const format = useFormatter();
 
   return (
     <Card>
@@ -31,7 +32,7 @@ export function ReviewSummaryCard({ review }: ReviewSummaryCardProps) {
               <div className="mt-1 flex items-center gap-2">
                 <StarRating rating={review.rating} />
                 <span className="text-[13px] text-muted-foreground">
-                  {DATE_FORMATTER.format(new Date(review.reviewedAt))}
+                  {format.dateTime(new Date(review.reviewedAt), DATE_FORMAT)}
                 </span>
               </div>
             </div>
