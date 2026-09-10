@@ -1,8 +1,9 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
-import { ApiError } from "@/app/_libs/services/api-client";
+import { ApiError } from "@/app/_libs/services/api-error";
 import { TenantOwnerProfileService } from "@/app/_libs/services/tenant-owner-profile.service";
 import type { TenantOwnerProfile } from "@/types/domain";
 
@@ -18,10 +19,10 @@ interface UseTenantOwnerProfileResult {
 
 export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
   const t = useTranslations("settings.profile.toasts");
-  const [profile, setProfile] = React.useState<TenantOwnerProfile | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [profile, setProfile] = useState<TenantOwnerProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     TenantOwnerProfileService.get()
@@ -40,7 +41,7 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
     };
   }, [t]);
 
-  const updateAvatar = React.useCallback(
+  const updateAvatar = useCallback(
     async (avatarUrl: string) => {
       try {
         const updated = await TenantOwnerProfileService.updateAvatar(avatarUrl);
@@ -54,7 +55,7 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
   );
 
   /** Returns whether it succeeded, so the form knows to clear itself. */
-  const changePassword = React.useCallback(
+  const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
       try {
         await TenantOwnerProfileService.changePassword(currentPassword, newPassword);
@@ -74,7 +75,7 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
     [t],
   );
 
-  const setPassword = React.useCallback(
+  const setPassword = useCallback(
     async (newPassword: string) => {
       try {
         await TenantOwnerProfileService.setPassword(newPassword);

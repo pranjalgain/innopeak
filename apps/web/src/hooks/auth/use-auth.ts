@@ -1,10 +1,15 @@
+import { useCallback, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
-import { ApiError } from "@/app/_libs/services/api-client";
-import { AuthService, type LoginResult, type VerifyOtpResult } from "@/app/_libs/services/auth.service";
+import { ApiError } from "@/app/_libs/services/api-error";
+import {
+  AuthService,
+  type LoginResult,
+  type VerifyOtpResult,
+} from "@/app/_libs/services/auth.service";
 
 export interface ResendOtpResult {
   sent: boolean;
@@ -51,9 +56,9 @@ function authErrorMessage(error: unknown, fallback: string): string {
  */
 export function useAuth(): UseAuthResult {
   const t = useTranslations("auth.toasts");
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const loginWithMicrosoft = React.useCallback(
+  const loginWithMicrosoft = useCallback(
     async (email: string) => {
       setIsLoading(true);
       try {
@@ -67,7 +72,7 @@ export function useAuth(): UseAuthResult {
     [t],
   );
 
-  const loginWithPassword = React.useCallback(
+  const loginWithPassword = useCallback(
     async (email: string, password: string) => {
       setIsLoading(true);
       try {
@@ -87,13 +92,13 @@ export function useAuth(): UseAuthResult {
    * `finally` to clear the spinner — the page is being replaced. Failures come back as
    * `?error=` on the destination, which the login and signup views read on mount.
    */
-  const startGoogleLogin = React.useCallback(() => {
+  const startGoogleLogin = useCallback(() => {
     setIsLoading(true);
     AuthService.startGoogleLogin();
   }, []);
 
   /** Returns whether it succeeded, so the signup wizard knows to advance to step 2. */
-  const signupWithMicrosoft = React.useCallback(async () => {
+  const signupWithMicrosoft = useCallback(async () => {
     setIsLoading(true);
     try {
       await AuthService.signupWithMicrosoft();
@@ -106,7 +111,7 @@ export function useAuth(): UseAuthResult {
     }
   }, [t]);
 
-  const signupWithPassword = React.useCallback(
+  const signupWithPassword = useCallback(
     async (values: CreateAccountFormValues) => {
       setIsLoading(true);
       try {
@@ -122,12 +127,12 @@ export function useAuth(): UseAuthResult {
     [t],
   );
 
-  const startGoogleSignup = React.useCallback(() => {
+  const startGoogleSignup = useCallback(() => {
     setIsLoading(true);
     AuthService.startGoogleSignup();
   }, []);
 
-  const completeGoogleSignup = React.useCallback(
+  const completeGoogleSignup = useCallback(
     async (businessName: string) => {
       setIsLoading(true);
       try {
@@ -144,7 +149,7 @@ export function useAuth(): UseAuthResult {
   );
 
   /** No toast here — the OTP screen shows its own "invalid code"/"resent" copy, not generic auth-failure text. */
-  const verifySignupOtp = React.useCallback(async (email: string, code: string) => {
+  const verifySignupOtp = useCallback(async (email: string, code: string) => {
     setIsLoading(true);
     try {
       return await AuthService.verifySignupOtp(email, code);
@@ -158,7 +163,7 @@ export function useAuth(): UseAuthResult {
    * unlike every other method here — so a throttled resend (the endpoint allows 5/min) rejected,
    * the rejection was swallowed by the caller's `void`, and the user saw literally nothing happen.
    */
-  const resendSignupOtp = React.useCallback(async (email: string) => {
+  const resendSignupOtp = useCallback(async (email: string) => {
     try {
       await AuthService.resendSignupOtp(email);
       return { sent: true };
@@ -170,7 +175,7 @@ export function useAuth(): UseAuthResult {
     }
   }, []);
 
-  const logout = React.useCallback(() => {
+  const logout = useCallback(() => {
     void AuthService.logout().catch(() => {
       toast.error(t("signOutFailed"));
     });

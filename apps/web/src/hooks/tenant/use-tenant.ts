@@ -1,4 +1,4 @@
-import * as React from "react";
+import { useEffect, useState } from "react";
 
 import { TenantService } from "@/app/_libs/services/tenant.service";
 import type { Tenant } from "@/types/domain";
@@ -10,11 +10,11 @@ interface UseTenantResult {
 }
 
 export function useTenant(): UseTenantResult {
-  const [data, setData] = React.useState<Tenant | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [data, setData] = useState<Tenant | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     setIsLoading(true);

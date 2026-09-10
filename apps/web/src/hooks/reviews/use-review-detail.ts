@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
@@ -22,10 +23,10 @@ interface UseReviewDetailResult {
  */
 export function useReviewDetail(reviewId: string): UseReviewDetailResult {
   const t = useTranslations("reviewDetail.toasts");
-  const [review, setReview] = React.useState<Review | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [review, setReview] = useState<Review | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     setIsLoading(true);
@@ -45,12 +46,12 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
     };
   }, [reviewId, t]);
 
-  const persist = React.useCallback((next: Review) => {
+  const persist = useCallback((next: Review) => {
     setReview(next);
     void ReviewService.updateReview(next);
   }, []);
 
-  const approveDraft = React.useCallback(
+  const approveDraft = useCallback(
     (draftId: string, content: string) => {
       if (!review) return;
       const decidedAt = new Date().toISOString();
@@ -59,7 +60,8 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
         replyDrafts: review.replyDrafts.map((draft) => {
           if (draft.id === draftId) return { ...draft, content, status: "approved", decidedAt };
           // A sibling's approval decides this draft's fate too — timestamp it the same way.
-          if (draft.status === "pending_approval") return { ...draft, status: "superseded", decidedAt };
+          if (draft.status === "pending_approval")
+            return { ...draft, status: "superseded", decidedAt };
           return draft;
         }),
       });
@@ -68,13 +70,15 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
     [review, persist, t],
   );
 
-  const rejectDraft = React.useCallback(
+  const rejectDraft = useCallback(
     (draftId: string) => {
       if (!review) return;
       persist({
         ...review,
         replyDrafts: review.replyDrafts.map((draft) =>
-          draft.id === draftId ? { ...draft, status: "rejected", decidedAt: new Date().toISOString() } : draft,
+          draft.id === draftId
+            ? { ...draft, status: "rejected", decidedAt: new Date().toISOString() }
+            : draft,
         ),
       });
       toast.success(t("rejected"));

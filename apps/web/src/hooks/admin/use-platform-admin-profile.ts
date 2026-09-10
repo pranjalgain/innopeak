@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { PlatformAdminProfileService } from "@/app/_libs/services/platform-admin-profile.service";
@@ -14,10 +15,10 @@ interface UsePlatformAdminProfileResult {
 
 export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
   const t = useTranslations("adminSettings.profile.toasts");
-  const [profile, setProfile] = React.useState<PlatformAdminProfile | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [profile, setProfile] = useState<PlatformAdminProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     PlatformAdminProfileService.get()
@@ -36,7 +37,7 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
     };
   }, [t]);
 
-  const updateAvatar = React.useCallback(
+  const updateAvatar = useCallback(
     async (avatarUrl: string) => {
       try {
         const updated = await PlatformAdminProfileService.updateAvatar(avatarUrl);
@@ -50,7 +51,7 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
   );
 
   /** Returns whether it succeeded, so the form knows to clear itself. */
-  const changePassword = React.useCallback(
+  const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
       try {
         await PlatformAdminProfileService.changePassword(currentPassword, newPassword);

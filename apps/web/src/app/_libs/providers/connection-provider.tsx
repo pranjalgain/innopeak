@@ -1,8 +1,17 @@
 "use client";
 
-import * as React from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-import { ApiError } from "@/app/_libs/services/api-client";
+import { ApiError } from "@/app/_libs/services/api-error";
 import { ConnectionService, type ConnectionState } from "@/app/_libs/services/connection.service";
 
 export interface ConnectionContextValue {
@@ -19,13 +28,13 @@ export interface ConnectionContextValue {
   refresh: () => Promise<void>;
 }
 
-const ConnectionContext = React.createContext<ConnectionContextValue | null>(null);
+const ConnectionContext = createContext<ConnectionContextValue | null>(null);
 
 /**
  * Fetches `GET /v1/connections` once for the whole dashboard, so the guard does not refetch on
  * every navigation. Mounted in `(dashboard)/layout.tsx`.
  */
-export function ConnectionProvider({ children }: { children: React.ReactNode }) {
+export function ConnectionProvider({ children }: { children: ReactNode }) {
   const value = useConnectionFetcher();
   return <ConnectionContext.Provider value={value}>{children}</ConnectionContext.Provider>;
 }
@@ -35,19 +44,21 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
  * the onboarding-connect screen lives in a different route group and needs the same data.
  */
 export function useConnection(): ConnectionContextValue {
-  const context = React.useContext(ConnectionContext);
+  const context = useContext(ConnectionContext);
   const standalone = useConnectionFetcher({ enabled: context === null });
 
   return context ?? standalone;
 }
 
-function useConnectionFetcher({ enabled = true }: { enabled?: boolean } = {}): ConnectionContextValue {
-  const [state, setState] = React.useState<ConnectionState | null>(null);
-  const [isLoading, setIsLoading] = React.useState(enabled);
-  const [error, setError] = React.useState<Error | null>(null);
-  const abortRef = React.useRef<AbortController | null>(null);
+function useConnectionFetcher({
+  enabled = true,
+}: { enabled?: boolean } = {}): ConnectionContextValue {
+  const [state, setState] = useState<ConnectionState | null>(null);
+  const [isLoading, setIsLoading] = useState(enabled);
+  const [error, setError] = useState<Error | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const load = React.useCallback(async () => {
+  const load = useCallback(async () => {
     if (!enabled) return;
 
     abortRef.current?.abort();
@@ -73,12 +84,12 @@ function useConnectionFetcher({ enabled = true }: { enabled?: boolean } = {}): C
     }
   }, [enabled]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     void load();
     return () => abortRef.current?.abort();
   }, [load]);
 
-  return React.useMemo(
+  return useMemo(
     () => ({ state, isLoading, error, refresh: load }),
     [state, isLoading, error, load],
   );

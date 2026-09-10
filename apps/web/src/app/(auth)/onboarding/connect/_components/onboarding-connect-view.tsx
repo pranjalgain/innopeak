@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import { useRouter } from "next/navigation";
-import * as React from "react";
 
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
 import type { OnboardingStep } from "@/app/(auth)/onboarding/_components/onboarding-step.types";
@@ -35,11 +36,11 @@ const SSO_LIKE_STEPS: OnboardingStep[] = ["identity", "connect"];
 export function OnboardingConnectView() {
   const router = useRouter();
   const flow = useOnboardingConnectFlow();
-  const [context, setContext] = React.useState<OnboardingContext | null>(null);
+  const [context, setContext] = useState<OnboardingContext | null>(null);
 
   // Read in an effect, not during render: sessionStorage does not exist on the server, and
   // reading it inline would make the first client render disagree with the server's HTML.
-  React.useEffect(() => {
+  useEffect(() => {
     setContext(OnboardingContextService.get());
   }, []);
 
@@ -63,7 +64,7 @@ export function OnboardingConnectView() {
           />
         ) : null}
 
-        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page w-full rounded-xl border border-border bg-card shadow-elevated duration-500 ease-fluid">
+        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page border-border bg-card shadow-elevated ease-fluid w-full rounded-xl border duration-500">
           {flow.stage === "checking" ? <ShellSkeleton /> : null}
 
           {flow.stage === "connect" || flow.stage === "redirecting" ? (

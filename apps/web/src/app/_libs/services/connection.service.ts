@@ -1,4 +1,6 @@
-import { ApiClient } from "./api-client";
+import { refreshSession } from "@/app/_libs/api-sdk/config";
+import { connectionsApi, connectionsSyncApi } from "@/app/_libs/api-sdk/connections-api";
+import { unwrap } from "@/app/_libs/services/api-error";
 
 /**
  * Three states, not two.
@@ -89,9 +91,8 @@ interface ConfirmLocationResponse extends Omit<ConnectedLocation, "businessName"
  */
 export class ConnectionService {
   static async getState(signal?: AbortSignal): Promise<ConnectionState> {
-    const response = await ApiClient.request<ConnectionStatusResponse>("/v1/connections", {
-      signal,
-    });
+    const apiResponse = await connectionsApi.connectionsControllerGetConnectionV1({ signal });
+    const response = unwrap<ConnectionStatusResponse>(apiResponse.data);
 
     return {
       // Flattened at this boundary so no component has to know that `connected` and
@@ -106,16 +107,16 @@ export class ConnectionService {
   }
 
   /**
-   * A full browser navigation, not fetch: this is an OAuth grant, so the browser has to actually
-   * travel to Google and come back through our callback. The access token rides along in its
-   * httpOnly cookie (scoped `/`), and `/v1/*` is rewritten to the backend by `next.config.ts`, so
-   * the request is authenticated without a Bearer header and without a popup.
+   * A full browser navigation, not an SDK call: this is an OAuth grant, so the browser has to
+   * actually travel to Google and come back through our callback. The access token rides along in
+   * its httpOnly cookie (scoped `/`), and `/v1/*` is rewritten to the backend by `next.config.ts`,
+   * so the request is authenticated without a Bearer header and without a popup.
    *
    * The refresh first is best-effort but load-bearing: the access-token cookie lives 15 minutes,
    * and a navigation that 401s lands the user on a raw JSON error page rather than a screen.
    */
   static async startAuthorize(returnTo: "onboarding" | "settings" = "onboarding"): Promise<void> {
-    await ApiClient.refreshSession().catch(() => false);
+    await refreshSession().catch(() => false);
     // Not a Next page: `/v1/*` is rewritten to the NestJS backend, which answers with a 302 to
     // Google's consent screen. `router.push` would ask the Next router to resolve a route that
     // does not exist in the app, and the browser must genuinely leave the origin for OAuth at all.
@@ -124,33 +125,39 @@ export class ConnectionService {
   }
 
   static async listAvailableLocations(signal?: AbortSignal): Promise<AvailableLocation[]> {
-    const response = await ApiClient.request<{ locations: AvailableLocation[] }>(
-      "/v1/connections/google/available-locations",
-      { signal },
-    );
+    const apiResponse = await connectionsApi.connectionsControllerAvailableLocationsV1({ signal });
+    const response = unwrap<{ locations: AvailableLocation[] }>(apiResponse.data);
 
     return response.locations;
   }
 
   static async confirmLocation(externalLocationId: string): Promise<ConfirmedLocation> {
-    const response = await ApiClient.request<ConfirmLocationResponse>("/v1/connections/locations", {
-      method: "POST",
-      body: { externalLocationId },
+    const apiResponse = await connectionsApi.connectionsControllerConfirmLocationV1({
+      confirmLocationDto: { externalLocationId },
     });
+    const response = unwrap<ConfirmLocationResponse>(apiResponse.data);
 
     const { name, ...rest } = response;
     return { ...rest, businessName: name };
   }
 
-  static getBackfillProgress(locationId: string, signal?: AbortSignal): Promise<BackfillProgress> {
-    return ApiClient.request<BackfillProgress>(
-      `/v1/connections/locations/${locationId}/backfill`,
+  static async getBackfillProgress(
+    locationId: string,
+    signal?: AbortSignal,
+  ): Promise<BackfillProgress> {
+    const apiResponse = await connectionsSyncApi.connectionsSyncControllerGetBackfillV1(
+      { locationId },
       { signal },
     );
+    return unwrap<BackfillProgress>(apiResponse.data);
   }
 
-  static disconnect(): Promise<{ deactivatedLocationIds: string[]; credentialRevoked: boolean }> {
-    return ApiClient.request("/v1/connections/google", { method: "DELETE" });
+  static async disconnect(): Promise<{
+    deactivatedLocationIds: string[];
+    credentialRevoked: boolean;
+  }> {
+    const apiResponse = await connectionsApi.connectionsControllerDisconnectV1();
+    return unwrap(apiResponse.data);
   }
 
   private static resolveStatus(response: ConnectionStatusResponse): ConnectionStatus {

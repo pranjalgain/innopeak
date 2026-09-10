@@ -26,9 +26,11 @@ property backing it carries an `example`, and each success `message` comes from
 `src/common/constants/messages.constants.ts` — **a file that does not exist yet**, flagged as a
 prerequisite by the auth module too — never an inline literal.
 
-The JSON examples use the values the frontend's fixtures render today
-(`apps/web/src/app/_libs/mock-data/dashboard-stats.ts`, at the default `30d` range), so a
-response can be diffed against the mock the UI was built on.
+The JSON examples use the values the frontend's fixtures rendered while the screen was still on
+mock data, at the default `30d` range. Those fixtures
+(`apps/web/src/app/_libs/mock-data/dashboard-stats.ts`) were deleted once the dashboard moved onto
+this API — the frontend no longer falls back to them, so an empty or failing response now surfaces
+as an error rather than as plausible-looking numbers.
 
 ## Conventions
 

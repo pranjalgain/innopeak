@@ -1,7 +1,9 @@
 import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
+import { authApi } from "@/app/_libs/api-sdk/auth-api";
+import { refreshSession } from "@/app/_libs/api-sdk/config";
 import { SUPER_ADMIN_EMAIL } from "@/app/_libs/constants/current-owner";
 import { ROUTES } from "@/app/_libs/constants/routes";
-import { ApiClient, ApiError } from "@/app/_libs/services/api-client";
+import { ApiError, unwrap } from "@/app/_libs/services/api-error";
 import { SessionService } from "@/app/_libs/services/session.service";
 import { TokenService } from "@/app/_libs/services/token.service";
 
@@ -16,7 +18,7 @@ export interface AuthenticatedUser {
 }
 
 // No `refreshToken` field — the backend sets it as an httpOnly `refresh_token` cookie
-// (login/verify-email/refresh), never in the JSON body. See ApiClient's `credentials: "include"`.
+// (login/verify-email/refresh), never in the JSON body. See the api-sdk config's `withCredentials`.
 interface TokenResponse {
   accessToken: string;
   expiresIn: number;
@@ -25,8 +27,7 @@ interface TokenResponse {
 }
 
 export type LoginResult =
-  | { kind: "verify_needed"; email: string }
-  | { kind: "success"; hasConnectedBusiness: boolean };
+  { kind: "verify_needed"; email: string } | { kind: "success"; hasConnectedBusiness: boolean };
 
 export interface VerifyOtpResult {
   verified: boolean;
@@ -40,10 +41,9 @@ export interface VerifyOtpResult {
 }
 
 /**
- * Auth service — real backend calls against the NestJS API (`apps/backend`), replacing what used
- * to be a fully mocked implementation. Hooks and components never call the backend or
- * `ApiClient`/`TokenService` directly, so nothing above this file needs to change if the backend
- * contract does.
+ * Auth service — real backend calls against the NestJS API (`apps/backend`), via the generated
+ * `@innopeak/client-sdk`. Hooks and components never call the backend, the SDK, or
+ * `TokenService` directly, so nothing above this file needs to change if the backend contract does.
  *
  * `email` decides which identity a login resolves to: matching `SUPER_ADMIN_EMAIL` routes to the
  * Super Admin area instead of the tenant dashboard, mirroring how the real backend keeps
@@ -69,7 +69,8 @@ export class AuthService {
    * what the server just said.
    */
   static async me(): Promise<AuthenticatedUser> {
-    const user = await ApiClient.request<AuthenticatedUser>("/v1/auth/me");
+    const response = await authApi.authControllerMeV1();
+    const user = unwrap<AuthenticatedUser>(response.data);
 
     TokenService.setName(user.name);
     TokenService.setHasPassword(user.hasPassword);
@@ -80,9 +81,14 @@ export class AuthService {
 
   /** Real password login. Does NOT redirect — the caller branches on the result (verify_needed vs. success). */
   static async loginWithPassword(email: string, password: string): Promise<LoginResult> {
-    const data = await ApiClient.request<TokenResponse | { status: "pending_verification"; email: string }>(
-      "/v1/auth/login",
-      { method: "POST", auth: false, body: { email, password } },
+    const response = await authApi.authControllerLoginV1(
+      { loginDto: { email, password } },
+      { authOptional: true },
+    );
+    // The SDK's declared return type (`TokenResponseDto`) only documents the success case — a
+    // login for an unverified account actually comes back shaped like `{ status, email }` instead.
+    const data = unwrap<TokenResponse | { status: "pending_verification"; email: string }>(
+      response.data,
     );
 
     if ("status" in data && data.status === "pending_verification") {
@@ -95,7 +101,9 @@ export class AuthService {
     TokenService.setHasPassword(tokenResponse.user.hasPassword);
     TokenService.setBusinessName(tokenResponse.user.businessName);
     await SessionService.setRole(
-      tokenResponse.user.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL ? "super_admin" : "tenant",
+      tokenResponse.user.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL
+        ? "super_admin"
+        : "tenant",
     );
     return { kind: "success", hasConnectedBusiness: tokenResponse.hasConnectedBusiness };
   }
@@ -122,22 +130,23 @@ export class AuthService {
 
   /** Real signup. Throws (ApiError, 409 on an already-registered email) — the caller catches. */
   static async signupWithPassword(values: CreateAccountFormValues): Promise<void> {
-    await ApiClient.request("/v1/auth/signup", {
-      method: "POST",
-      auth: false,
-      body: {
-        businessName: values.businessName,
-        ownerName: values.name,
-        email: values.email,
-        password: values.password,
+    await authApi.authControllerSignupV1(
+      {
+        signupDto: {
+          businessName: values.businessName,
+          ownerName: values.name,
+          email: values.email,
+          password: values.password,
+        },
       },
-    });
+      { authOptional: true },
+    );
   }
 
   /**
-   * Real Google signup. A full-page navigation rather than fetch: the browser has to follow the
-   * redirect to Google's consent screen, and the backend sets an httpOnly binding cookie on the
-   * way out that an XHR could not carry back.
+   * Real Google signup. A full-page navigation rather than an SDK call: the browser has to follow
+   * the redirect to Google's consent screen, and the backend sets an httpOnly binding cookie on
+   * the way out that an XHR could not carry back.
    *
    * No business name here any more — Google returns a person, not a business, so asking for one
    * before the redirect meant collecting it inside the *password* signup form, which read oddly
@@ -157,19 +166,21 @@ export class AuthService {
 
   /**
    * The screen after `startGoogleSignup` lands on `/onboarding/business-name` submits here — the
-   * one thing Google could not supply. Unlike the OAuth steps this IS a normal fetch: there is no
-   * browser navigation to preserve, and the backend's `google_pending_signup` cookie (set by the
-   * callback) rides along automatically via `credentials: "include"`.
+   * one thing Google could not supply. Unlike the OAuth steps this IS a normal request: there is
+   * no browser navigation to preserve, and the backend's `google_pending_signup` cookie (set by
+   * the callback) rides along automatically via `withCredentials`.
    *
    * Throws `ApiError` on 400 (the pending signup expired or was already used — the caller sends
    * the visitor back to restart) or 409 (someone else claimed the email in the meantime).
    */
-  static async completeGoogleSignup(businessName: string): Promise<{ hasConnectedBusiness: boolean }> {
-    const data = await ApiClient.request<TokenResponse>("/v1/auth/google/complete-signup", {
-      method: "POST",
-      auth: false,
-      body: { businessName },
-    });
+  static async completeGoogleSignup(
+    businessName: string,
+  ): Promise<{ hasConnectedBusiness: boolean }> {
+    const response = await authApi.authControllerCompleteGoogleSignupV1(
+      { completeGoogleSignupDto: { businessName } },
+      { authOptional: true },
+    );
+    const data = unwrap<TokenResponse>(response.data);
     TokenService.setAccessToken(data.accessToken);
     TokenService.setName(data.user.name);
     TokenService.setHasPassword(data.user.hasPassword);
@@ -185,11 +196,11 @@ export class AuthService {
    */
   static async verifySignupOtp(email: string, code: string): Promise<VerifyOtpResult> {
     try {
-      const data = await ApiClient.request<TokenResponse>("/v1/auth/verify-email", {
-        method: "POST",
-        auth: false,
-        body: { email, otp: code },
-      });
+      const response = await authApi.authControllerVerifyEmailV1(
+        { verifyEmailDto: { email, otp: code } },
+        { authOptional: true },
+      );
+      const data = unwrap<TokenResponse>(response.data);
       TokenService.setAccessToken(data.accessToken);
       TokenService.setName(data.user.name);
       TokenService.setHasPassword(data.user.hasPassword);
@@ -213,28 +224,24 @@ export class AuthService {
   }
 
   static async resendSignupOtp(email: string): Promise<void> {
-    await ApiClient.request("/v1/auth/resend-verification-otp", {
-      method: "POST",
-      auth: false,
-      body: { email },
-    });
+    await authApi.authControllerResendOtpV1({ resendOtpDto: { email } }, { authOptional: true });
   }
 
   /**
    * Mints a fresh access token from the httpOnly `refresh_token` cookie — no body to send, the
-   * cookie travels automatically via `credentials: "include"`. Returns false (doesn't throw) on
+   * cookie travels automatically via `withCredentials`. Returns false (doesn't throw) on
    * an invalid/expired/missing cookie, so a caller can fall back to redirecting to `/login`
    * instead of surfacing a raw network error.
    */
   static async refreshAccessToken(): Promise<boolean> {
-    const refreshed = await ApiClient.refreshSession();
+    const refreshed = await refreshSession();
     if (!refreshed) TokenService.clear();
     return refreshed;
   }
 
   static async logout(): Promise<void> {
     try {
-      await ApiClient.request("/v1/auth/logout", { method: "POST" });
+      await authApi.authControllerLogoutV1();
     } finally {
       TokenService.clear();
       await SessionService.setRole("tenant");
@@ -258,11 +265,11 @@ export class AuthService {
       }
     }
 
-    const data = await ApiClient.request<TokenResponse>("/v1/auth/change-password", {
-      method: "POST",
-      body: { currentPassword, newPassword },
-      skipRefresh: true,
-    });
+    const response = await authApi.authControllerChangePasswordV1(
+      { changePasswordDto: { currentPassword, newPassword } },
+      { skipRefresh: true },
+    );
+    const data = unwrap<TokenResponse>(response.data);
     TokenService.setAccessToken(data.accessToken);
     TokenService.setName(data.user.name);
     TokenService.setHasPassword(data.user.hasPassword);
@@ -282,11 +289,11 @@ export class AuthService {
       }
     }
 
-    const data = await ApiClient.request<TokenResponse>("/v1/auth/set-password", {
-      method: "POST",
-      body: { newPassword },
-      skipRefresh: true,
-    });
+    const response = await authApi.authControllerSetPasswordV1(
+      { setPasswordDto: { newPassword } },
+      { skipRefresh: true },
+    );
+    const data = unwrap<TokenResponse>(response.data);
     TokenService.setAccessToken(data.accessToken);
     TokenService.setName(data.user.name);
     TokenService.setHasPassword(data.user.hasPassword);

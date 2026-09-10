@@ -1,14 +1,14 @@
 "use client";
 
-import * as React from "react";
+import { type ReactNode, useEffect } from "react";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { useAuthToken } from "@/hooks/auth/use-auth-token";
 
 interface RequireAuthProps {
-  children: React.ReactNode;
+  children: ReactNode;
   /** Shown while the token check is in flight. Defaults to nothing — pass a shell-shaped skeleton for pages where a blank flash would look wrong (e.g. the dashboard). */
-  loadingFallback?: React.ReactNode;
+  loadingFallback?: ReactNode;
 }
 
 /**
@@ -27,7 +27,7 @@ export function RequireAuth({ children, loadingFallback = null }: RequireAuthPro
   // `reviveMissing`: a Google sign-in lands here with real cookies but empty localStorage.
   const { hasToken } = useAuthToken({ reviveMissing: true });
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (hasToken === false) {
       // A hard redirect, not router.replace() — see RedirectIfAuthenticated's comment for why.
       window.location.href = ROUTES.LOGIN;

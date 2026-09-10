@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { useConnection } from "@/app/_libs/providers/connection-provider";
@@ -29,10 +30,10 @@ interface UseSettingsResult {
  */
 export function useSettings(): UseSettingsResult {
   const t = useTranslations("settings.toasts");
-  const [settings, setSettings] = React.useState<SettingsData | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     setIsLoading(true);
@@ -52,12 +53,12 @@ export function useSettings(): UseSettingsResult {
     };
   }, [t]);
 
-  const persist = React.useCallback((next: SettingsData) => {
+  const persist = useCallback((next: SettingsData) => {
     setSettings(next);
     void SettingsService.updateSettings(next);
   }, []);
 
-  const saveGeneral = React.useCallback(
+  const saveGeneral = useCallback(
     async (patch: Partial<GeneralSettings>): Promise<boolean> => {
       if (!settings) return false;
       const nextGeneral = { ...settings.general, ...patch };
@@ -78,7 +79,7 @@ export function useSettings(): UseSettingsResult {
     [settings, t],
   );
 
-  const addBlocklistTerm = React.useCallback(
+  const addBlocklistTerm = useCallback(
     async (term: string): Promise<boolean> => {
       if (!settings) return false;
       const trimmed = term.trim();
@@ -100,7 +101,7 @@ export function useSettings(): UseSettingsResult {
     [settings, t],
   );
 
-  const removeBlocklistTerm = React.useCallback(
+  const removeBlocklistTerm = useCallback(
     async (id: string): Promise<void> => {
       if (!settings) return;
 
@@ -118,7 +119,7 @@ export function useSettings(): UseSettingsResult {
     [settings, t],
   );
 
-  const updateRecipientChannel = React.useCallback(
+  const updateRecipientChannel = useCallback(
     (id: string, channel: NotificationChannel) => {
       if (!settings) return;
       persist({
@@ -132,7 +133,7 @@ export function useSettings(): UseSettingsResult {
     [settings, persist, t],
   );
 
-  const toggleRecipientActive = React.useCallback(
+  const toggleRecipientActive = useCallback(
     (id: string) => {
       if (!settings) return;
       persist({
@@ -148,7 +149,7 @@ export function useSettings(): UseSettingsResult {
 
   const { refresh: refreshConnection } = useConnection();
 
-  const disconnect = React.useCallback(() => {
+  const disconnect = useCallback(() => {
     if (!settings) return;
 
     // A real DELETE now, not a localStorage flag: the backend deactivates the tenant's locations

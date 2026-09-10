@@ -1,9 +1,15 @@
 "use client";
 
+import { useMemo, useState } from "react";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { useForm } from "react-hook-form";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import {
   type ChangePasswordFields,
@@ -21,10 +27,6 @@ import {
   passwordMeetsRequirements,
   PasswordRequirementsList,
 } from "@/components/common/password-requirements-list";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
 
 const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
@@ -50,7 +52,7 @@ export function ProfileSettingsSection() {
           onUpload={(avatarUrl) => void updateAvatar(avatarUrl)}
         />
 
-        <div className="flex flex-col gap-1.5 border-t border-border pt-5">
+        <div className="border-border flex flex-col gap-1.5 border-t pt-5">
           <Label>{t("nameLabel")}</Label>
           <p className="text-sm">{profile.name}</p>
         </div>
@@ -81,7 +83,12 @@ interface ChangePasswordFormProps {
 
 function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) {
   const t = useTranslations("settings.profile");
-  const schema = React.useMemo(() => changePasswordSchema(t), [t]);
+  const schema = useMemo(() => changePasswordSchema(t), [t]);
+  // Collapsed by default — see `AddPasswordForm` below for the same pattern on the SSO-only
+  // path. The fields are a sensitive, rarely-used action; showing three password inputs on every
+  // visit to a page whose main purpose is just *viewing* your name/email/business is noise (and
+  // a bigger target for shoulder-surfing) for the common case where nobody's changing anything.
+  const [expanded, setExpanded] = useState(false);
 
   const {
     register,
@@ -96,7 +103,7 @@ function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) {
 
   // Mirrored into local state via `register`'s onChange rather than read with `watch()`: the
   // checklist needs the value on every keystroke, and `watch` cannot be memoized safely.
-  const [newPasswordValue, setNewPasswordValue] = React.useState("");
+  const [newPasswordValue, setNewPasswordValue] = useState("");
   const requirements = checkPasswordRequirements(newPasswordValue);
   // Hidden again once every rule passes — a column of green ticks is noise, not information.
   const showRequirements =
@@ -104,23 +111,41 @@ function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) {
     newPasswordValue.length > 0 &&
     !passwordMeetsRequirements(requirements);
 
-  const clearForm = () => {
+  const collapse = () => {
     reset();
     setNewPasswordValue("");
+    setExpanded(false);
   };
 
   // `reset()` only on success, so a rejected current password doesn't wipe what the owner typed.
-  const submitPassword = handleSubmit(async values => {
+  const submitPassword = handleSubmit(async (values) => {
     const succeeded = await changePassword(values.currentPassword, values.newPassword);
-    if (succeeded) clearForm();
+    if (succeeded) collapse();
   });
+
+  if (!expanded) {
+    return (
+      <div className="border-border flex flex-col gap-2.5 border-t pt-5">
+        <div>
+          <p className="text-sm font-medium">{t("changePasswordTitle")}</p>
+          <p className="text-muted-foreground mt-0.5 text-[13px]">
+            {t("changePasswordDescription")}
+          </p>
+        </div>
+        <div>
+          <Button type="button" variant="outline" onClick={() => setExpanded(true)}>
+            {t("changePassword")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <form
-      className="flex max-w-sm flex-col gap-4 border-t border-border pt-5"
+      className="border-border flex max-w-sm flex-col gap-4 border-t pt-5"
       onSubmit={submitPassword}
-      noValidate
-    >
+      noValidate>
       <p className="text-sm font-medium">{t("changePasswordTitle")}</p>
 
       <div className="flex flex-col gap-1.5">
@@ -141,7 +166,7 @@ function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) {
           id="owner-new-password"
           autoComplete="new-password"
           {...register("newPassword", {
-            onChange: event => setNewPasswordValue(event.target.value),
+            onChange: (event) => setNewPasswordValue(event.target.value),
           })}
         />
         {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
@@ -160,7 +185,7 @@ function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) {
       </div>
 
       <div className="flex gap-2.5">
-        <Button type="button" variant="ghost" onClick={clearForm} disabled={isSubmitting}>
+        <Button type="button" variant="ghost" onClick={collapse} disabled={isSubmitting}>
           {t("cancel")}
         </Button>
         <Button type="submit" variant="outline" disabled={!isValid || isSubmitting}>
@@ -182,8 +207,8 @@ interface AddPasswordFormProps {
  */
 function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
   const t = useTranslations("settings.profile");
-  const schema = React.useMemo(() => setPasswordSchema(t), [t]);
-  const [expanded, setExpanded] = React.useState(false);
+  const schema = useMemo(() => setPasswordSchema(t), [t]);
+  const [expanded, setExpanded] = useState(false);
 
   const {
     register,
@@ -196,7 +221,7 @@ function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
     defaultValues: { newPassword: "", confirmPassword: "" },
   });
 
-  const [newPasswordValue, setNewPasswordValue] = React.useState("");
+  const [newPasswordValue, setNewPasswordValue] = useState("");
   const requirements = checkPasswordRequirements(newPasswordValue);
   const showRequirements =
     Boolean(touchedFields.newPassword) &&
@@ -211,16 +236,16 @@ function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
 
   // On success `profile.hasPassword` flips to true and this component unmounts (replaced by
   // `ChangePasswordForm`), so there's no local state left to clear.
-  const submitPassword = handleSubmit(async values => {
+  const submitPassword = handleSubmit(async (values) => {
     await setPassword(values.newPassword);
   });
 
   if (!expanded) {
     return (
-      <div className="flex flex-col gap-2.5 border-t border-border pt-5">
+      <div className="border-border flex flex-col gap-2.5 border-t pt-5">
         <div>
           <p className="text-sm font-medium">{t("addPasswordTitle")}</p>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">{t("addPasswordDescription")}</p>
+          <p className="text-muted-foreground mt-0.5 text-[13px]">{t("addPasswordDescription")}</p>
         </div>
         <div>
           <Button type="button" variant="outline" onClick={() => setExpanded(true)}>
@@ -233,10 +258,9 @@ function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
 
   return (
     <form
-      className="flex max-w-sm flex-col gap-4 border-t border-border pt-5"
+      className="border-border flex max-w-sm flex-col gap-4 border-t pt-5"
       onSubmit={submitPassword}
-      noValidate
-    >
+      noValidate>
       <p className="text-sm font-medium">{t("addPasswordTitle")}</p>
 
       <div className="flex flex-col gap-1.5">
@@ -245,7 +269,7 @@ function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
           id="owner-add-password"
           autoComplete="new-password"
           {...register("newPassword", {
-            onChange: event => setNewPasswordValue(event.target.value),
+            onChange: (event) => setNewPasswordValue(event.target.value),
           })}
         />
         {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}

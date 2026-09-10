@@ -1,10 +1,13 @@
 "use client";
 
+import { useCallback, useState } from "react";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+
 import { useTranslations } from "next-intl";
 
-import * as React from "react";
+import { Button } from "@/components/ui/button";
 
 import { AuthDivider } from "@/app/(auth)/_components/auth-divider";
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
@@ -20,7 +23,6 @@ import { AUTH_METHODS } from "@/app/_libs/constants/auth-methods";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/auth/use-auth";
 import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { useOtpVerification } from "@/hooks/auth/use-otp-verification";
@@ -58,9 +60,9 @@ export function OnboardingSignupView() {
     resendSignupOtp,
     isLoading,
   } = useAuth();
-  const [step, setStep] = React.useState<SignupStep>("identity");
-  const [viaPassword, setViaPassword] = React.useState(false);
-  const [signupEmail, setSignupEmail] = React.useState("");
+  const [step, setStep] = useState<SignupStep>("identity");
+  const [viaPassword, setViaPassword] = useState(false);
+  const [signupEmail, setSignupEmail] = useState("");
 
   const bothSsoLike = AUTH_METHODS.sso && AUTH_METHODS.social;
   const stepperSteps = viaPassword ? PASSWORD_STEPS : SSO_LIKE_STEPS;
@@ -70,7 +72,7 @@ export function OnboardingSignupView() {
    * account exists — going back would land an authenticated user on a route that immediately
    * bounces them to /dashboard, which reads as the app losing their place mid-onboarding.
    */
-  const handOffToConnect = React.useCallback(
+  const handOffToConnect = useCallback(
     (via: "password" | "sso") => {
       OnboardingContextService.set({ from: "signup", via });
       router.replace(ROUTES.ONBOARDING_CONNECT);
@@ -108,10 +110,10 @@ export function OnboardingSignupView() {
       <div className="flex w-full max-w-[460px] flex-col items-center gap-6">
         <OnboardingStepper steps={stepperSteps} currentStep={step} />
 
-        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page w-full rounded-xl border border-border bg-card shadow-elevated duration-500 ease-fluid">
+        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page border-border bg-card shadow-elevated ease-fluid w-full rounded-xl border duration-500">
           {step === "identity" ? (
             <>
-              <p className="mb-6 text-center text-sm text-muted-foreground">{t("subtitle")}</p>
+              <p className="text-muted-foreground mb-6 text-center text-sm">{t("subtitle")}</p>
 
               {AUTH_METHODS.password ? (
                 <CreateAccountForm
@@ -126,7 +128,11 @@ export function OnboardingSignupView() {
 
               {bothSsoLike ? (
                 <div className="grid grid-cols-2 gap-3">
-                  <Button type="button" variant="outline" size="block" onClick={() => void handleSsoSubmit()}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="block"
+                    onClick={() => void handleSsoSubmit()}>
                     <MicrosoftLogo />
                     {tLogin("microsoft")}
                   </Button>
@@ -144,8 +150,7 @@ export function OnboardingSignupView() {
                       variant="outline"
                       size="block"
                       disabled={isLoading}
-                      onClick={() => void handleSsoSubmit()}
-                    >
+                      onClick={() => void handleSsoSubmit()}>
                       <MicrosoftLogo />
                       {tLogin("continueWithMicrosoft")}
                     </Button>
@@ -162,7 +167,7 @@ export function OnboardingSignupView() {
               )}
 
               {/* Identity step only — offering "sign in" mid-OTP would abandon a half-created account. */}
-              <div className="mt-6 text-center text-sm text-muted-foreground">
+              <div className="text-muted-foreground mt-6 text-center text-sm">
                 {t("haveAccount")}{" "}
                 <Link href={ROUTES.LOGIN} className="font-medium">
                   {t("signIn")}

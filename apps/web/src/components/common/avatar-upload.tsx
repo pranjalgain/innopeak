@@ -1,6 +1,7 @@
 "use client";
 
-import * as React from "react";
+import { type ChangeEvent, useRef } from "react";
+
 import { LuCamera } from "react-icons/lu";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -20,9 +21,9 @@ interface AvatarUploadProps {
  * replaces the avatar shown here immediately.
  */
 export function AvatarUpload({ avatarUrl, initials, changeLabel, onUpload }: AvatarUploadProps) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     onUpload(URL.createObjectURL(file));
@@ -33,7 +34,7 @@ export function AvatarUpload({ avatarUrl, initials, changeLabel, onUpload }: Ava
     <div className="flex items-center gap-4">
       <Avatar className="size-16">
         {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
-        <AvatarFallback className="bg-accent text-lg font-medium text-accent-foreground">
+        <AvatarFallback className="bg-accent text-accent-foreground text-lg font-medium">
           {initials}
         </AvatarFallback>
       </Avatar>
@@ -42,7 +43,13 @@ export function AvatarUpload({ avatarUrl, initials, changeLabel, onUpload }: Ava
           <LuCamera />
           {changeLabel}
         </Button>
-        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileChange}
+        />
       </div>
     </div>
   );

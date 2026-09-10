@@ -1,7 +1,15 @@
 "use client";
 
+import {
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,12 +44,12 @@ export function OtpVerificationStage({
   translationNamespace = DEFAULT_TRANSLATION_NAMESPACE,
 }: OtpVerificationStageProps) {
   const t = useTranslations(translationNamespace);
-  const [digits, setDigits] = React.useState<string[]>(() => Array(CODE_LENGTH).fill(""));
-  const [error, setError] = React.useState<string | null>(null);
-  const [cooldown, setCooldown] = React.useState(0);
-  const inputRefs = React.useRef<(HTMLInputElement | null)[]>([]);
+  const [digits, setDigits] = useState<string[]>(() => Array(CODE_LENGTH).fill(""));
+  const [error, setError] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setInterval(() => setCooldown((prev) => Math.max(prev - 1, 0)), 1000);
     return () => clearInterval(timer);
@@ -54,13 +62,13 @@ export function OtpVerificationStage({
     if (value && index < CODE_LENGTH - 1) inputRefs.current[index + 1]?.focus();
   };
 
-  const handleKeyDown = (index: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (index: number, event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Backspace" && !digits[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
     }
   };
 
-  const handlePaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = (event: ClipboardEvent<HTMLInputElement>) => {
     const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, CODE_LENGTH);
     if (!pasted) return;
     event.preventDefault();
@@ -69,7 +77,7 @@ export function OtpVerificationStage({
     inputRefs.current[Math.min(pasted.length, CODE_LENGTH - 1)]?.focus();
   };
 
-  const handleVerify = (event: React.FormEvent) => {
+  const handleVerify = (event: FormEvent) => {
     event.preventDefault();
     const code = digits.join("");
     if (code.length < CODE_LENGTH) {
@@ -88,7 +96,7 @@ export function OtpVerificationStage({
   return (
     <form className="flex flex-col items-center gap-4 text-center" onSubmit={handleVerify}>
       <h1 className="text-gradient text-lg font-semibold">{t("title")}</h1>
-      <p className="text-sm leading-relaxed text-muted-foreground">{t("description", { email })}</p>
+      <p className="text-muted-foreground text-sm leading-relaxed">{t("description", { email })}</p>
 
       <div className="flex flex-col items-center gap-1.5">
         <Label htmlFor="otp-digit-0" className="sr-only">
@@ -114,14 +122,19 @@ export function OtpVerificationStage({
             />
           ))}
         </div>
-        {error ? <p className="text-[12.5px] text-destructive">{error}</p> : null}
+        {error ? <p className="text-destructive text-[12.5px]">{error}</p> : null}
       </div>
 
       <Button type="submit" size="block" disabled={isLoading}>
         {isLoading ? t("verifying") : t("verifyButton")}
       </Button>
 
-      <Button type="button" variant="ghost" size="sm" disabled={cooldown > 0 || isLoading} onClick={handleResend}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={cooldown > 0 || isLoading}
+        onClick={handleResend}>
         {cooldown > 0 ? t("resendIn", { seconds: cooldown }) : t("resend")}
       </Button>
     </form>

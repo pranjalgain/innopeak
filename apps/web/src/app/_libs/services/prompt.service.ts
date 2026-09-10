@@ -1,7 +1,8 @@
-import { ApiClient, ApiError } from "@/app/_libs/services/api-client";
+import { promptsApi } from "@/app/_libs/api-sdk/prompts-api";
+import { unwrap } from "@/app/_libs/services/api-error";
 import type { AiPrompt, PromptTone, PromptVersion } from "@/types/domain";
 
-export { ApiError as PromptApiError };
+export { ApiError as PromptApiError } from "@/app/_libs/services/api-error";
 
 interface ApiCreatedBy {
   userId: string;
@@ -71,19 +72,22 @@ function mapPrompt(prompt: ApiPrompt): AiPrompt {
 }
 
 /**
- * Prompt management against the NestJS prompts API. Hooks call this class, never ApiClient directly.
+ * Prompt management against the NestJS prompts API. Hooks call this class, never the generated
+ * SDK directly.
  */
 export class PromptService {
   static async getPrompts(): Promise<AiPrompt[]> {
-    const data = await ApiClient.request<ApiPromptList>("/v1/prompts?includeHistory=true");
+    const response = await promptsApi.promptsControllerListV1({ includeHistory: true });
+    const data = unwrap<ApiPromptList>(response.data);
     return data.prompts.map(mapPrompt);
   }
 
   static async createVersion(prompt: AiPrompt, template: string): Promise<AiPrompt> {
-    const created = await ApiClient.request<ApiCreateVersionResponse>(
-      `/v1/prompts/${prompt.id}/versions`,
-      { method: "POST", body: { template } },
-    );
+    const response = await promptsApi.promptsControllerCreateVersionV1({
+      promptId: prompt.id,
+      createPromptVersionDto: { template },
+    });
+    const created = unwrap<ApiCreateVersionResponse>(response.data);
 
     const nextVersion: PromptVersion = mapVersion(created.version);
     return {
@@ -93,10 +97,11 @@ export class PromptService {
   }
 
   static async updateTone(prompt: AiPrompt, tone: PromptTone): Promise<AiPrompt> {
-    const updated = await ApiClient.request<ApiUpdateToneResponse>(`/v1/prompts/${prompt.id}/tone`, {
-      method: "PUT",
-      body: { tone },
+    const response = await promptsApi.promptsControllerUpdateToneV1({
+      promptId: prompt.id,
+      updatePromptToneDto: { tone },
     });
+    const updated = unwrap<ApiUpdateToneResponse>(response.data);
     return { ...prompt, tone: updated.tone };
   }
 }

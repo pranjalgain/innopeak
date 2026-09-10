@@ -1,6 +1,13 @@
-import type { Review, ReviewClassification, ReviewQueueFilters, ReviewReplyDraft } from "@/types/domain";
+import type { ReviewsControllerListReviewsV1ClassificationEnum } from "@innopeak/client-sdk";
 
-import { ApiClient } from "./api-client";
+import { reviewsApi } from "@/app/_libs/api-sdk/reviews-api";
+import { unwrap } from "@/app/_libs/services/api-error";
+import type {
+  Review,
+  ReviewClassification,
+  ReviewQueueFilters,
+  ReviewReplyDraft,
+} from "@/types/domain";
 
 /** The API's own classification values. The frontend union also carries "unclassified", which the
  * API does not accept — no column backs it, so sending it would be a 400. */
@@ -78,29 +85,28 @@ interface ApiReviewList {
  */
 export class ReviewService {
   static async getReviews(options: ReviewQueryOptions = {}): Promise<ReviewPage> {
-    const query = new URLSearchParams();
     const { page = 1, pageSize = 20, filters } = options;
 
-    query.set("page", String(page));
-    query.set("pageSize", String(pageSize));
-
-    if (filters?.status && filters.status !== "all") {
-      query.set("status", filters.status);
-    }
     // "unclassified" is silently dropped rather than sent: it is a frontend-only value the API
     // would reject with a 400, and a validation error is a worse answer than an unfiltered list.
-    if (
+    // The cast is safe, not assumed — `API_CLASSIFICATIONS` is checked immediately above, and its
+    // three members are exactly the SDK enum's own values; `Array.includes` just doesn't narrow
+    // the checked value's type, so TS still sees the wider (`| "unclassified"`) union here.
+    const classification =
       filters?.classification &&
       filters.classification !== "all" &&
       API_CLASSIFICATIONS.includes(filters.classification)
-    ) {
-      query.set("classification", filters.classification);
-    }
-    if (filters?.search?.trim()) {
-      query.set("search", filters.search.trim());
-    }
+        ? (filters.classification as ReviewsControllerListReviewsV1ClassificationEnum)
+        : undefined;
 
-    const response = await ApiClient.request<ApiReviewList>(`/v1/reviews?${query.toString()}`);
+    const apiResponse = await reviewsApi.reviewsControllerListReviewsV1({
+      page,
+      pageSize,
+      status: filters?.status && filters.status !== "all" ? filters.status : undefined,
+      classification,
+      search: filters?.search?.trim() || undefined,
+    });
+    const response = unwrap<ApiReviewList>(apiResponse.data);
 
     return {
       reviews: response.data.map((item) => this.toReview(item)),
@@ -112,7 +118,8 @@ export class ReviewService {
   }
 
   static async getReviewById(id: string): Promise<Review | null> {
-    const detail = await ApiClient.request<ApiReviewDetail>(`/v1/reviews/${id}`);
+    const apiResponse = await reviewsApi.reviewsControllerGetReviewV1({ reviewId: id });
+    const detail = unwrap<ApiReviewDetail>(apiResponse.data);
 
     return {
       ...this.toReview(detail),

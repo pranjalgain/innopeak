@@ -475,6 +475,8 @@
       "emailLabel": "Email",
       "businessNameLabel": "Business name",
       "changePasswordTitle": "Change password",
+      "changePasswordDescription": "Update the password used to sign in to this account.",
+      "changePassword": "Change password",
       "currentPasswordLabel": "Current password",
       "newPasswordLabel": "New password",
       "confirmPasswordLabel": "Confirm new password",

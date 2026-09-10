@@ -1,18 +1,20 @@
 "use client";
 
+import { useMemo } from "react";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { useForm } from "react-hook-form";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 import {
   type PasswordAuthFields,
   passwordAuthSchema,
 } from "@/app/(auth)/_schemas/password-auth.schema";
 import { PasswordInput } from "@/components/common/password-input";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 interface PasswordAuthFormProps {
   isLoading: boolean;
@@ -33,9 +35,14 @@ const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
  * caught here rather than spending a round trip to earn a 400. The password is only checked for
  * presence — see the schema for why sign-in must not enforce the signup rules.
  */
-export function PasswordAuthForm({ isLoading, onSubmit, submitLabel, submittingLabel }: PasswordAuthFormProps) {
+export function PasswordAuthForm({
+  isLoading,
+  onSubmit,
+  submitLabel,
+  submittingLabel,
+}: PasswordAuthFormProps) {
   const t = useTranslations("auth.passwordMock");
-  const schema = React.useMemo(() => passwordAuthSchema(t), [t]);
+  const schema = useMemo(() => passwordAuthSchema(t), [t]);
 
   const {
     register,
@@ -47,7 +54,7 @@ export function PasswordAuthForm({ isLoading, onSubmit, submitLabel, submittingL
     defaultValues: { email: "", password: "" },
   });
 
-  const submit = handleSubmit(values => onSubmit(values.email, values.password));
+  const submit = handleSubmit((values) => onSubmit(values.email, values.password));
 
   return (
     <form className="flex flex-col gap-4" onSubmit={submit} noValidate>

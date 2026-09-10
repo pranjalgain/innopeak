@@ -1,7 +1,12 @@
-import * as React from "react";
+import { useEffect, useState } from "react";
 
 import { DashboardService } from "@/app/_libs/services/dashboard.service";
-import type { AttentionReview, DashboardStats, DateRange, RatingDistributionRow } from "@/types/domain";
+import type {
+  AttentionReview,
+  DashboardStats,
+  DateRange,
+  RatingDistributionRow,
+} from "@/types/domain";
 
 interface UseDashboardStatsResult {
   stats: DashboardStats | null;
@@ -22,13 +27,13 @@ interface UseDashboardStatsResult {
  * forever whenever that call failed.
  */
 export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
-  const [stats, setStats] = React.useState<DashboardStats | null>(null);
-  const [ratingDistribution, setRatingDistribution] = React.useState<RatingDistributionRow[]>([]);
-  const [attentionReviews, setAttentionReviews] = React.useState<AttentionReview[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [ratingDistribution, setRatingDistribution] = useState<RatingDistributionRow[]>([]);
+  const [attentionReviews, setAttentionReviews] = useState<AttentionReview[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     setIsLoading(true);

@@ -1,9 +1,10 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import * as React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiError } from "@/app/_libs/services/api-client";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
+import { ApiError } from "@/app/_libs/services/api-error";
 import {
   type AvailableLocation,
   type BackfillProgress,
@@ -81,22 +82,22 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [stage, setStage] = React.useState<OnboardingConnectStage>("checking");
-  const [error, setError] = React.useState<ConnectFlowError | null>(null);
-  const [locations, setLocations] = React.useState<AvailableLocation[]>([]);
-  const [selectedLocationId, setSelectedLocationId] = React.useState<string | null>(null);
-  const [locationId, setLocationId] = React.useState<string | null>(null);
-  const [progress, setProgress] = React.useState<number | null>(null);
-  const [reviewsFetched, setReviewsFetched] = React.useState(0);
-  const [totalToImport, setTotalToImport] = React.useState<number | null>(null);
-  const [isSlow, setIsSlow] = React.useState(false);
+  const [stage, setStage] = useState<OnboardingConnectStage>("checking");
+  const [error, setError] = useState<ConnectFlowError | null>(null);
+  const [locations, setLocations] = useState<AvailableLocation[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
+  const [locationId, setLocationId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [reviewsFetched, setReviewsFetched] = useState(0);
+  const [totalToImport, setTotalToImport] = useState<number | null>(null);
+  const [isSlow, setIsSlow] = useState(false);
 
-  const abortRef = React.useRef<AbortController | null>(null);
-  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = React.useRef(true);
-  const slowSinceRef = React.useRef<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+  const slowSinceRef = useRef<number | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
@@ -105,7 +106,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     };
   }, []);
 
-  const fail = React.useCallback((code: string, recovery: ErrorRecovery) => {
+  const fail = useCallback((code: string, recovery: ErrorRecovery) => {
     if (!mountedRef.current) return;
     setError({ code, recovery });
     setStage("error");
@@ -113,7 +114,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
   // ── Backfill polling ────────────────────────────────────────────────────
 
-  const applyProgress = React.useCallback(
+  const applyProgress = useCallback(
     (snapshot: BackfillProgress) => {
       setReviewsFetched((current) => Math.max(current, snapshot.reviewsFetched ?? 0));
       setTotalToImport(snapshot.totalToImport);
@@ -158,9 +159,9 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
   // reference itself inside its own body (it is not yet bound when the body is created), and a
   // plain recursive closure would capture a stale `applyProgress`. The ref is assigned on every
   // render, so each tick calls the current implementation.
-  const pollBackfillRef = React.useRef<(id: string) => Promise<void>>(async () => undefined);
+  const pollBackfillRef = useRef<(id: string) => Promise<void>>(async () => undefined);
 
-  const pollBackfill = React.useCallback(
+  const pollBackfill = useCallback(
     async (id: string): Promise<void> => {
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -192,11 +193,11 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
   // Assigned in an effect, not during render: React forbids mutating a ref in the render phase
   // (a re-render that never commits would leave the ref pointing at a discarded closure).
-  React.useEffect(() => {
+  useEffect(() => {
     pollBackfillRef.current = pollBackfill;
   }, [pollBackfill]);
 
-  const startBackfill = React.useCallback(
+  const startBackfill = useCallback(
     (id: string) => {
       setLocationId(id);
       setStage("backfilling");
@@ -207,7 +208,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
   // Background tabs throttle timers to roughly once a minute, so a user who switches away and back
   // would otherwise see a bar frozen where they left it. Re-poll immediately on return.
-  React.useEffect(() => {
+  useEffect(() => {
     if (stage !== "backfilling" || !locationId) return;
 
     const onVisible = () => {
@@ -223,7 +224,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
   // ── Location discovery ──────────────────────────────────────────────────
 
-  const loadLocations = React.useCallback(async () => {
+  const loadLocations = useCallback(async () => {
     setStage("loading_locations");
 
     try {
@@ -252,7 +253,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
   // ── Mount: read the callback's query params, then resume ────────────────
 
-  const resume = React.useCallback(async () => {
+  const resume = useCallback(async () => {
     try {
       const state = await ConnectionService.getState();
       if (!mountedRef.current) return;
@@ -291,7 +292,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     }
   }, [fail, loadLocations, startBackfill]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const oauthError = searchParams.get("error");
     const connected = searchParams.get("connected");
 
@@ -318,16 +319,16 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
   // ── Actions ─────────────────────────────────────────────────────────────
 
-  const startConnect = React.useCallback(() => {
+  const startConnect = useCallback(() => {
     setStage("redirecting");
     void ConnectionService.startAuthorize("onboarding");
   }, []);
 
-  const selectLocation = React.useCallback((externalLocationId: string) => {
+  const selectLocation = useCallback((externalLocationId: string) => {
     setSelectedLocationId(externalLocationId);
   }, []);
 
-  const confirmLocation = React.useCallback(() => {
+  const confirmLocation = useCallback(() => {
     if (!selectedLocationId) return;
 
     setStage("submitting_location");
@@ -348,7 +349,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     })();
   }, [selectedLocationId, startBackfill, fail]);
 
-  const retry = React.useCallback(() => {
+  const retry = useCallback(() => {
     const recovery = error?.recovery;
     setError(null);
     setIsSlow(false);

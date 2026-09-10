@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { TenantMemberService } from "@/app/_libs/services/tenant-member.service";
@@ -14,10 +15,10 @@ interface UseTenantMembersResult {
 
 export function useTenantMembers(): UseTenantMembersResult {
   const t = useTranslations("settings.members.toasts");
-  const [members, setMembers] = React.useState<TenantMember[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [members, setMembers] = useState<TenantMember[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     TenantMemberService.getMembers()
@@ -37,7 +38,7 @@ export function useTenantMembers(): UseTenantMembersResult {
   }, [t]);
 
   /** Returns whether it succeeded, so the form knows to clear itself. */
-  const inviteMember = React.useCallback(
+  const inviteMember = useCallback(
     async (email: string) => {
       try {
         const member = await TenantMemberService.inviteMember(email);
@@ -52,7 +53,7 @@ export function useTenantMembers(): UseTenantMembersResult {
     [t],
   );
 
-  const revokeInvite = React.useCallback(
+  const revokeInvite = useCallback(
     async (id: string) => {
       try {
         await TenantMemberService.revokeInvite(id);

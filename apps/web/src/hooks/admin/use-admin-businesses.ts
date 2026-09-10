@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { AdminBusinessService } from "@/app/_libs/services/admin-business.service";
@@ -15,10 +16,10 @@ interface UseAdminBusinessesResult {
 /** Loads every business once — fine at this data volume, same as `useReviewQueue`. */
 export function useAdminBusinesses(): UseAdminBusinessesResult {
   const t = useTranslations("adminBusinesses.toasts");
-  const [businesses, setBusinesses] = React.useState<AdminBusiness[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [businesses, setBusinesses] = useState<AdminBusiness[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     AdminBusinessService.getBusinesses()
@@ -37,7 +38,7 @@ export function useAdminBusinesses(): UseAdminBusinessesResult {
     };
   }, [t]);
 
-  const setStatus = React.useCallback(
+  const setStatus = useCallback(
     async (id: string, status: AdminBusiness["status"]) => {
       try {
         const updated = await AdminBusinessService.setStatus(id, status);
@@ -49,8 +50,8 @@ export function useAdminBusinesses(): UseAdminBusinessesResult {
     [t],
   );
 
-  const suspendBusiness = React.useCallback((id: string) => setStatus(id, "suspended"), [setStatus]);
-  const reactivateBusiness = React.useCallback((id: string) => setStatus(id, "active"), [setStatus]);
+  const suspendBusiness = useCallback((id: string) => setStatus(id, "suspended"), [setStatus]);
+  const reactivateBusiness = useCallback((id: string) => setStatus(id, "active"), [setStatus]);
 
   return { businesses, isLoading, suspendBusiness, reactivateBusiness };
 }

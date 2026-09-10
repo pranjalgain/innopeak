@@ -1,14 +1,15 @@
 "use client";
 
+import { type ReactNode, useEffect } from "react";
+
 import { useRouter } from "next/navigation";
-import * as React from "react";
 
 import { ShellSkeleton } from "@/app/_components/shell-skeleton";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { useSession } from "@/hooks/auth/use-session";
 
 interface AdminGuardProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 /**
@@ -23,7 +24,7 @@ export function AdminGuard({ children }: AdminGuardProps) {
   const { role, isLoading } = useSession();
   const router = useRouter();
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isLoading && role !== "super_admin") {
       router.replace(ROUTES.LOGIN);
     }

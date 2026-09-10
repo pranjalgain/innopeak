@@ -1,6 +1,6 @@
-import * as React from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 
-import { ApiClient } from "@/app/_libs/services/api-client";
+import { refreshSession } from "@/app/_libs/api-sdk/config";
 import { TokenService } from "@/app/_libs/services/token.service";
 
 interface UseAuthTokenOptions {
@@ -31,14 +31,14 @@ interface UseAuthTokenResult {
 // would otherwise see that page's content flash for one frame before the redirect kicks in.
 // Guarded for SSR, where useLayoutEffect would otherwise warn (it never runs there; the check only
 // makes sense client-side).
-const useIsomorphicLayoutEffect = typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
  * Answers "does this visitor have a usable session?" for the route guards.
  *
  * Two states resolve immediately, and everything else asks the backend. A *valid* localStorage
  * token resolves true immediately. Everything else — expired, or missing entirely — falls through
- * to `ApiClient.refreshSession()`, which reads the httpOnly `refresh_token` cookie the backend set
+ * to `refreshSession()`, which reads the httpOnly `refresh_token` cookie the backend set
  * directly and is the only reliable source of truth localStorage can disagree with.
  *
  * Missing-entirely used to resolve false immediately, on the assumption that "nothing in
@@ -58,8 +58,10 @@ const useIsomorphicLayoutEffect = typeof window === "undefined" ? React.useEffec
  * treating it as signed out would instead sign people out every 15 idle minutes despite a
  * perfectly good refresh token.
  */
-export function useAuthToken({ reviveMissing = false }: UseAuthTokenOptions = {}): UseAuthTokenResult {
-  const [hasToken, setHasToken] = React.useState<boolean | null>(null);
+export function useAuthToken({
+  reviveMissing = false,
+}: UseAuthTokenOptions = {}): UseAuthTokenResult {
+  const [hasToken, setHasToken] = useState<boolean | null>(null);
 
   useIsomorphicLayoutEffect(() => {
     let cancelled = false;
@@ -76,11 +78,11 @@ export function useAuthToken({ reviveMissing = false }: UseAuthTokenOptions = {}
       return;
     }
 
-    // Expired, or missing on a screen that must know for certain. ApiClient.refreshSession is
+    // Expired, or missing on a screen that must know for certain. refreshSession is
     // single-flight, so several guards mounting at once still make one rotation, and the stale
     // token (if any) is cleared on failure so the next mount short-circuits to false instead of
     // retrying.
-    void ApiClient.refreshSession().then((refreshed) => {
+    void refreshSession().then((refreshed) => {
       if (cancelled) return;
       if (!refreshed) TokenService.clear();
       setHasToken(refreshed);

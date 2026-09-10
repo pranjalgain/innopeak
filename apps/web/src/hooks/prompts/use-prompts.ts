@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { PromptService } from "@/app/_libs/services/prompt.service";
@@ -16,11 +17,11 @@ interface UsePromptsResult {
 /** Load failures, save outcomes, and tone changes all surface via toast. */
 export function usePrompts(): UsePromptsResult {
   const t = useTranslations("promptManagement.toasts");
-  const [prompts, setPrompts] = React.useState<AiPrompt[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [isSaving, setIsSaving] = React.useState(false);
+  const [prompts, setPrompts] = useState<AiPrompt[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     setIsLoading(true);
@@ -40,7 +41,7 @@ export function usePrompts(): UsePromptsResult {
     };
   }, [t]);
 
-  const saveNewVersion = React.useCallback(
+  const saveNewVersion = useCallback(
     async (id: string, template: string) => {
       const prompt = prompts.find((p) => p.id === id);
       if (!prompt) return;
@@ -62,7 +63,7 @@ export function usePrompts(): UsePromptsResult {
     [prompts, t],
   );
 
-  const updateTone = React.useCallback(
+  const updateTone = useCallback(
     async (id: string, tone: PromptTone) => {
       const prompt = prompts.find((p) => p.id === id);
       if (!prompt) return;

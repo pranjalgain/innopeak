@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { NotificationService } from "@/app/_libs/services/notification.service";
@@ -37,46 +38,49 @@ interface UseNotificationsResult {
  */
 export function useNotifications(): UseNotificationsResult {
   const t = useTranslations("appShell.notificationPanel.toasts");
-  const [notifications, setNotifications] = React.useState<Notification[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [isFetchingNextPage, setIsFetchingNextPage] = React.useState(false);
-  const [nextPageFailed, setNextPageFailed] = React.useState(false);
-  const [hasMore, setHasMore] = React.useState(true);
-  const [unreadTotal, setUnreadTotal] = React.useState(0);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
+  const [nextPageFailed, setNextPageFailed] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [unreadTotal, setUnreadTotal] = useState(0);
   // Mirrors `notifications.length` synchronously for the offset — state updates aren't visible
   // within the same tick, and a fast double-trigger must not request the same offset twice.
-  const offsetRef = React.useRef(0);
-  const isFetchingRef = React.useRef(false);
+  const offsetRef = useRef(0);
+  const isFetchingRef = useRef(false);
   // Guards the initial load against React StrictMode's dev-only double-invoke of mount effects —
   // without it, the second invocation re-fires the same offset-0 request and its results get
   // appended on top of the first's, duplicating every row in the list.
-  const initialLoadStarted = React.useRef(false);
+  const initialLoadStarted = useRef(false);
 
-  const fetchPage = React.useCallback((offset: number, isInitial: boolean) => {
-    isFetchingRef.current = true;
-    if (isInitial) setIsLoading(true);
-    else setIsFetchingNextPage(true);
+  const fetchPage = useCallback(
+    (offset: number, isInitial: boolean) => {
+      isFetchingRef.current = true;
+      if (isInitial) setIsLoading(true);
+      else setIsFetchingNextPage(true);
 
-    NotificationService.list(offset, PAGE_SIZE)
-      .then((result) => {
-        setNotifications((current) => [...current, ...result.items]);
-        offsetRef.current = offset + result.items.length;
-        setHasMore(result.hasMore);
-        setUnreadTotal(result.unreadTotal);
-        setNextPageFailed(false);
-      })
-      .catch(() => {
-        if (isInitial) toast.error(t("loadFailed"));
-        else setNextPageFailed(true);
-      })
-      .finally(() => {
-        isFetchingRef.current = false;
-        if (isInitial) setIsLoading(false);
-        else setIsFetchingNextPage(false);
-      });
-  }, [t]);
+      NotificationService.list(offset, PAGE_SIZE)
+        .then((result) => {
+          setNotifications((current) => [...current, ...result.items]);
+          offsetRef.current = offset + result.items.length;
+          setHasMore(result.hasMore);
+          setUnreadTotal(result.unreadTotal);
+          setNextPageFailed(false);
+        })
+        .catch(() => {
+          if (isInitial) toast.error(t("loadFailed"));
+          else setNextPageFailed(true);
+        })
+        .finally(() => {
+          isFetchingRef.current = false;
+          if (isInitial) setIsLoading(false);
+          else setIsFetchingNextPage(false);
+        });
+    },
+    [t],
+  );
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialLoadStarted.current) return;
     initialLoadStarted.current = true;
     fetchPage(0, true);
@@ -85,13 +89,13 @@ export function useNotifications(): UseNotificationsResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchNextPage = React.useCallback(() => {
+  const fetchNextPage = useCallback(() => {
     if (isFetchingRef.current || !hasMore || nextPageFailed) return;
     fetchPage(offsetRef.current, false);
   }, [hasMore, nextPageFailed, fetchPage]);
 
   /** The explicit retry behind `nextPageFailed` — scrolling alone must not re-fire a failing request. */
-  const retryNextPage = React.useCallback(() => {
+  const retryNextPage = useCallback(() => {
     if (isFetchingRef.current || !hasMore) return;
     setNextPageFailed(false);
     fetchPage(offsetRef.current, false);
@@ -99,7 +103,7 @@ export function useNotifications(): UseNotificationsResult {
 
   // `notifications` is read directly rather than inside a `setNotifications` updater: nudging the
   // unread total from inside one would double-count under StrictMode, which invokes updaters twice.
-  const markAsRead = React.useCallback(
+  const markAsRead = useCallback(
     (id: string) => {
       const target = notifications.find((notification) => notification.id === id);
       if (target === undefined || target.isRead) return;
@@ -115,10 +119,12 @@ export function useNotifications(): UseNotificationsResult {
     [notifications],
   );
 
-  const markAllAsRead = React.useCallback(() => {
+  const markAllAsRead = useCallback(() => {
     // Marks the whole feed server-side, so the total goes to zero rather than dropping by however
     // many rows happen to be loaded.
-    setNotifications((current) => current.map((notification) => ({ ...notification, isRead: true })));
+    setNotifications((current) =>
+      current.map((notification) => ({ ...notification, isRead: true })),
+    );
     setUnreadTotal(0);
     void NotificationService.markAllAsRead();
   }, []);

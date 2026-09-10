@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { AdminBillingService } from "@/app/_libs/services/admin-billing.service";
@@ -19,14 +20,14 @@ interface UseAdminOverviewResult {
 /** Aggregates counts across the other admin services — no dedicated mock-data of its own (except review throughput, which has none to derive from). */
 export function useAdminOverview(): UseAdminOverviewResult {
   const t = useTranslations("adminOverview.toasts");
-  const [businessCount, setBusinessCount] = React.useState(0);
-  const [userCount, setUserCount] = React.useState(0);
-  const [mrr, setMrr] = React.useState(0);
-  const [totalReviewsFetched, setTotalReviewsFetched] = React.useState(0);
-  const [totalRepliesSent, setTotalRepliesSent] = React.useState(0);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [businessCount, setBusinessCount] = useState(0);
+  const [userCount, setUserCount] = useState(0);
+  const [mrr, setMrr] = useState(0);
+  const [totalReviewsFetched, setTotalReviewsFetched] = useState(0);
+  const [totalRepliesSent, setTotalRepliesSent] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     Promise.all([

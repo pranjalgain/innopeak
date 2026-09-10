@@ -6,13 +6,19 @@ This section contains documentation for shared libraries and utilities used acro
 
 ## Library Organization
 
-Shared code should be organized in the `libs/` directory and documented here:
+Shared code should be organized in the `libs/` directory and documented here.
+
+Documented today:
+
+- [`api-clients.md`](./api-clients.md) - `@innopeak/client-sdk`, the generated OpenAPI client
+  (`libs/client_sdk`) that `apps/web` uses to call the backend
+
+Planned, as shared code is added:
 
 - `utilities.md` - Utility functions and helpers
 - `components.md` - Shared UI components
 - `types.md` - TypeScript type definitions
 - `constants.md` - Shared constants and configurations
-- `api-clients.md` - Shared API client libraries
 
 ## Documentation Standards
 
@@ -39,7 +45,3 @@ When documenting shared libraries:
 2. Create documentation following the structure above
 3. Update this overview with specific library information
 4. Ensure all applications can access and use shared code
-
----
-
-*This file will be updated when shared libraries are added to the monorepo.*

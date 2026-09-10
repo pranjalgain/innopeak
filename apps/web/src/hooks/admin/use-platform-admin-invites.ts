@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { PlatformAdminInviteService } from "@/app/_libs/services/platform-admin-invite.service";
@@ -14,10 +15,10 @@ interface UsePlatformAdminInvitesResult {
 
 export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
   const t = useTranslations("adminSettings.invite.toasts");
-  const [invites, setInvites] = React.useState<PlatformAdminInvite[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [invites, setInvites] = useState<PlatformAdminInvite[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     PlatformAdminInviteService.getInvites()
@@ -37,7 +38,7 @@ export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
   }, [t]);
 
   /** Returns whether it succeeded, so the form knows to clear itself. */
-  const sendInvite = React.useCallback(
+  const sendInvite = useCallback(
     async (email: string) => {
       try {
         const invite = await PlatformAdminInviteService.sendInvite(email);
@@ -52,7 +53,7 @@ export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
     [t],
   );
 
-  const revokeInvite = React.useCallback(
+  const revokeInvite = useCallback(
     async (id: string) => {
       try {
         await PlatformAdminInviteService.revokeInvite(id);

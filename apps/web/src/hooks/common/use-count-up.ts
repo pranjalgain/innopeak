@@ -1,4 +1,4 @@
-import * as React from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Animates from 0 up to `target` once, the moment `isLoading` first flips
@@ -7,10 +7,10 @@ import * as React from "react";
  * counter rather than a linear tick.
  */
 export function useCountUp(target: number, isLoading: boolean, duration = 900): number {
-  const [value, setValue] = React.useState(0);
-  const hasAnimatedRef = React.useRef(false);
+  const [value, setValue] = useState(0);
+  const hasAnimatedRef = useRef(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isLoading || hasAnimatedRef.current) return;
     hasAnimatedRef.current = true;
 

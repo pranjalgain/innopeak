@@ -1,9 +1,14 @@
 "use client";
 
+import { useMemo, useState } from "react";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { useForm } from "react-hook-form";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 import {
   type CreateAccountFields,
@@ -15,9 +20,6 @@ import {
   passwordMeetsRequirements,
   PasswordRequirementsList,
 } from "@/components/common/password-requirements-list";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 /** The signup payload. Deliberately narrower than the form's fields — `confirmPassword` is UI-only. */
 export interface CreateAccountFormValues {
@@ -47,7 +49,7 @@ const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
  */
 export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProps) {
   const t = useTranslations("onboardingSignup.createAccount");
-  const schema = React.useMemo(() => createAccountSchema(t), [t]);
+  const schema = useMemo(() => createAccountSchema(t), [t]);
 
   const {
     register,
@@ -61,7 +63,7 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
 
   // Mirrored into local state via `register`'s onChange rather than read with `watch()`: the
   // checklist needs the value on every keystroke, and `watch` cannot be memoized safely.
-  const [passwordValue, setPasswordValue] = React.useState("");
+  const [passwordValue, setPasswordValue] = useState("");
   const requirements = checkPasswordRequirements(passwordValue);
   // Hidden again once every rule passes — a column of green ticks is noise, not information.
   const showRequirements =
@@ -69,7 +71,7 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
     passwordValue.length > 0 &&
     !passwordMeetsRequirements(requirements);
 
-  const submit = handleSubmit(values => {
+  const submit = handleSubmit((values) => {
     onSubmit({
       name: values.name,
       businessName: values.businessName,
@@ -125,7 +127,7 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
           placeholder={t("passwordLabel")}
           autoComplete="new-password"
           {...register("password", {
-            onChange: event => setPasswordValue(event.target.value),
+            onChange: (event) => setPasswordValue(event.target.value),
           })}
         />
         {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
