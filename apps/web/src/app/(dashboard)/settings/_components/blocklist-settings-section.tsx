@@ -1,12 +1,14 @@
 "use client";
 
+import { useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { LuPlus, LuX } from "react-icons/lu";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+
 import type { BlocklistTerm } from "@/types/domain";
 
 interface BlocklistSettingsSectionProps {
@@ -15,10 +17,14 @@ interface BlocklistSettingsSectionProps {
   onRemoveTerm: (id: string) => void | Promise<void>;
 }
 
-export function BlocklistSettingsSection({ terms, onAddTerm, onRemoveTerm }: BlocklistSettingsSectionProps) {
+export function BlocklistSettingsSection({
+  terms,
+  onAddTerm,
+  onRemoveTerm,
+}: BlocklistSettingsSectionProps) {
   const t = useTranslations("settings.blocklist");
-  const [newTerm, setNewTerm] = React.useState("");
-  const [isAdding, setIsAdding] = React.useState(false);
+  const [newTerm, setNewTerm] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
 
   const handleAdd = async () => {
     if (!newTerm.trim() || isAdding) return;
@@ -39,14 +45,13 @@ export function BlocklistSettingsSection({ terms, onAddTerm, onRemoveTerm }: Blo
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         {terms.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("empty")}</p>
+          <p className="text-muted-foreground text-sm">{t("empty")}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {terms.map((term) => (
               <div
                 key={term.id}
-                className="inline-flex items-center gap-2 rounded-md bg-secondary py-1.5 pr-1.5 pl-3.5 text-[13px] font-medium text-secondary-foreground"
-              >
+                className="bg-secondary text-secondary-foreground inline-flex items-center gap-2 rounded-md py-1.5 pr-1.5 pl-3.5 text-[13px] font-medium">
                 <span>{term.term}</span>
                 <Button
                   type="button"
@@ -54,8 +59,7 @@ export function BlocklistSettingsSection({ terms, onAddTerm, onRemoveTerm }: Blo
                   size="icon"
                   onClick={() => void onRemoveTerm(term.id)}
                   aria-label={t("removeTerm", { term: term.term })}
-                  className="size-5 rounded-full text-muted-foreground hover:bg-background/60 hover:text-foreground"
-                >
+                  className="text-muted-foreground hover:bg-background/60 hover:text-foreground size-5 rounded-full">
                   <LuX className="size-3" />
                 </Button>
               </div>
@@ -63,7 +67,7 @@ export function BlocklistSettingsSection({ terms, onAddTerm, onRemoveTerm }: Blo
           </div>
         )}
 
-        <div className="flex gap-2.5 border-t border-border pt-5">
+        <div className="border-border flex gap-2.5 border-t pt-5">
           <Input
             type="text"
             placeholder={t("addPlaceholder")}

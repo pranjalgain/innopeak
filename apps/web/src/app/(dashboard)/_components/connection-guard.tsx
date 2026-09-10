@@ -1,18 +1,21 @@
 "use client";
 
+import { type ReactNode, useEffect } from "react";
+
 import { useRouter } from "next/navigation";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { LuTriangleAlert } from "react-icons/lu";
+
+import { Button } from "@/components/ui/button";
 
 import { ShellSkeleton } from "@/app/_components/shell-skeleton";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { useConnection } from "@/app/_libs/providers/connection-provider";
 import { ConnectionService } from "@/app/_libs/services/connection.service";
-import { Button } from "@/components/ui/button";
 
 interface ConnectionGuardProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 /**
@@ -35,7 +38,7 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
 
   const shouldRedirect = !isLoading && !error && state?.status === "disconnected";
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (shouldRedirect) router.replace(ROUTES.ONBOARDING_CONNECT);
   }, [shouldRedirect, router]);
 
@@ -60,15 +63,14 @@ function ReconnectBanner() {
   const t = useTranslations("appShell.reconnectBanner");
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-warning/30 bg-warning-soft px-4 py-2.5 text-[13px]">
-      <LuTriangleAlert className="size-4 shrink-0 text-warning" />
-      <span className="flex-1 text-foreground">{t("message")}</span>
+    <div className="border-warning/30 bg-warning-soft flex flex-wrap items-center gap-3 border-b px-4 py-2.5 text-[13px]">
+      <LuTriangleAlert className="text-warning size-4 shrink-0" />
+      <span className="text-foreground flex-1">{t("message")}</span>
       <Button
         type="button"
         size="sm"
         variant="outline"
-        onClick={() => void ConnectionService.startAuthorize("settings")}
-      >
+        onClick={() => void ConnectionService.startAuthorize("settings")}>
         {t("action")}
       </Button>
     </div>

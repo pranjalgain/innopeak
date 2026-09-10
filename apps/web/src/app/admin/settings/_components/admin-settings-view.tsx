@@ -1,10 +1,19 @@
 "use client";
 
+import { type FormEvent, useMemo, useState } from "react";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFormatter, useTranslations } from "next-intl";
-import * as React from "react";
 import { useForm } from "react-hook-form";
 import { LuMailPlus, LuSend } from "react-icons/lu";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { CURRENT_SUPER_ADMIN } from "@/app/_libs/constants/current-owner";
 import {
@@ -19,13 +28,6 @@ import {
   passwordMeetsRequirements,
   PasswordRequirementsList,
 } from "@/components/common/password-requirements-list";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePlatformAdminInvites } from "@/hooks/admin/use-platform-admin-invites";
 import { usePlatformAdminProfile } from "@/hooks/admin/use-platform-admin-profile";
 import type { PlatformAdminStatus } from "@/types/domain";
@@ -41,11 +43,11 @@ const STATUS_BADGE_CLASSNAME: Record<PlatformAdminStatus, string> = {
 function ProfileSection() {
   const t = useTranslations("adminSettings.profile");
   const { profile, isLoading, updateAvatar, changePassword } = usePlatformAdminProfile();
-  const [currentPassword, setCurrentPassword] = React.useState("");
-  const [newPassword, setNewPassword] = React.useState("");
-  const [confirmPassword, setConfirmPassword] = React.useState("");
-  const [newPasswordBlurred, setNewPasswordBlurred] = React.useState(false);
-  const [confirmBlurred, setConfirmBlurred] = React.useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [newPasswordBlurred, setNewPasswordBlurred] = useState(false);
+  const [confirmBlurred, setConfirmBlurred] = useState(false);
 
   if (isLoading || !profile) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
 
@@ -58,9 +60,10 @@ function ProfileSection() {
   const showRequirements = newPasswordBlurred && newPassword.length > 0 && !newPasswordValid;
   const showMismatch = confirmBlurred && hasConfirmValue && !passwordsMatch;
 
-  const canSubmitPassword = currentPassword.trim() !== "" && newPasswordValid && passwordsMatch && hasConfirmValue;
+  const canSubmitPassword =
+    currentPassword.trim() !== "" && newPasswordValid && passwordsMatch && hasConfirmValue;
 
-  const handlePasswordSubmit = async (event: React.FormEvent) => {
+  const handlePasswordSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!canSubmitPassword) return;
     const succeeded = await changePassword(currentPassword, newPassword);
@@ -87,15 +90,14 @@ function ProfileSection() {
           onUpload={(avatarUrl) => void updateAvatar(avatarUrl)}
         />
 
-        <div className="flex flex-col gap-1.5 border-t border-border pt-5">
+        <div className="border-border flex flex-col gap-1.5 border-t pt-5">
           <Label>{t("emailLabel")}</Label>
           <p className="text-sm">{profile.email}</p>
         </div>
 
         <form
-          className="flex max-w-sm flex-col gap-4 border-t border-border pt-5"
-          onSubmit={(e) => void handlePasswordSubmit(e)}
-        >
+          className="border-border flex max-w-sm flex-col gap-4 border-t pt-5"
+          onSubmit={(e) => void handlePasswordSubmit(e)}>
           <p className="text-sm font-medium">{t("changePasswordTitle")}</p>
 
           <div className="flex flex-col gap-1.5">
@@ -129,7 +131,9 @@ function ProfileSection() {
               onBlur={() => setConfirmBlurred(true)}
               autoComplete="new-password"
             />
-            {showMismatch ? <p className="text-[12.5px] text-destructive">{t("passwordMismatch")}</p> : null}
+            {showMismatch ? (
+              <p className="text-destructive text-[12.5px]">{t("passwordMismatch")}</p>
+            ) : null}
           </div>
 
           <div>
@@ -148,7 +152,7 @@ function InviteSection() {
   const tStatus = useTranslations("adminSettings.invite.status");
   const format = useFormatter();
   const { invites, isLoading, sendInvite, revokeInvite } = usePlatformAdminInvites();
-  const schema = React.useMemo(() => inviteAdminSchema(t), [t]);
+  const schema = useMemo(() => inviteAdminSchema(t), [t]);
 
   const {
     register,
@@ -162,7 +166,7 @@ function InviteSection() {
   });
 
   // Cleared only on success, so a rejected invite leaves the address in place to correct.
-  const submitInvite = handleSubmit(async values => {
+  const submitInvite = handleSubmit(async (values) => {
     const succeeded = await sendInvite(values.email);
     if (succeeded) reset();
   });
@@ -190,12 +194,12 @@ function InviteSection() {
             </Button>
           </div>
           {errors.email ? (
-            <p className="text-[12.5px] text-destructive">{errors.email.message}</p>
+            <p className="text-destructive text-[12.5px]">{errors.email.message}</p>
           ) : null}
         </form>
 
         {invites.length === 0 ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <p className="text-muted-foreground flex items-center gap-2 text-sm">
             <LuMailPlus className="size-4" />
             {t("empty")}
           </p>
@@ -204,14 +208,17 @@ function InviteSection() {
             {invites.map((invite) => (
               <div
                 key={invite.id}
-                className="flex flex-wrap items-center justify-between gap-3 border-b border-border py-3 last:border-b-0"
-              >
+                className="border-border flex flex-wrap items-center justify-between gap-3 border-b py-3 last:border-b-0">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{invite.email}</p>
-                  <p className="text-[13px] text-muted-foreground">
+                  <p className="text-muted-foreground text-[13px]">
                     {invite.status === "invited"
-                      ? t("expiresOn", { date: format.dateTime(new Date(invite.expiresAt), DATE_FORMAT) })
-                      : t("invitedOn", { date: format.dateTime(new Date(invite.invitedAt), DATE_FORMAT) })}
+                      ? t("expiresOn", {
+                          date: format.dateTime(new Date(invite.expiresAt), DATE_FORMAT),
+                        })
+                      : t("invitedOn", {
+                          date: format.dateTime(new Date(invite.invitedAt), DATE_FORMAT),
+                        })}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -225,8 +232,7 @@ function InviteSection() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="border-destructive text-destructive hover:bg-destructive/10"
-                        >
+                          className="border-destructive text-destructive hover:bg-destructive/10">
                           {t("revoke")}
                         </Button>
                       }
@@ -252,7 +258,7 @@ export function AdminSettingsView() {
   const t = useTranslations("adminSettings");
 
   return (
-    <div className="flex flex-col gap-6 p-fluid-page">
+    <div className="p-fluid-page flex flex-col gap-6">
       <Tabs defaultValue="profile" className="max-w-3xl gap-5">
         <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
           <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger>

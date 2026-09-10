@@ -1,4 +1,4 @@
-import * as React from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
 import { computePromptVersionStats } from "@/app/_libs/utils/prompt-analytics";
@@ -16,10 +16,10 @@ interface UsePromptAnalyticsResult {
  * different data source — prompts and reviews are independent mock services.
  */
 export function usePromptAnalytics(): UsePromptAnalyticsResult {
-  const [reviews, setReviews] = React.useState<Review[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     // A large page rather than "everything": analytics is computed across whatever reply drafts
@@ -43,7 +43,7 @@ export function usePromptAnalytics(): UsePromptAnalyticsResult {
     };
   }, []);
 
-  const getStats = React.useCallback(
+  const getStats = useCallback(
     (promptId: string, version?: number) => computePromptVersionStats(reviews, promptId, version),
     [reviews],
   );

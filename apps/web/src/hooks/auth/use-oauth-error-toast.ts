@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
+
 import { usePathname, useSearchParams } from "next/navigation";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 /**
@@ -23,7 +25,7 @@ export function useOAuthErrorToast(): void {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (error === null) return;
 
     // `t.has` avoids next-intl throwing on a code this build does not know — a backend deployed

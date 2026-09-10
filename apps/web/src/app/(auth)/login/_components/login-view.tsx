@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
+
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+
 import { useTranslations } from "next-intl";
 
-import * as React from "react";
+import { Button } from "@/components/ui/button";
 
 import { AuthDivider } from "@/app/(auth)/_components/auth-divider";
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
@@ -15,7 +18,6 @@ import { OtpVerificationStage } from "@/app/(auth)/onboarding/signup/_components
 import { AUTH_METHODS } from "@/app/_libs/constants/auth-methods";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/auth/use-auth";
 import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { useOtpVerification } from "@/hooks/auth/use-otp-verification";
@@ -45,9 +47,10 @@ export function LoginView() {
   const t = useTranslations("auth.login");
   useOAuthErrorToast();
   const router = useRouter();
-  const { loginWithPassword, startGoogleLogin, verifySignupOtp, resendSignupOtp, isLoading } = useAuth();
-  const [step, setStep] = React.useState<LoginStep>("credentials");
-  const [pendingEmail, setPendingEmail] = React.useState("");
+  const { loginWithPassword, startGoogleLogin, verifySignupOtp, resendSignupOtp, isLoading } =
+    useAuth();
+  const [step, setStep] = useState<LoginStep>("credentials");
+  const [pendingEmail, setPendingEmail] = useState("");
 
   const bothSsoLike = AUTH_METHODS.sso && AUTH_METHODS.social;
 
@@ -76,14 +79,17 @@ export function LoginView() {
     <>
       <AuthLogo />
 
-      <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page w-full max-w-[420px] rounded-xl border border-border bg-card shadow-elevated duration-500 ease-fluid">
+      <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page border-border bg-card shadow-elevated ease-fluid w-full max-w-[420px] rounded-xl border duration-500">
         {step === "credentials" ? (
           <>
             <h1 className="text-gradient mb-2 text-center text-xl font-semibold">{t("title")}</h1>
-            <p className="mb-7 text-center text-sm text-muted-foreground">{t("subtitle")}</p>
+            <p className="text-muted-foreground mb-7 text-center text-sm">{t("subtitle")}</p>
 
             {AUTH_METHODS.password ? (
-              <PasswordAuthForm isLoading={isLoading} onSubmit={(email, password) => void handlePasswordSubmit(email, password)} />
+              <PasswordAuthForm
+                isLoading={isLoading}
+                onSubmit={(email, password) => void handlePasswordSubmit(email, password)}
+              />
             ) : null}
 
             {AUTH_METHODS.password && (AUTH_METHODS.sso || AUTH_METHODS.social) ? (
@@ -125,7 +131,7 @@ export function LoginView() {
               </>
             )}
 
-            <div className="mt-6 text-center text-sm text-muted-foreground">
+            <div className="text-muted-foreground mt-6 text-center text-sm">
               {t("noAccount")}{" "}
               <Link href={ROUTES.ONBOARDING_SIGNUP as Route} className="font-medium">
                 {t("signUp")}

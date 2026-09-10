@@ -5,13 +5,17 @@ export class RecentEscalatedDto {
   @ApiProperty({ example: '0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22' })
   id!: string;
 
-  @ApiPropertyOptional({ example: 'Marta Kowalska', nullable: true })
+  @ApiPropertyOptional({ example: 'Marta Kowalska', type: String, nullable: true })
   reviewerName!: string | null;
 
   @ApiProperty({ example: 2 })
   rating!: number;
 
-  @ApiPropertyOptional({ example: 'Waited forty minutes past our booking.', nullable: true })
+  @ApiPropertyOptional({
+    example: 'Waited forty minutes past our booking.',
+    type: String,
+    nullable: true,
+  })
   reviewText!: string | null;
 
   @ApiPropertyOptional({
@@ -27,6 +31,7 @@ export class RecentEscalatedDto {
 
   @ApiPropertyOptional({
     example: '2026-03-11T18:22:04.129Z',
+    type: String,
     nullable: true,
     description: 'When the reviewer left the review, not when the row was imported.',
   })

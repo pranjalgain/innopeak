@@ -9,6 +9,7 @@ export class MetricsDto {
 
   @ApiPropertyOptional({
     example: 4.3,
+    type: Number,
     nullable: true,
     description: 'Mean rating across the window, or null when it contains no reviews.',
   })

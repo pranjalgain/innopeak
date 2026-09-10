@@ -1,39 +1,21 @@
-import { ApiClient } from "@/app/_libs/services/api-client";
+import type { MetricsDto, RatingDistributionDto, RecentEscalatedDto } from "@innopeak/client-sdk";
+
+import { dashboardApi } from "@/app/_libs/api-sdk/dashboard-api";
+import { unwrap } from "@/app/_libs/services/api-error";
 import type {
   AttentionReview,
   DashboardStats,
   DateRange,
-  EscalationReason,
   RatingDistributionRow,
 } from "@/types/domain";
 
 const RANGE_DAYS: Record<DateRange, number> = { "7d": 7, "30d": 30, "90d": 90 };
 
-interface BackendMetrics {
-  total: number;
-  avgRating: number | null;
-  pending: number;
-  escalated: number;
-}
-
-interface BackendDistribution {
-  distribution: Record<number, number>;
-}
-
-interface BackendEscalatedReview {
-  id: string;
-  reviewerName: string | null;
-  rating: number;
-  reviewText: string | null;
-  escalationReason: EscalationReason | null;
-  reviewedAt: string | null;
-}
-
 /**
- * Dashboard analytics, backed by `GET /v1/dashboard/*`.
+ * Dashboard analytics, backed by `GET /v1/dashboard/*` through the generated SDK.
  *
  * Every endpoint is tenant-scoped from the access token, so nothing here passes a tenant id —
- * sending one would be rejected by the backend's `forbidNonWhitelisted` validation anyway.
+ * the backend's `forbidNonWhitelisted` validation rejects one outright.
  *
  * Errors deliberately propagate. An earlier version caught them and returned the mock fixtures,
  * which meant an API outage rendered invented review counts and invented reviewers as if they
@@ -41,25 +23,26 @@ interface BackendEscalatedReview {
  */
 export class DashboardService {
   static async getStats(range: DateRange): Promise<DashboardStats> {
-    const data = await ApiClient.request<BackendMetrics>(
-      `/v1/dashboard/metrics?days=${RANGE_DAYS[range]}`,
-    );
+    const response = await dashboardApi.dashboardControllerGetMetricsV1({
+      days: RANGE_DAYS[range],
+    });
+    const metrics = unwrap<MetricsDto>(response.data);
 
     return {
       range,
-      reviewCount: data.total,
+      reviewCount: metrics.total,
       // Null means the window held no reviews at all; the card renders 0.0 ★ for that.
-      averageRating: Math.round((data.avgRating ?? 0) * 10) / 10,
-      pendingApproval: data.pending,
-      escalatedOpen: data.escalated,
+      averageRating: Math.round((metrics.avgRating ?? 0) * 10) / 10,
+      pendingApproval: metrics.pending,
+      escalatedOpen: metrics.escalated,
     };
   }
 
   static async getRatingDistribution(range: DateRange): Promise<RatingDistributionRow[]> {
-    const data = await ApiClient.request<BackendDistribution>(
-      `/v1/dashboard/rating-distribution?days=${RANGE_DAYS[range]}`,
-    );
-    const distribution = data.distribution ?? {};
+    const response = await dashboardApi.dashboardControllerGetRatingDistributionV1({
+      days: RANGE_DAYS[range],
+    });
+    const { distribution } = unwrap<RatingDistributionDto>(response.data);
 
     // `percentage` is relative to the largest bucket, not to the total — it drives the bar width,
     // so the tallest bar fills the track. Matches what the mock fixtures established.
@@ -72,9 +55,8 @@ export class DashboardService {
   }
 
   static async getAttentionReviews(limit = 4): Promise<AttentionReview[]> {
-    const reviews = await ApiClient.request<BackendEscalatedReview[]>(
-      `/v1/dashboard/recent-escalated?limit=${limit}`,
-    );
+    const response = await dashboardApi.dashboardControllerGetRecentEscalatedV1({ limit });
+    const reviews = unwrap<RecentEscalatedDto[]>(response.data);
 
     return reviews.map((review) => {
       // The API returns null for an anonymous or anonymized reviewer; the card expects a string.
@@ -88,7 +70,7 @@ export class DashboardService {
         snippet: review.reviewText ?? "",
         // Read from the API, never inferred from the rating: the two reasons are independent of
         // the star count, so a 5-star blocklist match is routine.
-        escalationReason: review.escalationReason,
+        escalationReason: review.escalationReason ?? null,
       };
     });
   }

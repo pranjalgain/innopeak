@@ -1,12 +1,12 @@
 "use client";
 
-import * as React from "react";
+import { type ReactNode, useEffect } from "react";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { useAuthToken } from "@/hooks/auth/use-auth-token";
 
 interface RedirectIfAuthenticatedProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 /**
@@ -30,7 +30,7 @@ interface RedirectIfAuthenticatedProps {
 export function RedirectIfAuthenticated({ children }: RedirectIfAuthenticatedProps) {
   const { hasToken } = useAuthToken();
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (hasToken === true) {
       // A hard redirect, not router.replace() — calling router.replace() from an effect on a
       // page's first mount was observed to fetch the destination's RSC payload (200 OK) but

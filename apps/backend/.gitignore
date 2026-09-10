@@ -22,7 +22,6 @@ lerna-debug.log*
 /src/Db/@generated/*
 /src/Db/@generated
 **/@generated
-/client_sdk
 /data
 /openapi.json
 *.generated.*

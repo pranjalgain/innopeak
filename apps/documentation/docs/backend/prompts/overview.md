@@ -342,7 +342,8 @@ boundary](../auth/overview.md#frontend--backend-boundary): what the UI exposes i
 decision, and the backend surface above is documented in full regardless.
 
 What the shipped frontend exercises today, against
-`apps/web/src/app/_libs/services/prompt.service.ts` (NestJS API via `ApiClient`):
+`apps/web/src/app/_libs/services/prompt.service.ts` (NestJS API via the generated
+`@innopeak/client-sdk` — see [Shared API clients](../../shared/api-clients.md)):
 
 | Frontend capability | Where | Backend route |
 |---|---|---|
@@ -401,7 +402,8 @@ this branch:
   created through that same API rather than seeded.
 - The Settings → Prompts screen calls `GET /v1/prompts?includeHistory=true`,
   `POST /v1/prompts/:promptId/versions`, and `PUT /v1/prompts/:promptId/tone` through
-  `PromptService` / `ApiClient`. Stats and generation are still mock / unimplemented.
+  `PromptService` / the generated `PromptsApi`. Stats and generation are still mock /
+  unimplemented.
 
 Stats, single-prompt GET, paginated history, and the generation pipeline are still spec-only.
 

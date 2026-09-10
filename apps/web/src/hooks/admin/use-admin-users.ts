@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { AdminUserService } from "@/app/_libs/services/admin-user.service";
@@ -13,10 +14,10 @@ interface UseAdminUsersResult {
 
 export function useAdminUsers(): UseAdminUsersResult {
   const t = useTranslations("adminUsers.toasts");
-  const [users, setUsers] = React.useState<AdminUser[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     AdminUserService.getUsers()
@@ -35,7 +36,7 @@ export function useAdminUsers(): UseAdminUsersResult {
     };
   }, [t]);
 
-  const toggleActive = React.useCallback(
+  const toggleActive = useCallback(
     async (id: string) => {
       try {
         const updated = await AdminUserService.toggleActive(id);

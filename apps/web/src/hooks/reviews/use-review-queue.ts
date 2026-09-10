@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
@@ -43,18 +44,18 @@ const SEARCH_DEBOUNCE_MS = 300;
  */
 export function useReviewQueue(): UseReviewQueueResult {
   const t = useTranslations("reviewQueue.toasts");
-  const [reviews, setReviews] = React.useState<Review[]>([]);
-  const [total, setTotal] = React.useState(0);
-  const [page, setPageState] = React.useState(1);
-  const [filters, setFilters] = React.useState<ReviewQueueFilters>(INITIAL_FILTERS);
-  const [debouncedSearch, setDebouncedSearch] = React.useState("");
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPageState] = useState(1);
+  const [filters, setFilters] = useState<ReviewQueueFilters>(INITIAL_FILTERS);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Only `search` is debounced. The two dropdowns are discrete choices a user makes once, so
   // delaying them would just feel unresponsive.
-  React.useEffect(() => {
+  useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(filters.search), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [filters.search]);
@@ -62,11 +63,11 @@ export function useReviewQueue(): UseReviewQueueResult {
   // A filter change invalidates the current page — page 3 of "escalated" may not exist once the
   // status filter narrows the result set. Reset before the fetch below runs for the new filters,
   // rather than fetching page 3 of the new set and only then discovering it's empty.
-  React.useEffect(() => {
+  useEffect(() => {
     setPageState(1);
   }, [filters.status, filters.classification, debouncedSearch]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     setIsLoading(true);
@@ -96,7 +97,7 @@ export function useReviewQueue(): UseReviewQueueResult {
     };
   }, [page, filters.status, filters.classification, debouncedSearch, t]);
 
-  const setPage = React.useCallback(
+  const setPage = useCallback(
     (next: number) => setPageState(Math.min(Math.max(next, 1), totalPages)),
     [totalPages],
   );

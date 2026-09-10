@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { AdminBillingService } from "@/app/_libs/services/admin-billing.service";
@@ -12,10 +13,10 @@ interface UseAdminBillingResult {
 
 export function useAdminBilling(): UseAdminBillingResult {
   const t = useTranslations("adminBilling.toasts");
-  const [billing, setBilling] = React.useState<BusinessBillingInfo[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [billing, setBilling] = useState<BusinessBillingInfo[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     AdminBillingService.getBilling()

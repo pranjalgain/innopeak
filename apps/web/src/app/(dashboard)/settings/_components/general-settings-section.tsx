@@ -1,5 +1,6 @@
+import { useState } from "react";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
 import { LuPlus, LuX } from "react-icons/lu";
 import { toast } from "sonner";
 
@@ -9,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+
 import type { GeneralSettings } from "@/types/domain";
 
 interface GeneralSettingsSectionProps {
@@ -35,15 +37,15 @@ function validateRetentionMonths(text: string, t: (key: string) => string): stri
 export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSectionProps) {
   const t = useTranslations("settings.general");
   const tToasts = useTranslations("settings.toasts");
-  const [draft, setDraft] = React.useState(general);
+  const [draft, setDraft] = useState(general);
   // The retention input's own text, decoupled from `draft.reviewDataRetentionMonths`: the field
   // must be freely clearable (to retype a new value) without the minimum-1 rule snapping it back
   // to the old number on every keystroke — that check only runs when Save is clicked.
-  const [retentionText, setRetentionText] = React.useState(() =>
+  const [retentionText, setRetentionText] = useState(() =>
     retentionTextFor(general.reviewDataRetentionMonths),
   );
-  const [retentionError, setRetentionError] = React.useState<string | null>(null);
-  const [isSaving, setIsSaving] = React.useState(false);
+  const [retentionError, setRetentionError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const retentionPresent = draft.reviewDataRetentionMonths !== null;
   const retentionDirty = retentionPresent
@@ -86,10 +88,12 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
-        <div className="flex flex-col gap-2.5 border-b border-border pb-6">
+        <div className="border-border flex flex-col gap-2.5 border-b pb-6">
           <div className="flex items-center justify-between">
             <Label>{t("escalationThreshold.label")}</Label>
-            <span className="font-mono text-lg font-bold text-primary">{draft.escalationRatingThreshold}</span>
+            <span className="text-primary font-mono text-lg font-bold">
+              {draft.escalationRatingThreshold}
+            </span>
           </div>
           <Slider
             min={1}
@@ -103,21 +107,23 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
               }))
             }
           />
-          <div className="flex justify-between text-[11px] text-muted-foreground">
+          <div className="text-muted-foreground flex justify-between text-[11px]">
             <span>{t("escalationThreshold.min")}</span>
             <span>{t("escalationThreshold.max")}</span>
           </div>
-          <p className="text-[13px] text-muted-foreground">{t("escalationThreshold.helper")}</p>
+          <p className="text-muted-foreground text-[13px]">{t("escalationThreshold.helper")}</p>
         </div>
 
-        <div className="flex items-center justify-between gap-4 border-b border-border pb-6">
+        <div className="border-border flex items-center justify-between gap-4 border-b pb-6">
           <div>
             <p className="text-[13px] font-medium">{t("autoPost.label")}</p>
-            <p className="mt-0.5 text-[13px] text-muted-foreground">{t("autoPost.helper")}</p>
+            <p className="text-muted-foreground mt-0.5 text-[13px]">{t("autoPost.helper")}</p>
           </div>
           <Switch
             checked={draft.autoPostApprovedReplies}
-            onCheckedChange={(checked) => setDraft((d) => ({ ...d, autoPostApprovedReplies: checked }))}
+            onCheckedChange={(checked) =>
+              setDraft((d) => ({ ...d, autoPostApprovedReplies: checked }))
+            }
           />
         </div>
 
@@ -138,7 +144,7 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
                   aria-invalid={retentionError !== null}
                   className="w-20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 />
-                <span className="text-[13px] text-muted-foreground">{t("retention.suffix")}</span>
+                <span className="text-muted-foreground text-[13px]">{t("retention.suffix")}</span>
                 <Button
                   type="button"
                   variant="ghost"
@@ -149,16 +155,17 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
                     setRetentionText("");
                     setRetentionError(null);
                   }}
-                  className="size-6 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
-                >
+                  className="text-muted-foreground hover:bg-secondary hover:text-foreground size-6 rounded-full">
                   <LuX className="size-3.5" />
                 </Button>
               </div>
-              {retentionError ? <p className="text-[12.5px] text-destructive">{retentionError}</p> : null}
+              {retentionError ? (
+                <p className="text-destructive text-[12.5px]">{retentionError}</p>
+              ) : null}
             </>
           ) : (
             <div className="flex flex-col gap-2">
-              <p className="text-[13px] text-muted-foreground">{t("retention.notSet")}</p>
+              <p className="text-muted-foreground text-[13px]">{t("retention.notSet")}</p>
               <div>
                 <Button
                   type="button"
@@ -167,8 +174,7 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
                   onClick={() => {
                     setDraft((d) => ({ ...d, reviewDataRetentionMonths: 1 }));
                     setRetentionText("1");
-                  }}
-                >
+                  }}>
                   <LuPlus className="size-3.5" />
                   {t("retention.add")}
                 </Button>

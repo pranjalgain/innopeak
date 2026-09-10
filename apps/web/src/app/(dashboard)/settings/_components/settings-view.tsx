@@ -1,8 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
+
 import { useSearchParams } from "next/navigation";
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
+
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { AiSettingsSection } from "@/app/(dashboard)/settings/_components/ai-settings-section";
 import { BlocklistSettingsSection } from "@/app/(dashboard)/settings/_components/blocklist-settings-section";
@@ -13,13 +18,11 @@ import { NotificationsSettingsSection } from "@/app/(dashboard)/settings/_compon
 import { ProfileSettingsSection } from "@/app/(dashboard)/settings/_components/profile-settings-section";
 import { AUTH_METHODS } from "@/app/_libs/constants/auth-methods";
 import { FEATURE_FLAGS } from "@/app/_libs/constants/feature-flags";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSettings } from "@/hooks/settings/use-settings";
 
 function SettingsSkeleton() {
   return (
-    <div className="flex flex-col gap-6 p-fluid-page">
+    <div className="p-fluid-page flex flex-col gap-6">
       <Skeleton className="h-8 w-32" />
       <div className="flex max-w-3xl flex-col gap-5">
         <Skeleton className="h-9 w-full sm:w-fit sm:min-w-96" />
@@ -65,7 +68,7 @@ export function SettingsView() {
    * `connection`.
    */
   const requestedTab = searchParams.get("tab");
-  const initialTab = React.useMemo(
+  const initialTab = useMemo(
     () => (TABS.includes(requestedTab as (typeof TABS)[number]) ? requestedTab : "general"),
     [requestedTab],
   );
@@ -73,12 +76,23 @@ export function SettingsView() {
   if (isLoading || !settings) return <SettingsSkeleton />;
 
   return (
-    <div className="flex flex-col gap-6 p-fluid-page">
-      <Tabs defaultValue={initialTab ?? "general"} className="max-w-3xl gap-5">
+    <div className="p-fluid-page flex flex-col gap-6">
+      {/* `key={initialTab}` — `Tabs` is intentionally uncontrolled (see comment above), but that
+          means Radix only ever reads `defaultValue` on mount; a later change to `initialTab` (e.g.
+          the account-menu's "Profile" link, clicked while already on Settings on some other tab)
+          re-renders this component with a new `initialTab` that an already-mounted `Tabs` simply
+          ignores — the URL updates but the visible tab doesn't. Keying on `initialTab` forces a
+          full remount whenever the *resolved* tab actually changes, which re-seeds `defaultValue`,
+          while still leaving manual tab clicks free to diverge from the URL same as before. */}
+      <Tabs key={initialTab} defaultValue={initialTab ?? "general"} className="max-w-3xl gap-5">
         <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
           <TabsTrigger value="general">{t("tabs.general")}</TabsTrigger>
-          {AUTH_METHODS.password ? <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger> : null}
-          {FEATURE_FLAGS.inviteMembers ? <TabsTrigger value="members">{t("tabs.members")}</TabsTrigger> : null}
+          {AUTH_METHODS.password ? (
+            <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger>
+          ) : null}
+          {FEATURE_FLAGS.inviteMembers ? (
+            <TabsTrigger value="members">{t("tabs.members")}</TabsTrigger>
+          ) : null}
           <TabsTrigger value="blocklist">{t("tabs.blocklist")}</TabsTrigger>
           <TabsTrigger value="notifications">{t("tabs.notifications")}</TabsTrigger>
           <TabsTrigger value="connection">{t("tabs.connection")}</TabsTrigger>

@@ -1,17 +1,19 @@
 "use client";
 
+import { type FormEvent, useState } from "react";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+
 import { useTranslations } from "next-intl";
 
-import * as React from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/auth/use-auth";
 
 /**
@@ -29,16 +31,16 @@ export function BusinessNameView() {
   const t = useTranslations("onboardingBusinessName");
   const router = useRouter();
   const { completeGoogleSignup, isLoading } = useAuth();
-  const [businessName, setBusinessName] = React.useState("");
+  const [businessName, setBusinessName] = useState("");
   // Set only on a submit attempt, never on blur: the input is `autoFocus`, so an incidental blur
   // right after mount (browser autofill, a password-manager icon stealing focus) must not paint
   // the field red before the user has had a chance to type anything.
-  const [submitted, setSubmitted] = React.useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const trimmed = businessName.trim();
   const showRequiredError = submitted && trimmed === "";
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitted(true);
     if (trimmed === "") return;
@@ -57,15 +59,14 @@ export function BusinessNameView() {
       <AuthLogo />
 
       <div className="flex w-full max-w-[460px] flex-col items-center gap-6">
-        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page w-full rounded-xl border border-border bg-card shadow-elevated duration-500 ease-fluid">
+        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page border-border bg-card shadow-elevated ease-fluid w-full rounded-xl border duration-500">
           <h1 className="mb-1 text-center text-lg font-semibold">{t("title")}</h1>
-          <p className="mb-6 text-center text-sm text-muted-foreground">{t("subtitle")}</p>
+          <p className="text-muted-foreground mb-6 text-center text-sm">{t("subtitle")}</p>
 
           <form
             className="flex flex-col gap-4"
             onSubmit={(event) => void handleSubmit(event)}
-            noValidate
-          >
+            noValidate>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="onboarding-business-name">{t("label")}</Label>
               <Input
@@ -78,7 +79,7 @@ export function BusinessNameView() {
                 onChange={(event) => setBusinessName(event.target.value)}
               />
               {showRequiredError ? (
-                <p className="text-[12.5px] text-destructive">{t("errors.required")}</p>
+                <p className="text-destructive text-[12.5px]">{t("errors.required")}</p>
               ) : null}
             </div>
 
@@ -87,7 +88,7 @@ export function BusinessNameView() {
             </Button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-muted-foreground">
+          <div className="text-muted-foreground mt-6 text-center text-sm">
             {t("startOver")}{" "}
             <Link href={ROUTES.ONBOARDING_SIGNUP} className="font-medium">
               {t("startOverLink")}

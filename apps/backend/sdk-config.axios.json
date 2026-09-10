@@ -1,5 +1,5 @@
 {
-  "npmName": "@geekyants/client-sdk",
+  "npmName": "@innopeak/client-sdk",
   "npmVersion": "1.0.0",
   "supportsES6": true,
   "typescriptThreePlus": true,

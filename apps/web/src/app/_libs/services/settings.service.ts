@@ -1,9 +1,12 @@
+import type { UpdateTenantSettingsDto } from "@innopeak/client-sdk";
+
+import { settingsApi } from "@/app/_libs/api-sdk/settings-api";
 import { MOCK_SETTINGS } from "@/app/_libs/mock-data/settings";
-import { ApiClient, ApiError } from "@/app/_libs/services/api-client";
+import { unwrap } from "@/app/_libs/services/api-error";
 import { ConnectionService } from "@/app/_libs/services/connection.service";
 import type { BlocklistTerm, GeneralSettings, SettingsData } from "@/types/domain";
 
-export { ApiError as SettingsApiError };
+export { ApiError as SettingsApiError } from "@/app/_libs/services/api-error";
 
 interface ApiBlocklistTerm {
   id: string;
@@ -86,31 +89,36 @@ export class SettingsService {
   }
 
   static async getGeneralSettings(): Promise<ApiTenantSettings> {
-    return ApiClient.request<ApiTenantSettings>("/v1/settings");
+    const response = await settingsApi.tenantSettingsControllerGetV1();
+    return unwrap<ApiTenantSettings>(response.data);
   }
 
   static async updateGeneralSettings(write: TenantSettingsWrite): Promise<ApiTenantSettings> {
-    return ApiClient.request<ApiTenantSettings>("/v1/settings", {
-      method: "PUT",
-      body: write,
+    const response = await settingsApi.tenantSettingsControllerReplaceV1({
+      // The backend's `@ApiPropertyOptional` for this field has no explicit `type`, so the
+      // generator falls back to `object | null` for `reviewDataRetentionMonths` — a documentation
+      // gap, not a real contract change; the field is a plain nullable number on the wire.
+      updateTenantSettingsDto: write as unknown as UpdateTenantSettingsDto,
     });
+    return unwrap<ApiTenantSettings>(response.data);
   }
 
   static async listBlocklistTerms(): Promise<BlocklistTerm[]> {
-    const data = await ApiClient.request<ApiBlocklistTermList>("/v1/settings/blocklist-terms");
+    const response = await settingsApi.blocklistTermsControllerListV1();
+    const data = unwrap<ApiBlocklistTermList>(response.data);
     return data.items.map((item) => ({ id: item.id, term: item.term }));
   }
 
   static async addBlocklistTerm(term: string): Promise<BlocklistTerm> {
-    const created = await ApiClient.request<ApiBlocklistTerm>("/v1/settings/blocklist-terms", {
-      method: "POST",
-      body: { term },
+    const response = await settingsApi.blocklistTermsControllerCreateV1({
+      createBlocklistTermDto: { term },
     });
+    const created = unwrap<ApiBlocklistTerm>(response.data);
     return { id: created.id, term: created.term };
   }
 
   static async removeBlocklistTerm(id: string): Promise<void> {
-    await ApiClient.request(`/v1/settings/blocklist-terms/${id}`, { method: "DELETE" });
+    await settingsApi.blocklistTermsControllerRemoveV1({ id });
   }
 
   static async updateSettings(settings: SettingsData): Promise<SettingsData> {

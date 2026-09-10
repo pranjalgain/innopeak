@@ -1,4 +1,4 @@
-import * as React from "react";
+import { useEffect, useState } from "react";
 
 import { SessionService } from "@/app/_libs/services/session.service";
 import type { SessionRole } from "@/types/domain";
@@ -10,10 +10,10 @@ interface UseSessionResult {
 }
 
 export function useSession(): UseSessionResult {
-  const [role, setRole] = React.useState<SessionRole | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [role, setRole] = useState<SessionRole | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     SessionService.getRole()

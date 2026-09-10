@@ -276,23 +276,52 @@ See [AWS-Emulated Local Stack (Floci)](#aws-emulated-local-stack-floci) for the
 
 ### Client SDK Generation
 
-Generates a typed TypeScript client from the running app's OpenAPI spec (`/api/v1-json` — the
-full API surface; see [Directory Layout](#directory-layout) for why `v1`, not `v2`). Two
-generator flavors are available as separate scripts — pick one per project, both write to the
-gitignored `client_sdk/` directory:
+Generates the typed TypeScript client `apps/web` consumes, from the running app's OpenAPI spec
+(`/api/v1-json` — the full API surface; see [Directory Layout](#directory-layout) for why `v1`,
+not `v2`). Run it from the repo root:
 
 ```bash
-pnpm run generate:sdk:axios   # typescript-axios — consumed as source (no build step), @ts-nocheck'd
-pnpm run generate:sdk:fetch   # typescript-fetch — built to client_sdk/dist via its own tsc
+pnpm generate:sdk    # == pnpm --filter backend generate:client
 ```
 
-Both require the API running locally first (`pnpm start:dev`). Config lives in
-`sdk-config.{axios,fetch}.json` (openapi-generator options) and `sdk-tsconfig.{axios,fetch}.json`
-(the tsconfig copied into the generated output) — edit `npmName` to your actual package scope
-before publishing. `scripts/postprocess-sdk.ts` (axios) strips the generator's per-file banner and
-adds `@ts-nocheck`; `scripts/postprocess-sdk-fetch.ts` (fetch) patches a known
-`typescript-fetch` generator template bug (a referenced-but-never-defined `objectToJSON` helper,
-triggered by the media upload endpoint's object-typed `metadata` form field).
+Requires the API running locally first (`pnpm start:dev`) — the script curls the live spec.
+
+**The output is committed, not gitignored.** It lands in `libs/client_sdk/` as a workspace
+package (`@innopeak/client-sdk`) that `apps/web` depends on via `workspace:*`, and all 74 files
+are tracked. Committing it keeps `apps/web` type-checkable and buildable without a running
+backend, at the cost of needing a regeneration commit whenever the API surface changes. Treat it
+as build output, never hand-edit it: `generate:client` starts with `rm -rf ../../libs/client_sdk`,
+so any manual change is silently destroyed on the next run.
+
+Config lives in `sdk-config.axios.json` (openapi-generator options) and `sdk-tsconfig.axios.json`
+(the tsconfig copied into the generated output). `scripts/postprocess-sdk.ts` then strips the
+generator's per-file banner, adds `@ts-nocheck`, and pins the axios dependency.
+
+> **Only one generator flavor is wired up.** An earlier `typescript-fetch` variant
+> (`generate:sdk:fetch`, `sdk-config.fetch.json`, `scripts/postprocess-sdk-fetch.ts`) was removed
+> once `apps/web` settled on axios — the interceptor-based auth in
+> `apps/web/src/app/_libs/api-sdk/config.ts` depends on it.
+
+#### The axios version pin is load-bearing
+
+`scripts/postprocess-sdk.ts` overwrites the generated `package.json`'s axios dependency with an
+exact version (`AXIOS_VERSION`, currently `1.12.2`) rather than the generator's default caret
+range. **That constant must stay equal to the `axios` version in `apps/web/package.json`.**
+
+If the two drift, pnpm installs two physically separate axios copies — one for the SDK, one for
+the web app. `apps/web/src/app/_libs/api-sdk/config.ts` augments axios's own
+`AxiosRequestConfig` (`declare module "axios"`) to add the `authOptional` and `skipRefresh`
+request flags, and TypeScript only applies a module augmentation to the *same resolved module*.
+Two copies means the augmentation lands on the one the SDK doesn't use, and the build fails with a
+confusing `authOptional does not exist in type AxiosRequestConfig<any, any>` — pointing at the
+consuming code rather than at the version mismatch that caused it.
+
+So when bumping axios in `apps/web`, bump `AXIOS_VERSION` in the same commit and regenerate. To
+confirm both resolve to one copy:
+
+```bash
+pnpm why axios       # expect a single version
+```
 
 ---
 
