@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { SettingsView } from "@/app/(dashboard)/settings/_components/settings-view";
 
 export const metadata: Metadata = {
-  title: "Settings — InnoPeak",
+  title: "Settings",
 };
 
 export default function SettingsPage() {

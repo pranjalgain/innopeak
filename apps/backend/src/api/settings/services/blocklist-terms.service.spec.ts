@@ -24,6 +24,7 @@ describe('BlocklistTermsService', () => {
     tenantId: 'tenant-1',
     email: 'owner@example.com',
     role: UserRole.OWNER,
+    locale: null,
   };
 
   beforeEach(async () => {

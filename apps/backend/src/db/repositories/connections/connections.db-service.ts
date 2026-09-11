@@ -32,6 +32,10 @@ export interface ConfirmLocationInput {
   externalLocationId: string;
   name: string;
   address: string | null;
+  /** MVP's one-active-location rule (`MAX_ACTIVE_LOCATIONS`) — passed in rather than imported so
+   *  this data-layer transaction stays the one place that authoritatively enforces it, without
+   *  owning the business constant itself. See `acquireLocationConfirmLock`. */
+  maxActiveLocations: number;
 }
 
 export interface ConfirmLocationResult {
@@ -40,6 +44,16 @@ export interface ConfirmLocationResult {
   /** True when a live backfill already held the lock — the caller returns 200, not 409. */
   backfillAlreadyRunning: boolean;
 }
+
+/**
+ * Thrown from inside `confirmLocation`'s transaction when the authoritative, lock-held recheck
+ * of `maxActiveLocations` fails. `ConnectionsService.confirmLocation`'s own pre-check
+ * (`assertLocationLimit`) already rejects the common case early and cheaply, before a
+ * transaction or advisory lock is even opened — this is the race-safe backstop for the case two
+ * concurrent confirms both passed that pre-check. Caught by the service and mapped to the same
+ * `ConflictException` the pre-check throws.
+ */
+export class LocationLimitExceededError extends Error {}
 
 export interface DisconnectResult {
   deactivatedLocationIds: string[];
@@ -104,13 +118,21 @@ export class ConnectionsDbService {
 
   /**
    * The module's one real transaction: upsert the location, attach the user, acquire the backfill
-   * run. Two subtleties, both easy to get wrong and both expensive:
+   * run. Three subtleties, all easy to get wrong and all expensive:
    *
-   *  1. **The sync-run acquisition is wrapped in its own savepoint.** A duplicate-key on the
+   *  1. **The location limit is rechecked here, under an advisory lock, not just by the caller's
+   *     pre-check.** `ConnectionsService.assertLocationLimit` runs before this transaction even
+   *     opens — a cheap, non-authoritative fast path. Under READ COMMITTED, two concurrent
+   *     confirms for *different* `externalLocationId`s can both read zero active locations (there
+   *     is nothing yet to lock against) and both pass that pre-check, since neither has committed
+   *     anything for the other to see. `acquireLocationConfirmLock` closes it: the second
+   *     transaction blocks on the lock until the first commits or rolls back, so its own recheck
+   *     here runs against the first one's already-committed result.
+   *  2. **The sync-run acquisition is wrapped in its own savepoint.** A duplicate-key on the
    *     partial unique index would otherwise abort the *whole* transaction, so an impatient owner
    *     double-clicking Continue would get "backfill already running" **and no location row** —
    *     the thing they actually asked for silently rolled back.
-   *  2. **Nothing is enqueued here.** BullMQ and Postgres share no transaction, so publishing
+   *  3. **Nothing is enqueued here.** BullMQ and Postgres share no transaction, so publishing
    *     inside this block lets a worker dequeue a `syncRunId` for a row that has not committed,
    *     find nothing, and mark the run failed. The caller publishes after commit.
    *
@@ -120,6 +142,21 @@ export class ConnectionsDbService {
    */
   async confirmLocation(input: ConfirmLocationInput): Promise<ConfirmLocationResult> {
     return this.connectionsRepository.transaction(async tx => {
+      await this.connectionsRepository.acquireLocationConfirmLock(tx, input.tenantId);
+
+      const active = await this.connectionsRepository.findLocationsByTenant(
+        input.tenantId,
+        LocationStatus.ACTIVE,
+        tx
+      );
+      const isSameLocation = active.some(
+        location => location.externalLocationId === input.externalLocationId
+      );
+
+      if (!isSameLocation && active.length >= input.maxActiveLocations) {
+        throw new LocationLimitExceededError();
+      }
+
       const location = await this.connectionsRepository.upsertLocation(tx, {
         tenantId: input.tenantId,
         providerConnectionId: input.connection.id,
@@ -172,6 +209,17 @@ export class ConnectionsDbService {
 
       return { deactivatedLocationIds };
     });
+  }
+
+  /**
+   * Reconnect counterpart — see `ConnectionsRepository.reactivateLocationsForConnection`. Called
+   * only for a same-account reconnect (`ConnectionsService.handleCallback`); a brand-new
+   * connection has no prior locations to reactivate.
+   */
+  async reactivateLocationsForConnection(connectionId: string): Promise<string[]> {
+    return this.connectionsRepository.transaction(tx =>
+      this.connectionsRepository.reactivateLocationsForConnection(tx, connectionId)
+    );
   }
 
   findLatestBackfillRun(locationId: string): Promise<SyncRunRow | null> {

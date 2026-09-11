@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
+import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
-import { useConnection } from "@/app/_libs/providers/connection-provider";
 import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { SettingsApiError, SettingsService } from "@/app/_libs/services/settings.service";
+import { useConnection } from "@/hooks/connections/use-connection";
 import type { GeneralSettings, NotificationChannel, SettingsData } from "@/types/domain";
+
+export const settingsQueryKey = ["settings"] as const;
 
 interface UseSettingsResult {
   settings: SettingsData | null;
@@ -20,9 +23,9 @@ interface UseSettingsResult {
 }
 
 /**
- * Loads Settings once, then owns interactive state locally. Blocklist add/remove wait on the
- * settings API and only update chips after success. Other tabs still persist through the mock
- * `updateSettings` PUT.
+ * Loads Settings once, then owns interactive state through react-query's cache. Blocklist
+ * add/remove wait on the settings API and only update chips after success. Other tabs still
+ * persist through the mock `updateSettings` PUT.
  *
  * `saveGeneral` is the one path that writes `PUT /v1/settings` — the General tab stages edits
  * locally (its own Save/Cancel) and calls it once on an explicit Save click; the AI tab's reply-
@@ -30,45 +33,65 @@ interface UseSettingsResult {
  */
 export function useSettings(): UseSettingsResult {
   const t = useTranslations("settings.toasts");
-  const [settings, setSettings] = useState<SettingsData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { refresh: refreshConnection } = useConnection();
+
+  const settingsQuery = useQuery({
+    queryKey: settingsQueryKey,
+    queryFn: () => SettingsService.getSettings(),
+  });
 
   useEffect(() => {
-    let cancelled = false;
+    if (settingsQuery.isError) toast.error(t("loadFailed"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsQuery.isError]);
 
-    setIsLoading(true);
-    SettingsService.getSettings()
-      .then((result) => {
-        if (!cancelled) setSettings(result);
-      })
-      .catch(() => {
-        if (!cancelled) toast.error(t("loadFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
+  const settings = settingsQuery.data ?? null;
+
+  const setSettings = useCallback(
+    (next: SettingsData) => queryClient.setQueryData(settingsQueryKey, next),
+    [queryClient],
+  );
+
+  // Optimistic-local + fire-and-forget persist, same as before: the UI applies the change and
+  // reports success immediately, independent of whether this background PUT actually succeeds.
+  // But unlike the old plain `useState`, a failed write here now sits in react-query's shared
+  // cache for the rest of its 5-minute staleTime, visible to any other reader of `["settings"]` —
+  // so a failure rolls the optimistic write back instead of leaving it there unnoticed.
+  const backgroundPersistMutation = useMutation({
+    mutationFn: (next: SettingsData) => SettingsService.updateSettings(next),
+  });
+
+  const persist = useCallback(
+    (next: SettingsData) => {
+      const previous = queryClient.getQueryData<SettingsData>(settingsQueryKey);
+      setSettings(next);
+      backgroundPersistMutation.mutate(next, {
+        onError: () => {
+          if (previous) setSettings(previous);
+          toast.error(t("updateFailed"));
+        },
       });
+    },
+    [queryClient, setSettings, backgroundPersistMutation, t],
+  );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
-
-  const persist = useCallback((next: SettingsData) => {
-    setSettings(next);
-    void SettingsService.updateSettings(next);
-  }, []);
+  const saveGeneralMutation = useMutation({
+    mutationFn: (nextGeneral: GeneralSettings) =>
+      SettingsService.updateGeneralSettings({
+        escalationRatingThreshold: nextGeneral.escalationRatingThreshold,
+        autoPostEnabled: nextGeneral.autoPostApprovedReplies,
+        reviewDataRetentionMonths: nextGeneral.reviewDataRetentionMonths,
+        aiReplyCount: nextGeneral.aiReplyCount,
+      }),
+  });
 
   const saveGeneral = useCallback(
     async (patch: Partial<GeneralSettings>): Promise<boolean> => {
       if (!settings) return false;
       const nextGeneral = { ...settings.general, ...patch };
       try {
-        await SettingsService.updateGeneralSettings({
-          escalationRatingThreshold: nextGeneral.escalationRatingThreshold,
-          autoPostEnabled: nextGeneral.autoPostApprovedReplies,
-          reviewDataRetentionMonths: nextGeneral.reviewDataRetentionMonths,
-          aiReplyCount: nextGeneral.aiReplyCount,
-        });
+        await saveGeneralMutation.mutateAsync(nextGeneral);
         setSettings({ ...settings, general: nextGeneral });
         return true;
       } catch (error) {
@@ -76,8 +99,12 @@ export function useSettings(): UseSettingsResult {
         return false;
       }
     },
-    [settings, t],
+    [settings, t, saveGeneralMutation, setSettings],
   );
+
+  const addBlocklistTermMutation = useMutation({
+    mutationFn: (term: string) => SettingsService.addBlocklistTerm(term),
+  });
 
   const addBlocklistTerm = useCallback(
     async (term: string): Promise<boolean> => {
@@ -86,11 +113,8 @@ export function useSettings(): UseSettingsResult {
       if (!trimmed) return false;
 
       try {
-        const created = await SettingsService.addBlocklistTerm(trimmed);
-        setSettings({
-          ...settings,
-          blocklistTerms: [...settings.blocklistTerms, created],
-        });
+        const created = await addBlocklistTermMutation.mutateAsync(trimmed);
+        setSettings({ ...settings, blocklistTerms: [...settings.blocklistTerms, created] });
         toast.success(t("blocklistTermAdded"));
         return true;
       } catch (error) {
@@ -98,15 +122,19 @@ export function useSettings(): UseSettingsResult {
         return false;
       }
     },
-    [settings, t],
+    [settings, t, addBlocklistTermMutation, setSettings],
   );
+
+  const removeBlocklistTermMutation = useMutation({
+    mutationFn: (id: string) => SettingsService.removeBlocklistTerm(id),
+  });
 
   const removeBlocklistTerm = useCallback(
     async (id: string): Promise<void> => {
       if (!settings) return;
 
       try {
-        await SettingsService.removeBlocklistTerm(id);
+        await removeBlocklistTermMutation.mutateAsync(id);
         setSettings({
           ...settings,
           blocklistTerms: settings.blocklistTerms.filter((item) => item.id !== id),
@@ -116,7 +144,7 @@ export function useSettings(): UseSettingsResult {
         toast.error(error instanceof SettingsApiError ? error.message : t("saveFailed"));
       }
     },
-    [settings, t],
+    [settings, t, removeBlocklistTermMutation, setSettings],
   );
 
   const updateRecipientChannel = useCallback(
@@ -147,7 +175,9 @@ export function useSettings(): UseSettingsResult {
     [settings, persist, t],
   );
 
-  const { refresh: refreshConnection } = useConnection();
+  const disconnectMutation = useMutation({
+    mutationFn: () => ConnectionService.disconnect(),
+  });
 
   const disconnect = useCallback(() => {
     if (!settings) return;
@@ -155,23 +185,22 @@ export function useSettings(): UseSettingsResult {
     // A real DELETE now, not a localStorage flag: the backend deactivates the tenant's locations
     // and revokes the stored Google credential. The optimistic local update stays so the tab
     // reflects the change immediately, but the authoritative state is the API's.
-    void ConnectionService.disconnect()
-      .then(async () => {
-        persist({ ...settings, connection: { ...settings.connection, status: "disconnected" } });
+    disconnectMutation.mutate(undefined, {
+      onSuccess: async () => {
+        setSettings({ ...settings, connection: { ...settings.connection, status: "disconnected" } });
         toast.success(t("disconnected"));
-        // The dashboard layout's ConnectionProvider fetched once on mount and would otherwise keep
-        // reporting "connected" until a full reload — the guard, the reconnect banner and any other
-        // reader of that context would all lag the change this tab just made.
+        // `useConnection`'s cached `["connection"]` data would otherwise keep reporting
+        // "connected" until it next refetches on its own — the guard, the reconnect banner and
+        // any other reader of that cache entry would all lag the change this tab just made.
         await refreshConnection();
-      })
-      .catch(() => {
-        toast.error(t("disconnectFailed"));
-      });
-  }, [settings, persist, t, refreshConnection]);
+      },
+      onError: () => toast.error(t("disconnectFailed")),
+    });
+  }, [settings, setSettings, t, refreshConnection, disconnectMutation]);
 
   return {
     settings,
-    isLoading,
+    isLoading: settingsQuery.isLoading,
     saveGeneral,
     addBlocklistTerm,
     removeBlocklistTerm,

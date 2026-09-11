@@ -23,6 +23,7 @@ describe('TenantSettingsService', () => {
     tenantId: 'tenant-1',
     email: 'owner@example.com',
     role: UserRole.OWNER,
+    locale: null,
   };
 
   const row = {

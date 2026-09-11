@@ -1,9 +1,9 @@
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Length, Max, Min } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 
 import {
   SYNC_RUNS_PAGE_SIZE_DEFAULT,
@@ -27,7 +27,7 @@ export class AuthorizeQueryDto {
 }
 
 export class ConfirmLocationDto {
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: 'locations/12345678901234567890',
     description:
       "The provider's own location identifier, taken from GET /v1/connections/google/" +
@@ -75,11 +75,4 @@ export class ListSyncRunsQueryDto {
   @IsOptional()
   @IsEnum(SyncTrigger)
   trigger?: SyncTrigger;
-}
-
-export class LocationIdParamDto {
-  @ApiPropertyOptional({ example: '0190f4c2-1d55-7b09-8e42-6a3c9f01b7d4' })
-  @IsUUID()
-  @Transform(({ value }: { value: unknown }) => String(value))
-  locationId!: string;
 }

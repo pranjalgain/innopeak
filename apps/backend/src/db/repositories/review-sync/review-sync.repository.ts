@@ -127,7 +127,9 @@ export class ReviewSyncRepository {
       );
 
     // Still allowed to raise 23505 on idx_sync_runs_location_id_running — a genuinely live run is
-    // exactly what should block this one. The caller maps that to BACKFILL_ALREADY_RUNNING.
+    // exactly what should block this one. The caller (`ConnectionsDbService.confirmLocation`)
+    // catches it and reports `backfillAlreadyRunning: true` in a 200/201 body, not a 409 — see
+    // `ConnectionsService.confirmLocation`.
     const rows = await tx
       .insert(schema.syncRuns)
       .values({
@@ -167,14 +169,37 @@ export class ReviewSyncRepository {
    * a reclaimed run resurrects itself from `error` back to `ok`, and worse, goes on to set
    * `onboarding_backfill_completed_at` for an import a second run is currently redoing.
    *
+   * `reviewsFetched` is optional and, when omitted, is left out of the `SET` clause entirely
+   * rather than written as some caller-supplied number. `recordSyncProgress` already writes the
+   * true cumulative count after every page **during** the run — it is the only place that counter
+   * is incremented — so a caller completing the run only has an authoritative number of its own
+   * on a clean success. On a failure that happened mid-import, the caller's own local counter was
+   * never updated past its starting value (the count only lives inside the paginating loop, and a
+   * throw from partway through it never returns anything to the caller), so passing it here would
+   * silently overwrite real progress with a stale, usually-zero number — turning "700 reviews
+   * imported, then a 401 on page 15" into a run that reports 0. Leaving the column untouched keeps
+   * whatever the last successful page's `recordSyncProgress` call wrote, which is the accurate
+   * figure either way.
+   *
+   * `finalizeReviewsTotal` closes a different gap: `reviews_total` is written mid-run from the
+   * provider's own `totalCount` (the location's *lifetime* review count), while backfill
+   * deliberately stops early once it hits `IMPORTED_REPLY_TARGET` or `MAX_PAGES` (see
+   * `review-sync-queue.service.ts`). A location with 400 lifetime reviews whose sampled 60 satisfy
+   * the reply target completes successfully having imported everything backfill ever intended to
+   * — but `reviews_total` is still 400, so `reviews_fetched / reviews_total` reports 15% forever
+   * for a run that is, by design, entirely done. Only set on a clean, complete success: it
+   * overwrites the misleading provider-lifetime figure with the run's own final count, so the
+   * percentage this specific run reports can actually reach 100.
+   *
    * Returns whether this run still owned the row.
    */
   async completeSyncRun(
     syncRunId: string,
     input: {
       status: SyncRunStatus.ERROR | SyncRunStatus.OK;
-      reviewsFetched: number;
+      reviewsFetched?: number;
       errorMessage: string | null;
+      finalizeReviewsTotal?: boolean;
     }
   ): Promise<boolean> {
     const rows = await this.dbService.db
@@ -183,11 +208,49 @@ export class ReviewSyncRepository {
         status: input.status,
         completedAt: sql`now()`,
         updatedAt: sql`now()`,
-        reviewsFetched: input.reviewsFetched,
+        ...(input.reviewsFetched !== undefined ? { reviewsFetched: input.reviewsFetched } : {}),
+        ...(input.finalizeReviewsTotal && input.reviewsFetched !== undefined
+          ? { reviewsTotal: input.reviewsFetched }
+          : {}),
         errorMessage: input.errorMessage,
       })
       .where(
         and(eq(schema.syncRuns.id, syncRunId), eq(schema.syncRuns.status, SyncRunStatus.RUNNING))
+      )
+      .returning({ id: schema.syncRuns.id });
+
+    return rows.length > 0;
+  }
+
+  /**
+   * Reclaims a backfill run this same job already owns, for a BullMQ retry. Compare-and-set on
+   * `status = 'error'`, mirroring `completeSyncRun`'s CAS the other direction.
+   *
+   * `runBackfill` carries its `sync_runs` row's id across attempts (`IReviewBackfillJob.syncRunId`
+   * — acquired once, before the job is ever published), so a second attempt after the first threw
+   * is not a new run; it is the same one, replaying. But `completeSyncRun` already moved that row
+   * to `error` when attempt one's catch block recorded the failure — and its own CAS only matches
+   * `status = 'running'`. Left as-is, a *successful* second attempt's own `completeSyncRun` call
+   * finds zero rows to update (status is `error`, not `running`), so `markBackfillCompleted` and
+   * `advanceLastReviewSyncedAt` silently never run: `onboarding_backfill_completed_at` stays null,
+   * the location is excluded from polling forever, and BullMQ still marks the job completed — a
+   * fully successful import that the rest of the system can never see. This reopens the row first,
+   * so the second attempt's completion has a `running` row to CAS against, same as the first.
+   *
+   * `error_message`/`completed_at` are cleared, not left stale, since the row is no longer
+   * terminal; `started_at` is left untouched — it is the run's real start, not this attempt's.
+   */
+  async reopenSyncRunForRetry(syncRunId: string): Promise<boolean> {
+    const rows = await this.dbService.db
+      .update(schema.syncRuns)
+      .set({
+        status: SyncRunStatus.RUNNING,
+        completedAt: null,
+        errorMessage: null,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(eq(schema.syncRuns.id, syncRunId), eq(schema.syncRuns.status, SyncRunStatus.ERROR))
       )
       .returning({ id: schema.syncRuns.id });
 
@@ -349,15 +412,6 @@ export class ReviewSyncRepository {
     return rows.length > 0;
   }
 
-  async countReviewsForLocation(locationId: string): Promise<number> {
-    const rows = await this.dbService.db
-      .select({ value: count() })
-      .from(schema.reviews)
-      .where(eq(schema.reviews.locationId, locationId));
-
-    return rows[0]?.value ?? 0;
-  }
-
   /**
    * The classification queue read: `classification = 'pending_classification'` (the DB default,
    * never touched by `upsertReview`'s `DO UPDATE SET`) **and** `status = 'new'`.
@@ -439,5 +493,97 @@ export class ReviewSyncRepository {
       .returning({ id: schema.reviews.id });
 
     return rows.length > 0;
+  }
+
+  /**
+   * `PLAN.md` §6's nightly reviewer-retention purge. Only tenants with an explicit
+   * `tenant_settings.review_data_retention_months` are touched — there is deliberately no
+   * platform-default fallback, so a tenant who has never set this stays fully untouched rather
+   * than being purged against a number nobody chose for them.
+   *
+   * `rating` / `review_text` / `classification` are never touched: the business legitimately
+   * needs "we got a 2★ review in March" long after retention expires — what must go is the link
+   * to a named individual, not the review's own content. `external_reviewer_id` is nulled
+   * alongside `reviewer_name` so nothing pseudonymously re-identifies the same reviewer across
+   * visits after anonymization (confirmed as the intended behavior, not left to guess).
+   *
+   * `COALESCE(reviewed_at, created_at)` is load-bearing, not defensive: `reviewed_at` is nullable,
+   * and any comparison against `NULL` is unknown rather than true in SQL, so a review ingested
+   * without a parseable timestamp would otherwise sit permanently un-purgeable — the opposite of
+   * what this job exists to guarantee.
+   *
+   * `anonymized_at IS NULL` makes this idempotent: an already-anonymized row is not re-selected on
+   * a later run (harmless either way, since the columns are already null and the UPDATE would be
+   * an inert no-op, but skipping it keeps `anonymized_at` as the true first-anonymized timestamp
+   * rather than the most recent purge run that happened to touch it).
+   *
+   * Wrapped in a transaction-scoped advisory lock: `@Cron` fires in-process on *every* worker
+   * replica (see the scheduling doc's "one honest caveat"), so more than one replica can enqueue
+   * this job for the same nightly tick. The UPDATE above is idempotent on its own, but without a
+   * lock two concurrent executions would both scan and both attempt to update the same rows,
+   * wasteful and racy for no benefit. The lock makes the second execution simply wait, then find
+   * nothing left to match — not skip its work silently, just make it a fast no-op.
+   */
+  async purgeExpiredReviewerPii(): Promise<number> {
+    return this.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('reviews:retention-purge'), 0)`);
+
+      // `review_data_retention_months` is deliberately unbounded at the API layer (a tenant may
+      // set an astronomically large value to mean "keep indefinitely" — see
+      // UpdateTenantSettingsDto). But `now() - (N || ' months')::interval` overflows Postgres's
+      // representable timestamp range well before Postgres's own INTEGER range does (confirmed:
+      // 80,000 months computes fine, 100,000 raises `timestamp out of range`) — and that overflow
+      // aborts this entire cross-tenant UPDATE, so one tenant's huge-but-valid setting would stop
+      // every other tenant's purge from running, silently, every night. LEAST(...) clamps only the
+      // value fed into the interval arithmetic, never the stored column: 10,000 months (~833
+      // years) is already so far past any real review's age that clamping to it changes no real
+      // purge decision, while keeping the arithmetic permanently inside Postgres's range.
+      const result = await tx.execute(sql`
+        UPDATE reviews r
+        SET reviewer_name = NULL,
+            external_reviewer_id = NULL,
+            anonymized_at = now(),
+            updated_at = now()
+        FROM tenant_settings ts
+        WHERE r.tenant_id = ts.tenant_id
+          AND ts.review_data_retention_months IS NOT NULL
+          AND r.anonymized_at IS NULL
+          AND COALESCE(r.reviewed_at, r.created_at)
+            < now() - (LEAST(ts.review_data_retention_months, 10000) || ' months')::interval
+        RETURNING r.id
+      `);
+
+      const reviewIds = result.rows.map(row => (row as { id: string }).id);
+
+      // The gap `0000_foundation.sql`'s own GDPR note documents: log_db_changes() snapshots a full
+      // row on every write, so the UPDATE above is itself captured verbatim in audit_logs before
+      // the anonymization — the reviewer_name/external_reviewer_id this purge just cleared from
+      // `reviews` survives in every prior snapshot of that row too (every intermediate UPDATE
+      // before this one also captured the name, not just the latest). Without also redacting here,
+      // the purge deletes the tenant-facing copy while leaving an unpurged, indefinitely-retained
+      // copy sitting in the audit trail — the exact PII this job exists to remove from long-term
+      // storage. `idx_audit_logs_table_name`/`idx_audit_logs_old_value_gin`/`_new_value_gin`
+      // (see 0000_foundation.sql) make this a targeted scan rather than a full-table one.
+      if (reviewIds.length > 0) {
+        // A Postgres array-literal string (`{id1,id2,...}`), not a JS array: drizzle-orm's `sql`
+        // template expands an interpolated array into one bound parameter per element
+        // (`ANY(($0, $1, ...))`), which is not valid syntax to cast to `uuid[]` — a single literal
+        // string cast via `::uuid[]` is what actually binds as one array-typed parameter.
+        const reviewIdsArrayLiteral = `{${reviewIds.join(',')}}`;
+
+        await tx.execute(sql`
+          UPDATE audit_logs
+          SET old_value = old_value - 'reviewer_name' - 'external_reviewer_id',
+              new_value = new_value - 'reviewer_name' - 'external_reviewer_id'
+          WHERE table_name = 'reviews'
+            AND (
+              (old_value->>'id')::uuid = ANY(${reviewIdsArrayLiteral}::uuid[])
+              OR (new_value->>'id')::uuid = ANY(${reviewIdsArrayLiteral}::uuid[])
+            )
+        `);
+      }
+
+      return result.rows.length;
+    });
   }
 }

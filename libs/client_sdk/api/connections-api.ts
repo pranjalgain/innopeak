@@ -182,7 +182,7 @@ export const ConnectionsApiAxiosParamCreator = function (
       };
     },
     /**
-     * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm returns 200 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll.
+     * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), the sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — the location is confirmed, but the caller must confirm it again to start a fresh import.
      * @summary Confirm the managed location and start the historical backfill
      * @param {ConfirmLocationDto} confirmLocationDto
      * @param {*} [options] Override http request option.
@@ -482,7 +482,7 @@ export const ConnectionsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm returns 200 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll.
+     * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), the sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — the location is confirmed, but the caller must confirm it again to start a fresh import.
      * @summary Confirm the managed location and start the historical backfill
      * @param {ConfirmLocationDto} confirmLocationDto
      * @param {*} [options] Override http request option.
@@ -666,7 +666,7 @@ export const ConnectionsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm returns 200 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll.
+     * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), the sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — the location is confirmed, but the caller must confirm it again to start a fresh import.
      * @summary Confirm the managed location and start the historical backfill
      * @param {ConnectionsApiConnectionsControllerConfirmLocationV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -764,7 +764,7 @@ export interface ConnectionsApiInterface {
   ): AxiosPromise<void>;
 
   /**
-   * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm returns 200 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll.
+   * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), the sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — the location is confirmed, but the caller must confirm it again to start a fresh import.
    * @summary Confirm the managed location and start the historical backfill
    * @param {ConnectionsApiConnectionsControllerConfirmLocationV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -879,7 +879,7 @@ export class ConnectionsApi extends BaseAPI implements ConnectionsApiInterface {
   }
 
   /**
-   * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm returns 200 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll.
+   * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), the sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — the location is confirmed, but the caller must confirm it again to start a fresh import.
    * @summary Confirm the managed location and start the historical backfill
    * @param {ConnectionsApiConnectionsControllerConfirmLocationV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.

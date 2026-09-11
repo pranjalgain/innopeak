@@ -1,4 +1,5 @@
 import { ApiResponse } from '@common/dto/api-response';
+import { renderMessage } from '@common/i18n/message-registry';
 import { LoggerService } from '@logger/logger.service';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 
@@ -149,7 +150,11 @@ export class ErrorHandlerService {
   private handleHttpException(error: HttpException, context: string): ApiResponse<null> {
     const status = error.getStatus();
     const message = error.message;
-    this.logger.warn(`${error.name} in ${context}: ${message}`, error.stack);
+    // Logged in English regardless of the request's locale — these lines are for on-call/ops
+    // reading the server's own logs, not the client the response eventually reaches. `message`
+    // itself (returned below, unrendered) stays a locale-agnostic key: HttpExceptionFilter is
+    // what renders it into the client's resolved locale, right before the response is sent.
+    this.logger.warn(`${error.name} in ${context}: ${renderMessage(message, 'en')}`, error.stack);
     return this.createErrorResponse(status, message, context, error, null, this.extractCode(error));
   }
 

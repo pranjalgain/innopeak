@@ -5,6 +5,7 @@ import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
+import type { Locale } from '@common/i18n/locale';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
@@ -18,6 +19,8 @@ export interface UserByEmail {
   passwordHash: string | null;
   role: UserRole;
   status: UserStatus;
+  /** Null means "never chose" — see the `locale` column comment in 0002_tenant_auth.sql. */
+  locale: Locale | null;
 }
 
 export interface InsertedTenant {
@@ -72,9 +75,12 @@ export interface InsertRefreshTokenInput {
   expiresAt: string;
 }
 
-export interface ActiveRefreshToken {
+/** A refresh-token row that may or may not still be live — see `findRefreshTokenByHash`. */
+export interface RefreshTokenRow {
   id: string;
   userId: string;
+  /** Null while the token is still spendable; otherwise when it was rotated out or revoked. */
+  revokedAt: string | null;
 }
 
 /**
@@ -107,6 +113,7 @@ export class AuthRepository {
         passwordHash: schema.users.passwordHash,
         role: schema.users.role,
         status: schema.users.status,
+        locale: schema.users.locale,
       })
       .from(schema.users)
       .where(and(eq(schema.users.email, email), isNull(schema.users.anonymizedAt)))
@@ -131,6 +138,7 @@ export class AuthRepository {
         passwordHash: schema.users.passwordHash,
         role: schema.users.role,
         status: schema.users.status,
+        locale: schema.users.locale,
       })
       .from(schema.users)
       .where(and(eq(schema.users.id, id), isNull(schema.users.anonymizedAt)))
@@ -305,6 +313,44 @@ export class AuthRepository {
       .where(eq(schema.users.id, input.userId));
   }
 
+  async updateLocale(
+    tx: DrizzleTransaction,
+    input: { userId: string; locale: Locale }
+  ): Promise<void> {
+    await tx
+      .update(schema.users)
+      .set({ locale: input.locale, updatedAt: sql`now()` })
+      .where(eq(schema.users.id, input.userId));
+  }
+
+  /**
+   * Discards a password that was set but never proven — see `AuthDbService.resolveGoogleIdentity`.
+   *
+   * A `pending_verification` row's `password_hash` was chosen by whoever typed it into signup,
+   * which is not necessarily the person who owns the mailbox. Activating that row off an SSO
+   * assertion (which proves only the mailbox) would leave the unproven password live on a now-real
+   * account, so it is dropped instead. The account keeps working through SSO and can adopt a
+   * password later via `POST /v1/auth/set-password`.
+   */
+  async clearPasswordHash(tx: DrizzleTransaction, userId: string): Promise<void> {
+    await tx
+      .update(schema.users)
+      .set({ passwordHash: null, updatedAt: sql`now()` })
+      .where(eq(schema.users.id, userId));
+  }
+
+  /** Drops any outstanding verify-email code for a user — its purpose is served, or (see `clearPasswordHash`) it belonged to a signup attempt that is no longer trusted. */
+  async deleteVerifyEmailTokensForUser(tx: DrizzleTransaction, userId: string): Promise<void> {
+    await tx
+      .delete(schema.passwordResetTokens)
+      .where(
+        and(
+          eq(schema.passwordResetTokens.userId, userId),
+          eq(schema.passwordResetTokens.purpose, TokenPurpose.VERIFY_EMAIL)
+        )
+      );
+  }
+
   /**
    * Scoped to `status = 'pending_verification'` defensively — a verify_email token should never
    * exist for a user in any other status today, but this guards against a stale/reused token
@@ -353,14 +399,30 @@ export class AuthRepository {
     });
   }
 
-  async findActiveRefreshToken(tokenHash: string): Promise<ActiveRefreshToken | null> {
+  /**
+   * A refresh-token row found **without** filtering on `revoked_at IS NULL` — so a token that was
+   * already spent is still found, along with when it was spent.
+   *
+   * That is what makes reuse detection possible: "not active" collapses three very different
+   * situations (never existed, expired, already rotated out), and only the third is a signal that
+   * a spent token is still in circulation. `revokedAt` lets the caller separate a lost rotation
+   * race moments ago from a replay minutes later — see `TokenService.rotate` and
+   * `REFRESH_REUSE_GRACE_SECONDS`.
+   *
+   * Still excludes expired tokens: past `expires_at` nothing can be honored or inferred, and the
+   * daily purge deletes those rows anyway.
+   */
+  async findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRow | null> {
     const rows = await this.dbService.db
-      .select({ id: schema.refreshTokens.id, userId: schema.refreshTokens.userId })
+      .select({
+        id: schema.refreshTokens.id,
+        userId: schema.refreshTokens.userId,
+        revokedAt: schema.refreshTokens.revokedAt,
+      })
       .from(schema.refreshTokens)
       .where(
         and(
           eq(schema.refreshTokens.tokenHash, tokenHash),
-          isNull(schema.refreshTokens.revokedAt),
           gt(schema.refreshTokens.expiresAt, sql`now()`)
         )
       )
@@ -431,7 +493,7 @@ export class AuthRepository {
     return rows.length;
   }
 
-  /** Housekeeping — a revoked or expired refresh token can never be honored again (`findActiveRefreshToken` already excludes both), so the row is dead weight. Returns the number of rows removed. */
+  /** Housekeeping — a revoked or expired refresh token can never be honored again (`findRefreshTokenByHash` already excludes expired ones, and `rotate()` never re-checks a revoked one), so the row is dead weight. Returns the number of rows removed. */
   async deleteStaleRefreshTokens(tx: DrizzleTransaction): Promise<number> {
     const rows = await tx
       .delete(schema.refreshTokens)

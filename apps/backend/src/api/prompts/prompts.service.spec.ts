@@ -29,6 +29,7 @@ describe('PromptsService', () => {
     tenantId: '0190f4a1-7c33-7e51-9a02-6d1b8f4c0001',
     email: 'owner@example.com',
     role: UserRole.OWNER,
+    locale: null,
   };
   const promptId = '0190f4a1-7c33-7e51-9a02-6d1b8f4c0011';
 

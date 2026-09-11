@@ -1,6 +1,7 @@
 import { ICronJob } from '@bg/interfaces/job.interface';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
+import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Injectable, Logger } from '@nestjs/common';
 import { ReviewSyncQueue } from '@review-sync-queue/review-sync.queue';
 
@@ -11,7 +12,8 @@ export class CronService {
   constructor(
     private readonly authDbService: AuthDbService,
     private readonly connectionsDbService: ConnectionsDbService,
-    private readonly reviewSyncQueue: ReviewSyncQueue
+    private readonly reviewSyncQueue: ReviewSyncQueue,
+    private readonly reviewSyncDbService: ReviewSyncDbService
   ) {}
 
   sendDailyMail(data?: ICronJob): void {
@@ -81,5 +83,18 @@ export class CronService {
     }
 
     this.logger.debug(`Enqueued ${enqueued} review-poll job(s)`);
+  }
+
+  /**
+   * `PLAN.md` §6's nightly reviewer-retention purge. Only tenants with an explicit
+   * `review_data_retention_months` set are touched — see
+   * `ReviewSyncRepository.purgeExpiredReviewerPii` for the full query and its idempotency/locking
+   * guarantees. `audit_logs` redaction (§6.1) and the stale-`sync_runs` sweep (§8.1, cosmetic —
+   * see the ingestion doc) are separate, still-unbuilt follow-ups to this same job, not part of
+   * it yet.
+   */
+  async purgeExpiredReviewerPii(): Promise<void> {
+    const purged = await this.reviewSyncDbService.purgeExpiredReviewerPii();
+    this.logger.log(`Anonymized ${purged} review(s) past their tenant's retention window`);
   }
 }

@@ -1,9 +1,9 @@
+import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PromptsDbService } from '@db/repositories/prompts/prompts.db-service';
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -29,8 +29,7 @@ import type {
   PromptWithVersions,
 } from './types/prompt.type';
 
-import { JwtTokenType } from '../auth/enums/jwt-token-type.enum';
-import type { AuthUser, TenantAuthUser } from '../auth/types/auth-user.type';
+import type { AuthUser } from '../auth/types/auth-user.type';
 
 @Injectable()
 export class PromptsService {
@@ -39,7 +38,7 @@ export class PromptsService {
   constructor(private readonly promptsDbService: PromptsDbService) {}
 
   async list(user: AuthUser, includeHistory: boolean): Promise<PromptListResponseDto> {
-    const tenantUser = this.requireTenantUser(user);
+    const tenantUser = requireTenantUser(user, MESSAGES.PROMPTS.TENANT_ONLY);
     const rows = await this.promptsDbService.listWithVersions(tenantUser.tenantId);
 
     // A prompt with no versions is skipped, not fatal. `prompts` and `prompt_versions` are
@@ -65,7 +64,7 @@ export class PromptsService {
     dto: CreatePromptVersionDto,
     user: AuthUser
   ): Promise<CreatePromptVersionResponseDto> {
-    const tenantUser = this.requireTenantUser(user);
+    const tenantUser = requireTenantUser(user, MESSAGES.PROMPTS.TENANT_ONLY);
     const template = sanitizePromptTemplate(dto.template).trim();
     const unknown = findUnknownPromptPlaceholders(template);
     if (unknown.length > 0) {
@@ -124,19 +123,12 @@ export class PromptsService {
     tone: PromptToneValue,
     user: AuthUser
   ): Promise<UpdatePromptToneResponseDto> {
-    const tenantUser = this.requireTenantUser(user);
+    const tenantUser = requireTenantUser(user, MESSAGES.PROMPTS.TENANT_ONLY);
     const updated = await this.promptsDbService.updateTone(promptId, tenantUser.tenantId, tone);
     if (updated === null) {
       throw new NotFoundException(MESSAGES.PROMPTS.NOT_FOUND);
     }
     return UpdatePromptToneResponseDto.from(updated);
-  }
-
-  private requireTenantUser(user: AuthUser): TenantAuthUser {
-    if (user.type !== JwtTokenType.TENANT_USER) {
-      throw new ForbiddenException(MESSAGES.PROMPTS.TENANT_ONLY);
-    }
-    return user;
   }
 
   /** Null when the prompt has no versions — see `list`, which omits those rather than failing. */

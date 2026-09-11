@@ -29,7 +29,6 @@ describe('AuthDbService', () => {
       activateTenant: jest.fn(),
       updatePasswordHash: jest.fn(),
       insertRefreshToken: jest.fn(),
-      findActiveRefreshToken: jest.fn(),
       revokeRefreshToken: jest.fn(),
       revokeAllRefreshTokensForUser: jest.fn(),
       deleteStaleVerifyEmailTokens: jest.fn(),
@@ -73,6 +72,7 @@ describe('AuthDbService', () => {
         passwordHash: 'hashed',
         role: UserRole.OWNER,
         status: UserStatus.ACTIVE,
+        locale: null,
       });
 
       const result = await target.signup(input);
@@ -198,6 +198,7 @@ describe('AuthDbService', () => {
       passwordHash: 'hashed',
       role: UserRole.OWNER,
       status: UserStatus.PENDING_VERIFICATION,
+      locale: null,
     };
 
     it('returns null when no user exists at that email', async () => {
@@ -285,6 +286,7 @@ describe('AuthDbService', () => {
         role: user.role,
         passwordHash: user.passwordHash,
         status: UserStatus.ACTIVE,
+        locale: user.locale,
       });
       expect(authRepository.consumeVerifyEmailToken).toHaveBeenCalledWith(tx, {
         userId: user.id,

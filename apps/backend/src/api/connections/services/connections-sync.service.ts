@@ -1,3 +1,5 @@
+import type { AuthUser } from '@auth/types/auth-user.type';
+import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
@@ -25,10 +27,14 @@ export class ConnectionsSyncService {
   constructor(private readonly connectionsDbService: ConnectionsDbService) {}
 
   async getBackfillProgress(input: {
-    tenantId: string;
+    user: AuthUser;
     locationId: string;
   }): Promise<BackfillProgressResponseDto> {
-    const location = await this.requireLocation(input);
+    const tenantUser = requireTenantUser(input.user);
+    const location = await this.requireLocation({
+      tenantId: tenantUser.tenantId,
+      locationId: input.locationId,
+    });
     const run = await this.connectionsDbService.findLatestBackfillRun(location.id);
 
     return {
@@ -52,12 +58,16 @@ export class ConnectionsSyncService {
   }
 
   async getSyncHealth(input: {
-    tenantId: string;
+    user: AuthUser;
     locationId: string;
   }): Promise<SyncHealthResponseDto> {
-    const location = await this.requireLocation(input);
+    const tenantUser = requireTenantUser(input.user);
+    const location = await this.requireLocation({
+      tenantId: tenantUser.tenantId,
+      locationId: input.locationId,
+    });
     const [connection, currentRun] = await Promise.all([
-      this.connectionsDbService.findConnectionByTenant(input.tenantId),
+      this.connectionsDbService.findConnectionByTenant(tenantUser.tenantId),
       this.connectionsDbService.findRunningRun(location.id),
     ]);
 
@@ -89,14 +99,18 @@ export class ConnectionsSyncService {
   }
 
   async listSyncRuns(input: {
-    tenantId: string;
+    user: AuthUser;
     locationId: string;
     page?: number | undefined;
     pageSize?: number | undefined;
     status?: SyncRunStatus | undefined;
     trigger?: SyncTrigger | undefined;
   }): Promise<SyncRunListResponseDto> {
-    const location = await this.requireLocation(input);
+    const tenantUser = requireTenantUser(input.user);
+    const location = await this.requireLocation({
+      tenantId: tenantUser.tenantId,
+      locationId: input.locationId,
+    });
     const page = input.page ?? 1;
     const pageSize = input.pageSize ?? SYNC_RUNS_PAGE_SIZE_DEFAULT;
 

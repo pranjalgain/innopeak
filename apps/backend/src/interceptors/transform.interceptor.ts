@@ -1,9 +1,26 @@
+import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
+import type { AuthUser } from '@auth/types/auth-user.type';
+import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse } from '@common/dto/api-response';
+import type { Locale } from '@common/i18n/locale';
+import { resolveRequestLocale } from '@common/i18n/locale';
+import { renderMessage, renderNestedMessage } from '@common/i18n/message-registry';
 import { RouteNames } from '@common/route-names';
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+
+/**
+ * Step 1 of the locale resolution order: the authenticated tenant user's own stored preference,
+ * embedded in the access token by `TokenService.signTokenPair`. `undefined` for anyone else
+ * (unauthenticated, or a platform admin, who has no locale) — `resolveRequestLocale` falls
+ * through to `Accept-Language` for those exactly as it does for a tenant user who never chose one.
+ */
+export function requestUserLocale(request: Request): Locale | null | undefined {
+  const user = request.user as AuthUser | undefined;
+  return user?.type === JwtTokenType.TENANT_USER ? user.locale : undefined;
+}
 
 @Injectable()
 export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T>> {
@@ -27,17 +44,27 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
         return next.handle() as unknown as Observable<ApiResponse<T>>;
       }
 
+      // Resolved once per request, not per field — the same locale renders both `message` below
+      // and (via HttpExceptionFilter, on the error path) whatever this request's error response
+      // carries, so a client never sees one field in English and another in German.
+      const locale = resolveRequestLocale(
+        requestUserLocale(request),
+        request.headers['accept-language']
+      );
+
       return next.handle().pipe(
         map((data: unknown) => {
           const response = context.switchToHttp().getResponse<Response>();
           const partial =
             typeof data === 'object' && data !== null ? (data as Partial<ApiResponse<T>>) : {};
+          const rawMessage = partial.message ?? MESSAGES.COMMON.REQUEST_SUCCESSFUL;
+          const resolvedData = renderNestedMessage((partial.data ?? data) as T, locale);
 
           return {
             statusCode: partial.statusCode ?? response.statusCode,
             status: partial.status ?? 'Success',
-            message: partial.message ?? 'Request successful',
-            data: (partial.data ?? data) as T,
+            message: renderMessage(rawMessage, locale),
+            data: resolvedData,
             ...(partial.error !== undefined ? { error: partial.error } : {}),
           };
         })

@@ -6,7 +6,7 @@ export interface TenantSettingsResponseDto {
   id: string;
   escalationRatingThreshold: number;
   autoPostEnabled: boolean;
-  reviewDataRetentionMonths?: object | null;
+  reviewDataRetentionMonths?: number | null;
   aiReplyCount: number;
   updatedAt: string;
 }

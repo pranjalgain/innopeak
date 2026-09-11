@@ -1,8 +1,8 @@
-import { CurrentTenantUser } from '@auth/decorators/current-tenant-user.decorator';
+import { CurrentUser } from '@auth/decorators/current-user.decorator';
 import { Public } from '@auth/decorators/public.decorator';
 import { Roles } from '@auth/decorators/roles.decorator';
 import { UserRole } from '@auth/enums/user-role.enum';
-import type { TenantAuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth-user.type';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
@@ -61,9 +61,9 @@ export class ConnectionsController {
   @Get()
   @ApiGetConnection()
   async getConnection(
-    @CurrentTenantUser() user: TenantAuthUser
+    @CurrentUser() user: AuthUser
   ): Promise<ApiResponseDto<ConnectionStatusResponseDto>> {
-    const response = await this.connectionsService.getConnectionStatus(user.tenantId);
+    const response = await this.connectionsService.getConnectionStatus(user);
     return ResponseUtil.success(response, undefined, HttpStatus.OK);
   }
 
@@ -71,13 +71,12 @@ export class ConnectionsController {
   @Roles(UserRole.OWNER)
   @ApiAuthorize()
   async authorize(
-    @CurrentTenantUser() user: TenantAuthUser,
+    @CurrentUser() user: AuthUser,
     @Query() query: AuthorizeQueryDto,
     @Res() res: Response
   ): Promise<void> {
     const { authorizationUrl, sid } = await this.connectionsService.buildAuthorizeRedirect({
-      tenantId: user.tenantId,
-      userId: user.id,
+      user,
       returnTo: query.returnTo ?? DEFAULT_RETURN_TO,
     });
 
@@ -112,10 +111,8 @@ export class ConnectionsController {
   @Roles(UserRole.OWNER)
   @Throttle({ short: { limit: 10, ttl: 60000 } })
   @ApiDisconnect()
-  async disconnect(
-    @CurrentTenantUser() user: TenantAuthUser
-  ): Promise<ApiResponseDto<DisconnectResponseDto>> {
-    const response = await this.connectionsService.disconnect(user.tenantId);
+  async disconnect(@CurrentUser() user: AuthUser): Promise<ApiResponseDto<DisconnectResponseDto>> {
+    const response = await this.connectionsService.disconnect(user);
     return ResponseUtil.success(response, MESSAGES.CONNECTIONS.DISCONNECTED, HttpStatus.OK);
   }
 
@@ -123,20 +120,20 @@ export class ConnectionsController {
   @Roles(UserRole.OWNER)
   @ApiAvailableLocations()
   async availableLocations(
-    @CurrentTenantUser() user: TenantAuthUser
+    @CurrentUser() user: AuthUser
   ): Promise<ApiResponseDto<AvailableLocationsResponseDto>> {
-    const response = await this.connectionsService.listAvailableLocations(user.tenantId);
+    const response = await this.connectionsService.listAvailableLocations(user);
     return ResponseUtil.success(response, undefined, HttpStatus.OK);
   }
 
   @Get(RouteNames.LOCATIONS)
   @ApiListLocations()
   async listLocations(
-    @CurrentTenantUser() user: TenantAuthUser,
+    @CurrentUser() user: AuthUser,
     @Query() query: ListLocationsQueryDto
   ): Promise<ApiResponseDto<LocationListResponseDto>> {
     const locations = await this.connectionsService.listLocations({
-      userId: user.id,
+      user,
       status: query.status,
     });
 
@@ -149,12 +146,11 @@ export class ConnectionsController {
   @HttpCode(HttpStatus.CREATED)
   @ApiConfirmLocation()
   async confirmLocation(
-    @CurrentTenantUser() user: TenantAuthUser,
+    @CurrentUser() user: AuthUser,
     @Body() dto: ConfirmLocationDto
   ): Promise<ApiResponseDto<ConfirmLocationResponseDto>> {
     const response = await this.connectionsService.confirmLocation({
-      tenantId: user.tenantId,
-      userId: user.id,
+      user,
       externalLocationId: dto.externalLocationId,
     });
 

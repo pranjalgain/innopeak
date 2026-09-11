@@ -1,21 +1,21 @@
-import { sql } from 'drizzle-orm';
 import {
+  pgTable,
+  index,
+  serial,
+  timestamp,
+  varchar,
+  uuid,
+  jsonb,
+  uniqueIndex,
+  foreignKey,
   boolean,
   check,
-  foreignKey,
-  index,
   integer,
-  jsonb,
-  pgEnum,
-  pgTable,
-  serial,
   smallint,
   text,
-  timestamp,
-  uniqueIndex,
-  uuid,
-  varchar,
+  pgEnum,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const auditOperationType = pgEnum('audit_operation_type', ['INSERT', 'UPDATE', 'DELETE']);
 export const escalationReason = pgEnum('escalation_reason', ['low_rating', 'blocklist_match']);
@@ -87,6 +87,7 @@ export const tenantIdentityProvider = pgEnum('tenant_identity_provider', [
 export const tenantStatus = pgEnum('tenant_status', ['pending_activation', 'active', 'suspended']);
 export const tokenPurpose = pgEnum('token_purpose', ['verify_email', 'invite', 'reset']);
 export const userIdentityProvider = pgEnum('user_identity_provider', ['entra_id', 'google']);
+export const userLocale = pgEnum('user_locale', ['en', 'de']);
 export const userRole = pgEnum('user_role', ['owner', 'member']);
 export const userStatus = pgEnum('user_status', [
   'pending_verification',
@@ -324,6 +325,7 @@ export const users = pgTable(
     role: userRole().notNull(),
     status: userStatus().notNull(),
     anonymizedAt: timestamp('anonymized_at', { withTimezone: true, mode: 'string' }),
+    locale: userLocale(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -332,13 +334,13 @@ export const users = pgTable(
       .notNull(),
   },
   table => [
+    uniqueIndex('idx_users_email_active')
+      .using('btree', table.email.asc().nullsLast().op('text_ops'))
+      .where(sql`(anonymized_at IS NULL)`),
     index('idx_users_invited_by_user_id').using(
       'btree',
       table.invitedByUserId.asc().nullsLast().op('uuid_ops')
     ),
-    uniqueIndex('idx_users_email_active')
-      .using('btree', table.email.asc().nullsLast().op('text_ops'))
-      .where(sql`(anonymized_at IS NULL)`),
     index('idx_users_role').using('btree', table.role.asc().nullsLast().op('enum_ops')),
     index('idx_users_status').using('btree', table.status.asc().nullsLast().op('enum_ops')),
     index('idx_users_tenant_id').using('btree', table.tenantId.asc().nullsLast().op('uuid_ops')),
@@ -507,38 +509,6 @@ export const passwordResetTokens = pgTable(
       columns: [table.userId],
       foreignColumns: [users.id],
       name: 'password_reset_tokens_user_id_fkey',
-    }).onDelete('cascade'),
-  ]
-);
-
-export const refreshTokens = pgTable(
-  'refresh_tokens',
-  {
-    id: uuid()
-      .default(sql`uuidv7()`)
-      .primaryKey()
-      .notNull(),
-    userId: uuid('user_id').notNull(),
-    tokenHash: varchar('token_hash', { length: 255 }).notNull(),
-    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
-    revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'string' }),
-    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
-      .defaultNow()
-      .notNull(),
-  },
-  table => [
-    index('idx_refresh_tokens_user_id').using(
-      'btree',
-      table.userId.asc().nullsLast().op('uuid_ops')
-    ),
-    uniqueIndex('idx_refresh_tokens_token_hash').using(
-      'btree',
-      table.tokenHash.asc().nullsLast().op('text_ops')
-    ),
-    foreignKey({
-      columns: [table.userId],
-      foreignColumns: [users.id],
-      name: 'refresh_tokens_user_id_fkey',
     }).onDelete('cascade'),
   ]
 );
@@ -831,14 +801,14 @@ export const syncRuns = pgTable(
       'btree',
       table.locationId.asc().nullsLast().op('uuid_ops')
     ),
+    uniqueIndex('idx_sync_runs_location_id_running')
+      .using('btree', table.locationId.asc().nullsLast().op('uuid_ops'))
+      .where(sql`(status = 'running'::sync_run_status)`),
     index('idx_sync_runs_location_id_started_at').using(
       'btree',
       table.locationId.asc().nullsLast().op('uuid_ops'),
       table.startedAt.desc().nullsFirst().op('timestamptz_ops')
     ),
-    uniqueIndex('idx_sync_runs_location_id_running')
-      .using('btree', table.locationId.asc().nullsLast().op('uuid_ops'))
-      .where(sql`(status = 'running'::sync_run_status)`),
     index('idx_sync_runs_tenant_id').using(
       'btree',
       table.tenantId.asc().nullsLast().op('uuid_ops')
@@ -1078,5 +1048,37 @@ export const reviewResponses = pgTable(
       foreignColumns: [promptVersions.id],
       name: 'review_responses_prompt_version_id_fkey',
     }).onDelete('set null'),
+  ]
+);
+
+export const refreshTokens = pgTable(
+  'refresh_tokens',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    userId: uuid('user_id').notNull(),
+    tokenHash: varchar('token_hash', { length: 255 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_refresh_tokens_token_hash').using(
+      'btree',
+      table.tokenHash.asc().nullsLast().op('text_ops')
+    ),
+    index('idx_refresh_tokens_user_id').using(
+      'btree',
+      table.userId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: 'refresh_tokens_user_id_fkey',
+    }).onDelete('cascade'),
   ]
 );

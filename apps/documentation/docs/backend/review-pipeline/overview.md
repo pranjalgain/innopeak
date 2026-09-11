@@ -210,6 +210,22 @@ reject it anyway, so raise the mapping error where it can be logged usefully.
   but never got a cursor seeded, which happens when a backfill succeeds having fetched zero reviews
   or predates the column existing, would otherwise fail *every* poll forever: the cursor stays
   `NULL`, so the next run truncates identically, so the cursor stays `NULL`.
+- **A review's position shifting mid-walk, independent of the cap above** — a narrower, more
+  ordinary version of the same instability. Google's `reviews.list` is a live, mutating list with
+  no documented guarantee that a review's position stays put across the handful of page fetches one
+  poll makes; a review created, or an existing one edited (bumping `updateTime`), while a run is
+  mid-walk can shift later pages just enough that a review sitting right at the cursor lands on the
+  wrong side of *this* run's boundary — and with a single high-water cursor, a review skipped that
+  way is gone forever, the same permanence problem the truncation case has, just triggered by
+  ordinary write activity rather than a pathologically large backlog. `POLL_CURSOR_OVERLAP_MS`
+  (`review-sync-queue.service.ts`) is the fix, and deliberately a smaller one than the low-water
+  cursor floated above for truncation: the stop check walks 5 minutes past the exact cursor rather
+  than stopping there precisely, so a review in that window is re-examined and idempotently
+  re-upserted (`upsertReview`'s `ON CONFLICT` never touches `status`) on this or the next poll,
+  instead of depending on this run's page boundaries having landed exactly where they would have
+  without the race. Cheap and constant-cost against a 15-minute interval — it does not need the
+  low-water cursor's forward-paging bookkeeping because it is only ever re-checking a few seconds
+  to minutes of already-known reviews, not draining an unbounded backlog.
 - **A first-sighted review that already carries the owner's reply** — handled, and worth naming
   because an earlier revision of this poller got it wrong. `importPollPage` writes `responded`, not
   `new`, when the incoming payload already has a `reviewReply`. This is *not* §8.12 (which is about
@@ -708,13 +724,17 @@ applies here too, since backfill writes the same table — and a stale `running`
 block the location's entire pipeline, which is why §8.1's staleness tolerance sits in the
 acquisition query.
 
-> **Required follow-up migration.** `sync_runs` has one counter, `reviews_fetched INTEGER`, written
-> at the end of the run. The connections module exposes a *progress bar* over HTTP during
-> onboarding, and §7's stopping condition is counted in **imported replies**, not reviews fetched —
-> two different numbers, one column, and nothing written until completion. Either write
-> `reviews_fetched` incrementally as pages land (making it a live progress counter) or add
-> `imported_responses_count INTEGER` and, ideally, `pages_fetched INTEGER`. As it stands the
-> progress endpoint can only report "running" or "done".
+> **Partially resolved.** `sync_runs.reviews_fetched` is written incrementally as pages land
+> (`ReviewSyncQueueService.importAllPages` calls `recordProgress` after every page, not just at
+> the end), so the connections module's progress bar during onboarding is a genuine live counter,
+> not "running or done" — see the connections API reference's [`GET .../backfill`
+> endpoint](../connections/api-reference.md) for the finalization fix that makes it reach 100% on
+> a normal completion, too. What §7 still leaves out: its stopping condition is counted in
+> **imported replies**, not reviews fetched, and `sync_runs` has no column for that count
+> specifically — a tenant can watch "140 of 140 reviews imported" with no visibility into how many
+> of those carried a reply, which is what backfill was actually counting toward. Adding
+> `imported_responses_count INTEGER` (and, ideally, `pages_fetched INTEGER`) is the remaining
+> follow-up, should a more granular progress view ever be wanted.
 
 ## Retention and erasure jobs
 
@@ -724,13 +744,28 @@ party who never logs in, so there is no self-service portal — a request arrive
 human actions it, deliberately manual for MVP, consistent with the "nothing irreversible without a
 person clicking it" philosophy the whole approval flow rests on.
 
-**Reviewer retention purge (nightly cron).** Select `reviews` where
-`COALESCE(reviewed_at, created_at) < now() - tenant_settings.review_data_retention_months`
-(nullable, falling back to a platform default) `AND anonymized_at IS NULL`. For each: null
-`reviewer_name`, leave `rating` / `review_text` / `classification` intact for aggregate reporting,
-and set `reviews.anonymized_at = now()`. All three columns —
-`tenant_settings.review_data_retention_months`, `reviews.reviewer_name`, `reviews.anonymized_at` —
-exist as claimed in `0002_tenant_auth.sql` and `0004_reviews.sql`.
+**Reviewer retention purge (nightly cron) — built.** `CronScheduler.scheduleReviewerRetentionPurge`
+(`@Cron(CronExpression.EVERY_DAY_AT_2AM)`) enqueues `CronJobName.REVIEWER_RETENTION_PURGE`,
+dispatched to `CronService.purgeExpiredReviewerPii`, backed by
+`ReviewSyncRepository.purgeExpiredReviewerPii`. Selects `reviews` where
+`COALESCE(reviewed_at, created_at) < now() - tenant_settings.review_data_retention_months` **and**
+`tenant_settings.review_data_retention_months IS NOT NULL` `AND anonymized_at IS NULL`. For each:
+null `reviewer_name` **and** `external_reviewer_id`, leave `rating` / `review_text` /
+`classification` intact for aggregate reporting, and set `reviews.anonymized_at = now()`. All the
+columns involved — `tenant_settings.review_data_retention_months`, `reviews.reviewer_name`,
+`reviews.external_reviewer_id`, `reviews.anonymized_at` — exist as claimed in
+`0002_tenant_auth.sql` and `0004_reviews.sql`.
+
+Deliberately **no platform-default fallback** for a `NULL` retention setting — a tenant who has
+never configured this is left fully untouched rather than purged against a number nobody chose
+for them. This is a narrower scope than `PLAN.md` §6 as originally written (which assumed a
+platform default would exist), confirmed as the intended MVP behavior rather than an oversight:
+the "required follow-up" below, about that default needing a home, is resolved by not needing one
+yet. `external_reviewer_id` is nulled alongside `reviewer_name` — also confirmed rather than
+guessed, closing the second "required follow-up" below. Wrapped in a transaction-scoped Postgres
+advisory lock (`pg_advisory_xact_lock`) for the reason the "one honest caveat" in
+[Scheduling and transport](#scheduling-and-transport) describes: `@Cron` fires per worker replica,
+and unlike ingestion this job has no unique index to absorb a concurrent duplicate run harmlessly.
 
 The `COALESCE` is not defensive styling: `reviewed_at` is nullable and any comparison against `NULL`
 is unknown rather than true, so a review ingested without a parseable timestamp would sit
@@ -750,7 +785,19 @@ live row does not purge the trail. §6.1's fix: the same job step must also reda
 `audit_logs` row referencing that review's id, matched by `table_name = 'reviews'` and the id inside
 `old_value`/`new_value` — not just the row the anonymizing UPDATE created.
 `idx_audit_logs_table_name` and the two GIN indexes in `0000_foundation.sql` exist to make that a
-targeted lookup. §6.1 states plainly that the redaction step is **not yet built**; still true.
+targeted lookup. §6.1 states plainly that the redaction step is **not yet built**; still true for
+`reviewer_name` specifically.
+
+**A related, separate gap — now fixed at the source.** The same full-row snapshot also captured
+`users.password_hash` and `refresh_tokens` / `password_reset_tokens.token_hash` verbatim, on every
+write to those tables, forever — a credential-hash exposure `PLAN.md` §6.1 does not itself name,
+found independently while auditing this trigger. Unlike `reviewer_name`, a credential hash has no
+legitimate reason to exist in a second, unmanaged table at all, so the fix is not a retroactive
+purge but redaction at the source: `redact_audit_row(table_name, row)` (`0000_foundation.sql`)
+strips `password_hash` / `token_hash` from the JSONB *before* `log_db_changes()` ever writes it,
+scoped to exactly those two tables — every other table's snapshot, `reviews` included, is
+untouched. An audit trail that never held the value needs no later purge of it, so this does not
+reduce the scope of the still-open `reviewer_name` redaction above.
 
 **Staff erasure is anonymize-in-place (§6.2), never a delete.** An owner or member is also a data
 subject. On an erasure request or offboarding: clear `users.name` / `email` / `password_hash` (see
@@ -781,14 +828,14 @@ synthetic `error_message` while doing it, or the row stays ambiguous about *why*
 > (e.g. `anonymized+<user id>@invalid`) because `idx_users_tenant_id_email` is a unique index on
 > `(tenant_id, email)` and a shared placeholder would collide on the second erasure in a tenant.
 
-> **Required follow-up.** Three more things this design names but the schema does not hold. (1) The
-> "platform default" retention window that `review_data_retention_months IS NULL` falls back to
-> exists nowhere — not a column, not an env var in `src/config/env.config.ts`. It needs a home
-> before the job can run. (2) `reviews.external_reviewer_id` is a pseudonymous reviewer identifier
-> and §6 uses it to *find* rows to erase; whether anonymization should also null it is undecided —
-> nulling it breaks future matching for the same data subject, keeping it retains a pointer. That
-> needs a DPO answer, not an implementer's guess. (3) §6 mentions nulling a reviewer photo URL
-> "if later added"; no such column exists on `reviews` today, so there is nothing to null.
+> **Resolved.** Two of the three gaps this section used to flag are now decided, confirmed rather
+> than guessed: (1) there is deliberately **no platform-default retention window** — a tenant with
+> `review_data_retention_months IS NULL` is skipped entirely rather than purged against a number
+> nobody chose for them, so the "needs a home" problem doesn't need solving. (2)
+> `reviews.external_reviewer_id` **is** nulled alongside `reviewer_name` on anonymization — the
+> pseudonymous pointer is fully severed, not retained for future matching. (3) §6 mentions nulling
+> a reviewer photo URL "if later added"; no such column exists on `reviews` today, so there is
+> nothing to null — still true, and still not a blocker.
 
 ## Scheduling and transport
 
@@ -813,7 +860,8 @@ whose entire body is `cronQueue.addReviewSyncPollJob()`.
 | Schedule | Enqueues |
 |---|---|
 | `'0 */15 * * * *'` (**built**) | One `CronJobName.REVIEW_SYNC_POLL` job |
-| `CronExpression.EVERY_DAY_AT_MIDNIGHT` | The nightly retention purge, its `audit_logs` redaction step, and §8.1's stale-`sync_runs` sweep — still unbuilt |
+| `CronExpression.EVERY_DAY_AT_2AM` (**built**) | One `CronJobName.REVIEWER_RETENTION_PURGE` job — the reviewer-anonymization half of the nightly retention purge |
+| — (still unbuilt) | The `audit_logs` redaction step (§6.1) and §8.1's stale-`sync_runs` sweep — not yet folded into the retention purge job above, or scheduled anywhere else |
 
 Note carefully: `CronQueue` publishes to `QueueName.CRON` and `CronProcessor` dispatches on
 `CronJobName` with a `switch (job.name)`. So "cron" here is itself a queue — the `@Cron` tick is a
@@ -900,7 +948,9 @@ partial unique indexes §8 asks for already applied.
 **To build, in the background layer:**
 
 - ~~Two cron entries~~ — **both built.** `CronScheduler.scheduleReviewSyncPoll` (the 15-minute
-  fan-out) exists; the nightly retention/erasure/sweep job (daily) does not.
+  fan-out) and `scheduleReviewerRetentionPurge` (the reviewer-anonymization half of the nightly
+  retention purge) both exist. The `audit_logs` redaction step (§6.1), staff erasure (§6.2), and
+  §8.1's stale-`sync_runs` sweep remain unbuilt.
 - **`review-sync` exists** as a real queue, carrying both backfill and poll. Classification does
   **not** have its own queue — `ReviewClassificationService` is called in-process from
   `review-sync`'s own job handler (both `runBackfill` and `runPoll`), since a per-review job would
@@ -964,10 +1014,9 @@ rather than things this document can assume:
 | `review_responses` has no `approved_at`, though §2 asks for it alongside `approved_by_user_id` | Add `approved_at TIMESTAMPTZ` |
 | No column records an AI generation that failed before producing a row | Add `reviews.generation_error` / `generation_failed_at` |
 | Few-shot query has no supporting index and no defined ordering | Add `(tenant_id, status, posted_at DESC)`; specify `COALESCE(posted_at, created_at)` |
-| `sync_runs` cannot express backfill progress or imported-reply count | Write `reviews_fetched` incrementally, and/or add `imported_responses_count` |
+| `sync_runs` has no column for imported-*reply* count specifically (`reviews_fetched` is written incrementally and expresses review progress fine) | Add `imported_responses_count INTEGER`, and, ideally, `pages_fetched INTEGER` |
 | `idx_review_responses_review_id_imported` blocks a second external reply import (§8.12 reuses `source = 'imported'` live) | Update the existing imported row in place, or narrow the index |
 | `users.name` / `email` are `NOT NULL`, so §6.2's anonymize-in-place UPDATE cannot run | Drop `NOT NULL`, or write per-user unique placeholders (`idx_users_tenant_id_email` is unique) |
-| The platform-default retention window has no home | Column on a platform table, or an env-config value |
 | ~~§8.3's CAS predicate `status = 'new'` cannot match on the §8.6/§8.12 re-entry path~~ — resolved differently: classification claims on `classification = 'pending_classification'` instead, leaving `status` for a future generation module. See [Classification — implemented](#classification--implemented). | No schema change; `status = 'new' → 'in_review'` remains available for generation to implement §8.3 as written, once it exists |
 | `prompt_category` has no `auto_reply_candidate` equivalent; mapping needs `reviews.sentiment`, which is nullable | Document an explicit fallback — see `../prompts/overview.md` |
 | §6.1's `audit_logs` redaction step | Not built; indexes for it exist |

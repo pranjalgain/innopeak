@@ -40,7 +40,7 @@ Reference](./api-reference.md).
 
 | Table | Purpose |
 |---|---|
-| `tenant_settings` | **Owned.** One row per tenant (`idx_tenant_settings_tenant_id` is a UNIQUE index, not a plain one). `escalation_rating_threshold` (`INTEGER NOT NULL DEFAULT 3`, `CHECK (… BETWEEN 1 AND 5)`), `auto_post_enabled` (`BOOLEAN NOT NULL DEFAULT false`), `review_data_retention_months` (`INTEGER`, nullable — NULL means "fall back to the platform default", `PLAN.md` §6). |
+| `tenant_settings` | **Owned.** One row per tenant (`idx_tenant_settings_tenant_id` is a UNIQUE index, not a plain one). `escalation_rating_threshold` (`INTEGER NOT NULL DEFAULT 3`, `CHECK (… BETWEEN 1 AND 5)`), `auto_post_enabled` (`BOOLEAN NOT NULL DEFAULT false`), `review_data_retention_months` (`INTEGER`, nullable — NULL means this tenant is skipped by the nightly reviewer-retention purge entirely; there is no platform-default fallback, `PLAN.md` §6), `ai_reply_count` (`SMALLINT NOT NULL DEFAULT 1`, `CHECK (… BETWEEN 1 AND 3)`). |
 | `blocklist_terms` | **Owned.** Zero-to-many per tenant. `term` (`VARCHAR(255) NOT NULL`). **No `is_active`** — a term is configured or deleted, nothing in between; see [Matching semantics](#matching-semantics-classifier-not-a-stored-per-term-setting). Unique on `(tenant_id, lower(term))` via `idx_blocklist_terms_tenant_id_lower_term` — an expression index, so uniqueness is case-insensitive. |
 | `notification_recipients` | **Owned.** Which `users` row wants to hear about which `notification_type`, and on which channel. `user_id` is `NOT NULL` — a recipient is always an app user, never a free-text email address. `channel` is `notification_channel_pref`; `is_active` gates delivery. Indexed on `tenant_id` and `user_id`; **no unique constraint** — see [Gap](#gap-between-current-code-and-target-design). |
 | `tenants` | **Read + update only.** `name` is the one column this module writes. Tenant *creation* belongs to the auth module's signup transaction — see [Auth Module — Overview](../auth/overview.md#auth-flows). `status` (`tenant_status`) is read-only here; only a platform admin changes it. |
@@ -203,11 +203,6 @@ Three mismatches worth naming rather than smoothing over:
   disconnect) is already a distinct call in disguise — wiring the real API means splitting
   `persist()` into `PUT /v1/settings` plus the per-item routes, not swapping one mock call for one
   real one.
-- **`aiReplyCount` lives in the frontend's `GeneralSettings` type and has no column anywhere.**
-  The AI tab's 1–3 reply-count select writes it through `updateGeneral`, so today it round-trips
-  into a `tenant_settings`-shaped object with no `tenant_settings` column to land in. See
-  [Gap](#gap-between-current-code-and-target-design) — it needs a home, and this module is the
-  likelier owner than prompts, since it is a generation-*count* knob rather than prompt text.
 - **`auto_post_enabled` is persisted but not yet honoured.** The intended consumer moves an
   approved reply `approved → posted` and the review to `responded` when the flag is true; that
   posting step ships separately from this CRUD surface. The GBP `PUT` is missing too, so even
@@ -251,10 +246,14 @@ this module's code. `escalationRatingThreshold` is now acted on:
 `ReviewPipelineDbService.loadClassificationContext` reads it via
 `TenantSettingsRepository.findEscalationRatingThreshold` on every classification run — see
 [Review pipeline — Classification](../review-pipeline/overview.md#classification--implemented).
-`autoPostEnabled` and `reviewDataRetentionMonths` are still **stored but not yet acted on**, waiting
-on the posting pipeline and the nightly GDPR purge (`PLAN.md` §6) respectively; the purge will read
-a `NULL` retention value as "fall back to the platform default" rather than "keep forever." Writing
-either of those two today changes what the API returns and nothing else.
+`reviewDataRetentionMonths` **is now acted on**: the nightly reviewer-retention purge
+(`CronService.purgeExpiredReviewerPii`, `PLAN.md` §6 — see
+[Review pipeline — Retention and erasure jobs](../review-pipeline/overview.md#retention-and-erasure-jobs))
+reads it per tenant. A `NULL` value is read as "this tenant has not opted in" and is skipped
+entirely — there is deliberately no platform-default fallback, so writing this field is what turns
+the purge on for a tenant, not just what changes the API response. `autoPostEnabled` is still
+**stored but not yet acted on**, waiting on the posting pipeline; writing it today only changes
+what the API returns.
 
 **Not built yet:** tenant profile (`/v1/tenant`) and notification-recipient routes.
 
@@ -294,12 +293,6 @@ Required follow-up migrations, called out explicitly rather than assumed:
   notification_recipients(tenant_id, user_id, notification_type);` is needed before `POST` can rely
   on the database instead of a racy read-then-write. See
   [`POST /v1/settings/notification-recipients`](./api-reference.md#post-v1settingsnotification-recipients).
-- **`tenant_settings` has no home for `aiReplyCount`.** If the AI tab's reply-count select is real
-  product behaviour rather than mock scaffolding, it needs a column — `ai_reply_count INTEGER NOT
-  NULL DEFAULT 1 CHECK (ai_reply_count BETWEEN 1 AND 3)` mirrors `PLAN.md` §5's "generate 2–3 rows"
-  for escalations and one for auto-reply candidates. Not added speculatively; flagged so it is a
-  decision rather than an omission.
-
 Not a gap, worth recording so nobody goes looking: `blocklist_terms` has no `match_type` enum
 (`exact` / `contains` / `regex`) — `PLAN.md` §2 lists it as a possible fast-follow, explicitly not
 required for MVP, so matching semantics are the classifier's to define, not a stored per-term

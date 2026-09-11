@@ -14,10 +14,11 @@ import { OAuthIntent } from '../enums/oauth-intent.enum';
 describe('GoogleOAuthStateService', () => {
   let target: GoogleOAuthStateService;
   let store: Map<string, string>;
+  let redis: { set: jest.Mock; getdel: jest.Mock };
 
   beforeEach(async () => {
     store = new Map();
-    const redis = {
+    redis = {
       set: jest.fn((key: string, value: string) => {
         if (store.has(key)) return Promise.resolve(null); // NX
         store.set(key, value);
@@ -52,6 +53,18 @@ describe('GoogleOAuthStateService', () => {
     if (result.ok) {
       expect(result.record.intent).toBe(OAuthIntent.SIGNUP);
     }
+  });
+
+  /**
+   * At 192 bits of randomness this never happens in practice, but a silent overwrite-miss here
+   * would still hand the caller a signed state whose Redis record belongs to someone else's
+   * in-flight consent — surfacing later as a generic, indistinguishable INVALID_STATE with no
+   * diagnostic trail. `mint` must fail loudly instead.
+   */
+  it('throws rather than silently minting a state whose record write lost the NX race', async () => {
+    redis.set.mockResolvedValueOnce(null);
+
+    await expect(target.mint({ intent: OAuthIntent.LOGIN })).rejects.toThrow('nonce collision');
   });
 
   it('rejects a replay — the second callback finds no nonce', async () => {

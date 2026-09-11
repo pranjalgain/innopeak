@@ -55,6 +55,7 @@ CREATE TYPE notification_channel AS ENUM ('email', 'teams');
 CREATE TYPE notification_status AS ENUM ('pending', 'sent', 'failed');
 CREATE TYPE sync_trigger AS ENUM ('scheduled', 'backfill');
 CREATE TYPE sync_run_status AS ENUM ('running', 'ok', 'error');
+CREATE TYPE user_locale AS ENUM ('en', 'de');
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- Shared audit infrastructure
@@ -105,6 +106,31 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_table_name ON audit_logs(table_name);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_old_value_gin ON audit_logs USING GIN (old_value);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_new_value_gin ON audit_logs USING GIN (new_value);
 
+-- Security note: a full-row JSONB snapshot means log_db_changes() below would otherwise also
+-- capture users.password_hash and refresh_tokens/password_reset_tokens.token_hash verbatim, on
+-- every insert/update/delete of those rows, forever — with none of the retention job's later
+-- cleanup, since nothing purges audit_logs at all. Unlike reviewer PII (a genuine record the
+-- business needs until retention expires, redacted only after that), a credential hash has no
+-- legitimate reason to exist in a second, unmanaged table at all: this strips it at the source,
+-- before the row is ever written to audit_logs, rather than retroactively — an audit trail that
+-- never held the value needs no later purge of it.
+CREATE OR REPLACE FUNCTION redact_audit_row(p_table_name TEXT, p_row JSONB)
+RETURNS JSONB AS $$
+BEGIN
+    IF p_row IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    IF p_table_name = 'users' THEN
+        RETURN p_row - 'password_hash';
+    ELSIF p_table_name IN ('refresh_tokens', 'password_reset_tokens') THEN
+        RETURN p_row - 'token_hash';
+    END IF;
+
+    RETURN p_row;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 -- Function to log DB changes
 CREATE OR REPLACE FUNCTION log_db_changes()
 RETURNS TRIGGER AS $$
@@ -128,19 +154,23 @@ BEGIN
     -- which have a tenant_id column and a few of which (tenants itself, platform_admins and its
     -- two child tables) don't. Where it's absent, ->>'tenant_id' simply yields NULL, which is the
     -- correct value for a platform-level row that isn't scoped to one tenant.
+    --
+    -- Every to_jsonb(NEW/OLD) below is passed through redact_audit_row() first — before either
+    -- row_tenant_id extraction or the INSERT, extraction reads `tenant_id`, a key redact_audit_row
+    -- never touches, so redacting first changes nothing about which tenant an entry is attributed to.
     IF (TG_OP = 'INSERT') THEN
-        new_row := to_jsonb(NEW);
+        new_row := redact_audit_row(TG_TABLE_NAME, to_jsonb(NEW));
         row_tenant_id := (new_row->>'tenant_id')::UUID;
         INSERT INTO audit_logs(table_name, operation_type, tenant_id, new_value, triggered_by, db_user, db_name)
         VALUES (TG_TABLE_NAME, TG_OP::audit_operation_type, row_tenant_id, new_row, trigger_source, session_user, current_database());
     ELSIF (TG_OP = 'UPDATE') THEN
-        new_row := to_jsonb(NEW);
-        old_row := to_jsonb(OLD);
+        new_row := redact_audit_row(TG_TABLE_NAME, to_jsonb(NEW));
+        old_row := redact_audit_row(TG_TABLE_NAME, to_jsonb(OLD));
         row_tenant_id := (new_row->>'tenant_id')::UUID;
         INSERT INTO audit_logs(table_name, operation_type, tenant_id, old_value, new_value, triggered_by, db_user, db_name)
         VALUES (TG_TABLE_NAME, TG_OP::audit_operation_type, row_tenant_id, old_row, new_row, trigger_source, session_user, current_database());
     ELSIF (TG_OP = 'DELETE') THEN
-        old_row := to_jsonb(OLD);
+        old_row := redact_audit_row(TG_TABLE_NAME, to_jsonb(OLD));
         row_tenant_id := (old_row->>'tenant_id')::UUID;
         INSERT INTO audit_logs(table_name, operation_type, tenant_id, old_value, triggered_by, db_user, db_name)
         VALUES (TG_TABLE_NAME, TG_OP::audit_operation_type, row_tenant_id, old_row, trigger_source, session_user, current_database());

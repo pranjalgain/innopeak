@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
+import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { PlatformAdminInviteService } from "@/app/_libs/services/platform-admin-invite.service";
 import type { PlatformAdminInvite } from "@/types/domain";
+
+export const platformAdminInvitesQueryKey = ["admin", "platform-admin-invites"] as const;
 
 interface UsePlatformAdminInvitesResult {
   invites: PlatformAdminInvite[];
@@ -15,34 +18,31 @@ interface UsePlatformAdminInvitesResult {
 
 export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
   const t = useTranslations("adminSettings.invite.toasts");
-  const [invites, setInvites] = useState<PlatformAdminInvite[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  const invitesQuery = useQuery({
+    queryKey: platformAdminInvitesQueryKey,
+    queryFn: () => PlatformAdminInviteService.getInvites(),
+  });
 
   useEffect(() => {
-    let cancelled = false;
+    if (invitesQuery.isError) toast.error(t("loadFailed"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invitesQuery.isError]);
 
-    PlatformAdminInviteService.getInvites()
-      .then((result) => {
-        if (!cancelled) setInvites(result);
-      })
-      .catch(() => {
-        if (!cancelled) toast.error(t("loadFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
+  const sendInviteMutation = useMutation({
+    mutationFn: (email: string) => PlatformAdminInviteService.sendInvite(email),
+  });
 
   /** Returns whether it succeeded, so the form knows to clear itself. */
   const sendInvite = useCallback(
     async (email: string) => {
       try {
-        const invite = await PlatformAdminInviteService.sendInvite(email);
-        setInvites((prev) => [...prev, invite]);
+        const invite = await sendInviteMutation.mutateAsync(email);
+        queryClient.setQueryData<PlatformAdminInvite[]>(platformAdminInvitesQueryKey, (prev) => [
+          ...(prev ?? []),
+          invite,
+        ]);
         toast.success(t("sent", { email }));
         return true;
       } catch {
@@ -50,21 +50,33 @@ export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
         return false;
       }
     },
-    [t],
+    [t, sendInviteMutation, queryClient],
   );
+
+  const revokeInviteMutation = useMutation({
+    mutationFn: (id: string) => PlatformAdminInviteService.revokeInvite(id),
+  });
 
   const revokeInvite = useCallback(
     async (id: string) => {
       try {
-        await PlatformAdminInviteService.revokeInvite(id);
-        setInvites((prev) => prev.filter((invite) => invite.id !== id));
+        await revokeInviteMutation.mutateAsync(id);
+        queryClient.setQueryData<PlatformAdminInvite[]>(
+          platformAdminInvitesQueryKey,
+          (prev) => prev?.filter((invite) => invite.id !== id) ?? prev,
+        );
         toast.success(t("revoked"));
       } catch {
         toast.error(t("revokeFailed"));
       }
     },
-    [t],
+    [t, revokeInviteMutation, queryClient],
   );
 
-  return { invites, isLoading, sendInvite, revokeInvite };
+  return {
+    invites: invitesQuery.data ?? [],
+    isLoading: invitesQuery.isLoading,
+    sendInvite,
+    revokeInvite,
+  };
 }

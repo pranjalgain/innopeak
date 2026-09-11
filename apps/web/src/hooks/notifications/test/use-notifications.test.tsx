@@ -1,22 +1,28 @@
-import { type ReactNode, StrictMode } from "react";
 
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
+import { type ReactNode, StrictMode } from "react";
 import { describe, expect, test, vi } from "vitest";
 
 import { MOCK_NOTIFICATIONS } from "@/app/_libs/mock-data/notifications";
 import { NotificationService } from "@/app/_libs/services/notification.service";
+import { createQueryClient } from "@/app/_libs/utils/query-client";
 
 import messages from "../../../../messages/en.json";
 import { useNotifications } from "../use-notifications";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
+// A fresh QueryClient per render so one test's cached `["notifications"]` pages can never leak
+// into the next.
 function wrapper({ children }: { children: ReactNode }) {
   return (
-    <NextIntlClientProvider locale="en" messages={messages}>
-      {children}
-    </NextIntlClientProvider>
+    <QueryClientProvider client={createQueryClient()}>
+      <NextIntlClientProvider locale="en" messages={messages}>
+        {children}
+      </NextIntlClientProvider>
+    </QueryClientProvider>
   );
 }
 
@@ -44,13 +50,15 @@ describe("useNotifications", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.notifications).toHaveLength(3);
 
-    await act(async () => {
+    act(() => {
       result.current.fetchNextPage();
     });
 
-    await waitFor(() => expect(result.current.isFetchingNextPage).toBe(false));
-
-    expect(result.current.notifications).toHaveLength(5);
+    // Waits on the actual page arriving rather than `isFetchingNextPage` flipping back to
+    // `false`: react-query notifies subscribers a tick later than a plain `useState` setter would,
+    // so a `waitFor` racing that flag alone could observe "not fetching" before the fetch has
+    // even started, not after it finished.
+    await waitFor(() => expect(result.current.notifications).toHaveLength(5));
     expect(new Set(result.current.notifications.map((n) => n.id)).size).toBe(5);
     expect(result.current.hasMore).toBe(false);
   });
@@ -82,7 +90,9 @@ describe("useNotifications", () => {
 
     act(() => result.current.markAsRead(unread!.id));
 
-    expect(result.current.unreadCount).toBe(before - 1);
+    // Same react-query-notifies-a-tick-later reasoning as above — `waitFor` rather than an
+    // immediate assertion.
+    await waitFor(() => expect(result.current.unreadCount).toBe(before - 1));
   });
 
   test("a failed paging request reports nextPageFailed instead of toasting", async () => {

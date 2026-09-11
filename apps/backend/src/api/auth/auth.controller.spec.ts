@@ -1,3 +1,4 @@
+import { MESSAGES } from '@common/constants/messages.constants';
 import { UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { Request, Response } from 'express';
@@ -10,6 +11,9 @@ import {
   SESSION_HINT_COOKIE_NAME,
 } from './constants/auth.constants';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
+import { JwtTokenType } from './enums/jwt-token-type.enum';
+import { UserRole } from './enums/user-role.enum';
+import type { TenantAuthUser } from './types/auth-user.type';
 
 function mockResponse(): Response {
   return {
@@ -101,7 +105,7 @@ describe('AuthController.refresh', () => {
     expect(superseded).toBeInstanceOf(UnauthorizedException);
     expect(superseded.getStatus()).toBe(401);
     expect(superseded.message).toBe(
-      new UnauthorizedException('Invalid or expired refresh token.').message
+      new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN).message
     );
   });
 
@@ -135,6 +139,66 @@ describe('AuthController.refresh', () => {
       expect.anything(),
       expect.anything()
     );
+    expect(res.clearCookie).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthController.updateLocale', () => {
+  let controller: AuthController;
+  const updateLocale = jest.fn();
+
+  const currentUser: TenantAuthUser = {
+    type: JwtTokenType.TENANT_USER,
+    id: 'user-1',
+    tenantId: 'tenant-1',
+    email: 'owner@example.com',
+    role: UserRole.OWNER,
+    locale: null,
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [{ provide: AuthService, useValue: { updateLocale } }],
+    }).compile();
+
+    controller = moduleRef.get(AuthController);
+  });
+
+  /**
+   * The regression this exists to prevent: `updateLocale` is authenticated by an access token
+   * alone (see `TokenService.reissueAccessToken`'s doc comment), so it must never mint or set a
+   * refresh token — doing so would let a bare access token upgrade itself into a fresh,
+   * indefinitely-rotatable 7-day session with no additional proof of identity.
+   */
+  it('sets only the access token cookie, never the refresh token or session hint cookies', async () => {
+    updateLocale.mockResolvedValue({
+      accessToken: 'new-access-token',
+      expiresIn: 900,
+      user: { id: 'user-1', locale: 'de' },
+    });
+    const res = mockResponse();
+
+    await controller.updateLocale(currentUser, { locale: 'de' }, res);
+
+    expect(res.cookie).toHaveBeenCalledWith(
+      ACCESS_TOKEN_COOKIE_NAME,
+      'new-access-token',
+      expect.anything()
+    );
+    expect(res.cookie).not.toHaveBeenCalledWith(
+      REFRESH_TOKEN_COOKIE_NAME,
+      expect.anything(),
+      expect.anything()
+    );
+    expect(res.cookie).not.toHaveBeenCalledWith(
+      SESSION_HINT_COOKIE_NAME,
+      expect.anything(),
+      expect.anything()
+    );
+    expect(res.cookie).toHaveBeenCalledTimes(1);
     expect(res.clearCookie).not.toHaveBeenCalled();
   });
 });

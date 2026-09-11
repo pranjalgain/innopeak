@@ -1,3 +1,5 @@
+import type { Locale } from '@common/i18n/locale';
+
 import type { JwtTokenType } from '../enums/jwt-token-type.enum';
 import type { UserRole } from '../enums/user-role.enum';
 
@@ -7,6 +9,9 @@ export interface TenantAuthUser {
   tenantId: string;
   email: string;
   role: UserRole;
+  /** From the access token's `locale` claim — null if the user never chose one, stale until the
+   * token is refreshed. See `resolveLocale`'s call sites for how this is used. */
+  locale: Locale | null;
 }
 
 export interface PlatformAdminAuthUser {

@@ -22,7 +22,10 @@ export interface ReviewRow {
   sentiment: ReviewSentiment | null;
   classification: ReviewClassification;
   escalationReason: EscalationReason | null;
-  matchedKeywords: unknown;
+  // Drizzle infers a bare `jsonb` column as `unknown`; narrowed here to what every writer
+  // actually stores (`ReviewSyncRepository.claimClassification`'s `ClaimClassificationInput`),
+  // the same boundary-bridging this repository already does for enum columns.
+  matchedKeywords: string[] | null;
   status: ReviewStatus;
   anonymizedAt: string | null;
   removedUpstreamAt: string | null;
@@ -93,6 +96,16 @@ const RESPONSE_COLUMNS = {
 } as const;
 
 /**
+ * Postgres's `LIKE`/`ILIKE` treat `%` and `_` as wildcards and `\` as the escape character itself
+ * — none of which a reviewer-name search term should be interpreted as. Without this, searching
+ * for a reviewer literally named "50% Off Dave" or "J_ne" matches an unrelated, much broader (or
+ * narrower) set of rows than the literal substring the owner typed.
+ */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, char => `\\${char}`);
+}
+
+/**
  * Read-only queries over `reviews` + `review_responses` for the review queue. Split from
  * `ReviewSyncRepository` by *direction*, not by table: that one owns every write these tables
  * take, this one only reads. Keeping both in the `review-sync` domain preserves the "one domain
@@ -120,7 +133,9 @@ export class ReviewsReadRepository {
     if (filter.search) {
       // Reviewer name only, matching the frontend's own search behaviour. An anonymized row has
       // a NULL name and therefore never matches, which is the intended privacy outcome.
-      conditions.push(ilike(schema.reviews.reviewerName, `%${filter.search}%`));
+      // `escapeLikePattern` is what keeps this a literal substring match — Postgres's default `\`
+      // escape character makes the escaped pattern interpretable without an explicit ESCAPE clause.
+      conditions.push(ilike(schema.reviews.reviewerName, `%${escapeLikePattern(filter.search)}%`));
     }
 
     const where = and(...conditions);
@@ -177,30 +192,5 @@ export class ReviewsReadRepository {
         ReviewResponseRow[]
       >
     );
-  }
-
-  async countResponsesByReview(reviewIds: string[]): Promise<Map<string, number>> {
-    if (reviewIds.length === 0) {
-      return new Map();
-    }
-
-    const rows = await this.dbService.db
-      .select({ reviewId: schema.reviewResponses.reviewId, value: count() })
-      .from(schema.reviewResponses)
-      .where(inArray(schema.reviewResponses.reviewId, reviewIds))
-      .groupBy(schema.reviewResponses.reviewId);
-
-    return new Map(rows.map(row => [row.reviewId, row.value]));
-  }
-
-  /** Only used by the dashboard summary; kept here so nothing else counts reviews itself. */
-  async countReviewsByStatus(tenantId: string): Promise<Record<string, number>> {
-    const rows = await this.dbService.db
-      .select({ status: schema.reviews.status, value: count() })
-      .from(schema.reviews)
-      .where(eq(schema.reviews.tenantId, tenantId))
-      .groupBy(schema.reviews.status);
-
-    return Object.fromEntries(rows.map(row => [row.status, row.value]));
   }
 }

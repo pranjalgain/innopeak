@@ -47,7 +47,6 @@ models/prompt-current-version-dto.ts
 models/prompt-dto.ts
 models/prompt-list-response-dto.ts
 models/prompt-version-dto.ts
-models/rating-distribution-dto.ts
 models/recent-escalated-dto.ts
 models/resend-otp-dto.ts
 models/review-detail-response-dto.ts
@@ -63,6 +62,7 @@ models/sync-run-dto.ts
 models/sync-run-list-response-dto.ts
 models/tenant-settings-response-dto.ts
 models/token-response-dto.ts
+models/update-locale-dto.ts
 models/update-prompt-tone-dto.ts
 models/update-prompt-tone-response-dto.ts
 models/update-tenant-settings-dto.ts

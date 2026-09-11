@@ -1,9 +1,10 @@
+import { MESSAGES } from '@common/constants/messages.constants';
 import type { ApiResponse } from '@common/dto/api-response';
 
 export class ResponseUtil {
   static success<T>(
     data: T,
-    message: string = 'Success',
+    message: string = MESSAGES.COMMON.SUCCESS,
     statusCode: number = 200
   ): ApiResponse<T> {
     return { status: 'Success', data, message, statusCode };

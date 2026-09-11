@@ -11,7 +11,6 @@ import { HttpLoggingInterceptor } from '@interceptors/logging.interceptor';
 import { TransformInterceptor } from '@interceptors/transform.interceptor';
 import { LoggerModule } from '@logger/logger.module';
 import { MetricsModule } from '@metrics/metrics.module';
-import { CookieAuthMiddleware } from '@middlewares/cookies.middleware';
 import { DevToolsMiddleware } from '@middlewares/dev-tool.middleware';
 import { MetricsMiddleware } from '@middlewares/metrics.middleware';
 import { BullModule } from '@nestjs/bullmq';
@@ -57,25 +56,32 @@ const queueModule = BullModule.forRootAsync({
 });
 
 // Rate Limiting
+//
+// `ttl` is MILLISECONDS — @nestjs/throttler has taken ms since v5 and this project pins 6.5.0.
+// These tiers previously read `1 * 60` with a "1 minute" comment, which is a 60-*millisecond*
+// window: every route without an explicit `@Throttle` (logout, the OAuth callback, /me, and every
+// non-auth route) was effectively unthrottled, and the medium/long/very-long tiers could never
+// bind. The per-route overrides in the auth controller already used ms, so only these were wrong.
+const MINUTE_MS = 60 * 1000;
 const rateLimit = ThrottlerModule.forRoot([
   {
     name: 'short',
-    ttl: 1 * 60, // Time to live in seconds (1 minute)
+    ttl: MINUTE_MS, // 1 minute
     limit: 30, // Maximum number of requests within the ttl
   },
   {
     name: 'medium',
-    ttl: 5 * 60, // 5 minutes
+    ttl: 5 * MINUTE_MS,
     limit: 100,
   },
   {
     name: 'long',
-    ttl: 30 * 60, // 30 minutes
+    ttl: 30 * MINUTE_MS,
     limit: 500,
   },
   {
     name: 'very-long',
-    ttl: 60 * 60, // 1 hour
+    ttl: 60 * MINUTE_MS,
     limit: 1000,
   },
 ]);
@@ -167,7 +173,6 @@ export class AppModule {
   configure(consumer: MiddlewareConsumer): void {
     // Apply to all routes
     consumer.apply(MetricsMiddleware).forRoutes('*');
-    consumer.apply(CookieAuthMiddleware).forRoutes('*');
     consumer
       .apply(DevToolsMiddleware)
       .forRoutes(

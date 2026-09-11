@@ -4,7 +4,7 @@ import { BusinessNameView } from "@/app/(auth)/onboarding/business-name/_compone
 import { RedirectIfAuthenticated } from "@/app/_components/redirect-if-authenticated";
 
 export const metadata: Metadata = {
-  title: "Your business name — InnoPeak",
+  title: "Your business name",
 };
 
 export default function OnboardingBusinessNamePage() {

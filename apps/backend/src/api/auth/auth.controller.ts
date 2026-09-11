@@ -54,6 +54,8 @@ import { SetPasswordDto } from './dto/set-password.dto';
 import { SignupResponseDto } from './dto/signup-response.dto';
 import { SignupDto } from './dto/signup.dto';
 import { TokenResponseDto } from './dto/token-response.dto';
+import { UpdateLocaleResponseDto } from './dto/update-locale-response.dto';
+import { UpdateLocaleDto } from './dto/update-locale.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { OAuthIntent } from './enums/oauth-intent.enum';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
@@ -69,6 +71,7 @@ import {
   ApiResendOtp,
   ApiSetPassword,
   ApiSignup,
+  ApiUpdateLocale,
   ApiVerifyEmail,
 } from './swagger/auth.swagger';
 import type { AuthUser } from './types/auth-user.type';
@@ -246,6 +249,26 @@ export class AuthController {
   }
 
   /**
+   * Settings → Profile, language preference. Not `@Public()` — JwtAuthGuard supplies `user`.
+   * Re-signs only the access token cookie — see `AuthService.updateLocale`'s doc comment for why
+   * this deliberately does not touch the refresh token the way every other token-issuing route
+   * here does.
+   */
+  @Post(RouteNames.UPDATE_LOCALE)
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiUpdateLocale()
+  async updateLocale(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateLocaleDto,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<ApiResponse<UpdateLocaleResponseDto>> {
+    const result = await this.authService.updateLocale(user, dto);
+    this.setAccessTokenCookie(res, result.accessToken);
+    return ResponseUtil.success(result, MESSAGES.AUTH.LOCALE_UPDATED, HttpStatus.OK);
+  }
+
+  /**
    * Step one of Google sign-in. A `GET` because the browser navigates here directly — the SPA sets
    * `window.location`, so the access cookie rides along and there is no CORS preflight.
    *
@@ -402,6 +425,19 @@ export class AuthController {
       SESSION_HINT_COOKIE_NAME,
       SESSION_HINT_COOKIE_VALUE,
       this.cookieOptions(SESSION_HINT_COOKIE_PATH, REFRESH_TOKEN_TTL_SECONDS)
+    );
+  }
+
+  /**
+   * Just the `access_token` cookie — for `updateLocale`, the one route that reissues a token
+   * without also rotating the refresh token or touching the session hint (see
+   * `AuthService.updateLocale`'s doc comment).
+   */
+  private setAccessTokenCookie(res: Response, accessToken: string): void {
+    res.cookie(
+      ACCESS_TOKEN_COOKIE_NAME,
+      accessToken,
+      this.cookieOptions(ACCESS_TOKEN_COOKIE_PATH, ACCESS_TOKEN_TTL_SECONDS)
     );
   }
 

@@ -12,7 +12,7 @@ export class TenantSettingsResponseDto {
   @ApiProperty({ example: false })
   autoPostEnabled!: boolean;
 
-  @ApiPropertyOptional({ example: 24, nullable: true })
+  @ApiPropertyOptional({ example: 24, type: Number, nullable: true })
   reviewDataRetentionMonths!: number | null;
 
   @ApiProperty({ example: 1, minimum: 1, maximum: 3 })

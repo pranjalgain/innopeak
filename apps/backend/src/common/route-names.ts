@@ -3,14 +3,9 @@ export enum RouteNames {
   METRICS = 'metrics',
   HEALTH = 'health',
   AUTH = 'auth',
-  USERS = 'users',
-  MEDIA = 'media',
-  NOTIFICATIONS = 'notifications',
-  AI = 'ai',
   CONNECTIONS = 'connections',
   REVIEWS = 'reviews',
   DASHBOARD = 'dashboard',
-  WEBHOOKS = 'webhooks',
   PROMPTS = 'prompts',
   SETTINGS = 'settings',
   BLOCKLIST_TERMS = 'blocklist-terms',
@@ -24,18 +19,14 @@ export enum RouteNames {
   HEALTH_UI = 'health-ui',
   LOGIN = 'login',
   LOGOUT = 'logout',
-  REGISTER = 'register',
   SIGNUP = 'signup',
   REFRESH = 'refresh',
   ME = 'me',
   CHANGE_PASSWORD = 'change-password',
   SET_PASSWORD = 'set-password',
-  FORGOT_PASSWORD = 'forgot-password',
-  RESET_PASSWORD = 'reset-password',
+  UPDATE_LOCALE = 'locale',
   VERIFY_EMAIL = 'verify-email',
   RESEND_VERIFICATION_OTP = 'resend-verification-otp',
-  MFA_SETUP = 'mfa/setup',
-  MFA_VERIFY = 'mfa/verify',
   GOOGLE_COMPLETE_SIGNUP = 'google/complete-signup',
   // Connections module — nested segments under RouteNames.CONNECTIONS
   GOOGLE_AUTHORIZE = 'google/authorize',
@@ -50,9 +41,9 @@ export enum RouteNames {
   // Reviews module
   REVIEW_BY_ID = ':reviewId',
 
-  // Dashboard module — nested segments under RouteNames.DASHBOARD. The `metrics` segment reuses
-  // METRICS above; a second member with the same value trips no-duplicate-enum-values.
-  DASHBOARD_RATING_DISTRIBUTION = 'rating-distribution',
+  // Dashboard module — nested segment under RouteNames.DASHBOARD. The `metrics` route (reusing
+  // METRICS above) now also carries the rating distribution, so there is no separate segment for
+  // it any more.
   DASHBOARD_RECENT_ESCALATED = 'recent-escalated',
 
   TEST = 'test',

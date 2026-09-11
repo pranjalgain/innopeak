@@ -166,6 +166,16 @@ export class EnvConfig {
   @IsNumber()
   VERIFY_EMAIL_OTP_TTL_MINUTES?: number;
 
+  /**
+   * Number of reverse proxies in front of this app, so `req.ip` resolves to the real client and
+   * the per-IP rate limits key on it. Default 0 (trust nothing) — correct for local dev and for a
+   * directly-exposed app; set it to the real hop count behind a load balancer. See `bootstrap.ts`
+   * for why this is a count rather than a boolean.
+   */
+  @IsOptional()
+  @IsNumber()
+  TRUST_PROXY_HOPS?: number;
+
   // Dev-only signup bypass: when set, signup's emailed verification token is this fixed value
   // instead of a random one, so it can be exercised without reading a real email. Forbidden in
   // production by the Joi schema below — never valid to set outside local/dev.

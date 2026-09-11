@@ -258,6 +258,7 @@ Success `200`:
   "escalationRatingThreshold": 3,
   "autoPostEnabled": false,
   "reviewDataRetentionMonths": 24,
+  "aiReplyCount": 1,
   "updatedAt": "2026-08-28T09:12:44Z"
 }
 ```
@@ -267,7 +268,8 @@ Success `200`:
 | `id` | string (uuid) | `tenant_settings.id` |
 | `escalationRatingThreshold` | integer 1–5 | `tenant_settings.escalation_rating_threshold` |
 | `autoPostEnabled` | boolean | `tenant_settings.auto_post_enabled` |
-| `reviewDataRetentionMonths` | integer \| null | `tenant_settings.review_data_retention_months` — `null` means "use the platform default" (`PLAN.md` §6), **not** "keep forever" |
+| `reviewDataRetentionMonths` | integer \| null | `tenant_settings.review_data_retention_months` — `null` means the nightly reviewer-retention purge (`PLAN.md` §6) skips this tenant entirely; there is no platform-default fallback, so `null` is functionally "keep indefinitely until this is set," not "use some other number" |
+| `aiReplyCount` | integer 1–3 | `tenant_settings.ai_reply_count` |
 | `updatedAt` | string (ISO 8601) | `tenant_settings.updated_at` |
 
 `tenant_id` is deliberately not echoed back: the caller's token already determines it, and
@@ -287,22 +289,24 @@ chose." Fail visibly and fix the tenant.
 Replaces the settings singleton. Backs the General tab's three controls — the escalation-threshold
 slider, the auto-post switch, and the retention-months input.
 
-**`aiReplyCount` is deliberately absent from this contract, and that is a gap, not a decision.**
-The frontend's `GeneralSettings` has four fields; the Settings → AI tab renders a 1–3 reply-count
-select wired straight through `updateGeneral`, so as specified this `PUT` **cannot round-trip the
-type the client holds**. `tenant_settings` has no `ai_reply_count` column
-(`0002_tenant_auth.sql:86-95`) — see the [overview's gap list](./overview.md#gap-between-current-code-and-target-design)
-for the proposed `ai_reply_count INTEGER NOT NULL DEFAULT 1 CHECK (BETWEEN 1 AND 3)`. Add the
-column and a fourth field here together; until then the AI tab's select is mock-only and must not
-be wired to this route.
+**`aiReplyCount` is part of this contract.** `tenant_settings.ai_reply_count`
+(`SMALLINT NOT NULL DEFAULT 1`, `CHECK (BETWEEN 1 AND 3)`, `0002_tenant_auth.sql:106`) backs the
+Settings → AI tab's 1–3 reply-count select, and `UpdateTenantSettingsDto.aiReplyCount` is
+**required** on this route, mirroring the DB check exactly (a bad value is a `400`, never a
+constraint violation). A database that predates that column addition fails this route outright
+with `column "ai_reply_count" does not exist` — recreate it (`pnpm db:dev:rm && pnpm db:dev:up`,
+then `pnpm db:migrate`); `db:migrate` alone reports success and changes nothing, since Drizzle
+never re-reads an applied migration.
 
 **`PUT`, not `PATCH`.** Three fields today, all always rendered and always populated on the one form that
 writes them, and the frontend already models the save as a full-resource write
 (`SettingsService.updateSettings` — "mocks a full-resource PUT"). A `PATCH` variant would add a
 second contract, and a second set of "absent vs. explicitly null" rules, for a resource where the
 client always holds the complete state. The one place that matters: **omitting
-`reviewDataRetentionMonths` stores `NULL`**, which is the intended way to hand retention back to
-the platform default — the only field where absence is meaningful rather than a validation error.
+`reviewDataRetentionMonths` stores `NULL`**, which is the intended way to opt this tenant back out
+of the nightly reviewer-retention purge entirely (`PLAN.md` §6 — there is no platform-default
+fallback to hand it back to) — the only field where absence is meaningful rather than a validation
+error.
 
 **This write is not retroactive.** Per `PLAN.md` §8.11, changing `escalationRatingThreshold` does
 **not** reclassify already-classified reviews, and no backfill job is queued on save. A review
@@ -319,7 +323,8 @@ Request:
 {
   "escalationRatingThreshold": 3,
   "autoPostEnabled": false,
-  "reviewDataRetentionMonths": 24
+  "reviewDataRetentionMonths": 24,
+  "aiReplyCount": 1
 }
 ```
 
@@ -327,7 +332,8 @@ Request:
 |---|---|---|
 | `escalationRatingThreshold` | integer | required, `1`–`5` inclusive — mirrors `tenant_settings_escalation_rating_threshold_check` exactly, so a bad value is a `400` and never a database constraint violation. Matches the frontend slider's `min=1 max=5 step=1`. |
 | `autoPostEnabled` | boolean | required. Persisted as sent. After a human approval, `true` moves the response `approved → posted` without a second click. |
-| `reviewDataRetentionMonths` | integer \| null | optional; `>= 1` when present. Omitted or `null` → stored as `NULL` = platform default (`PLAN.md` §6). No upper bound enforced — a very large value is functionally "keep indefinitely" and is the tenant's call. |
+| `reviewDataRetentionMonths` | integer \| null | optional; `>= 1` when present, capped at Postgres's own `INTEGER` ceiling (2147483647) — no product-level bound, a very large value is functionally "keep indefinitely" and is the tenant's call, but a value past what the column can hold is rejected as a `400` instead of reaching the database uncaught. Omitted or `null` → stored as `NULL`, which opts this tenant out of the nightly reviewer-retention purge (`PLAN.md` §6) entirely — there is no platform-default fallback. |
+| `aiReplyCount` | integer | required, `1`–`3` inclusive — mirrors `tenant_settings_ai_reply_count_check` exactly. How many AI-drafted reply variants the generation pipeline produces per review; the AI tab's select. |
 
 **On `autoPostEnabled`.** The value is persisted and nothing reads it yet — the posting pipeline
 ships separately. When it lands, approval will still be required; the flag only skips a second
@@ -341,6 +347,7 @@ Success `200` — the stored resource, same shape as [`GET /v1/settings`](#get-v
   "escalationRatingThreshold": 3,
   "autoPostEnabled": false,
   "reviewDataRetentionMonths": 24,
+  "aiReplyCount": 1,
   "updatedAt": "2026-09-04T11:02:07Z"
 }
 ```

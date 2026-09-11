@@ -37,4 +37,15 @@ export class CronScheduler implements OnModuleInit {
     this.logger.debug('Scheduling review sync poll job');
     await this.cronQueue.addReviewSyncPollJob();
   }
+
+  /**
+   * `PLAN.md` §6's nightly reviewer-retention purge. Off both the midnight and 3am slots, same
+   * reasoning as `scheduleAuthTokenCleanup` — three daily jobs sharing one worker tick would be
+   * needless contention for no benefit.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  async scheduleReviewerRetentionPurge(): Promise<void> {
+    this.logger.debug('Scheduling reviewer retention purge job');
+    await this.cronQueue.addReviewerRetentionPurgeJob();
+  }
 }

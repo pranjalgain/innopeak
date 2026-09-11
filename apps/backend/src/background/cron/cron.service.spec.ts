@@ -2,6 +2,7 @@ import { CronJobName } from '@bg/constants/job.constant';
 import type { ICronJob } from '@bg/interfaces/job.interface';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
+import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Logger } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
@@ -14,6 +15,7 @@ describe('CronService', () => {
   let authDbService: jest.Mocked<AuthDbService>;
   let connectionsDbService: jest.Mocked<ConnectionsDbService>;
   let reviewSyncQueue: jest.Mocked<ReviewSyncQueue>;
+  let reviewSyncDbService: jest.Mocked<ReviewSyncDbService>;
 
   beforeEach(async () => {
     authDbService = {
@@ -28,12 +30,17 @@ describe('CronService', () => {
       addPollJob: jest.fn(),
     } as unknown as jest.Mocked<ReviewSyncQueue>;
 
+    reviewSyncDbService = {
+      purgeExpiredReviewerPii: jest.fn(),
+    } as unknown as jest.Mocked<ReviewSyncDbService>;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CronService,
         { provide: AuthDbService, useValue: authDbService },
         { provide: ConnectionsDbService, useValue: connectionsDbService },
         { provide: ReviewSyncQueue, useValue: reviewSyncQueue },
+        { provide: ReviewSyncDbService, useValue: reviewSyncDbService },
       ],
     }).compile();
     target = module.get(CronService);
@@ -166,6 +173,24 @@ describe('CronService', () => {
       await expect(target.pollDueLocations()).resolves.toBeUndefined();
 
       expect(reviewSyncQueue.addPollJob).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('purgeExpiredReviewerPii', () => {
+    it('delegates to ReviewSyncDbService.purgeExpiredReviewerPii and logs the count', async () => {
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+      reviewSyncDbService.purgeExpiredReviewerPii.mockResolvedValue(7);
+
+      await target.purgeExpiredReviewerPii();
+
+      expect(reviewSyncDbService.purgeExpiredReviewerPii).toHaveBeenCalledTimes(1);
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Anonymized 7 review'));
+    });
+
+    it('propagates a DB failure so the job is retried / lands in the DLQ', async () => {
+      reviewSyncDbService.purgeExpiredReviewerPii.mockRejectedValue(new Error('db down'));
+
+      await expect(target.purgeExpiredReviewerPii()).rejects.toThrow('db down');
     });
   });
 });

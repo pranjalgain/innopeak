@@ -48,6 +48,8 @@ import type { SignupResponseDto } from '../models';
 // @ts-ignore
 import type { TokenResponseDto } from '../models';
 // @ts-ignore
+import type { UpdateLocaleDto } from '../models';
+// @ts-ignore
 import type { VerifyEmailDto } from '../models';
 /**
  * AuthApi - axios parameter creator
@@ -398,7 +400,7 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
-     * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Not the fuller reuse-grace-window replay tolerance or token-family theft detection described elsewhere — a documented follow-up.
+     * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Re-presenting an already-spent token is judged by age: within a short grace window it is treated as a lost two-tab race and the session is preserved; older than that, every refresh token for that user is revoked as suspected reuse of a leaked token.
      * @summary Rotate the refresh token, mint a fresh access token
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -594,6 +596,65 @@ export const AuthApiAxiosParamCreator = function (
       };
       localVarRequestOptions.data = serializeDataIfNeeded(
         signupDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Persists `users.locale`, then reissues the token pair so the new value is on the access token\'s `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Does not revoke other sessions: a locale preference is not a security boundary, so another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
+     * @summary Set the language responses are rendered in
+     * @param {UpdateLocaleDto} updateLocaleDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerUpdateLocaleV1: async (
+      updateLocaleDto: UpdateLocaleDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'updateLocaleDto' is not null or undefined
+      assertParamExists(
+        'authControllerUpdateLocaleV1',
+        'updateLocaleDto',
+        updateLocaleDto,
+      );
+      const localVarPath = `/v1/auth/locale`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        updateLocaleDto,
         localVarRequestOptions,
         configuration,
       );
@@ -879,7 +940,7 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Not the fuller reuse-grace-window replay tolerance or token-family theft detection described elsewhere — a documented follow-up.
+     * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Re-presenting an already-spent token is judged by age: within a short grace window it is treated as a lost two-tab race and the session is preserved; older than that, every refresh token for that user is revoked as suspected reuse of a leaked token.
      * @summary Rotate the refresh token, mint a fresh access token
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -996,6 +1057,40 @@ export const AuthApiFp = function (configuration?: Configuration) {
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
         operationServerMap['AuthApi.authControllerSignupV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Persists `users.locale`, then reissues the token pair so the new value is on the access token\'s `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Does not revoke other sessions: a locale preference is not a security boundary, so another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
+     * @summary Set the language responses are rendered in
+     * @param {UpdateLocaleDto} updateLocaleDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerUpdateLocaleV1(
+      updateLocaleDto: UpdateLocaleDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<TokenResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerUpdateLocaleV1(
+          updateLocaleDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.authControllerUpdateLocaleV1']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -1159,7 +1254,7 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Not the fuller reuse-grace-window replay tolerance or token-family theft detection described elsewhere — a documented follow-up.
+     * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Re-presenting an already-spent token is judged by age: within a short grace window it is treated as a lost two-tab race and the session is preserved; older than that, every refresh token for that user is revoked as suspected reuse of a leaked token.
      * @summary Rotate the refresh token, mint a fresh access token
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -1214,6 +1309,24 @@ export const AuthApiFactory = function (
     ): AxiosPromise<SignupResponseDto> {
       return localVarFp
         .authControllerSignupV1(requestParameters.signupDto, options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Persists `users.locale`, then reissues the token pair so the new value is on the access token\'s `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Does not revoke other sessions: a locale preference is not a security boundary, so another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
+     * @summary Set the language responses are rendered in
+     * @param {AuthApiAuthControllerUpdateLocaleV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerUpdateLocaleV1(
+      requestParameters: AuthApiAuthControllerUpdateLocaleV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<TokenResponseDto> {
+      return localVarFp
+        .authControllerUpdateLocaleV1(
+          requestParameters.updateLocaleDto,
+          options,
+        )
         .then((request) => request(axios, basePath));
     },
     /**
@@ -1315,7 +1428,7 @@ export interface AuthApiInterface {
   ): AxiosPromise<AuthenticatedUserDto>;
 
   /**
-   * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Not the fuller reuse-grace-window replay tolerance or token-family theft detection described elsewhere — a documented follow-up.
+   * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Re-presenting an already-spent token is judged by age: within a short grace window it is treated as a lost two-tab race and the session is preserved; older than that, every refresh token for that user is revoked as suspected reuse of a leaked token.
    * @summary Rotate the refresh token, mint a fresh access token
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -1359,6 +1472,18 @@ export interface AuthApiInterface {
     requestParameters: AuthApiAuthControllerSignupV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<SignupResponseDto>;
+
+  /**
+   * Persists `users.locale`, then reissues the token pair so the new value is on the access token\'s `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Does not revoke other sessions: a locale preference is not a security boundary, so another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
+   * @summary Set the language responses are rendered in
+   * @param {AuthApiAuthControllerUpdateLocaleV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerUpdateLocaleV1(
+    requestParameters: AuthApiAuthControllerUpdateLocaleV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<TokenResponseDto>;
 
   /**
    * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
@@ -1423,6 +1548,13 @@ export interface AuthApiAuthControllerSetPasswordV1Request {
  */
 export interface AuthApiAuthControllerSignupV1Request {
   readonly signupDto: SignupDto;
+}
+
+/**
+ * Request parameters for authControllerUpdateLocaleV1 operation in AuthApi.
+ */
+export interface AuthApiAuthControllerUpdateLocaleV1Request {
+  readonly updateLocaleDto: UpdateLocaleDto;
 }
 
 /**
@@ -1543,7 +1675,7 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
-   * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Not the fuller reuse-grace-window replay tolerance or token-family theft detection described elsewhere — a documented follow-up.
+   * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Re-presenting an already-spent token is judged by age: within a short grace window it is treated as a lost two-tab race and the session is preserved; older than that, every refresh token for that user is revoked as suspected reuse of a leaked token.
    * @summary Rotate the refresh token, mint a fresh access token
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -1599,6 +1731,22 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   ) {
     return AuthApiFp(this.configuration)
       .authControllerSignupV1(requestParameters.signupDto, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Persists `users.locale`, then reissues the token pair so the new value is on the access token\'s `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Does not revoke other sessions: a locale preference is not a security boundary, so another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
+   * @summary Set the language responses are rendered in
+   * @param {AuthApiAuthControllerUpdateLocaleV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerUpdateLocaleV1(
+    requestParameters: AuthApiAuthControllerUpdateLocaleV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .authControllerUpdateLocaleV1(requestParameters.updateLocaleDto, options)
       .then((request) => request(this.axios, this.basePath));
   }
 

@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { SessionService } from "@/app/_libs/services/session.service";
 import type { SessionRole } from "@/types/domain";
+
+export const sessionRoleQueryKey = ["session", "role"] as const;
 
 interface UseSessionResult {
   /** `null` while the initial check is in flight. */
@@ -10,24 +12,10 @@ interface UseSessionResult {
 }
 
 export function useSession(): UseSessionResult {
-  const [role, setRole] = useState<SessionRole | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const query = useQuery({
+    queryKey: sessionRoleQueryKey,
+    queryFn: () => SessionService.getRole(),
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-
-    SessionService.getRole()
-      .then((result) => {
-        if (!cancelled) setRole(result);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return { role, isLoading };
+  return { role: query.data ?? null, isLoading: query.isLoading };
 }

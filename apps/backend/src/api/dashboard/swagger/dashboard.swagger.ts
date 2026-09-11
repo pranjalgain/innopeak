@@ -2,7 +2,6 @@ import { applyDecorators } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 import { MetricsDto } from '../dto/metrics.dto';
-import { RatingDistributionDto } from '../dto/rating-distribution.dto';
 import { RecentEscalatedDto } from '../dto/recent-escalated.dto';
 
 const TENANT_SCOPE_NOTE =
@@ -15,25 +14,13 @@ export function ApiDashboardMetrics(): ReturnType<typeof applyDecorators> {
     ApiOperation({
       summary: 'Aggregated metrics for the dashboard stat cards',
       description:
-        `${TENANT_SCOPE_NOTE} \`total\` and \`avgRating\` cover the trailing \`days\` window, ` +
-        'measured on `reviewed_at` (when the review was left) rather than `created_at` (when the ' +
-        'sync imported it). `pending` and `escalated` are open-backlog counts and are ' +
-        'intentionally not windowed — see the response schema for why.',
+        `${TENANT_SCOPE_NOTE} \`total\`, \`avgRating\` and \`ratingDistribution\` cover the ` +
+        'trailing `days` window, measured on `reviewed_at` (when the review was left) rather ' +
+        'than `created_at` (when the sync imported it). `pending` and `escalated` are ' +
+        'open-backlog counts and are intentionally not windowed — see the response schema for ' +
+        'why. `ratingDistribution` buckets 1-5 are always present, zero-filled.',
     }),
     ApiResponse({ status: 200, type: MetricsDto }),
-    ApiResponse({ status: 400, description: '`days` outside 1-365' }),
-    ApiResponse({ status: 401, description: 'Missing or expired access token' })
-  );
-}
-
-export function ApiDashboardRatingDistribution(): ReturnType<typeof applyDecorators> {
-  return applyDecorators(
-    ApiBearerAuth(),
-    ApiOperation({
-      summary: 'Review counts per star rating for a time window',
-      description: `${TENANT_SCOPE_NOTE} Buckets 1-5 are always present, zero-filled.`,
-    }),
-    ApiResponse({ status: 200, type: RatingDistributionDto }),
     ApiResponse({ status: 400, description: '`days` outside 1-365' }),
     ApiResponse({ status: 401, description: 'Missing or expired access token' })
   );

@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
+import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
 import type { Review } from "@/types/domain";
+
+export const reviewQueryKey = (reviewId: string) => ["review", reviewId] as const;
 
 interface UseReviewDetailResult {
   review: Review | null;
@@ -23,33 +26,43 @@ interface UseReviewDetailResult {
  */
 export function useReviewDetail(reviewId: string): UseReviewDetailResult {
   const t = useTranslations("reviewDetail.toasts");
-  const [review, setReview] = useState<Review | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  const reviewQuery = useQuery({
+    queryKey: reviewQueryKey(reviewId),
+    queryFn: () => ReviewService.getReviewById(reviewId),
+  });
 
   useEffect(() => {
-    let cancelled = false;
+    if (reviewQuery.isError) toast.error(t("loadFailed"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewQuery.isError]);
 
-    setIsLoading(true);
-    ReviewService.getReviewById(reviewId)
-      .then((result) => {
-        if (!cancelled) setReview(result);
-      })
-      .catch(() => {
-        if (!cancelled) toast.error(t("loadFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
+  // Fire-and-forget, same as the original `void ReviewService.updateReview(next)` — approve/reject
+  // stay synchronous, void-returning calls rather than becoming `Promise`-returning like
+  // `useSettings.saveGeneral`. But unlike a plain `useState`, a failed write here now sits in
+  // react-query's shared cache for the rest of its 5-minute staleTime, visible to any other reader
+  // of this same query key — so a failure has to roll the optimistic write back, not just go
+  // unnoticed until the next remount.
+  const updateMutation = useMutation({
+    mutationFn: (next: Review) => ReviewService.updateReview(next),
+  });
+
+  const persist = useCallback(
+    (next: Review) => {
+      const previous = queryClient.getQueryData<Review>(reviewQueryKey(reviewId));
+      queryClient.setQueryData(reviewQueryKey(reviewId), next);
+      updateMutation.mutate(next, {
+        onError: () => {
+          queryClient.setQueryData(reviewQueryKey(reviewId), previous);
+          toast.error(t("saveFailed"));
+        },
       });
+    },
+    [reviewId, queryClient, updateMutation, t],
+  );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [reviewId, t]);
-
-  const persist = useCallback((next: Review) => {
-    setReview(next);
-    void ReviewService.updateReview(next);
-  }, []);
+  const review = reviewQuery.data ?? null;
 
   const approveDraft = useCallback(
     (draftId: string, content: string) => {
@@ -86,5 +99,5 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
     [review, persist, t],
   );
 
-  return { review, isLoading, approveDraft, rejectDraft };
+  return { review, isLoading: reviewQuery.isLoading, approveDraft, rejectDraft };
 }

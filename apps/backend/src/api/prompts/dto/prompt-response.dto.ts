@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { PROMPT_TONES } from '../constants/prompts.constants';
 import type {
+  PromptCategory,
   PromptCreatedBy,
   PromptRecord,
   PromptTone,
@@ -63,7 +64,7 @@ export class PromptDto {
   id!: string;
 
   @ApiProperty({ example: 'positive', enum: ['positive', 'neutral', 'escalated'] })
-  category!: string;
+  category!: PromptCategory;
 
   @ApiProperty({ example: 'Positive review reply' })
   name!: string;

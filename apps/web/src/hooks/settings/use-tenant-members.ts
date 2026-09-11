@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
+import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { TenantMemberService } from "@/app/_libs/services/tenant-member.service";
 import type { TenantMember } from "@/types/domain";
+
+export const tenantMembersQueryKey = ["tenant-members"] as const;
 
 interface UseTenantMembersResult {
   members: TenantMember[];
@@ -15,34 +18,31 @@ interface UseTenantMembersResult {
 
 export function useTenantMembers(): UseTenantMembersResult {
   const t = useTranslations("settings.members.toasts");
-  const [members, setMembers] = useState<TenantMember[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  const membersQuery = useQuery({
+    queryKey: tenantMembersQueryKey,
+    queryFn: () => TenantMemberService.getMembers(),
+  });
 
   useEffect(() => {
-    let cancelled = false;
+    if (membersQuery.isError) toast.error(t("loadFailed"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membersQuery.isError]);
 
-    TenantMemberService.getMembers()
-      .then((result) => {
-        if (!cancelled) setMembers(result);
-      })
-      .catch(() => {
-        if (!cancelled) toast.error(t("loadFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
+  const inviteMemberMutation = useMutation({
+    mutationFn: (email: string) => TenantMemberService.inviteMember(email),
+  });
 
   /** Returns whether it succeeded, so the form knows to clear itself. */
   const inviteMember = useCallback(
     async (email: string) => {
       try {
-        const member = await TenantMemberService.inviteMember(email);
-        setMembers((prev) => [...prev, member]);
+        const member = await inviteMemberMutation.mutateAsync(email);
+        queryClient.setQueryData<TenantMember[]>(tenantMembersQueryKey, (prev) => [
+          ...(prev ?? []),
+          member,
+        ]);
         toast.success(t("invited", { email }));
         return true;
       } catch {
@@ -50,21 +50,33 @@ export function useTenantMembers(): UseTenantMembersResult {
         return false;
       }
     },
-    [t],
+    [t, inviteMemberMutation, queryClient],
   );
+
+  const revokeInviteMutation = useMutation({
+    mutationFn: (id: string) => TenantMemberService.revokeInvite(id),
+  });
 
   const revokeInvite = useCallback(
     async (id: string) => {
       try {
-        await TenantMemberService.revokeInvite(id);
-        setMembers((prev) => prev.filter((member) => member.id !== id));
+        await revokeInviteMutation.mutateAsync(id);
+        queryClient.setQueryData<TenantMember[]>(
+          tenantMembersQueryKey,
+          (prev) => prev?.filter((member) => member.id !== id) ?? prev,
+        );
         toast.success(t("revoked"));
       } catch {
         toast.error(t("revokeFailed"));
       }
     },
-    [t],
+    [t, revokeInviteMutation, queryClient],
   );
 
-  return { members, isLoading, inviteMember, revokeInvite };
+  return {
+    members: membersQuery.data ?? [],
+    isLoading: membersQuery.isLoading,
+    inviteMember,
+    revokeInvite,
+  };
 }

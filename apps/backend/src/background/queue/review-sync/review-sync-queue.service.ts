@@ -44,6 +44,28 @@ const MAX_PAGES = 20;
  */
 const MAX_POLL_PAGES = 200;
 
+/**
+ * Subtracted from the cursor before `importNewPages`'s own stop check — a defense against page-
+ * boundary instability, not a change to the cursor itself. Google's `reviews.list` walks a live,
+ * mutating list ordered by `updateTime desc` with no documented guarantee that a review's
+ * position is stable across the handful of page fetches one poll makes. A review created, or an
+ * existing one edited (bumping its `updateTime`), while this poll is mid-walk can shift later
+ * pages' boundaries just enough that a review sitting right at the old cursor lands on the wrong
+ * side of this run's cutoff and is silently skipped — permanently, since no later poll ever
+ * revisits below its own cursor (see `importNewPages`'s doc comment on truncation for why that is
+ * true of this single high-water-cursor design generally).
+ *
+ * Re-examining a small window before the cursor closes this without a low-water/seen-id
+ * bookkeeping change to that design: `upsertReview`'s `ON CONFLICT` never touches `status` or
+ * `classification`, and `insertImportedReply` silently no-ops on a reply already imported, so
+ * re-walking already-seen reviews here is a harmless, idempotent no-op in the ordinary case — and
+ * catches the boundary-shift case on this or the next poll instead of depending on this run's
+ * page boundaries having landed exactly where they would have without the race. Five minutes
+ * against a 15-minute poll interval adds at most a few already-seen reviews to recheck, never
+ * another page fetch by itself.
+ */
+const POLL_CURSOR_OVERLAP_MS = 5 * 60 * 1000;
+
 interface ImportOutcome {
   reviewsFetched: number;
   /** The max `external_updated_at` seen this run. `null` when nothing was fetched — `completeRun`
@@ -84,10 +106,33 @@ export class ReviewSyncQueueService {
     private readonly reviewClassificationService: ReviewClassificationService
   ) {}
 
-  async runBackfill(job: IReviewBackfillJob): Promise<void> {
+  /**
+   * `isRetry` is BullMQ's `job.attemptsMade > 0` — whether this is the second (of `attempts: 2`)
+   * pass at the *same* job. It matters because `job.syncRunId` is acquired once, before the job is
+   * ever published, so a retry is not a new run: it is the same `sync_runs` row, replaying.
+   *
+   * The first attempt's catch block already moved that row to `error` via `completeRun`, whose own
+   * CAS only matches `status = 'running'`. Without reopening it here, a *successful* second
+   * attempt's own `completeRun` call would find zero rows to update — `markBackfillComplete` and
+   * the cursor advance would silently never run, permanently excluding the location from polling,
+   * while BullMQ still reports the job completed. See `reopenSyncRunForRetry`.
+   */
+  async runBackfill(job: IReviewBackfillJob, isRetry = false): Promise<void> {
     this.logger.log(
-      `Starting review backfill for location ${job.locationId} (run ${job.syncRunId})`
+      `Starting review backfill for location ${job.locationId} (run ${job.syncRunId})${isRetry ? ' [retry]' : ''}`
     );
+
+    if (isRetry) {
+      const reopened = await this.reviewSyncDbService.reopenRunForRetry(job.syncRunId);
+      if (!reopened) {
+        // Not "reclaimed as stale" — nothing else acquires a backfill run by this id. Most likely
+        // the row is gone entirely (a dev DB reset). Failing loudly here is deliberate: silently
+        // continuing would import reviews under a run id whose completion can never be recorded.
+        throw new Error(
+          `Cannot retry review backfill for location ${job.locationId}: sync run ${job.syncRunId} is not in a reopenable state.`
+        );
+      }
+    }
 
     let reviewsFetched = 0;
     let maxExternalUpdatedAt: string | null = null;
@@ -132,7 +177,10 @@ export class ReviewSyncQueueService {
         syncRunId: job.syncRunId,
         locationId: job.locationId,
         status: SyncRunStatus.ERROR,
-        reviewsFetched,
+        // Not `reviewsFetched`: that local variable only updates when `importAllPages` returns,
+        // so on a failure partway through paginating it is still its starting value — writing it
+        // here would overwrite the real, larger count `recordSyncProgress` already committed for
+        // whichever pages did succeed before the throw. See `completeSyncRun`.
         errorMessage: message,
         markBackfillComplete: false,
         lastReviewSyncedAt: null,
@@ -240,7 +288,8 @@ export class ReviewSyncQueueService {
         syncRunId: run.id,
         locationId: job.locationId,
         status: SyncRunStatus.ERROR,
-        reviewsFetched,
+        // See the matching comment in runBackfill's catch block: this local variable is stale on
+        // a mid-import failure, and would overwrite recordSyncProgress's real, larger count.
         errorMessage: message,
         markBackfillComplete: false,
         lastReviewSyncedAt: null,
@@ -430,10 +479,12 @@ export class ReviewSyncQueueService {
     cursor: string | null
   ): Promise<PollImportOutcome> {
     const cursorTime = cursor === null ? null : new Date(cursor).getTime();
+    // See `POLL_CURSOR_OVERLAP_MS` — the stop check walks slightly past the exact cursor so a
+    // review whose page-boundary position shifted mid-walk is re-examined rather than skipped.
+    const stopBeforeTime = cursorTime === null ? null : cursorTime - POLL_CURSOR_OVERLAP_MS;
 
     let pageToken: string | undefined;
     let reviewsFetched = 0;
-    let totalRecorded = false;
     let pagesRead = 0;
     let maxExternalUpdatedAt: string | null = null;
     let reachedCursor = false;
@@ -447,7 +498,10 @@ export class ReviewSyncQueueService {
 
       const newReviews: typeof page.reviews = [];
       for (const review of page.reviews) {
-        if (cursorTime !== null && new Date(review.externalUpdatedAt).getTime() <= cursorTime) {
+        if (
+          stopBeforeTime !== null &&
+          new Date(review.externalUpdatedAt).getTime() <= stopBeforeTime
+        ) {
           reachedCursor = true;
           break;
         }
@@ -478,14 +532,14 @@ export class ReviewSyncQueueService {
 
       pagesRead += 1;
 
-      await this.reviewSyncDbService.recordProgress(syncRunId, {
-        reviewsFetched,
-        ...(totalRecorded || page.totalCount === null ? {} : { reviewsTotal: page.totalCount }),
-      });
-
-      if (page.totalCount !== null) {
-        totalRecorded = true;
-      }
+      // No `reviewsTotal` here, unlike backfill's paginator: `page.totalCount` is Google's
+      // *lifetime* review count for the location, and a poll is only ever fetching what is newer
+      // than its cursor — a handful of reviews, typically. Writing the lifetime count as this
+      // run's denominator turned every poll's `sync_runs` row into a meaningless "3 fetched / 2000
+      // total". Nothing reads `reviewsTotal` off a poll run today (the frontend's progress bar
+      // only ever queries `trigger = 'backfill'` runs), but a run that lies about what it was
+      // trying to do is worth not writing regardless of who happens to read it.
+      await this.reviewSyncDbService.recordProgress(syncRunId, { reviewsFetched });
 
       pageToken = page.nextPageToken ?? undefined;
     } while (pageToken && !reachedCursor && pagesRead < MAX_POLL_PAGES);

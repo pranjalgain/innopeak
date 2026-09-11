@@ -123,9 +123,12 @@ export function ApiConfirmLocation(): ReturnType<typeof applyDecorators> {
       description:
         'One transaction across three tables: upsert `locations`, insert `user_locations`, ' +
         'acquire the backfill `sync_runs` row. The job is enqueued only after that commits — ' +
-        'BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm returns ' +
-        '200 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that ' +
-        'would leave the client with no id to poll.',
+        'BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still ' +
+        'answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 ' +
+        'that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ ' +
+        'blip after the transaction already committed), the sync run is immediately compensated ' +
+        'to `error` rather than left stuck `running` forever, and this request answers 503 — the ' +
+        'location is confirmed, but the caller must confirm it again to start a fresh import.',
     }),
     ApiBody({
       type: ConfirmLocationDto,
@@ -138,6 +141,11 @@ export function ApiConfirmLocation(): ReturnType<typeof applyDecorators> {
     }),
     ApiResponse({ status: 201, type: ConfirmLocationResponseDto }),
     ApiResponse({ status: 404, description: 'CONNECTION_NOT_FOUND | EXTERNAL_LOCATION_NOT_FOUND' }),
-    ApiResponse({ status: 409, description: 'CONNECTION_NEEDS_REAUTH | LOCATION_LIMIT_REACHED' })
+    ApiResponse({ status: 409, description: 'CONNECTION_NEEDS_REAUTH | LOCATION_LIMIT_REACHED' }),
+    ApiResponse({
+      status: 503,
+      description:
+        'BACKFILL_ENQUEUE_FAILED — the location is confirmed, but starting the import failed; retry the confirm.',
+    })
   );
 }

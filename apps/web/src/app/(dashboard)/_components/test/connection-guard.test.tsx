@@ -1,3 +1,4 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -5,9 +6,11 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError } from "@/app/_libs/services/api-error";
 import { ConnectionService, type ConnectionState } from "@/app/_libs/services/connection.service";
+import { createQueryClient } from "@/app/_libs/utils/query-client";
+import { connectionQueryKey } from "@/hooks/connections/use-connection";
 
-import { ConnectionGuard } from "../connection-guard";
 import messages from "../../../../../messages/en.json";
+import { ConnectionGuard } from "../connection-guard";
 
 const replace = vi.fn();
 
@@ -26,13 +29,17 @@ function state(overrides: Partial<ConnectionState> = {}): ConnectionState {
   };
 }
 
-function renderGuard() {
+function renderGuard(queryClient: ReturnType<typeof createQueryClient> = createQueryClient()) {
+  // A fresh QueryClient per render so one test's cached `["connection"]` data can never leak into
+  // the next — react-query's cache otherwise persists across renders within the same client.
   return render(
-    <NextIntlClientProvider locale="en" messages={messages}>
-      <ConnectionGuard>
-        <p>Dashboard content</p>
-      </ConnectionGuard>
-    </NextIntlClientProvider>,
+    <QueryClientProvider client={queryClient}>
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <ConnectionGuard>
+          <p>Dashboard content</p>
+        </ConnectionGuard>
+      </NextIntlClientProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -99,5 +106,26 @@ describe("ConnectionGuard", () => {
     renderGuard();
 
     expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+  });
+
+  test("keeps rendering the dashboard through a background refetch, not just the first load", async () => {
+    // Regression: `["connection"]` is shared app-wide (dashboard layout, Settings' Connection
+    // tab), so a second observer mounting or `refetchOnReconnect` firing must not blank an
+    // already-connected dashboard back to a skeleton — only the data-less first load should.
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(connectionQueryKey, state());
+    const getState = vi.spyOn(ConnectionService, "getState");
+    getState.mockReturnValue(new Promise(() => undefined));
+
+    renderGuard(queryClient);
+
+    expect(await screen.findByText("Dashboard content")).toBeInTheDocument();
+
+    // Not awaited: the mocked `getState` never resolves, and `invalidateQueries` itself only
+    // resolves once its triggered refetch settles — awaiting it here would hang the test.
+    void queryClient.invalidateQueries({ queryKey: connectionQueryKey });
+    await waitFor(() => expect(getState).toHaveBeenCalled());
+
+    expect(screen.getByText("Dashboard content")).toBeInTheDocument();
   });
 });

@@ -248,17 +248,45 @@ export class ConnectionsRepository {
     return (rows[0] as LocationRow | undefined) ?? null;
   }
 
-  async findLocationsByTenant(tenantId: string, status?: LocationStatus): Promise<LocationRow[]> {
+  /**
+   * `tx` is optional and only meant for a caller already inside `confirmLocation`'s transaction
+   * (see `acquireLocationConfirmLock`) — passing it there is what makes the read happen after
+   * this transaction's own advisory-lock wait, rather than against a separate pooled connection.
+   */
+  async findLocationsByTenant(
+    tenantId: string,
+    status?: LocationStatus,
+    tx?: DrizzleTransaction
+  ): Promise<LocationRow[]> {
     const conditions = [eq(schema.locations.tenantId, tenantId)];
     if (status) {
       conditions.push(eq(schema.locations.status, status));
     }
 
-    return this.dbService.db
+    return (tx ?? this.dbService.db)
       .select(LOCATION_COLUMNS)
       .from(schema.locations)
       .where(and(...conditions))
       .orderBy(schema.locations.createdAt) as Promise<LocationRow[]>;
+  }
+
+  /**
+   * Serializes `ConnectionsService.confirmLocation` per tenant — closes a TOCTOU race the schema
+   * has no constraint for. `MAX_ACTIVE_LOCATIONS` (MVP's one-active-location rule) is enforced by
+   * counting existing rows before inserting, but under READ COMMITTED two concurrent confirms for
+   * *different* `externalLocationId`s each see zero active locations (there is nothing yet to
+   * lock against), both pass the count check, and both commit — silently doubling a tenant past
+   * the limit. An advisory lock closes it even with nothing to select `FOR UPDATE` against: the
+   * second transaction blocks here until the first commits or rolls back, so its own count check
+   * runs against the first one's already-committed result.
+   *
+   * Transaction-scoped (`_xact_`): released automatically on commit or rollback, never held past
+   * this transaction, so no separate unlock call is needed and a crash cannot leak it.
+   */
+  async acquireLocationConfirmLock(tx: DrizzleTransaction, tenantId: string): Promise<void> {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext('connections:confirm-location'), hashtext(${tenantId}))`
+    );
   }
 
   /** Idempotent per the unique index `(provider_connection_id, external_location_id)`. Reactivates
@@ -324,6 +352,30 @@ export class ConnectionsRepository {
         and(
           eq(schema.locations.providerConnectionId, connectionId),
           eq(schema.locations.status, LocationStatus.ACTIVE)
+        )
+      )
+      .returning({ id: schema.locations.id });
+
+    return rows.map(row => row.id);
+  }
+
+  /**
+   * The reconnect counterpart to `deactivateLocationsForConnection` — a status flip only, same
+   * shape. `onboarding_backfill_completed_at` is left untouched, same reasoning as
+   * `upsertLocation`'s `ON CONFLICT` branch: a location already backfilled should not be re-gated
+   * out of live polling, or re-queued for another backfill, just because the owner reconnected.
+   */
+  async reactivateLocationsForConnection(
+    tx: DrizzleTransaction,
+    connectionId: string
+  ): Promise<string[]> {
+    const rows = await tx
+      .update(schema.locations)
+      .set({ status: LocationStatus.ACTIVE, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.locations.providerConnectionId, connectionId),
+          eq(schema.locations.status, LocationStatus.INACTIVE)
         )
       )
       .returning({ id: schema.locations.id });

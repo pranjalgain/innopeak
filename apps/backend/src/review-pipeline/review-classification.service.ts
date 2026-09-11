@@ -57,7 +57,7 @@ export class ReviewClassificationService {
     // a queue of exactly BATCH_LIMIT reads as capped and has no remainder. Worded to match.
     if (pendingReviews.length === BATCH_LIMIT) {
       this.logger.warn(
-        `Pending classification queue for location ${input.locationId} filled the ${BATCH_LIMIT}-review batch limit; any reviews beyond it stay pending_classification until backfill runs again.`
+        `Pending classification queue for location ${input.locationId} filled the ${BATCH_LIMIT}-review batch limit; any reviews beyond it stay pending_classification until the next backfill or 15-minute poll tick.`
       );
     }
 

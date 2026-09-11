@@ -117,66 +117,101 @@ permanently English.
 
 ## Backend
 
-### Schema
+**Message localization and the schema piece (`users.locale`) are both implemented.** What follows
+was originally written as a target design; the parts marked **Implemented** below describe
+`src/common/i18n/` and the schema as they actually ship today. Emails and background-job locale
+(the reason the schema piece was worth building ahead of needing it) remain unbuilt — see
+[Emails](#emails).
 
-One column, added by **editing the original migration in place** — this repo does not ship
-forward `ALTER` migrations, it recreates local databases (`apps/backend/CLAUDE.md`, "Schema changes
-are edited into the original migration file"):
+### Schema — **Implemented**
+
+A `user_locale` enum (`'en' | 'de'`) in `0000_foundation.sql`, alongside the existing
+`user_role`/`user_status` enums, and a nullable `locale` column on `users`, added directly into the
+existing `CREATE TABLE users` block in `0002_tenant_auth.sql` — both edited into the original
+migration file in place, per `apps/backend/CLAUDE.md`'s convention (this repo recreates local
+databases rather than shipping forward `ALTER` migrations):
 
 | Table | Column | Migration file | Notes |
 |---|---|---|---|
-| `users` | `locale locale` (nullable) | `0002_tenant_auth.sql` | Nullable, **not** `DEFAULT 'en'`. Null means "never chose", which is what makes `Accept-Language` negotiation legitimate for that user; a default of `en` would pin every existing user to English and make the header unreachable. |
+| `users` | `locale user_locale` (nullable) | `0002_tenant_auth.sql` | Nullable, **not** `DEFAULT 'en'`. Null means "never chose", which is what makes `Accept-Language` negotiation legitimate for that user; a default of `en` would pin every existing user to English and make the header unreachable. |
 
 No column is added to `reviews` — reply language is a prompt-time concern, not a stored one. See
 [Review text and reply language](#review-text-and-reply-language).
 
-### Message localization: translate at the edge, not at the throw site
+The resolution order's step 1 is implemented via `resolveRequestLocale()`
+(`src/common/i18n/locale.ts`): `users.locale` is embedded as a `locale` claim on the access token at
+sign-time (`TokenService.signTokenPair`), so `TransformInterceptor`/`HttpExceptionFilter` read it
+straight off `request.user` (via `requestUserLocale()`, `src/interceptors/transform.interceptor.ts`)
+with no per-request DB lookup — the same pattern already used for `role`/`tenantId`. A locale
+change takes effect immediately for the tab that made it: `PATCH`-shaped `POST
+/v1/auth/locale` (`AuthService.updateLocale`) persists the new value and reissues the token pair,
+same as `change-password`/`set-password`, just without revoking other sessions (a locale
+preference is not a security boundary). Another already-signed-in tab picks up the change on its
+own next token refresh, same staleness window as a role change.
 
-`src/common/constants/messages.constants.ts` currently holds 93 lines of literal English, mixing
-plain strings with interpolating functions:
+This covers every *request-driven* response (every API message a Bearer-authenticated call gets
+back). It is **not** sufficient for a background job with no HTTP request or JWT to read from (a
+BullMQ-sent email, say) — those still need to read `users.locale` from the database directly,
+which is exactly why schema persistence was worth building ahead of the emails work. See
+[Emails](#emails).
+
+### Message localization: translate at the edge, not at the throw site — **Implemented**
+
+`src/common/i18n/` (`locale.ts`, `message-catalog.type.ts`, `messages.en.ts`, `messages.de.ts`,
+`message-registry.ts`) exists, and `src/common/constants/messages.constants.ts` is now a
+one-line re-export of `MESSAGES` from `message-registry.ts` — the same import path every existing
+call site already used, so none of them needed to change.
+
+Built exactly as recommended below, with one addition the recommendation didn't anticipate:
+**`MESSAGES.X.Y` values are locale-agnostic tagged key strings** (still a plain `string`, or for
+the two interpolating entries still a function returning a `string` — the leaf types are
+unchanged), not the rendered English sentences shown in the example below. `TransformInterceptor`
+and `HttpExceptionFilter` — the two edges this design already names — call `renderMessage(raw,
+locale)` right before serializing a response, resolving the tag against the request's locale.
+A message duplicated into a response's `data` payload (several controllers return
+`{ message: MESSAGES.X.Y }` as *both* the envelope's own `message` and part of the domain
+payload — found live, not anticipated by the original design) gets the same treatment via
+`renderNestedMessage`, scoped to exactly that one field name.
 
 ```ts
 SIGNUP_OTP_SENT: (email: string): string => `Verification code sent to ${email}`,
 INVALID_CREDENTIALS: 'Invalid email or password.',
 ```
 
-Every controller and service references these statically (`MESSAGES.AUTH.INVALID_CREDENTIALS`),
-which means there is no request context at the point of use. The naive fix — make the messages
-object request-scoped and inject it everywhere — would touch every service in the codebase and
-make a large number of currently-pure classes request-scoped.
+Every controller and service still references these exactly as before
+(`MESSAGES.AUTH.INVALID_CREDENTIALS`), with no request context at the point of use — the naive
+fix this design doc rejected (a request-scoped messages object touching every service) was never
+built, and does not need to be:
 
-**Recommended approach: services keep throwing and returning stable message *keys*, and exactly
-one layer translates.** The global exception filter and the response transform interceptor both
-already sit at the request edge and both already see every outgoing message; they are where the
-resolved locale is available and where a key becomes a sentence. Concretely:
-
-- `MESSAGES` becomes a map of keys to *message descriptors*, not English strings.
-- `messages.en.ts` and `messages.de.ts` each provide the full set, typed so that a missing or
-  extra German key is a **compile error** rather than a runtime fallback. With this project's
-  strictness settings that is cheap to enforce and worth more than a runtime `t()` that silently
-  returns the key.
+- `MESSAGES` is a map of keys to tagged strings/functions, not English strings directly.
+- `messages.en.ts` and `messages.de.ts` each provide the full set, typed against one shared
+  `MessageCatalog` interface — a missing or extra German key **is a compile error**, exactly as
+  planned.
 - Interpolating messages stay functions with the same signature in both files.
 - The filter/interceptor resolve the locale once per request and render.
 
-This keeps localization out of business logic entirely, needs no new dependency (`nestjs-i18n`
-brings its own module lifecycle, its own file format and its own runtime key-miss behaviour, none
-of which improve on a typed two-file map for exactly two locales), and gives background jobs the
-same renderer with an explicit locale argument instead of an ambient request.
+No new dependency was added (`nestjs-i18n` was considered and rejected for the reasons already
+given below). Background jobs are **not yet wired up** — `renderMessage`/`renderNestedMessage`
+take an explicit `Locale` argument exactly as this design anticipated, so a job has everything it
+needs to render a message once it has a locale to render *into*; it just has nowhere to read one
+from yet, per the schema section above.
 
-### A trap worth naming: the anti-enumeration messages must stay identical
+### A trap worth naming: the anti-enumeration messages must stay identical — **Implemented**
 
-Several messages in `messages.constants.ts` are *deliberately* identical to each other, with
-comments saying so, because differing text would leak account existence:
+Several messages in `messages.en.ts` are *deliberately* identical to each other, with comments
+saying so, because differing text would leak account existence:
 
 - `INVALID_CREDENTIALS` — the same for a wrong password, an unknown email, and an SSO-only account.
 - `INVALID_OR_EXPIRED_OTP` — the same whether the code never existed, was used, or expired.
 - `SIGNUP_OTP_SENT` / `LOGIN_OTP_SENT` — identical strings.
 - `RESEND_OTP_ACK` — phrased to avoid confirming the account is awaiting verification.
 
-A translator working from a spreadsheet has no way to know this, and German synonyms are an easy
-place to accidentally reintroduce the oracle ("Passwort falsch" vs. "Konto nicht gefunden"). The
-implementation must carry a test that asserts the pairs which are equal in English remain equal in
-German, so the property is enforced by CI rather than by a comment a translator never reads.
+`messages.de.ts` keeps `SIGNUP_OTP_SENT`/`LOGIN_OTP_SENT` identical too, and
+`message-registry.spec.ts` carries the exact test this section calls for — asserting the pair
+renders identically in German, not just in English — so the property is enforced by CI, not by a
+comment a translator never reads. The German text was drafted for this session, not
+professionally/native-speaker reviewed; that review is still the gate before any of this reaches
+real users, per the note at the top of `messages.de.ts`.
 
 ### Emails
 
@@ -221,7 +256,11 @@ So the work is:
 - `<html lang="en">` in the root layout becomes the resolved locale. It is currently hardcoded, and
   a wrong `lang` attribute is what breaks screen readers and browser translation prompts.
 - A locale switcher, and persistence of the choice — writing it to `users.locale` via the API when
-  authenticated, and to a cookie otherwise.
+  authenticated, and to a cookie otherwise. **Implemented**: `LanguageSwitcher`
+  (`src/app/_components/language-switcher.tsx`) always writes the `NEXT_LOCALE` cookie, and
+  additionally calls `AuthService.updateLocale` (fire-and-forget, silent on failure) when a
+  session exists — a no-op for the signed-out visitor, since the switcher lives on public pages
+  too.
 
 ### The one decision that is expensive to reverse
 

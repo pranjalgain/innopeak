@@ -71,14 +71,24 @@ export class GoogleOAuthStateService {
       sidHash: this.hashSid(sid),
     };
 
-    // `NX` so a nonce collision fails rather than overwriting another in-flight consent.
-    await this.redis.set(
+    // `NX` so a nonce collision fails rather than overwriting another in-flight consent. The
+    // result is checked rather than assumed: a silent overwrite-miss here would still sign and
+    // return a state whose Redis record is someone else's, so `consume()` would later fail with a
+    // generic INVALID_STATE and no way to tell that apart from a genuinely expired or forged one.
+    // At 192 bits of randomness this is not a realistic collision — the check exists so the
+    // impossible case fails loudly instead of silently, not because it is expected to fire.
+    const claimed = await this.redis.set(
       `${GOOGLE_AUTH_STATE_KEY_PREFIX}${nonce}`,
       JSON.stringify(record),
       'EX',
       GOOGLE_AUTH_STATE_TTL_SECONDS,
       'NX'
     );
+
+    if (claimed !== 'OK') {
+      this.logger.error(`OAuth state nonce collision on mint (intent: ${input.intent})`);
+      throw new Error('Failed to mint OAuth state: nonce collision');
+    }
 
     return { state: this.sign(nonce), sid };
   }

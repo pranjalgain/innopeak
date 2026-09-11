@@ -9,7 +9,6 @@ import { RequireAuth } from "@/app/_components/require-auth";
 import { ShellSkeleton } from "@/app/_components/shell-skeleton";
 import { AUTH_METHODS } from "@/app/_libs/constants/auth-methods";
 import { ROUTES } from "@/app/_libs/constants/routes";
-import { ConnectionProvider } from "@/app/_libs/providers/connection-provider";
 import { storedDisplayName } from "@/app/_libs/services/tenant-owner-profile.service";
 import { getInitials } from "@/app/_libs/utils/initials";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
@@ -25,10 +24,9 @@ interface DashboardLayoutProps {
  * `/login` otherwise); `ConnectionGuard` then further gates it behind a
  * connected Google Business Profile, redirecting to onboarding otherwise.
  *
- * `ConnectionProvider` sits above the guard so `GET /v1/connections` is
- * fetched once for the whole dashboard rather than on every navigation —
- * and so any screen inside it (Settings' Connection tab, the reconnect
- * banner) reads the same answer the guard acted on.
+ * `ConnectionGuard` reads `GET /v1/connections` through `useConnection()`, which is backed by
+ * react-query's shared cache — Settings' Connection tab and the reconnect banner call the same
+ * hook and read the same cached answer the guard acted on, with no provider needed to share it.
  */
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const t = useTranslations("appShell");
@@ -39,8 +37,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   return (
     <RequireAuth loadingFallback={<ShellSkeleton />}>
-      <ConnectionProvider>
-        <ConnectionGuard>
+      <ConnectionGuard>
         <AppShell
           navItems={NAV_ITEMS}
           navNamespace="nav"
@@ -63,8 +60,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         >
           {children}
         </AppShell>
-        </ConnectionGuard>
-      </ConnectionProvider>
+      </ConnectionGuard>
     </RequireAuth>
   );
 }

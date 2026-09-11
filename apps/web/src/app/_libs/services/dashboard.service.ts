@@ -1,4 +1,4 @@
-import type { MetricsDto, RatingDistributionDto, RecentEscalatedDto } from "@innopeak/client-sdk";
+import type { MetricsDto, RecentEscalatedDto } from "@innopeak/client-sdk";
 
 import { dashboardApi } from "@/app/_libs/api-sdk/dashboard-api";
 import { unwrap } from "@/app/_libs/services/api-error";
@@ -22,12 +22,19 @@ const RANGE_DAYS: Record<DateRange, number> = { "7d": 7, "30d": 30, "90d": 90 };
  * were the tenant's own data, with no error shown anywhere.
  */
 export class DashboardService {
-  static async getStats(range: DateRange): Promise<DashboardStats> {
+  /**
+   * `metrics` now carries the rating distribution too — `getStats`/`getRatingDistribution` used
+   * to be two round trips for the same `days` window; callers that need both should share one
+   * `getMetrics` call rather than each hitting the endpoint separately.
+   */
+  static async getMetrics(range: DateRange): Promise<MetricsDto> {
     const response = await dashboardApi.dashboardControllerGetMetricsV1({
       days: RANGE_DAYS[range],
     });
-    const metrics = unwrap<MetricsDto>(response.data);
+    return unwrap<MetricsDto>(response.data);
+  }
 
+  static toStats(range: DateRange, metrics: MetricsDto): DashboardStats {
     return {
       range,
       reviewCount: metrics.total,
@@ -38,18 +45,15 @@ export class DashboardService {
     };
   }
 
-  static async getRatingDistribution(range: DateRange): Promise<RatingDistributionRow[]> {
-    const response = await dashboardApi.dashboardControllerGetRatingDistributionV1({
-      days: RANGE_DAYS[range],
-    });
-    const { distribution } = unwrap<RatingDistributionDto>(response.data);
+  static toRatingDistribution(metrics: MetricsDto): RatingDistributionRow[] {
+    const { ratingDistribution } = metrics;
 
     // `percentage` is relative to the largest bucket, not to the total — it drives the bar width,
     // so the tallest bar fills the track. Matches what the mock fixtures established.
-    const max = Math.max(...[1, 2, 3, 4, 5].map((star) => distribution[star] ?? 0), 1);
+    const max = Math.max(...[1, 2, 3, 4, 5].map((star) => ratingDistribution[star] ?? 0), 1);
 
     return ([5, 4, 3, 2, 1] as const).map((star) => {
-      const count = distribution[star] ?? 0;
+      const count = ratingDistribution[star] ?? 0;
       return { star, count, percentage: Math.round((count / max) * 100) };
     });
   }

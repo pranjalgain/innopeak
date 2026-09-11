@@ -389,9 +389,10 @@ than the business service:
 Step 3 is also where a race is handled for free. `sync_runs` carries
 `UNIQUE (location_id) WHERE status = 'running'` (`PLAN.md` §8.1), so a double-submitted confirm —
 two tabs, an impatient double-click — has its second insert rejected by the database rather than
-starting a second concurrent import over the same review history. Surface that as
-`409 BACKFILL_ALREADY_RUNNING` and let the frontend fall straight through to the polling stage,
-which is what the owner wanted anyway. Note the paired staleness rule from the same section: a
+starting a second concurrent import over the same review history. That rejection is caught and
+reported as `backfillAlreadyRunning: true` in the same 200/201 success body (not a 409 — the
+endpoint stays idempotent), and the frontend falls straight through to the polling stage, which is
+what the owner wanted anyway. Note the paired staleness rule from the same section: a
 `running` row older than 30 minutes is treated as not blocking, so a crashed backfill cannot
 permanently wedge a location — and because §8.2 gates the *entire* live pipeline on this backfill
 finishing, a permanent wedge here would mean a tenant that never ingests a single review.
@@ -437,7 +438,8 @@ Errors: `400` validation, `401`, `403` (a `member` cannot confirm a location),
 `404 CONNECTION_NOT_FOUND`, `404 EXTERNAL_LOCATION_NOT_FOUND` (the id isn't visible to this
 connection), `409 CONNECTION_NEEDS_REAUTH`, `409 LOCATION_LIMIT_REACHED` (MVP's one-active-location
 rule — an application rule, not a database constraint, see the overview's
-[MVP scope](./overview.md#mvp-scope)), `409 BACKFILL_ALREADY_RUNNING`, `429`.
+[MVP scope](./overview.md#mvp-scope)), `429`. An already-running backfill is **not** an error —
+see `backfillAlreadyRunning` in the success response below.
 
 ## Onboarding backfill
 
@@ -461,16 +463,22 @@ poller and classifier (`PLAN.md` §8.2). Advancing the UI on `status` alone woul
 "you're all set" screen for a location the scheduler is still refusing to enqueue. `livePollingEnabled`
 is returned as the single boolean to branch on so no caller has to know that reasoning.
 
-**The denominator comes from the provider, and only from the provider.** `sync_runs.reviews_total`
-is written once, from the first page that reports a total (Google's `totalReviewCount`), and never
+**The denominator comes from the provider, while the run is in flight.** `sync_runs.reviews_total`
+is written from the first page that reports a total (Google's `totalReviewCount`), and never
 synthesized from page length — a per-page count masquerading as a total gives a bar that hits 100%
 on page one and keeps counting. When the provider reports no total, `totalToImport` and `progress`
 are `null` and the UI shows an indeterminate bar. `reviewsFetched` is always real and always
 increasing, so "112 reviews imported" is available even when "112 of 187" is not.
 
-One known mismatch in the bar's semantics: the backfill stops at ~50 *imported replies*, while
-`reviewsFetched`/`totalToImport` count *reviews*. A location with many replies can legitimately
-finish at 30%.
+**On completion, the denominator is finalized to what backfill actually imported.** Backfill stops
+at ~50 imported replies or `MAX_PAGES`, whichever comes first (`review-sync-queue.service.ts`) —
+by design, not failure. `reviews_total` up to that point still holds the provider's *lifetime*
+review count, so a location with hundreds of reviews and few replies would otherwise report a run
+that finished exactly as intended as stuck at 15–30% forever. `completeSyncRun` overwrites
+`reviews_total` with the run's own final `reviews_fetched` count, but only when the run finishes
+cleanly (`status: 'ok'` and `markBackfillComplete: true`) — a run whose classification step failed
+keeps the provider's total, since that run has not actually finished. This makes `progress` reach
+100 for any run this endpoint reports as complete.
 
 This is the one route with a **throttle override**. At the global `short` tier a 2-second poll
 exceeds 30 requests inside the first minute and the owner's progress bar dies with a `429`
@@ -596,11 +604,9 @@ that finished `ok` with a low count means the AI's few-shot examples came from f
 historical replies `PLAN.md` §5 wants, which is visible here rather than silently degrading
 generated replies.
 
-Ordering is by `started_at DESC`, which currently has no supporting composite index — `sync_runs`
-indexes `location_id` and `tenant_id` separately, plus the partial unique
-`(location_id) WHERE status = 'running'`, but nothing leading with `started_at`. Fine at MVP row
-counts, listed in the overview's
-[Implementation status](./overview.md#implementation-status) as a cheap follow-up.
+Ordering is by `started_at DESC`, backed by `idx_sync_runs_location_id_started_at`
+(`0004_reviews.sql`, `(location_id, started_at DESC)`) — added specifically for this query, per
+the comment at its one call site (`review-sync.repository.ts`, the sync-run history page read).
 
 | Query param | Type | Rules |
 |---|---|---|
@@ -660,8 +666,7 @@ is the category string the frontend branches on.
 | `404` | `Not Found` (`LOCATION_NOT_FOUND`) | `backfill`, `sync-health`, `sync-runs` | No `locations` row with this id **for this tenant**. A location belonging to another tenant returns this, not `403`, so the response can't confirm the id exists elsewhere. |
 | `404` | `Not Found` (`EXTERNAL_LOCATION_NOT_FOUND`) | `POST /locations` | The `externalLocationId` isn't visible to this connection on the provider's side. |
 | `409` | `Conflict` (`CONNECTION_NEEDS_REAUTH`) | `available-locations`, `POST /locations` | `review_provider_connections.status = 'needs_reauth'`, or the provider just returned 401/403 and this request set it (`PLAN.md` §8.14). Frontend should route the owner back through [`authorize`](#get-v1connectionsgoogleauthorize). |
-| `409` | `Conflict` (`LOCATION_LIMIT_REACHED`) | `POST /locations` | An `active` location already exists for this tenant. MVP's one-location rule, enforced in the service layer — no database constraint backs it, see the overview's [MVP scope](./overview.md#mvp-scope). |
-| `409` | `Conflict` (`BACKFILL_ALREADY_RUNNING`) | `POST /locations` | The partial unique index `UNIQUE (location_id) WHERE status = 'running'` rejected the backfill insert (`PLAN.md` §8.1). Treat as benign: the frontend should proceed to the polling stage. |
+| `409` | `Conflict` (`LOCATION_LIMIT_REACHED`) | `POST /locations` | An `active` location already exists for this tenant. MVP's one-location rule, enforced in the service layer — no database constraint backs it. Checked twice: a cheap pre-check before any transaction opens, then rechecked under a per-tenant advisory lock inside `ConnectionsDbService.confirmLocation` so two concurrent confirms for different locations cannot both slip past the first check and double a tenant past the limit. See the overview's [MVP scope](./overview.md#mvp-scope). |
 | `429` | `Too Many Requests` | Any route | `ThrottlerGuard` limit exceeded. Note the per-route override on [`GET .../backfill`](#get-v1connectionslocationslocationidbackfill) — a 2-second poll against the global 30/min tier fails here. |
 | `502` | `Bad Gateway` (`PROVIDER_UNAVAILABLE`) | `available-locations` | The provider API errored for a non-auth reason (outage, rate limit, schema drift). Distinct from `CONNECTION_NEEDS_REAUTH` so the UI offers retry rather than re-consent. |
 | `500` | `Internal Server Error` | Any route | Unhandled exception. `traceId` is the only detail safe to show; the rest is server-side, per `ErrorHandlerService`. |
