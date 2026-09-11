@@ -11,6 +11,8 @@ import { SetPasswordDto } from '../dto/set-password.dto';
 import { SignupResponseDto } from '../dto/signup-response.dto';
 import { SignupDto } from '../dto/signup.dto';
 import { TokenResponseDto } from '../dto/token-response.dto';
+import { UpdateLocaleResponseDto } from '../dto/update-locale-response.dto';
+import { UpdateLocaleDto } from '../dto/update-locale.dto';
 import { VerifyEmailDto } from '../dto/verify-email.dto';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 import { UserRole } from '../enums/user-role.enum';
@@ -27,6 +29,7 @@ const TOKEN_RESPONSE_EXAMPLE = {
     role: UserRole.OWNER,
     hasPassword: true,
     businessName: 'The Coffee House',
+    locale: null,
   },
   hasConnectedBusiness: false,
 };
@@ -139,6 +142,55 @@ export function ApiSetPassword(): ReturnType<typeof applyDecorators> {
           },
         },
       },
+    }),
+    ApiResponse({
+      status: 401,
+      description: 'The access token is missing or expired.',
+    }),
+    ApiResponse({
+      status: 403,
+      description: 'Authenticated as a platform admin, not a tenant user.',
+    })
+  );
+}
+
+export function ApiUpdateLocale(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Set the language responses are rendered in',
+      description:
+        'Persists `users.locale`, then re-signs *only* the access token so the new value is on ' +
+        "its `locale` claim immediately — this tab's own requests read the new language right " +
+        'away rather than waiting for the access token to expire and refresh. Deliberately does ' +
+        'not touch the refresh token (unlike change-password/set-password): a locale preference ' +
+        'is not proof of anything beyond what the caller\'s existing access token already ' +
+        'proves, so this must not be usable to mint a fresh 7-day refresh token from one. ' +
+        'Another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user ' +
+        'tokens only.',
+    }),
+    ApiBody({
+      type: UpdateLocaleDto,
+      examples: { default: { summary: 'Typical request', value: { locale: 'de' } } },
+    }),
+    ApiResponse({
+      status: 200,
+      description: 'Locale updated; a fresh access token is issued (no refresh token).',
+      type: UpdateLocaleResponseDto,
+      examples: {
+        default: {
+          summary: 'Updated',
+          value: {
+            accessToken: TOKEN_RESPONSE_EXAMPLE.accessToken,
+            expiresIn: TOKEN_RESPONSE_EXAMPLE.expiresIn,
+            user: { ...TOKEN_RESPONSE_EXAMPLE.user, locale: 'de' },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 400,
+      description: '`locale` is missing or not one of the supported values.',
     }),
     ApiResponse({
       status: 401,
@@ -273,6 +325,25 @@ export function ApiVerifyEmail(): ReturnType<typeof applyDecorators> {
           },
         },
       },
+    }),
+    ApiResponse({
+      status: 429,
+      description:
+        'Too many verification attempts for this address within the current window ' +
+        '(`OtpAttemptService`, keyed per-account on top of the per-IP throttler).',
+      examples: {
+        default: {
+          summary: 'Too many attempts',
+          value: {
+            statusCode: 429,
+            status: 'Failure',
+            message: 'Too many verification attempts. Request a new code and try again shortly.',
+            error: 'Too Many Requests',
+            traceId: '38cf5d10-00cb-4e4b-8417-f9e63e877466',
+            data: null,
+          },
+        },
+      },
     })
   );
 }
@@ -318,7 +389,10 @@ export function ApiLogin(): ReturnType<typeof applyDecorators> {
     ApiResponse({
       status: 401,
       description:
-        'Wrong password, unknown email, or an SSO-only account attempting password login — one message for all three.',
+        'Wrong password, unknown email, an SSO-only account attempting password login, or the ' +
+        'account is temporarily locked out after too many failed attempts (`LoginAttemptService` ' +
+        '— per-account, on top of the per-IP throttler) — the same message for all four, so a ' +
+        'lockout cannot be distinguished from a wrong password by the response alone.',
       examples: {
         default: {
           summary: 'Invalid credentials',
@@ -347,8 +421,9 @@ export function ApiRefresh(): ReturnType<typeof applyDecorators> {
         'construct. Single-use rotation: the presented refresh token is revoked in the same ' +
         'call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant ' +
         'standing every time (disabled/suspended revokes every refresh token that user has). ' +
-        'Not the fuller reuse-grace-window replay tolerance or token-family theft detection ' +
-        'described elsewhere — a documented follow-up.',
+        'Re-presenting an already-spent token is judged by age: within a short grace window it ' +
+        'is treated as a lost two-tab race and the session is preserved; older than that, every ' +
+        'refresh token for that user is revoked as suspected reuse of a leaked token.',
     }),
     ApiResponse({
       status: 200,

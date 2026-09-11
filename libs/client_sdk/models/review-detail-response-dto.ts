@@ -19,7 +19,7 @@ export interface ReviewDetailResponseDto {
   sentiment?: ReviewDetailResponseDtoSentimentEnum | null;
   classification: ReviewDetailResponseDtoClassificationEnum;
   escalationReason?: ReviewDetailResponseDtoEscalationReasonEnum | null;
-  matchedKeywords?: object | null;
+  matchedKeywords?: Array<string> | null;
   status: ReviewDetailResponseDtoStatusEnum;
   anonymizedAt?: object | null;
   removedUpstreamAt?: object | null;

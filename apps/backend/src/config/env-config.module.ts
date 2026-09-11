@@ -1,3 +1,4 @@
+import { JWT_SECRET_MIN_LENGTH } from '@auth/constants/auth.constants';
 import { EnvConfig } from '@config/env.config';
 import { Module } from '@nestjs/common';
 import { ConfigModule, registerAs } from '@nestjs/config';
@@ -8,7 +9,10 @@ const envConfig = registerAs(
   (): EnvConfig =>
     ({
       PORT: parseInt(process.env['PORT'] ?? '3000', 10),
-      NODE_ENV: process.env['NODE_ENV'] ?? 'development',
+      // No default: an unset NODE_ENV previously read as 'development', which silently
+      // enables the DEV_* bypasses and drops the Secure flag from every session cookie.
+      // Joi requires it below, so boot fails loudly instead.
+      NODE_ENV: process.env['NODE_ENV'] ?? '',
       CORS_ORIGINS: process.env['CORS_ORIGINS'] ?? '*',
       PROMETHEUS_PORT: parseInt(process.env['PROMETHEUS_PORT'] ?? '9090', 10),
       PROMETHEUS_PUSH_GATEWAY_PORT: parseInt(
@@ -60,6 +64,7 @@ const envConfig = registerAs(
         process.env['VERIFY_EMAIL_OTP_TTL_MINUTES'] ?? '10',
         10
       ),
+      TRUST_PROXY_HOPS: parseInt(process.env['TRUST_PROXY_HOPS'] ?? '0', 10),
       DEV_VERIFY_EMAIL_TOKEN: process.env['DEV_VERIFY_EMAIL_TOKEN'],
       JWT_SECRET: process.env['JWT_SECRET'] ?? '',
       JWT_REFRESH_SECRET: process.env['JWT_REFRESH_SECRET'],
@@ -164,11 +169,14 @@ const validationSchema = Joi.object({
     then: Joi.forbidden(),
     otherwise: Joi.string().allow(null, ''),
   }),
-  JWT_SECRET: Joi.string().required(),
+  // HS256's strength is bounded by the secret's entropy: a short one is brute-forceable offline
+  // from any single captured token, after which anyone can mint tokens for any account.
+  JWT_SECRET: Joi.string().min(JWT_SECRET_MIN_LENGTH).required(),
   // Cross-field "must differ from JWT_SECRET in production" isn't expressible in Joi without a
   // custom validator — enforced by the manual check above instead. Falling back to JWT_SECRET in
   // non-production is a local-dev convenience only.
-  JWT_REFRESH_SECRET: Joi.string().allow(null, ''),
+  JWT_REFRESH_SECRET: Joi.string().min(JWT_SECRET_MIN_LENGTH).allow(null, ''),
+  TRUST_PROXY_HOPS: Joi.number().integer().min(0).default(0),
   // Optional for the same reason FRONTEND_URL is: a developer not working on the connections
   // module has none of these set, and hard-failing boot for everyone else would be hostile. The
   // routes that need them answer 503 instead — see GoogleBusinessProfileProvider.

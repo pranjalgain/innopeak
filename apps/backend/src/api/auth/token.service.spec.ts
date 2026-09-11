@@ -26,6 +26,7 @@ describe('TokenService', () => {
     role: UserRole.OWNER,
     passwordHash: 'hashed',
     status: UserStatus.ACTIVE,
+    locale: null,
   };
 
   const validRefreshClaims = { sub: user.id, jti: 'jti-1', type: JwtTokenType.REFRESH };
@@ -38,7 +39,7 @@ describe('TokenService', () => {
 
     authDbService = {
       insertRefreshToken: jest.fn(),
-      findActiveRefreshToken: jest.fn(),
+      findRefreshTokenByHash: jest.fn(),
       findUserById: jest.fn(),
       findTenantStatus: jest.fn(),
       rotateRefreshToken: jest.fn().mockResolvedValue(true),
@@ -71,6 +72,7 @@ describe('TokenService', () => {
         tenantId: user.tenantId,
         email: user.email,
         role: user.role,
+        locale: user.locale,
       });
 
       expect(result.accessToken).toBe('access-token');
@@ -120,7 +122,7 @@ describe('TokenService', () => {
       });
 
       await expect(target.rotate('garbage')).rejects.toThrow(UnauthorizedException);
-      expect(authDbService.findActiveRefreshToken).not.toHaveBeenCalled();
+      expect(authDbService.findRefreshTokenByHash).not.toHaveBeenCalled();
     });
 
     it('rejects a JWT that verifies but is not typed as a refresh token (e.g. an access token under a shared secret)', async () => {
@@ -133,19 +135,19 @@ describe('TokenService', () => {
       });
 
       await expect(target.rotate('access-token-as-refresh')).rejects.toThrow(UnauthorizedException);
-      expect(authDbService.findActiveRefreshToken).not.toHaveBeenCalled();
+      expect(authDbService.findRefreshTokenByHash).not.toHaveBeenCalled();
     });
 
     it('rejects a JWT with no type claim at all', async () => {
       jwtService.verify.mockReturnValue({ sub: user.id, jti: 'jti-1' });
 
       await expect(target.rotate('legacy-token')).rejects.toThrow(UnauthorizedException);
-      expect(authDbService.findActiveRefreshToken).not.toHaveBeenCalled();
+      expect(authDbService.findRefreshTokenByHash).not.toHaveBeenCalled();
     });
 
     it('rejects when no active refresh_tokens row matches', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
-      authDbService.findActiveRefreshToken.mockResolvedValue(null);
+      authDbService.findRefreshTokenByHash.mockResolvedValue(null);
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
     });
@@ -157,7 +159,7 @@ describe('TokenService', () => {
      */
     it('reports a dead family (no live session left) as a plain UnauthorizedException', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
-      authDbService.findActiveRefreshToken.mockResolvedValue(null);
+      authDbService.findRefreshTokenByHash.mockResolvedValue(null);
       authDbService.hasActiveRefreshToken.mockResolvedValue(false);
 
       await expect(target.rotate('revoked-or-db-reset-token')).rejects.not.toBeInstanceOf(
@@ -171,7 +173,7 @@ describe('TokenService', () => {
     it('reports a token superseded by a concurrent refresh as RefreshTokenSupersededException', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       // Not active any more, but the user still holds a live token — the winner's successor.
-      authDbService.findActiveRefreshToken.mockResolvedValue(null);
+      authDbService.findRefreshTokenByHash.mockResolvedValue(null);
       authDbService.hasActiveRefreshToken.mockResolvedValue(true);
 
       await expect(target.rotate('lost-the-race-token')).rejects.toBeInstanceOf(
@@ -180,11 +182,51 @@ describe('TokenService', () => {
       expect(authDbService.hasActiveRefreshToken).toHaveBeenCalledWith(validRefreshClaims.sub);
     });
 
+    /**
+     * Reuse detection. The row is still present but already revoked, and how long ago decides
+     * whether this is a benign two-tab race or a replay of a token that leaked.
+     */
+    it('treats a token spent moments ago as a lost race, keeping the session alive', async () => {
+      jwtService.verify.mockReturnValue(validRefreshClaims);
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
+        id: 'rt-1',
+        userId: user.id,
+        revokedAt: new Date().toISOString(),
+      });
+
+      await expect(target.rotate('some-token')).rejects.toBeInstanceOf(
+        RefreshTokenSupersededException
+      );
+      // Load-bearing: revoking here would sign the winner out of every tab.
+      expect(authDbService.revokeAllRefreshTokensForUser).not.toHaveBeenCalled();
+    });
+
+    it('treats a token spent long ago as reuse, revoking every session for that user', async () => {
+      jwtService.verify.mockReturnValue(validRefreshClaims);
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
+        id: 'rt-1',
+        userId: user.id,
+        revokedAt: new Date(Date.now() - 60_000).toISOString(),
+      });
+
+      // Not the superseded subclass: this one MUST clear the caller's cookies.
+      const rejection = target.rotate('some-token');
+      await expect(rejection).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(rejection).rejects.not.toBeInstanceOf(RefreshTokenSupersededException);
+      expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
+      // The thief gets nothing: no replacement is minted on the way out.
+      expect(authDbService.rotateRefreshToken).not.toHaveBeenCalled();
+    });
+
     it('reports a lost compare-and-swap as superseded, without asking whether a session survives', async () => {
       // The row was active when read and gone by the CAS: definitionally someone else spent it,
       // so their successor is live and no `hasActiveRefreshToken` round trip is needed.
       jwtService.verify.mockReturnValue(validRefreshClaims);
-      authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
+        id: 'rt-1',
+        userId: user.id,
+        revokedAt: null,
+      });
       authDbService.findUserById.mockResolvedValue(user);
       authDbService.findTenantStatus.mockResolvedValue({ status: 'active' } as never);
       authDbService.rotateRefreshToken.mockResolvedValue(false);
@@ -196,9 +238,10 @@ describe('TokenService', () => {
 
     it('rejects when the stored token belongs to a different user than the JWT claims', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
-      authDbService.findActiveRefreshToken.mockResolvedValue({
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
         id: 'rt-1',
         userId: 'someone-else',
+        revokedAt: null,
       });
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
@@ -206,7 +249,11 @@ describe('TokenService', () => {
 
     it('revokes every refresh token and rejects when the user is disabled', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
-      authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
+        id: 'rt-1',
+        userId: user.id,
+        revokedAt: null,
+      });
       authDbService.findUserById.mockResolvedValue({ ...user, status: UserStatus.DISABLED });
       authDbService.findTenantStatus.mockResolvedValue({
         status: TenantStatus.ACTIVE,
@@ -220,7 +267,11 @@ describe('TokenService', () => {
 
     it('revokes every refresh token and rejects when the tenant is suspended', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
-      authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
+        id: 'rt-1',
+        userId: user.id,
+        revokedAt: null,
+      });
       authDbService.findUserById.mockResolvedValue(user);
       authDbService.findTenantStatus.mockResolvedValue({
         status: TenantStatus.SUSPENDED,
@@ -233,7 +284,11 @@ describe('TokenService', () => {
 
     it('revokes the used token and persists the replacement in one step, then returns the fresh pair', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
-      authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
+        id: 'rt-1',
+        userId: user.id,
+        revokedAt: null,
+      });
       authDbService.findUserById.mockResolvedValue(user);
       authDbService.findTenantStatus.mockResolvedValue({
         status: TenantStatus.ACTIVE,
@@ -264,12 +319,17 @@ describe('TokenService', () => {
         role: user.role,
         name: user.name,
         passwordHash: user.passwordHash,
+        locale: user.locale,
       });
     });
 
     it('rejects (and issues nothing) when a concurrent rotation already spent the token', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
-      authDbService.findActiveRefreshToken.mockResolvedValue({ id: 'rt-1', userId: user.id });
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
+        id: 'rt-1',
+        userId: user.id,
+        revokedAt: null,
+      });
       authDbService.findUserById.mockResolvedValue(user);
       authDbService.findTenantStatus.mockResolvedValue({
         status: TenantStatus.ACTIVE,

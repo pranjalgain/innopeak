@@ -1,9 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { LuCheck, LuLanguages } from "react-icons/lu";
+import { toast } from "sonner";
 
+import { AuthService } from "@/app/_libs/services/auth.service";
 import { setLocaleCookie } from "@/app/_libs/utils/locale";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,8 +29,23 @@ import { type AppLocale, LOCALE_LABELS, SUPPORTED_LOCALES } from "@/i18n/locales
 export function LanguageSwitcher() {
   const locale = useLocale();
   const router = useRouter();
+  const t = useTranslations("languageSwitcher");
 
-  function selectLocale(next: AppLocale): void {
+  /**
+   * Waits for `AuthService.updateLocale` (a no-op for a signed-out visitor) before touching the
+   * cookie or the UI — the two must not disagree, so a signed-in user's failed server sync keeps
+   * the UI in its current language too, with a toast, rather than silently drifting: the chrome
+   * would otherwise switch instantly while every backend-originated message (API errors, mutation
+   * toasts, eventually emails) kept arriving in the old language until the user tried again.
+   */
+  async function selectLocale(next: AppLocale): Promise<void> {
+    try {
+      await AuthService.updateLocale(next);
+    } catch {
+      toast.error(t("syncFailed"));
+      return;
+    }
+
     setLocaleCookie(next);
     router.refresh();
   }
@@ -50,7 +67,7 @@ export function LanguageSwitcher() {
         {SUPPORTED_LOCALES.map(option => (
           <DropdownMenuItem
             key={option}
-            onClick={() => selectLocale(option)}
+            onClick={() => void selectLocale(option)}
             className="cursor-pointer justify-between"
           >
             {LOCALE_LABELS[option]}

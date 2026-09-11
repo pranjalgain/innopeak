@@ -1,3 +1,5 @@
+import type { Locale } from '@common/i18n/locale';
+
 import type { JwtTokenType } from '../enums/jwt-token-type.enum';
 import type { UserRole } from '../enums/user-role.enum';
 
@@ -6,6 +8,9 @@ export interface TenantJwtPayload {
   tenantId: string;
   email: string;
   role: UserRole;
+  /** `users.locale` at the time this token was signed — null means the user never chose one.
+   * Stale until the token is refreshed, same as `role`/`tenantId`. */
+  locale: Locale | null;
   type: JwtTokenType.TENANT_USER;
   iat?: number;
   exp?: number;

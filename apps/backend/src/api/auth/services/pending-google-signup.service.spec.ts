@@ -7,10 +7,11 @@ import { PendingGoogleSignupService } from './pending-google-signup.service';
 describe('PendingGoogleSignupService', () => {
   let target: PendingGoogleSignupService;
   let store: Map<string, string>;
+  let redis: { set: jest.Mock; getdel: jest.Mock };
 
   beforeEach(async () => {
     store = new Map();
-    const redis = {
+    redis = {
       set: jest.fn((key: string, value: string) => {
         if (store.has(key)) return Promise.resolve(null); // NX
         store.set(key, value);
@@ -49,6 +50,19 @@ describe('PendingGoogleSignupService', () => {
         name: 'Jordan Lee',
       });
     }
+  });
+
+  /**
+   * At 256 bits of randomness this never happens in practice, but a silent overwrite-miss here
+   * would hand the caller a nonce whose Redis record belongs to someone else's in-flight signup —
+   * surfacing later as a generic, unexplained consume failure. `mint` must fail loudly instead.
+   */
+  it('throws rather than silently minting a nonce whose record write lost the NX race', async () => {
+    redis.set.mockResolvedValueOnce(null);
+
+    await expect(
+      target.mint({ providerUserId: 'google-sub-1', email: 'owner@example.com', name: null })
+    ).rejects.toThrow('nonce collision');
   });
 
   it('rejects a replay — a second completion attempt finds no nonce', async () => {

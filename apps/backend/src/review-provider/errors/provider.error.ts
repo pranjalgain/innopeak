@@ -1,11 +1,13 @@
 /**
- * Four failure kinds, because the callers branch on exactly these four and nothing finer.
+ * Five failure kinds, because the callers branch on exactly these five and nothing finer.
  *
  * The split that matters is Auth vs. everything else: a 401/403 from the provider means the
  * grant is dead and the owner must re-consent (`needs_reauth` + a 409 the UI turns into a
  * "reconnect" button), whereas a 429/5xx means try again later (a 502 the UI turns into
  * "retry"). Collapsing them sends owners through a pointless OAuth round trip during a Google
- * outage, or leaves them staring at a retry button that can never succeed.
+ * outage, or leaves them staring at a retry button that can never succeed. The fifth,
+ * `ProviderNotConfiguredError`, is its own case — not a Google response at all, but this server
+ * missing the client id/secret to even start an OAuth round trip.
  */
 export abstract class ProviderError extends Error {
   protected constructor(message: string, cause?: unknown) {

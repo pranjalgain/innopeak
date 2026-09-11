@@ -112,9 +112,9 @@ vars) — **every other row in this table is net-new**, not just the Microsoft o
 | `RESET_TOKEN_TTL_HOURS` | No, default `1` | Same, for `purpose = 'reset'`. |
 | `VERIFY_EMAIL_OTP_TTL_MINUTES` | No, default `10` | Expiry window for the 6-digit signup/login verification OTP (tenant users only — platform admins have no email-verification step, see [Data model quick reference](#data-model-quick-reference)). In **minutes**, not hours — this is a short numeric code, not a long-lived link. |
 | `OAUTH_STATE_TTL_MINUTES` | No, default `10` | How long a signed OAuth `state` payload (see [`GET /v1/auth/microsoft/callback`](#get-v1authmicrosoftcallback)) is accepted after issuance — bounds how long an abandoned OAuth redirect can be resumed. |
-| `JWT_REFRESH_REUSE_GRACE_SECONDS` | No, default `10` | Window during which presenting an already-rotated refresh token replays the same replacement pair instead of being treated as theft — see [`POST /v1/auth/refresh`](#post-v1authrefresh) and `PLAN.md` §8.19. |
-| `LOGIN_LOCKOUT_THRESHOLD` | No, default `10` | Consecutive failed password logins for one email (see [Email normalization](#email-normalization)) before that email is locked out — see [Brute-force protection](#brute-force-protection-throttling-and-per-account-lockout). |
-| `LOGIN_LOCKOUT_WINDOW_MINUTES` | No, default `15` | How long the failure counter lives, and how long the lockout lasts once tripped. |
+| _(not an env var)_ `REFRESH_REUSE_GRACE_SECONDS` | Compile-time constant, `10` | In `auth.constants.ts`, not the environment. Window inside which presenting an already-rotated refresh token counts as a lost rotation race (benign, session preserved) rather than reuse of a leaked token — see [`POST /v1/auth/refresh`](#post-v1authrefresh). |
+| _(not an env var)_ `LOGIN_LOCKOUT_THRESHOLD` | Compile-time constant, `10` | In `auth.constants.ts`, not the environment. Consecutive failed password logins for one email (see [Email normalization](#email-normalization)) before that email is locked out — see [Brute-force protection](#brute-force-protection-throttling-and-per-account-lockout). |
+| _(not an env var)_ `LOGIN_LOCKOUT_WINDOW_SECONDS` | Compile-time constant, `900` (15 minutes) | In `auth.constants.ts`, not the environment. How long the failure counter lives, and how long the lockout lasts once tripped. |
 
 **`refresh_tokens` table**: `0002_tenant_auth.sql` (`id`, `user_id`, `token_hash`, `expires_at`,
 `revoked_at`, `created_at`) — supports the "basic rotation" scope described under
@@ -481,20 +481,37 @@ concurrent refreshes minted 5 live sessions from one token). The refresh JWT als
 verification — so an access token can't be replayed against this route even when
 `JWT_REFRESH_SECRET` falls back to `JWT_SECRET` in local dev.
 
-**Current scope is "basic rotation" only** — single-use, revoke-on-rotate, revoke-all-on-logout.
-A documented follow-up, not yet built: a `JWT_REFRESH_REUSE_GRACE_SECONDS` window that would treat
-a rapid double-tab replay of an already-rotated token as harmless instead of an error, plus full
-token-family theft detection (revoking every token descended from a stolen one, not just that
-user's current set). Until that lands, presenting an already-rotated token is simply
-`401 INVALID_REFRESH_TOKEN` like any other invalid token — no replay tolerance.
+**Reuse of an already-rotated token is detected, and how it is handled depends on age.** The
+lookup finds the row even when it is revoked, so "already spent" is distinguishable from "never
+existed":
+
+- **Spent within `REFRESH_REUSE_GRACE_SECONDS` (10s)** — a lost rotation race. Two tabs waking
+  from the same idle period both refresh; the loser's successor is already in the shared cookie
+  jar. Answered `401` as `RefreshTokenSupersededException`, which deliberately **keeps** the
+  caller's cookies, and the client retries and succeeds with the successor.
+- **Spent longer ago** — treated as reuse of a leaked token. The legitimate holder moved on to the
+  successor long ago, so **every refresh token for that user is revoked**: the thief and the victim
+  both lose their sessions, and only the victim can sign in again with credentials. Answered `401`
+  with cookies cleared.
+
+Two limits remain, both bounded by the schema having no token-family column
+(`refresh_tokens` is `id`, `user_id`, `token_hash`, `expires_at`, `revoked_at`, `created_at`):
+the daily `AUTH_TOKEN_CLEANUP` purge deletes revoked rows, so a replay more than a day late finds
+no row and gets the plain "session gone" `401` without the family revoke; and there is **no
+absolute session lifetime** — rotation keeps extending the 7-day window indefinitely, and adding a
+cap needs a column recording each family's origin.
 
 Errors: `401 INVALID_REFRESH_TOKEN` (missing cookie, expired, revoked, already-rotated-out,
 malformed, or the owning user/tenant is no longer in good standing).
 
 #### `POST /v1/auth/logout`
 
-Bearer. No request body. Revokes every refresh token belonging to the current user (all
-sessions/devices) — a single-session logout is intentionally not offered as a separate endpoint
+`@Public()`, authority taken from the `refresh_token` cookie rather than a bearer token — the
+session most in need of revoking is one whose access token already expired, and a JWT-guarded
+logout would `401` before revoking anything, leaving a live 7-day refresh token behind a UI that
+says "signed out". Signature and the `type` claim are still required; expiry is deliberately
+ignored, since an expired token still proves which user it was minted for. No request body.
+Revokes every refresh token belonging to that user (all sessions/devices) — a single-session logout is intentionally not offered as a separate endpoint
 to keep the revocation model simple; see [Security considerations](#security-considerations) if
 that changes. Also clears the `refresh_token` cookie for the caller.
 
@@ -551,6 +568,12 @@ malformed, already used, expired, or the account is no longer `pending_verificat
 distinguishing "this code existed once" from "this code never existed."
 
 #### `POST /v1/auth/forgot-password`
+
+> **Not implemented.** Neither this route nor `/v1/auth/reset-password` exists in
+> `AuthController`, and `ForgotPasswordDto` / `ResetPasswordDto` do not exist either. There is
+> therefore **no password-recovery path today**: an owner who forgets their password and has no
+> Google identity cannot regain access. `TokenPurpose.RESET` is reserved in the DB enum for this.
+> The contract below is the intended design, kept as the spec to build against.
 
 Request: `{ "email": "jane@thecoffeehouse.com" }` (existing `ForgotPasswordDto`).
 
@@ -984,21 +1007,25 @@ burst throttles everyone. Second — the real gap — per-IP is the wrong axis f
 throttle was described as blunting: credential stuffing arrives from many addresses, a few attempts
 each, all aimed at one account, and never trips a per-IP limit.
 
-So the password login routes (`/v1/auth/login`, `/v1/platform-admin/auth/login`) additionally keep
-a **per-email failure counter in Redis**:
+So `POST /v1/auth/login` additionally keeps a **per-email failure counter in Redis**
+(`LoginAttemptService`). The platform-admin login route does not exist yet and will need the same
+treatment when it does.
 
 - Key `auth:login-fail:<sha256(normalized email)>` (normalized per [Email
   normalization](#email-normalization); hashed so the key space doesn't leak addresses to anyone
   with Redis read access).
-- Incremented on every `INVALID_CREDENTIALS` outcome; TTL `LOGIN_LOCKOUT_WINDOW_MINUTES`; deleted
-  on a successful login.
-- Once it reaches `LOGIN_LOCKOUT_THRESHOLD`, further attempts for that email are rejected for the
-  rest of the window **with the identical `401 INVALID_CREDENTIALS`**. No distinct "locked" code —
-  a distinct code would tell an attacker both that the account exists and that they've found the
+- Incremented on every `INVALID_CREDENTIALS` outcome; window
+  `LOGIN_LOCKOUT_WINDOW_SECONDS` (900, in `auth.constants.ts`); deleted the moment a password is
+  proven — before the status branches, so a `pending_verification` or suspended account that typed
+  the right password does not keep burning attempts it already passed.
+- Once it reaches `LOGIN_LOCKOUT_THRESHOLD` (10), further attempts for that email are rejected for
+  the rest of the window **with the identical `401 INVALID_CREDENTIALS`**. No distinct "locked"
+  code — that would tell an attacker both that the account exists and that they've found the
   threshold.
-- The locked path skips the password-hash comparison, so it must also skip the DB lookup *and*
-  run the same dummy-hash delay the enumeration-prevention bullet above describes — otherwise the
-  faster response becomes the tell.
+- The locked path skips the DB lookup and the real password comparison, but still runs one decoy
+  bcrypt comparison, so the faster response does not become the tell.
+- Fixed window, not sliding: the TTL is set only when the counter is created, so a persistent
+  attacker cannot hold a victim locked out indefinitely by continuing to guess.
 
 This is an application-layer counter, not a `users` column: no migration, and it never touches
 `users.status`, so a lockout can't be weaponized to *disable* someone's account — only to slow the

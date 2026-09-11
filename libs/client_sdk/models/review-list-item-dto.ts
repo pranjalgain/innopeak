@@ -16,7 +16,7 @@ export interface ReviewListItemDto {
   sentiment?: ReviewListItemDtoSentimentEnum | null;
   classification: ReviewListItemDtoClassificationEnum;
   escalationReason?: ReviewListItemDtoEscalationReasonEnum | null;
-  matchedKeywords?: object | null;
+  matchedKeywords?: Array<string> | null;
   status: ReviewListItemDtoStatusEnum;
   anonymizedAt?: object | null;
   removedUpstreamAt?: object | null;

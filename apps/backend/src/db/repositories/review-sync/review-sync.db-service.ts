@@ -253,6 +253,30 @@ export class ReviewSyncDbService {
   }
 
   /**
+   * See `ReviewSyncRepository.reopenSyncRunForRetry` for why a BullMQ retry needs this at all.
+   * `false` means the row was not in `error` — most likely it does not exist, which should not
+   * happen for a job carrying an id it was published with; the caller fails the attempt outright
+   * rather than proceeding to write completion state against a run it cannot prove it still owns.
+   *
+   * Also `false` on a 23505 against `idx_sync_runs_location_id_running`: reopening flips the row
+   * back to `running`, the same transition every other writer of this partial unique index has to
+   * guard (`acquireSyncRun` above, `ConnectionsDbService.confirmLocation`) — a poll or a second
+   * backfill can genuinely be running for this location while this retry fires. Left unguarded,
+   * this call was the one writer of that index that let the raw 23505 escape instead of the clear
+   * "not in a reopenable state" the caller already throws for the same condition.
+   */
+  async reopenRunForRetry(syncRunId: string): Promise<boolean> {
+    try {
+      return await this.reviewSyncRepository.reopenSyncRunForRetry(syncRunId);
+    } catch (error) {
+      if (isUniqueViolation(error, SYNC_RUN_RUNNING_INDEX)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Completes the run, and only on a genuine win writes the location's rolled-up sync snapshot,
    * the poller's high-water mark, and — for a successful backfill — `onboarding_backfill_completed_at`,
    * the column that un-gates live polling. A lost CAS means this run was reclaimed as stale
@@ -269,15 +293,19 @@ export class ReviewSyncDbService {
     syncRunId: string;
     locationId: string;
     status: SyncRunStatus.ERROR | SyncRunStatus.OK;
-    reviewsFetched: number;
+    /** See `ReviewSyncRepository.completeSyncRun` — omit rather than pass a stale count when the caller does not have an authoritative one (a mid-import failure). */
+    reviewsFetched?: number;
     errorMessage: string | null;
     markBackfillComplete: boolean;
     lastReviewSyncedAt: string | null;
   }): Promise<boolean> {
     const stillOwned = await this.reviewSyncRepository.completeSyncRun(input.syncRunId, {
       status: input.status,
-      reviewsFetched: input.reviewsFetched,
+      ...(input.reviewsFetched !== undefined ? { reviewsFetched: input.reviewsFetched } : {}),
       errorMessage: input.errorMessage,
+      // See `ReviewSyncRepository.completeSyncRun` — only a clean, fully-finished backfill
+      // should overwrite `reviews_total` with its own final count.
+      finalizeReviewsTotal: input.status === SyncRunStatus.OK && input.markBackfillComplete,
     });
 
     if (!stillOwned) {
@@ -320,5 +348,10 @@ export class ReviewSyncDbService {
 
   findResponsesForReviews(reviewIds: string[]): Promise<ReviewResponseRow[]> {
     return this.reviewsReadRepository.findResponsesForReviews(reviewIds);
+  }
+
+  /** `PLAN.md` §6's nightly reviewer-retention purge — see `ReviewSyncRepository.purgeExpiredReviewerPii`. */
+  purgeExpiredReviewerPii(): Promise<number> {
+    return this.reviewSyncRepository.purgeExpiredReviewerPii();
   }
 }

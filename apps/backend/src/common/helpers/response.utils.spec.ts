@@ -1,13 +1,20 @@
+import { MESSAGES } from '@common/constants/messages.constants';
+
 import { ResponseUtil } from './response.utils';
 
 describe('ResponseUtil', () => {
   describe('success', () => {
+    // The default message is now MESSAGES.COMMON.SUCCESS's locale-agnostic key, not rendered
+    // English text — TransformInterceptor/HttpExceptionFilter render it to the request's
+    // resolved locale later, at the response edge. Asserted symbolically for the same reason
+    // every other MESSAGES.X.Y assertion in this codebase is: it stays correct whether the key's
+    // underlying value is English text or (as here, since this session's i18n work) a tag.
     it('builds a success response with defaults', () => {
       const result = ResponseUtil.success({ id: 1 });
       expect(result).toEqual({
         status: 'Success',
         data: { id: 1 },
-        message: 'Success',
+        message: MESSAGES.COMMON.SUCCESS,
         statusCode: 200,
       });
     });

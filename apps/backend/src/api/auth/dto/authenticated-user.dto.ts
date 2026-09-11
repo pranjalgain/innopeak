@@ -1,4 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { type Locale, SUPPORTED_LOCALES } from '@common/i18n/locale';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { UserRole } from '../enums/user-role.enum';
 
@@ -31,4 +32,15 @@ export class AuthenticatedUserDto {
       'set a password — Settings uses this to show "Add password" instead of "Change password".',
   })
   hasPassword!: boolean;
+
+  @ApiPropertyOptional({
+    example: 'en',
+    enum: SUPPORTED_LOCALES,
+    nullable: true,
+    description:
+      'The stored `users.locale` preference, or null when the user has never set one — in which ' +
+      "case the API falls back to negotiating the caller's `Accept-Language` header per request " +
+      'rather than defaulting silently to English.',
+  })
+  locale!: Locale | null;
 }

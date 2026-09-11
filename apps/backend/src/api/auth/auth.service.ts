@@ -3,6 +3,7 @@ import { IOtpEmailJob } from '@bg/interfaces/job.interface';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
+import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
 import {
@@ -30,12 +31,15 @@ import { SetPasswordDto } from './dto/set-password.dto';
 import { SignupResponseDto } from './dto/signup-response.dto';
 import { SignupDto } from './dto/signup.dto';
 import { TokenResponseDto } from './dto/token-response.dto';
+import { UpdateLocaleResponseDto } from './dto/update-locale-response.dto';
+import { UpdateLocaleDto } from './dto/update-locale.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { OAuthIntent } from './enums/oauth-intent.enum';
 import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
+import { LoginAttemptService } from './login-attempt.service';
 import { OtpAttemptService } from './otp-attempt.service';
 import { GoogleIdentityProvider } from './providers/google-identity.provider';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
@@ -73,6 +77,7 @@ export class AuthService {
     private readonly verifyEmailTokenProvider: VerifyEmailTokenProvider,
     private readonly tokenService: TokenService,
     private readonly otpAttemptService: OtpAttemptService,
+    private readonly loginAttemptService: LoginAttemptService,
     private readonly queueManager: AddingJobsToQueueManager,
     private readonly configService: ConfigService<EnvConfig>,
     private readonly googleIdentityProvider: GoogleIdentityProvider,
@@ -150,6 +155,18 @@ export class AuthService {
    */
   async login(dto: LoginDto): Promise<LoginPendingVerificationDto | TokenIssuanceResult> {
     const email = normalizeEmail(dto.email);
+
+    // Per-account ceiling, checked before any DB work. The per-IP throttle on this route does not
+    // cover credential stuffing, which arrives from many addresses a few attempts each, all aimed
+    // at one account. A locked address still pays for one decoy comparison and still gets the
+    // identical INVALID_CREDENTIALS — skipping the bcrypt cost would make the faster response the
+    // tell, and a distinct "locked" code would confirm both that the account exists and that the
+    // threshold was found.
+    if (await this.loginAttemptService.isLockedOut(email)) {
+      await this.hashingService.compare(dto.password, await this.decoyPasswordHash());
+      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CREDENTIALS);
+    }
+
     const user = await this.authDbService.findUserForLogin(email);
 
     // Always pay for one password comparison, even when there is no account (or the account is
@@ -162,8 +179,14 @@ export class AuthService {
     );
 
     if (!user?.passwordHash || !passwordMatches) {
+      await this.loginAttemptService.recordFailure(email);
       throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CREDENTIALS);
     }
+
+    // The password is proven from here on, so the failure budget has served its purpose. Cleared
+    // before the status branches below: a `pending_verification` or suspended account that typed
+    // the right password should not keep burning attempts it already passed.
+    await this.loginAttemptService.reset(email);
 
     if (user.status === UserStatus.DISABLED) {
       throw new ForbiddenException(MESSAGES.AUTH.ACCOUNT_DISABLED);
@@ -305,7 +328,58 @@ export class AuthService {
     return this.buildTokenIssuanceResult({ ...user, passwordHash: newPasswordHash });
   }
 
+  /**
+   * Settings → Profile's language preference — resolution order step 1
+   * (`apps/documentation/docs/meta/multilingual.md`). Persists `users.locale`, then re-signs only
+   * the access token (`TokenService.reissueAccessToken`) so the new value is on its `locale` claim
+   * immediately, rather than leaving this tab's own requests reading the stale claim until it next
+   * refreshes. Unlike `changePassword`, this does not revoke other sessions — a locale preference
+   * is not a security boundary, so another signed-in tab is simply left to pick it up on its own
+   * next refresh.
+   *
+   * Deliberately does NOT call `buildTokenIssuanceResult`/`issueTokenPair` here: those mint a new
+   * refresh token and a `refresh_tokens` row, which is the right shape for a real sign-in event
+   * but not for a claim refresh authenticated by nothing more than the caller's existing access
+   * token. See `TokenService.reissueAccessToken`'s own doc comment for why that distinction is a
+   * real security boundary, not a style choice.
+   */
+  async updateLocale(actor: AuthUser, dto: UpdateLocaleDto): Promise<UpdateLocaleResponseDto> {
+    if (actor.type !== JwtTokenType.TENANT_USER) {
+      throw new ForbiddenException(MESSAGES.AUTH.TENANT_ONLY);
+    }
+
+    const user = await this.authDbService.findUserById(actor.id);
+    if (!user) {
+      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+    }
+
+    await this.authDbService.updateLocale(user.id, dto.locale);
+
+    const updatedUser = { ...user, locale: dto.locale };
+    const tenant = await this.authDbService.findTenantStatus(updatedUser.tenantId);
+    const { accessToken, expiresIn } = this.tokenService.reissueAccessToken(updatedUser);
+
+    const response = new UpdateLocaleResponseDto();
+    response.accessToken = accessToken;
+    response.expiresIn = expiresIn;
+    response.user = this.toAuthenticatedUserDto(updatedUser, tenant);
+    return response;
+  }
+
+  /**
+   * Issues (and mails) a fresh verification code, unless one went out inside the cooldown.
+   *
+   * The cooldown is not just spam control: `putVerifyEmailToken` *upserts*, so every issue
+   * replaces the live code. Uncapped, anyone who knows a pending address could overwrite the
+   * victim's code faster than they could type it and block verification outright. Returning
+   * silently on a refused claim keeps the caller's response identical either way — `resendOtp`
+   * already answers the same generic acknowledgement regardless of whether anything was sent.
+   */
   private async issueOtp(userId: string, email: string, name: string): Promise<void> {
+    if (!(await this.otpAttemptService.claimResend(email))) {
+      return;
+    }
+
     const rawOtp = this.verifyEmailTokenProvider.generate();
     await this.authDbService.putVerifyEmailToken(
       userId,
@@ -467,6 +541,33 @@ export class AuthService {
     return this.buildTokenIssuanceResult(user);
   }
 
+  /**
+   * The one gate every token-minting path goes through, so none can skip the standing checks.
+   *
+   * `JwtStrategy` deliberately does no DB lookup (a per-request status query is the cost the
+   * refresh-time check exists to avoid), which means a live access token is honored for its full
+   * 15 minutes regardless of what happens to the account behind it. That bound is only real if
+   * nothing hands out *fresh* tokens to a principal who has lost standing — and
+   * `changePassword`/`setPassword` did exactly that: both are authenticated by an access token,
+   * neither looked at status, and both return a new pair. A disabled user could call
+   * change-password with their current password (nothing requires the new one to differ) every
+   * ten minutes and renew indefinitely, making the documented "suspension takes effect within one
+   * access-token lifetime" false.
+   *
+   * Same exceptions password login raises, so the two can never disagree about the same account.
+   */
+  private async assertGoodStanding(status: UserStatus, tenant: TenantRow | null): Promise<void> {
+    if (status === UserStatus.DISABLED) {
+      throw new ForbiddenException(MESSAGES.AUTH.ACCOUNT_DISABLED);
+    }
+
+    if (tenant?.status === TenantStatus.SUSPENDED) {
+      throw new ForbiddenException(MESSAGES.AUTH.TENANT_SUSPENDED);
+    }
+
+    return Promise.resolve();
+  }
+
   private async buildTokenIssuanceResult(
     user: {
       id: string;
@@ -475,11 +576,17 @@ export class AuthService {
       name: string;
       role: UserRole;
       passwordHash: string | null;
+      status: UserStatus;
+      locale: Locale | null;
     },
     tenant?: TenantRow | null
   ): Promise<TokenIssuanceResult> {
+    const standing =
+      tenant === undefined ? await this.authDbService.findTenantStatus(user.tenantId) : tenant;
+    await this.assertGoodStanding(user.status, standing);
+
     const tokens = await this.tokenService.issueTokenPair(user);
-    return this.toTokenIssuanceResult(tokens, user, tenant);
+    return this.toTokenIssuanceResult(tokens, user, standing);
   }
 
   /**
@@ -496,6 +603,7 @@ export class AuthService {
       name: string;
       role: UserRole;
       passwordHash: string | null;
+      locale: Locale | null;
     },
     prefetchedTenant?: TenantRow | null
   ): Promise<TokenIssuanceResult> {
@@ -526,6 +634,7 @@ export class AuthService {
       name: string;
       role: UserRole;
       passwordHash: string | null;
+      locale: Locale | null;
     },
     tenant: TenantRow | null
   ): AuthenticatedUserDto {
@@ -536,6 +645,7 @@ export class AuthService {
     userDto.email = user.email;
     userDto.role = user.role;
     userDto.hasPassword = user.passwordHash !== null;
+    userDto.locale = user.locale;
     // `tenant` is only ever null if the row vanished mid-request (tenant deletion mid-flight) —
     // an empty string here is a display gap, not a reason to fail token issuance over it.
     userDto.businessName = tenant?.name ?? '';

@@ -1,11 +1,14 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 
-import { NotificationPanel } from "../notification-panel";
+import { createQueryClient } from "@/app/_libs/utils/query-client";
 
 import messages from "../../../../../messages/en.json";
+import { NotificationPanel } from "../notification-panel";
+
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
@@ -21,9 +24,11 @@ beforeAll(() => {
 
 function renderPanel() {
   return render(
-    <NextIntlClientProvider locale="en" messages={messages}>
-      <NotificationPanel />
-    </NextIntlClientProvider>,
+    <QueryClientProvider client={createQueryClient()}>
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <NotificationPanel />
+      </NextIntlClientProvider>
+    </QueryClientProvider>,
   );
 }
 

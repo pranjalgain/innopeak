@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 
+import { type InfiniteData, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
+import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
-import { NotificationService } from "@/app/_libs/services/notification.service";
+import { type NotificationPage, NotificationService } from "@/app/_libs/services/notification.service";
 import type { Notification } from "@/types/domain";
 
 const PAGE_SIZE = 3;
+
+export const notificationsQueryKey = ["notifications"] as const;
 
 interface UseNotificationsResult {
   notifications: Notification[];
@@ -23,119 +26,112 @@ interface UseNotificationsResult {
   markAllAsRead: () => void;
 }
 
+type NotificationsData = InfiniteData<NotificationPage, number>;
+
 /**
  * Loads notifications a page at a time (the panel calls `fetchNextPage` as the list nears its
  * bottom, and again whenever a page doesn't fill the container) and owns read/unread state
- * locally — marking read is optimistic and silent (no toast, no reload), matching how
- * frequent/low-stakes it is compared to the app's other mutations.
+ * through react-query's cache — marking read is optimistic and silent (no toast, no reload),
+ * matching how frequent/low-stakes it is compared to the app's other mutations.
  *
- * `unreadCount` comes from the server's whole-feed total rather than the loaded rows: the bell's
- * dot speaks for every notification, not just the first page. Marking read adjusts it locally so
- * it stays honest between fetches.
+ * `unreadCount` comes from the server's whole-feed total on the most recently fetched page,
+ * rather than the loaded rows: the bell's dot speaks for every notification, not just the first
+ * page. Marking read adjusts it in the cache so it stays honest between fetches.
  *
- * Only the *initial* load failure toasts. A failed paging request sets `nextPageFailed` instead —
- * toasting there fired once per scroll attempt and stacked up while the user kept scrolling.
+ * Only the *initial* load failure toasts (`isLoadingError` — failed with no page ever loaded). A
+ * failed paging request surfaces as `isFetchNextPageError` instead — toasting there fired once
+ * per scroll attempt and stacked up while the user kept scrolling. `useInfiniteQuery` itself
+ * handles what a hand-rolled `offsetRef`/`isFetchingRef`/StrictMode-mount-guard used to: dedup of
+ * concurrent identical requests and safe double-invocation under StrictMode need no extra code.
  */
 export function useNotifications(): UseNotificationsResult {
   const t = useTranslations("appShell.notificationPanel.toasts");
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
-  const [nextPageFailed, setNextPageFailed] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [unreadTotal, setUnreadTotal] = useState(0);
-  // Mirrors `notifications.length` synchronously for the offset — state updates aren't visible
-  // within the same tick, and a fast double-trigger must not request the same offset twice.
-  const offsetRef = useRef(0);
-  const isFetchingRef = useRef(false);
-  // Guards the initial load against React StrictMode's dev-only double-invoke of mount effects —
-  // without it, the second invocation re-fires the same offset-0 request and its results get
-  // appended on top of the first's, duplicating every row in the list.
-  const initialLoadStarted = useRef(false);
+  const queryClient = useQueryClient();
 
-  const fetchPage = useCallback(
-    (offset: number, isInitial: boolean) => {
-      isFetchingRef.current = true;
-      if (isInitial) setIsLoading(true);
-      else setIsFetchingNextPage(true);
-
-      NotificationService.list(offset, PAGE_SIZE)
-        .then((result) => {
-          setNotifications((current) => [...current, ...result.items]);
-          offsetRef.current = offset + result.items.length;
-          setHasMore(result.hasMore);
-          setUnreadTotal(result.unreadTotal);
-          setNextPageFailed(false);
-        })
-        .catch(() => {
-          if (isInitial) toast.error(t("loadFailed"));
-          else setNextPageFailed(true);
-        })
-        .finally(() => {
-          isFetchingRef.current = false;
-          if (isInitial) setIsLoading(false);
-          else setIsFetchingNextPage(false);
-        });
-    },
-    [t],
-  );
+  const query = useInfiniteQuery({
+    queryKey: notificationsQueryKey,
+    queryFn: ({ pageParam }) => NotificationService.list(pageParam, PAGE_SIZE),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.hasMore ? allPages.reduce((sum, page) => sum + page.items.length, 0) : undefined,
+  });
 
   useEffect(() => {
-    if (initialLoadStarted.current) return;
-    initialLoadStarted.current = true;
-    fetchPage(0, true);
-    // Runs once on mount — `fetchPage` closes over `t`, not over any state this effect should
-    // re-run for.
+    if (query.isLoadingError) toast.error(t("loadFailed"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [query.isLoadingError]);
+
+  // A synchronous lock, not just a check against `query.isFetchingNextPage`: react-query's own
+  // "fetching" flag only updates through a re-render, so two calls to `fetchNextPage` in the same
+  // synchronous tick (a fast double-scroll-trigger) would both see the old, pre-fetch value and
+  // both fire. This ref is set/cleared within the same tick the call happens in, closing that gap.
+  const isFetchingNextPageRef = useRef(false);
 
   const fetchNextPage = useCallback(() => {
-    if (isFetchingRef.current || !hasMore || nextPageFailed) return;
-    fetchPage(offsetRef.current, false);
-  }, [hasMore, nextPageFailed, fetchPage]);
+    // Scrolling alone must not re-fire a failing request — matches the original's
+    // `nextPageFailed` gate; `retryNextPage` is the explicit way past it.
+    if (query.isFetchNextPageError || isFetchingNextPageRef.current) return;
+    isFetchingNextPageRef.current = true;
+    void query.fetchNextPage().finally(() => {
+      isFetchingNextPageRef.current = false;
+    });
+  }, [query]);
 
-  /** The explicit retry behind `nextPageFailed` — scrolling alone must not re-fire a failing request. */
   const retryNextPage = useCallback(() => {
-    if (isFetchingRef.current || !hasMore) return;
-    setNextPageFailed(false);
-    fetchPage(offsetRef.current, false);
-  }, [hasMore, fetchPage]);
+    void query.fetchNextPage();
+  }, [query]);
 
-  // `notifications` is read directly rather than inside a `setNotifications` updater: nudging the
-  // unread total from inside one would double-count under StrictMode, which invokes updaters twice.
   const markAsRead = useCallback(
     (id: string) => {
-      const target = notifications.find((notification) => notification.id === id);
-      if (target === undefined || target.isRead) return;
+      queryClient.setQueryData<NotificationsData>(notificationsQueryKey, (old) => {
+        if (!old) return old;
 
-      setNotifications((current) =>
-        current.map((notification) =>
-          notification.id === id ? { ...notification, isRead: true } : notification,
-        ),
-      );
-      setUnreadTotal((count) => Math.max(0, count - 1));
+        const target = old.pages.flatMap((page) => page.items).find((item) => item.id === id);
+        if (target === undefined || target.isRead) return old;
+
+        const pages = old.pages.map((page, index) => ({
+          ...page,
+          items: page.items.map((item) => (item.id === id ? { ...item, isRead: true } : item)),
+          // The unread total lives on every page's response; nudge only the most recent one, the
+          // one `unreadCount` below actually reads.
+          unreadTotal:
+            index === old.pages.length - 1 ? Math.max(0, page.unreadTotal - 1) : page.unreadTotal,
+        }));
+
+        return { ...old, pages };
+      });
       void NotificationService.markAsRead(id);
     },
-    [notifications],
+    [queryClient],
   );
 
   const markAllAsRead = useCallback(() => {
     // Marks the whole feed server-side, so the total goes to zero rather than dropping by however
     // many rows happen to be loaded.
-    setNotifications((current) =>
-      current.map((notification) => ({ ...notification, isRead: true })),
-    );
-    setUnreadTotal(0);
+    queryClient.setQueryData<NotificationsData>(notificationsQueryKey, (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page) => ({
+          ...page,
+          items: page.items.map((item) => ({ ...item, isRead: true })),
+          unreadTotal: 0,
+        })),
+      };
+    });
     void NotificationService.markAllAsRead();
-  }, []);
+  }, [queryClient]);
+
+  const pages = query.data?.pages ?? [];
+  const lastPage = pages[pages.length - 1];
 
   return {
-    notifications,
-    unreadCount: unreadTotal,
-    isLoading,
-    hasMore,
-    isFetchingNextPage,
-    nextPageFailed,
+    notifications: pages.flatMap((page) => page.items),
+    unreadCount: lastPage?.unreadTotal ?? 0,
+    isLoading: query.isLoading,
+    hasMore: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    nextPageFailed: query.isFetchNextPageError,
     fetchNextPage,
     retryNextPage,
     markAsRead,

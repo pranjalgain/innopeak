@@ -29,9 +29,9 @@ export class CronProcessor extends WorkerHost {
   }
 
   async process(job: CronJobHandle, _token?: string): Promise<void> {
-    let logString_ = `Processing job ${job.id} of type ${job.name} with data ${JSON.stringify(job.data)}...`;
-    this.logger.debug(logString_, 'CronProcessor');
-    if (typeof job.log === 'function') void job.log(logString_);
+    let logMessage = `Processing job ${job.id} of type ${job.name} with data ${JSON.stringify(job.data)}...`;
+    this.logger.debug(logMessage, 'CronProcessor');
+    if (typeof job.log === 'function') void job.log(logMessage);
 
     try {
       switch (job.name) {
@@ -44,17 +44,20 @@ export class CronProcessor extends WorkerHost {
         case CronJobName.REVIEW_SYNC_POLL:
           await this.cronService.pollDueLocations();
           break;
+        case CronJobName.REVIEWER_RETENTION_PURGE:
+          await this.cronService.purgeExpiredReviewerPii();
+          break;
         default:
           throw new Error(`Unknown job name: ${String(job.name)}`);
       }
 
-      logString_ = `Completed job ${job.id} of type ${job.name}`;
-      this.logger.debug(logString_, 'CronProcessor');
-      if (typeof job.log === 'function') void job.log(logString_);
+      logMessage = `Completed job ${job.id} of type ${job.name}`;
+      this.logger.debug(logMessage, 'CronProcessor');
+      if (typeof job.log === 'function') void job.log(logMessage);
     } catch (error) {
-      logString_ = `Failed to process job ${job.id} of type ${job.name} with error ${(error as Error).message}`;
-      this.logger.error(logString_, (error as Error).stack, 'CronProcessor');
-      if (typeof job.log === 'function') void job.log(logString_);
+      logMessage = `Failed to process job ${job.id} of type ${job.name} with error ${(error as Error).message}`;
+      this.logger.error(logMessage, (error as Error).stack, 'CronProcessor');
+      if (typeof job.log === 'function') void job.log(logMessage);
       throw error;
     }
   }
@@ -80,10 +83,10 @@ export class CronProcessor extends WorkerHost {
 
   @OnWorkerEvent('failed')
   async onFailed(job: CronJobHandle): Promise<void> {
-    const logString_ = `Job ${job.id} has failed with reason: ${job.failedReason}`;
-    this.logger.error(logString_);
+    const logMessage = `Job ${job.id} has failed with reason: ${job.failedReason}`;
+    this.logger.error(logMessage);
     this.logger.error(job.stacktrace);
-    if (typeof job.log === 'function') void job.log(logString_);
+    if (typeof job.log === 'function') void job.log(logMessage);
 
     // Push the failed job to the Dead Letter Queue
     await this.dlqService.addFailedJobToDLQ({
@@ -115,9 +118,9 @@ export class CronProcessor extends WorkerHost {
 
   @OnWorkerEvent('error')
   async onError(job: CronJobHandle, error: Error): Promise<void> {
-    const logString_ = `Job ${job.id} has failed with worker error: ${error.message}`;
-    this.logger.error(logString_);
-    if (typeof job.log === 'function') void job.log(logString_);
+    const logMessage = `Job ${job.id} has failed with worker error: ${error.message}`;
+    this.logger.error(logMessage);
+    if (typeof job.log === 'function') void job.log(logMessage);
 
     // Errors to DLQ as well
     await this.dlqService.addFailedJobToDLQ({

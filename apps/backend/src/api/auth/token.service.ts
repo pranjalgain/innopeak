@@ -1,7 +1,8 @@
 import { MESSAGES } from '@common/constants/messages.constants';
+import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
@@ -9,6 +10,8 @@ import { randomBytes } from 'crypto';
 
 import {
   ACCESS_TOKEN_TTL_SECONDS,
+  JWT_SIGNING_ALGORITHM,
+  REFRESH_REUSE_GRACE_SECONDS,
   REFRESH_TOKEN_BYTES,
   REFRESH_TOKEN_TTL_SECONDS,
 } from './constants/auth.constants';
@@ -26,6 +29,9 @@ export interface TokenSubject {
   tenantId: string;
   email: string;
   role: UserRole;
+  /** Embedded in the access token so locale resolution never needs a per-request DB lookup — see
+   * `resolveLocale`'s call sites. Null means "never chose", same as the `users.locale` column. */
+  locale: Locale | null;
 }
 
 /** A signed pair plus what `refresh_tokens` needs to record it — separated from persisting so `rotate` can commit the insert atomically with the revoke. */
@@ -53,6 +59,8 @@ interface SignedTokenPair {
  */
 @Injectable()
 export class TokenService {
+  private readonly logger = new Logger(TokenService.name);
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly authDbService: AuthDbService,
@@ -95,14 +103,21 @@ export class TokenService {
   }> {
     const payload = this.verifyRefreshToken(rawRefreshToken);
 
-    const stored = await this.authDbService.findActiveRefreshToken(hashToken(rawRefreshToken));
-    if (!stored || stored.userId !== payload.sub) {
-      // The JWT's signature already verified, so `payload.sub` is trustworthy enough to ask
-      // whether this user still holds a live session somewhere.
+    const existing = await this.authDbService.findRefreshTokenByHash(hashToken(rawRefreshToken));
+    if (!existing || existing.userId !== payload.sub) {
+      // No row at all: revoked-and-purged, expired, or a DB reset took it. Nothing to infer, and
+      // the session is genuinely gone. The JWT's signature already verified, so `payload.sub` is
+      // trustworthy enough to ask whether this user still holds a live session somewhere.
       throw (await this.authDbService.hasActiveRefreshToken(payload.sub))
         ? new RefreshTokenSupersededException()
         : new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
     }
+
+    if (existing.revokedAt !== null) {
+      await this.handleSpentToken(existing.revokedAt, payload.sub);
+    }
+
+    const stored = existing;
 
     const user = await this.authDbService.findUserById(stored.userId);
     if (!user) {
@@ -120,6 +135,7 @@ export class TokenService {
       tenantId: user.tenantId,
       email: user.email,
       role: user.role,
+      locale: user.locale,
     };
     const signed = this.signTokenPair(subject);
     const rotated = await this.authDbService.rotateRefreshToken(stored.id, {
@@ -141,6 +157,40 @@ export class TokenService {
     };
   }
 
+  /**
+   * A refresh token was presented that had already been spent. Always throws.
+   *
+   * Two very different situations reach here, told apart by *how long ago* the token was revoked:
+   *
+   * - **Within the grace window** — a lost rotation race. Two tabs waking from the same idle
+   *   period both refresh; the loser presents a token the winner revoked milliseconds ago, whose
+   *   successor is already in the shared cookie jar. Benign, and clearing the session over it
+   *   would sign the user out of every tab (`RefreshTokenSupersededException` keeps cookies).
+   *
+   * - **Older than that** — reuse of a spent token. The legitimate holder moved on to the
+   *   successor long ago, so a still-circulating copy most likely leaked. The whole family is
+   *   revoked: the thief and the victim both lose their sessions, and only the victim can sign in
+   *   again with credentials. Losing a session is the cheap outcome; leaving a thief holding a
+   *   self-renewing 7-day chain is not.
+   *
+   * Note the daily `purgeStaleTokens` cron deletes revoked rows, so a replay more than a day late
+   * finds no row and lands in the "session gone" branch above instead — the same 401, just without
+   * the family revoke. Detection covers the window in which a stolen token is actually useful.
+   */
+  private async handleSpentToken(revokedAt: string, userId: string): Promise<never> {
+    const revokedAgeMs = Date.now() - new Date(revokedAt).getTime();
+
+    if (revokedAgeMs <= REFRESH_REUSE_GRACE_SECONDS * 1000) {
+      throw new RefreshTokenSupersededException();
+    }
+
+    this.logger.warn(
+      `Refresh token reuse detected for user ${userId} (spent ${Math.round(revokedAgeMs / 1000)}s ago); revoking all sessions.`
+    );
+    await this.revokeAll(userId);
+    throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
+  }
+
   async revokeAll(userId: string): Promise<void> {
     await this.authDbService.revokeAllRefreshTokensForUser(userId);
   }
@@ -156,7 +206,11 @@ export class TokenService {
   async revokeBySessionToken(rawRefreshToken: string): Promise<void> {
     let payload: RefreshJwtPayload;
     try {
-      payload = this.verifyRefreshToken(rawRefreshToken);
+      // `ignoreExpiration` so the comment above holds literally: an *expired* refresh token still
+      // proves cryptographically which user it was minted for, and on logout the right response to
+      // "this token is past its TTL" is still to clear that user's other sessions rather than to
+      // do nothing. Signature and the `type` claim are still enforced.
+      payload = this.verifyRefreshToken(rawRefreshToken, { ignoreExpiration: true });
     } catch {
       return;
     }
@@ -164,16 +218,39 @@ export class TokenService {
     await this.revokeAll(payload.sub);
   }
 
-  /** Pure signing, no I/O — `expiresIn` is the *access* token's lifetime (what the client schedules its refresh around), not the refresh token's. */
-  private signTokenPair(user: TokenSubject): SignedTokenPair {
+  /** Just the access token — shared by `signTokenPair` and `reissueAccessToken`, the latter never touching `refresh_tokens` at all. */
+  private signAccessToken(user: TokenSubject): string {
     const accessPayload: TenantJwtPayload = {
       sub: user.id,
       tenantId: user.tenantId,
       email: user.email,
       role: user.role,
+      locale: user.locale,
       type: JwtTokenType.TENANT_USER,
     };
-    const accessToken = this.jwtService.sign(accessPayload);
+    return this.jwtService.sign(accessPayload);
+  }
+
+  /**
+   * Re-signs the access token alone, with no refresh token and no `refresh_tokens` write — for a
+   * claim update (today: `locale`) that must be visible on the caller's *current* token without
+   * minting a new 7-day session from a bare access token. `issueTokenPair`/`signTokenPair` always
+   * mint a refresh token together with the access token because every one of their callers
+   * (login, verify-email, refresh, the Google callback) is already establishing or rotating a real
+   * session; this method is for the narrower case of refreshing a claim mid-session. Reusing
+   * `issueTokenPair` here would let anyone holding only a leaked access token (which travels in
+   * the JSON body for `Bearer` clients, unlike the httpOnly refresh cookie) call this route to
+   * mint themselves a fresh, indefinitely-rotatable 7-day refresh token — turning a credential
+   * whose worst case was a 15-minute window into one worth 7+ days, with no proof beyond what an
+   * XSS or a stray log line could already have exposed.
+   */
+  reissueAccessToken(user: TokenSubject): { accessToken: string; expiresIn: number } {
+    return { accessToken: this.signAccessToken(user), expiresIn: ACCESS_TOKEN_TTL_SECONDS };
+  }
+
+  /** Pure signing, no I/O — `expiresIn` is the *access* token's lifetime (what the client schedules its refresh around), not the refresh token's. */
+  private signTokenPair(user: TokenSubject): SignedTokenPair {
+    const accessToken = this.signAccessToken(user);
 
     const refreshPayload: RefreshJwtPayload = {
       sub: user.id,
@@ -193,11 +270,19 @@ export class TokenService {
   }
 
   /** Signature + expiry via the refresh secret, then the `type` claim — an access token (or anything else) signed with the same secret is not a refresh token. */
-  private verifyRefreshToken(rawRefreshToken: string): RefreshJwtPayload {
+  private verifyRefreshToken(
+    rawRefreshToken: string,
+    options: { ignoreExpiration?: boolean } = {}
+  ): RefreshJwtPayload {
     let payload: Partial<RefreshJwtPayload>;
     try {
       payload = this.jwtService.verify<Partial<RefreshJwtPayload>>(rawRefreshToken, {
         secret: this.refreshSecret(),
+        // Pinned so a token cannot dictate how it is verified. `jsonwebtoken` already refuses an
+        // asymmetric alg against a string secret, so this is defence in depth rather than a live
+        // hole — but the pin is what keeps it that way if the secret ever becomes a key object.
+        algorithms: [JWT_SIGNING_ALGORITHM],
+        ...(options.ignoreExpiration === true ? { ignoreExpiration: true } : {}),
       });
     } catch {
       throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);

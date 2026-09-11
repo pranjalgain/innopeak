@@ -32,4 +32,14 @@ export class MetricsDto {
       'to zero as the queue is worked; counting every escalation ever would only ever grow.',
   })
   escalated!: number;
+
+  @ApiProperty({
+    description:
+      'Review counts keyed by rating, for the same trailing `days` window as `total`/`avgRating`. ' +
+      'Keys 1-5 are always present and zero-filled, so the client can render five bars without ' +
+      'probing for absent buckets.',
+    example: { '1': 3, '2': 1, '3': 4, '4': 20, '5': 96 },
+    additionalProperties: { type: 'integer' },
+  })
+  ratingDistribution!: Record<number, number>;
 }

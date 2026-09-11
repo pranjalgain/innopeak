@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { DashboardService } from "@/app/_libs/services/dashboard.service";
 import type {
@@ -7,6 +7,12 @@ import type {
   DateRange,
   RatingDistributionRow,
 } from "@/types/domain";
+
+const ATTENTION_REVIEWS_LIMIT = 4;
+
+export const dashboardMetricsQueryKey = (range: DateRange) => ["dashboard", "metrics", range] as const;
+export const dashboardAttentionReviewsQueryKey = (limit: number) =>
+  ["dashboard", "attention-reviews", limit] as const;
 
 interface UseDashboardStatsResult {
   stats: DashboardStats | null;
@@ -17,49 +23,34 @@ interface UseDashboardStatsResult {
 }
 
 /**
- * Loads everything the Dashboard screen needs for a given date range. One
- * hook per screen (rather than one per service method) keeps the loading
- * state simple — the screen shows its skeleton/empty state once, not per
- * card.
+ * Loads everything the Dashboard screen needs for a given date range. One hook per screen
+ * (rather than one per service method) keeps the loading state simple — the screen shows its
+ * skeleton/empty state once, not per card. Two independent queries (metrics, attention reviews)
+ * rather than one combined query: they key on different things (`range` vs a fixed limit) and a
+ * cached "attention reviews" page shouldn't be thrown away just because the date range changed.
  *
  * No tenant lookup here: the endpoints scope themselves from the access token. An earlier version
  * fetched `AuthService.me()` first and gated the load on the result, which left the screen loading
  * forever whenever that call failed.
  */
 export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [ratingDistribution, setRatingDistribution] = useState<RatingDistributionRow[]>([]);
-  const [attentionReviews, setAttentionReviews] = useState<AttentionReview[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const metricsQuery = useQuery({
+    queryKey: dashboardMetricsQueryKey(range),
+    queryFn: () => DashboardService.getMetrics(range),
+  });
 
-  useEffect(() => {
-    let cancelled = false;
+  const attentionQuery = useQuery({
+    queryKey: dashboardAttentionReviewsQueryKey(ATTENTION_REVIEWS_LIMIT),
+    queryFn: () => DashboardService.getAttentionReviews(ATTENTION_REVIEWS_LIMIT),
+  });
 
-    setIsLoading(true);
-    Promise.all([
-      DashboardService.getStats(range),
-      DashboardService.getRatingDistribution(range),
-      DashboardService.getAttentionReviews(),
-    ])
-      .then(([statsResult, ratingResult, attentionResult]) => {
-        if (cancelled) return;
-        setStats(statsResult);
-        setRatingDistribution(ratingResult);
-        setAttentionReviews(attentionResult);
-        setError(null);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Could not load dashboard data.");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
+  const metrics = metricsQuery.data;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [range]);
-
-  return { stats, ratingDistribution, attentionReviews, isLoading, error };
+  return {
+    stats: metrics ? DashboardService.toStats(range, metrics) : null,
+    ratingDistribution: metrics ? DashboardService.toRatingDistribution(metrics) : [],
+    attentionReviews: attentionQuery.data ?? [],
+    isLoading: metricsQuery.isLoading || attentionQuery.isLoading,
+    error: metricsQuery.isError || attentionQuery.isError ? "Could not load dashboard data." : null,
+  };
 }

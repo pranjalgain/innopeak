@@ -148,6 +148,9 @@
       "action": "Erneut verbinden"
     }
   },
+  "languageSwitcher": {
+    "syncFailed": "Spracheinstellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
+  },
   "auth": {
     "login": {
       "title": "Bei InnoPeak anmelden",
@@ -352,6 +355,11 @@
       "description": "Versuchen Sie, die Filter für Status, Klassifizierung oder Suche zu löschen.",
       "clearFilters": "Filter löschen"
     },
+    "errorState": {
+      "title": "Bewertungen konnten nicht geladen werden",
+      "description": "Beim Laden dieser Seite ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.",
+      "retry": "Erneut versuchen"
+    },
     "toasts": {
       "loadFailed": "Bewertungen konnten nicht geladen werden."
     }
@@ -363,7 +371,8 @@
     "toasts": {
       "loadFailed": "Diese Bewertung konnte nicht geladen werden.",
       "approved": "Antwort freigegeben.",
-      "rejected": "Antwort abgelehnt."
+      "rejected": "Antwort abgelehnt.",
+      "saveFailed": "Die Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
     },
     "replies": {
       "title": "Vorgeschlagene Antworten",
@@ -551,7 +560,8 @@
       "notificationToggled": "Benachrichtigungseinstellung aktualisiert.",
       "disconnected": "Google Unternehmensprofil getrennt.",
       "disconnectFailed": "Ihr Google Unternehmensprofil konnte nicht getrennt werden. Bitte versuchen Sie es erneut.",
-      "aiReplyCountUpdated": "Anzahl der KI-Antworten aktualisiert."
+      "aiReplyCountUpdated": "Anzahl der KI-Antworten aktualisiert.",
+      "updateFailed": "Die Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
     }
   },
   "promptManagement": {
@@ -796,7 +806,7 @@
       "pageOf": "Seite {page} von {totalPages}"
     },
     "classification": {
-      "auto_reply_candidate": "Kandidat für automatische Antwort",
+      "auto_reply_candidate": "Automatische Antwort",
       "escalated": "Eskaliert",
       "unclassified": "Nicht klassifiziert"
     },

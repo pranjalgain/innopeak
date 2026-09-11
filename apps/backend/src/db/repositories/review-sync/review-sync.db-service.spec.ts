@@ -308,6 +308,53 @@ describe('ReviewSyncDbService.acquireSyncRun', () => {
   });
 });
 
+describe('ReviewSyncDbService.reopenRunForRetry', () => {
+  let service: ReviewSyncDbService;
+  const reopenSyncRunForRetry = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: { reopenSyncRunForRetry } },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('returns true when the row was reopened', async () => {
+    reopenSyncRunForRetry.mockResolvedValue(true);
+
+    await expect(service.reopenRunForRetry('run-1')).resolves.toBe(true);
+  });
+
+  it('returns false, not a thrown error, when reopening the row loses the same unique-index race acquireSyncRun guards', async () => {
+    // A concurrent poll or second backfill for the same location can genuinely hold `running` on
+    // idx_sync_runs_location_id_running while this retry tries to flip the errored row back to
+    // it — this must come back as the same benign `false` the caller already checks, rather than
+    // a raw 23505 escaping to become an unhandled job failure.
+    reopenSyncRunForRetry.mockRejectedValue({
+      code: '23505',
+      constraint: 'idx_sync_runs_location_id_running',
+    });
+
+    await expect(service.reopenRunForRetry('run-1')).resolves.toBe(false);
+  });
+
+  it('rethrows any other error', async () => {
+    reopenSyncRunForRetry.mockRejectedValue(new Error('connection terminated unexpectedly'));
+
+    await expect(service.reopenRunForRetry('run-1')).rejects.toThrow(
+      'connection terminated unexpectedly'
+    );
+  });
+});
+
 describe('ReviewSyncDbService.completeRun', () => {
   let service: ReviewSyncDbService;
   const completeSyncRun = jest.fn();
@@ -394,5 +441,62 @@ describe('ReviewSyncDbService.completeRun', () => {
 
     expect(stillOwned).toBe(false);
     expect(advanceLastReviewSyncedAt).not.toHaveBeenCalled();
+  });
+
+  /**
+   * `reviews_total` is written mid-run from the provider's lifetime review count, but backfill
+   * deliberately stops early (reply target / page cap). Without this, a run that completed
+   * exactly as designed reports `reviews_fetched / reviews_total` well under 100% forever. Only a
+   * clean, fully-finished backfill (`status: OK` and `markBackfillComplete: true`) should
+   * overwrite it with the run's own final count — see `ReviewSyncRepository.completeSyncRun`.
+   */
+  it('finalizes reviewsTotal to the actual count on a completed backfill', async () => {
+    await service.completeRun({
+      syncRunId: 'run-1',
+      locationId: 'location-1',
+      status: SyncRunStatus.OK,
+      reviewsFetched: 60,
+      errorMessage: null,
+      markBackfillComplete: true,
+      lastReviewSyncedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(completeSyncRun).toHaveBeenCalledWith(
+      'run-1',
+      expect.objectContaining({ finalizeReviewsTotal: true, reviewsFetched: 60 })
+    );
+  });
+
+  it('does not finalize reviewsTotal when the run succeeded but classification failed (markBackfillComplete: false)', async () => {
+    await service.completeRun({
+      syncRunId: 'run-1',
+      locationId: 'location-1',
+      status: SyncRunStatus.OK,
+      reviewsFetched: 60,
+      errorMessage: null,
+      markBackfillComplete: false,
+      lastReviewSyncedAt: null,
+    });
+
+    expect(completeSyncRun).toHaveBeenCalledWith(
+      'run-1',
+      expect.objectContaining({ finalizeReviewsTotal: false })
+    );
+  });
+
+  it('does not finalize reviewsTotal on a failed run', async () => {
+    await service.completeRun({
+      syncRunId: 'run-1',
+      locationId: 'location-1',
+      status: SyncRunStatus.ERROR,
+      errorMessage: 'boom',
+      markBackfillComplete: false,
+      lastReviewSyncedAt: null,
+    });
+
+    expect(completeSyncRun).toHaveBeenCalledWith(
+      'run-1',
+      expect.objectContaining({ finalizeReviewsTotal: false })
+    );
   });
 });

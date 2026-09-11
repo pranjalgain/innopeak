@@ -4,7 +4,7 @@ import { OnboardingConnectView } from "@/app/(auth)/onboarding/connect/_componen
 import { RequireAuth } from "@/app/_components/require-auth";
 
 export const metadata: Metadata = {
-  title: "Connect Google Business Profile — InnoPeak",
+  title: "Connect Google Business Profile",
 };
 
 export default function OnboardingConnectPage() {

@@ -1,6 +1,9 @@
 import { ApiResponse } from '@common/dto/api-response';
 import { CustomUnauthorizedException } from '@common/filters/exception/custom-unauthorized-exception';
+import { resolveRequestLocale } from '@common/i18n/locale';
+import { renderMessage, renderNestedMessage } from '@common/i18n/message-registry';
 import { ErrorHandlerService } from '@common/services/error-handler.service';
+import { requestUserLocale } from '@interceptors/transform.interceptor';
 import {
   ArgumentsHost,
   BadRequestException,
@@ -10,7 +13,7 @@ import {
   HttpException,
   Logger,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
 @Catch()
@@ -23,9 +26,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const context = `${request.method} ${request.url}`;
     const errorId = uuidv4();
+    // Resolved once, reused for both the log line below (rendered in English regardless — see
+    // the `renderMessage(exception.message, 'en')` call) and the client-facing response — the
+    // log always reads in the language ops works in; the response reads in the caller's own.
+    // An exception thrown before `JwtAuthGuard` populates `request.user` (or on a `@Public()`
+    // route) has no stored-user locale to read, and correctly falls through to `Accept-Language`.
+    const locale = resolveRequestLocale(
+      requestUserLocale(request),
+      request.headers['accept-language']
+    );
 
     Logger.error(
-      `[ErrorID: ${errorId}] Message: ${exception.message}\nStack Trace: ${exception.stack}`,
+      `[ErrorID: ${errorId}] Message: ${renderMessage(exception.message, 'en')}\nStack Trace: ${exception.stack}`,
       'ErrorContext'
     );
 
@@ -55,6 +67,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     errorResponse.traceId = errorId;
+    if (errorResponse.message !== undefined) {
+      errorResponse.message = renderMessage(errorResponse.message, locale);
+    }
+    // See `renderNestedMessage` — the same data.message duplication `TransformInterceptor`
+    // guards against on the success path, applied here in case an error's `data` (rare — most
+    // error responses carry `data: null`) ever nests one too.
+    errorResponse.data = renderNestedMessage(errorResponse.data, locale);
 
     if (host.getType() === 'http') {
       if (!response.headersSent) {

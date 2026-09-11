@@ -56,8 +56,8 @@ export class ReviewListItemDto {
   @ApiPropertyOptional({ example: null, enum: EscalationReason, nullable: true })
   escalationReason!: EscalationReason | null;
 
-  @ApiPropertyOptional({ example: null, nullable: true })
-  matchedKeywords!: unknown;
+  @ApiPropertyOptional({ example: null, type: [String], nullable: true })
+  matchedKeywords!: string[] | null;
 
   @ApiProperty({ example: ReviewStatus.RESPONDED, enum: ReviewStatus })
   status!: ReviewStatus;

@@ -77,11 +77,34 @@ export class ProviderCredentialService {
 
   /**
    * Reconnect path: keeps the same reference so the connection row's pointer stays valid, rather
-   * than minting a second secret and orphaning the first.
+   * than minting a second secret and orphaning the first — except when that reference no longer
+   * accepts writes.
+   *
+   * `disconnect()` schedules the old secret for deletion (`revokeAndDelete` → `delete()`; the AWS
+   * store gives it a 7-day recovery window rather than purging it immediately). An owner who
+   * reconnects the *same* Google account inside that window hits this same reference, and AWS
+   * Secrets Manager refuses `PutSecretValue` against a secret pending deletion
+   * (`InvalidRequestException`) — so without a fallback here, that owner could not reconnect their
+   * own account at all for up to 7 days, with no recovery but waiting out the window.
+   *
+   * Falls back to minting a fresh secret when the update fails for any reason — a pending
+   * deletion, or the old one already purged past its window — and returns whichever reference now
+   * actually holds the tokens, so the caller persists a pointer that resolves.
    */
-  async replaceCredential(reference: string, tokens: ProviderTokenSet): Promise<void> {
+  async replaceCredential(reference: string, tokens: ProviderTokenSet): Promise<string> {
     const existing = await this.credentialStore.get(reference).catch(() => null);
-    await this.credentialStore.update(reference, mergeStoredCredential(existing, tokens));
+    const merged = mergeStoredCredential(existing, tokens);
+
+    try {
+      await this.credentialStore.update(reference, merged);
+      return reference;
+    } catch (error) {
+      this.logger.warn(
+        `Could not update credential ${reference}, most likely pending deletion from a recent ` +
+          `disconnect; minting a fresh one instead: ${(error as Error).message}`
+      );
+      return this.credentialStore.put(merged);
+    }
   }
 
   /** Best-effort revoke + delete. Never throws: a tenant must always be able to disconnect. */
@@ -145,7 +168,14 @@ export class ProviderCredentialService {
 
       return { accessToken: tokens.accessToken, refreshedExpiresAt: tokens.expiresAt };
     } finally {
-      await this.redis.del(lockKey);
+      // Only delete the lock this call actually holds. Falling through after a timed-out
+      // `awaitConcurrentRefresh` (`acquired` false) still refreshes here, but the lock belongs to
+      // whichever other call *did* acquire it — deleting it out from under that still-running
+      // holder would let a third, redundant refresh start concurrently with it, exactly what the
+      // lock exists to prevent.
+      if (acquired) {
+        await this.redis.del(lockKey);
+      }
     }
   }
 

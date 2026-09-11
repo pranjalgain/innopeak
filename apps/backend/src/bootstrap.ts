@@ -44,6 +44,26 @@ export async function bootstrap(): Promise<void> {
   // Apply Helmet Middleware for setting security-related HTTP headers
   app.use(helmet());
 
+  /**
+   * How many reverse proxies sit in front of this app, so `req.ip` is the real client rather than
+   * the nearest hop.
+   *
+   * Every per-IP rate limit in the app keys on `req.ip` (`@nestjs/throttler`'s default tracker).
+   * Behind a load balancer with this unset, every request appears to come from the balancer: all
+   * callers share one bucket, so ten wrong logins a minute from anyone throttles login for
+   * everybody.
+   *
+   * A hop *count* rather than `true`: trusting the whole `X-Forwarded-For` chain lets a client
+   * prepend an arbitrary address and rotate it per request, which defeats the limiter more
+   * thoroughly than the shared-bucket bug does. The count must match the real topology — hence an
+   * env var with a default of 0 (trust nothing), correct for local dev and for any deployment
+   * where the app is directly exposed. Set it to the number of proxies you actually run.
+   */
+  const trustProxyHops = configService.get<number>('TRUST_PROXY_HOPS') ?? 0;
+  if (trustProxyHops > 0) {
+    app.set('trust proxy', trustProxyHops);
+  }
+
   // Apply response compression
   app.use(compression());
 

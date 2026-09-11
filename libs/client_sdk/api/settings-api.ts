@@ -250,7 +250,7 @@ export const SettingsApiAxiosParamCreator = function (
       };
     },
     /**
-     * Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. Omitting reviewDataRetentionMonths stores NULL (platform default).
+     * Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. Omitting reviewDataRetentionMonths stores NULL, which opts this tenant out of the nightly reviewer-retention purge entirely — there is no platform-default fallback.
      * @summary Replace tenant settings
      * @param {UpdateTenantSettingsDto} updateTenantSettingsDto
      * @param {*} [options] Override http request option.
@@ -444,7 +444,7 @@ export const SettingsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. Omitting reviewDataRetentionMonths stores NULL (platform default).
+     * Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. Omitting reviewDataRetentionMonths stores NULL, which opts this tenant out of the nightly reviewer-retention purge entirely — there is no platform-default fallback.
      * @summary Replace tenant settings
      * @param {UpdateTenantSettingsDto} updateTenantSettingsDto
      * @param {*} [options] Override http request option.
@@ -550,7 +550,7 @@ export const SettingsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. Omitting reviewDataRetentionMonths stores NULL (platform default).
+     * Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. Omitting reviewDataRetentionMonths stores NULL, which opts this tenant out of the nightly reviewer-retention purge entirely — there is no platform-default fallback.
      * @summary Replace tenant settings
      * @param {SettingsApiTenantSettingsControllerReplaceV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -619,7 +619,7 @@ export interface SettingsApiInterface {
   ): AxiosPromise<TenantSettingsResponseDto>;
 
   /**
-   * Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. Omitting reviewDataRetentionMonths stores NULL (platform default).
+   * Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. Omitting reviewDataRetentionMonths stores NULL, which opts this tenant out of the nightly reviewer-retention purge entirely — there is no platform-default fallback.
    * @summary Replace tenant settings
    * @param {SettingsApiTenantSettingsControllerReplaceV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -716,7 +716,7 @@ export class SettingsApi extends BaseAPI implements SettingsApiInterface {
   }
 
   /**
-   * Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. Omitting reviewDataRetentionMonths stores NULL (platform default).
+   * Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. Omitting reviewDataRetentionMonths stores NULL, which opts this tenant out of the nightly reviewer-retention purge entirely — there is no platform-default fallback.
    * @summary Replace tenant settings
    * @param {SettingsApiTenantSettingsControllerReplaceV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.

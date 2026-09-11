@@ -17,13 +17,14 @@ describe('JwtStrategy', () => {
     target = new JwtStrategy(configService);
   });
 
-  it('maps a tenant_user payload to a TenantAuthUser', () => {
+  it('maps a tenant_user payload to a TenantAuthUser, passing through a supported locale claim', () => {
     expect(
       target.validate({
         sub: 'user-1',
         tenantId: 'tenant-1',
         email: 'jane@thecoffeehouse.com',
         role: UserRole.OWNER,
+        locale: 'de',
         type: JwtTokenType.TENANT_USER,
       })
     ).toEqual({
@@ -32,7 +33,31 @@ describe('JwtStrategy', () => {
       tenantId: 'tenant-1',
       email: 'jane@thecoffeehouse.com',
       role: UserRole.OWNER,
+      locale: 'de',
     });
+  });
+
+  it('defaults locale to null for a token signed before the claim existed, or carrying a bogus value', () => {
+    expect(
+      target.validate({
+        sub: 'user-1',
+        tenantId: 'tenant-1',
+        email: 'jane@thecoffeehouse.com',
+        role: UserRole.OWNER,
+        type: JwtTokenType.TENANT_USER,
+      })
+    ).toMatchObject({ locale: null });
+
+    expect(
+      target.validate({
+        sub: 'user-1',
+        tenantId: 'tenant-1',
+        email: 'jane@thecoffeehouse.com',
+        role: UserRole.OWNER,
+        locale: 'fr',
+        type: JwtTokenType.TENANT_USER,
+      })
+    ).toMatchObject({ locale: null });
   });
 
   it('maps a platform_admin payload to a PlatformAdminAuthUser', () => {

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { ReviewDetailView } from "@/app/(dashboard)/review-queue/[reviewId]/_components/review-detail-view";
 
 export const metadata: Metadata = {
-  title: "Review Detail — InnoPeak",
+  title: "Review Detail",
 };
 
 interface ReviewDetailPageProps {

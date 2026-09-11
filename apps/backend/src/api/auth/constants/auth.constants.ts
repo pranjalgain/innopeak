@@ -3,6 +3,17 @@
 /** Hash algorithm for password_reset_tokens.token_hash / refresh_tokens.token_hash — see the auth API reference's Security considerations. */
 export const TOKEN_HASH_ALGORITHM = 'sha256';
 
+/**
+ * The only algorithm this module signs or accepts. Pinned at every verify so a token can never
+ * dictate how it is checked — the classic algorithm-confusion shape. `jsonwebtoken` 9 already
+ * refuses an asymmetric alg against a string secret, so this is defence in depth today; it is what
+ * keeps that true if the secrets ever become key objects.
+ */
+export const JWT_SIGNING_ALGORITHM = 'HS256';
+
+/** Floor for JWT_SECRET / JWT_REFRESH_SECRET, enforced by the Joi schema — HS256's security is bounded by the secret's entropy, and a short one is brute-forceable offline from any single captured token. */
+export const JWT_SECRET_MIN_LENGTH = 32;
+
 /** Raw refresh token size: 32 bytes (256 bits) of crypto.randomBytes, base64url-encoded. */
 export const REFRESH_TOKEN_BYTES = 32;
 
@@ -27,8 +38,7 @@ export const REFRESH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
 /**
  * httpOnly cookie the refresh token travels in — never in a JSON response body, so client-side
  * JS can't read or exfiltrate it. Scoped to `/v1/auth` only (not every request) since only
- * refresh/logout ever need to see it. Matches the name the already-present (but not yet wired
- * up) `CookieAuthMiddleware` expects, for continuity.
+ * refresh/logout ever need to see it.
  */
 export const REFRESH_TOKEN_COOKIE_NAME = 'refresh_token';
 export const REFRESH_TOKEN_COOKIE_PATH = '/v1/auth';
@@ -69,3 +79,38 @@ export const SESSION_HINT_COOKIE_VALUE = '1';
  */
 export const OTP_MAX_ATTEMPTS = 10;
 export const OTP_ATTEMPT_WINDOW_SECONDS = 600;
+
+/**
+ * Minimum gap between two OTP emails for one address. The upsert in
+ * `AuthRepository.putVerifyEmailToken` *replaces* the live code, so without a cooldown anyone who
+ * knows a pending address can both flood that inbox and keep overwriting the victim's code faster
+ * than they can type it — a verification lockout, not just spam. The per-IP throttle does not
+ * cover it (a distributed caller sidesteps it entirely, same reasoning as OTP_MAX_ATTEMPTS).
+ */
+export const OTP_RESEND_COOLDOWN_SECONDS = 60;
+
+/**
+ * Per-account password-login ceiling, on top of the per-IP ThrottlerGuard.
+ *
+ * Per-IP is the wrong axis for credential stuffing: it arrives from many addresses, a few attempts
+ * each, all aimed at one account, and never trips an IP limit. Counted per normalized email, and a
+ * locked address gets the same `INVALID_CREDENTIALS` every other failure gets — a distinct
+ * "locked" code would confirm both that the account exists and that the threshold was found.
+ *
+ * Deliberately an application-layer counter and never `users.status`, so a lockout can only slow
+ * an attacker for one window and can never be weaponized to disable someone's account.
+ */
+export const LOGIN_LOCKOUT_THRESHOLD = 10;
+export const LOGIN_LOCKOUT_WINDOW_SECONDS = 900;
+
+/**
+ * How recently a refresh token must have been revoked for presenting it again to count as a lost
+ * rotation race rather than a replay.
+ *
+ * Two tabs waking from the same idle period both refresh; the loser presents a token the winner
+ * revoked milliseconds ago, and its successor is already in the shared cookie jar — benign, and
+ * clearing that session would sign the user out everywhere. A token revoked *minutes* ago has no
+ * such excuse: the legitimate holder has long since moved on to its successor, so whoever still
+ * has the spent copy most likely stole it. See `TokenService.rotate`.
+ */
+export const REFRESH_REUSE_GRACE_SECONDS = 10;

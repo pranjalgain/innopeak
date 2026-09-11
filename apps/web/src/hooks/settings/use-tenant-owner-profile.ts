@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
+import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { ApiError } from "@/app/_libs/services/api-error";
 import { TenantOwnerProfileService } from "@/app/_libs/services/tenant-owner-profile.service";
 import type { TenantOwnerProfile } from "@/types/domain";
+
+export const tenantOwnerProfileQueryKey = ["tenant-owner-profile"] as const;
 
 interface UseTenantOwnerProfileResult {
   profile: TenantOwnerProfile | null;
@@ -19,46 +22,45 @@ interface UseTenantOwnerProfileResult {
 
 export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
   const t = useTranslations("settings.profile.toasts");
-  const [profile, setProfile] = useState<TenantOwnerProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  const profileQuery = useQuery({
+    queryKey: tenantOwnerProfileQueryKey,
+    queryFn: () => TenantOwnerProfileService.get(),
+  });
 
   useEffect(() => {
-    let cancelled = false;
+    if (profileQuery.isError) toast.error(t("loadFailed"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileQuery.isError]);
 
-    TenantOwnerProfileService.get()
-      .then((result) => {
-        if (!cancelled) setProfile(result);
-      })
-      .catch(() => {
-        if (!cancelled) toast.error(t("loadFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
+  const updateAvatarMutation = useMutation({
+    mutationFn: (avatarUrl: string) => TenantOwnerProfileService.updateAvatar(avatarUrl),
+  });
 
   const updateAvatar = useCallback(
     async (avatarUrl: string) => {
       try {
-        const updated = await TenantOwnerProfileService.updateAvatar(avatarUrl);
-        setProfile(updated);
+        const updated = await updateAvatarMutation.mutateAsync(avatarUrl);
+        queryClient.setQueryData(tenantOwnerProfileQueryKey, updated);
         toast.success(t("avatarUpdated"));
       } catch {
         toast.error(t("updateFailed"));
       }
     },
-    [t],
+    [t, updateAvatarMutation, queryClient],
   );
+
+  const changePasswordMutation = useMutation({
+    mutationFn: ({ currentPassword, newPassword }: { currentPassword: string; newPassword: string }) =>
+      TenantOwnerProfileService.changePassword(currentPassword, newPassword),
+  });
 
   /** Returns whether it succeeded, so the form knows to clear itself. */
   const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
       try {
-        await TenantOwnerProfileService.changePassword(currentPassword, newPassword);
+        await changePasswordMutation.mutateAsync({ currentPassword, newPassword });
         toast.success(t("passwordChanged"));
         return true;
       } catch (error) {
@@ -72,14 +74,20 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
         return false;
       }
     },
-    [t],
+    [t, changePasswordMutation],
   );
+
+  const setPasswordMutation = useMutation({
+    mutationFn: (newPassword: string) => TenantOwnerProfileService.setPassword(newPassword),
+  });
 
   const setPassword = useCallback(
     async (newPassword: string) => {
       try {
-        await TenantOwnerProfileService.setPassword(newPassword);
-        setProfile((current) => (current ? { ...current, hasPassword: true } : current));
+        await setPasswordMutation.mutateAsync(newPassword);
+        queryClient.setQueryData<TenantOwnerProfile>(tenantOwnerProfileQueryKey, (current) =>
+          current ? { ...current, hasPassword: true } : current,
+        );
         toast.success(t("passwordSet"));
         return true;
       } catch (error) {
@@ -91,8 +99,14 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
         return false;
       }
     },
-    [t],
+    [t, setPasswordMutation, queryClient],
   );
 
-  return { profile, isLoading, updateAvatar, changePassword, setPassword };
+  return {
+    profile: profileQuery.data ?? null,
+    isLoading: profileQuery.isLoading,
+    updateAvatar,
+    changePassword,
+    setPassword,
+  };
 }

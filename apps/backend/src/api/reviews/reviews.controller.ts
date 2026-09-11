@@ -1,5 +1,5 @@
-import { CurrentTenantUser } from '@auth/decorators/current-tenant-user.decorator';
-import type { TenantAuthUser } from '@auth/types/auth-user.type';
+import { CurrentUser } from '@auth/decorators/current-user.decorator';
+import type { AuthUser } from '@auth/types/auth-user.type';
 import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';
@@ -24,11 +24,11 @@ export class ReviewsController {
   @Get()
   @ApiListReviews()
   async listReviews(
-    @CurrentTenantUser() user: TenantAuthUser,
+    @CurrentUser() user: AuthUser,
     @Query() query: ListReviewsQueryDto
   ): Promise<ApiResponseDto<ReviewListResponseDto>> {
     const response = await this.reviewsService.listReviews({
-      tenantId: user.tenantId,
+      user,
       page: query.page,
       pageSize: query.pageSize,
       status: query.status,
@@ -43,10 +43,10 @@ export class ReviewsController {
   @Get(RouteNames.REVIEW_BY_ID)
   @ApiGetReview()
   async getReview(
-    @CurrentTenantUser() user: TenantAuthUser,
+    @CurrentUser() user: AuthUser,
     @Param('reviewId', ParseUUIDPipe) reviewId: string
   ): Promise<ApiResponseDto<ReviewDetailResponseDto>> {
-    const response = await this.reviewsService.getReview({ tenantId: user.tenantId, reviewId });
+    const response = await this.reviewsService.getReview({ user, reviewId });
     return ResponseUtil.success(response, undefined, HttpStatus.OK);
   }
 }

@@ -4,6 +4,7 @@ import { REDIS_CLIENT } from '@redis/redis.provider';
 
 import { OAuthStateService } from './oauth-state.service';
 
+import { OAUTH_STATE_TTL_SECONDS } from '../constants/connections.constants';
 import { OAuthStateFailureReason } from '../enums/oauth-state-failure-reason.enum';
 import { ReturnTo } from '../enums/return-to.enum';
 
@@ -126,18 +127,39 @@ describe('OAuthStateService', () => {
   });
 
   it('rejects a state past its TTL', async () => {
+    // Re-signing with an old timestamp is impossible without the secret, so instead the clock is
+    // advanced past the window and the *real*, untouched minted `state` is reused as-is — its
+    // signature was computed over its own `issuedAt`, and `verify()` recomputes the expected
+    // signature from whatever `issuedAt` is embedded in the string it's given. An earlier version
+    // of this test rebuilt the string with a *recomputed* `Date.now() - elevenMinutes`, which only
+    // reproduces the original `issuedAt` if zero time passed between minting and mocking — flaky
+    // by construction, since it collapsed to INVALID_SIGNATURE (a mismatched recomputed timestamp)
+    // instead of EXPIRED the moment even 1ms of real time passed between the two `Date.now()` reads.
     const { state, sid } = await service.mint(input);
-    const [nonce, , signature] = state.split('.');
-    // Re-sign with an old timestamp is impossible without the secret, so instead advance the clock
-    // past the window and confirm the cheap pre-filter catches it before the Redis round trip.
-    const elevenMinutes = 11 * 60 * 1000;
-    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + elevenMinutes);
+    const realNow = Date.now();
+    jest.spyOn(Date, 'now').mockReturnValue(realNow + OAUTH_STATE_TTL_SECONDS * 1000 + 60_000);
 
-    await expect(
-      service.consume(`${nonce}.${Date.now() - elevenMinutes}.${signature}`, sid)
-    ).resolves.toMatchObject({ ok: false });
+    await expect(service.consume(state, sid)).resolves.toEqual({
+      ok: false,
+      reason: OAuthStateFailureReason.EXPIRED,
+    });
 
     jest.restoreAllMocks();
+  });
+
+  /**
+   * `EXPIRED` and `INVALID_SIGNATURE` used to collapse into the same `null` inside `verify()`,
+   * making `EXPIRED` an enum member `consume()` could never actually produce despite the class's
+   * own doc comment describing these as internal diagnostics. A validly-signed-but-stale state
+   * (above) must report `EXPIRED`; a validly-timed-but-forged one (below) must still report
+   * `INVALID_SIGNATURE` — the fix must not blur that distinction the other way.
+   */
+  it('still reports INVALID_SIGNATURE, not EXPIRED, for a forged-but-timely state', async () => {
+    const { sid } = await service.mint(input);
+
+    await expect(
+      service.consume(`some-nonce.${Date.now()}.forged-signature`, sid)
+    ).resolves.toEqual({ ok: false, reason: OAuthStateFailureReason.INVALID_SIGNATURE });
   });
 
   it('sets a TTL on the state record so an abandoned flow expires on its own', async () => {

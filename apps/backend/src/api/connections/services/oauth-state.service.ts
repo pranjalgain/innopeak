@@ -107,10 +107,12 @@ export class OAuthStateService {
       return { ok: false, reason: OAuthStateFailureReason.INVALID_SIGNATURE };
     }
 
-    const nonce = this.verify(state);
-    if (!nonce) {
-      return { ok: false, reason: OAuthStateFailureReason.INVALID_SIGNATURE };
+    const verified = this.verify(state);
+    if (!verified.ok) {
+      this.logger.warn(`OAuth state rejected before Redis lookup: ${verified.reason}`);
+      return { ok: false, reason: verified.reason };
     }
+    const nonce = verified.nonce;
 
     const raw = await this.redis.getdel(`${STATE_KEY_PREFIX}${nonce}`);
     if (!raw) {
@@ -137,11 +139,23 @@ export class OAuthStateService {
     return `${payload}.${this.hmac(payload)}`;
   }
 
-  /** Returns the nonce, or null if the blob is forged, malformed, or past its TTL. */
-  private verify(state: string): string | null {
+  /**
+   * Distinguishes a malformed/forged blob from one that's merely past its own TTL pre-filter —
+   * both used to collapse into the same `null`, making `OAuthStateFailureReason.EXPIRED`
+   * unreachable despite existing as its own enum member. The distinction stays internal (see this
+   * class's doc comment: every reason still maps to the same external `INVALID_STATE`), but an
+   * internal diagnostic that can never actually fire is worse than no diagnostic at all — it
+   * looks like coverage that isn't there.
+   */
+  private verify(state: string):
+    | {
+        ok: false;
+        reason: OAuthStateFailureReason.EXPIRED | OAuthStateFailureReason.INVALID_SIGNATURE;
+      }
+    | { ok: true; nonce: string } {
     const parts = state.split('.');
     if (parts.length !== 3) {
-      return null;
+      return { ok: false, reason: OAuthStateFailureReason.INVALID_SIGNATURE };
     }
 
     const [nonce, issuedAt, signature] = parts as [string, string, string];
@@ -155,16 +169,16 @@ export class OAuthStateService {
       signatureBuffer.length !== expectedBuffer.length ||
       !timingSafeEqual(signatureBuffer, expectedBuffer)
     ) {
-      return null;
+      return { ok: false, reason: OAuthStateFailureReason.INVALID_SIGNATURE };
     }
 
     // The Redis record's own TTL is the real expiry; this is a cheap pre-filter that avoids a
     // round trip for a blob that is obviously stale.
     if (Date.now() - Number(issuedAt) > OAUTH_STATE_TTL_SECONDS * 1000) {
-      return null;
+      return { ok: false, reason: OAuthStateFailureReason.EXPIRED };
     }
 
-    return nonce;
+    return { ok: true, nonce };
   }
 
   private hmac(payload: string): string {

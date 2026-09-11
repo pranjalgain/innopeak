@@ -1,3 +1,6 @@
+import type { AuthUser } from '@auth/types/auth-user.type';
+import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
+import { MESSAGES } from '@common/constants/messages.constants';
 import type { DashboardMetrics } from '@db/repositories/dashboard/dashboard.repository';
 import { DashboardRepository } from '@db/repositories/dashboard/dashboard.repository';
 import { Injectable } from '@nestjs/common';
@@ -12,23 +15,19 @@ export class DashboardService {
   constructor(private readonly dashboardRepo: DashboardRepository) {}
 
   /**
-   * Retrieves aggregated metrics for the given time window.
+   * Retrieves aggregated metrics — including the rating distribution (1‑5) — for the given time
+   * window.
    */
-  async getMetrics(days: number, tenantId: string): Promise<DashboardMetrics> {
-    return this.dashboardRepo.getMetrics(days, tenantId);
-  }
-
-  /**
-   * Retrieves rating distribution (1‑5) for the given time window.
-   */
-  async getRatingDistribution(days: number, tenantId: string): Promise<Record<number, number>> {
-    return this.dashboardRepo.getRatingDistribution(days, tenantId);
+  async getMetrics(days: number, user: AuthUser): Promise<DashboardMetrics> {
+    const tenantUser = requireTenantUser(user, MESSAGES.DASHBOARD.TENANT_ONLY);
+    return this.dashboardRepo.getMetrics(days, tenantUser.tenantId);
   }
 
   /**
    * Retrieves the most recent escalated reviews still awaiting action.
    */
-  async getRecentEscalated(limit: number, tenantId: string): Promise<RecentEscalatedDto[]> {
-    return this.dashboardRepo.getRecentEscalated(limit, tenantId);
+  async getRecentEscalated(limit: number, user: AuthUser): Promise<RecentEscalatedDto[]> {
+    const tenantUser = requireTenantUser(user, MESSAGES.DASHBOARD.TENANT_ONLY);
+    return this.dashboardRepo.getRecentEscalated(limit, tenantUser.tenantId);
   }
 }

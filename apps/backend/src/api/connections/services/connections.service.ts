@@ -1,16 +1,21 @@
+import type { AuthUser } from '@auth/types/auth-user.type';
+import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
+import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { EnvConfig } from '@config/env.config';
 import {
   type ConfirmLocationResult,
   ConnectionsDbService,
+  LocationLimitExceededError,
 } from '@db/repositories/connections/connections.db-service';
 import type {
   LocationRow,
   ProviderConnectionRow,
 } from '@db/repositories/connections/connections.repository';
+import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import {
   BadGatewayException,
   ConflictException,
@@ -73,6 +78,7 @@ export class ConnectionsService {
     private readonly connectionsDbService: ConnectionsDbService,
     private readonly oauthStateService: OAuthStateService,
     private readonly reviewSyncQueue: ReviewSyncQueue,
+    private readonly reviewSyncDbService: ReviewSyncDbService,
     configService: ConfigService<EnvConfig>
   ) {
     this.frontendUrl = (configService.get<string>('FRONTEND_URL') ?? '').replace(/\/$/, '');
@@ -83,7 +89,9 @@ export class ConnectionsService {
    * tenant between signup and onboarding, and a guard that has to treat 404 as success is a guard
    * that will eventually treat a real 404 as success too.
    */
-  async getConnectionStatus(tenantId: string): Promise<ConnectionStatusResponseDto> {
+  async getConnectionStatus(user: AuthUser): Promise<ConnectionStatusResponseDto> {
+    const tenantUser = requireTenantUser(user);
+    const tenantId = tenantUser.tenantId;
     const connection = await this.connectionsDbService.findConnectionByTenant(tenantId);
 
     if (!connection) {
@@ -136,11 +144,15 @@ export class ConnectionsService {
   }
 
   async buildAuthorizeRedirect(input: {
-    tenantId: string;
-    userId: string;
+    user: AuthUser;
     returnTo: ReturnTo;
   }): Promise<AuthorizeResult> {
-    const { state, sid } = await this.oauthStateService.mint(input);
+    const tenantUser = requireTenantUser(input.user);
+    const { state, sid } = await this.oauthStateService.mint({
+      tenantId: tenantUser.tenantId,
+      userId: tenantUser.id,
+      returnTo: input.returnTo,
+    });
 
     try {
       return { authorizationUrl: this.provider.buildAuthorizationUrl(state), sid };
@@ -227,13 +239,22 @@ export class ConnectionsService {
           ? await this.replaceExistingCredential(existing.credentialReference, tokens)
           : await this.credentialService.storeNewCredential(tokens);
 
-      await this.connectionsDbService.upsertConnection({
+      const connection = await this.connectionsDbService.upsertConnection({
         tenantId: record.tenantId,
         connectedByUserId: record.userId,
         providerAccountId: account.externalAccountId,
         credentialReference,
         tokenExpiresAt: tokens.expiresAt,
       });
+
+      // Same-account reconnect only: a brand-new connection (`existing` was null) has no prior
+      // locations to reactivate. `upsertConnection` reuses the same row (upserted on
+      // `(tenant_id, provider, provider_account_id)`), so `connection.id` here is
+      // `existing.id` — this call reverses exactly what `disconnect()` flipped, without
+      // re-triggering a backfill (see `ConnectionsRepository.reactivateLocationsForConnection`).
+      if (existing && sameAccount) {
+        await this.connectionsDbService.reactivateLocationsForConnection(connection.id);
+      }
 
       return this.redirectWithSuccess(record.returnTo);
     } catch (error) {
@@ -250,7 +271,8 @@ export class ConnectionsService {
     }
   }
 
-  async listAvailableLocations(tenantId: string): Promise<AvailableLocationsResponseDto> {
+  async listAvailableLocations(user: AuthUser): Promise<AvailableLocationsResponseDto> {
+    const tenantId = requireTenantUser(user).tenantId;
     const connection = await this.requireConnection(tenantId);
     const providerLocations = await this.callProvider(connection, accessToken =>
       this.provider.listLocations(accessToken, connection.providerAccountId)
@@ -272,11 +294,15 @@ export class ConnectionsService {
   }
 
   async listLocations(input: {
-    userId: string;
+    user: AuthUser;
     status?: LocationStatus | undefined;
   }): Promise<LocationDto[]> {
+    // Only `.id` is read below, which exists on every AuthUser variant — but `user_locations` is
+    // a tenant-user table, so a platform admin's id would just look up nothing. Narrowing here
+    // keeps that failure a clear 403 instead of a silently empty list.
+    const tenantUser = requireTenantUser(input.user);
     const locations = await this.connectionsDbService.findLocationsForUser(
-      input.userId,
+      tenantUser.id,
       input.status
     );
 
@@ -289,11 +315,11 @@ export class ConnectionsService {
    * a worker dequeue a syncRunId for an uncommitted row, find nothing, and fail the run.
    */
   async confirmLocation(input: {
-    tenantId: string;
-    userId: string;
+    user: AuthUser;
     externalLocationId: string;
   }): Promise<ConfirmLocationResponseDto> {
-    const connection = await this.requireConnection(input.tenantId);
+    const tenantUser = requireTenantUser(input.user);
+    const connection = await this.requireConnection(tenantUser.tenantId);
 
     // Re-validated against the provider rather than trusted from the body. An arbitrary id would
     // otherwise create a locations row that no poll can ever resolve — a tenant permanently stuck
@@ -313,16 +339,31 @@ export class ConnectionsService {
       });
     }
 
-    await this.assertLocationLimit(input.tenantId, input.externalLocationId);
+    await this.assertLocationLimit(tenantUser.tenantId, input.externalLocationId);
 
-    const result = await this.connectionsDbService.confirmLocation({
-      tenantId: input.tenantId,
-      userId: input.userId,
-      connection,
-      externalLocationId: match.externalLocationId,
-      name: match.name,
-      address: match.address,
-    });
+    let result: ConfirmLocationResult;
+    try {
+      result = await this.connectionsDbService.confirmLocation({
+        tenantId: tenantUser.tenantId,
+        userId: tenantUser.id,
+        connection,
+        externalLocationId: match.externalLocationId,
+        name: match.name,
+        address: match.address,
+        maxActiveLocations: MAX_ACTIVE_LOCATIONS,
+      });
+    } catch (error) {
+      // The pre-check above already rejected the common case; this is the race-safe backstop —
+      // see `ConnectionsDbService.confirmLocation`. Same response either way, so the caller
+      // cannot tell which one fired.
+      if (error instanceof LocationLimitExceededError) {
+        throw new ConflictException({
+          message: MESSAGES.CONNECTIONS.LOCATION_LIMIT_REACHED,
+          code: CONNECTION_ERROR_CODES.LOCATION_LIMIT_REACHED,
+        });
+      }
+      throw error;
+    }
 
     await this.enqueueBackfill(result, connection);
 
@@ -346,7 +387,8 @@ export class ConnectionsService {
    * — a dead grant is precisely the state in which an owner most wants to disconnect, and telling
    * them to repair it before they may remove it is a dead end.
    */
-  async disconnect(tenantId: string): Promise<DisconnectResponseDto> {
+  async disconnect(user: AuthUser): Promise<DisconnectResponseDto> {
+    const tenantId = requireTenantUser(user).tenantId;
     const connection = await this.connectionsDbService.findConnectionByTenant(tenantId);
 
     if (!connection || connection.disconnectedAt !== null) {
@@ -369,6 +411,23 @@ export class ConnectionsService {
     };
   }
 
+  /**
+   * Publishing after the transaction commits (see `confirmLocation`) means a publish failure
+   * cannot be rolled back with the insert that created `result.backfill` — that row is already
+   * live in Postgres, holding `UNIQUE (location_id) WHERE status = 'running'`.
+   *
+   * Left uncompensated, a BullMQ/Redis blip here stranded the run in `running` forever: nothing
+   * would ever process it (it was never published), and the unique index then rejected every
+   * future confirm attempt for the location with "already running" — permanently blocking the one
+   * thing PLAN.md §8.2 gates the whole live pipeline on, for a tenant who did nothing wrong.
+   *
+   * On failure, the run is immediately flipped to `error` (the same CAS `completeRun` uses
+   * elsewhere) so that a retried confirm's own `acquireSyncRun` insert has nothing blocking it and
+   * starts a genuinely fresh run — rather than trying to detect and republish against this one,
+   * which would need tracking "has a job" state this schema has no column for. The exception is
+   * rethrown so the HTTP caller — and the frontend — learn this attempt did not fully succeed,
+   * instead of a 201 promising a live import that will never run.
+   */
   private async enqueueBackfill(
     result: ConfirmLocationResult,
     connection: ProviderConnectionRow
@@ -377,14 +436,44 @@ export class ConnectionsService {
       return;
     }
 
-    await this.reviewSyncQueue.addBackfillJob({
-      tenantId: result.location.tenantId,
-      locationId: result.location.id,
-      syncRunId: result.backfill.id,
-      connectionId: connection.id,
-      externalAccountId: connection.providerAccountId,
-      externalLocationId: result.location.externalLocationId,
-    });
+    try {
+      await this.reviewSyncQueue.addBackfillJob({
+        tenantId: result.location.tenantId,
+        locationId: result.location.id,
+        syncRunId: result.backfill.id,
+        connectionId: connection.id,
+        externalAccountId: connection.providerAccountId,
+        externalLocationId: result.location.externalLocationId,
+      });
+    } catch (error) {
+      const internalMessage = `Failed to publish backfill job: ${(error as Error).message}`;
+      this.logger.error(
+        `Compensating sync run ${result.backfill.id} for location ${result.location.id}: ${internalMessage}`
+      );
+      // `MESSAGES.CONNECTIONS.BACKFILL_ENQUEUE_FAILED`, not `internalMessage`: this run's
+      // `error_message` is copied verbatim into `locations.last_sync_error` (`completeRun` ->
+      // `updateSyncSnapshot`), which `ConnectionsSyncService.getSyncHealth` later returns to the
+      // tenant owner as-is. The 503 thrown below already knows not to hand a raw BullMQ/Redis
+      // message to a caller — persisting the same raw message here would just leak it one request
+      // later instead. A `MESSAGES` tag renders through `renderNestedMessage` wherever it
+      // eventually surfaces, so this stays properly localized on that later read too.
+      await this.reviewSyncDbService.completeRun({
+        syncRunId: result.backfill.id,
+        locationId: result.location.id,
+        status: SyncRunStatus.ERROR,
+        errorMessage: MESSAGES.CONNECTIONS.BACKFILL_ENQUEUE_FAILED,
+        markBackfillComplete: false,
+        lastReviewSyncedAt: null,
+      });
+
+      // 503, not the raw queue error: the location and user_location writes already committed
+      // (confirmLocation's transaction), so this is "try again", not "the whole request failed" —
+      // and the caller must not read a raw BullMQ/Redis message as something to show an owner.
+      throw new ServiceUnavailableException({
+        message: MESSAGES.CONNECTIONS.BACKFILL_ENQUEUE_FAILED,
+        code: CONNECTION_ERROR_CODES.BACKFILL_ENQUEUE_FAILED,
+      });
+    }
   }
 
   /**
@@ -400,12 +489,18 @@ export class ConnectionsService {
     return GOOGLE_OAUTH.SCOPES.every(scope => grantedScopes.has(scope));
   }
 
+  /**
+   * Thin pass-through, but the return value is not necessarily `reference` unchanged —
+   * `ProviderCredentialService.replaceCredential` mints a fresh secret and returns *that*
+   * reference instead when the old one can no longer be written to (pending deletion from a
+   * disconnect within the last 7 days). Whatever it returns is the one that resolves, so it must
+   * be what gets persisted onto the connection row.
+   */
   private async replaceExistingCredential(
     reference: string,
     tokens: Parameters<ProviderCredentialService['replaceCredential']>[1]
   ): Promise<string> {
-    await this.credentialService.replaceCredential(reference, tokens);
-    return reference;
+    return this.credentialService.replaceCredential(reference, tokens);
   }
 
   /**

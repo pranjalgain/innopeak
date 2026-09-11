@@ -148,6 +148,9 @@
       "action": "Reconnect"
     }
   },
+  "languageSwitcher": {
+    "syncFailed": "Could not save your language preference. Please try again."
+  },
   "auth": {
     "login": {
       "title": "Sign in to InnoPeak",
@@ -352,6 +355,11 @@
       "description": "Try clearing the status, classification, or search filters.",
       "clearFilters": "Clear filters"
     },
+    "errorState": {
+      "title": "Couldn't load reviews",
+      "description": "Something went wrong loading this page. Please try again.",
+      "retry": "Retry"
+    },
     "toasts": {
       "loadFailed": "Could not load reviews."
     }
@@ -363,7 +371,8 @@
     "toasts": {
       "loadFailed": "Could not load this review.",
       "approved": "Reply approved.",
-      "rejected": "Reply rejected."
+      "rejected": "Reply rejected.",
+      "saveFailed": "Could not save the change. Please try again."
     },
     "replies": {
       "title": "Suggested replies",
@@ -551,7 +560,8 @@
       "notificationToggled": "Notification setting updated.",
       "disconnected": "Google Business Profile disconnected.",
       "disconnectFailed": "We couldn't disconnect your Google Business Profile. Please try again.",
-      "aiReplyCountUpdated": "AI reply count updated."
+      "aiReplyCountUpdated": "AI reply count updated.",
+      "updateFailed": "Could not save the change. Please try again."
     }
   },
   "promptManagement": {
@@ -796,7 +806,7 @@
       "pageOf": "Page {page} of {totalPages}"
     },
     "classification": {
-      "auto_reply_candidate": "Auto-reply candidate",
+      "auto_reply_candidate": "Auto Reply",
       "escalated": "Escalated",
       "unclassified": "Unclassified"
     },

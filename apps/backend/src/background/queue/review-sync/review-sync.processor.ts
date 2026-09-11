@@ -37,7 +37,14 @@ export class ReviewSyncProcessor extends WorkerHost {
           // Safe: only a `JobName.REVIEW_BACKFILL` job is ever published with the extra
           // `syncRunId` `IReviewBackfillJob` requires (`ReviewSyncQueue.addBackfillJob`) — this
           // switch is what BullMQ's own typing can't express that guarantee through.
-          await this.reviewSyncQueueService.runBackfill(job.data as IReviewBackfillJob);
+          //
+          // `job.attemptsMade` is 0 during the first execution and only becomes 1 once a prior
+          // attempt has thrown and BullMQ re-fetches the job for its retry (`attempts: 2`) — so
+          // `> 0` here means "this is that retry", never the first pass.
+          await this.reviewSyncQueueService.runBackfill(
+            job.data as IReviewBackfillJob,
+            job.attemptsMade > 0
+          );
           break;
         case JobName.REVIEW_POLL:
           await this.reviewSyncQueueService.runPoll(job.data);

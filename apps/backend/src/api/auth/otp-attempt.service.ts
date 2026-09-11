@@ -2,7 +2,13 @@ import { Inject, Injectable } from '@nestjs/common';
 import { REDIS_CLIENT } from '@redis/redis.provider';
 import { Redis } from 'ioredis';
 
-import { OTP_ATTEMPT_WINDOW_SECONDS, OTP_MAX_ATTEMPTS } from './constants/auth.constants';
+import { createHash } from 'crypto';
+
+import {
+  OTP_ATTEMPT_WINDOW_SECONDS,
+  OTP_MAX_ATTEMPTS,
+  OTP_RESEND_COOLDOWN_SECONDS,
+} from './constants/auth.constants';
 
 /**
  * Per-account attempt ceiling for the verify-email OTP, on top of the per-IP ThrottlerGuard.
@@ -19,8 +25,14 @@ import { OTP_ATTEMPT_WINDOW_SECONDS, OTP_MAX_ATTEMPTS } from './constants/auth.c
 export class OtpAttemptService {
   constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
 
+  /** SHA-256 of the address, matching `LoginAttemptService` — so Redis read access alone never
+   *  hands out a list of registered emails, whether they're mid-login-lockout or mid-OTP-verify. */
+  private hashedKey(prefix: string, email: string): string {
+    return `${prefix}:${createHash('sha256').update(email).digest('hex')}`;
+  }
+
   private key(email: string): string {
-    return `auth:otp-attempts:${email}`;
+    return this.hashedKey('auth:otp-attempts', email);
   }
 
   /**
@@ -47,5 +59,33 @@ export class OtpAttemptService {
   /** Clears the budget after a correct code, so a later legitimate re-verification starts fresh. */
   async reset(email: string): Promise<void> {
     await this.redis.del(this.key(email));
+  }
+
+  private cooldownKey(email: string): string {
+    return this.hashedKey('auth:otp-resend', email);
+  }
+
+  /**
+   * Claims the right to send one OTP email to this address, returning false if one went out
+   * within the cooldown.
+   *
+   * Load-bearing beyond spam control: issuing a code *replaces* the live one
+   * (`AuthRepository.putVerifyEmailToken` upserts), so an uncapped resend lets anyone who knows a
+   * pending address overwrite the victim's code faster than they can type it and block
+   * verification outright.
+   *
+   * `SET NX` is the claim — atomic, so two concurrent resends cannot both win. Keyed on the
+   * submitted address like the attempt counter, so it reveals nothing about which accounts exist.
+   */
+  async claimResend(email: string): Promise<boolean> {
+    const claimed = await this.redis.set(
+      this.cooldownKey(email),
+      '1',
+      'EX',
+      OTP_RESEND_COOLDOWN_SECONDS,
+      'NX'
+    );
+
+    return claimed === 'OK';
   }
 }

@@ -26,7 +26,8 @@ export function ApiPutTenantSettings(): ReturnType<typeof applyDecorators> {
       summary: 'Replace tenant settings',
       description:
         'Owner-only full-resource replace. Not retroactive — already-classified reviews are unchanged. ' +
-        'Omitting reviewDataRetentionMonths stores NULL (platform default).',
+        'Omitting reviewDataRetentionMonths stores NULL, which opts this tenant out of the ' +
+        'nightly reviewer-retention purge entirely — there is no platform-default fallback.',
     }),
     ApiBody({ type: UpdateTenantSettingsDto }),
     ApiResponse({ status: HttpStatus.OK, type: TenantSettingsResponseDto }),

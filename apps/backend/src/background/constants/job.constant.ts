@@ -54,4 +54,6 @@ export enum CronJobName {
   AUTH_TOKEN_CLEANUP = 'auth-token-cleanup',
   /** Enqueues a JobName.REVIEW_POLL job per eligible location — see CronService.pollDueLocations. */
   REVIEW_SYNC_POLL = 'review-sync-poll',
+  /** PLAN.md §6's nightly reviewer-retention purge — see CronService.purgeExpiredReviewerPii. */
+  REVIEWER_RETENTION_PURGE = 'reviewer-retention-purge',
 }

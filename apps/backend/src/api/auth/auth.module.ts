@@ -12,6 +12,7 @@ import { RedisModule } from '@redis/redis.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { ACCESS_TOKEN_TTL_SECONDS } from './constants/auth.constants';
+import { LoginAttemptService } from './login-attempt.service';
 import { OtpAttemptService } from './otp-attempt.service';
 import { FixedVerifyEmailTokenProvider } from './providers/fixed-verify-email-token.provider';
 import { GoogleIdentityProvider } from './providers/google-identity.provider';
@@ -80,6 +81,7 @@ const googleIdentityProviderFactory = {
     AuthService,
     TokenService,
     OtpAttemptService,
+    LoginAttemptService,
     JwtStrategy,
     verifyEmailTokenProviderFactory,
     googleIdentityProviderFactory,

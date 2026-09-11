@@ -19,6 +19,7 @@ import { OAuthIntent } from './enums/oauth-intent.enum';
 import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
+import { LoginAttemptService } from './login-attempt.service';
 import { OtpAttemptService } from './otp-attempt.service';
 import { GoogleIdentityProvider } from './providers/google-identity.provider';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
@@ -36,6 +37,7 @@ describe('AuthService', () => {
   let verifyEmailTokenProvider: jest.Mocked<VerifyEmailTokenProvider>;
   let tokenService: jest.Mocked<TokenService>;
   let otpAttemptService: jest.Mocked<OtpAttemptService>;
+  let loginAttemptService: jest.Mocked<LoginAttemptService>;
   let queueManager: jest.Mocked<AddingJobsToQueueManager>;
 
   const tokenPair = { accessToken: 'access', refreshToken: 'refresh', expiresIn: 900 };
@@ -50,6 +52,8 @@ describe('AuthService', () => {
       findTenantStatus: jest.fn(),
       hasConnectedBusiness: jest.fn().mockResolvedValue(false),
       updatePasswordAndRevokeSessions: jest.fn(),
+      updateLocale: jest.fn(),
+      insertRefreshToken: jest.fn(),
       resolveGoogleIdentity: jest.fn(),
       completeGoogleSignup: jest.fn(),
     } as unknown as jest.Mocked<AuthDbService>;
@@ -65,6 +69,7 @@ describe('AuthService', () => {
 
     tokenService = {
       issueTokenPair: jest.fn().mockResolvedValue(tokenPair),
+      reissueAccessToken: jest.fn().mockReturnValue({ accessToken: 'new-access', expiresIn: 900 }),
       rotate: jest.fn(),
       revokeAll: jest.fn(),
       revokeBySessionToken: jest.fn(),
@@ -73,7 +78,15 @@ describe('AuthService', () => {
     otpAttemptService = {
       consumeAttempt: jest.fn().mockResolvedValue(true),
       reset: jest.fn(),
+      // Defaults to "claim granted" so existing OTP-issuing tests are unaffected by the cooldown.
+      claimResend: jest.fn().mockResolvedValue(true),
     } as unknown as jest.Mocked<OtpAttemptService>;
+
+    loginAttemptService = {
+      isLockedOut: jest.fn().mockResolvedValue(false),
+      recordFailure: jest.fn(),
+      reset: jest.fn(),
+    } as unknown as jest.Mocked<LoginAttemptService>;
 
     queueManager = {
       addRegisterationOtpEmailJob: jest.fn().mockResolvedValue(undefined),
@@ -107,6 +120,7 @@ describe('AuthService', () => {
         { provide: VerifyEmailTokenProvider, useValue: verifyEmailTokenProvider },
         { provide: TokenService, useValue: tokenService },
         { provide: OtpAttemptService, useValue: otpAttemptService },
+        { provide: LoginAttemptService, useValue: loginAttemptService },
         { provide: AddingJobsToQueueManager, useValue: queueManager },
         { provide: ConfigService, useValue: configService },
         { provide: GoogleIdentityProvider, useValue: googleIdentityProvider },
@@ -189,6 +203,7 @@ describe('AuthService', () => {
         role: UserRole.OWNER,
         passwordHash: 'hashed-password',
         status: UserStatus.ACTIVE,
+        locale: null,
       });
 
       await target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' });
@@ -210,7 +225,7 @@ describe('AuthService', () => {
 
       await expect(
         target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '000000' })
-      ).rejects.toThrow('Invalid or expired verification code.');
+      ).rejects.toThrow(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
     });
 
     it('issues a token pair on success', async () => {
@@ -222,6 +237,7 @@ describe('AuthService', () => {
         role: UserRole.OWNER,
         passwordHash: 'hashed-password',
         status: UserStatus.ACTIVE,
+        locale: null,
       });
 
       const result = await target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' });
@@ -245,6 +261,7 @@ describe('AuthService', () => {
       passwordHash: 'hashed-password',
       role: UserRole.OWNER,
       status: UserStatus.ACTIVE,
+      locale: null,
     };
 
     it('throws 401 when no user exists at that email', async () => {
@@ -373,6 +390,7 @@ describe('AuthService', () => {
           role: UserRole.OWNER,
           name: 'Jane Doe',
           passwordHash: 'hashed-password',
+          locale: null,
         },
         tenant: { status: TenantStatus.ACTIVE, name: 'Test Tenant' },
       });
@@ -396,6 +414,7 @@ describe('AuthService', () => {
         passwordHash: 'hashed-password',
         role: UserRole.OWNER,
         status: UserStatus.PENDING_VERIFICATION,
+        locale: null,
       });
 
       const result = await target.resendOtp({ email: 'jane@thecoffeehouse.com' });
@@ -445,6 +464,7 @@ describe('AuthService', () => {
       tenantId: 'tenant-1',
       email: 'jane@thecoffeehouse.com',
       role: UserRole.OWNER as const,
+      locale: null,
     };
     const storedUser = {
       id: 'user-1',
@@ -454,6 +474,7 @@ describe('AuthService', () => {
       passwordHash: 'hashed-password',
       role: UserRole.OWNER as const,
       status: UserStatus.ACTIVE as const,
+      locale: null,
     };
     const dto = { currentPassword: 'StrongP@ss1', newPassword: 'NewStr0ng@Pass' };
 
@@ -501,6 +522,64 @@ describe('AuthService', () => {
     });
   });
 
+  describe('updateLocale', () => {
+    const tenantUser = {
+      type: JwtTokenType.TENANT_USER as const,
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      email: 'jane@thecoffeehouse.com',
+      role: UserRole.OWNER as const,
+      locale: null,
+    };
+    const storedUser = {
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      name: 'Jane Doe',
+      email: 'jane@thecoffeehouse.com',
+      passwordHash: 'hashed-password',
+      role: UserRole.OWNER as const,
+      status: UserStatus.ACTIVE as const,
+      locale: null,
+    };
+
+    it('rejects a platform-admin token without looking up a user', async () => {
+      await expect(
+        target.updateLocale(
+          { type: JwtTokenType.PLATFORM_ADMIN, id: 'admin-1', email: 'a@x.com' },
+          { locale: 'de' }
+        )
+      ).rejects.toThrow(ForbiddenException);
+      expect(authDbService.findUserById).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The regression this guards: `updateLocale` must re-sign only the access token, never mint a
+     * refresh token, from a route authenticated by nothing more than the caller's existing access
+     * token — `issueTokenPair` (used by every real sign-in event) would otherwise let anyone
+     * holding a leaked access token turn it into a fresh, indefinitely-rotatable 7-day session.
+     */
+    it('persists the locale and reissues only the access token — never a refresh token', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'The Coffee House',
+      });
+
+      const result = await target.updateLocale(tenantUser, { locale: 'de' });
+
+      expect(authDbService.updateLocale).toHaveBeenCalledWith('user-1', 'de');
+      expect(tokenService.reissueAccessToken).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'user-1', locale: 'de' })
+      );
+      expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
+      expect(authDbService.insertRefreshToken).not.toHaveBeenCalled();
+      expect(result.accessToken).toBe('new-access');
+      expect(result.expiresIn).toBe(900);
+      expect(result).not.toHaveProperty('refreshToken');
+      expect(result.user.locale).toBe('de');
+    });
+  });
+
   describe('Google sign-in', () => {
     const identity = {
       providerUserId: 'google-sub-1',
@@ -516,6 +595,7 @@ describe('AuthService', () => {
       role: UserRole.OWNER,
       passwordHash: null,
       status: UserStatus.ACTIVE,
+      locale: null,
     };
     const signupState = {
       ok: true as const,

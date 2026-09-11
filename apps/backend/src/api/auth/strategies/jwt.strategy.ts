@@ -1,10 +1,12 @@
 import { MESSAGES } from '@common/constants/messages.constants';
+import { isSupportedLocale, type Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
+import { JWT_SIGNING_ALGORITHM } from '../constants/auth.constants';
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { AuthUser } from '../types/auth-user.type';
@@ -16,6 +18,7 @@ interface UnverifiedClaims {
   email?: unknown;
   tenantId?: unknown;
   role?: unknown;
+  locale?: unknown;
   type?: unknown;
 }
 
@@ -33,6 +36,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       ]),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('JWT_SECRET') ?? '',
+      // Pinned so a token cannot dictate how it is verified — the algorithm-confusion shape.
+      // `jsonwebtoken` 9 already refuses an asymmetric alg against a string secret, so this is
+      // defence in depth; it is what keeps that true if the secret ever becomes a key object.
+      algorithms: [JWT_SIGNING_ALGORITHM],
     });
   }
 
@@ -57,12 +64,17 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       typeof payload.tenantId === 'string' &&
       (payload.role === UserRole.MEMBER || payload.role === UserRole.OWNER)
     ) {
+      // A token signed before this claim existed has no `locale` at all — falls through to
+      // `Accept-Language` at the resolution call sites, same as `null` (never chosen).
+      const locale: Locale | null = isSupportedLocale(payload.locale) ? payload.locale : null;
+
       return {
         type: JwtTokenType.TENANT_USER,
         id: payload.sub,
         tenantId: payload.tenantId,
         email: payload.email,
         role: payload.role,
+        locale,
       };
     }
 

@@ -38,6 +38,8 @@ export function ReviewQueueView() {
     setClassification,
     setSearch,
     isLoading,
+    isError,
+    retry,
     total,
     page,
     totalPages,
@@ -68,7 +70,12 @@ export function ReviewQueueView() {
         <ReviewQueueSkeleton />
       ) : (
         <>
-          <ReviewResults reviews={reviews} onClearFilters={handleClearFilters} />
+          <ReviewResults
+            reviews={reviews}
+            isError={isError}
+            onRetry={retry}
+            onClearFilters={handleClearFilters}
+          />
           <div className="mt-auto">
             <Pagination page={page} totalPages={totalPages} onPrevious={goToPreviousPage} onNext={goToNextPage} />
           </div>

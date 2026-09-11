@@ -2,6 +2,16 @@ import { HashingService } from '@common/hashing/hashing.service';
 import { Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
+/**
+ * Deliberately above bcrypt's built-in default of 10. The cost is stored inside each hash, so
+ * raising it is backward compatible — existing hashes keep verifying at the factor they were
+ * written with, and are rewritten at this one whenever the password next changes.
+ *
+ * Also load-bearing for login's timing behaviour: the decoy comparison on an unknown email has to
+ * cost the same as a real one, and it derives from this same service so the two can never drift.
+ */
+const BCRYPT_COST_FACTOR = 12;
+
 @Injectable()
 export class BcryptService implements HashingService {
   /**
@@ -11,7 +21,7 @@ export class BcryptService implements HashingService {
    */
   async hash(data: string): Promise<string> {
     // Generate a salt for password hashing
-    const saltOrRounds = await bcrypt.genSalt();
+    const saltOrRounds = await bcrypt.genSalt(BCRYPT_COST_FACTOR);
     // Hash the password using the generated salt
     return bcrypt.hash(data, saltOrRounds);
   }

@@ -33,6 +33,8 @@ export class ListReviewsQueryDto {
 
   @ApiPropertyOptional({
     example: 'Nadia',
+    minLength: 1,
+    maxLength: 255,
     description:
       'Case-insensitive substring match on reviewer_name only — matching the frontend, which ' +
       'searches reviewer name, not review text. An anonymized row has a NULL name and can never ' +

@@ -39,6 +39,14 @@ export interface GbpProviderConfig {
   callbackUrl: string;
 }
 
+/** `error.errors[].reason` values Google's docs name as quota-specific — see `isQuotaExceeded403`. */
+const QUOTA_EXCEEDED_REASONS = new Set([
+  'rateLimitExceeded',
+  'userRateLimitExceeded',
+  'dailyLimitExceeded',
+  'quotaExceeded',
+]);
+
 /**
  * The real Google Business Profile client. Bare `fetch` — there is no HTTP-client idiom in this
  * codebase to follow (every other outbound call goes through an AWS SDK), and a dependency for
@@ -209,12 +217,21 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
    * 401/403 vs. 429 vs. 5xx, and the distinction drives real product behaviour: only the first
    * group flips the connection to `needs_reauth` and asks the owner to re-consent.
    *
-   * 403 is deliberately grouped with 401 despite also being Google's quota-exceeded status. A
-   * genuinely quota-limited 403 costs a pointless reconnect prompt; a misread 401 leaves a dead
-   * grant retrying on a timer forever, and the owner is never told anything is wrong.
+   * 403 is grouped with 401 by default despite also being one of Google's quota-exceeded
+   * statuses — this Discovery-based API puts some quota errors behind 403, not just 429. A
+   * genuinely quota-limited 403 misread as auth costs a pointless reconnect prompt, so
+   * `isQuotaExceeded403` first checks the body for a `reason` Google's own docs name as
+   * quota-specific (`errors[].reason`) and, only then, reclassifies as rate-limited instead.
+   * An unrecognized or unparseable body falls through to the safe default below: a misread 401
+   * leaves a dead grant retrying on a timer forever with the owner never told anything is wrong,
+   * which is worse than an occasional unnecessary reconnect prompt.
    */
   protected classifyHttpError(status: number, body: string, retryAfter?: string | null): Error {
     const detail = body.slice(0, 500);
+
+    if (status === 403 && this.isQuotaExceeded403(body)) {
+      return new ProviderRateLimitError(`Google quota exceeded (403): ${detail}`, null);
+    }
 
     if (status === 401 || status === 403) {
       return new ProviderAuthError(`Google rejected the credential (${status}): ${detail}`);
@@ -239,6 +256,82 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
     return new ProviderMappingError(`Google rejected the request (${status}): ${detail}`);
   }
 
+  /**
+   * Discovery-based Google APIs (which GBP's is) carry the specific failure reason in
+   * `error.errors[].reason`, not in the top-level `status`/`code` — those stay `403` either way.
+   * Scoped to reasons Google documents as quota-specific; anything else (`forbidden`,
+   * `insufficientPermissions`, or a body that fails to parse) returns `false` and `classifyHttpError`
+   * keeps its safe default of treating the 403 as an auth failure.
+   */
+  private isQuotaExceeded403(body: string): boolean {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (typeof parsed !== 'object' || parsed === null) {
+        return false;
+      }
+
+      const error = (parsed as { error?: unknown }).error;
+      if (typeof error !== 'object' || error === null) {
+        return false;
+      }
+
+      const errors = (error as { errors?: unknown }).errors;
+      if (!Array.isArray(errors)) {
+        return false;
+      }
+
+      return errors.some(
+        entry =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          QUOTA_EXCEEDED_REASONS.has((entry as { reason?: unknown }).reason as string)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * `classifyHttpError` cannot see this: RFC 6749 §5.2 puts a revoked/expired/reused refresh
+   * token behind HTTP **400** with `{ "error": "invalid_grant" }`, not 401/403 — Google's own
+   * error-response convention for the token endpoint is unrelated to its convention for every
+   * other API call this client makes. Left to the generic classifier, 400 falls into "a 4xx that
+   * is not auth and not rate limiting" and comes back as `ProviderMappingError`, which
+   * `callProvider` (the caller two layers up) treats as a transient 502 rather than
+   * `needs_reauth` — so an owner who revoked access in their Google account sees "Google is
+   * unavailable, try again" forever, on a connection that can never recover without reconnecting.
+   *
+   * Scoped to `invalid_grant` only. `invalid_client`/`unauthorized_client` mean *this server's*
+   * OAuth client id/secret is wrong — every tenant's refresh would fail identically, and asking
+   * one owner to reconnect cannot fix a broken client credential. Conflating the two would trade
+   * one misclassification for another.
+   */
+  private classifyTokenError(status: number, body: string): Error {
+    if (status === 400) {
+      const code = this.parseOAuthErrorCode(body);
+      if (code === 'invalid_grant') {
+        return new ProviderAuthError(
+          `Google rejected the refresh token (invalid_grant): ${body.slice(0, 500)}`
+        );
+      }
+    }
+
+    return this.classifyHttpError(status, body);
+  }
+
+  private parseOAuthErrorCode(body: string): string | null {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      const code =
+        typeof parsed === 'object' && parsed !== null
+          ? (parsed as { error?: unknown }).error
+          : undefined;
+      return typeof code === 'string' ? code : null;
+    } catch {
+      return null;
+    }
+  }
+
   protected async postToken(form: Record<string, string>): Promise<ProviderTokenSet> {
     let response: Response;
 
@@ -256,7 +349,8 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
     }
 
     if (!response.ok) {
-      throw this.classifyHttpError(response.status, await this.safeText(response));
+      const text = await this.safeText(response);
+      throw this.classifyTokenError(response.status, text);
     }
 
     const body = (await response.json()) as GbpTokenResponse;

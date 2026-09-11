@@ -98,17 +98,17 @@ Order matters here — each stage can short-circuit the request before it reache
 Run in registration order, before any guard:
 
 1. `MetricsMiddleware` — all routes (`'*'`).
-2. `CookieAuthMiddleware` — all routes (`'*'`). Reads `sid` / `refresh_token` / `temp_sid`
-   cookies (or the `admin_*` variants when the path includes the dev-tools route) and, if no
-   `Authorization` header is already present, promotes the cookie value into
-   `Authorization: Bearer <token>`. The intent is that a browser session and a raw bearer-token
-   API client hit the exact same Passport JWT strategy.
-   **This is inert today**: `req.cookies` is only populated by `cookie-parser`, which is neither a
-   dependency nor registered anywhere in the app, so the middleware always sees `undefined` and
-   promotes nothing (the middleware's own source comments say as much). Every request therefore
-   authenticates by `Authorization` header only until `cookie-parser` is wired up — see
-   [Gap](#gap-between-current-code-and-target-design).
-3. `DevToolsMiddleware` — scoped to `dev-tools`, `health/health-ui`, `admin/queues`, `api` only.
+2. `DevToolsMiddleware` — scoped to `dev-tools`, `health/health-ui`, `admin/queues`, `api` only.
+
+**`CookieAuthMiddleware` has been deleted**, along with its registration here — it read cookie
+names (`sid` / `refresh_token` / `temp_sid`, or `admin_*` variants) this app's auth system never
+actually used, and depended on `cookie-parser`, which wasn't registered when it ran, so it was
+inert on every request from the day it was written. The real mechanism — a browser session and a
+raw bearer-token API client hitting the same Passport JWT strategy — is `JwtStrategy`'s own
+extractor chain (`ExtractJwt.fromExtractors([fromAccessTokenCookie, ExtractJwt
+.fromAuthHeaderAsBearerToken()])`), backed by `cookie-parser` now genuinely registered in
+`bootstrap.ts`. See the [Session / token model](#session--token-model) section below, which
+already described this correctly.
 
 ### Guards (global `APP_GUARD` providers, `apps/backend/src/app.module.ts`)
 
@@ -152,31 +152,34 @@ Four named tiers are registered globally (`ThrottlerModule.forRoot`,
 `ThrottlerGuard` evaluates **all four on every route** — a `@Throttle({ short: ... })` override
 replaces only the `short` entry and leaves the other three in force.
 
-| Tier | Intended window | Configured `ttl` | Actual window | Limit |
-|---|---|---|---|---|
-| `short` | 1 minute | `1 * 60` | 60 ms | 30 requests |
-| `medium` | 5 minutes | `5 * 60` | 300 ms | 100 requests |
-| `long` | 30 minutes | `30 * 60` | 1800 ms | 500 requests |
-| `very-long` | 1 hour | `60 * 60` | 3600 ms | 1000 requests |
+| Tier | Window | Configured `ttl` | Limit |
+|---|---|---|---|
+| `short` | 1 minute | `MINUTE_MS` (`60 * 1000`) | 30 requests |
+| `medium` | 5 minutes | `5 * MINUTE_MS` | 100 requests |
+| `long` | 30 minutes | `30 * MINUTE_MS` | 500 requests |
+| `very-long` | 1 hour | `60 * MINUTE_MS` | 1000 requests |
 
-> **The configured values are a bug, not a design choice.** `@nestjs/throttler` has taken `ttl` in
-> **milliseconds** since v5, and this project pins `6.5.0` — so `ttl: 1 * 60` with the comment
-> `// (1 minute)` is a 60-millisecond window, making the global tiers effectively unenforceable
-> (30 requests inside 60 ms is not a limit anyone reaches). The per-route auth overrides in
-> `auth.controller.ts` use `ttl: 60000` correctly, which is what confirms minutes were intended.
-> Fixing `app.module.ts` to milliseconds is in the
-> [Gap](#gap-between-current-code-and-target-design) list; until then, treat the only real rate
-> limiting in this module as the four per-route overrides below.
+> **Fixed.** These values were previously written in seconds (`ttl: 1 * 60` with a `// (1 minute)`
+> comment) while `@nestjs/throttler` has taken `ttl` in **milliseconds** since v5 and this project
+> pins `6.5.0` — a 60-*millisecond* window, which made the global tiers unenforceable
+> (30 requests inside 60 ms is not a limit anyone reaches). `app.module.ts` now defines a
+> `MINUTE_MS` constant and builds every tier from it, matching what the per-route auth overrides
+> below already did correctly (they were the tell that minutes were intended all along).
 
-Auth-specific overrides on top of the `short` window (`apps/backend/src/auth/auth.controller.ts`):
+Auth-specific overrides on top of the `short` window (`apps/backend/src/api/auth/auth.controller.ts`):
 
 | Route | Limit |
 |---|---|
-| `POST /v1/auth/register` | 5 / minute |
+| `POST /v1/auth/signup` | 5 / minute |
+| `POST /v1/auth/verify-email` | 10 / minute |
+| `POST /v1/auth/resend-verification-otp` | 5 / minute |
 | `POST /v1/auth/login` | 10 / minute |
 | `POST /v1/auth/refresh` | 20 / minute |
 | `POST /v1/auth/change-password` | 5 / minute |
-| Everything else under `/v1/auth` (logout, OAuth redirects/callbacks, MFA) | falls back to the global `short` default (30 / minute) |
+| `POST /v1/auth/set-password` | 5 / minute |
+| `GET /v1/auth/google` | 10 / minute |
+| `POST /v1/auth/google/complete-signup` | 5 / minute |
+| `POST /v1/auth/logout`, `GET /v1/auth/me`, `GET /v1/auth/google/callback` | no override — falls back to the global `short` default (30 / minute) |
 
 The login/register/change-password limits exist specifically to blunt credential-stuffing and
 brute-force attempts against the password path — they matter less once Microsoft SSO is the only
@@ -200,17 +203,24 @@ for what needs to change before it matches the InnoPeak tenant model.
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| `POST` | `/v1/auth/register` | `@Public()` | Password registration. Currently not tenant-scoped. |
-| `POST` | `/v1/auth/login` | `@Public()` | Password login. |
-| `POST` | `/v1/auth/refresh` | `@Public()` | Exchanges a refresh token for a new access/refresh pair. |
-| `POST` | `/v1/auth/logout` | Bearer | Revokes all refresh tokens for the current user. |
-| `POST` | `/v1/auth/change-password` | Bearer | Requires the current password. Implemented — Settings → Profile. Issues a fresh token pair and revokes every other session. |
-| `GET` | `/v1/auth/google` | `@Public()` | Redirects into Google's OAuth consent screen (`AuthGuard('google')`). |
-| `GET` | `/v1/auth/google/callback` | `@Public()` | Google OAuth callback; issues app tokens via `handleOAuthLogin`. |
-| `GET` | `/v1/auth/github` | `@Public()` | Same pattern for GitHub — not part of this product's scope, see below. |
-| `GET` | `/v1/auth/github/callback` | `@Public()` | — |
-| `POST` | `/v1/auth/mfa/setup` | Bearer | Issues a TOTP secret + QR code. No matching schema table yet — see below. |
-| `POST` | `/v1/auth/mfa/verify` | Bearer | Verifies a TOTP code. |
+| `POST` | `/v1/auth/signup` | `@Public()` | Creates tenant + owner, emails a 6-digit OTP. |
+| `POST` | `/v1/auth/verify-email` | `@Public()` | Consumes the OTP, activates the account, issues the first token pair. |
+| `POST` | `/v1/auth/resend-verification-otp` | `@Public()` | Re-sends a code, subject to a per-email cooldown. Uniform acknowledgement either way. |
+| `POST` | `/v1/auth/login` | `@Public()` | Password login. Per-email lockout on top of the per-IP throttle. |
+| `POST` | `/v1/auth/refresh` | `@Public()` | Rotates the pair, authority from the `refresh_token` cookie. |
+| `POST` | `/v1/auth/logout` | `@Public()` | Authority from the `refresh_token` cookie, **not** a bearer token — see the API reference for why. Revokes all refresh tokens for that user. |
+| `GET` | `/v1/auth/me` | Bearer | The authoritative "who is signed in", read from the DB. |
+| `POST` | `/v1/auth/change-password` | Bearer | Requires the current password. Issues a fresh token pair and revokes every other session. |
+| `POST` | `/v1/auth/set-password` | Bearer | For an account that has never had one (Google-only). |
+| `GET` | `/v1/auth/google` | `@Public()` | Redirects into Google's consent screen. Bare OIDC over `fetch`, not a passport strategy. |
+| `GET` | `/v1/auth/google/callback` | `@Public()` | Google callback; every outcome is a `302`. |
+| `POST` | `/v1/auth/google/complete-signup` | `@Public()` | Supplies the business name Google cannot, against the `google_pending_signup` cookie. |
+
+> **Not implemented, despite appearing in earlier drafts of this document:** `/v1/auth/register`
+> (superseded by `signup`), `/v1/auth/github*`, `/v1/auth/mfa/*`, and
+> `/v1/auth/forgot-password` + `/v1/auth/reset-password`. The last pair matters most: there is
+> **no password-recovery path today**. The corresponding `RouteNames` members have been removed so
+> a dead name cannot be mistaken for a live route.
 
 Not yet present, needed for the target design:
 
@@ -282,10 +292,13 @@ Mapped to the schema tables above, independent of which login method is used:
 - Access and refresh tokens are signed with separate secrets; `JWT_REFRESH_SECRET` may fall back to
   `JWT_SECRET` in non-production only, and the app must refuse to boot in production when they're
   missing or equal — see [Configuration](./api-reference.md#configuration).
-- Both are *intended* to travel either as a bearer header or as an HttpOnly cookie (`sid` /
-  `refresh_token`, or the `admin_*` variants) — `CookieAuthMiddleware` normalizes cookies into the
-  `Authorization` header before the guards run, so the rest of the pipeline only ever deals with
-  one shape. Two caveats on the current implementation: cookie promotion is inert until
+- Both travel as HttpOnly cookies (`access_token`, path `/`; `refresh_token`, path `/v1/auth`),
+  and the access token is *additionally* returned in the JSON body so a non-cookie client can send
+  it as a `Bearer` header. `JwtStrategy` reads the cookie first, then the header. The former
+  `CookieAuthMiddleware`, which promoted `sid`/`admin_sid` cookies into the `Authorization` header,
+  has been **deleted** — it was registered on every route, referenced cookie names nothing in this
+  product sets, and would have promoted a `refresh_token` cookie into a bearer header. Historical
+  caveats that no longer apply: cookie promotion is inert until
   `cookie-parser` is registered (see [Global request pipeline](#global-request-pipeline)), and the
   `admin_*` variants are selected purely by *the path containing `dev-tools`* — there is a `TODO`
   in `cookies.middleware.ts` where real platform-admin detection belongs, so this needs extending
@@ -415,9 +428,10 @@ still real:**
   `0007_auth_hardening.sql` (see `apps/backend/CLAUDE.md`'s migration table), and
   `schema.ts`/`token.repository.ts` both reflect it. Session / token model's rotation and
   logout-revocation description is accurate.
-- **Global rate limiting is effectively off — still true, verified against `app.module.ts` today.**
-  `ThrottlerModule.forRoot`'s `ttl` values are in seconds where `@nestjs/throttler` 6.5.0 expects
-  milliseconds, so the four tiers are 60 ms–3.6 s windows rather than 1 minute–1 hour. See
+- ~~Global rate limiting is effectively off.~~ **Resolved.** `ThrottlerModule.forRoot`'s `ttl`
+  values in `app.module.ts` are now genuine milliseconds (`MINUTE_MS = 60 * 1000` and multiples of
+  it), matching what `@nestjs/throttler` 6.5.0 expects — the four tiers are the intended 1
+  minute–1 hour windows, not the 60 ms–3.6 s ones a seconds-read-as-milliseconds bug produced. See
   [Rate limiting](#rate-limiting-throttler).
 - ~~`cookie-parser` is neither installed nor registered.~~ **Resolved.** `app.use(cookieParser())`
   runs in `apps/backend/src/bootstrap.ts:51`. See the box above for what actually reads the

@@ -159,6 +159,14 @@ first sees a 401/403 from the provider — in practice the poller, mid-run — s
 (`PLAN.md` §8.14). It also populates `locations.last_sync_status = 'error'` and
 `last_sync_error`, which is what makes the failure visible in Settings without a log dive.
 
+A 403 does not always mean this, though: Google's Discovery-based APIs also put some
+quota-exhaustion errors behind 403, not just 429.
+`GoogleBusinessProfileProvider.classifyHttpError` checks the body's `error.errors[].reason` for
+one of Google's own quota-specific values first — only an unrecognized reason (or a 401) falls
+into `needs_reauth`. Without that check, a location that merely hit a quota limit would have a
+perfectly healthy connection permanently flipped to `needs_reauth`, prompting an owner to
+reconnect a grant that was never broken.
+
 Recovery reuses the *same* entry route as a first-time connect. There is no separate "reauth"
 endpoint, because the OAuth round trip is identical and the write is an upsert either way: the
 callback matches on `(tenant_id, provider, provider_account_id)` and **updates** the existing row —
@@ -246,6 +254,16 @@ invariants. That's deliberate: `PLAN.md` §2 restores `user_locations` precisely
 location for MVP" implies multi-location is coming, and every review/notification query that
 scopes by location will need to join through it — adding a constraint now that multi-location
 would immediately have to drop is worse than enforcing the current rule one layer up.
+
+Enforcing it in application code rather than a constraint means it has to be made race-safe by
+hand. `ConnectionsService.confirmLocation` first checks the count cheaply, before opening a
+transaction, but under READ COMMITTED two concurrent confirms for *different*
+`externalLocationId`s can each see zero active locations and both pass that check — neither has
+committed anything yet for the other to see. `ConnectionsDbService.confirmLocation` closes this
+with a transaction-scoped Postgres advisory lock (`ConnectionsRepository
+.acquireLocationConfirmLock`, keyed on `tenantId`) taken before the authoritative recheck: the
+second transaction blocks until the first commits, so its own recheck runs against the first
+one's already-committed row rather than a stale, pre-commit view.
 
 `user_locations` therefore gets written even though nothing reads it discriminatingly yet: when a
 location is confirmed, the confirming user gets a row. At MVP every user in the tenant trivially
@@ -347,20 +365,18 @@ silently assumed, the same way auth's API reference flags the missing `refresh_t
   timestamp is the better shape — it records *when*, survives a later reconnect as history, and
   keeps `status` describing credential health rather than mixing in owner intent. Interim behavior
   is documented on the disconnect endpoint.
-- **No denominator for backfill progress.** `sync_runs` has `reviews_fetched` and nothing to
-  divide it by. The onboarding UI renders a 0–100 bar and "imported / total"; that total is not
-  derivable from the schema. Required follow-up if a determinate bar is wanted: a nullable
-  `sync_runs.reviews_total` (or `reviews_target`), written once the first provider page reports a
-  total. Until then the endpoint returns `totalToImport: null` and the UI must fall back to an
-  indeterminate bar — see the API reference, which specifies both shapes.
+- **Backfill progress's denominator is provider-lifetime, then run-final.** `sync_runs.reviews_total`
+  is written from the provider's `totalReviewCount` while the run is in flight, and null when the
+  provider never reported one — the endpoint returns `totalToImport: null` and the UI falls back
+  to an indeterminate bar. On a clean, complete backfill (`status: 'ok'` and
+  `markBackfillComplete: true`), `completeSyncRun` overwrites it with the run's own final
+  `reviews_fetched`, so a run that stopped early by design (the ~50-reply target, or `MAX_PAGES`)
+  still reports 100% rather than the fraction of the location's full history it deliberately never
+  tried to reach. See the API reference for the full field-by-field behavior.
 - **No `scopes` column.** `PLAN.md` §2 lists `scopes` on `review_provider_connections` as "if
   useful for debugging, optional for MVP" and it was not added. The consequence is concrete: after
   a reconnect there is no way to detect that the owner granted *narrower* scopes than before, so a
   connection can look `active` while lacking reply permission, and the first symptom is a failed
   post. Cheap to add, worth adding before the reply-posting path ships.
-- **No composite index for the sync-run history query.** `sync_runs` has
-  `idx_sync_runs_location_id` but nothing on `(location_id, started_at DESC)`, which is exactly
-  what the history endpoint orders by. Irrelevant at MVP row counts (a few thousand per location
-  per year); a one-line follow-up when it isn't.
 - **One-active-location is unenforced at the database level** — a deliberate decision, see
   [MVP scope](#mvp-scope), listed here so it isn't mistaken for an oversight.

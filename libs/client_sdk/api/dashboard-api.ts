@@ -32,8 +32,6 @@ import {
 // @ts-ignore
 import type { MetricsDto } from '../models';
 // @ts-ignore
-import type { RatingDistributionDto } from '../models';
-// @ts-ignore
 import type { RecentEscalatedDto } from '../models';
 /**
  * DashboardApi - axios parameter creator
@@ -43,7 +41,7 @@ export const DashboardApiAxiosParamCreator = function (
 ) {
   return {
     /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total` and `avgRating` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why.
+     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled.
      * @summary Aggregated metrics for the dashboard stat cards
      * @param {number} [days] Size of the trailing window, counted from &#x60;reviewed_at&#x60;.
      * @param {*} [options] Override http request option.
@@ -54,57 +52,6 @@ export const DashboardApiAxiosParamCreator = function (
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       const localVarPath = `/v1/dashboard/metrics`;
-      // use dummy base URL string because the URL constructor only accepts absolute URLs.
-      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-      let baseOptions;
-      if (configuration) {
-        baseOptions = configuration.baseOptions;
-      }
-
-      const localVarRequestOptions = {
-        method: 'GET',
-        ...baseOptions,
-        ...options,
-      };
-      const localVarHeaderParameter = {} as any;
-      const localVarQueryParameter = {} as any;
-
-      // authentication bearer required
-      // http bearer authentication required
-      await setBearerAuthToObject(localVarHeaderParameter, configuration);
-
-      if (days !== undefined) {
-        localVarQueryParameter['days'] = days;
-      }
-
-      localVarHeaderParameter['Accept'] = 'application/json';
-
-      setSearchParams(localVarUrlObj, localVarQueryParameter);
-      let headersFromBaseOptions =
-        baseOptions && baseOptions.headers ? baseOptions.headers : {};
-      localVarRequestOptions.headers = {
-        ...localVarHeaderParameter,
-        ...headersFromBaseOptions,
-        ...options.headers,
-      };
-
-      return {
-        url: toPathString(localVarUrlObj),
-        options: localVarRequestOptions,
-      };
-    },
-    /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Buckets 1-5 are always present, zero-filled.
-     * @summary Review counts per star rating for a time window
-     * @param {number} [days] Size of the trailing window, counted from &#x60;reviewed_at&#x60;.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    dashboardControllerGetRatingDistributionV1: async (
-      days?: number,
-      options: RawAxiosRequestConfig = {},
-    ): Promise<RequestArgs> => {
-      const localVarPath = `/v1/dashboard/rating-distribution`;
       // use dummy base URL string because the URL constructor only accepts absolute URLs.
       const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
       let baseOptions;
@@ -206,7 +153,7 @@ export const DashboardApiFp = function (configuration?: Configuration) {
     DashboardApiAxiosParamCreator(configuration);
   return {
     /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total` and `avgRating` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why.
+     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled.
      * @summary Aggregated metrics for the dashboard stat cards
      * @param {number} [days] Size of the trailing window, counted from &#x60;reviewed_at&#x60;.
      * @param {*} [options] Override http request option.
@@ -228,40 +175,6 @@ export const DashboardApiFp = function (configuration?: Configuration) {
         operationServerMap['DashboardApi.dashboardControllerGetMetricsV1']?.[
           localVarOperationServerIndex
         ]?.url;
-      return (axios, basePath) =>
-        createRequestFunction(
-          localVarAxiosArgs,
-          globalAxios,
-          BASE_PATH,
-          configuration,
-        )(axios, localVarOperationServerBasePath || basePath);
-    },
-    /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Buckets 1-5 are always present, zero-filled.
-     * @summary Review counts per star rating for a time window
-     * @param {number} [days] Size of the trailing window, counted from &#x60;reviewed_at&#x60;.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    async dashboardControllerGetRatingDistributionV1(
-      days?: number,
-      options?: RawAxiosRequestConfig,
-    ): Promise<
-      (
-        axios?: AxiosInstance,
-        basePath?: string,
-      ) => AxiosPromise<RatingDistributionDto>
-    > {
-      const localVarAxiosArgs =
-        await localVarAxiosParamCreator.dashboardControllerGetRatingDistributionV1(
-          days,
-          options,
-        );
-      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-      const localVarOperationServerBasePath =
-        operationServerMap[
-          'DashboardApi.dashboardControllerGetRatingDistributionV1'
-        ]?.[localVarOperationServerIndex]?.url;
       return (axios, basePath) =>
         createRequestFunction(
           localVarAxiosArgs,
@@ -318,7 +231,7 @@ export const DashboardApiFactory = function (
   const localVarFp = DashboardApiFp(configuration);
   return {
     /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total` and `avgRating` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why.
+     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled.
      * @summary Aggregated metrics for the dashboard stat cards
      * @param {DashboardApiDashboardControllerGetMetricsV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -330,24 +243,6 @@ export const DashboardApiFactory = function (
     ): AxiosPromise<MetricsDto> {
       return localVarFp
         .dashboardControllerGetMetricsV1(requestParameters.days, options)
-        .then((request) => request(axios, basePath));
-    },
-    /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Buckets 1-5 are always present, zero-filled.
-     * @summary Review counts per star rating for a time window
-     * @param {DashboardApiDashboardControllerGetRatingDistributionV1Request} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    dashboardControllerGetRatingDistributionV1(
-      requestParameters: DashboardApiDashboardControllerGetRatingDistributionV1Request = {},
-      options?: RawAxiosRequestConfig,
-    ): AxiosPromise<RatingDistributionDto> {
-      return localVarFp
-        .dashboardControllerGetRatingDistributionV1(
-          requestParameters.days,
-          options,
-        )
         .then((request) => request(axios, basePath));
     },
     /**
@@ -376,7 +271,7 @@ export const DashboardApiFactory = function (
  */
 export interface DashboardApiInterface {
   /**
-   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total` and `avgRating` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why.
+   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled.
    * @summary Aggregated metrics for the dashboard stat cards
    * @param {DashboardApiDashboardControllerGetMetricsV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -386,18 +281,6 @@ export interface DashboardApiInterface {
     requestParameters?: DashboardApiDashboardControllerGetMetricsV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<MetricsDto>;
-
-  /**
-   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Buckets 1-5 are always present, zero-filled.
-   * @summary Review counts per star rating for a time window
-   * @param {DashboardApiDashboardControllerGetRatingDistributionV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  dashboardControllerGetRatingDistributionV1(
-    requestParameters?: DashboardApiDashboardControllerGetRatingDistributionV1Request,
-    options?: RawAxiosRequestConfig,
-  ): AxiosPromise<RatingDistributionDto>;
 
   /**
    * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine.
@@ -423,16 +306,6 @@ export interface DashboardApiDashboardControllerGetMetricsV1Request {
 }
 
 /**
- * Request parameters for dashboardControllerGetRatingDistributionV1 operation in DashboardApi.
- */
-export interface DashboardApiDashboardControllerGetRatingDistributionV1Request {
-  /**
-   * Size of the trailing window, counted from &#x60;reviewed_at&#x60;.
-   */
-  readonly days?: number;
-}
-
-/**
  * Request parameters for dashboardControllerGetRecentEscalatedV1 operation in DashboardApi.
  */
 export interface DashboardApiDashboardControllerGetRecentEscalatedV1Request {
@@ -444,7 +317,7 @@ export interface DashboardApiDashboardControllerGetRecentEscalatedV1Request {
  */
 export class DashboardApi extends BaseAPI implements DashboardApiInterface {
   /**
-   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total` and `avgRating` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why.
+   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled.
    * @summary Aggregated metrics for the dashboard stat cards
    * @param {DashboardApiDashboardControllerGetMetricsV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -456,25 +329,6 @@ export class DashboardApi extends BaseAPI implements DashboardApiInterface {
   ) {
     return DashboardApiFp(this.configuration)
       .dashboardControllerGetMetricsV1(requestParameters.days, options)
-      .then((request) => request(this.axios, this.basePath));
-  }
-
-  /**
-   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Buckets 1-5 are always present, zero-filled.
-   * @summary Review counts per star rating for a time window
-   * @param {DashboardApiDashboardControllerGetRatingDistributionV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  public dashboardControllerGetRatingDistributionV1(
-    requestParameters: DashboardApiDashboardControllerGetRatingDistributionV1Request = {},
-    options?: RawAxiosRequestConfig,
-  ) {
-    return DashboardApiFp(this.configuration)
-      .dashboardControllerGetRatingDistributionV1(
-        requestParameters.days,
-        options,
-      )
       .then((request) => request(this.axios, this.basePath));
   }
 

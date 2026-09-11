@@ -1,3 +1,5 @@
+import type { AuthUser } from '@auth/types/auth-user.type';
+import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
@@ -49,7 +51,7 @@ export class ReviewsService {
   constructor(private readonly reviewSyncDbService: ReviewSyncDbService) {}
 
   async listReviews(input: {
-    tenantId: string;
+    user: AuthUser;
     page?: number | undefined;
     pageSize?: number | undefined;
     status?: ReviewStatus | undefined;
@@ -57,11 +59,12 @@ export class ReviewsService {
     locationId?: string | undefined;
     search?: string | undefined;
   }): Promise<ReviewListResponseDto> {
+    const tenantUser = requireTenantUser(input.user, MESSAGES.REVIEWS.TENANT_ONLY);
     const page = input.page ?? 1;
     const pageSize = input.pageSize ?? REVIEWS_PAGE_SIZE_DEFAULT;
 
     const { reviews, total } = await this.reviewSyncDbService.listReviews({
-      tenantId: input.tenantId,
+      tenantId: tenantUser.tenantId,
       page,
       pageSize,
       status: input.status,
@@ -97,10 +100,11 @@ export class ReviewsService {
    * greyed out with their outcome copy — the audit value of showing a user what happened to the
    * sibling they did not pick is the whole reason `superseded` is a state rather than a delete.
    */
-  async getReview(input: { tenantId: string; reviewId: string }): Promise<ReviewDetailResponseDto> {
+  async getReview(input: { user: AuthUser; reviewId: string }): Promise<ReviewDetailResponseDto> {
+    const tenantUser = requireTenantUser(input.user, MESSAGES.REVIEWS.TENANT_ONLY);
     const review = await this.reviewSyncDbService.findReviewForTenant(
       input.reviewId,
-      input.tenantId
+      tenantUser.tenantId
     );
 
     if (!review) {

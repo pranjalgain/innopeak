@@ -6,6 +6,7 @@ import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError, unwrap } from "@/app/_libs/services/api-error";
 import { SessionService } from "@/app/_libs/services/session.service";
 import { TokenService } from "@/app/_libs/services/token.service";
+import type { AppLocale } from "@/i18n/locales";
 
 export interface AuthenticatedUser {
   id: string;
@@ -15,6 +16,8 @@ export interface AuthenticatedUser {
   role: "owner" | "member";
   hasPassword: boolean;
   businessName: string;
+  /** `users.locale` — null when the user has never set one (falls back to `Accept-Language`). */
+  locale: AppLocale | null;
 }
 
 // No `refreshToken` field — the backend sets it as an httpOnly `refresh_token` cookie
@@ -298,5 +301,29 @@ export class AuthService {
     TokenService.setName(data.user.name);
     TokenService.setHasPassword(data.user.hasPassword);
     TokenService.setBusinessName(data.user.businessName);
+  }
+
+  /**
+   * Persists the signed-in user's language preference (`users.locale`) so backend responses —
+   * error/success messages, and eventually emails — render in the same language as the UI, not
+   * just this browser's `Accept-Language` header. A no-op for a signed-out visitor: the language
+   * switcher lives on public pages too, where there is no account to persist the choice against
+   * and the cookie-only `NEXT_LOCALE` mechanism already covers the UI's own strings.
+   *
+   * Throws on failure rather than swallowing it: the caller (the language switcher) waits for
+   * this to resolve before it flips the UI's own language, so a failed sync must not be reported
+   * as a success — the two would otherwise disagree, with the UI in the new language and every
+   * backend-originated message still arriving in the old one.
+   */
+  static async updateLocale(locale: AppLocale): Promise<void> {
+    if (!TokenService.getStoredAccessToken()) {
+      return;
+    }
+
+    const response = await authApi.authControllerUpdateLocaleV1({
+      updateLocaleDto: { locale },
+    });
+    const data = unwrap<TokenResponse>(response.data);
+    TokenService.setAccessToken(data.accessToken);
   }
 }

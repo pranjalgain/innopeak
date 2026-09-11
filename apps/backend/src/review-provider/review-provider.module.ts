@@ -55,13 +55,15 @@ const reviewProviderFactory = {
 };
 
 /**
- * Local Redis in every non-production environment, Secrets Manager otherwise.
+ * Local Redis in plain local development, Secrets Manager in production **and** in the
+ * Floci-emulated AWS local stack (`isAwsDeploymentTarget()`, so `DEPLOYMENT_TARGET=aws` gets real
+ * Secrets Manager semantics to develop against, not the plain-Redis store).
  *
- * Keyed on `isProduction()` rather than `DEPLOYMENT_TARGET`, deliberately: the Redis store's
- * encryption key sits in the same `.env` as everything else, which is fine locally and is not a
- * trust boundary in production. Making the local store *throw* rather than silently not be
- * selected means a production node can never end up persisting refresh tokens in Redis because
- * someone got a deployment variable wrong.
+ * `isProduction()` alone would not be enough: the Redis store's encryption key sits in the same
+ * `.env` as everything else, which is fine for plain local development but is not a trust boundary
+ * once Secrets Manager is in the loop at all. Making the local store *throw* rather than silently
+ * not be selected means a production node can never end up persisting refresh tokens in Redis
+ * because someone got a deployment variable wrong.
  */
 const credentialStoreFactory = {
   provide: CredentialStoreProvider,

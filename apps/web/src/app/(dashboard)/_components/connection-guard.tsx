@@ -1,18 +1,18 @@
 "use client";
 
-import { type ReactNode, useEffect } from "react";
 
 import { useRouter } from "next/navigation";
 
 import { useTranslations } from "next-intl";
+import { type ReactNode, useEffect } from "react";
 import { LuTriangleAlert } from "react-icons/lu";
 
-import { Button } from "@/components/ui/button";
 
 import { ShellSkeleton } from "@/app/_components/shell-skeleton";
 import { ROUTES } from "@/app/_libs/constants/routes";
-import { useConnection } from "@/app/_libs/providers/connection-provider";
 import { ConnectionService } from "@/app/_libs/services/connection.service";
+import { Button } from "@/components/ui/button";
+import { useConnection } from "@/hooks/connections/use-connection";
 
 interface ConnectionGuardProps {
   children: ReactNode;

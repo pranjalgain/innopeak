@@ -1,14 +1,22 @@
+import { MESSAGES } from '@common/constants/messages.constants';
 import { RouteNames } from '@common/route-names';
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
 import { firstValueFrom, of } from 'rxjs';
 
 import { TransformInterceptor } from './transform.interceptor';
 
+import { messagesDe } from '../common/i18n/messages.de';
+import { messagesEn } from '../common/i18n/messages.en';
+
 describe('TransformInterceptor', () => {
   let interceptor: TransformInterceptor<unknown>;
 
-  const buildHttpContext = (url: string, statusCode = 200): ExecutionContext => {
-    const request = { url };
+  const buildHttpContext = (
+    url: string,
+    statusCode = 200,
+    headers: Record<string, string> = {}
+  ): ExecutionContext => {
+    const request = { url, headers };
     const response = { statusCode };
 
     return {
@@ -38,6 +46,43 @@ describe('TransformInterceptor', () => {
       message: 'Request successful',
       data: { id: 1, name: 'Ada' },
     });
+  });
+
+  /**
+   * The success-response edge of the "translate at the edge" mechanism: a controller/service
+   * message built from `MESSAGES.X.Y` (a locale-agnostic tag, not rendered text — see
+   * `message-registry.spec.ts`) must come out the other side rendered in whatever locale the
+   * request asked for, without the controller ever knowing a locale exists.
+   */
+  it('renders a MESSAGES-derived message in German when Accept-Language asks for it', async () => {
+    const context = buildHttpContext('/v1/settings', 200, { 'accept-language': 'de' });
+    const callHandler: CallHandler = {
+      handle: () => of({ status: 'Success', message: MESSAGES.SETTINGS.UPDATED, data: null }),
+    };
+
+    const result = await firstValueFrom(interceptor.intercept(context, callHandler));
+
+    expect(result).toMatchObject({ message: messagesDe.SETTINGS.UPDATED });
+  });
+
+  it('renders the same MESSAGES-derived message in English by default (no Accept-Language)', async () => {
+    const context = buildHttpContext('/v1/settings', 200);
+    const callHandler: CallHandler = {
+      handle: () => of({ status: 'Success', message: MESSAGES.SETTINGS.UPDATED, data: null }),
+    };
+
+    const result = await firstValueFrom(interceptor.intercept(context, callHandler));
+
+    expect(result).toMatchObject({ message: messagesEn.SETTINGS.UPDATED });
+  });
+
+  it('renders the default success message (no message on the payload at all) in the resolved locale', async () => {
+    const context = buildHttpContext('/v1/users', 200, { 'accept-language': 'de' });
+    const callHandler: CallHandler = { handle: () => of({ id: 1 }) };
+
+    const result = await firstValueFrom(interceptor.intercept(context, callHandler));
+
+    expect(result).toMatchObject({ message: messagesDe.COMMON.REQUEST_SUCCESSFUL });
   });
 
   it('preserves an explicit statusCode/status/message already present on the payload', async () => {

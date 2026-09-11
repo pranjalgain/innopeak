@@ -12,6 +12,7 @@ export interface DashboardMetrics {
   avgRating: number | null;
   pending: number;
   escalated: number;
+  ratingDistribution: Record<number, number>;
 }
 
 export interface RecentEscalatedRow {
@@ -44,10 +45,11 @@ export class DashboardRepository {
   constructor(private readonly dbService: DBService) {}
 
   /**
-   * Aggregated metrics for the dashboard's stat cards.
+   * Aggregated metrics for the dashboard's stat cards, plus the same window's rating distribution.
    *
-   * `total` and `avgRating` are windowed; `pending` and `escalated` are not — see MetricsDto,
-   * which documents why each card counts what it counts.
+   * `total`, `avgRating` and `ratingDistribution` are windowed; `pending` and `escalated` are not
+   * — see MetricsDto, which documents why each card counts what it counts. Merged into one method
+   * (and one round trip) because every caller wants both for the same `days`/`tenantId` pair.
    */
   async getMetrics(days: number, tenantId: string): Promise<DashboardMetrics> {
     const inWindow = this.windowedTenantReviews(days, tenantId);
@@ -56,7 +58,7 @@ export class DashboardRepository {
       inArray(schema.reviews.status, OPEN_STATUSES)
     );
 
-    const [totalRows, avgRows, pendingRows, escalatedRows] = await Promise.all([
+    const [totalRows, avgRows, pendingRows, escalatedRows, distributionRows] = await Promise.all([
       this.dbService.db.select({ value: count() }).from(schema.reviews).where(inWindow),
       this.dbService.db
         // `::float` is load-bearing: AVG() over an integer column yields `numeric`, which
@@ -71,36 +73,30 @@ export class DashboardRepository {
         .select({ value: count() })
         .from(schema.reviews)
         .where(and(open, eq(schema.reviews.classification, ReviewClassification.ESCALATED))),
+      this.dbService.db
+        .select({ rating: schema.reviews.rating, value: count() })
+        .from(schema.reviews)
+        .where(inWindow)
+        .groupBy(schema.reviews.rating),
     ]);
+
+    // Zero-filled first so every bucket exists even for an empty window — the client renders five
+    // bars unconditionally — then overlaid with the rows that came back.
+    const ratingDistribution: Record<number, number> = {};
+    for (let rating = 1; rating <= 5; rating++) {
+      ratingDistribution[rating] = 0;
+    }
+    for (const row of distributionRows) {
+      ratingDistribution[row.rating] = row.value;
+    }
 
     return {
       total: totalRows[0]?.value ?? 0,
       avgRating: avgRows[0]?.avgRating ?? null,
       pending: pendingRows[0]?.value ?? 0,
       escalated: escalatedRows[0]?.value ?? 0,
+      ratingDistribution,
     };
-  }
-
-  /**
-   * Review counts per star rating for the given window, zero-filled across 1‑5.
-   */
-  async getRatingDistribution(days: number, tenantId: string): Promise<Record<number, number>> {
-    const rows = await this.dbService.db
-      .select({ rating: schema.reviews.rating, value: count() })
-      .from(schema.reviews)
-      .where(this.windowedTenantReviews(days, tenantId))
-      .groupBy(schema.reviews.rating);
-
-    // Zero-filled first so every bucket exists even for an empty window — the client renders five
-    // bars unconditionally — then overlaid with the rows that came back.
-    const result: Record<number, number> = {};
-    for (let rating = 1; rating <= 5; rating++) {
-      result[rating] = 0;
-    }
-    for (const row of rows) {
-      result[row.rating] = row.value;
-    }
-    return result;
   }
 
   /**

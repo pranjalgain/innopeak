@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS users (
     role user_role NOT NULL,
     status user_status NOT NULL,
     anonymized_at TIMESTAMPTZ,
+    -- NULL means "never chose" — that's what makes Accept-Language negotiation legitimate for
+    -- this user. A DEFAULT 'en' would silently pin every existing/self-registered user to English
+    -- instead of letting the request's own header decide.
+    locale user_locale,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

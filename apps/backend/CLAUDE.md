@@ -210,9 +210,13 @@ contract: `apps/documentation/docs/backend/auth/`.
 **Tokens**
 - Access token: JWT, 15 min (`ACCESS_TOKEN_TTL_SECONDS`). Sent both as an httpOnly `access_token`
   cookie (scoped `/`) and in the JSON body, so browsers and `Bearer`-header clients both work
-- Refresh token: opaque random 32 bytes, 7 days, stored only as a sha256 hash in `refresh_tokens`,
-  httpOnly cookie scoped to `/v1/auth`. Single-use rotation on every refresh; a reuse of an
-  already-spent token revokes every refresh token for that user
+- Refresh token: a signed JWT (separate secret) whose sha256 hash is the authoritative record in
+  `refresh_tokens`, 7 days, httpOnly cookie scoped to `/v1/auth`. Single-use rotation on every
+  refresh. Re-presenting an already-spent token is judged by age: within
+  `REFRESH_REUSE_GRACE_SECONDS` it is a lost two-tab race (session preserved); older than that it
+  is treated as reuse of a leaked token and revokes every refresh token for that user. There is no
+  token-family column, so there is no absolute session lifetime — rotation extends the 7-day window
+  indefinitely
 - Every JWT carries a `type` claim (`tenant_user` | `platform_admin` | `refresh`) —
   `JwtStrategy` rejects anything else rather than defaulting to a tenant user
 

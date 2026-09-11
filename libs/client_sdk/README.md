@@ -62,6 +62,7 @@ Class | Method | HTTP request | Description
 *AuthApi* | [**authControllerResendOtpV1**](docs/AuthApi.md#authcontrollerresendotpv1) | **POST** /v1/auth/resend-verification-otp | Resend a verification OTP
 *AuthApi* | [**authControllerSetPasswordV1**](docs/AuthApi.md#authcontrollersetpasswordv1) | **POST** /v1/auth/set-password | Set a password for an account that has never had one
 *AuthApi* | [**authControllerSignupV1**](docs/AuthApi.md#authcontrollersignupv1) | **POST** /v1/auth/signup | Owner self-registration (password path)
+*AuthApi* | [**authControllerUpdateLocaleV1**](docs/AuthApi.md#authcontrollerupdatelocalev1) | **POST** /v1/auth/locale | Set the language responses are rendered in
 *AuthApi* | [**authControllerVerifyEmailV1**](docs/AuthApi.md#authcontrollerverifyemailv1) | **POST** /v1/auth/verify-email | Consume a signup/login verification OTP (password path only)
 *ConnectionsApi* | [**connectionsControllerAuthorizeV1**](docs/ConnectionsApi.md#connectionscontrollerauthorizev1) | **GET** /v1/connections/google/authorize | Start the Google Business Profile grant (302 to consent)
 *ConnectionsApi* | [**connectionsControllerAvailableLocationsV1**](docs/ConnectionsApi.md#connectionscontrolleravailablelocationsv1) | **GET** /v1/connections/google/available-locations | Locations the granted Google account can see (live provider call)
@@ -74,7 +75,6 @@ Class | Method | HTTP request | Description
 *ConnectionsSyncApi* | [**connectionsSyncControllerGetSyncHealthV1**](docs/ConnectionsSyncApi.md#connectionssynccontrollergetsynchealthv1) | **GET** /v1/connections/locations/{locationId}/sync-health | Is ingestion working for this location
 *ConnectionsSyncApi* | [**connectionsSyncControllerListSyncRunsV1**](docs/ConnectionsSyncApi.md#connectionssynccontrollerlistsyncrunsv1) | **GET** /v1/connections/locations/{locationId}/sync-runs | Paginated sync-run history, newest first
 *DashboardApi* | [**dashboardControllerGetMetricsV1**](docs/DashboardApi.md#dashboardcontrollergetmetricsv1) | **GET** /v1/dashboard/metrics | Aggregated metrics for the dashboard stat cards
-*DashboardApi* | [**dashboardControllerGetRatingDistributionV1**](docs/DashboardApi.md#dashboardcontrollergetratingdistributionv1) | **GET** /v1/dashboard/rating-distribution | Review counts per star rating for a time window
 *DashboardApi* | [**dashboardControllerGetRecentEscalatedV1**](docs/DashboardApi.md#dashboardcontrollergetrecentescalatedv1) | **GET** /v1/dashboard/recent-escalated | Most recent escalated reviews still awaiting action
 *PromptsApi* | [**promptsControllerCreateVersionV1**](docs/PromptsApi.md#promptscontrollercreateversionv1) | **POST** /v1/prompts/{promptId}/versions | Append a prompt version
 *PromptsApi* | [**promptsControllerListV1**](docs/PromptsApi.md#promptscontrollerlistv1) | **GET** /v1/prompts | List tenant prompts
@@ -121,7 +121,6 @@ Class | Method | HTTP request | Description
  - [PromptDto](docs/PromptDto.md)
  - [PromptListResponseDto](docs/PromptListResponseDto.md)
  - [PromptVersionDto](docs/PromptVersionDto.md)
- - [RatingDistributionDto](docs/RatingDistributionDto.md)
  - [RecentEscalatedDto](docs/RecentEscalatedDto.md)
  - [ResendOtpDto](docs/ResendOtpDto.md)
  - [ReviewDetailResponseDto](docs/ReviewDetailResponseDto.md)
@@ -137,6 +136,7 @@ Class | Method | HTTP request | Description
  - [SyncRunListResponseDto](docs/SyncRunListResponseDto.md)
  - [TenantSettingsResponseDto](docs/TenantSettingsResponseDto.md)
  - [TokenResponseDto](docs/TokenResponseDto.md)
+ - [UpdateLocaleDto](docs/UpdateLocaleDto.md)
  - [UpdatePromptToneDto](docs/UpdatePromptToneDto.md)
  - [UpdatePromptToneResponseDto](docs/UpdatePromptToneResponseDto.md)
  - [UpdateTenantSettingsDto](docs/UpdateTenantSettingsDto.md)

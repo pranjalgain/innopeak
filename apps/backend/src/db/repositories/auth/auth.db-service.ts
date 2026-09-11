@@ -2,11 +2,12 @@ import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
+import type { Locale } from '@common/i18n/locale';
 import { type DrizzleTransaction } from '@db/db.service';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
 
-import { ActiveRefreshToken, AuthRepository, UserByEmail } from './auth.repository';
+import { AuthRepository, RefreshTokenRow, UserByEmail } from './auth.repository';
 
 import { PromptsRepository } from '../prompts/prompts.repository';
 
@@ -60,6 +61,8 @@ export interface VerifiedUser {
    * account — see AuthService.handleGoogleCallback.
    */
   status: UserStatus;
+  /** Null means "never chose" — see the `locale` column comment in 0002_tenant_auth.sql. */
+  locale: Locale | null;
 }
 
 /**
@@ -194,6 +197,22 @@ export class AuthDbService {
 
         const promoted = await this.authRepository.activateUser(tx, byEmail.id);
         if (promoted) {
+          // Pre-hijack defence, and the reason this branch is not a plain "link and activate".
+          //
+          // A `pending_verification` row's password was typed by whoever ran signup, and nothing
+          // has proven that was the mailbox owner: anyone can sign up as victim@example.com and
+          // simply ignore the OTP that lands in the victim's inbox. Google verifying the address
+          // proves the *mailbox*, not the password — so activating this row with that password
+          // still attached would hand the squatter permanent password access to a tenant the
+          // victim now owns (and, worse, their connected Business Profile), with a business name
+          // they never typed as the only tell.
+          //
+          // The unproven password is therefore dropped along with its outstanding code. The
+          // account works through Google immediately and can adopt a password of its own via
+          // `POST /v1/auth/set-password`, which `hasPassword: false` already drives in Settings.
+          await this.authRepository.clearPasswordHash(tx, byEmail.id);
+          await this.authRepository.deleteVerifyEmailTokensForUser(tx, byEmail.id);
+
           await this.authRepository.activateTenant(tx, byEmail.tenantId);
           // The OTP path provisions here too — an account that never reaches `verifyEmail` would
           // otherwise own a tenant with no prompts.
@@ -204,7 +223,9 @@ export class AuthDbService {
 
       return {
         kind: 'known',
-        user: this.toVerifiedUser(activated ? { ...byEmail, status: UserStatus.ACTIVE } : byEmail),
+        user: this.toVerifiedUser(
+          activated ? { ...byEmail, status: UserStatus.ACTIVE, passwordHash: null } : byEmail
+        ),
       };
     }
 
@@ -262,6 +283,8 @@ export class AuthDbService {
           // A Google signup never sets `password_hash` — there is nothing to hash yet.
           passwordHash: null,
           status: UserStatus.ACTIVE,
+          // A brand new row — nobody has had the chance to choose a locale yet.
+          locale: null,
         };
       });
     } catch (error) {
@@ -281,6 +304,7 @@ export class AuthDbService {
       role: user.role,
       passwordHash: user.passwordHash,
       status: user.status,
+      locale: user.locale,
     };
   }
 
@@ -330,6 +354,7 @@ export class AuthDbService {
         role: user.role,
         passwordHash: user.passwordHash,
         status: UserStatus.ACTIVE,
+        locale: user.locale,
       };
     });
   }
@@ -356,8 +381,9 @@ export class AuthDbService {
     );
   }
 
-  async findActiveRefreshToken(tokenHash: string): Promise<ActiveRefreshToken | null> {
-    return this.authRepository.findActiveRefreshToken(tokenHash);
+  /** See `AuthRepository.findRefreshTokenByHash` — includes already-revoked rows, so reuse of a spent token is distinguishable from a token that never existed. */
+  async findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRow | null> {
+    return this.authRepository.findRefreshTokenByHash(tokenHash);
   }
 
   /** See `AuthRepository.hasActiveRefreshToken` — distinguishes a lost rotation race from a dead session. */
@@ -402,6 +428,13 @@ export class AuthDbService {
       await this.authRepository.updatePasswordHash(tx, { userId, passwordHash });
       await this.authRepository.revokeAllRefreshTokensForUser(tx, userId);
     });
+  }
+
+  /** Settings → Profile's language preference. No session revoke — unlike a password change, a locale is not a security boundary. */
+  async updateLocale(userId: string, locale: Locale): Promise<void> {
+    await this.authRepository.transaction(tx =>
+      this.authRepository.updateLocale(tx, { userId, locale })
+    );
   }
 
   /** Daily housekeeping (CronJobName.AUTH_TOKEN_CLEANUP): drops used/expired verify_email codes and revoked/expired refresh tokens. */
