@@ -1,9 +1,10 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
-import { useTranslations } from "next-intl";
 
+import { getCurrentVersion } from "@/app/_libs/utils/prompt";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,7 +16,6 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 
-import { getCurrentVersion } from "@/app/_libs/utils/prompt";
 import type { AiPrompt } from "@/types/domain";
 
 interface PromptEditorDialogProps {

@@ -1,13 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
 
 import { useSearchParams } from "next/navigation";
 
 import { useTranslations } from "next-intl";
+import { useMemo } from "react";
 
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { AiSettingsSection } from "@/app/(dashboard)/settings/_components/ai-settings-section";
 import { BlocklistSettingsSection } from "@/app/(dashboard)/settings/_components/blocklist-settings-section";
@@ -16,8 +14,9 @@ import { GeneralSettingsSection } from "@/app/(dashboard)/settings/_components/g
 import { MembersSettingsSection } from "@/app/(dashboard)/settings/_components/members-settings-section";
 import { NotificationsSettingsSection } from "@/app/(dashboard)/settings/_components/notifications-settings-section";
 import { ProfileSettingsSection } from "@/app/(dashboard)/settings/_components/profile-settings-section";
-import { AUTH_METHODS } from "@/app/_libs/constants/auth-methods";
-import { FEATURE_FLAGS } from "@/app/_libs/constants/feature-flags";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 import { useSettings } from "@/hooks/settings/use-settings";
 
 function SettingsSkeleton() {
@@ -56,6 +55,13 @@ export function SettingsView() {
     toggleRecipientActive,
     disconnect,
   } = useSettings();
+  // Deliberately NOT part of the loading gate below (nor `settings` itself, which is required):
+  // General/Blocklist/Notifications/Connection/AI need nothing from it, only whether the
+  // Profile/Members tabs are offered does. Gating the whole page on it meant a failed
+  // `GET /v1/settings/platform-config` — which runs with `retry: false` and never recovers on its
+  // own — left every tab permanently stuck on a skeleton. Treating it as "not yet known" (same as
+  // still loading) and simply not offering those two tabs yet degrades far more gracefully.
+  const { data: platformSettings } = usePlatformSettings();
 
   /**
    * `?tab=` selects the initial tab, because the OAuth callback redirects to
@@ -67,13 +73,24 @@ export function SettingsView() {
    * *lands*, and clicking another tab afterwards must not be undone by the URL still saying
    * `connection`.
    */
+  /**
+   * Falls back to "general" not just for an unknown `?tab=`, but also for "profile"/"members"
+   * when that tab isn't actually available (passwordLoginEnabled/inviteMembersEnabled off) —
+   * requesting a tab with no matching `TabsTrigger` would otherwise leave Radix with nothing
+   * selected at all (a blank Settings page), which is exactly what happens if a stale link/bookmark
+   * carries `?tab=profile` from before a Super Admin turned password login off.
+   */
   const requestedTab = searchParams.get("tab");
-  const initialTab = useMemo(
-    () => (TABS.includes(requestedTab as (typeof TABS)[number]) ? requestedTab : "general"),
-    [requestedTab],
-  );
+  const initialTab = useMemo(() => {
+    if (!TABS.includes(requestedTab as (typeof TABS)[number])) return "general";
+    if (requestedTab === "profile" && !platformSettings?.passwordLoginEnabled) return "general";
+    if (requestedTab === "members" && !platformSettings?.inviteMembersEnabled) return "general";
+    return requestedTab;
+  }, [requestedTab, platformSettings?.passwordLoginEnabled, platformSettings?.inviteMembersEnabled]);
 
-  if (isLoading || !settings) return <SettingsSkeleton />;
+  if (isLoading || !settings) {
+    return <SettingsSkeleton />;
+  }
 
   return (
     <div className="p-fluid-page flex flex-col gap-6">
@@ -87,10 +104,10 @@ export function SettingsView() {
       <Tabs key={initialTab} defaultValue={initialTab ?? "general"} className="max-w-3xl gap-5">
         <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
           <TabsTrigger value="general">{t("tabs.general")}</TabsTrigger>
-          {AUTH_METHODS.password ? (
+          {platformSettings?.passwordLoginEnabled ? (
             <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger>
           ) : null}
-          {FEATURE_FLAGS.inviteMembers ? (
+          {platformSettings?.inviteMembersEnabled ? (
             <TabsTrigger value="members">{t("tabs.members")}</TabsTrigger>
           ) : null}
           <TabsTrigger value="blocklist">{t("tabs.blocklist")}</TabsTrigger>
@@ -130,13 +147,13 @@ export function SettingsView() {
           />
         </TabsContent>
 
-        {AUTH_METHODS.password ? (
+        {platformSettings?.passwordLoginEnabled ? (
           <TabsContent value="profile">
             <ProfileSettingsSection />
           </TabsContent>
         ) : null}
 
-        {FEATURE_FLAGS.inviteMembers ? (
+        {platformSettings?.inviteMembersEnabled ? (
           <TabsContent value="members">
             <MembersSettingsSection />
           </TabsContent>

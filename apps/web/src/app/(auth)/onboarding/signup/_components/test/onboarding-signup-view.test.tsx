@@ -1,3 +1,4 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
@@ -5,9 +6,11 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
+import { PlatformSettingsService } from "@/app/_libs/services/platform-settings.service";
+import { createQueryClient } from "@/app/_libs/utils/query-client";
 
-import { OnboardingSignupView } from "../onboarding-signup-view";
 import messages from "../../../../../../../messages/en.json";
+import { OnboardingSignupView } from "../onboarding-signup-view";
 
 const replace = vi.fn();
 
@@ -19,11 +22,15 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+// A fresh QueryClient per render so one test's cached `["platform-settings"]` entry can never
+// leak into the next.
 function renderView() {
   return render(
-    <NextIntlClientProvider locale="en" messages={messages}>
-      <OnboardingSignupView />
-    </NextIntlClientProvider>,
+    <QueryClientProvider client={createQueryClient()}>
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <OnboardingSignupView />
+      </NextIntlClientProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -31,17 +38,27 @@ describe("OnboardingSignupView", () => {
   beforeEach(() => {
     replace.mockClear();
     window.sessionStorage.clear();
+    // SSO-only — matches the platform's own shipped default (see the platform_settings
+    // migration), and is exactly what these tests exercise.
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
+      ssoLoginEnabled: true,
+      passwordLoginEnabled: false,
+      socialLoginEnabled: false,
+      inviteMembersEnabled: false,
+    });
   });
 
-  test("starts on the identity step with SSO only (default AUTH_METHODS), no password/company-name fields", () => {
+  test("starts on the identity step with SSO only (default platform settings), no password/company-name fields", async () => {
     renderView();
 
-    expect(screen.getByRole("button", { name: "Continue with Microsoft" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Continue with Microsoft" }),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Company name")).not.toBeInTheDocument();
 
-    // The SSO-only path (default AUTH_METHODS) is a 2-step stepper — no OTP step.
+    // The SSO-only path (default platform settings) is a 2-step stepper — no OTP step.
     expect(screen.getByText("Create account")).toBeInTheDocument();
     expect(screen.getByText("Connect business profile")).toBeInTheDocument();
     expect(screen.queryByText("Verify email")).not.toBeInTheDocument();
@@ -57,7 +74,7 @@ describe("OnboardingSignupView", () => {
     const user = userEvent.setup();
     renderView();
 
-    await user.click(screen.getByRole("button", { name: "Continue with Microsoft" }));
+    await user.click(await screen.findByRole("button", { name: "Continue with Microsoft" }));
 
     // `waitFor`, because signup itself is async — the handoff happens after it resolves.
     await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
@@ -70,7 +87,7 @@ describe("OnboardingSignupView", () => {
     const user = userEvent.setup();
     renderView();
 
-    await user.click(screen.getByRole("button", { name: "Continue with Microsoft" }));
+    await user.click(await screen.findByRole("button", { name: "Continue with Microsoft" }));
     await waitFor(() => expect(replace).toHaveBeenCalled());
 
     expect(

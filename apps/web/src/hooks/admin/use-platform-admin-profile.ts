@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
+import { ApiError } from "@/app/_libs/services/api-error";
 import { PlatformAdminProfileService } from "@/app/_libs/services/platform-admin-profile.service";
 import type { PlatformAdminProfile } from "@/types/domain";
 
@@ -12,8 +13,12 @@ export const platformAdminProfileQueryKey = ["admin", "platform-admin-profile"] 
 interface UsePlatformAdminProfileResult {
   profile: PlatformAdminProfile | null;
   isLoading: boolean;
+  isError: boolean;
+  refetch: () => void;
   updateAvatar: (avatarUrl: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
+  /** In-flight flag for the change-password request, so the form can block a double submit. */
+  isChangingPassword: boolean;
 }
 
 export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
@@ -64,8 +69,18 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
         await changePasswordMutation.mutateAsync({ currentPassword, newPassword });
         toast.success(t("passwordChanged"));
         return true;
-      } catch {
-        toast.error(t("updateFailed"));
+      } catch (error) {
+        // Same three-way split as the tenant form (`useTenantOwnerProfile`): a 401 here is a wrong
+        // current password, not a dead session — the service sends `skipRefresh` precisely so it
+        // still reaches us as an error instead of signing the admin out. Collapsing all three onto
+        // "Could not save this change" left the one recoverable case looking like a server fault.
+        if (error instanceof ApiError && error.statusCode === 401) {
+          toast.error(t("currentPasswordIncorrect"));
+        } else if (error instanceof ApiError && error.statusCode === 400) {
+          toast.error(error.message);
+        } else {
+          toast.error(t("updateFailed"));
+        }
         return false;
       }
     },
@@ -75,7 +90,10 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
   return {
     profile: profileQuery.data ?? null,
     isLoading: profileQuery.isLoading,
+    isError: profileQuery.isError,
+    refetch: () => void profileQuery.refetch(),
     updateAvatar,
     changePassword,
+    isChangingPassword: changePasswordMutation.isPending,
   };
 }

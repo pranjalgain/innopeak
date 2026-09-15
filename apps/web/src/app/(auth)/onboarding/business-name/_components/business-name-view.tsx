@@ -1,19 +1,19 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useTranslations } from "next-intl";
+import { type FormEvent, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/auth/use-auth";
 
 /**

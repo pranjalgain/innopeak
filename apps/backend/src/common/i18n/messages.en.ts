@@ -101,6 +101,33 @@ export const messagesEn: MessageCatalog = {
     RETRIEVED: 'Settings retrieved successfully',
     UPDATED: 'Settings updated',
     TENANT_SETTINGS_MISSING: 'Tenant settings were not provisioned for this account',
+    PLATFORM_CONFIG_MISSING: 'Platform settings are not configured.',
+  },
+  ADMIN: {
+    ADMIN_ONLY: 'Only a platform admin may perform this action.',
+    USER_NOT_FOUND: 'User not found.',
+    USER_STATUS_UPDATED: 'User status updated.',
+    BUSINESS_NOT_FOUND: 'Business not found.',
+    BUSINESS_STATUS_UPDATED: 'Business status updated.',
+    AVATAR_UPDATED: 'Avatar updated.',
+    PASSWORD_CHANGED: 'Password changed.',
+    INVITE_SENT: 'Invite sent.',
+    INVITE_REVOKED: 'Invite revoked.',
+    INVITE_NOT_FOUND: 'Invite not found.',
+    INVITE_NOT_REVOCABLE: 'This invite has already been accepted or is no longer pending.',
+    EMAIL_ALREADY_INVITED: 'This email is already a platform admin or has a pending invite.',
+    EMAIL_BELONGS_TO_TENANT_USER:
+      'This email already belongs to a business account and cannot be invited as a platform admin.',
+    PLATFORM_SETTINGS_UPDATED: 'Platform settings updated.',
+    PLATFORM_SETTINGS_NO_METHOD_ENABLED:
+      'At least one sign-in method (SSO, email/password, or Google) must stay enabled.',
+    ADMIN_NOT_FOUND: 'Platform admin not found.',
+    CANNOT_DISABLE_SELF: 'You cannot disable your own admin account.',
+    CANNOT_DISABLE_LAST_ADMIN: 'At least one platform admin must stay active.',
+    CANNOT_DISABLE_INVITED:
+      'This admin has not accepted their invite yet — revoke the invite instead.',
+    ADMIN_DISABLED: 'Admin disabled.',
+    ADMIN_ENABLED: 'Admin enabled.',
   },
   COMMON: {
     SUCCESS: 'Success',

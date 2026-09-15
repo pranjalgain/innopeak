@@ -1,8 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { useRouter } from "next/navigation";
 
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
 import type { OnboardingStep } from "@/app/(auth)/onboarding/_components/onboarding-step.types";

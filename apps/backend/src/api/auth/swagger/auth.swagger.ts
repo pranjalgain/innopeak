@@ -6,6 +6,7 @@ import { ChangePasswordDto } from '../dto/change-password.dto';
 import { CompleteGoogleSignupDto } from '../dto/complete-google-signup.dto';
 import type { LoginPendingVerificationDto } from '../dto/login-response.dto';
 import { LoginDto } from '../dto/login.dto';
+import type { PlatformAdminTokenResponseDto } from '../dto/platform-admin-token-response.dto';
 import { ResendOtpDto } from '../dto/resend-otp.dto';
 import { SetPasswordDto } from '../dto/set-password.dto';
 import { SignupResponseDto } from '../dto/signup-response.dto';
@@ -164,7 +165,7 @@ export function ApiUpdateLocale(): ReturnType<typeof applyDecorators> {
         "its `locale` claim immediately — this tab's own requests read the new language right " +
         'away rather than waiting for the access token to expire and refresh. Deliberately does ' +
         'not touch the refresh token (unlike change-password/set-password): a locale preference ' +
-        'is not proof of anything beyond what the caller\'s existing access token already ' +
+        "is not proof of anything beyond what the caller's existing access token already " +
         'proves, so this must not be usable to mint a fresh 7-day refresh token from one. ' +
         'Another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user ' +
         'tokens only.',
@@ -353,12 +354,18 @@ export function ApiLogin(): ReturnType<typeof applyDecorators> {
     ApiOperation({
       summary: 'Password login',
       description:
-        'A still-`pending_verification` account is not an error here: credentials are checked ' +
-        'first, and on success a fresh OTP is sent and a `pending_verification` result is ' +
-        'returned instead of tokens — the frontend renders the same OTP stepper the signup ' +
-        'wizard uses. `disabled`/`suspended` accounts still fail with 403. On the active-account ' +
-        'success path, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to ' +
-        '`/v1/auth`), never in the JSON body.',
+        'One endpoint for both a tenant user and a platform admin — there is no separate sign-in ' +
+        'screen, so this resolves which identity space the email belongs to itself, checking ' +
+        "`platform_admins` first (see `AuthService.login`'s own doc comment for why that " +
+        'identity always wins over a same-email tenant account). A still-`pending_verification` ' +
+        'tenant account is not an error here: credentials are checked first, and on success a ' +
+        'fresh OTP is sent and a `pending_verification` result is returned instead of tokens — ' +
+        'the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` ' +
+        'accounts still fail with 403. On a tenant success, the refresh token is set as an ' +
+        'httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a ' +
+        'platform-admin success, only the `access_token` cookie is set — see ' +
+        '`TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh ' +
+        'token yet.',
     }),
     ApiBody({
       type: LoginDto,
@@ -372,10 +379,13 @@ export function ApiLogin(): ReturnType<typeof applyDecorators> {
     ApiResponse({
       status: 200,
       description:
-        'Either a full token pair, or a pending_verification result (see LoginPendingVerificationDto).',
+        'A full tenant token pair, a pending_verification result (see ' +
+        'LoginPendingVerificationDto), or a platform-admin token (see ' +
+        'PlatformAdminTokenResponseDto) — the frontend tells them apart by which of `user`/' +
+        '`status`/`admin` the body carries.',
       type: TokenResponseDto,
       examples: {
-        success: { summary: 'Active account', value: TOKEN_RESPONSE_EXAMPLE },
+        success: { summary: 'Active tenant account', value: TOKEN_RESPONSE_EXAMPLE },
         pendingVerification: {
           summary: 'Still pending verification',
           value: {
@@ -383,6 +393,14 @@ export function ApiLogin(): ReturnType<typeof applyDecorators> {
             email: 'jane@thecoffeehouse.com',
             message: 'Verification code sent to jane@thecoffeehouse.com',
           } satisfies LoginPendingVerificationDto,
+        },
+        platformAdmin: {
+          summary: 'Platform admin',
+          value: {
+            accessToken: 'eyJhbGciOiJIUzI1NiIs...',
+            expiresIn: 900,
+            admin: { id: '0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f', email: 'admin@innopeak.com' },
+          } satisfies PlatformAdminTokenResponseDto,
         },
       },
     }),

@@ -1,14 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
+import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 import {
   type CreateAccountFields,
@@ -20,6 +17,9 @@ import {
   passwordMeetsRequirements,
   PasswordRequirementsList,
 } from "@/components/common/password-requirements-list";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 /** The signup payload. Deliberately narrower than the form's fields — `confirmPassword` is UI-only. */
 export interface CreateAccountFormValues {

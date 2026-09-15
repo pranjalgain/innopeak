@@ -9,6 +9,9 @@ export enum RouteNames {
   PROMPTS = 'prompts',
   SETTINGS = 'settings',
   BLOCKLIST_TERMS = 'blocklist-terms',
+  // Public (no auth) — read-only, reused as a nested segment under RouteNames.ADMIN_SETTINGS too
+  // for the platform-admin write side of the same resource.
+  PLATFORM_CONFIG = 'platform-config',
   API_DOCS = 'api',
   TRACING = 'tracing',
 
@@ -45,6 +48,30 @@ export enum RouteNames {
   // METRICS above) now also carries the rating distribution, so there is no separate segment for
   // it any more.
   DASHBOARD_RECENT_ESCALATED = 'recent-escalated',
+
+  // Admin module (Super Admin area) — every route here is gated by
+  // @Roles(JwtTokenType.PLATFORM_ADMIN), never a tenant-scoped route.
+  ADMIN_USERS = 'admin/users',
+  ADMIN_USER_TOGGLE_ACTIVE = ':userId/toggle-active',
+  ADMIN_BUSINESSES = 'admin/businesses',
+  ADMIN_BUSINESS_STATUS = ':tenantId/status',
+  ADMIN_SETTINGS = 'admin/settings',
+  ADMIN_SETTINGS_PROFILE = 'profile',
+  ADMIN_SETTINGS_PROFILE_AVATAR = 'profile/avatar',
+  ADMIN_SETTINGS_CHANGE_PASSWORD = 'profile/change-password',
+  ADMIN_SETTINGS_INVITES = 'invites',
+  ADMIN_SETTINGS_INVITE_BY_ID = 'invites/:inviteId',
+  ADMIN_SETTINGS_ADMIN_STATUS = 'admins/:adminId/status',
+  // Deliberately the same slug as PLATFORM_CONFIG above: one resource, two routes — the public
+  // read at `/v1/settings/platform-config` and the platform-admin write nested under
+  // `/v1/admin/settings/`. Kept as its own member rather than reusing PLATFORM_CONFIG so the two
+  // can diverge without silently repointing the other, which is exactly what the rule below
+  // cannot distinguish from a copy-paste mistake.
+  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
+  ADMIN_SETTINGS_PLATFORM_CONFIG = 'platform-config',
+  ADMIN_OVERVIEW = 'admin/overview',
+  ADMIN_OVERVIEW_REVIEW_STATS = 'review-stats',
+  ADMIN_OVERVIEW_ACTIVITY = 'activity',
 
   TEST = 'test',
   CUSTOM = 'custom',

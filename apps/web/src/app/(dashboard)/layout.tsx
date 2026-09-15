@@ -7,7 +7,6 @@ import { ConnectionGuard } from "@/app/(dashboard)/_components/connection-guard"
 import { NAV_ITEMS } from "@/app/(dashboard)/_components/nav-items";
 import { RequireAuth } from "@/app/_components/require-auth";
 import { ShellSkeleton } from "@/app/_components/shell-skeleton";
-import { AUTH_METHODS } from "@/app/_libs/constants/auth-methods";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { storedDisplayName } from "@/app/_libs/services/tenant-owner-profile.service";
 import { getInitials } from "@/app/_libs/utils/initials";
@@ -42,12 +41,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           navItems={NAV_ITEMS}
           navNamespace="nav"
           homeHref={ROUTES.DASHBOARD}
-          // Deep-links to the Profile tab only when it actually renders: `settings-view` gates
-          // that tab on AUTH_METHODS.password, and `?tab=profile` with no matching trigger left
-          // Radix with nothing selected — an empty Settings page.
-          profileHref={
-            AUTH_METHODS.password ? `${ROUTES.SETTINGS}?tab=profile` : ROUTES.SETTINGS
-          }
+          // Always deep-links to `?tab=profile` — whether that tab actually renders depends on
+          // `usePlatformSettings()`'s passwordLoginEnabled, which is async and would otherwise
+          // make this href depend on a query that may not have resolved yet by the time someone
+          // clicks it (a real race on a fresh tab, not just theoretical — it used to fall back to
+          // plain ROUTES.SETTINGS while loading, silently landing on the wrong tab). `settings-view`
+          // itself now falls back to "general" if `?tab=profile` arrives but the tab isn't
+          // available, so there's no "empty Settings page" risk either way.
+          profileHref={`${ROUTES.SETTINGS}?tab=profile`}
           identity={{
             // Storage is the optimistic value only until `GET /v1/auth/me` answers: the shell
             // paints on first render and a blank name there is more jarring than a stale one.

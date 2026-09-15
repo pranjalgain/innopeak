@@ -223,15 +223,22 @@ export interface Notification {
   reviewId?: string;
 }
 
-export type BusinessPlan = "starter" | "growth" | "scale";
 export type BusinessStatus = "active" | "suspended";
+
+/** Mirrors the real `google_connection_status` enum, flattened with a `disconnected` case for "no connection row exists yet" (see the connections module plan). */
+export type BusinessConnectionStatus =
+  | "connected"
+  | "needs_reauth"
+  | "disconnected"
+  /** Signed up but never finished onboarding — distinct from having lost a working connection. */
+  | "never_connected";
 
 /** A tenant as seen from the Super Admin area — "business" is this area's user-facing term for a tenant; distinct from `Tenant`, which models the current business from inside its own dashboard. */
 export interface AdminBusiness {
   id: string;
   name: string;
-  plan: BusinessPlan;
   status: BusinessStatus;
+  connectionStatus: BusinessConnectionStatus;
   ownerName: string;
   ownerEmail: string;
   userCount: number;
@@ -271,20 +278,48 @@ export interface PlatformAdminInvite {
   email: string;
   status: PlatformAdminStatus;
   invitedAt: string;
-  expiresAt: string;
-}
-
-export interface BusinessBillingInfo {
-  businessId: string;
-  businessName: string;
-  plan: BusinessPlan;
-  mrr: number;
-  reviewsThisMonth: number;
-  status: BusinessStatus;
+  /** When a pending invite lapses. `null` for an admin that was never invited (the seeded root) —
+   * only meaningful, and only read, while `status === "invited"`. */
+  expiresAt: string | null;
 }
 
 /** Platform-wide review throughput, aggregated across every tenant — shown on the Super Admin overview. */
 export interface PlatformReviewStats {
   totalReviewsFetched: number;
   totalRepliesSent: number;
+}
+
+/**
+ * Platform-wide feature settings — a single row (`apps/backend`'s `platform_settings` table),
+ * not per-tenant. Which login methods the sign-in/sign-up screens offer, and whether a tenant
+ * owner's Settings > Members tab can send invites. Replaces what used to be build-time
+ * `NEXT_PUBLIC_*` env vars: a Super Admin now changes these at runtime from Admin Settings, and
+ * every visitor (including a signed-out one on the login screen) reads the current value from
+ * `GET /v1/settings/platform-config`.
+ */
+export interface PlatformSettings {
+  ssoLoginEnabled: boolean;
+  passwordLoginEnabled: boolean;
+  socialLoginEnabled: boolean;
+  inviteMembersEnabled: boolean;
+}
+
+/** A platform-admin action worth surfacing on the Super Admin overview's activity feed. */
+export type PlatformActivityType =
+  | "business_suspended"
+  | "business_reactivated"
+  | "admin_invite_sent"
+  | "admin_invite_revoked"
+  | "user_activated"
+  | "user_deactivated";
+
+export interface PlatformActivityEntry {
+  id: string;
+  type: PlatformActivityType;
+  actorEmail: string;
+  /** The business a `business_*` entry acted on. */
+  businessName?: string;
+  /** The email an `admin_invite_*` (invitee) or `user_*` (the tenant user) entry acted on. */
+  email?: string;
+  occurredAt: string;
 }

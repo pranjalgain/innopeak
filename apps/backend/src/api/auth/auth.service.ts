@@ -6,6 +6,7 @@ import { HashingService } from '@common/hashing/hashing.service';
 import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
+import type { PlatformAdminByEmail } from '@db/repositories/auth/auth.repository';
 import {
   BadRequestException,
   ConflictException,
@@ -26,6 +27,8 @@ import { AuthenticatedUserDto } from './dto/authenticated-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginPendingVerificationDto } from './dto/login-response.dto';
 import { LoginDto } from './dto/login.dto';
+import { PlatformAdminSummaryDto } from './dto/platform-admin-summary.dto';
+import { PlatformAdminTokenResponseDto } from './dto/platform-admin-token-response.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { SignupResponseDto } from './dto/signup-response.dto';
@@ -36,6 +39,7 @@ import { UpdateLocaleDto } from './dto/update-locale.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { OAuthIntent } from './enums/oauth-intent.enum';
+import { PlatformAdminStatus } from './enums/platform-admin-status.enum';
 import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
@@ -65,6 +69,17 @@ export type GoogleCallbackOutcome =
 export interface TokenIssuanceResult {
   body: TokenResponseDto;
   refreshToken: string;
+}
+
+/**
+ * Login's platform-admin branch. Structurally distinct from both `TokenIssuanceResult` (no
+ * `refreshToken` field — see `TokenService.signPlatformAdminAccessToken`) and
+ * `LoginPendingVerificationDto` (no `body`/`admin` field), so `AuthController.login` can tell all
+ * three apart with a plain `in` check, the same way it already does for the other two.
+ */
+export interface PlatformAdminLoginResult {
+  admin: true;
+  body: PlatformAdminTokenResponseDto;
 }
 
 @Injectable()
@@ -98,8 +113,38 @@ export class AuthService {
     return this.decoyHash;
   }
 
+  /**
+   * Refuses a tenant signup for an email that already belongs to a *loggable-in* platform admin.
+   * The mirror of the guard `AdminSettingsService.sendInvite` applies in the other direction —
+   * together they keep the two identity tables disjoint for any admin who can actually
+   * authenticate, which matters because `login` has to resolve an email to exactly one of them.
+   *
+   * Deliberately keyed on `passwordHash` being set, not merely a row existing: an `invited` admin
+   * (no password yet — see `PlatformAdminByEmail`'s own comment) has no accept-invite flow to ever
+   * turn that row into a real, loggable-in identity (`AdminSettingsService.sendInvite`'s own
+   * comment notes this is still unbuilt). Rejecting signup for that email anyway made an invited
+   * address a dead end with no way in at all: it could not accept the invite, could not sign up as
+   * a tenant (this guard), and could not log in either (`login` falls through a null-hash admin
+   * row to the tenant path, which then has no user to find). Scoping this to a real password
+   * preserves the actual invariant this guard protects — no email resolves to two authenticatable
+   * identities — without also blocking the one path that email has left.
+   *
+   * Deliberately the same generic `EMAIL_ALREADY_REGISTERED` a duplicate tenant email gets: a
+   * distinct "that address belongs to a platform admin" would turn public signup into an oracle
+   * for enumerating admin addresses, which is the last set of addresses worth leaking.
+   */
+  private async assertEmailNotAPlatformAdmin(email: string): Promise<void> {
+    const admin = await this.authDbService.findPlatformAdminForLogin(email);
+    if (admin?.passwordHash) {
+      throw new ConflictException(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+    }
+  }
+
   async signup(dto: SignupDto): Promise<SignupResponseDto> {
     const email = normalizeEmail(dto.email);
+
+    await this.assertEmailNotAPlatformAdmin(email);
+
     const passwordHash = await this.hashingService.hash(dto.password);
     const rawOtp = this.verifyEmailTokenProvider.generate();
 
@@ -152,8 +197,18 @@ export class AuthService {
    * Order matters: credentials are checked *before* branching on status, so `pending_verification`
    * is only revealed to someone who already proved they know the password — not to anyone who
    * merely knows the email exists.
+   *
+   * One shared endpoint for every principal type — the frontend has a single sign-in screen with
+   * no "I'm an admin" toggle, so this has to resolve which identity space an email belongs to
+   * itself rather than being told in advance. `platform_admins` is checked first and, if it
+   * matches, owns the request exclusively: nothing stops the same email also existing as a tenant
+   * user (`signup` never checks the admin table), and a self-service tenant signup must never be
+   * able to shadow a deliberately-provisioned admin identity — so a colliding tenant account for
+   * that email is simply never consulted, not merely deprioritized.
    */
-  async login(dto: LoginDto): Promise<LoginPendingVerificationDto | TokenIssuanceResult> {
+  async login(
+    dto: LoginDto
+  ): Promise<LoginPendingVerificationDto | PlatformAdminLoginResult | TokenIssuanceResult> {
     const email = normalizeEmail(dto.email);
 
     // Per-account ceiling, checked before any DB work. The per-IP throttle on this route does not
@@ -165,6 +220,21 @@ export class AuthService {
     if (await this.loginAttemptService.isLockedOut(email)) {
       await this.hashingService.compare(dto.password, await this.decoyPasswordHash());
       throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CREDENTIALS);
+    }
+
+    // `platform_admins` is resolved first, but only for a row that could actually authenticate.
+    // A NULL `password_hash` means an invite nobody has accepted (nothing sets one until they do —
+    // see `AdminSettingsService.sendInvite`), and such a row can never succeed here: the branch
+    // below always rejects it. Letting it claim the email anyway meant an invited address was
+    // permanently shadowed — sign up as a tenant, verify by OTP, get a live account, and then
+    // every login 401s forever against an admin row that cannot log in either. Falling through
+    // leaves that person their real tenant account, and costs the admin side nothing.
+    //
+    // Timing parity is preserved: whichever branch runs pays for exactly one bcrypt compare, the
+    // tenant one against the decoy when no user matches.
+    const admin = await this.authDbService.findPlatformAdminForLogin(email);
+    if (admin?.passwordHash) {
+      return this.platformAdminLogin(email, dto.password, admin);
     }
 
     const user = await this.authDbService.findUserForLogin(email);
@@ -525,6 +595,8 @@ export class AuthService {
       throw new BadRequestException(MESSAGES.AUTH.GOOGLE_PENDING_SIGNUP_EXPIRED);
     }
 
+    await this.assertEmailNotAPlatformAdmin(normalizeEmail(pending.identity.email));
+
     const user = await this.authDbService.completeGoogleSignup({
       providerUserId: pending.identity.providerUserId,
       email: pending.identity.email,
@@ -539,6 +611,52 @@ export class AuthService {
     }
 
     return this.buildTokenIssuanceResult(user);
+  }
+
+  /**
+   * The platform-admin branch of `login`, split out for readability. Same timing discipline as
+   * the tenant branch below it: the bcrypt compare always runs, so a wrong password resolves in
+   * the same amount of time and with the same generic message as any other failure.
+   *
+   * Only reached for an admin that has a `password_hash` — the caller routes a NULL-hash row (an
+   * unaccepted invite) to the tenant path instead, for the reason documented there. The
+   * `!admin.passwordHash` arm below is therefore defensive, kept so this stays correct on its own
+   * terms if it is ever called from somewhere else, and the decoy keeps that arm constant-time.
+   */
+  private async platformAdminLogin(
+    email: string,
+    password: string,
+    admin: PlatformAdminByEmail
+  ): Promise<PlatformAdminLoginResult> {
+    const passwordMatches = await this.hashingService.compare(
+      password,
+      admin.passwordHash ?? (await this.decoyPasswordHash())
+    );
+
+    if (!admin.passwordHash || !passwordMatches) {
+      await this.loginAttemptService.recordFailure(email);
+      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CREDENTIALS);
+    }
+
+    await this.loginAttemptService.reset(email);
+
+    // `invited` (no password yet) already failed the check above; only `disabled` reaches here.
+    if (admin.status === PlatformAdminStatus.DISABLED) {
+      throw new ForbiddenException(MESSAGES.AUTH.ACCOUNT_DISABLED);
+    }
+
+    const { accessToken, expiresIn } = this.tokenService.signPlatformAdminAccessToken(admin);
+
+    const summary = new PlatformAdminSummaryDto();
+    summary.id = admin.id;
+    summary.email = admin.email;
+
+    const body = new PlatformAdminTokenResponseDto();
+    body.accessToken = accessToken;
+    body.expiresIn = expiresIn;
+    body.admin = summary;
+
+    return { admin: true, body };
   }
 
   /**

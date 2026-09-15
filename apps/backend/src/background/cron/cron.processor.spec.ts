@@ -56,7 +56,7 @@ describe('CronProcessor', () => {
     it('dispatches AUTH_TOKEN_CLEANUP jobs to CronService.purgeStaleAuthTokens and awaits it', async () => {
       const job = buildJob({
         name: CronJobName.AUTH_TOKEN_CLEANUP,
-        data: { jobType: CronJobName.AUTH_TOKEN_CLEANUP } as ICronJob,
+        data: { jobType: CronJobName.AUTH_TOKEN_CLEANUP },
       });
 
       await processor.process(job);
@@ -69,7 +69,7 @@ describe('CronProcessor', () => {
     it('dispatches REVIEW_SYNC_POLL jobs to CronService.pollDueLocations and awaits it', async () => {
       const job = buildJob({
         name: CronJobName.REVIEW_SYNC_POLL,
-        data: { jobType: CronJobName.REVIEW_SYNC_POLL } as ICronJob,
+        data: { jobType: CronJobName.REVIEW_SYNC_POLL },
       });
 
       await processor.process(job);
@@ -81,7 +81,7 @@ describe('CronProcessor', () => {
     it('dispatches REVIEWER_RETENTION_PURGE jobs to CronService.purgeExpiredReviewerPii and awaits it', async () => {
       const job = buildJob({
         name: CronJobName.REVIEWER_RETENTION_PURGE,
-        data: { jobType: CronJobName.REVIEWER_RETENTION_PURGE } as ICronJob,
+        data: { jobType: CronJobName.REVIEWER_RETENTION_PURGE },
       });
 
       await processor.process(job);

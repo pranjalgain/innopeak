@@ -73,6 +73,35 @@ export interface MessageCatalog {
     RETRIEVED: string;
     UPDATED: string;
     TENANT_SETTINGS_MISSING: string;
+    /** Should never fire in practice — the migration seeds `platform_settings` unconditionally
+     *  and its id is CHECK-constrained to exactly 1 row. */
+    PLATFORM_CONFIG_MISSING: string;
+  };
+  ADMIN: {
+    /** `requirePlatformAdmin`'s failure case — should never fire in practice, since every admin
+     *  route is already gated by `@Roles(JwtTokenType.PLATFORM_ADMIN)`. */
+    ADMIN_ONLY: string;
+    USER_NOT_FOUND: string;
+    USER_STATUS_UPDATED: string;
+    BUSINESS_NOT_FOUND: string;
+    BUSINESS_STATUS_UPDATED: string;
+    AVATAR_UPDATED: string;
+    PASSWORD_CHANGED: string;
+    INVITE_SENT: string;
+    INVITE_REVOKED: string;
+    INVITE_NOT_FOUND: string;
+    INVITE_NOT_REVOCABLE: string;
+    EMAIL_ALREADY_INVITED: string;
+    EMAIL_BELONGS_TO_TENANT_USER: string;
+    PLATFORM_SETTINGS_UPDATED: string;
+    /** `sso`/`password`/`social` would all end up false — see `AdminSettingsService.updatePlatformSettings`'s own comment for why this is rejected outright rather than merely discouraged. */
+    PLATFORM_SETTINGS_NO_METHOD_ENABLED: string;
+    ADMIN_NOT_FOUND: string;
+    CANNOT_DISABLE_SELF: string;
+    CANNOT_DISABLE_LAST_ADMIN: string;
+    CANNOT_DISABLE_INVITED: string;
+    ADMIN_DISABLED: string;
+    ADMIN_ENABLED: string;
   };
   COMMON: {
     /** `ResponseUtil.success`'s default message when a controller passes none. */

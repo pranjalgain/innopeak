@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { describe, expect, test, vi } from "vitest";
 
-import { PasswordAuthForm } from "../password-auth-form";
 import messages from "../../../../../messages/en.json";
+import { PasswordAuthForm } from "../password-auth-form";
 
 function renderForm(onSubmit = vi.fn()) {
   render(

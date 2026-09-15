@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS platform_admins (
     password_hash VARCHAR(255),
     invited_by_platform_admin_id UUID REFERENCES platform_admins(id) ON DELETE SET NULL,
     status platform_admin_status NOT NULL,
+    -- Nullable, no default: Settings' Profile tab shows the InnoPeak logo/an initial until an
+    -- admin uploads one, same as a tenant owner with no avatar today.
+    avatar_url VARCHAR(2048),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

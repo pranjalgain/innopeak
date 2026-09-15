@@ -118,7 +118,7 @@ export class ErrorHandlerService {
   }
 
   private asResponseCarryingError(error: unknown): ResponseCarryingError | undefined {
-    return error instanceof Error ? (error as ResponseCarryingError) : undefined;
+    return error instanceof Error ? error : undefined;
   }
 
   private extractMessage(error: unknown): string | undefined {
@@ -180,7 +180,7 @@ export class ErrorHandlerService {
 
   private handleHttpClientError(error: HttpClientError, context: string): ApiResponse<null> {
     this.logger.warn(`${error.name} in ${context}: ${error.message}`);
-    return this.createErrorResponse(error.statusCode as HttpStatus, error.message, context, error);
+    return this.createErrorResponse(error.statusCode, error.message, context, error);
   }
 
   private handleSocialAuthError(error: ResponseCarryingError, context: string): ApiResponse<null> {

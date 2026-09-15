@@ -2,19 +2,39 @@ import { Configuration } from "@innopeak/client-sdk";
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 
 import { ApiError } from "@/app/_libs/services/api-error";
+import { SessionService } from "@/app/_libs/services/session.service";
 import { TokenService } from "@/app/_libs/services/token.service";
 
 // Every generated `*Api` class in `@innopeak/client-sdk` falls back to the global `axios` default
 // export whenever its `Configuration` doesn't carry an explicit instance — that's what lets ONE
 // pair of interceptors installed here cover every SDK call, without threading an axios instance
 // through each `api-sdk/*.ts` file.
+interface InnopeakRequestOptions {
+  /** Skip attaching the stored access token as a Bearer header — for public routes (login, signup, refresh itself, etc). */
+  authOptional?: boolean;
+  /** Never attempt the refresh-and-retry dance on a 401 from this request. Load-bearing for the refresh call itself (would otherwise recurse) and for change/set-password, where a wrong current password is also a 401 that must not be mistaken for an expired access token. */
+  skipRefresh?: boolean;
+}
+
+// Both interfaces are augmented: the generated SDK methods type their options param as
+// `RawAxiosRequestConfig`, while the interceptors below see `AxiosRequestConfig`/`Internal...`.
+// Up to axios 1.12 augmenting `AxiosRequestConfig` alone flowed into `RawAxiosRequestConfig`;
+// 1.16+ decoupled them, so both must be extended explicitly or the SDK call sites stop compiling.
+// Augment only `AxiosRequestConfig`, and match its exact arity. As of axios 1.16+ it is
+// `AxiosRequestConfig<D = any, P = any>` (two params) — an augmentation with a different number of
+// type parameters declares a *separate* interface and silently fails to merge, which is why the
+// SDK call sites stopped compiling after the bump. `RawAxiosRequestConfig` (what the generated SDK
+// methods take) and `InternalAxiosRequestConfig` (what the interceptors see) both resolve to
+// `AxiosRequestConfig` — the former is now a type alias for it, the latter extends it — so this one
+// augmentation covers every call site. Don't augment `RawAxiosRequestConfig`: it's a type alias,
+// which cannot be reopened.
 declare module "axios" {
-  export interface AxiosRequestConfig {
-    /** Skip attaching the stored access token as a Bearer header — for public routes (login, signup, refresh itself, etc). */
-    authOptional?: boolean;
-    /** Never attempt the refresh-and-retry dance on a 401 from this request. Load-bearing for the refresh call itself (would otherwise recurse) and for change/set-password, where a wrong current password is also a 401 that must not be mistaken for an expired access token. */
-    skipRefresh?: boolean;
-  }
+  // Empty body, unused `D`/`P`, and `any` are all required here, not oversights: this interface
+  // exists purely to merge into axios's own declaration, so its type parameter list must match
+  // axios's `AxiosRequestConfig<D = any, P = any>` byte-for-byte (see the comment above) or the
+  // merge silently creates a separate, non-merging interface instead.
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type, @typescript-eslint/no-explicit-any, unused-imports/no-unused-vars
+  export interface AxiosRequestConfig<D = any, P = any> extends InnopeakRequestOptions {}
 }
 
 /**
@@ -191,6 +211,12 @@ function installApiInterceptors(): void {
           return axios(config);
         }
         TokenService.clear();
+        // The role is stored separately from the tokens, so clearing only the latter left a dead
+        // session still claiming "super_admin" — enough for `AdminGuard` to keep rendering the
+        // whole admin area while every request inside it 401'd. A platform admin has no refresh
+        // token at all (see `TokenService.signPlatformAdminAccessToken` on the backend), so this
+        // path is exactly what their 15-minute session expiry runs through.
+        SessionService.clear();
       }
 
       const data = error.response?.data as { message?: string; error?: string } | undefined;

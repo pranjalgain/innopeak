@@ -163,12 +163,12 @@ export class PromptsService {
         typeof current === 'object' &&
         current !== null &&
         'code' in current &&
-        (current as { code: unknown }).code === '23505'
+        current.code === '23505'
       ) {
         return true;
       }
       if (typeof current === 'object' && current !== null && 'cause' in current) {
-        current = (current as { cause: unknown }).cause;
+        current = current.cause;
         continue;
       }
       return false;

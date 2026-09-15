@@ -20,7 +20,11 @@ import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
-import { RefreshJwtPayload, TenantJwtPayload } from './types/jwt-payload.type';
+import {
+  PlatformAdminJwtPayload,
+  RefreshJwtPayload,
+  TenantJwtPayload,
+} from './types/jwt-payload.type';
 import { TokenResponse } from './types/token-response.type';
 import { hashToken } from './utils/token.utils';
 
@@ -32,6 +36,11 @@ export interface TokenSubject {
   /** Embedded in the access token so locale resolution never needs a per-request DB lookup — see
    * `resolveLocale`'s call sites. Null means "never chose", same as the `users.locale` column. */
   locale: Locale | null;
+}
+
+export interface PlatformAdminTokenSubject {
+  id: string;
+  email: string;
 }
 
 /** A signed pair plus what `refresh_tokens` needs to record it — separated from persisting so `rotate` can commit the insert atomically with the revoke. */
@@ -104,7 +113,7 @@ export class TokenService {
     const payload = this.verifyRefreshToken(rawRefreshToken);
 
     const existing = await this.authDbService.findRefreshTokenByHash(hashToken(rawRefreshToken));
-    if (!existing || existing.userId !== payload.sub) {
+    if (existing?.userId !== payload.sub) {
       // No row at all: revoked-and-purged, expired, or a DB reset took it. Nothing to infer, and
       // the session is genuinely gone. The JWT's signature already verified, so `payload.sub` is
       // trustworthy enough to ask whether this user still holds a live session somewhere.
@@ -246,6 +255,25 @@ export class TokenService {
    */
   reissueAccessToken(user: TokenSubject): { accessToken: string; expiresIn: number } {
     return { accessToken: this.signAccessToken(user), expiresIn: ACCESS_TOKEN_TTL_SECONDS };
+  }
+
+  /**
+   * Access-token only, same as `reissueAccessToken` and for the same reason — no `refresh_tokens`
+   * row exists for this principal type at all yet (that table's `user_id` FKs to `users`, not
+   * `platform_admins`), so there is nothing to rotate. A platform admin simply re-authenticates
+   * with `login` once this token's 15-minute TTL lapses. Worth revisiting if admin sessions turn
+   * out to need to outlive that without repeated logins.
+   */
+  signPlatformAdminAccessToken(admin: PlatformAdminTokenSubject): {
+    accessToken: string;
+    expiresIn: number;
+  } {
+    const payload: PlatformAdminJwtPayload = {
+      sub: admin.id,
+      email: admin.email,
+      type: JwtTokenType.PLATFORM_ADMIN,
+    };
+    return { accessToken: this.jwtService.sign(payload), expiresIn: ACCESS_TOKEN_TTL_SECONDS };
   }
 
   /** Pure signing, no I/O — `expiresIn` is the *access* token's lifetime (what the client schedules its refresh around), not the refresh token's. */

@@ -1,6 +1,6 @@
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
-import type { Span, Tracer } from '@opentelemetry/api';
+import type { Span } from '@opentelemetry/api';
 import { OtelService } from '@otel/otel.service';
 
 import { TracingController } from './tracing.controller';
@@ -37,7 +37,7 @@ describe('TracingController', () => {
     };
 
     otelService = {
-      getTracer: jest.fn().mockReturnValue(tracer as unknown as Tracer),
+      getTracer: jest.fn().mockReturnValue(tracer),
       isActive: jest.fn(),
     };
 

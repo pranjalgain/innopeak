@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 
-import { SUPPORTED_LOCALES } from "../locales";
 import de from "../../../messages/de.json";
 import en from "../../../messages/en.json";
+import { SUPPORTED_LOCALES } from "../locales";
 
 /**
  * Flattens nested message objects (and arrays, which `marketing.trustBar.items` etc.

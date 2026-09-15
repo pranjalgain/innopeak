@@ -124,7 +124,6 @@
     "overview": "Overview",
     "businesses": "Businesses",
     "users": "Users",
-    "billing": "Billing",
     "settings": "Settings"
   },
   "appShell": {
@@ -161,7 +160,9 @@
       "google": "Google",
       "orDivider": "or",
       "noAccount": "Don't have an account?",
-      "signUp": "Sign up"
+      "signUp": "Sign up",
+      "ssoUnavailable": "Couldn't check for additional sign-in options.",
+      "ssoUnavailableRetry": "Try again"
     },
     "passwordMock": {
       "emailLabel": "Email",
@@ -610,9 +611,43 @@
     "stats": {
       "businesses": "Businesses",
       "users": "Users",
-      "mrr": "MRR",
       "reviewsFetched": "Reviews fetched",
       "repliesSent": "Replies sent"
+    },
+    "needsAttention": {
+      "title": "Needs attention",
+      "subtitle": "Businesses with a Google Business Profile connection issue",
+      "empty": "Nothing needs attention right now.",
+      "viewAll": "View all businesses →",
+      "statuses": {
+        "needs_reauth": "Needs reauth",
+        "disconnected": "Disconnected",
+        "never_connected": "Never connected"
+      }
+    },
+    "recentBusinesses": {
+      "title": "Recent businesses",
+      "subtitle": "The newest businesses to sign up",
+      "empty": "No businesses yet.",
+      "viewAll": "View all businesses →"
+    },
+    "signupTrend": {
+      "title": "Signups",
+      "subtitle": "New businesses by month",
+      "empty": "No signups yet."
+    },
+    "activityLog": {
+      "title": "Activity",
+      "subtitle": "Recent platform admin actions",
+      "empty": "No activity yet.",
+      "messages": {
+        "business_suspended": "Suspended {businessName}",
+        "business_reactivated": "Reactivated {businessName}",
+        "admin_invite_sent": "Invited {email} as a platform admin",
+        "admin_invite_revoked": "Revoked the invite for {email}",
+        "user_activated": "Reactivated {email} at {businessName}",
+        "user_deactivated": "Deactivated {email} at {businessName}"
+      }
     },
     "toasts": {
       "loadFailed": "Could not load the overview."
@@ -622,17 +657,11 @@
     "resultCount": "{count, plural, one {# business} other {# businesses}}",
     "columns": {
       "name": "Business",
-      "plan": "Plan",
       "status": "Status",
       "owner": "Owner",
       "users": "Users",
       "created": "Created",
       "actions": "Actions"
-    },
-    "plan": {
-      "starter": "Starter",
-      "growth": "Growth",
-      "scale": "Scale"
     },
     "status": {
       "active": "Active",
@@ -700,7 +729,8 @@
   "adminSettings": {
     "tabs": {
       "profile": "Profile",
-      "members": "Members"
+      "members": "Members",
+      "platform": "Platform"
     },
     "profile": {
       "title": "Your profile",
@@ -708,14 +738,18 @@
       "changePicture": "Change picture",
       "emailLabel": "Email",
       "changePasswordTitle": "Change password",
+      "changePasswordDescription": "Update the password used to sign in to your super admin account.",
+      "changePassword": "Change password",
       "currentPasswordLabel": "Current password",
       "newPasswordLabel": "New password",
       "confirmPasswordLabel": "Confirm new password",
       "updatePassword": "Update password",
       "passwordMismatch": "New password and confirmation don't match.",
+      "cancel": "Cancel",
       "toasts": {
         "loadFailed": "Could not load your profile.",
         "updateFailed": "Could not save this change. Please try again.",
+        "currentPasswordIncorrect": "Current password is incorrect.",
         "avatarUpdated": "Profile picture updated.",
         "passwordChanged": "Password changed."
       },
@@ -754,29 +788,44 @@
         "sendFailed": "Could not send this invite. Please try again.",
         "sent": "Invite sent to {email}.",
         "revokeFailed": "Could not revoke this invite. Please try again.",
-        "revoked": "Invite revoked."
+        "revoked": "Invite revoked.",
+        "adminDisabled": "Admin disabled.",
+        "adminEnabled": "Admin enabled.",
+        "updateFailed": "Could not update this admin. Please try again."
       },
       "errors": {
         "emailInvalid": "Enter a valid email address to invite."
+      },
+      "disable": "Disable",
+      "enable": "Enable",
+      "confirmDisable": {
+        "title": "Disable {email}?",
+        "description": "They will lose access on their next request and cannot sign in until re-enabled."
       }
-    }
-  },
-  "adminBilling": {
-    "resultCount": "{count, plural, one {# business} other {# businesses}}",
-    "totalMrr": "Total MRR",
-    "columns": {
-      "business": "Business",
-      "plan": "Plan",
-      "mrr": "MRR",
-      "reviewsThisMonth": "Reviews this month",
-      "status": "Status"
     },
-    "emptyState": {
-      "title": "No billing data yet",
-      "description": "Billing details will show up here once businesses are on a paid plan."
-    },
-    "toasts": {
-      "loadFailed": "Could not load billing data."
+    "platform": {
+      "title": "Platform settings",
+      "description": "Which sign-in methods are offered, and whether tenants can invite teammates. Changes apply immediately, everywhere.",
+      "sso": {
+        "label": "Microsoft SSO",
+        "helper": "Offer \"Continue with Microsoft\" on the sign-in and sign-up screens."
+      },
+      "password": {
+        "label": "Email & password",
+        "helper": "Offer email/password for tenant sign-up and password management — existing password sign-in is always available."
+      },
+      "social": {
+        "label": "Google sign-in",
+        "helper": "Offer \"Continue with Google\" on the sign-in and sign-up screens."
+      },
+      "inviteMembers": {
+        "label": "Invite teammates",
+        "helper": "Let a tenant owner invite teammates from their own Settings > Members tab."
+      },
+      "toasts": {
+        "updated": "Platform settings updated.",
+        "updateFailed": "Could not save this change. Please try again."
+      }
     }
   },
   "common": {
@@ -815,6 +864,11 @@
       "in_review": "In Review",
       "responded": "Responded",
       "dismissed": "Dismissed"
+    },
+    "loadError": {
+      "title": "Couldn't load this",
+      "description": "Something went wrong on our side. This isn't an empty list — try again in a moment.",
+      "retry": "Try again"
     }
   }
 }

@@ -51,7 +51,7 @@ describe('OtelService', () => {
         OtelService,
         {
           provide: ConfigService,
-          useValue: { get: configGetMock } as unknown as ConfigService,
+          useValue: { get: configGetMock },
         },
       ],
     }).compile();

@@ -6,6 +6,7 @@ import { LuUsers } from "react-icons/lu";
 import { cn } from "@/app/_libs/utils/cn";
 import { getInitials } from "@/app/_libs/utils/initials";
 import { ConfirmActionDialog } from "@/components/common/confirm-action-dialog";
+import { LoadErrorState } from "@/components/common/load-error-state";
 import { Pagination } from "@/components/common/pagination";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -102,17 +103,23 @@ export function AdminUsersView() {
   const tRole = useTranslations("adminUsers.role");
   const tStatus = useTranslations("adminUsers.status");
   const format = useFormatter();
-  const { users, isLoading, toggleActive } = useAdminUsers();
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(users, 4);
+  const { users, isLoading, isError, refetch, toggleActive } = useAdminUsers();
+  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(users, 10);
 
   const toggle = (id: string) => void toggleActive(id);
 
   return (
     <div className="flex min-h-full flex-col gap-6 p-fluid-page">
-      <p className="text-sm text-muted-foreground">{t("resultCount", { count: users.length })}</p>
+      {/* See the Businesses screen's twin comment — a count rendered during load or after a
+          failure reads as a real answer of zero. */}
+      {isLoading || isError ? null : (
+        <p className="text-sm text-muted-foreground">{t("resultCount", { count: users.length })}</p>
+      )}
 
       {isLoading ? (
         <AdminUsersSkeleton />
+      ) : isError ? (
+        <LoadErrorState onRetry={refetch} />
       ) : users.length === 0 ? (
         <AdminUsersEmptyState />
       ) : (

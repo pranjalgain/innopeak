@@ -99,6 +99,35 @@ export const messagesDe: MessageCatalog = {
     RETRIEVED: 'Einstellungen erfolgreich abgerufen',
     UPDATED: 'Einstellungen aktualisiert',
     TENANT_SETTINGS_MISSING: 'Für dieses Konto wurden keine Mandanteneinstellungen eingerichtet',
+    PLATFORM_CONFIG_MISSING: 'Die Plattformeinstellungen sind nicht konfiguriert.',
+  },
+  ADMIN: {
+    ADMIN_ONLY: 'Nur ein Plattform-Administrator kann diese Aktion ausführen.',
+    USER_NOT_FOUND: 'Benutzer nicht gefunden.',
+    USER_STATUS_UPDATED: 'Benutzerstatus aktualisiert.',
+    BUSINESS_NOT_FOUND: 'Unternehmen nicht gefunden.',
+    BUSINESS_STATUS_UPDATED: 'Unternehmensstatus aktualisiert.',
+    AVATAR_UPDATED: 'Avatar aktualisiert.',
+    PASSWORD_CHANGED: 'Passwort geändert.',
+    INVITE_SENT: 'Einladung gesendet.',
+    INVITE_REVOKED: 'Einladung widerrufen.',
+    INVITE_NOT_FOUND: 'Einladung nicht gefunden.',
+    INVITE_NOT_REVOCABLE:
+      'Diese Einladung wurde bereits angenommen oder ist nicht mehr ausstehend.',
+    EMAIL_ALREADY_INVITED:
+      'Diese E-Mail-Adresse ist bereits ein Plattform-Administrator oder hat eine ausstehende Einladung.',
+    EMAIL_BELONGS_TO_TENANT_USER:
+      'Diese E-Mail-Adresse gehört bereits zu einem Unternehmenskonto und kann nicht als Plattform-Administrator eingeladen werden.',
+    PLATFORM_SETTINGS_UPDATED: 'Plattformeinstellungen aktualisiert.',
+    PLATFORM_SETTINGS_NO_METHOD_ENABLED:
+      'Mindestens eine Anmeldemethode (SSO, E-Mail/Passwort oder Google) muss aktiviert bleiben.',
+    ADMIN_NOT_FOUND: 'Plattform-Administrator nicht gefunden.',
+    CANNOT_DISABLE_SELF: 'Sie können Ihr eigenes Administratorkonto nicht deaktivieren.',
+    CANNOT_DISABLE_LAST_ADMIN: 'Mindestens ein Plattform-Administrator muss aktiv bleiben.',
+    CANNOT_DISABLE_INVITED:
+      'Dieser Administrator hat seine Einladung noch nicht angenommen — widerrufen Sie stattdessen die Einladung.',
+    ADMIN_DISABLED: 'Administrator deaktiviert.',
+    ADMIN_ENABLED: 'Administrator aktiviert.',
   },
   COMMON: {
     SUCCESS: 'Erfolgreich',

@@ -1,34 +1,43 @@
 "use client";
 
-import { useState } from "react";
 
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useTranslations } from "next-intl";
+import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
 
 import { AuthDivider } from "@/app/(auth)/_components/auth-divider";
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
 import { PasswordAuthForm } from "@/app/(auth)/_components/password-auth-form";
 import { SocialAuthButtons } from "@/app/(auth)/_components/social-auth-buttons";
 import { OtpVerificationStage } from "@/app/(auth)/onboarding/signup/_components/otp-verification-stage";
-import { AUTH_METHODS } from "@/app/_libs/constants/auth-methods";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/auth/use-auth";
 import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { useOtpVerification } from "@/hooks/auth/use-otp-verification";
+import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 
 type LoginStep = "credentials" | "otp";
 
 /**
- * Login screen — which methods render is env-gated via `AUTH_METHODS`
- * (`NEXT_PUBLIC_AUTH_*_ENABLED`) so different configurations can be tested
- * without a code change. Microsoft SSO is the only one enabled by default,
- * matching `innopeak-design.html`'s Login artboard.
+ * Login screen — the password form is always available, unconditionally, regardless of the
+ * platform's ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled settings. Those settings
+ * gate only the SSO/social *buttons* below it. This is deliberate, not an oversight: a platform
+ * admin has no SSO identity at all (`platform_admin_identities` exists in the schema but no
+ * login path uses it yet — password is the *only* way an admin can authenticate today), and this
+ * shared screen is the one place both tenant and admin credentials are submitted — the backend
+ * decides which after the fact (`AuthService.login` checks `platform_admins` first). Gating the
+ * password field itself behind `passwordLoginEnabled`, as an earlier version of this screen did,
+ * meant a Super Admin disabling "Email & password" from Admin Settings locked every admin —
+ * including themselves — out of the UI with no way back in, since SSO/social were never wired up
+ * for admins to fall back on. SSO/social are optional conveniences layered on top of password,
+ * which every tenant owner and every admin is guaranteed to have; password is the one credential
+ * this system cannot treat as optional without a real admin-SSO path to replace it first.
  *
  * The password path can land on a still-`pending_verification` account —
  * the backend resends a fresh OTP and reports that instead of erroring, so
@@ -49,10 +58,25 @@ export function LoginView() {
   const router = useRouter();
   const { loginWithPassword, startGoogleLogin, verifySignupOtp, resendSignupOtp, isLoading } =
     useAuth();
+  const {
+    data: platformSettings,
+    isError: platformSettingsError,
+    refetch: refetchPlatformSettings,
+  } = usePlatformSettings();
   const [step, setStep] = useState<LoginStep>("credentials");
   const [pendingEmail, setPendingEmail] = useState("");
 
-  const bothSsoLike = AUTH_METHODS.sso && AUTH_METHODS.social;
+  // Defaults to hidden while `platformSettings` is still loading — these are additive
+  // conveniences, so popping in a beat after the (always-present) password form is a non-issue,
+  // unlike blocking the whole screen on this fetch the way an earlier version did. A *failed*
+  // fetch (retry: false, never recovers on its own) defaults the same way, which is the one case
+  // worth a visible retry rather than just quietly staying hidden below: an SSO-only tenant has no
+  // password, so a persistently-hidden SSO button is that tenant's only way in going dark with no
+  // explanation. See the retry affordance rendered for `platformSettingsError` below.
+  const ssoEnabled = platformSettings?.ssoLoginEnabled ?? false;
+  const socialEnabled = platformSettings?.socialLoginEnabled ?? false;
+  const bothSsoLike = ssoEnabled && socialEnabled;
+  const anySsoLike = ssoEnabled || socialEnabled;
 
   const handlePasswordSubmit = async (email: string, password: string) => {
     const result = await loginWithPassword(email, password);
@@ -61,6 +85,11 @@ export function LoginView() {
     if (result.kind === "verify_needed") {
       setPendingEmail(result.email);
       setStep("otp");
+      return;
+    }
+
+    if (result.kind === "admin_success") {
+      router.push(ROUTES.ADMIN);
       return;
     }
 
@@ -82,54 +111,64 @@ export function LoginView() {
       <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page border-border bg-card shadow-elevated ease-fluid w-full max-w-[420px] rounded-xl border duration-500">
         {step === "credentials" ? (
           <>
-            <h1 className="text-gradient mb-2 text-center text-xl font-semibold">{t("title")}</h1>
-            <p className="text-muted-foreground mb-7 text-center text-sm">{t("subtitle")}</p>
+            <h1 className="text-gradient mb-7 text-center text-xl font-semibold">{t("title")}</h1>
 
-            {AUTH_METHODS.password ? (
-              <PasswordAuthForm
-                isLoading={isLoading}
-                onSubmit={(email, password) => void handlePasswordSubmit(email, password)}
-              />
-            ) : null}
+            <PasswordAuthForm
+              isLoading={isLoading}
+              onSubmit={(email, password) => void handlePasswordSubmit(email, password)}
+            />
 
-            {AUTH_METHODS.password && (AUTH_METHODS.sso || AUTH_METHODS.social) ? (
-              <AuthDivider label={t("orDivider")} />
-            ) : null}
-
-            {bothSsoLike ? (
-              <div className="grid grid-cols-2 gap-3">
-                <Button asChild variant="outline" size="block">
-                  <Link href={ROUTES.LOGIN_MICROSOFT}>
-                    <MicrosoftLogo />
-                    {t("microsoft")}
-                  </Link>
-                </Button>
-                <SocialAuthButtons
-                  isLoading={isLoading}
-                  onGoogleClick={startGoogleLogin}
-                  label={t("google")}
-                />
-              </div>
-            ) : (
+            {anySsoLike ? (
               <>
-                {AUTH_METHODS.sso ? (
-                  <Button asChild variant="outline" size="block">
-                    <Link href={ROUTES.LOGIN_MICROSOFT}>
-                      <MicrosoftLogo />
-                      {t("continueWithMicrosoft")}
-                    </Link>
-                  </Button>
-                ) : null}
+                <AuthDivider label={t("orDivider")} />
 
-                {AUTH_METHODS.social ? (
-                  <SocialAuthButtons
-                    isLoading={isLoading}
-                    onGoogleClick={startGoogleLogin}
-                    label={t("continueWithGoogle")}
-                  />
-                ) : null}
+                {bothSsoLike ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button asChild variant="outline" size="block">
+                      <Link href={ROUTES.LOGIN_MICROSOFT}>
+                        <MicrosoftLogo />
+                        {t("microsoft")}
+                      </Link>
+                    </Button>
+                    <SocialAuthButtons
+                      isLoading={isLoading}
+                      onGoogleClick={startGoogleLogin}
+                      label={t("google")}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    {ssoEnabled ? (
+                      <Button asChild variant="outline" size="block">
+                        <Link href={ROUTES.LOGIN_MICROSOFT}>
+                          <MicrosoftLogo />
+                          {t("continueWithMicrosoft")}
+                        </Link>
+                      </Button>
+                    ) : null}
+
+                    {socialEnabled ? (
+                      <SocialAuthButtons
+                        isLoading={isLoading}
+                        onGoogleClick={startGoogleLogin}
+                        label={t("continueWithGoogle")}
+                      />
+                    ) : null}
+                  </>
+                )}
               </>
-            )}
+            ) : platformSettingsError ? (
+              <div className="mt-6 flex flex-col items-center gap-2 text-center">
+                <p className="text-muted-foreground text-[13px]">{t("ssoUnavailable")}</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void refetchPlatformSettings()}>
+                  {t("ssoUnavailableRetry")}
+                </Button>
+              </div>
+            ) : null}
 
             <div className="text-muted-foreground mt-6 text-center text-sm">
               {t("noAccount")}{" "}

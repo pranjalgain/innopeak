@@ -38,6 +38,8 @@ import type { CreateBlocklistTermDto } from '../models';
 // @ts-ignore
 import type { DeleteBlocklistTermResponseDto } from '../models';
 // @ts-ignore
+import type { PlatformSettingsResponseDto } from '../models';
+// @ts-ignore
 import type { TenantSettingsResponseDto } from '../models';
 // @ts-ignore
 import type { UpdateTenantSettingsDto } from '../models';
@@ -187,6 +189,47 @@ export const SettingsApiAxiosParamCreator = function (
       // authentication bearer required
       // http bearer authentication required
       await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Public — no auth required. Which login methods the sign-in/sign-up screens offer, and whether a tenant Settings > Members tab can send invites. Read-only here; a Super Admin changes these from Admin Settings (PATCH /v1/admin/settings/platform-config).
+     * @summary Get platform-wide feature settings
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    platformSettingsControllerGetV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/settings/platform-config`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
 
       localVarHeaderParameter['Accept'] = 'application/json';
 
@@ -415,6 +458,37 @@ export const SettingsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Public — no auth required. Which login methods the sign-in/sign-up screens offer, and whether a tenant Settings > Members tab can send invites. Read-only here; a Super Admin changes these from Admin Settings (PATCH /v1/admin/settings/platform-config).
+     * @summary Get platform-wide feature settings
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async platformSettingsControllerGetV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<PlatformSettingsResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.platformSettingsControllerGetV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['SettingsApi.platformSettingsControllerGetV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Owner-only. Reads the tenant_settings singleton. 404 if the signup transaction never wrote the row.
      * @summary Get tenant settings
      * @param {*} [options] Override http request option.
@@ -537,6 +611,19 @@ export const SettingsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Public — no auth required. Which login methods the sign-in/sign-up screens offer, and whether a tenant Settings > Members tab can send invites. Read-only here; a Super Admin changes these from Admin Settings (PATCH /v1/admin/settings/platform-config).
+     * @summary Get platform-wide feature settings
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    platformSettingsControllerGetV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<PlatformSettingsResponseDto> {
+      return localVarFp
+        .platformSettingsControllerGetV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Owner-only. Reads the tenant_settings singleton. 404 if the signup transaction never wrote the row.
      * @summary Get tenant settings
      * @param {*} [options] Override http request option.
@@ -607,6 +694,16 @@ export interface SettingsApiInterface {
     requestParameters: SettingsApiBlocklistTermsControllerRemoveV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<DeleteBlocklistTermResponseDto>;
+
+  /**
+   * Public — no auth required. Which login methods the sign-in/sign-up screens offer, and whether a tenant Settings > Members tab can send invites. Read-only here; a Super Admin changes these from Admin Settings (PATCH /v1/admin/settings/platform-config).
+   * @summary Get platform-wide feature settings
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  platformSettingsControllerGetV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<PlatformSettingsResponseDto>;
 
   /**
    * Owner-only. Reads the tenant_settings singleton. 404 if the signup transaction never wrote the row.
@@ -700,6 +797,18 @@ export class SettingsApi extends BaseAPI implements SettingsApiInterface {
   ) {
     return SettingsApiFp(this.configuration)
       .blocklistTermsControllerRemoveV1(requestParameters.id, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Public — no auth required. Which login methods the sign-in/sign-up screens offer, and whether a tenant Settings > Members tab can send invites. Read-only here; a Super Admin changes these from Admin Settings (PATCH /v1/admin/settings/platform-config).
+   * @summary Get platform-wide feature settings
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public platformSettingsControllerGetV1(options?: RawAxiosRequestConfig) {
+    return SettingsApiFp(this.configuration)
+      .platformSettingsControllerGetV1(options)
       .then((request) => request(this.axios, this.basePath));
   }
 

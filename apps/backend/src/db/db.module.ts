@@ -3,11 +3,21 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 // Repositories — centralized data access layer
+import { AdminBusinessesDbService } from './repositories/admin-businesses/admin-businesses.db-service';
+import { AdminBusinessesRepository } from './repositories/admin-businesses/admin-businesses.repository';
+import { AdminOverviewDbService } from './repositories/admin-overview/admin-overview.db-service';
+import { AdminOverviewRepository } from './repositories/admin-overview/admin-overview.repository';
+import { AdminUsersDbService } from './repositories/admin-users/admin-users.db-service';
+import { AdminUsersRepository } from './repositories/admin-users/admin-users.repository';
 import { AuthDbService } from './repositories/auth/auth.db-service';
 import { AuthRepository } from './repositories/auth/auth.repository';
 import { ConnectionsDbService } from './repositories/connections/connections.db-service';
 import { ConnectionsRepository } from './repositories/connections/connections.repository';
 import { DashboardRepository } from './repositories/dashboard/dashboard.repository';
+import { PlatformAdminDbService } from './repositories/platform-admin/platform-admin.db-service';
+import { PlatformAdminRepository } from './repositories/platform-admin/platform-admin.repository';
+import { PlatformSettingsDbService } from './repositories/platform-settings/platform-settings.db-service';
+import { PlatformSettingsRepository } from './repositories/platform-settings/platform-settings.repository';
 import { PromptsDbService } from './repositories/prompts/prompts.db-service';
 import { PromptsRepository } from './repositories/prompts/prompts.repository';
 import { ReviewPipelineDbService } from './repositories/review-pipeline/review-pipeline.db-service';
@@ -33,6 +43,16 @@ const repositories = [
   SettingsDbService,
   DashboardRepository,
   ReviewPipelineDbService,
+  AdminUsersRepository,
+  AdminUsersDbService,
+  AdminBusinessesRepository,
+  AdminBusinessesDbService,
+  AdminOverviewRepository,
+  AdminOverviewDbService,
+  PlatformAdminRepository,
+  PlatformAdminDbService,
+  PlatformSettingsRepository,
+  PlatformSettingsDbService,
 ];
 
 @Global()

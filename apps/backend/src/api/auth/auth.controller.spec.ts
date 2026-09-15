@@ -10,9 +10,9 @@ import {
   REFRESH_TOKEN_COOKIE_NAME,
   SESSION_HINT_COOKIE_NAME,
 } from './constants/auth.constants';
-import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { UserRole } from './enums/user-role.enum';
+import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import type { TenantAuthUser } from './types/auth-user.type';
 
 function mockResponse(): Response {
@@ -200,5 +200,123 @@ describe('AuthController.updateLocale', () => {
     );
     expect(res.cookie).toHaveBeenCalledTimes(1);
     expect(res.clearCookie).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthController.login', () => {
+  let controller: AuthController;
+  const login = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [{ provide: AuthService, useValue: { login } }],
+    }).compile();
+
+    controller = moduleRef.get(AuthController);
+  });
+
+  it('sets all three session cookies on a tenant login', async () => {
+    login.mockResolvedValue({
+      refreshToken: 'new-refresh-token',
+      body: {
+        accessToken: 'new-access-token',
+        expiresIn: 900,
+        user: {},
+        hasConnectedBusiness: false,
+      },
+    });
+    const res = mockResponse();
+
+    await controller.login({ email: 'jane@thecoffeehouse.com', password: 'x' }, res);
+
+    expect(res.cookie).toHaveBeenCalledWith(
+      REFRESH_TOKEN_COOKIE_NAME,
+      'new-refresh-token',
+      expect.anything()
+    );
+    expect(res.cookie).toHaveBeenCalledWith(
+      ACCESS_TOKEN_COOKIE_NAME,
+      'new-access-token',
+      expect.anything()
+    );
+  });
+
+  it('sets no cookies at all for a pending_verification result', async () => {
+    login.mockResolvedValue({
+      status: 'pending_verification',
+      email: 'jane@thecoffeehouse.com',
+      message: 'Verification code sent',
+    });
+    const res = mockResponse();
+
+    await controller.login({ email: 'jane@thecoffeehouse.com', password: 'x' }, res);
+
+    expect(res.cookie).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Regression target: a platform-admin login must never set the refresh-token or session-hint
+   * cookies — there is no refresh-token concept for this principal type yet (see
+   * `TokenService.signPlatformAdminAccessToken`), and setting `session` would tell the frontend's
+   * edge middleware a tenant-shaped session exists when it does not.
+   */
+  it('sets only the access token cookie for a platform-admin login', async () => {
+    login.mockResolvedValue({
+      admin: true,
+      body: {
+        accessToken: 'admin-access-token',
+        expiresIn: 900,
+        admin: { id: 'admin-1', email: 'admin@innopeak.com' },
+      },
+    });
+    const res = mockResponse();
+
+    await controller.login({ email: 'admin@innopeak.com', password: 'x' }, res);
+
+    expect(res.cookie).toHaveBeenCalledWith(
+      ACCESS_TOKEN_COOKIE_NAME,
+      'admin-access-token',
+      expect.anything()
+    );
+    expect(res.cookie).not.toHaveBeenCalledWith(
+      REFRESH_TOKEN_COOKIE_NAME,
+      expect.anything(),
+      expect.anything()
+    );
+    expect(res.cookie).not.toHaveBeenCalledWith(
+      SESSION_HINT_COOKIE_NAME,
+      expect.anything(),
+      expect.anything()
+    );
+    expect(res.cookie).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Regression target: a browser can carry a *previous tenant user's* still-live `refresh_token`
+   * cookie into an admin login — the tenant simply closed their tab, and the cookie's 7-day
+   * lifetime at `Path=/v1/auth` easily outlasts that. Only setting `access_token` (as this branch
+   * used to) left that cookie standing, so the admin's own token expiring 15 minutes later
+   * triggered the ordinary `/v1/auth/refresh` flow against the *leftover tenant* cookie, silently
+   * converting the admin's session into that tenant's. The admin branch must clear it explicitly,
+   * since it never sets a refresh token of its own to overwrite it with.
+   */
+  it('clears a leftover tenant refresh-token/session cookie on a platform-admin login', async () => {
+    login.mockResolvedValue({
+      admin: true,
+      body: {
+        accessToken: 'admin-access-token',
+        expiresIn: 900,
+        admin: { id: 'admin-1', email: 'admin@innopeak.com' },
+      },
+    });
+    const res = mockResponse();
+
+    await controller.login({ email: 'admin@innopeak.com', password: 'x' }, res);
+
+    expect(res.clearCookie).toHaveBeenCalledWith(REFRESH_TOKEN_COOKIE_NAME, expect.anything());
+    expect(res.clearCookie).toHaveBeenCalledWith(SESSION_HINT_COOKIE_NAME, expect.anything());
   });
 });

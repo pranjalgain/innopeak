@@ -5,6 +5,7 @@ import { LuBuilding2 } from "react-icons/lu";
 
 import { cn } from "@/app/_libs/utils/cn";
 import { ConfirmActionDialog } from "@/components/common/confirm-action-dialog";
+import { LoadErrorState } from "@/components/common/load-error-state";
 import { Pagination } from "@/components/common/pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -104,20 +105,28 @@ function BusinessActionButton({ business, onSuspend, onReactivate, className }: 
 export function AdminBusinessesView() {
   const t = useTranslations("adminBusinesses");
   const tStatus = useTranslations("adminBusinesses.status");
-  const tPlan = useTranslations("adminBusinesses.plan");
   const format = useFormatter();
-  const { businesses, isLoading, suspendBusiness, reactivateBusiness } = useAdminBusinesses();
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(businesses, 4);
+  const { businesses, isLoading, isError, refetch, suspendBusiness, reactivateBusiness } =
+    useAdminBusinesses();
+  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(businesses, 10);
 
   const suspend = (id: string) => void suspendBusiness(id);
   const reactivate = (id: string) => void reactivateBusiness(id);
 
   return (
     <div className="flex min-h-full flex-col gap-6 p-fluid-page">
-      <p className="text-sm text-muted-foreground">{t("resultCount", { count: businesses.length })}</p>
+      {/* Hidden while loading or failed: rendering it unconditionally meant every visit flashed
+          "0 businesses" over the skeleton, and an outage claimed a confident count of zero. */}
+      {isLoading || isError ? null : (
+        <p className="text-sm text-muted-foreground">
+          {t("resultCount", { count: businesses.length })}
+        </p>
+      )}
 
       {isLoading ? (
         <AdminBusinessesSkeleton />
+      ) : isError ? (
+        <LoadErrorState onRetry={refetch} />
       ) : businesses.length === 0 ? (
         <AdminBusinessesEmptyState />
       ) : (
@@ -128,7 +137,6 @@ export function AdminBusinessesView() {
               <TableHeader>
                 <TableRow className="bg-muted/55 hover:bg-muted/55">
                   <TableHead>{t("columns.name")}</TableHead>
-                  <TableHead className="w-32">{t("columns.plan")}</TableHead>
                   <TableHead className="w-32">{t("columns.status")}</TableHead>
                   <TableHead className="w-44">{t("columns.owner")}</TableHead>
                   <TableHead className="w-24">{t("columns.users")}</TableHead>
@@ -144,9 +152,6 @@ export function AdminBusinessesView() {
                     style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
                   >
                     <TableCell className="font-medium whitespace-normal">{business.name}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{tPlan(business.plan)}</Badge>
-                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className={STATUS_BADGE_CLASSNAME[business.status]}>
                         {tStatus(business.status)}
@@ -182,10 +187,6 @@ export function AdminBusinessesView() {
                 </div>
 
                 <p className="text-[13px] text-muted-foreground">{business.ownerName}</p>
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant="outline">{tPlan(business.plan)}</Badge>
-                </div>
 
                 <div className="flex items-center justify-between border-t border-border pt-2.5 text-[13px]">
                   <span className="text-muted-foreground">{t("columns.users")}</span>

@@ -115,6 +115,29 @@ describe('TokenService', () => {
     });
   });
 
+  describe('signPlatformAdminAccessToken', () => {
+    it('signs a payload JwtStrategy will accept as a platform admin — no refresh token, no DB write', () => {
+      jwtService.sign.mockReturnValueOnce('admin-access-token');
+
+      const result = target.signPlatformAdminAccessToken({
+        id: 'admin-1',
+        email: 'admin@innopeak.com',
+      });
+
+      expect(result).toEqual({
+        accessToken: 'admin-access-token',
+        expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+      });
+      expect(jwtService.sign).toHaveBeenCalledTimes(1);
+      expect(jwtService.sign).toHaveBeenCalledWith({
+        sub: 'admin-1',
+        email: 'admin@innopeak.com',
+        type: JwtTokenType.PLATFORM_ADMIN,
+      });
+      expect(authDbService.insertRefreshToken).not.toHaveBeenCalled();
+    });
+  });
+
   describe('rotate', () => {
     it('rejects a token that fails JWT verification', async () => {
       jwtService.verify.mockImplementation(() => {

@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useState } from "react";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useTranslations } from "next-intl";
+import { useCallback, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+
 
 import { AuthDivider } from "@/app/(auth)/_components/auth-divider";
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
@@ -19,13 +19,16 @@ import {
   type CreateAccountFormValues,
 } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
 import { OtpVerificationStage } from "@/app/(auth)/onboarding/signup/_components/otp-verification-stage";
-import { AUTH_METHODS } from "@/app/_libs/constants/auth-methods";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
+import { LoadErrorState } from "@/components/common/load-error-state";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/auth/use-auth";
 import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { useOtpVerification } from "@/hooks/auth/use-otp-verification";
+import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 
 /** Steps 1-2 only. Step 3 ("connect") lives on its own route — see `handOffToConnect`. */
 type SignupStep = Extract<OnboardingStep, "identity" | "otp">;
@@ -60,11 +63,22 @@ export function OnboardingSignupView() {
     resendSignupOtp,
     isLoading,
   } = useAuth();
+  const {
+    data: platformSettings,
+    isLoading: platformSettingsLoading,
+    isError: platformSettingsError,
+    refetch: refetchPlatformSettings,
+  } = usePlatformSettings();
   const [step, setStep] = useState<SignupStep>("identity");
   const [viaPassword, setViaPassword] = useState(false);
   const [signupEmail, setSignupEmail] = useState("");
 
-  const bothSsoLike = AUTH_METHODS.sso && AUTH_METHODS.social;
+  const authMethods = {
+    sso: platformSettings?.ssoLoginEnabled ?? false,
+    password: platformSettings?.passwordLoginEnabled ?? false,
+    social: platformSettings?.socialLoginEnabled ?? false,
+  };
+  const bothSsoLike = authMethods.sso && authMethods.social;
   const stepperSteps = viaPassword ? PASSWORD_STEPS : SSO_LIKE_STEPS;
 
   /**
@@ -112,68 +126,79 @@ export function OnboardingSignupView() {
 
         <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page border-border bg-card shadow-elevated ease-fluid w-full rounded-xl border duration-500">
           {step === "identity" ? (
-            <>
-              <p className="text-muted-foreground mb-6 text-center text-sm">{t("subtitle")}</p>
+            platformSettingsError ? (
+              <LoadErrorState onRetry={() => void refetchPlatformSettings()} />
+            ) : platformSettingsLoading || !platformSettings ? (
+              <div className="flex flex-col gap-4">
+                <Skeleton className="mb-2 h-4 w-full" />
+                <Skeleton className="h-10 w-full rounded-md" />
+                <Skeleton className="h-10 w-full rounded-md" />
+                <Skeleton className="h-10 w-full rounded-md" />
+              </div>
+            ) : (
+              <>
+                <p className="text-muted-foreground mb-6 text-center text-sm">{t("subtitle")}</p>
 
-              {AUTH_METHODS.password ? (
-                <CreateAccountForm
-                  isLoading={isLoading}
-                  onSubmit={(values) => void handlePasswordSubmit(values)}
-                />
-              ) : null}
-
-              {AUTH_METHODS.password && (AUTH_METHODS.sso || AUTH_METHODS.social) ? (
-                <AuthDivider label={tLogin("orDivider")} />
-              ) : null}
-
-              {bothSsoLike ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="block"
-                    onClick={() => void handleSsoSubmit()}>
-                    <MicrosoftLogo />
-                    {tLogin("microsoft")}
-                  </Button>
-                  <SocialAuthButtons
+                {authMethods.password ? (
+                  <CreateAccountForm
                     isLoading={isLoading}
-                    onGoogleClick={startGoogleSignup}
-                    label={tLogin("google")}
+                    onSubmit={(values) => void handlePasswordSubmit(values)}
                   />
-                </div>
-              ) : (
-                <>
-                  {AUTH_METHODS.sso ? (
+                ) : null}
+
+                {authMethods.password && (authMethods.sso || authMethods.social) ? (
+                  <AuthDivider label={tLogin("orDivider")} />
+                ) : null}
+
+                {bothSsoLike ? (
+                  <div className="grid grid-cols-2 gap-3">
                     <Button
                       type="button"
                       variant="outline"
                       size="block"
-                      disabled={isLoading}
                       onClick={() => void handleSsoSubmit()}>
                       <MicrosoftLogo />
-                      {tLogin("continueWithMicrosoft")}
+                      {tLogin("microsoft")}
                     </Button>
-                  ) : null}
-
-                  {AUTH_METHODS.social ? (
                     <SocialAuthButtons
                       isLoading={isLoading}
                       onGoogleClick={startGoogleSignup}
-                      label={tLogin("continueWithGoogle")}
+                      label={tLogin("google")}
                     />
-                  ) : null}
-                </>
-              )}
+                  </div>
+                ) : (
+                  <>
+                    {authMethods.sso ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="block"
+                        disabled={isLoading}
+                        onClick={() => void handleSsoSubmit()}>
+                        <MicrosoftLogo />
+                        {tLogin("continueWithMicrosoft")}
+                      </Button>
+                    ) : null}
 
-              {/* Identity step only — offering "sign in" mid-OTP would abandon a half-created account. */}
-              <div className="text-muted-foreground mt-6 text-center text-sm">
-                {t("haveAccount")}{" "}
-                <Link href={ROUTES.LOGIN} className="font-medium">
-                  {t("signIn")}
-                </Link>
-              </div>
-            </>
+                    {authMethods.social ? (
+                      <SocialAuthButtons
+                        isLoading={isLoading}
+                        onGoogleClick={startGoogleSignup}
+                        label={tLogin("continueWithGoogle")}
+                      />
+                    ) : null}
+                  </>
+                )}
+
+                {/* Identity step only — offering "sign in" mid-OTP would abandon a half-created account. */}
+                <div className="text-muted-foreground mt-6 text-center text-sm">
+                  {t("haveAccount")}{" "}
+                  <Link href={ROUTES.LOGIN} className="font-medium">
+                    {t("signIn")}
+                  </Link>
+                </div>
+              </>
+            )
           ) : null}
 
           {step === "otp" ? (

@@ -1,5 +1,4 @@
 import type { Locale } from './locale';
-import { DEFAULT_LOCALE } from './locale';
 import type { MessageCatalog } from './message-catalog.type';
 import { messagesDe } from './messages.de';
 import { messagesEn } from './messages.en';
@@ -109,6 +108,10 @@ function getByPath(catalog: MessageCatalog, path: string): CatalogValue | undefi
  */
 export function renderMessage(raw: unknown, locale: Locale): string {
   if (typeof raw !== 'string') {
+    // `raw` is deliberately `unknown` (see the doc comment above) — this must coerce literally
+    // anything without throwing, `[object Object]` included, rather than assume every non-string
+    // has a meaningful `toString()`.
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string
     return raw === undefined || raw === null ? '' : String(raw);
   }
   if (!raw.startsWith(TAG_PREFIX)) {
@@ -120,7 +123,7 @@ export function renderMessage(raw: unknown, locale: Locale): string {
   const path = separatorIndex === -1 ? withoutPrefix : withoutPrefix.slice(0, separatorIndex);
   const argsJson = separatorIndex === -1 ? undefined : withoutPrefix.slice(separatorIndex + 1);
 
-  const catalog = CATALOGS_BY_LOCALE[locale] ?? CATALOGS_BY_LOCALE[DEFAULT_LOCALE];
+  const catalog = CATALOGS_BY_LOCALE[locale];
   const entry = getByPath(catalog, path);
 
   // An allowlist, not a blocklist: only a string leaf is returned as-is and only a function leaf

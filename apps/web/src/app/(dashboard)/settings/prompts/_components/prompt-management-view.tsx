@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from "react";
 
 import { useTranslations } from "next-intl";
+import { useState } from "react";
 
-import { Skeleton } from "@/components/ui/skeleton";
 
 import { PromptEditorDialog } from "@/app/(dashboard)/settings/prompts/_components/prompt-editor-dialog";
 import { PromptList } from "@/app/(dashboard)/settings/prompts/_components/prompt-list";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { BackLink } from "@/components/common/back-link";
+import { Skeleton } from "@/components/ui/skeleton";
 import { usePromptAnalytics } from "@/hooks/prompts/use-prompt-analytics";
 import { usePrompts } from "@/hooks/prompts/use-prompts";
 

@@ -5,13 +5,18 @@ import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { AdminBusinessService } from "@/app/_libs/services/admin-business.service";
+import {
+  adminBusinessesQueryKey,
+  adminOverviewActivityQueryKey,
+} from "@/hooks/admin/admin-query-keys";
 import type { AdminBusiness } from "@/types/domain";
-
-export const adminBusinessesQueryKey = ["admin", "businesses"] as const;
 
 interface UseAdminBusinessesResult {
   businesses: AdminBusiness[];
   isLoading: boolean;
+  isError: boolean;
+  /** Re-runs the failed query — queries here use `retry: false`, so nothing recovers on its own. */
+  refetch: () => void;
   suspendBusiness: (id: string) => Promise<void>;
   reactivateBusiness: (id: string) => Promise<void>;
 }
@@ -43,6 +48,11 @@ export function useAdminBusinesses(): UseAdminBusinessesResult {
         queryClient.setQueryData<AdminBusiness[]>(adminBusinessesQueryKey, (prev) =>
           prev?.map((business) => (business.id === id ? updated : business)),
         );
+        // The activity feed is derived server-side from this write, so the cached copy is stale the
+        // moment the mutation succeeds. `setQueryData` above keeps the row's own flip instant;
+        // this refetches what only the server can recompute. Without it the Overview's Activity
+        // card omitted the entry that had just been written, for the whole 5-minute staleTime.
+        void queryClient.invalidateQueries({ queryKey: adminOverviewActivityQueryKey });
       } catch {
         toast.error(t("updateFailed"));
       }
@@ -56,6 +66,8 @@ export function useAdminBusinesses(): UseAdminBusinessesResult {
   return {
     businesses: businessesQuery.data ?? [],
     isLoading: businessesQuery.isLoading,
+    isError: businessesQuery.isError,
+    refetch: () => void businessesQuery.refetch(),
     suspendBusiness,
     reactivateBusiness,
   };

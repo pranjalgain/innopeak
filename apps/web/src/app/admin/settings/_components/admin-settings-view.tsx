@@ -1,36 +1,44 @@
 "use client";
 
-import { type FormEvent, useMemo, useState } from "react";
-
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { Route } from "next";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useFormatter, useTranslations } from "next-intl";
+import { type FormEvent, useCallback, useMemo, useState } from "react";
+
+
 import { useForm } from "react-hook-form";
 import { LuMailPlus, LuSend } from "react-icons/lu";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-import { CURRENT_SUPER_ADMIN } from "@/app/_libs/constants/current-owner";
+import { platformAdminDisplayName } from "@/app/_libs/utils/admin-identity";
+import { getInitials } from "@/app/_libs/utils/initials";
 import {
   type InviteAdminFields,
   inviteAdminSchema,
 } from "@/app/admin/settings/_schemas/invite-admin.schema";
 import { AvatarUpload } from "@/components/common/avatar-upload";
 import { ConfirmActionDialog } from "@/components/common/confirm-action-dialog";
+import { LoadErrorState } from "@/components/common/load-error-state";
 import { PasswordInput } from "@/components/common/password-input";
 import {
   checkPasswordRequirements,
   passwordMeetsRequirements,
   PasswordRequirementsList,
 } from "@/components/common/password-requirements-list";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import { usePlatformAdminInvites } from "@/hooks/admin/use-platform-admin-invites";
 import { usePlatformAdminProfile } from "@/hooks/admin/use-platform-admin-profile";
-import type { PlatformAdminStatus } from "@/types/domain";
+import { useUpdatePlatformSettings } from "@/hooks/admin/use-update-platform-settings";
+import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
+import type { PlatformAdminStatus, PlatformSettings } from "@/types/domain";
 
 const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
 
@@ -42,14 +50,58 @@ const STATUS_BADGE_CLASSNAME: Record<PlatformAdminStatus, string> = {
 
 function ProfileSection() {
   const t = useTranslations("adminSettings.profile");
-  const { profile, isLoading, updateAvatar, changePassword } = usePlatformAdminProfile();
+  const { profile, isLoading, isError, refetch, updateAvatar, changePassword, isChangingPassword } =
+    usePlatformAdminProfile();
+
+  if (isLoading) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
+  // `!profile` was folded into the loading branch, so a failed request left a grey rectangle on
+  // screen forever: `retry: false` means `isLoading` goes false with no data and nothing ever
+  // retries, and the one error toast had already faded.
+  if (isError || !profile) return <LoadErrorState onRetry={refetch} />;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("title")}</CardTitle>
+        <CardDescription>{t("description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-6">
+        <AvatarUpload
+          avatarUrl={profile.avatarUrl}
+          initials={getInitials(platformAdminDisplayName(profile.email))}
+          changeLabel={t("changePicture")}
+          onUpload={(avatarUrl) => void updateAvatar(avatarUrl)}
+        />
+
+        <div className="border-border flex flex-col gap-1.5 border-t pt-5">
+          <Label>{t("emailLabel")}</Label>
+          <p className="text-sm">{profile.email}</p>
+        </div>
+
+        <ChangePasswordForm changePassword={changePassword} isChangingPassword={isChangingPassword} />
+      </CardContent>
+    </Card>
+  );
+}
+
+interface ChangePasswordFormProps {
+  changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
+  /** Disables submit while the request is in flight — see the button's own comment. */
+  isChangingPassword: boolean;
+}
+
+function ChangePasswordForm({ changePassword, isChangingPassword }: ChangePasswordFormProps) {
+  const t = useTranslations("adminSettings.profile");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [newPasswordBlurred, setNewPasswordBlurred] = useState(false);
   const [confirmBlurred, setConfirmBlurred] = useState(false);
-
-  if (isLoading || !profile) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
+  // Collapsed by default — a sensitive, rarely-used action; showing three password inputs on
+  // every visit to a page whose main purpose is just viewing your email is noise (and a bigger
+  // target for shoulder-surfing) for the common case where nobody's changing anything. Mirrors
+  // the tenant-owner profile section's own `ChangePasswordForm`.
+  const [expanded, setExpanded] = useState(false);
 
   const requirements = checkPasswordRequirements(newPassword);
   const newPasswordValid = passwordMeetsRequirements(requirements);
@@ -63,87 +115,96 @@ function ProfileSection() {
   const canSubmitPassword =
     currentPassword.trim() !== "" && newPasswordValid && passwordsMatch && hasConfirmValue;
 
+  const collapse = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setNewPasswordBlurred(false);
+    setConfirmBlurred(false);
+    setExpanded(false);
+  };
+
   const handlePasswordSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!canSubmitPassword) return;
+    if (isChangingPassword) return;
     const succeeded = await changePassword(currentPassword, newPassword);
-    if (succeeded) {
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setNewPasswordBlurred(false);
-      setConfirmBlurred(false);
-    }
+    if (succeeded) collapse();
   };
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
-        <CardDescription>{t("description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-6">
-        <AvatarUpload
-          avatarUrl={profile.avatarUrl}
-          initials={CURRENT_SUPER_ADMIN.initials}
-          changeLabel={t("changePicture")}
-          onUpload={(avatarUrl) => void updateAvatar(avatarUrl)}
-        />
-
-        <div className="border-border flex flex-col gap-1.5 border-t pt-5">
-          <Label>{t("emailLabel")}</Label>
-          <p className="text-sm">{profile.email}</p>
-        </div>
-
-        <form
-          className="border-border flex max-w-sm flex-col gap-4 border-t pt-5"
-          onSubmit={(e) => void handlePasswordSubmit(e)}>
+  if (!expanded) {
+    return (
+      <div className="border-border flex flex-col gap-2.5 border-t pt-5">
+        <div>
           <p className="text-sm font-medium">{t("changePasswordTitle")}</p>
+          <p className="text-muted-foreground mt-0.5 text-[13px]">
+            {t("changePasswordDescription")}
+          </p>
+        </div>
+        <div>
+          <Button type="button" variant="outline" onClick={() => setExpanded(true)}>
+            {t("changePassword")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="current-password">{t("currentPasswordLabel")}</Label>
-            <PasswordInput
-              id="current-password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              autoComplete="current-password"
-            />
-          </div>
+  return (
+    <form
+      className="border-border flex max-w-sm flex-col gap-4 border-t pt-5"
+      onSubmit={(e) => void handlePasswordSubmit(e)}>
+      <p className="text-sm font-medium">{t("changePasswordTitle")}</p>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="new-password">{t("newPasswordLabel")}</Label>
-            <PasswordInput
-              id="new-password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              onBlur={() => setNewPasswordBlurred(true)}
-              autoComplete="new-password"
-            />
-            {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
-          </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="current-password">{t("currentPasswordLabel")}</Label>
+        <PasswordInput
+          id="current-password"
+          value={currentPassword}
+          onChange={(event) => setCurrentPassword(event.target.value)}
+          autoComplete="current-password"
+        />
+      </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="confirm-password">{t("confirmPasswordLabel")}</Label>
-            <PasswordInput
-              id="confirm-password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              onBlur={() => setConfirmBlurred(true)}
-              autoComplete="new-password"
-            />
-            {showMismatch ? (
-              <p className="text-destructive text-[12.5px]">{t("passwordMismatch")}</p>
-            ) : null}
-          </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="new-password">{t("newPasswordLabel")}</Label>
+        <PasswordInput
+          id="new-password"
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          onBlur={() => setNewPasswordBlurred(true)}
+          autoComplete="new-password"
+        />
+        {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
+      </div>
 
-          <div>
-            <Button type="submit" variant="outline" disabled={!canSubmitPassword}>
-              {t("updatePassword")}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="confirm-password">{t("confirmPasswordLabel")}</Label>
+        <PasswordInput
+          id="confirm-password"
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          onBlur={() => setConfirmBlurred(true)}
+          autoComplete="new-password"
+        />
+        {showMismatch ? (
+          <p className="text-destructive text-[12.5px]">{t("passwordMismatch")}</p>
+        ) : null}
+      </div>
+
+      <div className="flex gap-2.5">
+        <Button type="button" variant="ghost" onClick={collapse}>
+          {t("cancel")}
+        </Button>
+        {/* Also disabled while in flight. Without it a double-click fired two requests: the first
+            rotated the hash, so the second's `currentPassword` no longer matched and answered 401
+            — the admin saw "Password changed." immediately followed by an error, with no way to
+            tell which one had taken effect. The invite form above already guards this way. */}
+        <Button type="submit" variant="outline" disabled={!canSubmitPassword || isChangingPassword}>
+          {t("updatePassword")}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -151,7 +212,11 @@ function InviteSection() {
   const t = useTranslations("adminSettings.invite");
   const tStatus = useTranslations("adminSettings.invite.status");
   const format = useFormatter();
-  const { invites, isLoading, sendInvite, revokeInvite } = usePlatformAdminInvites();
+  const { invites, isLoading, isError, refetch, sendInvite, revokeInvite, setAdminStatus } =
+    usePlatformAdminInvites();
+  // The signed-in admin's own email, so the roster can hide the disable button on their own row —
+  // the backend also refuses self-disable, this just avoids offering an action that always fails.
+  const { profile } = usePlatformAdminProfile();
   const schema = useMemo(() => inviteAdminSchema(t), [t]);
 
   const {
@@ -172,6 +237,9 @@ function InviteSection() {
   });
 
   if (isLoading) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
+  // `invites` collapses a failed load to `[]` (see the hook), which otherwise renders identically
+  // to a roster that is genuinely empty — an outage read as "no invites yet."
+  if (isError) return <LoadErrorState onRetry={refetch} />;
 
   return (
     <Card>
@@ -181,11 +249,21 @@ function InviteSection() {
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <form className="flex flex-col gap-1.5" onSubmit={submitInvite} noValidate>
+          {/* Visually hidden rather than absent: a placeholder is not an accessible name (it is
+              dropped by some screen readers and disappears the moment anything is typed), and
+              every other input on this screen has a real <Label>. `aria-describedby` wires the
+              validation message below to the field so it is announced, not just drawn. */}
+          <Label htmlFor="invite-email" className="sr-only">
+            {t("emailPlaceholder")}
+          </Label>
           <div className="flex gap-2.5">
             <Input
+              id="invite-email"
               type="email"
               placeholder={t("emailPlaceholder")}
               className="flex-1"
+              aria-invalid={errors.email ? true : undefined}
+              aria-describedby={errors.email ? "invite-email-error" : undefined}
               {...register("email")}
             />
             <Button type="submit" disabled={!isValid || isSubmitting}>
@@ -194,7 +272,9 @@ function InviteSection() {
             </Button>
           </div>
           {errors.email ? (
-            <p className="text-destructive text-[12.5px]">{errors.email.message}</p>
+            <p id="invite-email-error" role="alert" className="text-destructive text-[12.5px]">
+              {errors.email.message}
+            </p>
           ) : null}
         </form>
 
@@ -212,7 +292,7 @@ function InviteSection() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{invite.email}</p>
                   <p className="text-muted-foreground text-[13px]">
-                    {invite.status === "invited"
+                    {invite.status === "invited" && invite.expiresAt
                       ? t("expiresOn", {
                           date: format.dateTime(new Date(invite.expiresAt), DATE_FORMAT),
                         })
@@ -243,6 +323,38 @@ function InviteSection() {
                       destructive
                       onConfirm={() => void revokeInvite(invite.id)}
                     />
+                  ) : invite.status === "disabled" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void setAdminStatus(invite.id, true)}>
+                      {t("enable")}
+                    </Button>
+                  ) : profile && invite.email !== profile.email ? (
+                    // status === "active", and not the signed-in admin's own row. Requires
+                    // `profile` to have actually loaded — `invite.email !== profile?.email` is
+                    // `true` while `profile` is still `undefined` (loading, or its own fetch
+                    // failed), which showed Disable on the signed-in admin's own row until their
+                    // profile resolved — an action that always fails against the backend's own
+                    // self-disable guard.
+                    <ConfirmActionDialog
+                      trigger={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="border-destructive text-destructive hover:bg-destructive/10">
+                          {t("disable")}
+                        </Button>
+                      }
+                      title={t("confirmDisable.title", { email: invite.email })}
+                      description={t("confirmDisable.description")}
+                      confirmLabel={t("disable")}
+                      cancelLabel={t("cancel")}
+                      destructive
+                      onConfirm={() => void setAdminStatus(invite.id, false)}
+                    />
                   ) : null}
                 </div>
               </div>
@@ -254,15 +366,138 @@ function InviteSection() {
   );
 }
 
+interface PlatformToggleRowProps {
+  label: string;
+  helper: string;
+  checked: boolean;
+  disabled: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}
+
+function PlatformToggleRow({
+  label,
+  helper,
+  checked,
+  disabled,
+  onCheckedChange,
+}: PlatformToggleRowProps) {
+  return (
+    <div className="border-border flex items-center justify-between gap-4 border-b py-4 last:border-b-0">
+      <div>
+        <p className="text-[13px] font-medium">{label}</p>
+        <p className="text-muted-foreground mt-0.5 text-[13px]">{helper}</p>
+      </div>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
+    </div>
+  );
+}
+
+function PlatformSection() {
+  const t = useTranslations("adminSettings.platform");
+  const { data: settings, isLoading, isError, refetch } = usePlatformSettings();
+  const { update, isUpdating } = useUpdatePlatformSettings();
+
+  if (isLoading) return <Skeleton className="h-72 w-full max-w-3xl rounded-xl" />;
+  // See ProfileSection's twin comment — an infinite skeleton is not a loading state.
+  if (isError || !settings) return <LoadErrorState onRetry={() => void refetch()} />;
+
+  const toggle = (field: keyof PlatformSettings) => (checked: boolean) => {
+    void update({ [field]: checked });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("title")}</CardTitle>
+        <CardDescription>{t("description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col">
+        <PlatformToggleRow
+          label={t("sso.label")}
+          helper={t("sso.helper")}
+          checked={settings.ssoLoginEnabled}
+          disabled={isUpdating}
+          onCheckedChange={toggle("ssoLoginEnabled")}
+        />
+        <PlatformToggleRow
+          label={t("password.label")}
+          helper={t("password.helper")}
+          checked={settings.passwordLoginEnabled}
+          disabled={isUpdating}
+          onCheckedChange={toggle("passwordLoginEnabled")}
+        />
+        <PlatformToggleRow
+          label={t("social.label")}
+          helper={t("social.helper")}
+          checked={settings.socialLoginEnabled}
+          disabled={isUpdating}
+          onCheckedChange={toggle("socialLoginEnabled")}
+        />
+        <PlatformToggleRow
+          label={t("inviteMembers.label")}
+          helper={t("inviteMembers.helper")}
+          checked={settings.inviteMembersEnabled}
+          disabled={isUpdating}
+          onCheckedChange={toggle("inviteMembersEnabled")}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Every tab this screen renders — all three are always available (unlike the tenant Settings
+ * page, nothing here is conditionally hidden), so validating `?tab=` only ever needs to check
+ * membership, never per-tab availability. */
+const TABS = ["profile", "members", "platform"] as const;
+
 export function AdminSettingsView() {
   const t = useTranslations("adminSettings");
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  /**
+   * `Tabs` is **controlled from the URL**, and clicking a tab writes the URL back. The URL is the
+   * single source of truth for which tab is showing; there is no second copy to fall out of step.
+   *
+   * Two earlier shapes both failed on the same journey — the account menu's "Profile" row, which
+   * links to `${ROUTES.ADMIN_SETTINGS}?tab=profile`, clicked while already on this page:
+   *
+   *   - a hardcoded `defaultValue="profile"`: an already-mounted uncontrolled `Tabs` never
+   *     re-reads `defaultValue`, so the URL changed and the view did not.
+   *   - `key={initialTab}` to force a remount: `initialTab` resolves to `"profile"` both when
+   *     `?tab=` is absent *and* when it is `?tab=profile`, so for this exact link the key never
+   *     changed and no remount happened. It only ever worked on the tenant Settings page because
+   *     that one defaults to `"general"`, making `?tab=profile` a genuinely different value.
+   *
+   * Writing the tab back on every click is what makes the link work at all: it guarantees the URL
+   * reads `?tab=platform` while Platform is showing, so navigating to `?tab=profile` is a real
+   * change rather than a no-op. `replace` rather than `push` keeps tab switching out of history,
+   * so Back still leaves Settings instead of walking the tabs.
+   */
+  const requestedTab = searchParams.get("tab");
+  const activeTab = useMemo(
+    () => (TABS.includes(requestedTab as (typeof TABS)[number]) ? requestedTab! : "profile"),
+    [requestedTab],
+  );
+
+  const handleTabChange = useCallback(
+    (value: string) => {
+      // `typedRoutes` cannot see that this interpolation only ever produces `/admin/settings?tab=`
+      // plus one of the three literals in TABS. The cast is narrow on purpose: `pathname` is this
+      // component's own route and `value` comes from `TabsTrigger`s built from TABS.
+      router.replace(`${pathname}?tab=${value}` as Route, { scroll: false });
+    },
+    [router, pathname],
+  );
 
   return (
     <div className="p-fluid-page flex flex-col gap-6">
-      <Tabs defaultValue="profile" className="max-w-3xl gap-5">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="max-w-3xl gap-5">
         <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
           <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger>
           <TabsTrigger value="members">{t("tabs.members")}</TabsTrigger>
+          <TabsTrigger value="platform">{t("tabs.platform")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -271,6 +506,10 @@ export function AdminSettingsView() {
 
         <TabsContent value="members">
           <InviteSection />
+        </TabsContent>
+
+        <TabsContent value="platform">
+          <PlatformSection />
         </TabsContent>
       </Tabs>
     </div>

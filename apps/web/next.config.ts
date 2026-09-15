@@ -34,6 +34,36 @@ const nextConfig: NextConfig = {
       zod: "zod/index.cjs",
     },
   },
+  // Security headers for the HTML tier. The backend's helmet only covers the JSON API; the Next
+  // app that actually renders pages shipped none. These are the subset that is safe to add without
+  // a nonce-based setup — they harden clickjacking, MIME-sniffing, referrer leakage, and feature
+  // access without touching how scripts/styles/connections load (so HMR, RSC hydration, and the
+  // proxied analytics all keep working). A script-src/connect-src CSP that would also blunt token
+  // exfil needs per-request nonces + an analytics allowlist and is a separate, larger change.
+  async headers() {
+    const securityHeaders = [
+      // Clickjacking: this app must never be framed by another origin. `frame-ancestors` is the
+      // modern control; `X-Frame-Options` covers older browsers.
+      {
+        key: "Content-Security-Policy",
+        value: [
+          "frame-ancestors 'self'",
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+          "upgrade-insecure-requests",
+        ].join("; "),
+      },
+      { key: "X-Frame-Options", value: "SAMEORIGIN" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+      // Ignored by browsers over http (so harmless in local dev); enforced once served over https.
+      { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+      { key: "X-DNS-Prefetch-Control", value: "off" },
+    ];
+    return [{ source: "/:path*", headers: securityHeaders }];
+  },
   async rewrites() {
     return [
       // Backend API proxy — every `/v1/*` call is served from this app's own origin and forwarded

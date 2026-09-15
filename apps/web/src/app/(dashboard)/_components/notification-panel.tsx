@@ -1,17 +1,17 @@
-import { type ComponentType, type UIEvent, useEffect, useState } from "react";
 
 import type { Route } from "next";
 import Link from "next/link";
 
 import { useLocale, useTranslations } from "next-intl";
+import { type ComponentType, type UIEvent, useEffect, useState } from "react";
 import { LuBell, LuCheck, LuClock, LuTriangleAlert, LuWifiOff } from "react-icons/lu";
 
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { cn } from "@/app/_libs/utils/cn";
 import { formatRelativeTime } from "@/app/_libs/utils/relative-time";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useNotifications } from "@/hooks/notifications/use-notifications";
 import type { Notification, NotificationType } from "@/types/domain";
 

@@ -1,15 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
+import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
 
 import {
   type ChangePasswordFields,
@@ -27,11 +23,15 @@ import {
   passwordMeetsRequirements,
   PasswordRequirementsList,
 } from "@/components/common/password-requirements-list";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
 
 const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
 
-/** Only reachable while `AUTH_METHODS.password` is enabled — there's no password to manage otherwise. */
+/** Only reachable while the platform's passwordLoginEnabled setting is on — there's no password to manage otherwise. */
 export function ProfileSettingsSection() {
   const t = useTranslations("settings.profile");
   const { profile, isLoading, updateAvatar, changePassword, setPassword } = useTenantOwnerProfile();

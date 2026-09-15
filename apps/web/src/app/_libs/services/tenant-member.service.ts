@@ -3,7 +3,7 @@ import type { TenantMember } from "@/types/domain";
 
 /**
  * Tenant team members — mirrors the real `users` table (`apps/backend`'s
- * `0002_tenant_auth.sql`), gated behind `FEATURE_FLAGS.inviteMembers` in the
+ * `0002_tenant_auth.sql`), gated behind the platform's inviteMembersEnabled setting in the
  * UI. Mock implementation — becomes a real backend call once the auth
  * module exists. Hooks/components only ever call `useTenantMembers`, never
  * this class directly.
