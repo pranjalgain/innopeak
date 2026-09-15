@@ -1,6 +1,6 @@
+import { ACCESS_TOKEN_TTL_SECONDS } from '@auth/constants/auth.constants';
 import { DEFAULT_JOB_OPTIONS, QueuePrefix } from '@bg/constants/job.constant';
 import { QueueUIModule } from '@bg/queue-ui.module';
-import { RouteNames } from '@common/route-names';
 import { ErrorHandlerService } from '@common/services/error-handler.service';
 import { EnvConfigModule } from '@config/env-config.module';
 import { EnvConfig } from '@config/env.config';
@@ -11,15 +11,15 @@ import { HttpLoggingInterceptor } from '@interceptors/logging.interceptor';
 import { TransformInterceptor } from '@interceptors/transform.interceptor';
 import { LoggerModule } from '@logger/logger.module';
 import { MetricsModule } from '@metrics/metrics.module';
-import { DevToolsMiddleware } from '@middlewares/dev-tool.middleware';
 import { MetricsMiddleware } from '@middlewares/metrics.middleware';
 import { BullModule } from '@nestjs/bullmq';
 import { CacheModule } from '@nestjs/cache-manager';
 import { MiddlewareConsumer, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-// import { DevtoolsModule } from '@nestjs/devtools-integration';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { JwtModule } from '@nestjs/jwt';
+// import { DevtoolsModule } from '@nestjs/devtools-integration';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { OtelModule } from '@otel/otel.module';
 import { PromptsModule } from '@prompts/prompts.module';
@@ -30,6 +30,7 @@ import { ReviewProviderModule } from '@review-provider/review-provider.module';
 import { redisStore } from 'cache-manager-redis-store';
 import { Redis } from 'ioredis';
 
+import { AdminModule } from './api/admin/admin.module';
 import { AuthModule } from './api/auth/auth.module';
 import { JwtAuthGuard } from './api/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './api/auth/guards/roles.guard';
@@ -121,6 +122,17 @@ const cacheModule = CacheModule.registerAsync({
     queueModule,
     QueueUIModule,
 
+    // For DevToolsMiddleware, which authenticates the out-of-band ops surfaces (Bull Board etc.).
+    // A local registration rather than reusing AuthModule's: this only ever verifies, and the
+    // JwtService resolved for an AppModule-level provider must come from AppModule's own imports.
+    JwtModule.registerAsync({
+      useFactory: (config: ConfigService<EnvConfig>) => ({
+        secret: config.get<string>('JWT_SECRET') ?? '',
+        signOptions: { expiresIn: ACCESS_TOKEN_TTL_SECONDS },
+      }),
+      inject: [ConfigService],
+    }),
+
     // Auth
     AuthModule,
 
@@ -142,10 +154,10 @@ const cacheModule = CacheModule.registerAsync({
     TracingModule,
     PromptsModule,
     SettingsModule,
+    AdminModule,
   ],
   providers: [
     ErrorHandlerService,
-    DevToolsMiddleware,
     {
       provide: APP_INTERCEPTOR,
       useClass: HttpLoggingInterceptor,
@@ -173,13 +185,9 @@ export class AppModule {
   configure(consumer: MiddlewareConsumer): void {
     // Apply to all routes
     consumer.apply(MetricsMiddleware).forRoutes('*');
-    consumer
-      .apply(DevToolsMiddleware)
-      .forRoutes(
-        RouteNames.DEV_TOOLS,
-        `${RouteNames.HEALTH}/${RouteNames.HEALTH_UI}`,
-        RouteNames.QUEUES_UI,
-        RouteNames.API_DOCS
-      );
+
+    // The ops-tools auth guard is NOT applied here: Bull Board mounts as an Express sub-app that a
+    // MiddlewareConsumer binding cannot reach. It is registered as raw Express middleware in
+    // bootstrap.ts instead (see createOpsToolsGuard), which does run before the sub-app.
   }
 }

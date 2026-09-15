@@ -8,8 +8,8 @@ import { ApiError } from "@/app/_libs/services/api-error";
 import { AuthService } from "@/app/_libs/services/auth.service";
 import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
 
-import { BusinessNameView } from "../business-name-view";
 import messages from "../../../../../../../messages/en.json";
+import { BusinessNameView } from "../business-name-view";
 
 const replace = vi.fn();
 const toastError = vi.fn();

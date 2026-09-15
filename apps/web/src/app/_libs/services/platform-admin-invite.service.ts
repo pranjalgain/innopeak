@@ -1,37 +1,40 @@
-import { MOCK_PLATFORM_ADMIN_INVITES } from "@/app/_libs/mock-data/platform-admin-invites";
+import { adminSettingsApi } from "@/app/_libs/api-sdk/admin-settings-api";
+import { unwrap } from "@/app/_libs/services/api-error";
 import type { PlatformAdminInvite } from "@/types/domain";
-
-const INVITE_WINDOW_DAYS = 7;
 
 /**
  * Platform admin invites — mirrors `platform_admins` + `platform_admin_invites`
- * (`apps/backend`'s `0001_platform_admin.sql`). Mock implementation — becomes a
- * real backend call once a platform-admin API exists. Hooks/components only
- * ever call `usePlatformAdminInvites`, never this class directly.
+ * (`apps/backend`'s `0001_platform_admin.sql`), against the real
+ * `GET/POST/DELETE /v1/admin/settings/invites*` endpoints. Hooks/components
+ * only ever call `usePlatformAdminInvites`, never this class directly.
+ *
+ * The backend does not yet email the invite or expose an accept-invite flow
+ * — sending one creates the roster row, but the invitee cannot complete
+ * onboarding through it yet. See the backend's `AdminSettingsService.sendInvite`.
  */
 export class PlatformAdminInviteService {
   static async getInvites(): Promise<PlatformAdminInvite[]> {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    return MOCK_PLATFORM_ADMIN_INVITES;
+    const response = await adminSettingsApi.adminSettingsControllerListInvitesV1();
+    return unwrap<PlatformAdminInvite[]>(response.data);
   }
 
   static async sendInvite(email: string): Promise<PlatformAdminInvite> {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const now = new Date();
-    const invite: PlatformAdminInvite = {
-      id: `padmin_${Date.now()}`,
-      email,
-      status: "invited",
-      invitedAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + INVITE_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString(),
-    };
-    MOCK_PLATFORM_ADMIN_INVITES.push(invite);
-    return invite;
+    const response = await adminSettingsApi.adminSettingsControllerSendInviteV1({
+      sendAdminInviteDto: { email },
+    });
+    return unwrap<PlatformAdminInvite>(response.data);
   }
 
   static async revokeInvite(id: string): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const index = MOCK_PLATFORM_ADMIN_INVITES.findIndex((invite) => invite.id === id);
-    if (index !== -1) MOCK_PLATFORM_ADMIN_INVITES.splice(index, 1);
+    await adminSettingsApi.adminSettingsControllerRevokeInviteV1({ inviteId: id });
+  }
+
+  /** Disables (`enabled: false`) or re-enables an accepted admin — returns the updated roster row. */
+  static async setAdminStatus(id: string, enabled: boolean): Promise<PlatformAdminInvite> {
+    const response = await adminSettingsApi.adminSettingsControllerSetAdminStatusV1({
+      adminId: id,
+      setAdminStatusDto: { enabled },
+    });
+    return unwrap<PlatformAdminInvite>(response.data);
   }
 }

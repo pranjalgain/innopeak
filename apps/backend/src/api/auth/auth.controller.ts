@@ -49,6 +49,7 @@ import { CompleteGoogleSignupDto } from './dto/complete-google-signup.dto';
 import { GoogleAuthorizeQueryDto } from './dto/google-authorize-query.dto';
 import { LoginPendingVerificationDto } from './dto/login-response.dto';
 import { LoginDto } from './dto/login.dto';
+import { PlatformAdminTokenResponseDto } from './dto/platform-admin-token-response.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { SignupResponseDto } from './dto/signup-response.dto';
@@ -115,6 +116,13 @@ export class AuthController {
     return ResponseUtil.success(response, response.message, HttpStatus.OK);
   }
 
+  /**
+   * One endpoint for every principal type — the frontend has a single sign-in screen with no
+   * "I'm an admin" toggle, so `AuthService.login` itself resolves which identity space the email
+   * belongs to (see its own doc comment). A platform admin only ever gets an access-token cookie
+   * (no refresh-token rotation exists for that principal yet); the response's `admin` field is
+   * what the frontend uses to route to `/admin` instead of `/dashboard`.
+   */
   @Post(RouteNames.LOGIN)
   @Public()
   @Throttle({ short: { limit: 10, ttl: 60000 } })
@@ -123,8 +131,15 @@ export class AuthController {
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response
-  ): Promise<ApiResponse<LoginPendingVerificationDto | TokenResponseDto>> {
+  ): Promise<
+    ApiResponse<LoginPendingVerificationDto | PlatformAdminTokenResponseDto | TokenResponseDto>
+  > {
     const result = await this.authService.login(dto);
+
+    if ('admin' in result) {
+      this.setAdminSessionCookies(res, result.body.accessToken);
+      return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
+    }
 
     if (!('refreshToken' in result)) {
       return ResponseUtil.success(result, result.message, HttpStatus.OK);
@@ -431,7 +446,11 @@ export class AuthController {
   /**
    * Just the `access_token` cookie — for `updateLocale`, the one route that reissues a token
    * without also rotating the refresh token or touching the session hint (see
-   * `AuthService.updateLocale`'s doc comment).
+   * `AuthService.updateLocale`'s doc comment). That reuse is safe there because the signed-in
+   * principal never changes across an `updateLocale` call.
+   *
+   * Do not reuse this for `login`'s admin branch — see `setAdminSessionCookies` below, which
+   * exists specifically because that assumption doesn't hold for a fresh login.
    */
   private setAccessTokenCookie(res: Response, accessToken: string): void {
     res.cookie(
@@ -439,6 +458,26 @@ export class AuthController {
       accessToken,
       this.cookieOptions(ACCESS_TOKEN_COOKIE_PATH, ACCESS_TOKEN_TTL_SECONDS)
     );
+  }
+
+  /**
+   * A platform-admin login's cookie shape: just the access token — no refresh-token rotation
+   * exists for that principal yet — but with any leftover `refresh_token`/`session` cookies from
+   * a *different, prior* principal on this browser explicitly cleared first.
+   *
+   * Without this, logging in as an admin on a browser that still held a tenant user's unexpired
+   * `refresh_token` (scoped to `Path=/v1/auth`, 7-day lifetime, unaffected by the tenant simply
+   * closing their tab) only ever overwrote `access_token`. The tenant's `refresh_token` cookie
+   * was left standing, so the admin's *own* access token expiring 15 minutes later triggered the
+   * ordinary `/v1/auth/refresh` flow, which reads whatever `refresh_token` is present, rotates
+   * it, and overwrites `access_token` with the *tenant's* token — silently converting the admin's
+   * session into that tenant's. Clearing the leftover cookies here means a stale refresh token
+   * can no longer outlive the login that should have superseded it.
+   */
+  private setAdminSessionCookies(res: Response, accessToken: string): void {
+    res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, this.cookieOptions(REFRESH_TOKEN_COOKIE_PATH));
+    res.clearCookie(SESSION_HINT_COOKIE_NAME, this.cookieOptions(SESSION_HINT_COOKIE_PATH));
+    this.setAccessTokenCookie(res, accessToken);
   }
 
   private clearSessionCookies(res: Response): void {

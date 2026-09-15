@@ -6,8 +6,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "@/app/_libs/services/api-error";
 import { AuthService } from "@/app/_libs/services/auth.service";
 
-import { useAuth } from "../use-auth";
 import messages from "../../../../messages/en.json";
+import { useAuth } from "../use-auth";
 
 const toastError = vi.fn();
 

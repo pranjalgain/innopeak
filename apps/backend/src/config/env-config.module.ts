@@ -81,6 +81,60 @@ const envConfig = registerAs(
     }) as EnvConfig
 );
 
+// Placeholder secrets shipped in `.env.example` clear every other check — they are long enough
+// (≥32) and differ from each other — so a deploy that copies the example and sets only
+// `NODE_ENV=production` used to boot on values that are public in git. Anyone could then forge an
+// HS256 token for any account (`JwtStrategy.validate` trusts the claims and does no DB lookup),
+// including `type: platform_admin` for the whole `/v1/admin/*` surface. This is a full auth
+// bypass, so production refuses to boot on any recognizably-placeholder secret; other environments
+// warn loudly rather than fail, since local dev deliberately ships usable defaults.
+//
+// Matched by the tell-tale phrase every shipped placeholder carries, not an exact list, so a
+// half-edited copy ("prod-change-in-production-xyz") is still caught. Nothing that is actually
+// random will contain it.
+const SECRET_PLACEHOLDER_MARKER = 'change-in-production';
+
+function looksLikePlaceholderSecret(value: string | undefined): boolean {
+  if (!value) return false;
+  if (value.toLowerCase().includes(SECRET_PLACEHOLDER_MARKER)) return true;
+
+  // `CREDENTIAL_ENCRYPTION_KEY` is base64-encoded, so its shipped placeholder can never contain
+  // the marker in its *encoded* form — base64's alphabet has no hyphen, and the marker has three.
+  // Decoding first lets one check cover both plain-text and base64 secrets, rather than needing a
+  // separate, easy-to-forget special case for the latter. `Buffer.from(..., 'base64')` is lenient
+  // (never throws on non-base64 input), and real random key bytes interpreted as UTF-8 are
+  // overwhelmingly unlikely to coincidentally contain this exact phrase, so this adds no realistic
+  // false-positive risk for an actual generated secret.
+  const decoded = Buffer.from(value, 'base64').toString('utf8').toLowerCase();
+  return decoded.includes(SECRET_PLACEHOLDER_MARKER);
+}
+
+{
+  const placeholderKeys = (
+    [
+      'JWT_SECRET',
+      'JWT_REFRESH_SECRET',
+      'GOOGLE_AUTH_STATE_SECRET',
+      'GBP_STATE_SECRET',
+      // Encrypts provider refresh tokens at rest (LocalRedisCredentialStoreProvider) — missing
+      // from this list entirely used to mean a shipped base64 blob that merely *looks* like real
+      // key material passed silently into production, with no substring for this check to catch.
+      'CREDENTIAL_ENCRYPTION_KEY',
+    ] as const
+  ).filter(key => looksLikePlaceholderSecret(process.env[key]));
+
+  if (placeholderKeys.length > 0) {
+    const message =
+      `Refusing the shipped placeholder value for: ${placeholderKeys.join(', ')}. ` +
+      'These are public in .env.example — generate real secrets, e.g. `openssl rand -base64 48`.';
+    if (process.env['NODE_ENV'] === 'production') {
+      throw new Error(message);
+    }
+    // eslint-disable-next-line no-console -- runs at module-eval, before the Nest logger exists
+    console.warn(`[env] WARNING: ${message}`);
+  }
+}
+
 // DEV_VERIFY_EMAIL_TOKEN's "never in production" rule is enforced by the Joi schema alone
 // (DEV_VERIFY_EMAIL_TOKEN: Joi.when(...).then(Joi.forbidden()) below) — no separate manual check
 // needed here, unlike JWT_REFRESH_SECRET just below, which has no Joi equivalent at all (Joi has

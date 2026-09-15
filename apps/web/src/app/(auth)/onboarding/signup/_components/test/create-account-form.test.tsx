@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { describe, expect, test, vi } from "vitest";
 
-import { CreateAccountForm } from "../create-account-form";
 import messages from "../../../../../../../messages/en.json";
+import { CreateAccountForm } from "../create-account-form";
 
 function renderForm(onSubmit = vi.fn()) {
   render(

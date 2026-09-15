@@ -1,18 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
-
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
+import { useMemo } from "react";
+
 import { useForm } from "react-hook-form";
 import { LuSend, LuUsers } from "react-icons/lu";
-
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 
 import {
   type InviteMemberFields,
@@ -22,6 +15,13 @@ import { cn } from "@/app/_libs/utils/cn";
 import { getInitials } from "@/app/_libs/utils/initials";
 import { ConfirmActionDialog } from "@/components/common/confirm-action-dialog";
 import { Pagination } from "@/components/common/pagination";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+
 import { usePagination } from "@/hooks/common/use-pagination";
 import { useTenantMembers } from "@/hooks/settings/use-tenant-members";
 import type { MemberStatus } from "@/types/domain";
@@ -33,13 +33,13 @@ const STATUS_BADGE_CLASSNAME: Record<MemberStatus, string> = {
   disabled: "border-transparent bg-muted text-muted-foreground",
 };
 
-/** Only reachable while `FEATURE_FLAGS.inviteMembers` is enabled. */
+/** Only reachable while the platform's inviteMembersEnabled setting is on. */
 export function MembersSettingsSection() {
   const t = useTranslations("settings.members");
   const tRole = useTranslations("settings.members.role");
   const tStatus = useTranslations("settings.members.status");
   const { members, isLoading, inviteMember, revokeInvite } = useTenantMembers();
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(members, 2);
+  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(members, 10);
   const schema = useMemo(() => inviteMemberSchema(t), [t]);
 
   const {

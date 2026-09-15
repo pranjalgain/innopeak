@@ -16,6 +16,7 @@ import { AuthService } from './auth.service';
 import { GoogleAuthFailure } from './constants/google-auth.constants';
 import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { OAuthIntent } from './enums/oauth-intent.enum';
+import { PlatformAdminStatus } from './enums/platform-admin-status.enum';
 import { TenantStatus } from './enums/tenant-status.enum';
 import { UserRole } from './enums/user-role.enum';
 import { UserStatus } from './enums/user-status.enum';
@@ -48,6 +49,7 @@ describe('AuthService', () => {
       putVerifyEmailToken: jest.fn(),
       verifyEmail: jest.fn(),
       findUserForLogin: jest.fn(),
+      findPlatformAdminForLogin: jest.fn().mockResolvedValue(null),
       findUserById: jest.fn(),
       findTenantStatus: jest.fn(),
       hasConnectedBusiness: jest.fn().mockResolvedValue(false),
@@ -61,15 +63,18 @@ describe('AuthService', () => {
     hashingService = {
       hash: jest.fn().mockResolvedValue('hashed-password'),
       compare: jest.fn(),
-    } as unknown as jest.Mocked<HashingService>;
+    };
 
     verifyEmailTokenProvider = {
       generate: jest.fn(() => '482913'),
-    } as unknown as jest.Mocked<VerifyEmailTokenProvider>;
+    };
 
     tokenService = {
       issueTokenPair: jest.fn().mockResolvedValue(tokenPair),
       reissueAccessToken: jest.fn().mockReturnValue({ accessToken: 'new-access', expiresIn: 900 }),
+      signPlatformAdminAccessToken: jest
+        .fn()
+        .mockReturnValue({ accessToken: 'admin-access', expiresIn: 900 }),
       rotate: jest.fn(),
       revokeAll: jest.fn(),
       revokeBySessionToken: jest.fn(),
@@ -100,7 +105,7 @@ describe('AuthService', () => {
         .fn()
         .mockReturnValue('https://accounts.google.com/o/oauth2/v2/auth?x=1'),
       fetchIdentity: jest.fn(),
-    } as unknown as jest.Mocked<GoogleIdentityProvider>;
+    };
 
     googleOAuthStateService = {
       mint: jest.fn().mockResolvedValue({ state: 'signed-state', sid: 'raw-sid' }),
@@ -171,6 +176,65 @@ describe('AuthService', () => {
       );
       expect(result.tenantId).toBe('tenant-1');
       expect(result.status).toBe(UserStatus.PENDING_VERIFICATION);
+    });
+
+    /**
+     * The mirror of `AdminSettingsService.sendInvite`'s guard. Without it the two identity tables
+     * could hold the same email, and `login` resolves an email to exactly one of them — so the
+     * tenant account this would have created was unreachable forever (verified by OTP, active,
+     * and still 401 on every login). Keyed on `passwordHash` being set — see the invited-admin
+     * test below for why a mere row match isn't enough.
+     */
+    it('refuses an email that already belongs to a loggable-in platform admin, before creating anything', async () => {
+      authDbService.findPlatformAdminForLogin.mockResolvedValue({
+        id: 'admin-1',
+        email: 'jane@thecoffeehouse.com',
+        passwordHash: 'hash',
+        status: PlatformAdminStatus.ACTIVE,
+      });
+
+      await expect(target.signup(dto)).rejects.toThrow(ConflictException);
+      expect(authDbService.signup).not.toHaveBeenCalled();
+      expect(queueManager.addRegisterationOtpEmailJob).not.toHaveBeenCalled();
+    });
+
+    /** The generic message, so public signup can't be used to enumerate admin addresses. */
+    it('uses the same message as a duplicate tenant email, not an admin-specific one', async () => {
+      authDbService.findPlatformAdminForLogin.mockResolvedValue({
+        id: 'admin-1',
+        email: 'jane@thecoffeehouse.com',
+        passwordHash: 'hash',
+        status: PlatformAdminStatus.ACTIVE,
+      });
+
+      await expect(target.signup(dto)).rejects.toThrow(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+    });
+
+    /**
+     * Regression target: there is no accept-invite flow yet (`AdminSettingsService.sendInvite`'s
+     * own comment), so an `invited` admin — no `passwordHash` — has no way to ever turn that row
+     * into a real login. Rejecting tenant signup for that same email anyway made the address a
+     * dead end with no way in at all: not via the (unbuilt) invite acceptance, not via signup
+     * (this guard, before the fix), and not via login (`login` falls a null-hash admin row
+     * through to the tenant path, which then has no user to find). Signup must allow it, since a
+     * real collision can never arise from a row that can't itself ever log in.
+     */
+    it('allows a tenant signup for an email whose platform-admin invite was never accepted', async () => {
+      authDbService.findPlatformAdminForLogin.mockResolvedValue({
+        id: 'admin-1',
+        email: 'jane@thecoffeehouse.com',
+        passwordHash: null,
+        status: PlatformAdminStatus.INVITED,
+      });
+      authDbService.signup.mockResolvedValue({
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+        status: UserStatus.PENDING_VERIFICATION,
+        ownerName: 'Jane Doe',
+      });
+
+      await expect(target.signup(dto)).resolves.toMatchObject({ tenantId: 'tenant-1' });
+      expect(authDbService.signup).toHaveBeenCalled();
     });
   });
 
@@ -376,6 +440,113 @@ describe('AuthService', () => {
       const result = await target.login({ email: activeUser.email, password: 'StrongP@ss1' });
 
       expect('refreshToken' in result && result.body.accessToken).toBe('access');
+    });
+  });
+
+  describe('login — platform admin', () => {
+    const activeAdmin = {
+      id: 'admin-1',
+      email: 'admin@innopeak.com',
+      passwordHash: 'hashed-admin-password',
+      status: PlatformAdminStatus.ACTIVE,
+    };
+
+    it('takes precedence over a colliding tenant-user email — the tenant table is never consulted', async () => {
+      authDbService.findPlatformAdminForLogin.mockResolvedValue(activeAdmin);
+      hashingService.compare.mockResolvedValue(true);
+
+      await target.login({ email: activeAdmin.email, password: 'StrongP@ss1' });
+
+      expect(authDbService.findUserForLogin).not.toHaveBeenCalled();
+    });
+
+    it('issues a platform-admin access token for a correct password on an active admin', async () => {
+      authDbService.findPlatformAdminForLogin.mockResolvedValue(activeAdmin);
+      hashingService.compare.mockResolvedValue(true);
+
+      const result = await target.login({ email: activeAdmin.email, password: 'StrongP@ss1' });
+
+      expect(result).toEqual({
+        admin: true,
+        body: {
+          accessToken: 'admin-access',
+          expiresIn: 900,
+          admin: { id: 'admin-1', email: activeAdmin.email },
+        },
+      });
+      expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
+    });
+
+    it('throws 401 when the password does not match, still paying for a real comparison', async () => {
+      authDbService.findPlatformAdminForLogin.mockResolvedValue(activeAdmin);
+      hashingService.compare.mockResolvedValue(false);
+
+      await expect(target.login({ email: activeAdmin.email, password: 'wrong' })).rejects.toThrow(
+        UnauthorizedException
+      );
+      expect(hashingService.compare).toHaveBeenCalledWith('wrong', activeAdmin.passwordHash);
+    });
+
+    it('throws 401 for an invited admin with no password set yet, same message as a wrong password', async () => {
+      authDbService.findPlatformAdminForLogin.mockResolvedValue({
+        ...activeAdmin,
+        passwordHash: null,
+        status: PlatformAdminStatus.INVITED,
+      });
+
+      await expect(target.login({ email: activeAdmin.email, password: 'x' })).rejects.toThrow(
+        UnauthorizedException
+      );
+      // Exactly one comparison either way: this now falls through to the tenant branch, which pays
+      // for the decoy when no user matches. An invited admin stays indistinguishable by timing
+      // from an active one with a wrong password.
+      expect(hashingService.compare).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * The un-shadowing case. An invite that nobody accepted has no `password_hash` and so can
+     * never authenticate as an admin — but it used to claim the email anyway, which permanently
+     * locked out the real tenant account sitting behind it (sign up, verify by OTP, then 401 on
+     * every login, forever, with no way to tell why).
+     */
+    it('falls through to the tenant user when the admin row has no password to check', async () => {
+      authDbService.findPlatformAdminForLogin.mockResolvedValue({
+        ...activeAdmin,
+        passwordHash: null,
+        status: PlatformAdminStatus.INVITED,
+      });
+      authDbService.findUserForLogin.mockResolvedValue({
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        email: activeAdmin.email,
+        role: UserRole.OWNER,
+        name: 'Jane Doe',
+        status: UserStatus.ACTIVE,
+        passwordHash: 'hashed-password',
+        locale: null,
+      });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'The Coffee House',
+      });
+      hashingService.compare.mockResolvedValue(true);
+
+      const result = await target.login({ email: activeAdmin.email, password: 'StrongP@ss1' });
+
+      expect(result).not.toHaveProperty('admin');
+      expect(tokenService.issueTokenPair).toHaveBeenCalled();
+    });
+
+    it('throws 403 for a disabled admin who still remembers the right password', async () => {
+      authDbService.findPlatformAdminForLogin.mockResolvedValue({
+        ...activeAdmin,
+        status: PlatformAdminStatus.DISABLED,
+      });
+      hashingService.compare.mockResolvedValue(true);
+
+      await expect(
+        target.login({ email: activeAdmin.email, password: 'StrongP@ss1' })
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -862,6 +1033,25 @@ describe('AuthService', () => {
         await expect(
           target.completeGoogleSignup('pending-nonce', 'The Coastal Table')
         ).rejects.toThrow(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+      });
+
+      /** Same `assertEmailNotAPlatformAdmin` guard as `signup` — shares the one private method. */
+      it('refuses an email that already belongs to a loggable-in platform admin', async () => {
+        pendingGoogleSignupService.consume.mockResolvedValue({
+          ok: true,
+          identity: { providerUserId: 'google-sub-1', email: 'owner@example.com', name: null },
+        });
+        authDbService.findPlatformAdminForLogin.mockResolvedValue({
+          id: 'admin-1',
+          email: 'owner@example.com',
+          passwordHash: 'hash',
+          status: PlatformAdminStatus.ACTIVE,
+        });
+
+        await expect(
+          target.completeGoogleSignup('pending-nonce', 'The Coastal Table')
+        ).rejects.toThrow(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+        expect(authDbService.completeGoogleSignup).not.toHaveBeenCalled();
       });
     });
   });

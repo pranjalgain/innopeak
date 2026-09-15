@@ -1,6 +1,6 @@
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
-import { useTranslations } from "next-intl";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 

@@ -1,0 +1,29 @@
+import { BcryptService } from '@common/hashing/bcrypt.service';
+import { HashingService } from '@common/hashing/hashing.service';
+import { Module } from '@nestjs/common';
+
+import { AdminBusinessesController } from './controllers/admin-businesses.controller';
+import { AdminOverviewController } from './controllers/admin-overview.controller';
+import { AdminSettingsController } from './controllers/admin-settings.controller';
+import { AdminUsersController } from './controllers/admin-users.controller';
+import { AdminBusinessesService } from './services/admin-businesses.service';
+import { AdminOverviewService } from './services/admin-overview.service';
+import { AdminSettingsService } from './services/admin-settings.service';
+import { AdminUsersService } from './services/admin-users.service';
+
+@Module({
+  controllers: [
+    AdminUsersController,
+    AdminBusinessesController,
+    AdminSettingsController,
+    AdminOverviewController,
+  ],
+  providers: [
+    AdminUsersService,
+    AdminBusinessesService,
+    AdminSettingsService,
+    AdminOverviewService,
+    { provide: HashingService, useClass: BcryptService },
+  ],
+})
+export class AdminModule {}

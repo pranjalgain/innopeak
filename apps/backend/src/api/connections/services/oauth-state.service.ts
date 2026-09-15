@@ -29,8 +29,7 @@ export interface MintedState {
 }
 
 export type ConsumeResult =
-  | { ok: false; reason: OAuthStateFailureReason }
-  | { ok: true; record: OAuthStateRecord };
+  { ok: false; reason: OAuthStateFailureReason } | { ok: true; record: OAuthStateRecord };
 
 /**
  * Three layers, because signing alone does not close the attack this route has.

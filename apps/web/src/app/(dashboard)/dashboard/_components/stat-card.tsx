@@ -11,8 +11,8 @@ interface StatCardProps {
 
 export function StatCard({ label, value, icon: Icon, warning = false }: StatCardProps) {
   return (
-    <Card className="gap-3 py-4">
-      <CardContent className="flex flex-col gap-3 px-4">
+    <Card className="h-full gap-3 py-4">
+      <CardContent className="flex h-full flex-col gap-3 px-4">
         <div
           className={
             warning
@@ -22,7 +22,7 @@ export function StatCard({ label, value, icon: Icon, warning = false }: StatCard
         >
           <Icon size={16} />
         </div>
-        <div>
+        <div className="mt-auto">
           <p className="text-sm text-muted-foreground">{label}</p>
           <p className="text-2xl font-bold">{value}</p>
         </div>

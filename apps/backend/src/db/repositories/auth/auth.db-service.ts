@@ -7,7 +7,12 @@ import { type DrizzleTransaction } from '@db/db.service';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
 
-import { AuthRepository, RefreshTokenRow, UserByEmail } from './auth.repository';
+import {
+  AuthRepository,
+  PlatformAdminByEmail,
+  RefreshTokenRow,
+  UserByEmail,
+} from './auth.repository';
 
 import { PromptsRepository } from '../prompts/prompts.repository';
 
@@ -323,7 +328,7 @@ export class AuthDbService {
    */
   async verifyEmail(email: string, tokenHash: string): Promise<VerifiedUser | null> {
     const user = await this.authRepository.findUserByEmail(email);
-    if (!user || user.status !== UserStatus.PENDING_VERIFICATION) {
+    if (user?.status !== UserStatus.PENDING_VERIFICATION) {
       return null;
     }
 
@@ -361,6 +366,10 @@ export class AuthDbService {
 
   async findUserForLogin(email: string): Promise<UserByEmail | null> {
     return this.authRepository.findUserByEmail(email);
+  }
+
+  async findPlatformAdminForLogin(email: string): Promise<PlatformAdminByEmail | null> {
+    return this.authRepository.findPlatformAdminByEmail(email);
   }
 
   async findUserById(id: string): Promise<UserByEmail | null> {

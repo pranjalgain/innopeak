@@ -80,7 +80,7 @@ export class EmailService {
     if (!compiled) {
       const templatePath = join(this.templatesDir, `${templateName}.hbs`);
       const templateSource = await readFile(templatePath, 'utf-8');
-      compiled = Handlebars.compile(templateSource) as TemplateDelegate;
+      compiled = Handlebars.compile(templateSource);
       this.templateCache.set(templateName, compiled);
       this.logger.debug(`Compiled and cached template: ${templateName}`);
     }

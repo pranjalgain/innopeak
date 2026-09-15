@@ -17,8 +17,7 @@ export interface PendingGoogleSignupIdentity {
 }
 
 export type ConsumePendingGoogleSignupResult =
-  | { ok: false }
-  | { ok: true; identity: PendingGoogleSignupIdentity };
+  { ok: false } | { ok: true; identity: PendingGoogleSignupIdentity };
 
 /**
  * Bridges the gap between "the Google callback resolved a genuinely new person" and "we know what

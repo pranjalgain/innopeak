@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
 
 import { useTranslations } from "next-intl";
+import { useState } from "react";
 import { LuClock, LuList, LuStar, LuTriangleAlert } from "react-icons/lu";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { AttentionReviewsGrid } from "@/app/(dashboard)/dashboard/_components/attention-reviews-grid";
 import { BusinessProfileCard } from "@/app/(dashboard)/dashboard/_components/business-profile-card";
 import { RatingDistributionCard } from "@/app/(dashboard)/dashboard/_components/rating-distribution-card";
 import { StatCard } from "@/app/(dashboard)/dashboard/_components/stat-card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDashboardStats } from "@/hooks/dashboard/use-dashboard-stats";
 import { useTenant } from "@/hooks/tenant/use-tenant";
 import type { DateRange } from "@/types/domain";

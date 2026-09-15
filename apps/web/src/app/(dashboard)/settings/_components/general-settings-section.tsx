@@ -1,6 +1,6 @@
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 
-import { useTranslations } from "next-intl";
 import { LuPlus, LuX } from "react-icons/lu";
 import { toast } from "sonner";
 

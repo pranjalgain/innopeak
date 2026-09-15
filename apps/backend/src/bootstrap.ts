@@ -6,9 +6,11 @@ import type { EnvConfig } from '@config/env.config';
 import { TraceIdInterceptor } from '@interceptors/trace-id.interceptor';
 import { TracingInterceptor } from '@interceptors/tracing.interceptor';
 import { LoggerService } from '@logger/logger.service';
+import { createOpsToolsGuard } from '@middlewares/dev-tool.middleware';
 import { Logger, ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as bodyParser from 'body-parser';
@@ -19,6 +21,7 @@ import helmet from 'helmet';
 
 import * as path from 'path';
 
+import { AdminModule } from './api/admin/admin.module';
 import { AuthModule } from './api/auth/auth.module';
 import { ConnectionsModule } from './api/connections/connections.module';
 import { DashboardModule } from './api/dashboard/dashboard.module';
@@ -71,6 +74,13 @@ export async function bootstrap(): Promise<void> {
   // see AuthController.
   app.use(cookieParser());
 
+  // Platform-admin gate for the operational surfaces that live outside the Nest route layer —
+  // Bull Board (`/admin/queues`) especially, which is an Express sub-app the global guards and any
+  // MiddlewareConsumer binding never reach. Registered here, after cookieParser (so the token
+  // cookie is parsed) and before routing, so it runs ahead of the sub-app. Without it, Bull
+  // Board's email-OTP job payloads were world-readable — an account-takeover path.
+  app.use(createOpsToolsGuard(app.get(JwtService), configService));
+
   const corsOrigins = configService.get<string>('CORS_ORIGINS')?.split(',') ?? [];
 
   // Enable CORS with specific settings
@@ -106,6 +116,7 @@ export async function bootstrap(): Promise<void> {
   // module missing from it serves its routes normally but is invisible in /api/v1. Nothing fails
   // loudly when one is forgotten; the endpoints simply do not appear.
   const V1_MODULES = [
+    AdminModule,
     AuthModule,
     ConnectionsModule,
     DashboardModule,

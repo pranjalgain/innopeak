@@ -9,10 +9,12 @@ export class AddingJobsToQueueManager {
   constructor(private readonly queuePublisher: QueuePublisherProvider) {}
 
   async addJob<T>(queueName: QueueName, jobName: JobName, data: T): Promise<void> {
-    this.logger.debug(
-      `Adding job ${jobName} to queue ${queueName} with data: ${JSON.stringify(data)}`,
-      'AddingJobsToQueueManager'
-    );
+    // Never serialize the payload — an OTP-email job carries the raw 6-digit `otp` (and, once the
+    // reset flow lands, `passwordSetLink`/`passwordResetLink`). `NODE_ENV` only ever validates to
+    // `development` or `production`, so a *staging* box logs at `debug`, and this line shipped
+    // live OTPs into the log files and Loki. The HTTP interceptor already redacts these fields for
+    // exactly this reason; this producer was the path that leaked around it. Log only the routing.
+    this.logger.debug(`Adding job ${jobName} to queue ${queueName}`, 'AddingJobsToQueueManager');
 
     try {
       await this.queuePublisher.publish(queueName, jobName, data, {

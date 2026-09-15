@@ -1,10 +1,26 @@
 -- Migration: dev_platform_admin
 -- Created at: 2026-09-07T00:00:00.000Z
 --
--- Seeds the root platform admin. This is the one identity in the schema with no other way to
--- come into existence: `idx_platform_admins_single_root` permits at most one row whose
--- `invited_by_platform_admin_id` is NULL, and every admin after it arrives by invitation from an
--- existing one — so the first has to be seeded. Nothing under `src/` writes `platform_admins`.
+-- INTENTIONALLY EMPTY. This migration used to seed the root platform admin with a bcrypt hash of
+-- a password written in plain text in its own comments. That was a production credential leak:
+-- the file is journaled, `migrate.ts` has no environment guard, so `pnpm db:migrate` created a
+-- working root login — with a password published in git — on every database it was ever run
+-- against. The file justified this by noting that nothing could mint a `platform_admin` JWT yet;
+-- that ceased to be true when admin login shipped, and nobody revisited the comment.
+--
+-- The seed now lives in `src/db/seeds/seed-platform-admin.ts` (`pnpm db:seed:admin`), which takes
+-- ROOT_ADMIN_EMAIL / ROOT_ADMIN_PASSWORD from the environment. Migrations are for schema; a
+-- credential cannot live in one, because plain SQL cannot read an env var.
+--
+-- The file is kept rather than deleted: it is already applied everywhere, and drizzle's migrator
+-- walks `meta/_journal.json` and never re-reads an applied file. Removing the entry would only
+-- desynchronise the journal from databases that have already run it.
+--
+-- Any database migrated before this change still holds the old seeded row. Rotate that password
+-- (Settings -> Profile -> Change password) or delete the row and re-seed:
+--
+--   DELETE FROM platform_admins WHERE invited_by_platform_admin_id IS NULL;
+--   pnpm db:seed:admin
 --
 -- This deliberately does NOT seed a tenant, a tenant owner, `tenant_settings`, or prompts.
 -- An earlier version did, which was a mistake on two counts: a tenant owner already has a working
@@ -24,33 +40,5 @@
 --     -d '{"email":"owner@example.com","otp":"000000"}'
 --
 -- (the fixed OTP comes from DEV_VERIFY_EMAIL_TOKEN, which is refused in production)
---
--- !! WARNING - THIS IS A JOURNALED MIGRATION !!
--- `pnpm db:migrate` applies it in EVERY environment. Plain SQL cannot read an env var, so the
--- credential below is fixed and committed to git:
---
---     admin@innopeak.com / Admin@123456   (root platform admin, status: active)
---
--- The email matches the frontend's `SUPER_ADMIN_EMAIL`, which is what routes a login to the admin
--- area. Note that nothing issues a `platform_admin` JWT yet — `JwtStrategy` validates one but
--- neither `TokenService` nor `AuthService` mints one — so this row is not yet loggable-into. It
--- exists so the root admin is in place when that module lands.
---
--- Before this reaches any public environment, either delete the row there, or make the insert
--- opt-in per database:
---
---     ALTER DATABASE <dev_db> SET innopeak.seed_dev_admin = 'true';
---
--- and add `AND current_setting('innopeak.seed_dev_admin', true) = 'true'` to the guard below.
---
--- Idempotent, and it has to be: the single-root unique index would reject a second NULL-inviter
--- row outright rather than ignoring it.
 
-INSERT INTO platform_admins (email, password_hash, invited_by_platform_admin_id, status)
-SELECT 'admin@innopeak.com',
-       '$2b$10$qP9IH2DMGBVjIHW.DiNyr.Ki1H1BmXQbbnIgbBZtto/P7hyCMGaB2',
-       NULL,
-       'active'
-WHERE NOT EXISTS (
-  SELECT 1 FROM platform_admins WHERE invited_by_platform_admin_id IS NULL
-);
+SELECT 1;

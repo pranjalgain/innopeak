@@ -6,7 +6,7 @@ export enum QueueName {
 }
 
 export const QUEUE_LIST = Object.values(QueueName).filter((v): v is QueueName =>
-  Object.values(QueueName).includes(v as QueueName)
+  Object.values(QueueName).includes(v)
 );
 
 /**

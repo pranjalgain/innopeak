@@ -29,8 +29,17 @@ interface TokenResponse {
   hasConnectedBusiness: boolean;
 }
 
+/** `POST /v1/auth/login`'s platform-admin branch — see `PlatformAdminTokenResponseDto` on the backend. */
+interface PlatformAdminTokenResponse {
+  accessToken: string;
+  expiresIn: number;
+  admin: { id: string; email: string };
+}
+
 export type LoginResult =
-  { kind: "verify_needed"; email: string } | { kind: "success"; hasConnectedBusiness: boolean };
+  | { kind: "verify_needed"; email: string }
+  | { kind: "success"; hasConnectedBusiness: boolean }
+  | { kind: "admin_success" };
 
 export interface VerifyOtpResult {
   verified: boolean;
@@ -48,11 +57,14 @@ export interface VerifyOtpResult {
  * `@innopeak/client-sdk`. Hooks and components never call the backend, the SDK, or
  * `TokenService` directly, so nothing above this file needs to change if the backend contract does.
  *
- * `email` decides which identity a login resolves to: matching `SUPER_ADMIN_EMAIL` routes to the
- * Super Admin area instead of the tenant dashboard, mirroring how the real backend keeps
- * `platform_admins` as a separate identity from tenant `users` rather than a role on the same
- * table. Real platform-admin login doesn't exist in the backend yet, so this check stays
- * client-side for now.
+ * There is one shared sign-in screen for every identity — `loginWithPassword` posts to the same
+ * `POST /v1/auth/login` regardless of who's typing, and the backend itself resolves which identity
+ * space the email belongs to (`platform_admins` checked first, tenant `users` as the fallback —
+ * see `AuthService.login`'s doc comment on the backend). The response shape is the discriminant:
+ * an `admin` field means a platform admin, `status` means a still-`pending_verification` tenant
+ * account, otherwise a normal tenant token response. `resolveLoginDestination` below (used only by
+ * the still-mocked Microsoft SSO path) is the one remaining place that guesses from the email
+ * string instead — real Microsoft SSO doesn't exist in the backend at all yet.
  */
 export class AuthService {
   private static async resolveLoginDestination(email: string): Promise<string> {
@@ -82,33 +94,34 @@ export class AuthService {
     return user;
   }
 
-  /** Real password login. Does NOT redirect — the caller branches on the result (verify_needed vs. success). */
+  /** Real password login. Does NOT redirect — the caller branches on the result's `kind`. */
   static async loginWithPassword(email: string, password: string): Promise<LoginResult> {
     const response = await authApi.authControllerLoginV1(
       { loginDto: { email, password } },
       { authOptional: true },
     );
-    // The SDK's declared return type (`TokenResponseDto`) only documents the success case — a
-    // login for an unverified account actually comes back shaped like `{ status, email }` instead.
-    const data = unwrap<TokenResponse | { status: "pending_verification"; email: string }>(
-      response.data,
-    );
+    // The SDK's declared return type (`TokenResponseDto`) only documents one of the three actual
+    // shapes this route can answer with — see `PlatformAdminTokenResponse` and `LoginResult` above.
+    const data = unwrap<
+      TokenResponse | PlatformAdminTokenResponse | { status: "pending_verification"; email: string }
+    >(response.data);
 
-    if ("status" in data && data.status === "pending_verification") {
+    if ("status" in data) {
       return { kind: "verify_needed", email: data.email };
     }
 
-    const tokenResponse = data as TokenResponse;
-    TokenService.setAccessToken(tokenResponse.accessToken);
-    TokenService.setName(tokenResponse.user.name);
-    TokenService.setHasPassword(tokenResponse.user.hasPassword);
-    TokenService.setBusinessName(tokenResponse.user.businessName);
-    await SessionService.setRole(
-      tokenResponse.user.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL
-        ? "super_admin"
-        : "tenant",
-    );
-    return { kind: "success", hasConnectedBusiness: tokenResponse.hasConnectedBusiness };
+    if ("admin" in data) {
+      TokenService.setAccessToken(data.accessToken);
+      await SessionService.setRole("super_admin");
+      return { kind: "admin_success" };
+    }
+
+    TokenService.setAccessToken(data.accessToken);
+    TokenService.setName(data.user.name);
+    TokenService.setHasPassword(data.user.hasPassword);
+    TokenService.setBusinessName(data.user.businessName);
+    await SessionService.setRole("tenant");
+    return { kind: "success", hasConnectedBusiness: data.hasConnectedBusiness };
   }
 
   /**

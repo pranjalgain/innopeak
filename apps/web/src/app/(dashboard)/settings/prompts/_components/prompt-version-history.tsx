@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from "react";
 
 import { useFormatter, useTranslations } from "next-intl";
+import { useState } from "react";
 import { LuChevronDown, LuChevronUp } from "react-icons/lu";
 
-import { Button } from "@/components/ui/button";
 
 import { PromptVersionStatsLine } from "@/app/(dashboard)/settings/prompts/_components/prompt-version-stats-line";
 import { cn } from "@/app/_libs/utils/cn";
 import { Pagination } from "@/components/common/pagination";
+import { Button } from "@/components/ui/button";
 import { usePagination } from "@/hooks/common/use-pagination";
 import type { PromptVersion, PromptVersionStats } from "@/types/domain";
 
@@ -42,7 +42,7 @@ export function PromptVersionHistory({ promptId, versions, getStats }: PromptVer
   const reversedPriorVersions = [...priorVersions].reverse();
   const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(
     reversedPriorVersions,
-    2,
+    10,
   );
 
   if (priorVersions.length === 0) return null;

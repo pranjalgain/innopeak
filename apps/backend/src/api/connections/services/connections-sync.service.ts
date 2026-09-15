@@ -161,7 +161,7 @@ export class ConnectionsSyncService {
    * may still be alive; what makes it actionable is that acquisition will now reclaim it.
    */
   private isStale(run: SyncRunRow | null): boolean {
-    if (!run || run.status !== SyncRunStatus.RUNNING) {
+    if (run?.status !== SyncRunStatus.RUNNING) {
       return false;
     }
 

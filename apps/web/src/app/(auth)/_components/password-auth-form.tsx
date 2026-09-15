@@ -1,20 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
-
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
-import { useForm } from "react-hook-form";
+import { useMemo } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useForm } from "react-hook-form";
 
 import {
   type PasswordAuthFields,
   passwordAuthSchema,
 } from "@/app/(auth)/_schemas/password-auth.schema";
 import { PasswordInput } from "@/components/common/password-input";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
 
 interface PasswordAuthFormProps {
   isLoading: boolean;
@@ -27,9 +27,9 @@ interface PasswordAuthFormProps {
 const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
 
 /**
- * Email/password fields — gated behind `AUTH_METHODS.password`, off by default since Microsoft SSO
- * is this app's primary sign-in method. Shared between login and signup — the submit label is
- * overridable since "Sign in" wouldn't make sense on the signup screen.
+ * Email/password fields for login — always rendered, never gated behind the platform's
+ * passwordLoginEnabled setting (see `LoginView`'s own comment for why: a platform admin has no
+ * other way to sign in). The submit label is overridable via `submitLabel`/`submittingLabel`.
  *
  * Validated client-side against `_schemas/password-auth.schema.ts` so a malformed address is
  * caught here rather than spending a round trip to earn a 400. The password is only checked for

@@ -83,7 +83,7 @@ describe('MESSAGES / renderMessage', () => {
   it('does not resolve a path segment to an inherited Object.prototype member', () => {
     const NUL = String.fromCharCode(0);
     expect(renderMessage(`${NUL}i18n${NUL}constructor${NUL}[1]`, 'de')).toBe(
-      `${NUL}i18n${NUL}constructor${NUL}[1]`,
+      `${NUL}i18n${NUL}constructor${NUL}[1]`
     );
     expect(renderMessage(`${NUL}i18n${NUL}toString`, 'de')).toBe(`${NUL}i18n${NUL}toString`);
   });

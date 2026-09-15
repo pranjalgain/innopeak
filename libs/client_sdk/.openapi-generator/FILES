@@ -3,6 +3,10 @@
 .openapi-generator-ignore
 README.md
 api.ts
+api/admin-businesses-api.ts
+api/admin-overview-api.ts
+api/admin-settings-api.ts
+api/admin-users-api.ts
 api/auth-api.ts
 api/connections-api.ts
 api/connections-sync-api.ts
@@ -15,6 +19,10 @@ common.ts
 configuration.ts
 git_push.sh
 index.ts
+models/admin-business-response-dto.ts
+models/admin-invite-response-dto.ts
+models/admin-profile-response-dto.ts
+models/admin-user-response-dto.ts
 models/authenticated-user-dto.ts
 models/available-location-dto.ts
 models/available-locations-response-dto.ts
@@ -22,6 +30,7 @@ models/backfill-progress-response-dto.ts
 models/backfill-summary-dto.ts
 models/blocklist-term-dto.ts
 models/blocklist-term-list-response-dto.ts
+models/change-admin-password-dto.ts
 models/change-password-dto.ts
 models/complete-google-signup-dto.ts
 models/confirm-location-dto.ts
@@ -42,6 +51,9 @@ models/location-list-response-dto.ts
 models/login-dto.ts
 models/metrics-dto.ts
 models/pagination-meta-dto.ts
+models/platform-activity-response-dto.ts
+models/platform-review-stats-response-dto.ts
+models/platform-settings-response-dto.ts
 models/prompt-created-by-dto.ts
 models/prompt-current-version-dto.ts
 models/prompt-dto.ts
@@ -54,6 +66,8 @@ models/review-list-item-dto.ts
 models/review-list-response-dto.ts
 models/review-response-item-dto.ts
 models/reviews-meta-dto.ts
+models/send-admin-invite-dto.ts
+models/set-admin-status-dto.ts
 models/set-password-dto.ts
 models/signup-dto.ts
 models/signup-response-dto.ts
@@ -62,7 +76,11 @@ models/sync-run-dto.ts
 models/sync-run-list-response-dto.ts
 models/tenant-settings-response-dto.ts
 models/token-response-dto.ts
+models/update-admin-avatar-dto.ts
+models/update-business-status-dto.ts
 models/update-locale-dto.ts
+models/update-locale-response-dto.ts
+models/update-platform-settings-dto.ts
 models/update-prompt-tone-dto.ts
 models/update-prompt-tone-response-dto.ts
 models/update-tenant-settings-dto.ts

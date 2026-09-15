@@ -1,18 +1,18 @@
 "use client";
-import { useState } from "react";
 
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 
 import { useFormatter, useTranslations } from "next-intl";
+import { useState } from "react";
 import { LuStore } from "react-icons/lu";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ConnectionService } from "@/app/_libs/services/connection.service";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ConnectionInfo } from "@/types/domain";
 
 interface ConnectionSettingsSectionProps {

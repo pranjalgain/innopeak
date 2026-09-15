@@ -1,0 +1,164 @@
+import { applyDecorators, HttpStatus } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse } from '@nestjs/swagger';
+
+import { PlatformSettingsResponseDto } from '../../settings/dto/platform-settings-response.dto';
+import { AdminInviteResponseDto } from '../dto/admin-invite-response.dto';
+import { AdminProfileResponseDto } from '../dto/admin-profile-response.dto';
+import { ChangeAdminPasswordDto } from '../dto/change-admin-password.dto';
+import { SendAdminInviteDto } from '../dto/send-admin-invite.dto';
+import { SetAdminStatusDto } from '../dto/set-admin-status.dto';
+import { UpdateAdminAvatarDto } from '../dto/update-admin-avatar.dto';
+import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
+
+export function ApiGetAdminProfile(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({ summary: "Get the signed-in platform admin's own profile" }),
+    ApiResponse({ status: HttpStatus.OK, type: AdminProfileResponseDto }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
+  );
+}
+
+export function ApiUpdateAdminAvatar(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Set the avatar URL',
+      description: 'Stores an already-hosted image URL — this does not accept a file upload.',
+    }),
+    ApiBody({ type: UpdateAdminAvatarDto }),
+    ApiResponse({ status: HttpStatus.OK, type: AdminProfileResponseDto }),
+    ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
+  );
+}
+
+export function ApiChangeAdminPassword(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: "Change the signed-in platform admin's own password",
+      description:
+        'No session to revoke afterward — a platform admin has no refresh-token concept yet, so ' +
+        'there is nothing else to rotate on a successful change.',
+    }),
+    ApiBody({ type: ChangeAdminPasswordDto }),
+    ApiResponse({ status: HttpStatus.OK, description: 'Password changed.' }),
+    ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'No password set on this account' }),
+    ApiResponse({
+      status: HttpStatus.UNAUTHORIZED,
+      description: 'Missing/invalid token, or the current password was wrong',
+    }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
+  );
+}
+
+export function ApiListAdminInvites(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'List every platform admin, including the seeded root',
+      description:
+        "Despite the name, this is the full admin roster (matching the frontend's " +
+        'PlatformAdminInvite[] shape), not only pending invites — each row also carries its own ' +
+        'invite metadata where one exists.',
+    }),
+    ApiResponse({ status: HttpStatus.OK, type: [AdminInviteResponseDto] }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
+  );
+}
+
+export function ApiSendAdminInvite(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Invite a new platform admin',
+      description:
+        'Creates the invited admin\'s own row (status "invited", no password) and a 7-day ' +
+        'invite token record. Does **not** email the invite or expose an accept-invite endpoint ' +
+        'yet — that pairing is separate, comparably-sized follow-up work.',
+    }),
+    ApiBody({ type: SendAdminInviteDto }),
+    ApiResponse({ status: HttpStatus.CREATED, type: AdminInviteResponseDto }),
+    ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' }),
+    ApiResponse({
+      status: HttpStatus.CONFLICT,
+      description: 'This email is already a platform admin or has a pending invite',
+    })
+  );
+}
+
+export function ApiRevokeAdminInvite(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Revoke a pending invite',
+      description:
+        "Deletes the invited admin's row outright — only while it is still `invited`. An admin " +
+        'who has already accepted or been disabled cannot be revoked through this route.',
+    }),
+    ApiResponse({ status: HttpStatus.OK, description: 'Invite revoked.' }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' }),
+    ApiResponse({
+      status: HttpStatus.NOT_FOUND,
+      description: 'No such invite, or it is no longer in the invited state',
+    })
+  );
+}
+
+export function ApiSetAdminStatus(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Disable or re-enable a platform admin',
+      description:
+        'Sets another admin `active`/`disabled`. Combined with the per-request status check in ' +
+        'JwtStrategy, a disable ends the target admin’s access on their next request. Cannot ' +
+        'target yourself, an invited (not-yet-accepted) admin, or the last active admin.',
+    }),
+    ApiBody({ type: SetAdminStatusDto }),
+    ApiResponse({ status: HttpStatus.OK, type: AdminInviteResponseDto }),
+    ApiResponse({
+      status: HttpStatus.BAD_REQUEST,
+      description: 'Cannot disable yourself or the last active admin',
+    }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' }),
+    ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'No such admin' }),
+    ApiResponse({
+      status: HttpStatus.CONFLICT,
+      description: 'The admin has not accepted their invite yet',
+    })
+  );
+}
+
+export function ApiUpdatePlatformSettings(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Update platform-wide feature settings',
+      description:
+        'Partial update — any field omitted is left unchanged. Controls which login methods the ' +
+        'sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. ' +
+        'Takes effect immediately for every visitor; no redeploy required. Rejects a patch that ' +
+        'would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false — see the ' +
+        "400 response. Does not affect platform-admin login: a Super Admin's own password field " +
+        'on /login is unconditional regardless of this setting.',
+    }),
+    ApiBody({ type: UpdatePlatformSettingsDto }),
+    ApiResponse({ status: HttpStatus.OK, type: PlatformSettingsResponseDto }),
+    ApiResponse({
+      status: HttpStatus.BAD_REQUEST,
+      description:
+        'Validation failed, or the patch would leave every tenant-facing sign-in method disabled',
+    }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
+  );
+}

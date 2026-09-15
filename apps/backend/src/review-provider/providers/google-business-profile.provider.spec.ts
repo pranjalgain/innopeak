@@ -32,7 +32,7 @@ describe('GoogleBusinessProfileProvider — token endpoint error classification'
       ok: status >= 200 && status < 300,
       status,
       text: () => Promise.resolve(JSON.stringify(body)),
-    } as Response);
+    });
   }
 
   it('maps a 400 invalid_grant to ProviderAuthError, not ProviderMappingError', async () => {
@@ -74,7 +74,7 @@ describe('GoogleBusinessProfileProvider — token endpoint error classification'
       ok: false,
       status: 400,
       text: () => Promise.resolve('not json'),
-    } as Response);
+    });
 
     await expect(provider.refreshAccessToken('some-token')).rejects.toBeInstanceOf(
       ProviderMappingError
@@ -110,7 +110,7 @@ describe('GoogleBusinessProfileProvider — 403 quota vs. auth classification', 
       ok: status >= 200 && status < 300,
       status,
       text: () => Promise.resolve(JSON.stringify(body)),
-    } as Response);
+    });
   }
 
   it('reclassifies a 403 carrying a quota-specific reason as rate-limited, not an auth failure', async () => {
@@ -165,7 +165,7 @@ describe('GoogleBusinessProfileProvider — 403 quota vs. auth classification', 
       ok: false,
       status: 403,
       text: () => Promise.resolve('not json'),
-    } as Response);
+    });
 
     await expect(provider.refreshAccessToken('some-token')).rejects.toBeInstanceOf(
       ProviderAuthError

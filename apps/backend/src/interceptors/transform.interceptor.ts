@@ -30,7 +30,7 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
       const request = context.switchToHttp().getRequest<Request>();
 
       // Exclude specific routes (Prometheus metrics and health checks)
-      const pathname = (request.url ?? '').split('?')[0] ?? '';
+      const pathname = request.url.split('?')[0] ?? '';
       const isMetricsOrHealth =
         pathname === `/${RouteNames.METRICS}` ||
         pathname === `/v1/${RouteNames.METRICS}` ||
@@ -40,8 +40,11 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
         pathname.startsWith(`/v1/${RouteNames.HEALTH}/`);
 
       if (isMetricsOrHealth) {
-        // Health/metrics endpoints intentionally bypass response transformation.
-        return next.handle() as unknown as Observable<ApiResponse<T>>;
+        // Health/metrics endpoints intentionally bypass response transformation, so the returned
+        // stream is genuinely not shaped like `ApiResponse<T>` — `CallHandler.handle()` itself is
+        // typed `Observable<any>` by Nest, which is what the linter is (correctly) flagging.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+        return next.handle();
       }
 
       // Resolved once per request, not per field — the same locale renders both `message` below
@@ -83,7 +86,9 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
       );
     }
 
-    // For other contexts, pass through without modification.
-    return next.handle() as unknown as Observable<ApiResponse<T>>;
+    // For other contexts, pass through without modification — same reasoning as the
+    // health/metrics bypass above: `CallHandler.handle()` is genuinely `Observable<any>`.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    return next.handle();
   }
 }

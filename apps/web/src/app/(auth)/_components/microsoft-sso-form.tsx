@@ -1,15 +1,15 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 
-import { useTranslations } from "next-intl";
 
+import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
+import { PasswordInput } from "@/components/common/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
-import { PasswordInput } from "@/components/common/password-input";
 
 interface MicrosoftSsoFormProps {
   isLoading: boolean;

@@ -20,4 +20,15 @@ export class SessionService {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(STORAGE_KEY, role);
   }
+
+  /**
+   * Drops the stored role entirely, so `getRole` falls back to "tenant". Synchronous and
+   * deliberately not a `setRole("tenant")`: this is called from the axios interceptor the moment a
+   * session is found to be dead, which is not a place that can await, and leaving a stale
+   * "super_admin" behind there is what let an expired admin keep rendering the admin shell.
+   */
+  static clear(): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
 }

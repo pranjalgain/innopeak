@@ -50,6 +50,8 @@ import type { TokenResponseDto } from '../models';
 // @ts-ignore
 import type { UpdateLocaleDto } from '../models';
 // @ts-ignore
+import type { UpdateLocaleResponseDto } from '../models';
+// @ts-ignore
 import type { VerifyEmailDto } from '../models';
 /**
  * AuthApi - axios parameter creator
@@ -259,7 +261,7 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
-     * A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On the active-account success path, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
+     * One endpoint for both a tenant user and a platform admin — there is no separate sign-in screen, so this resolves which identity space the email belongs to itself, checking `platform_admins` first (see `AuthService.login`\'s own doc comment for why that identity always wins over a same-email tenant account). A still-`pending_verification` tenant account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On a tenant success, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a platform-admin success, only the `access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh token yet.
      * @summary Password login
      * @param {LoginDto} loginDto
      * @param {*} [options] Override http request option.
@@ -606,7 +608,7 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
-     * Persists `users.locale`, then reissues the token pair so the new value is on the access token\'s `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Does not revoke other sessions: a locale preference is not a security boundary, so another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
+     * Persists `users.locale`, then re-signs *only* the access token so the new value is on its `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Deliberately does not touch the refresh token (unlike change-password/set-password): a locale preference is not proof of anything beyond what the caller\'s existing access token already proves, so this must not be usable to mint a fresh 7-day refresh token from one. Another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
      * @summary Set the language responses are rendered in
      * @param {UpdateLocaleDto} updateLocaleDto
      * @param {*} [options] Override http request option.
@@ -851,7 +853,7 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On the active-account success path, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
+     * One endpoint for both a tenant user and a platform admin — there is no separate sign-in screen, so this resolves which identity space the email belongs to itself, checking `platform_admins` first (see `AuthService.login`\'s own doc comment for why that identity always wins over a same-email tenant account). A still-`pending_verification` tenant account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On a tenant success, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a platform-admin success, only the `access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh token yet.
      * @summary Password login
      * @param {LoginDto} loginDto
      * @param {*} [options] Override http request option.
@@ -1068,7 +1070,7 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Persists `users.locale`, then reissues the token pair so the new value is on the access token\'s `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Does not revoke other sessions: a locale preference is not a security boundary, so another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
+     * Persists `users.locale`, then re-signs *only* the access token so the new value is on its `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Deliberately does not touch the refresh token (unlike change-password/set-password): a locale preference is not proof of anything beyond what the caller\'s existing access token already proves, so this must not be usable to mint a fresh 7-day refresh token from one. Another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
      * @summary Set the language responses are rendered in
      * @param {UpdateLocaleDto} updateLocaleDto
      * @param {*} [options] Override http request option.
@@ -1081,7 +1083,7 @@ export const AuthApiFp = function (configuration?: Configuration) {
       (
         axios?: AxiosInstance,
         basePath?: string,
-      ) => AxiosPromise<TokenResponseDto>
+      ) => AxiosPromise<UpdateLocaleResponseDto>
     > {
       const localVarAxiosArgs =
         await localVarAxiosParamCreator.authControllerUpdateLocaleV1(
@@ -1213,7 +1215,7 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On the active-account success path, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
+     * One endpoint for both a tenant user and a platform admin — there is no separate sign-in screen, so this resolves which identity space the email belongs to itself, checking `platform_admins` first (see `AuthService.login`\'s own doc comment for why that identity always wins over a same-email tenant account). A still-`pending_verification` tenant account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On a tenant success, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a platform-admin success, only the `access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh token yet.
      * @summary Password login
      * @param {AuthApiAuthControllerLoginV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -1312,7 +1314,7 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Persists `users.locale`, then reissues the token pair so the new value is on the access token\'s `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Does not revoke other sessions: a locale preference is not a security boundary, so another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
+     * Persists `users.locale`, then re-signs *only* the access token so the new value is on its `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Deliberately does not touch the refresh token (unlike change-password/set-password): a locale preference is not proof of anything beyond what the caller\'s existing access token already proves, so this must not be usable to mint a fresh 7-day refresh token from one. Another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
      * @summary Set the language responses are rendered in
      * @param {AuthApiAuthControllerUpdateLocaleV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -1321,7 +1323,7 @@ export const AuthApiFactory = function (
     authControllerUpdateLocaleV1(
       requestParameters: AuthApiAuthControllerUpdateLocaleV1Request,
       options?: RawAxiosRequestConfig,
-    ): AxiosPromise<TokenResponseDto> {
+    ): AxiosPromise<UpdateLocaleResponseDto> {
       return localVarFp
         .authControllerUpdateLocaleV1(
           requestParameters.updateLocaleDto,
@@ -1398,7 +1400,7 @@ export interface AuthApiInterface {
   ): AxiosPromise<void>;
 
   /**
-   * A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On the active-account success path, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
+   * One endpoint for both a tenant user and a platform admin — there is no separate sign-in screen, so this resolves which identity space the email belongs to itself, checking `platform_admins` first (see `AuthService.login`\'s own doc comment for why that identity always wins over a same-email tenant account). A still-`pending_verification` tenant account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On a tenant success, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a platform-admin success, only the `access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh token yet.
    * @summary Password login
    * @param {AuthApiAuthControllerLoginV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -1474,7 +1476,7 @@ export interface AuthApiInterface {
   ): AxiosPromise<SignupResponseDto>;
 
   /**
-   * Persists `users.locale`, then reissues the token pair so the new value is on the access token\'s `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Does not revoke other sessions: a locale preference is not a security boundary, so another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
+   * Persists `users.locale`, then re-signs *only* the access token so the new value is on its `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Deliberately does not touch the refresh token (unlike change-password/set-password): a locale preference is not proof of anything beyond what the caller\'s existing access token already proves, so this must not be usable to mint a fresh 7-day refresh token from one. Another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
    * @summary Set the language responses are rendered in
    * @param {AuthApiAuthControllerUpdateLocaleV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -1483,7 +1485,7 @@ export interface AuthApiInterface {
   authControllerUpdateLocaleV1(
     requestParameters: AuthApiAuthControllerUpdateLocaleV1Request,
     options?: RawAxiosRequestConfig,
-  ): AxiosPromise<TokenResponseDto>;
+  ): AxiosPromise<UpdateLocaleResponseDto>;
 
   /**
    * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
@@ -1635,7 +1637,7 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
-   * A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On the active-account success path, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
+   * One endpoint for both a tenant user and a platform admin — there is no separate sign-in screen, so this resolves which identity space the email belongs to itself, checking `platform_admins` first (see `AuthService.login`\'s own doc comment for why that identity always wins over a same-email tenant account). A still-`pending_verification` tenant account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On a tenant success, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a platform-admin success, only the `access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh token yet.
    * @summary Password login
    * @param {AuthApiAuthControllerLoginV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -1735,7 +1737,7 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
-   * Persists `users.locale`, then reissues the token pair so the new value is on the access token\'s `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Does not revoke other sessions: a locale preference is not a security boundary, so another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
+   * Persists `users.locale`, then re-signs *only* the access token so the new value is on its `locale` claim immediately — this tab\'s own requests read the new language right away rather than waiting for the access token to expire and refresh. Deliberately does not touch the refresh token (unlike change-password/set-password): a locale preference is not proof of anything beyond what the caller\'s existing access token already proves, so this must not be usable to mint a fresh 7-day refresh token from one. Another signed-in tab simply keeps its own locale until it next refreshes. Tenant-user tokens only.
    * @summary Set the language responses are rendered in
    * @param {AuthApiAuthControllerUpdateLocaleV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.

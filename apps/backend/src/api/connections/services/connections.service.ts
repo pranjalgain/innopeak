@@ -391,7 +391,7 @@ export class ConnectionsService {
     const tenantId = requireTenantUser(user).tenantId;
     const connection = await this.connectionsDbService.findConnectionByTenant(tenantId);
 
-    if (!connection || connection.disconnectedAt !== null) {
+    if (connection?.disconnectedAt !== null) {
       throw new NotFoundException({
         message: MESSAGES.CONNECTIONS.CONNECTION_NOT_FOUND,
         code: CONNECTION_ERROR_CODES.CONNECTION_NOT_FOUND,

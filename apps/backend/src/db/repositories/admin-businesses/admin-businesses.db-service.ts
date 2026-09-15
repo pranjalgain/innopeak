@@ -1,0 +1,74 @@
+import { TenantStatus } from '@auth/enums/tenant-status.enum';
+import { BusinessConnectionStatus } from '@common/enums/business-connection-status.enum';
+import { BusinessStatus } from '@common/enums/business-status.enum';
+import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
+import { Injectable } from '@nestjs/common';
+
+import { AdminBusinessesRepository, type AdminBusinessRow } from './admin-businesses.repository';
+
+export interface AdminBusinessSummary {
+  id: string;
+  name: string;
+  status: BusinessStatus;
+  connectionStatus: BusinessConnectionStatus;
+  ownerName: string;
+  ownerEmail: string;
+  userCount: number;
+  createdAt: string;
+}
+
+@Injectable()
+export class AdminBusinessesDbService {
+  constructor(private readonly adminBusinessesRepository: AdminBusinessesRepository) {}
+
+  async findAll(): Promise<AdminBusinessSummary[]> {
+    const rows = await this.adminBusinessesRepository.findAll();
+    return rows.map(toSummary);
+  }
+
+  /**
+   * Sets the tenant's real (3-value) status and returns the mapped summary, or `null` if no such
+   * tenant exists. `reactivate` always lands on `TenantStatus.ACTIVE` regardless of whether the
+   * tenant was previously `pending_activation` or `active` — both collapse to the same
+   * `BusinessStatus.ACTIVE` anyway, so there is nothing to preserve by branching on the prior value.
+   */
+  async setStatus(tenantId: string, status: TenantStatus): Promise<AdminBusinessSummary | null> {
+    const updated = await this.adminBusinessesRepository.setStatus(tenantId, status);
+    if (!updated) {
+      return null;
+    }
+    const row = await this.adminBusinessesRepository.findById(tenantId);
+    return row ? toSummary(row) : null;
+  }
+}
+
+function toSummary(row: AdminBusinessRow): AdminBusinessSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    status:
+      row.status === TenantStatus.SUSPENDED ? BusinessStatus.SUSPENDED : BusinessStatus.ACTIVE,
+    connectionStatus: toConnectionStatus(row),
+    // A tenant always has exactly one owner by construction (signup creates it, nothing deletes
+    // it) — `?? ''` only guards a tenant whose owner was anonymized separately from the tenant
+    // itself, which the product has no path to today but the join can still return.
+    ownerName: row.ownerName ?? '',
+    ownerEmail: row.ownerEmail ?? '',
+    userCount: row.userCount,
+    createdAt: row.createdAt,
+  };
+}
+
+function toConnectionStatus(row: AdminBusinessRow): BusinessConnectionStatus {
+  // No connection row has ever existed for this tenant — distinct from having lost one, see the
+  // enum's own comment.
+  if (row.latestConnectionStatus === null) {
+    return BusinessConnectionStatus.NEVER_CONNECTED;
+  }
+  if (row.latestConnectionDisconnectedAt !== null) {
+    return BusinessConnectionStatus.DISCONNECTED;
+  }
+  return row.latestConnectionStatus === ReviewProviderConnectionStatus.NEEDS_REAUTH
+    ? BusinessConnectionStatus.NEEDS_REAUTH
+    : BusinessConnectionStatus.CONNECTED;
+}

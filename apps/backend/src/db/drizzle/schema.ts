@@ -1,23 +1,33 @@
+import { sql } from 'drizzle-orm';
 import {
-  pgTable,
-  index,
-  serial,
-  timestamp,
-  varchar,
-  uuid,
-  jsonb,
-  uniqueIndex,
-  foreignKey,
   boolean,
   check,
+  foreignKey,
+  index,
   integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  serial,
   smallint,
   text,
-  pgEnum,
+  timestamp,
+  uniqueIndex,
+  uuid,
+  varchar,
 } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
 
 export const auditOperationType = pgEnum('audit_operation_type', ['INSERT', 'UPDATE', 'DELETE']);
+export const platformActivityType = pgEnum('platform_activity_type', [
+  'business_suspended',
+  'business_reactivated',
+  'admin_invite_sent',
+  'admin_invite_revoked',
+  'user_activated',
+  'user_deactivated',
+  'admin_disabled',
+  'admin_enabled',
+]);
 export const escalationReason = pgEnum('escalation_reason', ['low_rating', 'blocklist_match']);
 export const googleConnectionStatus = pgEnum('google_connection_status', [
   'active',
@@ -144,6 +154,7 @@ export const platformAdmins = pgTable(
     passwordHash: varchar('password_hash', { length: 255 }),
     invitedByPlatformAdminId: uuid('invited_by_platform_admin_id'),
     status: platformAdminStatus().notNull(),
+    avatarUrl: varchar('avatar_url', { length: 2048 }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -1080,5 +1091,76 @@ export const refreshTokens = pgTable(
       foreignColumns: [users.id],
       name: 'refresh_tokens_user_id_fkey',
     }).onDelete('cascade'),
+  ]
+);
+
+export const platformSettings = pgTable(
+  'platform_settings',
+  {
+    id: smallint().default(1).primaryKey().notNull(),
+    ssoLoginEnabled: boolean('sso_login_enabled').default(true).notNull(),
+    passwordLoginEnabled: boolean('password_login_enabled').default(false).notNull(),
+    socialLoginEnabled: boolean('social_login_enabled').default(false).notNull(),
+    inviteMembersEnabled: boolean('invite_members_enabled').default(false).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    check('platform_settings_id_check', sql`id = 1`),
+    check(
+      'platform_settings_at_least_one_method_check',
+      sql`${table.ssoLoginEnabled} OR ${table.passwordLoginEnabled} OR ${table.socialLoginEnabled}`
+    ),
+  ]
+);
+
+export const platformActivityLog = pgTable(
+  'platform_activity_log',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    type: platformActivityType().notNull(),
+    actorPlatformAdminId: uuid('actor_platform_admin_id'),
+    actorEmail: varchar('actor_email', { length: 255 }).notNull(),
+    tenantId: uuid('tenant_id'),
+    businessName: varchar('business_name', { length: 255 }),
+    targetEmail: varchar('target_email', { length: 255 }),
+    occurredAt: timestamp('occurred_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    index('idx_platform_activity_log_actor_platform_admin_id').using(
+      'btree',
+      table.actorPlatformAdminId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_platform_activity_log_occurred_at').using(
+      'btree',
+      table.occurredAt.desc().nullsFirst().op('timestamptz_ops')
+    ),
+    index('idx_platform_activity_log_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.actorPlatformAdminId],
+      foreignColumns: [platformAdmins.id],
+      name: 'platform_activity_log_actor_platform_admin_id_fkey',
+    }).onDelete('set null'),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'platform_activity_log_tenant_id_fkey',
+    }).onDelete('set null'),
+    check(
+      'platform_activity_log_target_check',
+      sql`((type = ANY (ARRAY['business_suspended'::platform_activity_type, 'business_reactivated'::platform_activity_type])) AND (business_name IS NOT NULL) AND (target_email IS NULL)) OR ((type = ANY (ARRAY['admin_invite_sent'::platform_activity_type, 'admin_invite_revoked'::platform_activity_type, 'admin_disabled'::platform_activity_type, 'admin_enabled'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NULL) AND (tenant_id IS NULL)) OR ((type = ANY (ARRAY['user_activated'::platform_activity_type, 'user_deactivated'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NOT NULL))`
+    ),
   ]
 );

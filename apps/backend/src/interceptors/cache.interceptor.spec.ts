@@ -66,7 +66,7 @@ describe('ClientControlledCacheInterceptor', () => {
   it('on a cache miss, calls the handler and stores the response with default TTL', async () => {
     const context = buildHttpContext({});
     cacheManager.get.mockResolvedValue(undefined);
-    cacheManager.set.mockResolvedValue(undefined as never);
+    cacheManager.set.mockResolvedValue(undefined);
     const callHandler: CallHandler = { handle: () => of('fresh-data') };
 
     const result$ = await interceptor.intercept(context, callHandler);
@@ -79,7 +79,7 @@ describe('ClientControlledCacheInterceptor', () => {
   it('parses max-age from cache-control and uses it as TTL in milliseconds', async () => {
     const context = buildHttpContext({ 'cache-control': 'max-age=60' });
     cacheManager.get.mockResolvedValue(undefined);
-    cacheManager.set.mockResolvedValue(undefined as never);
+    cacheManager.set.mockResolvedValue(undefined);
     const callHandler: CallHandler = { handle: () => of('fresh-data') };
 
     const result$ = await interceptor.intercept(context, callHandler);

@@ -124,7 +124,6 @@
     "overview": "Übersicht",
     "businesses": "Unternehmen",
     "users": "Benutzer",
-    "billing": "Abrechnung",
     "settings": "Einstellungen"
   },
   "appShell": {
@@ -161,7 +160,9 @@
       "google": "Google",
       "orDivider": "oder",
       "noAccount": "Noch kein Konto?",
-      "signUp": "Registrieren"
+      "signUp": "Registrieren",
+      "ssoUnavailable": "Weitere Anmeldeoptionen konnten nicht geprüft werden.",
+      "ssoUnavailableRetry": "Erneut versuchen"
     },
     "passwordMock": {
       "emailLabel": "E-Mail",
@@ -610,9 +611,43 @@
     "stats": {
       "businesses": "Unternehmen",
       "users": "Benutzer",
-      "mrr": "MRR",
       "reviewsFetched": "Abgerufene Bewertungen",
       "repliesSent": "Gesendete Antworten"
+    },
+    "needsAttention": {
+      "title": "Handlungsbedarf",
+      "subtitle": "Unternehmen mit einem Problem bei der Google-Unternehmensprofil-Verbindung",
+      "empty": "Derzeit besteht kein Handlungsbedarf.",
+      "viewAll": "Alle Unternehmen anzeigen →",
+      "statuses": {
+        "needs_reauth": "Erneute Autorisierung nötig",
+        "disconnected": "Getrennt",
+        "never_connected": "Nie verbunden"
+      }
+    },
+    "recentBusinesses": {
+      "title": "Neueste Unternehmen",
+      "subtitle": "Die neuesten registrierten Unternehmen",
+      "empty": "Noch keine Unternehmen.",
+      "viewAll": "Alle Unternehmen anzeigen →"
+    },
+    "signupTrend": {
+      "title": "Registrierungen",
+      "subtitle": "Neue Unternehmen nach Monat",
+      "empty": "Noch keine Registrierungen."
+    },
+    "activityLog": {
+      "title": "Aktivität",
+      "subtitle": "Letzte Aktionen der Plattform-Administratoren",
+      "empty": "Noch keine Aktivität.",
+      "messages": {
+        "business_suspended": "{businessName} gesperrt",
+        "business_reactivated": "{businessName} reaktiviert",
+        "admin_invite_sent": "{email} als Plattform-Administrator eingeladen",
+        "admin_invite_revoked": "Einladung für {email} widerrufen",
+        "user_activated": "{email} bei {businessName} reaktiviert",
+        "user_deactivated": "{email} bei {businessName} deaktiviert"
+      }
     },
     "toasts": {
       "loadFailed": "Die Übersicht konnte nicht geladen werden."
@@ -622,17 +657,11 @@
     "resultCount": "{count, plural, one {# Unternehmen} other {# Unternehmen}}",
     "columns": {
       "name": "Unternehmen",
-      "plan": "Tarif",
       "status": "Status",
       "owner": "Inhaber",
       "users": "Benutzer",
       "created": "Erstellt",
       "actions": "Aktionen"
-    },
-    "plan": {
-      "starter": "Starter",
-      "growth": "Growth",
-      "scale": "Scale"
     },
     "status": {
       "active": "Aktiv",
@@ -700,7 +729,8 @@
   "adminSettings": {
     "tabs": {
       "profile": "Profil",
-      "members": "Mitglieder"
+      "members": "Mitglieder",
+      "platform": "Plattform"
     },
     "profile": {
       "title": "Ihr Profil",
@@ -708,14 +738,18 @@
       "changePicture": "Bild ändern",
       "emailLabel": "E-Mail",
       "changePasswordTitle": "Passwort ändern",
+      "changePasswordDescription": "Aktualisieren Sie das Passwort für die Anmeldung an Ihrem Super-Administrator-Konto.",
+      "changePassword": "Passwort ändern",
       "currentPasswordLabel": "Aktuelles Passwort",
       "newPasswordLabel": "Neues Passwort",
       "confirmPasswordLabel": "Neues Passwort bestätigen",
       "updatePassword": "Passwort aktualisieren",
       "passwordMismatch": "Das neue Passwort und die Bestätigung stimmen nicht überein.",
+      "cancel": "Abbrechen",
       "toasts": {
         "loadFailed": "Ihr Profil konnte nicht geladen werden.",
         "updateFailed": "Diese Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+        "currentPasswordIncorrect": "Das aktuelle Passwort ist falsch.",
         "avatarUpdated": "Profilbild aktualisiert.",
         "passwordChanged": "Passwort geändert."
       },
@@ -754,29 +788,44 @@
         "sendFailed": "Diese Einladung konnte nicht gesendet werden. Bitte versuchen Sie es erneut.",
         "sent": "Einladung an {email} gesendet.",
         "revokeFailed": "Diese Einladung konnte nicht widerrufen werden. Bitte versuchen Sie es erneut.",
-        "revoked": "Einladung widerrufen."
+        "revoked": "Einladung widerrufen.",
+        "adminDisabled": "Administrator deaktiviert.",
+        "adminEnabled": "Administrator aktiviert.",
+        "updateFailed": "Dieser Administrator konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut."
       },
       "errors": {
         "emailInvalid": "Geben Sie eine gültige E-Mail-Adresse zum Einladen ein."
+      },
+      "disable": "Deaktivieren",
+      "enable": "Aktivieren",
+      "confirmDisable": {
+        "title": "{email} deaktivieren?",
+        "description": "Der Zugriff endet bei der nächsten Anfrage; eine Anmeldung ist erst nach erneuter Aktivierung möglich."
       }
-    }
-  },
-  "adminBilling": {
-    "resultCount": "{count, plural, one {# Unternehmen} other {# Unternehmen}}",
-    "totalMrr": "MRR gesamt",
-    "columns": {
-      "business": "Unternehmen",
-      "plan": "Tarif",
-      "mrr": "MRR",
-      "reviewsThisMonth": "Bewertungen diesen Monat",
-      "status": "Status"
     },
-    "emptyState": {
-      "title": "Noch keine Abrechnungsdaten",
-      "description": "Abrechnungsdetails erscheinen hier, sobald Unternehmen einen kostenpflichtigen Tarif haben."
-    },
-    "toasts": {
-      "loadFailed": "Abrechnungsdaten konnten nicht geladen werden."
+    "platform": {
+      "title": "Plattformeinstellungen",
+      "description": "Welche Anmeldemethoden angeboten werden und ob Mandanten Teammitglieder einladen können. Änderungen wirken sofort und überall.",
+      "sso": {
+        "label": "Microsoft SSO",
+        "helper": "„Mit Microsoft fortfahren\" auf den Anmelde- und Registrierungsbildschirmen anbieten."
+      },
+      "password": {
+        "label": "E-Mail & Passwort",
+        "helper": "E-Mail/Passwort für Registrierung und Passwortverwaltung von Mandanten anbieten – die Anmeldung mit einem vorhandenen Passwort ist immer möglich."
+      },
+      "social": {
+        "label": "Google-Anmeldung",
+        "helper": "„Mit Google fortfahren\" auf den Anmelde- und Registrierungsbildschirmen anbieten."
+      },
+      "inviteMembers": {
+        "label": "Teammitglieder einladen",
+        "helper": "Einem Mandanteninhaber erlauben, Teammitglieder über die eigenen Einstellungen > Mitglieder einzuladen."
+      },
+      "toasts": {
+        "updated": "Plattformeinstellungen aktualisiert.",
+        "updateFailed": "Diese Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
+      }
     }
   },
   "common": {
@@ -815,6 +864,11 @@
       "in_review": "In Prüfung",
       "responded": "Beantwortet",
       "dismissed": "Verworfen"
+    },
+    "loadError": {
+      "title": "Konnte nicht geladen werden",
+      "description": "Auf unserer Seite ist etwas schiefgelaufen. Dies ist keine leere Liste — bitte versuchen Sie es gleich erneut.",
+      "retry": "Erneut versuchen"
     }
   }
 }

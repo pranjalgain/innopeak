@@ -1,6 +1,6 @@
+import { useTranslations } from "next-intl";
 import { useCallback, useState } from "react";
 
-import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
 import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";

@@ -5,13 +5,15 @@ import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { AdminUserService } from "@/app/_libs/services/admin-user.service";
+import { adminOverviewActivityQueryKey, adminUsersQueryKey } from "@/hooks/admin/admin-query-keys";
 import type { AdminUser } from "@/types/domain";
-
-export const adminUsersQueryKey = ["admin", "users"] as const;
 
 interface UseAdminUsersResult {
   users: AdminUser[];
   isLoading: boolean;
+  isError: boolean;
+  /** Re-runs the failed query — queries here use `retry: false`, so nothing recovers on its own. */
+  refetch: () => void;
   toggleActive: (id: string) => Promise<void>;
 }
 
@@ -40,6 +42,11 @@ export function useAdminUsers(): UseAdminUsersResult {
         queryClient.setQueryData<AdminUser[]>(adminUsersQueryKey, (prev) =>
           prev?.map((user) => (user.id === id ? updated : user)),
         );
+        // The activity feed is derived server-side from this write, so the cached copy is stale the
+        // moment the mutation succeeds. `setQueryData` above keeps the row's own flip instant;
+        // this refetches what only the server can recompute. Without it the Overview's Activity
+        // card omitted the entry that had just been written, for the whole 5-minute staleTime.
+        void queryClient.invalidateQueries({ queryKey: adminOverviewActivityQueryKey });
       } catch {
         toast.error(t("updateFailed"));
       }
@@ -50,6 +57,8 @@ export function useAdminUsers(): UseAdminUsersResult {
   return {
     users: usersQuery.data ?? [],
     isLoading: usersQuery.isLoading,
+    isError: usersQuery.isError,
+    refetch: () => void usersQuery.refetch(),
     toggleActive,
   };
 }

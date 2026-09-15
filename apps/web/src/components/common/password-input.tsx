@@ -1,13 +1,13 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { type ComponentProps, useState } from "react";
 
-import { useTranslations } from "next-intl";
 import { LuEye, LuEyeOff } from "react-icons/lu";
 
+import { cn } from "@/app/_libs/utils/cn";
 import { Input } from "@/components/ui/input";
 
-import { cn } from "@/app/_libs/utils/cn";
 
 type PasswordInputProps = Omit<ComponentProps<typeof Input>, "type">;
 
