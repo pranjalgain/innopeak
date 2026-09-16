@@ -1,4 +1,5 @@
 import { EscalationReason } from '@common/enums/escalation-reason.enum';
+import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { ReviewStatus } from '@common/enums/review-status.enum';
 import { DBService } from '@db/db.service';
@@ -50,13 +51,14 @@ export class DashboardRepository {
    * `total`, `avgRating` and `ratingDistribution` are windowed; `pending` and `escalated` are not
    * — see MetricsDto, which documents why each card counts what it counts. Merged into one method
    * (and one round trip) because every caller wants both for the same `days`/`tenantId` pair.
+   *
+   * `locationId` is optional and additive, same as `ReviewsReadRepository.listReviews`'s own
+   * filter: omitted means every location the tenant has confirmed, aggregated together — the
+   * behavior this method always had before multi-location existed.
    */
-  async getMetrics(days: number, tenantId: string): Promise<DashboardMetrics> {
-    const inWindow = this.windowedTenantReviews(days, tenantId);
-    const open = and(
-      eq(schema.reviews.tenantId, tenantId),
-      inArray(schema.reviews.status, OPEN_STATUSES)
-    );
+  async getMetrics(days: number, tenantId: string, locationId?: string): Promise<DashboardMetrics> {
+    const inWindow = this.windowedTenantReviews(days, tenantId, locationId);
+    const open = this.openTenantReviews(tenantId, locationId);
 
     const [totalRows, avgRows, pendingRows, escalatedRows, distributionRows] = await Promise.all([
       this.dbService.db.select({ value: count() }).from(schema.reviews).where(inWindow),
@@ -102,17 +104,22 @@ export class DashboardRepository {
   /**
    * The most recently reviewed escalations still awaiting action, newest first.
    */
-  async getRecentEscalated(limit: number, tenantId: string): Promise<RecentEscalatedRow[]> {
+  async getRecentEscalated(
+    limit: number,
+    tenantId: string,
+    locationId?: string
+  ): Promise<RecentEscalatedRow[]> {
+    const conditions = [
+      eq(schema.reviews.tenantId, tenantId),
+      eq(schema.reviews.classification, ReviewClassification.ESCALATED),
+      inArray(schema.reviews.status, OPEN_STATUSES),
+      this.locationScope(tenantId, locationId),
+    ];
+
     const rows = await this.dbService.db
       .select(RECENT_ESCALATED_COLUMNS)
       .from(schema.reviews)
-      .where(
-        and(
-          eq(schema.reviews.tenantId, tenantId),
-          eq(schema.reviews.classification, ReviewClassification.ESCALATED),
-          inArray(schema.reviews.status, OPEN_STATUSES)
-        )
-      )
+      .where(and(...conditions))
       // `id` breaks ties — a uuidv7 sorts by creation time, keeping the order stable across the
       // whole page of reviews a backfill can land in the same second.
       .orderBy(desc(schema.reviews.reviewedAt), desc(schema.reviews.id))
@@ -126,7 +133,8 @@ export class DashboardRepository {
   }
 
   /**
-   * Reviews belonging to `tenantId` that the reviewer left inside the trailing `days` window.
+   * Reviews belonging to `tenantId` (and, if given, scoped to one `locationId`) that the reviewer
+   * left inside the trailing `days` window.
    *
    * Windowed on `reviewed_at`, not `created_at`: `created_at` is the row's insert time and the
    * sync leaves it at `defaultNow()`, so an onboarding backfill stamps a business's entire review
@@ -135,10 +143,58 @@ export class DashboardRepository {
    * number. `reviewed_at` is nullable and `gt` excludes NULLs — correct here, since a review with
    * no date cannot be placed in a window.
    */
-  private windowedTenantReviews(days: number, tenantId: string): SQL | undefined {
-    return and(
+  private windowedTenantReviews(
+    days: number,
+    tenantId: string,
+    locationId?: string
+  ): SQL | undefined {
+    const conditions = [
       eq(schema.reviews.tenantId, tenantId),
-      gt(schema.reviews.reviewedAt, sql`now() - make_interval(days => ${days})`)
+      gt(schema.reviews.reviewedAt, sql`now() - make_interval(days => ${days})`),
+      this.locationScope(tenantId, locationId),
+    ];
+    return and(...conditions);
+  }
+
+  /**
+   * Which locations' reviews count toward a figure: one named location, or — when none is named —
+   * every location the tenant *currently* has, not every location it has ever had.
+   *
+   * `reviews.tenant_id` alone was the old answer, and it silently included deactivated ones. A
+   * tenant that disconnects and reconnects under a different Google account gets fresh `locations`
+   * rows (the upsert's conflict target is `(provider_connection_id, external_location_id)`, and
+   * the connection id changed), so the same business's reviews are imported a second time under a
+   * new `location_id` while the originals linger on the deactivated row. Every un-scoped total —
+   * review count, pending, escalated, the rating distribution — then read roughly double, for a
+   * location the Business Switcher no longer offers and the tenant cannot get back to.
+   */
+  private locationScope(tenantId: string, locationId?: string): SQL | undefined {
+    if (locationId) {
+      return eq(schema.reviews.locationId, locationId);
+    }
+
+    return inArray(
+      schema.reviews.locationId,
+      this.dbService.db
+        .select({ id: schema.locations.id })
+        .from(schema.locations)
+        .where(
+          and(
+            eq(schema.locations.tenantId, tenantId),
+            eq(schema.locations.status, LocationStatus.ACTIVE)
+          )
+        )
     );
+  }
+
+  /** Reviews belonging to `tenantId` (and, if given, scoped to one `locationId`) that still need
+   *  someone to act on them — shared between the `pending`/`escalated` stat cards. */
+  private openTenantReviews(tenantId: string, locationId?: string): SQL | undefined {
+    const conditions = [
+      eq(schema.reviews.tenantId, tenantId),
+      inArray(schema.reviews.status, OPEN_STATUSES),
+      this.locationScope(tenantId, locationId),
+    ];
+    return and(...conditions);
   }
 }

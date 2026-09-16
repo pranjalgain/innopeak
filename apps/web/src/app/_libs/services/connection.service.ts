@@ -81,6 +81,15 @@ interface ConfirmLocationResponse extends Omit<ConnectedLocation, "businessName"
   backfillAlreadyRunning: boolean;
 }
 
+interface ConfirmLocationsResponse {
+  locations: ConfirmLocationResponse[];
+}
+
+/** The raw backend shape for one row of `GET /v1/connections/locations`. */
+interface PersistedLocationResponse extends Omit<ConnectedLocation, "businessName"> {
+  name: string;
+}
+
 /**
  * The single source of truth for "is this tenant connected".
  *
@@ -131,12 +140,41 @@ export class ConnectionService {
     return response.locations;
   }
 
-  static async confirmLocation(externalLocationId: string): Promise<ConfirmedLocation> {
+  static async confirmLocations(externalLocationIds: string[]): Promise<ConfirmedLocation[]> {
     const apiResponse = await connectionsApi.connectionsControllerConfirmLocationV1({
-      confirmLocationDto: { externalLocationId },
+      confirmLocationDto: { externalLocationIds },
     });
-    const response = unwrap<ConfirmLocationResponse>(apiResponse.data);
+    const response = unwrap<ConfirmLocationsResponse>(apiResponse.data);
 
+    return response.locations.map(({ name, ...rest }) => ({ ...rest, businessName: name }));
+  }
+
+  /**
+   * Every location the tenant has ever confirmed, active or not — used by onboarding's resume
+   * logic to find which of several confirmed locations still need their backfill polled, since
+   * `GET /v1/connections` only ever reports the tenant's single currently-selected one.
+   */
+  static async listLocations(signal?: AbortSignal): Promise<ConnectedLocation[]> {
+    const apiResponse = await connectionsApi.connectionsControllerListLocationsV1(
+      {},
+      { signal },
+    );
+    const response = unwrap<{ locations: PersistedLocationResponse[] }>(apiResponse.data);
+
+    return response.locations.map(({ name, ...rest }) => ({ ...rest, businessName: name }));
+  }
+
+  /**
+   * The tenant-wide "currently viewed" business (`tenants.active_location_id` on the backend) —
+   * a single shared value, not per-user: every member's Dashboard/Review Queue reads whatever this
+   * sets. Owner-only server-side (a member's attempt 403s); this method itself doesn't pre-check
+   * the caller's role, matching how the rest of this service leaves authorization to the backend.
+   */
+  static async setActiveLocation(locationId: string): Promise<ConnectedLocation> {
+    const apiResponse = await connectionsApi.connectionsControllerSetActiveLocationV1({
+      setActiveLocationDto: { locationId },
+    });
+    const response = unwrap<PersistedLocationResponse>(apiResponse.data);
     const { name, ...rest } = response;
     return { ...rest, businessName: name };
   }

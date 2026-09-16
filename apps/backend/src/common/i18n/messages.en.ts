@@ -62,7 +62,7 @@ export const messagesEn: MessageCatalog = {
       'That location is not visible to the connected Google account. Reconnect and try again.',
     CONNECTION_NEEDS_REAUTH:
       'The Google connection has expired. Reconnect your Google Business Profile to continue.',
-    LOCATION_LIMIT_REACHED: 'This account already has an active location.',
+    LOCATION_LIMIT_REACHED: 'Too many locations for this account.',
     BACKFILL_ENQUEUE_FAILED:
       'Location connected, but the review import could not be started. Please try confirming this location again.',
     PROVIDER_UNAVAILABLE: 'Google Business Profile is unavailable right now. Please try again.',
@@ -70,6 +70,8 @@ export const messagesEn: MessageCatalog = {
       'Google Business Profile is not configured on this server. Contact support.',
     DISCONNECTED: 'Google Business Profile disconnected.',
     LOCATION_CONFIRMED: 'Location connected. Importing your review history.',
+    LOCATION_INACTIVE: 'This location is disconnected and cannot be selected.',
+    ACTIVE_LOCATION_UPDATED: 'Active location updated.',
   },
   DASHBOARD: {
     TENANT_ONLY: 'Dashboard analytics are only available to tenant users.',

@@ -44,8 +44,14 @@ export interface SignupInput {
  * `'unknown'` deliberately carries no user and no reason — what it means is an AuthService-level
  * decision (NO_ACCOUNT for a login round trip, a pending signup for a signup one), not this DB
  * service's to make. See `resolveGoogleIdentity`.
+ *
+ * `firstActivation` is true only on the one branch that just promoted a `pending_verification`
+ * row to `active` — the Google-linking equivalent of `verifyEmail` returning non-null. It's the
+ * signal `AuthService.handleGoogleCallback` uses to know "this is the moment a brand-new tenant
+ * finished signing up," same as `verifyEmail`'s own caller — see `AuthService.seedDemoDataIfDev`.
  */
-export type GoogleIdentityLookup = { kind: 'known'; user: VerifiedUser } | { kind: 'unknown' };
+export type GoogleIdentityLookup =
+  { kind: 'known'; user: VerifiedUser; firstActivation: boolean } | { kind: 'unknown' };
 
 /** The `tenants` columns every sign-in path needs: `status` to refuse a suspended one, `name` for the token response. */
 export interface TenantRow {
@@ -179,7 +185,9 @@ export class AuthDbService {
       // branch for a case that can't occur.
       return user === null
         ? { kind: 'unknown' }
-        : { kind: 'known', user: this.toVerifiedUser(user) };
+        : // An existing Google-identity link is by definition a returning user, never a first
+          // activation — that only ever happens the first time an identity row is created below.
+          { kind: 'known', user: this.toVerifiedUser(user), firstActivation: false };
     }
 
     const byEmail = await this.authRepository.findUserByEmail(input.email);
@@ -231,6 +239,7 @@ export class AuthDbService {
         user: this.toVerifiedUser(
           activated ? { ...byEmail, status: UserStatus.ACTIVE, passwordHash: null } : byEmail
         ),
+        firstActivation: activated,
       };
     }
 
@@ -443,6 +452,19 @@ export class AuthDbService {
   async updateLocale(userId: string, locale: Locale): Promise<void> {
     await this.authRepository.transaction(tx =>
       this.authRepository.updateLocale(tx, { userId, locale })
+    );
+  }
+
+  /** The tenant-wide "currently viewing" business — see `tenants.active_location_id`'s column
+   *  comment. Null means either never chosen or the chosen location was later removed. */
+  findActiveLocationId(tenantId: string): Promise<string | null> {
+    return this.authRepository.findActiveLocationId(tenantId);
+  }
+
+  /** `null` clears the pointer — see `ConnectionsService.disconnect`. */
+  async setActiveLocationId(tenantId: string, locationId: string | null): Promise<void> {
+    await this.authRepository.transaction(tx =>
+      this.authRepository.updateActiveLocationId(tx, { tenantId, locationId })
     );
   }
 

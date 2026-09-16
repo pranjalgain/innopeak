@@ -2,6 +2,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
+import { BusinessSwitcher } from "@/app/(dashboard)/_components/business-switcher";
 import { NotificationPanel } from "@/app/(dashboard)/_components/notification-panel";
 import type { ShellIdentity } from "@/app/(dashboard)/_components/shell-nav";
 import { LanguageSwitcher } from "@/app/_components/language-switcher";
@@ -24,6 +25,13 @@ interface AppHeaderProps {
   /** Off for the Super Admin shell — review-escalation notifications are a tenant concept. */
   showNotifications?: boolean;
   /**
+   * Off for the Super Admin shell, for the same reason as `showNotifications`: the switcher reads
+   * `GET /v1/connections`, which is tenant-scoped and 403s for a platform-admin token. It renders
+   * nothing either way, so this isn't visible — it just stops a guaranteed failed request on every
+   * `/admin/*` page load.
+   */
+  showBusinessSwitcher?: boolean;
+  /**
    * Off whenever a sidebar is also on screen — its footer already shows this
    * same avatar/name/role with the same sign-out menu, so showing it again
    * here would just be the identical control twice. Only mobile (no sidebar)
@@ -33,17 +41,18 @@ interface AppHeaderProps {
 }
 
 /**
- * Top bar shared by every dashboard-shell screen: page title, the language
- * switcher (always here — it's the one control on screen regardless of
- * breakpoint, see `AppShell`, unlike the account menu below it),
- * notifications, and — on mobile only — the account menu (the sidebar's
- * footer covers it everywhere else, see `showAccountMenu`).
+ * Top bar shared by every dashboard-shell screen: page title, the business switcher (only renders
+ * once there's more than one confirmed location to choose between — see `BusinessSwitcher`), the
+ * language switcher (always here — it's the one control on screen regardless of breakpoint, see
+ * `AppShell`, unlike the account menu below it), notifications, and — on mobile only — the account
+ * menu (the sidebar's footer covers it everywhere else, see `showAccountMenu`).
  */
 export function AppHeader({
   title,
   identity,
   profileHref,
   showNotifications = true,
+  showBusinessSwitcher = true,
   showAccountMenu = true,
 }: AppHeaderProps) {
   const t = useTranslations("appShell");
@@ -54,6 +63,7 @@ export function AppHeader({
       <h2 className="text-base font-semibold">{title}</h2>
 
       <div className="flex items-center gap-2">
+        {showBusinessSwitcher ? <BusinessSwitcher /> : null}
         <LanguageSwitcher />
         {showNotifications ? <NotificationPanel /> : null}
 

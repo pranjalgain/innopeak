@@ -27,9 +27,10 @@ import {
   REFRESH_TOKEN_COOKIE_NAME,
   REFRESH_TOKEN_COOKIE_PATH,
   REFRESH_TOKEN_TTL_SECONDS,
+  SESSION_HINT_ADMIN_VALUE,
   SESSION_HINT_COOKIE_NAME,
   SESSION_HINT_COOKIE_PATH,
-  SESSION_HINT_COOKIE_VALUE,
+  SESSION_HINT_TENANT_VALUE,
 } from './constants/auth.constants';
 import {
   GOOGLE_AUTH_REDIRECT,
@@ -438,7 +439,7 @@ export class AuthController {
     );
     res.cookie(
       SESSION_HINT_COOKIE_NAME,
-      SESSION_HINT_COOKIE_VALUE,
+      SESSION_HINT_TENANT_VALUE,
       this.cookieOptions(SESSION_HINT_COOKIE_PATH, REFRESH_TOKEN_TTL_SECONDS)
     );
   }
@@ -462,21 +463,38 @@ export class AuthController {
 
   /**
    * A platform-admin login's cookie shape: just the access token — no refresh-token rotation
-   * exists for that principal yet — but with any leftover `refresh_token`/`session` cookies from
-   * a *different, prior* principal on this browser explicitly cleared first.
+   * exists for that principal yet — but with any leftover `refresh_token` cookie from a
+   * *different, prior* principal on this browser explicitly cleared first, and the session hint
+   * set to the admin value rather than cleared.
    *
-   * Without this, logging in as an admin on a browser that still held a tenant user's unexpired
-   * `refresh_token` (scoped to `Path=/v1/auth`, 7-day lifetime, unaffected by the tenant simply
-   * closing their tab) only ever overwrote `access_token`. The tenant's `refresh_token` cookie
-   * was left standing, so the admin's *own* access token expiring 15 minutes later triggered the
-   * ordinary `/v1/auth/refresh` flow, which reads whatever `refresh_token` is present, rotates
-   * it, and overwrites `access_token` with the *tenant's* token — silently converting the admin's
-   * session into that tenant's. Clearing the leftover cookies here means a stale refresh token
-   * can no longer outlive the login that should have superseded it.
+   * The `refresh_token` clear is the original fix here: without it, logging in as an admin on a
+   * browser that still held a tenant user's unexpired `refresh_token` (scoped to `Path=/v1/auth`,
+   * 7-day lifetime, unaffected by the tenant simply closing their tab) only ever overwrote
+   * `access_token`. The tenant's `refresh_token` cookie was left standing, so the admin's *own*
+   * access token expiring 15 minutes later triggered the ordinary `/v1/auth/refresh` flow, which
+   * reads whatever `refresh_token` is present, rotates it, and overwrites `access_token` with the
+   * *tenant's* token — silently converting the admin's session into that tenant's.
+   *
+   * The session hint used to be cleared here too, on the same "leftover cookie" reasoning — but
+   * that left a platform admin with NO session hint at all, which `proxy.ts` then read as
+   * "signed out" the moment they navigated to any tenant-only route by hand: it redirected to
+   * `/login`, where the client-side guard found the admin's still-valid `access_token` in
+   * localStorage and redirected straight back — an infinite loop, since the two signals
+   * disagreed about whether this browser had a session and neither ever noticed *which kind*.
+   * Setting it to `SESSION_HINT_ADMIN_VALUE` instead keeps both signals in agreement without
+   * reopening the hijack this method exists to prevent — a stale tenant hint gets overwritten by
+   * this call exactly like the refresh token does, it just now leaves something behind that
+   * correctly says "admin," not nothing at all.
    */
   private setAdminSessionCookies(res: Response, accessToken: string): void {
     res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, this.cookieOptions(REFRESH_TOKEN_COOKIE_PATH));
-    res.clearCookie(SESSION_HINT_COOKIE_NAME, this.cookieOptions(SESSION_HINT_COOKIE_PATH));
+    res.cookie(
+      SESSION_HINT_COOKIE_NAME,
+      SESSION_HINT_ADMIN_VALUE,
+      // No refresh token to extend it, unlike a tenant's — the hint can't outlive the one thing
+      // that can actually revive this session, so it shares the access token's own TTL.
+      this.cookieOptions(SESSION_HINT_COOKIE_PATH, ACCESS_TOKEN_TTL_SECONDS)
+    );
     this.setAccessTokenCookie(res, accessToken);
   }
 

@@ -35,6 +35,7 @@ models/change-password-dto.ts
 models/complete-google-signup-dto.ts
 models/confirm-location-dto.ts
 models/confirm-location-response-dto.ts
+models/confirm-locations-response-dto.ts
 models/connection-location-dto.ts
 models/connection-status-response-dto.ts
 models/connection-summary-dto.ts
@@ -67,6 +68,7 @@ models/review-list-response-dto.ts
 models/review-response-item-dto.ts
 models/reviews-meta-dto.ts
 models/send-admin-invite-dto.ts
+models/set-active-location-dto.ts
 models/set-admin-status-dto.ts
 models/set-password-dto.ts
 models/signup-dto.ts

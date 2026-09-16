@@ -2,7 +2,6 @@ import { Configuration } from "@innopeak/client-sdk";
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 
 import { ApiError } from "@/app/_libs/services/api-error";
-import { SessionService } from "@/app/_libs/services/session.service";
 import { TokenService } from "@/app/_libs/services/token.service";
 
 // Every generated `*Api` class in `@innopeak/client-sdk` falls back to the global `axios` default
@@ -210,13 +209,12 @@ function installApiInterceptors(): void {
           config._retried = true;
           return axios(config);
         }
+        // Clearing the token is all that's needed: which principal a session belongs to is read
+        // straight off the token's own `type` claim now (`TokenService.getTokenType`), so there is
+        // no second, separately-stored role flag left to go stale alongside it. A platform admin
+        // has no refresh token at all (see `TokenService.signPlatformAdminAccessToken` on the
+        // backend), so this path is exactly what their 15-minute session expiry runs through.
         TokenService.clear();
-        // The role is stored separately from the tokens, so clearing only the latter left a dead
-        // session still claiming "super_admin" — enough for `AdminGuard` to keep rendering the
-        // whole admin area while every request inside it 401'd. A platform admin has no refresh
-        // token at all (see `TokenService.signPlatformAdminAccessToken` on the backend), so this
-        // path is exactly what their 15-minute session expiry runs through.
-        SessionService.clear();
       }
 
       const data = error.response?.data as { message?: string; error?: string } | undefined;

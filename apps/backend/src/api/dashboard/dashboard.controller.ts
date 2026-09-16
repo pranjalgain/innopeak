@@ -30,7 +30,7 @@ export class DashboardController {
     @CurrentUser() user: AuthUser,
     @Query() query: DashboardWindowQueryDto
   ): Promise<ApiResponseDto<MetricsDto>> {
-    const metrics = await this.dashboardService.getMetrics(query.days, user);
+    const metrics = await this.dashboardService.getMetrics(query.days, user, query.locationId);
     return ResponseUtil.success(metrics, undefined, HttpStatus.OK);
   }
 
@@ -40,7 +40,11 @@ export class DashboardController {
     @CurrentUser() user: AuthUser,
     @Query() query: RecentEscalatedQueryDto
   ): Promise<ApiResponseDto<RecentEscalatedDto[]>> {
-    const reviews = await this.dashboardService.getRecentEscalated(query.limit, user);
+    const reviews = await this.dashboardService.getRecentEscalated(
+      query.limit,
+      user,
+      query.locationId
+    );
     return ResponseUtil.success(reviews, undefined, HttpStatus.OK);
   }
 }

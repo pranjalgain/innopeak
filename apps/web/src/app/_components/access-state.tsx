@@ -1,7 +1,8 @@
 import Link from "next/link";
 
+import { useTranslations } from "next-intl";
 import type { IconType } from "react-icons";
-import { LuArrowLeft, LuHouse } from "react-icons/lu";
+import { LuHouse } from "react-icons/lu";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,8 +16,20 @@ interface AccessStateProps {
 
 /**
  * Renders a consistent, accessible access-control state.
+ *
+ * `title`/`description` arrive already translated from each page, so this stays a presentational
+ * component; only its own action label is looked up here.
+ *
+ * One action, deliberately. This used to offer a second "Explore the boilerplate" button pointing
+ * at the marketing page's `#features` anchor — leftover template copy from before anything linked
+ * here at all. These pages are now the real destination for a genuine access rejection (the route
+ * guards and `proxy.ts` send wrong-principal traffic to `/forbidden`), and inviting someone who
+ * just hit an authorization error to go browse feature marketing is not a serious answer. "Return
+ * home" is: `/` is itself guarded, so it lands each principal on the home that's actually theirs.
  */
 export function AccessState({ code, title, description, icon: Icon }: AccessStateProps) {
+  const t = useTranslations("accessState");
+
   return (
     <main className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-16">
       <div className="surface-grid pointer-events-none absolute inset-0 -z-20 opacity-70" />
@@ -34,17 +47,11 @@ export function AccessState({ code, title, description, icon: Icon }: AccessStat
           {description}
         </p>
 
-        <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+        <div className="mt-8 flex justify-center">
           <Button asChild size="lg">
             <Link href="/">
               <LuHouse aria-hidden="true" />
-              Return Home
-            </Link>
-          </Button>
-          <Button asChild variant="outline" size="lg">
-            <Link href="/#features">
-              <LuArrowLeft aria-hidden="true" />
-              Explore the boilerplate
+              {t("returnHome")}
             </Link>
           </Button>
         </div>

@@ -76,8 +76,8 @@ export function OnboardingConnectView() {
           {flow.stage === "confirm_location" || flow.stage === "submitting_location" ? (
             <ConfirmLocationStage
               locations={flow.locations}
-              selectedLocationId={flow.selectedLocationId}
-              onSelect={flow.selectLocation}
+              selectedLocationIds={flow.selectedLocationIds}
+              onToggle={flow.toggleLocation}
               onContinue={flow.confirmLocation}
               isSubmitting={flow.stage === "submitting_location"}
             />

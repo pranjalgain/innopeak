@@ -34,13 +34,17 @@ import type { AvailableLocationsResponseDto } from '../models';
 // @ts-ignore
 import type { ConfirmLocationDto } from '../models';
 // @ts-ignore
-import type { ConfirmLocationResponseDto } from '../models';
+import type { ConfirmLocationsResponseDto } from '../models';
 // @ts-ignore
 import type { ConnectionStatusResponseDto } from '../models';
 // @ts-ignore
 import type { DisconnectResponseDto } from '../models';
 // @ts-ignore
+import type { LocationDto } from '../models';
+// @ts-ignore
 import type { LocationListResponseDto } from '../models';
+// @ts-ignore
+import type { SetActiveLocationDto } from '../models';
 /**
  * ConnectionsApi - axios parameter creator
  */
@@ -182,8 +186,8 @@ export const ConnectionsApiAxiosParamCreator = function (
       };
     },
     /**
-     * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), the sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — the location is confirmed, but the caller must confirm it again to start a fresh import.
-     * @summary Confirm the managed location and start the historical backfill
+     * One transaction across three tables, looped once per confirmed location: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. Each job is enqueued only after that transaction commits — BullMQ and Postgres share no transaction. Idempotent per location: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run for that location, rather than a 409 that would leave the client with no id to poll. If an enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), that location\'s sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — every location up to that point is confirmed, but the caller must confirm again to start a fresh import for the ones that failed to enqueue.
+     * @summary Confirm the managed locations and start each historical backfill
      * @param {ConfirmLocationDto} confirmLocationDto
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -381,6 +385,65 @@ export const ConnectionsApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
+    /**
+     * A single shared value for the whole tenant, not per-user — every member\'s Dashboard/Review Queue reads it, so only an owner may change it. The location must belong to this tenant and be active; a deactivated location or another tenant\'s id is rejected.
+     * @summary Switch the tenant\'s currently-viewed business
+     * @param {SetActiveLocationDto} setActiveLocationDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    connectionsControllerSetActiveLocationV1: async (
+      setActiveLocationDto: SetActiveLocationDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'setActiveLocationDto' is not null or undefined
+      assertParamExists(
+        'connectionsControllerSetActiveLocationV1',
+        'setActiveLocationDto',
+        setActiveLocationDto,
+      );
+      const localVarPath = `/v1/connections/active-location`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'PATCH',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        setActiveLocationDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
   };
 };
 
@@ -482,8 +545,8 @@ export const ConnectionsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), the sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — the location is confirmed, but the caller must confirm it again to start a fresh import.
-     * @summary Confirm the managed location and start the historical backfill
+     * One transaction across three tables, looped once per confirmed location: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. Each job is enqueued only after that transaction commits — BullMQ and Postgres share no transaction. Idempotent per location: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run for that location, rather than a 409 that would leave the client with no id to poll. If an enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), that location\'s sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — every location up to that point is confirmed, but the caller must confirm again to start a fresh import for the ones that failed to enqueue.
+     * @summary Confirm the managed locations and start each historical backfill
      * @param {ConfirmLocationDto} confirmLocationDto
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -495,7 +558,7 @@ export const ConnectionsApiFp = function (configuration?: Configuration) {
       (
         axios?: AxiosInstance,
         basePath?: string,
-      ) => AxiosPromise<ConfirmLocationResponseDto>
+      ) => AxiosPromise<ConfirmLocationsResponseDto>
     > {
       const localVarAxiosArgs =
         await localVarAxiosParamCreator.connectionsControllerConfirmLocationV1(
@@ -611,6 +674,37 @@ export const ConnectionsApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
+    /**
+     * A single shared value for the whole tenant, not per-user — every member\'s Dashboard/Review Queue reads it, so only an owner may change it. The location must belong to this tenant and be active; a deactivated location or another tenant\'s id is rejected.
+     * @summary Switch the tenant\'s currently-viewed business
+     * @param {SetActiveLocationDto} setActiveLocationDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async connectionsControllerSetActiveLocationV1(
+      setActiveLocationDto: SetActiveLocationDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<LocationDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.connectionsControllerSetActiveLocationV1(
+          setActiveLocationDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'ConnectionsApi.connectionsControllerSetActiveLocationV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
   };
 };
 
@@ -666,8 +760,8 @@ export const ConnectionsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), the sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — the location is confirmed, but the caller must confirm it again to start a fresh import.
-     * @summary Confirm the managed location and start the historical backfill
+     * One transaction across three tables, looped once per confirmed location: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. Each job is enqueued only after that transaction commits — BullMQ and Postgres share no transaction. Idempotent per location: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run for that location, rather than a 409 that would leave the client with no id to poll. If an enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), that location\'s sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — every location up to that point is confirmed, but the caller must confirm again to start a fresh import for the ones that failed to enqueue.
+     * @summary Confirm the managed locations and start each historical backfill
      * @param {ConnectionsApiConnectionsControllerConfirmLocationV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -675,7 +769,7 @@ export const ConnectionsApiFactory = function (
     connectionsControllerConfirmLocationV1(
       requestParameters: ConnectionsApiConnectionsControllerConfirmLocationV1Request,
       options?: RawAxiosRequestConfig,
-    ): AxiosPromise<ConfirmLocationResponseDto> {
+    ): AxiosPromise<ConfirmLocationsResponseDto> {
       return localVarFp
         .connectionsControllerConfirmLocationV1(
           requestParameters.confirmLocationDto,
@@ -724,6 +818,24 @@ export const ConnectionsApiFactory = function (
         .connectionsControllerListLocationsV1(requestParameters.status, options)
         .then((request) => request(axios, basePath));
     },
+    /**
+     * A single shared value for the whole tenant, not per-user — every member\'s Dashboard/Review Queue reads it, so only an owner may change it. The location must belong to this tenant and be active; a deactivated location or another tenant\'s id is rejected.
+     * @summary Switch the tenant\'s currently-viewed business
+     * @param {ConnectionsApiConnectionsControllerSetActiveLocationV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    connectionsControllerSetActiveLocationV1(
+      requestParameters: ConnectionsApiConnectionsControllerSetActiveLocationV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<LocationDto> {
+      return localVarFp
+        .connectionsControllerSetActiveLocationV1(
+          requestParameters.setActiveLocationDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
   };
 };
 
@@ -764,8 +876,8 @@ export interface ConnectionsApiInterface {
   ): AxiosPromise<void>;
 
   /**
-   * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), the sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — the location is confirmed, but the caller must confirm it again to start a fresh import.
-   * @summary Confirm the managed location and start the historical backfill
+   * One transaction across three tables, looped once per confirmed location: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. Each job is enqueued only after that transaction commits — BullMQ and Postgres share no transaction. Idempotent per location: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run for that location, rather than a 409 that would leave the client with no id to poll. If an enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), that location\'s sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — every location up to that point is confirmed, but the caller must confirm again to start a fresh import for the ones that failed to enqueue.
+   * @summary Confirm the managed locations and start each historical backfill
    * @param {ConnectionsApiConnectionsControllerConfirmLocationV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -773,7 +885,7 @@ export interface ConnectionsApiInterface {
   connectionsControllerConfirmLocationV1(
     requestParameters: ConnectionsApiConnectionsControllerConfirmLocationV1Request,
     options?: RawAxiosRequestConfig,
-  ): AxiosPromise<ConfirmLocationResponseDto>;
+  ): AxiosPromise<ConfirmLocationsResponseDto>;
 
   /**
    * The destructive-looking action that destroys nothing. Flips every location to `inactive` and revokes the stored credential; never DELETEs. `locations` cascades from the connection and `reviews`/`sync_runs` cascade from locations, so a delete would take the tenant\'s entire review history with it.
@@ -806,6 +918,18 @@ export interface ConnectionsApiInterface {
     requestParameters?: ConnectionsApiConnectionsControllerListLocationsV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<LocationListResponseDto>;
+
+  /**
+   * A single shared value for the whole tenant, not per-user — every member\'s Dashboard/Review Queue reads it, so only an owner may change it. The location must belong to this tenant and be active; a deactivated location or another tenant\'s id is rejected.
+   * @summary Switch the tenant\'s currently-viewed business
+   * @param {ConnectionsApiConnectionsControllerSetActiveLocationV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  connectionsControllerSetActiveLocationV1(
+    requestParameters: ConnectionsApiConnectionsControllerSetActiveLocationV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<LocationDto>;
 }
 
 /**
@@ -830,6 +954,13 @@ export interface ConnectionsApiConnectionsControllerConfirmLocationV1Request {
  */
 export interface ConnectionsApiConnectionsControllerListLocationsV1Request {
   readonly status?: ConnectionsControllerListLocationsV1StatusEnum;
+}
+
+/**
+ * Request parameters for connectionsControllerSetActiveLocationV1 operation in ConnectionsApi.
+ */
+export interface ConnectionsApiConnectionsControllerSetActiveLocationV1Request {
+  readonly setActiveLocationDto: SetActiveLocationDto;
 }
 
 /**
@@ -879,8 +1010,8 @@ export class ConnectionsApi extends BaseAPI implements ConnectionsApiInterface {
   }
 
   /**
-   * One transaction across three tables: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. The job is enqueued only after that commits — BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), the sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — the location is confirmed, but the caller must confirm it again to start a fresh import.
-   * @summary Confirm the managed location and start the historical backfill
+   * One transaction across three tables, looped once per confirmed location: upsert `locations`, insert `user_locations`, acquire the backfill `sync_runs` row. Each job is enqueued only after that transaction commits — BullMQ and Postgres share no transaction. Idempotent per location: a double-submitted confirm still answers 201 with `backfillAlreadyRunning: true` and the existing run for that location, rather than a 409 that would leave the client with no id to poll. If an enqueue itself fails (a Redis/BullMQ blip after the transaction already committed), that location\'s sync run is immediately compensated to `error` rather than left stuck `running` forever, and this request answers 503 — every location up to that point is confirmed, but the caller must confirm again to start a fresh import for the ones that failed to enqueue.
+   * @summary Confirm the managed locations and start each historical backfill
    * @param {ConnectionsApiConnectionsControllerConfirmLocationV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -934,6 +1065,25 @@ export class ConnectionsApi extends BaseAPI implements ConnectionsApiInterface {
   ) {
     return ConnectionsApiFp(this.configuration)
       .connectionsControllerListLocationsV1(requestParameters.status, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * A single shared value for the whole tenant, not per-user — every member\'s Dashboard/Review Queue reads it, so only an owner may change it. The location must belong to this tenant and be active; a deactivated location or another tenant\'s id is rejected.
+   * @summary Switch the tenant\'s currently-viewed business
+   * @param {ConnectionsApiConnectionsControllerSetActiveLocationV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public connectionsControllerSetActiveLocationV1(
+    requestParameters: ConnectionsApiConnectionsControllerSetActiveLocationV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return ConnectionsApiFp(this.configuration)
+      .connectionsControllerSetActiveLocationV1(
+        requestParameters.setActiveLocationDto,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 }

@@ -276,8 +276,17 @@ export class ReviewSyncRepository {
     return (rows[0] as SyncRunRow | undefined) ?? null;
   }
 
-  async findRunningRunForLocation(locationId: string): Promise<SyncRunRow | null> {
-    const rows = await this.dbService.db
+  /**
+   * `tx` matters when the caller is already inside a transaction holding a lock this read could
+   * queue behind — `confirmLocations` reads through its own `tx` after a sync-run constraint
+   * violation rather than borrowing a second pooled connection while holding the tenant's
+   * advisory lock.
+   */
+  async findRunningRunForLocation(
+    locationId: string,
+    tx?: DrizzleTransaction
+  ): Promise<SyncRunRow | null> {
+    const rows = await (tx ?? this.dbService.db)
       .select(SYNC_RUN_COLUMNS)
       .from(schema.syncRuns)
       .where(

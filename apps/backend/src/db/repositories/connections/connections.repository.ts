@@ -230,7 +230,7 @@ export class ConnectionsRepository {
       .from(schema.locations)
       .innerJoin(schema.userLocations, eq(schema.userLocations.locationId, schema.locations.id))
       .where(and(...conditions))
-      .orderBy(schema.locations.createdAt) as Promise<LocationRow[]>;
+      .orderBy(schema.locations.createdAt, schema.locations.id) as Promise<LocationRow[]>;
   }
 
   /** Tenant-scoped by design — see LOCATION_NOT_FOUND in the API reference: another tenant's id
@@ -267,7 +267,7 @@ export class ConnectionsRepository {
       .select(LOCATION_COLUMNS)
       .from(schema.locations)
       .where(and(...conditions))
-      .orderBy(schema.locations.createdAt) as Promise<LocationRow[]>;
+      .orderBy(schema.locations.createdAt, schema.locations.id) as Promise<LocationRow[]>;
   }
 
   /**

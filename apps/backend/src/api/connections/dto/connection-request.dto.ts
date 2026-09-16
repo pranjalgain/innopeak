@@ -3,9 +3,23 @@ import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  ArrayUnique,
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Max,
+  Min,
+} from 'class-validator';
 
 import {
+  MAX_ACTIVE_LOCATIONS,
   SYNC_RUNS_PAGE_SIZE_DEFAULT,
   SYNC_RUNS_PAGE_SIZE_MAX,
 } from '../constants/connections.constants';
@@ -28,15 +42,33 @@ export class AuthorizeQueryDto {
 
 export class ConfirmLocationDto {
   @ApiProperty({
-    example: 'locations/12345678901234567890',
+    type: String,
+    isArray: true,
+    example: ['locations/12345678901234567890', 'locations/98765432109876543210'],
     description:
-      "The provider's own location identifier, taken from GET /v1/connections/google/" +
+      "The provider's own location identifiers, taken from GET /v1/connections/google/" +
       'available-locations. Re-validated server-side against the provider — never trusted from ' +
       'the client, since an arbitrary value would create a location row no poll can resolve.',
   })
-  @IsString()
-  @Length(1, 255)
-  externalLocationId!: string;
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @ArrayMaxSize(MAX_ACTIVE_LOCATIONS)
+  @IsString({ each: true })
+  @Length(1, 255, { each: true })
+  externalLocationIds!: string[];
+}
+
+export class SetActiveLocationDto {
+  @ApiProperty({
+    example: '0190f4c2-1d55-7b09-8e42-6a3c9f01b7d4',
+    description:
+      "This tenant's internal `locations.id` (from GET /v1/connections/locations), not the " +
+      'provider external id — becomes the business every member of the tenant sees on the ' +
+      'Dashboard/Review Queue until an owner changes it again.',
+  })
+  @IsUUID()
+  locationId!: string;
 }
 
 export class ListLocationsQueryDto {

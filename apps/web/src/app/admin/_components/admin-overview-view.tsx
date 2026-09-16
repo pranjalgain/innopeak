@@ -4,7 +4,10 @@ import { useFormatter, useTranslations } from "next-intl";
 import { LuBuilding2, LuMessageSquare, LuReply, LuUsers } from "react-icons/lu";
 
 import { ActivityLogCard } from "@/app/admin/_components/activity-log-card";
-import { NeedsAttentionPanel } from "@/app/admin/_components/needs-attention-panel";
+import {
+  hasBusinessesNeedingAttention,
+  NeedsAttentionPanel,
+} from "@/app/admin/_components/needs-attention-panel";
 import { RecentBusinessesCard } from "@/app/admin/_components/recent-businesses-card";
 import { SignupTrendCard } from "@/app/admin/_components/signup-trend-card";
 import { LoadErrorState } from "@/components/common/load-error-state";
@@ -27,6 +30,8 @@ export function AdminOverviewView() {
     isError,
     refetch,
   } = useAdminOverview();
+
+  const showNeedsAttention = hasBusinessesNeedingAttention(businesses);
 
   // Each stat counts up from 0 on first load, once its real value arrives.
   const businessCountAnimated = useCountUp(businessCount, isLoading);
@@ -84,8 +89,8 @@ export function AdminOverviewView() {
           <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <NeedsAttentionPanel businesses={businesses} />
+        <div className={`grid gap-4 ${showNeedsAttention ? "lg:grid-cols-2" : ""}`}>
+          {showNeedsAttention && <NeedsAttentionPanel businesses={businesses} />}
           <RecentBusinessesCard businesses={businesses} />
         </div>
       )}

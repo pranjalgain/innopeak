@@ -37,6 +37,7 @@ export enum RouteNames {
   GOOGLE = 'google',
   GOOGLE_AVAILABLE_LOCATIONS = 'google/available-locations',
   LOCATIONS = 'locations',
+  ACTIVE_LOCATION = 'active-location',
   LOCATION_BACKFILL = 'locations/:locationId/backfill',
   LOCATION_SYNC_HEALTH = 'locations/:locationId/sync-health',
   LOCATION_SYNC_RUNS = 'locations/:locationId/sync-runs',

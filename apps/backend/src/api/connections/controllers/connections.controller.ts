@@ -15,6 +15,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Query,
   Req,
@@ -34,12 +35,14 @@ import {
   AuthorizeQueryDto,
   ConfirmLocationDto,
   ListLocationsQueryDto,
+  SetActiveLocationDto,
 } from '../dto/connection-request.dto';
 import type {
   AvailableLocationsResponseDto,
-  ConfirmLocationResponseDto,
+  ConfirmLocationsResponseDto,
   ConnectionStatusResponseDto,
   DisconnectResponseDto,
+  LocationDto,
   LocationListResponseDto,
 } from '../dto/connection-response.dto';
 import { ConnectionsService } from '../services/connections.service';
@@ -51,6 +54,7 @@ import {
   ApiDisconnect,
   ApiGetConnection,
   ApiListLocations,
+  ApiSetActiveLocation,
 } from '../swagger/connections.swagger';
 
 @Controller({ path: RouteNames.CONNECTIONS, version: '1' })
@@ -148,16 +152,42 @@ export class ConnectionsController {
   async confirmLocation(
     @CurrentUser() user: AuthUser,
     @Body() dto: ConfirmLocationDto
-  ): Promise<ApiResponseDto<ConfirmLocationResponseDto>> {
-    const response = await this.connectionsService.confirmLocation({
+  ): Promise<ApiResponseDto<ConfirmLocationsResponseDto>> {
+    const response = await this.connectionsService.confirmLocations({
       user,
-      externalLocationId: dto.externalLocationId,
+      externalLocationIds: dto.externalLocationIds,
     });
 
     return ResponseUtil.success(
       response,
       MESSAGES.CONNECTIONS.LOCATION_CONFIRMED,
       HttpStatus.CREATED
+    );
+  }
+
+  /**
+   * The tenant-wide "currently viewing" business, shown on the Dashboard/Review Queue and in a
+   * Business Switcher. `@Roles(OWNER)`: this changes what every member of the tenant sees, so
+   * only an owner may switch it — a member's own view is read-only.
+   */
+  @Patch(RouteNames.ACTIVE_LOCATION)
+  @Roles(UserRole.OWNER)
+  @Throttle({ short: { limit: 20, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiSetActiveLocation()
+  async setActiveLocation(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SetActiveLocationDto
+  ): Promise<ApiResponseDto<LocationDto>> {
+    const response = await this.connectionsService.setActiveLocation({
+      user,
+      locationId: dto.locationId,
+    });
+
+    return ResponseUtil.success(
+      response,
+      MESSAGES.CONNECTIONS.ACTIVE_LOCATION_UPDATED,
+      HttpStatus.OK
     );
   }
 

@@ -1,17 +1,9 @@
-import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { SessionService } from "@/app/_libs/services/session.service";
 import { TokenService } from "@/app/_libs/services/token.service";
-import { createQueryClient } from "@/app/_libs/utils/query-client";
 
 import { AdminGuard } from "../admin-guard";
-
-const replace = vi.fn();
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace }),
-}));
 
 // `useAuthToken` falls back to a `/v1/auth/refresh` round trip whenever localStorage holds no
 // usable token. Stubbed to "no session" so the token half of the guard is decided locally and
@@ -21,61 +13,89 @@ vi.mock("@/app/_libs/api-sdk/config", () => ({
   apiConfig: {},
 }));
 
-/** A far-future JWT — `useAuthToken` treats an expired token as no session at all. */
-function storeLiveAccessToken(): void {
-  const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 }));
+/**
+ * A far-future JWT carrying a real `type` claim — `AdminGuard` reads this instead of the old mock
+ * `SessionService` role string (since deleted), since that flag could desync from the actual
+ * signed-in principal (nothing kept it in sync with a token revived via refresh).
+ */
+function storeLiveAccessToken(type: "tenant_user" | "platform_admin"): void {
+  const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, type }));
   TokenService.setAccessToken(`header.${payload}.signature`);
 }
 
 function renderGuard() {
-  // A fresh QueryClient per render so one test's cached `["session", "role"]` can never leak into
-  // the next.
   return render(
-    <QueryClientProvider client={createQueryClient()}>
-      <AdminGuard>
-        <div>admin content</div>
-      </AdminGuard>
-    </QueryClientProvider>,
+    <AdminGuard>
+      <div>admin content</div>
+    </AdminGuard>,
   );
 }
 
 describe("AdminGuard", () => {
-  afterEach(() => {
-    window.localStorage.clear();
-    replace.mockClear();
+  let originalLocation: Location;
+
+  beforeEach(() => {
+    originalLocation = window.location;
+    // jsdom's `window.location` doesn't support a plain assignment to `.href` the way a real
+    // browser does inside a test environment — replaced with a settable stand-in so the guard's
+    // `window.location.href = ...` (a real hard redirect, not router.replace() — see the
+    // component's own doc comment for why) can be observed directly.
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, href: "http://localhost:3002/admin" },
+    });
   });
 
-  test("redirects to /login and renders nothing when the session isn't a super admin", async () => {
-    storeLiveAccessToken();
+  afterEach(() => {
+    window.localStorage.clear();
+    Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+  });
 
+  test("redirects to /login and renders nothing with no session at all", async () => {
     renderGuard();
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(window.location.href).toBe("/login"));
     expect(screen.queryByText("admin content")).not.toBeInTheDocument();
   });
 
   /**
-   * Regression: the role is only a localStorage string and the interceptor clears the *token* on a
-   * dead session. A platform admin's access token lasts 15 minutes with no refresh token behind
-   * it, so checking the role alone left an expired admin inside a fully-rendered admin shell where
-   * every request 401'd, rather than being sent back to sign in.
+   * Regression: a real, valid tenant-user token manually visiting /admin used to fall into the
+   * same "not allowed" branch as no token at all, and got sent to /login — where an authenticated
+   * visitor's own token would then try to bounce them right back to a page they're not allowed
+   * on. A wrong-type-but-valid token is a 403 shape, not a 401 shape.
    */
-  test("redirects when the role says super_admin but the session token is gone", async () => {
-    await SessionService.setRole("super_admin");
+  test("redirects a signed-in tenant user to /forbidden, not /login", async () => {
+    storeLiveAccessToken("tenant_user");
 
     renderGuard();
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(window.location.href).toBe("/forbidden"));
     expect(screen.queryByText("admin content")).not.toBeInTheDocument();
   });
 
-  test("renders children without redirecting for a super admin with a live session", async () => {
-    await SessionService.setRole("super_admin");
-    storeLiveAccessToken();
+  /**
+   * A valid, unexpired token whose `type` claim can't be read is not evidence of admin access —
+   * but it isn't "signed out" either, and treating it as such looped: `/login` is in `proxy.ts`'s
+   * matcher, so a still-live admin session hint bounced it back to `/admin` and around again,
+   * with no API call anywhere in the cycle to clear that cookie. Anything signed-in but not
+   * provably an admin has to land on `/forbidden`, which isn't matched and so always renders.
+   */
+  test("sends a signed-in token with an unreadable type to /forbidden, never /login", async () => {
+    const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 }));
+    TokenService.setAccessToken(`header.${payload}.signature`);
+
+    renderGuard();
+
+    await waitFor(() => expect(window.location.href).toBe("/forbidden"));
+    expect(screen.queryByText("admin content")).not.toBeInTheDocument();
+  });
+
+  test("renders children without redirecting for a live platform-admin session", async () => {
+    storeLiveAccessToken("platform_admin");
 
     renderGuard();
 
     expect(await screen.findByText("admin content")).toBeInTheDocument();
-    expect(replace).not.toHaveBeenCalled();
+    expect(window.location.href).toBe("http://localhost:3002/admin");
   });
 });

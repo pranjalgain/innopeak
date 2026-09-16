@@ -4,8 +4,8 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
-import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { EnvConfig } from '@config/env.config';
+import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import {
   type ConfirmLocationResult,
   ConnectionsDbService,
@@ -46,7 +46,7 @@ import {
 } from '../constants/connections.constants';
 import type {
   AvailableLocationsResponseDto,
-  ConfirmLocationResponseDto,
+  ConfirmLocationsResponseDto,
   ConnectionStatusResponseDto,
   DisconnectResponseDto,
   LocationDto,
@@ -79,6 +79,7 @@ export class ConnectionsService {
     private readonly oauthStateService: OAuthStateService,
     private readonly reviewSyncQueue: ReviewSyncQueue,
     private readonly reviewSyncDbService: ReviewSyncDbService,
+    private readonly authDbService: AuthDbService,
     configService: ConfigService<EnvConfig>
   ) {
     this.frontendUrl = (configService.get<string>('FRONTEND_URL') ?? '').replace(/\/$/, '');
@@ -94,7 +95,14 @@ export class ConnectionsService {
     const tenantId = tenantUser.tenantId;
     const connection = await this.connectionsDbService.findConnectionByTenant(tenantId);
 
-    if (!connection) {
+    // A soft-disconnected row (`disconnected_at` set) survives forever so a same-account reconnect
+    // can upsert onto it, but its stored credential was revoked at disconnect time — it is not
+    // usable and must not be reported as "there is a connection here" to any caller. Without this,
+    // the onboarding connect flow's resume logic (which distinguishes "never connected" from
+    // "connected, awaiting location confirmation" by `connectionId` presence) mistook a genuinely
+    // disconnected tenant for the latter and tried to list available locations against dead
+    // credentials, which always fails.
+    if (connection?.disconnectedAt !== null) {
       return {
         connected: false,
         status: ConnectionState.DISCONNECTED,
@@ -103,10 +111,17 @@ export class ConnectionsService {
       };
     }
 
-    const [activeLocation] = await this.connectionsDbService.findLocationsByTenant(
+    const activeLocations = await this.connectionsDbService.findLocationsByTenant(
       tenantId,
       LocationStatus.ACTIVE
     );
+
+    // The tenant's chosen business (`SetActiveLocationDto`, owner-only) wins when it's still
+    // active; otherwise — never chosen yet, or the chosen location was deactivated since — fall
+    // back to the first active location, same as before this column existed.
+    const selectedLocationId = await this.authDbService.findActiveLocationId(tenantId);
+    const activeLocation =
+      activeLocations.find(location => location.id === selectedLocationId) ?? activeLocations[0];
 
     // Both halves are required. `google_connection_status` has no `disconnected` value, so a
     // disconnected tenant is one whose locations are all inactive — checking connectionStatus
@@ -310,14 +325,14 @@ export class ConnectionsService {
   }
 
   /**
-   * Confirms which location the tenant manages, then enqueues the backfill **after** the
+   * Confirms every location the tenant selected, then enqueues each backfill **after** the
    * transaction commits — BullMQ and Postgres share no transaction, so publishing inside it lets
    * a worker dequeue a syncRunId for an uncommitted row, find nothing, and fail the run.
    */
-  async confirmLocation(input: {
+  async confirmLocations(input: {
     user: AuthUser;
-    externalLocationId: string;
-  }): Promise<ConfirmLocationResponseDto> {
+    externalLocationIds: string[];
+  }): Promise<ConfirmLocationsResponseDto> {
     const tenantUser = requireTenantUser(input.user);
     const connection = await this.requireConnection(tenantUser.tenantId);
 
@@ -327,34 +342,42 @@ export class ConnectionsService {
     const providerLocations = await this.callProvider(connection, accessToken =>
       this.provider.listLocations(accessToken, connection.providerAccountId)
     );
-
-    const match = providerLocations.find(
-      location => location.externalLocationId === input.externalLocationId
+    const providerLocationsById = new Map(
+      providerLocations.map(location => [location.externalLocationId, location])
     );
 
-    if (!match) {
-      throw new NotFoundException({
-        message: MESSAGES.CONNECTIONS.EXTERNAL_LOCATION_NOT_FOUND,
-        code: CONNECTION_ERROR_CODES.EXTERNAL_LOCATION_NOT_FOUND,
-      });
-    }
+    const matches = input.externalLocationIds.map(externalLocationId => {
+      const match = providerLocationsById.get(externalLocationId);
+      if (!match) {
+        throw new NotFoundException({
+          message: MESSAGES.CONNECTIONS.EXTERNAL_LOCATION_NOT_FOUND,
+          code: CONNECTION_ERROR_CODES.EXTERNAL_LOCATION_NOT_FOUND,
+        });
+      }
+      return match;
+    });
 
-    await this.assertLocationLimit(tenantUser.tenantId, input.externalLocationId);
+    await this.assertLocationLimit(
+      tenantUser.tenantId,
+      matches.map(match => match.externalLocationId)
+    );
 
-    let result: ConfirmLocationResult;
+    let results: ConfirmLocationResult[];
     try {
-      result = await this.connectionsDbService.confirmLocation({
+      results = await this.connectionsDbService.confirmLocations({
         tenantId: tenantUser.tenantId,
         userId: tenantUser.id,
         connection,
-        externalLocationId: match.externalLocationId,
-        name: match.name,
-        address: match.address,
+        locations: matches.map(match => ({
+          externalLocationId: match.externalLocationId,
+          name: match.name,
+          address: match.address,
+        })),
         maxActiveLocations: MAX_ACTIVE_LOCATIONS,
       });
     } catch (error) {
       // The pre-check above already rejected the common case; this is the race-safe backstop —
-      // see `ConnectionsDbService.confirmLocation`. Same response either way, so the caller
+      // see `ConnectionsDbService.confirmLocations`. Same response either way, so the caller
       // cannot tell which one fired.
       if (error instanceof LocationLimitExceededError) {
         throw new ConflictException({
@@ -365,20 +388,78 @@ export class ConnectionsService {
       throw error;
     }
 
-    await this.enqueueBackfill(result, connection);
+    // Every location gets its enqueue attempted, even after one fails. `enqueueBackfill`
+    // compensates only its *own* sync run before throwing, so bailing out on the first failure
+    // would leave every later location holding a committed `running` row with no job published
+    // and nothing to compensate it — the exact "stuck running forever, blocks all future
+    // confirms" state that compensation exists to prevent, just moved from one location to the
+    // rest of the batch. The first failure is re-thrown once they have all had their turn, so the
+    // caller still learns this attempt did not fully succeed.
+    let enqueueFailure: Error | undefined;
+    for (const result of results) {
+      try {
+        await this.enqueueBackfill(result, connection);
+      } catch (error) {
+        // `enqueueBackfill` turns a queue failure into a ServiceUnavailableException itself, so
+        // this is an Error on every realistic path; the coercion just keeps the rethrow honest.
+        enqueueFailure ??= error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    if (enqueueFailure) {
+      throw enqueueFailure;
+    }
 
     return {
-      ...this.toLocationDto(result.location),
-      backfill: result.backfill
-        ? {
-            syncRunId: result.backfill.id,
-            status: result.backfill.status,
-            trigger: SyncTrigger.BACKFILL,
-            startedAt: result.backfill.startedAt,
-          }
-        : null,
-      backfillAlreadyRunning: result.backfillAlreadyRunning,
+      locations: results.map(result => ({
+        ...this.toLocationDto(result.location),
+        backfill: result.backfill
+          ? {
+              syncRunId: result.backfill.id,
+              status: result.backfill.status,
+              // The run's own trigger, not a hardcoded BACKFILL. When a run was already in
+              // flight this is whatever was blocking the index — most often the 15-minute
+              // `scheduled` sync on an already-live location — and reporting that as a backfill
+              // described the wrong job to anyone reading the response or the Swagger contract.
+              trigger: result.backfill.trigger,
+              startedAt: result.backfill.startedAt,
+            }
+          : null,
+        backfillAlreadyRunning: result.backfillAlreadyRunning,
+      })),
     };
+  }
+
+  /**
+   * The tenant-wide "currently viewing" business (`tenants.active_location_id`). Restricted to an
+   * owner at the controller (`@Roles(OWNER)`) — this is the authoritative check, not a database
+   * constraint, same as `confirmLocation`'s own limit. The location must belong to this tenant
+   * and be active: neither another tenant's id nor a deactivated location may become the shared
+   * selection every member's dashboard reads.
+   */
+  async setActiveLocation(input: { user: AuthUser; locationId: string }): Promise<LocationDto> {
+    const tenantId = requireTenantUser(input.user).tenantId;
+    const location = await this.connectionsDbService.findLocationForTenant(
+      input.locationId,
+      tenantId
+    );
+
+    if (!location) {
+      throw new NotFoundException({
+        message: MESSAGES.CONNECTIONS.LOCATION_NOT_FOUND,
+        code: CONNECTION_ERROR_CODES.LOCATION_NOT_FOUND,
+      });
+    }
+
+    if (location.status !== LocationStatus.ACTIVE) {
+      throw new ConflictException({
+        message: MESSAGES.CONNECTIONS.LOCATION_INACTIVE,
+        code: CONNECTION_ERROR_CODES.LOCATION_INACTIVE,
+      });
+    }
+
+    await this.authDbService.setActiveLocationId(tenantId, location.id);
+
+    return this.toLocationDto(location);
   }
 
   /**
@@ -399,6 +480,13 @@ export class ConnectionsService {
     }
 
     const { deactivatedLocationIds } = await this.connectionsDbService.disconnect(connection.id);
+
+    // Every location this pointed at is now inactive, so leaving it set leaves `tenants` naming a
+    // business the tenant no longer has. Nothing breaks today — `getConnectionStatus` is its only
+    // reader and falls back to the first active location — but a reconnect that confirms a
+    // different set of locations would otherwise inherit a pointer into the old, deactivated one.
+    await this.authDbService.setActiveLocationId(tenantId, null);
+
     const credentialRevoked = await this.credentialService.revokeAndDelete(
       connection.credentialReference
     );
@@ -504,20 +592,24 @@ export class ConnectionsService {
   }
 
   /**
-   * MVP's one-active-location rule. An application rule with no database constraint behind it, so
-   * it has to be checked here — and re-confirming the *same* location is explicitly allowed, since
-   * that is what a reconnect does and rejecting it would strand a tenant who lost their grant.
+   * `MAX_ACTIVE_LOCATIONS` sanity ceiling. An application rule with no database constraint behind
+   * it, so it has to be checked here — and re-confirming an *already active* location is
+   * explicitly allowed (it doesn't grow the count), since that is what a reconnect does and
+   * rejecting it would strand a tenant who lost their grant. Cheap, non-authoritative pre-check —
+   * `ConnectionsDbService.confirmLocations` rechecks under an advisory lock before writing.
    */
-  private async assertLocationLimit(tenantId: string, externalLocationId: string): Promise<void> {
+  private async assertLocationLimit(
+    tenantId: string,
+    externalLocationIds: string[]
+  ): Promise<void> {
     const active = await this.connectionsDbService.findLocationsByTenant(
       tenantId,
       LocationStatus.ACTIVE
     );
-    const isSameLocation = active.some(
-      location => location.externalLocationId === externalLocationId
-    );
+    const activeExternalIds = new Set(active.map(location => location.externalLocationId));
+    const newCount = externalLocationIds.filter(id => !activeExternalIds.has(id)).length;
 
-    if (!isSameLocation && active.length >= MAX_ACTIVE_LOCATIONS) {
+    if (active.length + newCount > MAX_ACTIVE_LOCATIONS) {
       throw new ConflictException({
         message: MESSAGES.CONNECTIONS.LOCATION_LIMIT_REACHED,
         code: CONNECTION_ERROR_CODES.LOCATION_LIMIT_REACHED,

@@ -20,16 +20,19 @@ const BUSINESS_NAME_KEY = "access-token-business-name";
 /** Treat a token as expired slightly early, so one that would die mid-flight is refreshed first. */
 const EXPIRY_SKEW_SECONDS = 30;
 
+/** Mirrors the backend's `JwtTokenType` enum (`apps/backend/src/api/auth/enums/jwt-token-type.enum.ts`) — the two values an access token can carry. `"refresh"` is a distinct third `type` on that enum but never appears on an *access* token, so it's not part of this union. */
+export type TokenType = "tenant_user" | "platform_admin";
+
 interface AccessTokenClaims {
   exp?: number;
   email?: string;
+  type?: TokenType;
 }
 
 /**
- * Holds the access token in localStorage — same storage mechanism the existing mock
- * `SessionService` already uses for the role flag. The refresh token is NOT stored here (and
- * couldn't be read even if we tried): it travels only as an httpOnly `refresh_token` cookie the
- * backend sets directly, invisible to this or any other client-side JS.
+ * Holds the access token in localStorage. The refresh token is NOT stored here (and couldn't be
+ * read even if we tried): it travels only as an httpOnly `refresh_token` cookie the backend sets
+ * directly, invisible to this or any other client-side JS.
  *
  * Everything here checks *expiry*, never mere presence. A stored-but-expired token is worse than
  * no token at all: the route guards would read it as "signed in" while the backend and the edge
@@ -69,6 +72,28 @@ export class TokenService {
     if (!token) return null;
     const email = this.decode(token)?.email;
     return typeof email === "string" && email.length > 0 ? email : null;
+  }
+
+  /**
+   * Unlike every other claim reader here, this one IS used for authorization — of a routing
+   * decision, not an API call. Route guards (`RequireAuth`, `AdminGuard`, `RedirectIfAuthenticated`)
+   * need to tell a tenant-user token from a platform-admin one to know which pages a valid,
+   * unexpired token is actually good for; without it, any guard that only checked "is there a
+   * token" treated the two as interchangeable, and a platform admin manually navigating to a
+   * tenant-only route (or the reverse) had no way to be routed anywhere but back into the very
+   * page that had just rejected them. This is still not a security boundary — the payload is
+   * read, not verified, and the backend independently enforces the real check on every request —
+   * it only ever decides which client-side page to show, never whether a request succeeds.
+   *
+   * Uses the raw stored token (expired or not), same as `getEmail` — a token past its TTL still
+   * carries a real `type` claim, and a guard mid-refresh needs to know which principal it's
+   * refreshing before deciding whether the attempt even makes sense.
+   */
+  static getTokenType(): TokenType | null {
+    const token = this.getStoredAccessToken();
+    if (!token) return null;
+    const type = this.decode(token)?.type;
+    return type === "tenant_user" || type === "platform_admin" ? type : null;
   }
 
   /** Display only, same as `getEmail` — never used as authorization. */

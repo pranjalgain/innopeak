@@ -219,6 +219,33 @@ export class AuthRepository {
     return rows.length > 0;
   }
 
+  /** Null means either "never chosen" or the chosen location was later removed (`ON DELETE SET
+   *  NULL`) — `ConnectionsService.getConnectionStatus` falls back to the tenant's first active
+   *  location in both cases, so the two are not distinguished here. */
+  async findActiveLocationId(tenantId: string): Promise<string | null> {
+    const rows = await this.dbService.db
+      .select({ activeLocationId: schema.tenants.activeLocationId })
+      .from(schema.tenants)
+      .where(eq(schema.tenants.id, tenantId))
+      .limit(1);
+
+    return rows[0]?.activeLocationId ?? null;
+  }
+
+  /** A single shared value for the whole tenant — see the column comment in
+   *  0003_review_provider_locations.sql. The caller (`ConnectionsService.setActiveLocation`)
+   *  is what restricts this to an owner and validates the location belongs to the tenant; this
+   *  method itself trusts its input. */
+  async updateActiveLocationId(
+    tx: DrizzleTransaction,
+    input: { tenantId: string; locationId: string | null }
+  ): Promise<void> {
+    await tx
+      .update(schema.tenants)
+      .set({ activeLocationId: input.locationId, updatedAt: sql`now()` })
+      .where(eq(schema.tenants.id, input.tenantId));
+  }
+
   async insertTenant(tx: DrizzleTransaction, input: InsertTenantInput): Promise<InsertedTenant> {
     const rows = await tx
       .insert(schema.tenants)

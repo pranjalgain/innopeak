@@ -25,14 +25,18 @@ export interface UpsertConnectionInput {
   tokenExpiresAt: Date | null;
 }
 
-export interface ConfirmLocationInput {
-  tenantId: string;
-  userId: string;
-  connection: ProviderConnectionRow;
+export interface ConfirmLocationMatch {
   externalLocationId: string;
   name: string;
   address: string | null;
-  /** MVP's one-active-location rule (`MAX_ACTIVE_LOCATIONS`) — passed in rather than imported so
+}
+
+export interface ConfirmLocationsInput {
+  tenantId: string;
+  userId: string;
+  connection: ProviderConnectionRow;
+  locations: ConfirmLocationMatch[];
+  /** MVP's location-count ceiling (`MAX_ACTIVE_LOCATIONS`) — passed in rather than imported so
    *  this data-layer transaction stays the one place that authoritatively enforces it, without
    *  owning the business constant itself. See `acquireLocationConfirmLock`. */
   maxActiveLocations: number;
@@ -117,30 +121,33 @@ export class ConnectionsDbService {
   }
 
   /**
-   * The module's one real transaction: upsert the location, attach the user, acquire the backfill
-   * run. Three subtleties, all easy to get wrong and all expensive:
+   * The module's one real transaction: upsert each confirmed location, attach the user, acquire
+   * a backfill run per location. Three subtleties, all easy to get wrong and all expensive:
    *
    *  1. **The location limit is rechecked here, under an advisory lock, not just by the caller's
    *     pre-check.** `ConnectionsService.assertLocationLimit` runs before this transaction even
    *     opens — a cheap, non-authoritative fast path. Under READ COMMITTED, two concurrent
-   *     confirms for *different* `externalLocationId`s can both read zero active locations (there
-   *     is nothing yet to lock against) and both pass that pre-check, since neither has committed
-   *     anything for the other to see. `acquireLocationConfirmLock` closes it: the second
-   *     transaction blocks on the lock until the first commits or rolls back, so its own recheck
-   *     here runs against the first one's already-committed result.
-   *  2. **The sync-run acquisition is wrapped in its own savepoint.** A duplicate-key on the
-   *     partial unique index would otherwise abort the *whole* transaction, so an impatient owner
-   *     double-clicking Continue would get "backfill already running" **and no location row** —
-   *     the thing they actually asked for silently rolled back.
+   *     confirm requests can both read the same starting count (there is nothing yet to lock
+   *     against) and both pass that pre-check, since neither has committed anything for the other
+   *     to see. `acquireLocationConfirmLock` closes it: the second transaction blocks on the lock
+   *     until the first commits or rolls back, so its own recheck here runs against the first
+   *     one's already-committed result. The count is tracked and advanced in-memory as this loop
+   *     confirms each location, so a batch of N new locations is checked against the limit
+   *     incrementally rather than only once against the pre-loop snapshot.
+   *  2. **Each location's sync-run acquisition is wrapped in its own savepoint.** A duplicate-key
+   *     on the partial unique index would otherwise abort the *whole* transaction, so an
+   *     impatient owner double-clicking Continue would get "backfill already running" **and no
+   *     location rows at all** — everything they actually asked for silently rolled back.
    *  3. **Nothing is enqueued here.** BullMQ and Postgres share no transaction, so publishing
    *     inside this block lets a worker dequeue a `syncRunId` for a row that has not committed,
-   *     find nothing, and mark the run failed. The caller publishes after commit.
+   *     find nothing, and mark the run failed. The caller publishes after commit, once per
+   *     confirmed location.
    *
    * An already-running backfill is reported rather than thrown, so the endpoint can stay
-   * idempotent — the owner gets 200 and the id they need to start polling, which is what they
+   * idempotent — the owner gets 201 and the ids they need to start polling, which is what they
    * wanted anyway.
    */
-  async confirmLocation(input: ConfirmLocationInput): Promise<ConfirmLocationResult> {
+  async confirmLocations(input: ConfirmLocationsInput): Promise<ConfirmLocationResult[]> {
     return this.connectionsRepository.transaction(async tx => {
       await this.connectionsRepository.acquireLocationConfirmLock(tx, input.tenantId);
 
@@ -149,50 +156,80 @@ export class ConnectionsDbService {
         LocationStatus.ACTIVE,
         tx
       );
-      const isSameLocation = active.some(
-        location => location.externalLocationId === input.externalLocationId
-      );
+      const activeExternalIds = new Set(active.map(location => location.externalLocationId));
+      let activeCount = active.length;
 
-      if (!isSameLocation && active.length >= input.maxActiveLocations) {
-        throw new LocationLimitExceededError();
-      }
+      const results: ConfirmLocationResult[] = [];
 
-      const location = await this.connectionsRepository.upsertLocation(tx, {
-        tenantId: input.tenantId,
-        providerConnectionId: input.connection.id,
-        // Copied off the connection row, never from the request body: `locations.provider` is
-        // denormalized and no constraint keeps it honest.
-        provider: input.connection.provider,
-        externalLocationId: input.externalLocationId,
-        name: input.name,
-        address: input.address,
-      });
+      for (const match of input.locations) {
+        const isAlreadyActive = activeExternalIds.has(match.externalLocationId);
 
-      await this.connectionsRepository.attachUserToLocation(tx, {
-        userId: input.userId,
-        locationId: location.id,
-      });
-
-      try {
-        const backfill = await tx.transaction(nested =>
-          this.reviewSyncRepository.acquireSyncRun(nested, {
-            tenantId: input.tenantId,
-            locationId: location.id,
-            trigger: SyncTrigger.BACKFILL,
-          })
-        );
-
-        return { location, backfill, backfillAlreadyRunning: false };
-      } catch (error) {
-        if (!isUniqueViolation(error, SYNC_RUN_RUNNING_INDEX)) {
-          throw error;
+        if (!isAlreadyActive && activeCount >= input.maxActiveLocations) {
+          throw new LocationLimitExceededError();
         }
 
-        // The savepoint rolled back, not the outer transaction — the location and user_location
-        // writes above survive.
-        const existing = await this.reviewSyncRepository.findRunningRunForLocation(location.id);
-        return { location, backfill: existing, backfillAlreadyRunning: true };
+        const location = await this.connectionsRepository.upsertLocation(tx, {
+          tenantId: input.tenantId,
+          providerConnectionId: input.connection.id,
+          // Copied off the connection row, never from the request body: `locations.provider` is
+          // denormalized and no constraint keeps it honest.
+          provider: input.connection.provider,
+          externalLocationId: match.externalLocationId,
+          name: match.name,
+          address: match.address,
+        });
+
+        await this.connectionsRepository.attachUserToLocation(tx, {
+          userId: input.userId,
+          locationId: location.id,
+        });
+
+        if (!isAlreadyActive) {
+          activeExternalIds.add(match.externalLocationId);
+          activeCount += 1;
+        }
+
+        const acquire = async (): Promise<SyncRunRow> =>
+          tx.transaction(nested =>
+            this.reviewSyncRepository.acquireSyncRun(nested, {
+              tenantId: input.tenantId,
+              locationId: location.id,
+              trigger: SyncTrigger.BACKFILL,
+            })
+          );
+
+        try {
+          results.push({ location, backfill: await acquire(), backfillAlreadyRunning: false });
+        } catch (error) {
+          if (!isUniqueViolation(error, SYNC_RUN_RUNNING_INDEX)) {
+            throw error;
+          }
+
+          // The savepoint rolled back, not the outer transaction — the location and
+          // user_location writes above survive. Read through `tx`, not the pool: the outer
+          // transaction still holds this tenant's advisory lock, so borrowing a second connection
+          // here is a needless way to deadlock against a saturated pool.
+          const existing = await this.reviewSyncRepository.findRunningRunForLocation(
+            location.id,
+            tx
+          );
+
+          if (existing) {
+            results.push({ location, backfill: existing, backfillAlreadyRunning: true });
+            continue;
+          }
+
+          // Nothing is running after all: the blocking run finished between the constraint
+          // violation and this read. Reporting `backfillAlreadyRunning` here would be a lie with
+          // teeth — the caller skips enqueuing on that flag, so the location would sit active,
+          // never backfilled, with `onboarding_backfill_completed_at` NULL forever, which also
+          // excludes it from `findLocationsDueForPoll`. Nothing would ever retry it and no error
+          // would surface. The index is free now, so simply take it.
+          results.push({ location, backfill: await acquire(), backfillAlreadyRunning: false });
+        }
       }
+
+      return results;
     });
   }
 

@@ -21,6 +21,9 @@ export interface ReviewQueryOptions {
   page?: number;
   pageSize?: number;
   filters?: Partial<ReviewQueueFilters>;
+  /** The active business (`locations.id`), not a user-facing filter control — kept separate from
+   *  `filters` for that reason. Omitted means every location the tenant has confirmed. */
+  locationId?: string;
 }
 
 export interface ReviewPage {
@@ -85,7 +88,7 @@ interface ApiReviewList {
  */
 export class ReviewService {
   static async getReviews(options: ReviewQueryOptions = {}): Promise<ReviewPage> {
-    const { page = 1, pageSize = 20, filters } = options;
+    const { page = 1, pageSize = 20, filters, locationId } = options;
 
     // "unclassified" is silently dropped rather than sent: it is a frontend-only value the API
     // would reject with a 400, and a validation error is a worse answer than an unfiltered list.
@@ -104,6 +107,7 @@ export class ReviewService {
       pageSize,
       status: filters?.status && filters.status !== "all" ? filters.status : undefined,
       classification,
+      locationId,
       search: filters?.search?.trim() || undefined,
     });
     const response = unwrap<ApiReviewList>(apiResponse.data);

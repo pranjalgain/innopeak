@@ -147,6 +147,10 @@
       "action": "Erneut verbinden"
     }
   },
+  "businessSwitcher": {
+    "label": "Unternehmen wechseln",
+    "switchFailed": "Ihr aktives Unternehmen konnte nicht gewechselt werden. Bitte versuchen Sie es erneut."
+  },
   "languageSwitcher": {
     "syncFailed": "Spracheinstellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
   },
@@ -212,7 +216,8 @@
       "title": "Wir haben Ihr Unternehmen gefunden",
       "subtitle": "Bestätigen Sie, dass dies der Standort ist, den InnoPeak verwalten soll.",
       "button": "Weiter",
-      "subtitleMultiple": "Wählen Sie den Standort, den InnoPeak verwalten soll.",
+      "buttonMultiple": "Weiter mit {count} Standorten",
+      "subtitleMultiple": "Wählen Sie die Standorte, die InnoPeak verwalten soll.",
       "noAddress": "Keine Adresse hinterlegt"
     },
     "backfilling": {
@@ -460,8 +465,9 @@
       "connectButton": "Google Unternehmensprofil verbinden",
       "connecting": "Weiterleitung zu Google…",
       "disconnectButton": "Trennen",
-      "disconnectConfirm": "Sind Sie sicher? Dieser Standort wird nicht mehr synchronisiert.",
-      "cancel": "Abbrechen"
+      "disconnectConfirm": "Sind Sie sicher? Dadurch wird Ihre gesamte Google Unternehmensprofil-Verbindung getrennt — alle unten aufgeführten Standorte synchronisieren danach keine neuen Bewertungen mehr.",
+      "cancel": "Abbrechen",
+      "otherLocations": "Weitere verbundene Standorte"
     },
     "ai": {
       "title": "KI-Antworten",
@@ -617,7 +623,6 @@
     "needsAttention": {
       "title": "Handlungsbedarf",
       "subtitle": "Unternehmen mit einem Problem bei der Google-Unternehmensprofil-Verbindung",
-      "empty": "Derzeit besteht kein Handlungsbedarf.",
       "viewAll": "Alle Unternehmen anzeigen →",
       "statuses": {
         "needs_reauth": "Erneute Autorisierung nötig",
@@ -869,6 +874,17 @@
       "title": "Konnte nicht geladen werden",
       "description": "Auf unserer Seite ist etwas schiefgelaufen. Dies ist keine leere Liste — bitte versuchen Sie es gleich erneut.",
       "retry": "Erneut versuchen"
+    }
+  },
+  "accessState": {
+    "returnHome": "Zur Startseite",
+    "forbidden": {
+      "title": "Zugriff verweigert",
+      "description": "Ihr Konto hat keinen Zugriff auf diese Seite. Falls das nicht stimmt, bitten Sie eine Inhaberin oder einen Inhaber in Ihrem Team, Ihre Berechtigungen zu prüfen."
+    },
+    "unauthorized": {
+      "title": "Nicht angemeldet",
+      "description": "Sie müssen angemeldet sein, um diese Seite zu sehen."
     }
   }
 }

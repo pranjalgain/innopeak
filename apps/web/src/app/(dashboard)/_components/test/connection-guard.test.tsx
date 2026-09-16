@@ -91,6 +91,32 @@ describe("ConnectionGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  /**
+   * Regression: a 403 used to fall through every branch (it's not the redirect-to-onboarding
+   * case, not `needs_reauth`, and the "fail open" reasoning only ever accounted for a genuine
+   * 401 being handled upstream) and silently render the dashboard shell anyway — no data, no
+   * error, nothing wrong-looking about it. A 403 here means `requireTenantUser` rejected the
+   * caller outright (e.g. a platform admin's valid token reaching this component); unlike a 5xx,
+   * retrying it can never succeed, so it must not fail open the same way.
+   */
+  test("does not fail open on a 403 — sends the caller to /forbidden instead", async () => {
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, href: "http://localhost:3002/dashboard" },
+    });
+
+    vi.spyOn(ConnectionService, "getState").mockRejectedValue(new ApiError(403, "Forbidden"));
+
+    renderGuard();
+
+    await waitFor(() => expect(window.location.href).toBe(ROUTES.FORBIDDEN));
+    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+
+    Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+  });
+
   test("fails open on a network failure", async () => {
     vi.spyOn(ConnectionService, "getState").mockRejectedValue(new TypeError("Failed to fetch"));
 

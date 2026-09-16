@@ -31,6 +31,12 @@ const ATTENTION_PRIORITY: Record<Exclude<BusinessConnectionStatus, "connected">,
   never_connected: 2,
 };
 
+/** Single source of truth for "does this panel have anything to show" — also used by the parent
+ * view to decide whether to reserve layout space for it, so the two can never disagree. */
+export function hasBusinessesNeedingAttention(businesses: AdminBusiness[]): boolean {
+  return businesses.some((business) => business.connectionStatus !== "connected");
+}
+
 export function NeedsAttentionPanel({ businesses }: NeedsAttentionPanelProps) {
   const t = useTranslations("adminOverview.needsAttention");
   const atRisk = businesses
@@ -42,6 +48,10 @@ export function NeedsAttentionPanel({ businesses }: NeedsAttentionPanelProps) {
     )
     .slice(0, MAX_ROWS);
 
+  // Nothing at risk — an empty "all clear" card is just noise; the parent collapses the layout
+  // to give RecentBusinessesCard the full row instead of leaving a blank column beside it.
+  if (atRisk.length === 0) return null;
+
   return (
     <Card className="h-full">
       <CardHeader>
@@ -49,28 +59,24 @@ export function NeedsAttentionPanel({ businesses }: NeedsAttentionPanelProps) {
         <CardDescription>{t("subtitle")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-1">
-        {atRisk.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("empty")}</p>
-        ) : (
-          atRisk.map((business) => (
-            <div key={business.id} className="flex items-center justify-between gap-3 py-1.5">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{business.name}</p>
-                <p className="truncate text-[13px] text-muted-foreground">{business.ownerName}</p>
-              </div>
-              <Badge
-                variant="outline"
-                className={
-                  STATUS_BADGE_CLASSNAME[
-                    business.connectionStatus as Exclude<BusinessConnectionStatus, "connected">
-                  ]
-                }
-              >
-                {t(`statuses.${business.connectionStatus}`)}
-              </Badge>
+        {atRisk.map((business) => (
+          <div key={business.id} className="flex items-center justify-between gap-3 py-1.5">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{business.name}</p>
+              <p className="truncate text-[13px] text-muted-foreground">{business.ownerName}</p>
             </div>
-          ))
-        )}
+            <Badge
+              variant="outline"
+              className={
+                STATUS_BADGE_CLASSNAME[
+                  business.connectionStatus as Exclude<BusinessConnectionStatus, "connected">
+                ]
+              }
+            >
+              {t(`statuses.${business.connectionStatus}`)}
+            </Badge>
+          </div>
+        ))}
 
         <Link
           href={ROUTES.ADMIN_BUSINESSES as Route}

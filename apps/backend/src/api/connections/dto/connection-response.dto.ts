@@ -168,8 +168,13 @@ export class BackfillSummaryDto {
   @ApiProperty({ example: SyncRunStatus.RUNNING, enum: SyncRunStatus })
   status!: SyncRunStatus;
 
-  @ApiProperty({ example: SyncTrigger.BACKFILL })
-  trigger!: SyncTrigger.BACKFILL;
+  /**
+   * Usually `backfill`, but not always: when a run was already in flight for this location the
+   * response describes *that* run, which on an already-live location is the 15-minute
+   * `scheduled` sync. Pinning this to the `backfill` literal made the contract claim otherwise.
+   */
+  @ApiProperty({ example: SyncTrigger.BACKFILL, enum: SyncTrigger })
+  trigger!: SyncTrigger;
 
   @ApiProperty({ example: '2026-09-01T09:05:03.000Z' })
   startedAt!: string;
@@ -182,10 +187,18 @@ export class ConfirmLocationResponseDto extends LocationDto {
   @ApiProperty({
     example: false,
     description:
-      'True when a backfill was already running and this call reused it. The endpoint stays 200 ' +
+      'True when a backfill was already running and this call reused it. The endpoint stays 201 ' +
       'and idempotent rather than 409, so a double-clicking owner still gets a locationId to poll.',
   })
   backfillAlreadyRunning!: boolean;
+}
+
+export class ConfirmLocationsResponseDto {
+  @ApiProperty({
+    type: [ConfirmLocationResponseDto],
+    description: 'One entry per confirmed location, in the same order as the request.',
+  })
+  locations!: ConfirmLocationResponseDto[];
 }
 
 export class BackfillProgressResponseDto {

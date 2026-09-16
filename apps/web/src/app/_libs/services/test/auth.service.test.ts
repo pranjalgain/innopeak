@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { authApi } from "@/app/_libs/api-sdk/auth-api";
 import { AuthService } from "@/app/_libs/services/auth.service";
-import { SessionService } from "@/app/_libs/services/session.service";
 import { TokenService } from "@/app/_libs/services/token.service";
 
 function envelope<T>(data: T) {
@@ -21,7 +20,7 @@ describe("AuthService.loginWithPassword", () => {
    * reads — an `admin` field means a platform admin, `status` a still-pending tenant account,
    * otherwise a normal tenant session.
    */
-  it("recognizes a platform-admin response and sets the super_admin session role", async () => {
+  it("recognizes a platform-admin response and stores its access token", async () => {
     vi.spyOn(authApi, "authControllerLoginV1").mockResolvedValue(
       envelope({
         accessToken: "admin-access-token",
@@ -34,10 +33,9 @@ describe("AuthService.loginWithPassword", () => {
 
     expect(result).toEqual({ kind: "admin_success" });
     expect(TokenService.getStoredAccessToken()).toBe("admin-access-token");
-    expect(await SessionService.getRole()).toBe("super_admin");
   });
 
-  it("recognizes a tenant response and sets the tenant session role", async () => {
+  it("recognizes a tenant response and stores its access token", async () => {
     vi.spyOn(authApi, "authControllerLoginV1").mockResolvedValue(
       envelope({
         accessToken: "tenant-access-token",
@@ -60,7 +58,6 @@ describe("AuthService.loginWithPassword", () => {
 
     expect(result).toEqual({ kind: "success", hasConnectedBusiness: true });
     expect(TokenService.getStoredAccessToken()).toBe("tenant-access-token");
-    expect(await SessionService.getRole()).toBe("tenant");
   });
 
   it("recognizes a pending_verification response without touching session state", async () => {

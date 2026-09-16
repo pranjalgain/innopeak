@@ -21,7 +21,7 @@ export interface ConfirmLocationResponseDto {
   createdAt: string;
   backfill?: BackfillSummaryDto | null;
   /**
-   * True when a backfill was already running and this call reused it. The endpoint stays 200 and idempotent rather than 409, so a double-clicking owner still gets a locationId to poll.
+   * True when a backfill was already running and this call reused it. The endpoint stays 201 and idempotent rather than 409, so a double-clicking owner still gets a locationId to poll.
    */
   backfillAlreadyRunning: boolean;
 }

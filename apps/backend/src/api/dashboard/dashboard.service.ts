@@ -16,18 +16,23 @@ export class DashboardService {
 
   /**
    * Retrieves aggregated metrics — including the rating distribution (1‑5) — for the given time
-   * window.
+   * window, optionally scoped to one location.
    */
-  async getMetrics(days: number, user: AuthUser): Promise<DashboardMetrics> {
+  async getMetrics(days: number, user: AuthUser, locationId?: string): Promise<DashboardMetrics> {
     const tenantUser = requireTenantUser(user, MESSAGES.DASHBOARD.TENANT_ONLY);
-    return this.dashboardRepo.getMetrics(days, tenantUser.tenantId);
+    return this.dashboardRepo.getMetrics(days, tenantUser.tenantId, locationId);
   }
 
   /**
-   * Retrieves the most recent escalated reviews still awaiting action.
+   * Retrieves the most recent escalated reviews still awaiting action, optionally scoped to one
+   * location.
    */
-  async getRecentEscalated(limit: number, user: AuthUser): Promise<RecentEscalatedDto[]> {
+  async getRecentEscalated(
+    limit: number,
+    user: AuthUser,
+    locationId?: string
+  ): Promise<RecentEscalatedDto[]> {
     const tenantUser = requireTenantUser(user, MESSAGES.DASHBOARD.TENANT_ONLY);
-    return this.dashboardRepo.getRecentEscalated(limit, tenantUser.tenantId);
+    return this.dashboardRepo.getRecentEscalated(limit, tenantUser.tenantId, locationId);
   }
 }

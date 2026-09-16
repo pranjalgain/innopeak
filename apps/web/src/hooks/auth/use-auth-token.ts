@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 
 import { refreshSession } from "@/app/_libs/api-sdk/config";
-import { TokenService } from "@/app/_libs/services/token.service";
+import { TokenService, type TokenType } from "@/app/_libs/services/token.service";
 
 interface UseAuthTokenOptions {
   /**
@@ -24,6 +24,14 @@ interface UseAuthTokenOptions {
 interface UseAuthTokenResult {
   /** `null` while the initial check is in flight — localStorage isn't available during SSR, so this is deferred to an effect to avoid a hydration mismatch. */
   hasToken: boolean | null;
+  /**
+   * Which principal `hasToken`'s token belongs to — `null` while `hasToken` is still `null` or
+   * `false` (there is no token to have a type). Read fresh whenever `hasToken` resolves `true`, so
+   * a token that arrived via `refreshSession()` (not localStorage that was already there) is
+   * covered too. Routing-only, same caveat as `TokenService.getTokenType()` itself: not a security
+   * boundary, just which page a guard shows.
+   */
+  tokenType: TokenType | null;
 }
 
 // A layout effect (not a plain effect) so the synchronous part of the check resolves before the
@@ -62,12 +70,14 @@ export function useAuthToken({
   reviveMissing = false,
 }: UseAuthTokenOptions = {}): UseAuthTokenResult {
   const [hasToken, setHasToken] = useState<boolean | null>(null);
+  const [tokenType, setTokenType] = useState<TokenType | null>(null);
 
   useIsomorphicLayoutEffect(() => {
     let cancelled = false;
 
     if (TokenService.getAccessToken()) {
       setHasToken(true);
+      setTokenType(TokenService.getTokenType());
       return;
     }
 
@@ -84,7 +94,14 @@ export function useAuthToken({
     // retrying.
     void refreshSession().then((refreshed) => {
       if (cancelled) return;
-      if (!refreshed) TokenService.clear();
+      if (!refreshed) {
+        TokenService.clear();
+        setTokenType(null);
+      } else {
+        // The refreshed token is already in localStorage by the time this promise resolves
+        // (`refreshSession` stores it before returning) — read the type straight back out.
+        setTokenType(TokenService.getTokenType());
+      }
       setHasToken(refreshed);
     });
 
@@ -93,5 +110,5 @@ export function useAuthToken({
     };
   }, [reviveMissing]);
 
-  return { hasToken };
+  return { hasToken, tokenType };
 }

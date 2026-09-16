@@ -6,9 +6,6 @@
  * already flowing through hooks and components.
  */
 
-/** Which identity a mock login session belongs to — `super_admin` is a platform-level identity, distinct from any tenant. */
-export type SessionRole = "tenant" | "super_admin";
-
 export interface Tenant {
   id: string;
   name: string;

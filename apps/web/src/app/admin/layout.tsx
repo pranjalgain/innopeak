@@ -36,6 +36,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         homeHref={ROUTES.ADMIN}
         profileHref={`${ROUTES.ADMIN_SETTINGS}?tab=profile`}
         showNotifications={false}
+        showBusinessSwitcher={false}
         identity={{
           name: displayName,
           initials: displayName === "" ? "" : getInitials(displayName),

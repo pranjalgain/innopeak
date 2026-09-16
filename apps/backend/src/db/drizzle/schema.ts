@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   boolean,
   check,
   foreignKey,
@@ -269,6 +270,21 @@ export const tenants = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
+    // A single shared value for the whole tenant — every member sees the same currently-selected
+    // business; only an owner may change it (enforced at the API layer, not here). `ON DELETE SET
+    // NULL`, not NOT NULL — removing/deactivating the currently-selected location must not fail,
+    // and NULL reads correctly as "no selection yet."
+    //
+    // Column-level `.references()` (a lazy thunk), not a `foreignKey()` entry in the array below
+    // — `tenants` -> `locations` (via this column) -> `tenants` (via `locations.tenant_id`) is a
+    // genuine 2-table reference cycle, and `foreignKey()`'s array lives inside the same
+    // object-literal TypeScript structurally infers `tenants`'s own type from, so a forward
+    // reference to `locations` there makes that inference circular ('tenants' implicitly has type
+    // 'any' because it is referenced in its own initializer). The lazy callback here sidesteps
+    // that: the column's own type doesn't depend on resolving `tenants`'s full table type first.
+    activeLocationId: uuid('active_location_id').references((): AnyPgColumn => locations.id, {
+      onDelete: 'set null',
+    }),
   },
   table => [
     index('idx_tenants_created_by_platform_admin_id').using(
