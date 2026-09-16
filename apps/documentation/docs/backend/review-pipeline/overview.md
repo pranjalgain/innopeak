@@ -673,7 +673,7 @@ pre-post freshness check.
 > `decided_at` from `0006_prompts.sql` covers "when the status became terminal", and `approved` is
 > not terminal — a row can sit `approved` for a while before posting, or fail and retry. Add
 > `approved_at TIMESTAMPTZ` to keep the approval audit trail §2 asked for; without it, "who
-> approved this and when" is only answerable from `audit_logs`.
+> approved this and when" has no answer anywhere in the schema.
 
 ## Historical backfill
 
@@ -777,27 +777,23 @@ flags that split as a reasonable default to confirm with legal/DPO, not a legal 
 safely — which is why the house-style prompt rule in [AI generation](#ai-generation) is load-bearing
 rather than cosmetic.
 
-**The audit-trail gap (§6.1).** Every domain table carries an `AFTER INSERT OR UPDATE OR DELETE`
-trigger running `log_db_changes()`, which snapshots the whole row into `audit_logs.old_value` /
-`new_value` — including on the anonymizing UPDATE itself, so `reviewer_name`'s former value is
-preserved unredacted there, as it already was by every earlier UPDATE on that review. Purging the
-live row does not purge the trail. §6.1's fix: the same job step must also redact every
-`audit_logs` row referencing that review's id, matched by `table_name = 'reviews'` and the id inside
-`old_value`/`new_value` — not just the row the anonymizing UPDATE created.
-`idx_audit_logs_table_name` and the two GIN indexes in `0000_foundation.sql` exist to make that a
-targeted lookup. §6.1 states plainly that the redaction step is **not yet built**; still true for
-`reviewer_name` specifically.
-
-**A related, separate gap — now fixed at the source.** The same full-row snapshot also captured
-`users.password_hash` and `refresh_tokens` / `password_reset_tokens.token_hash` verbatim, on every
-write to those tables, forever — a credential-hash exposure `PLAN.md` §6.1 does not itself name,
-found independently while auditing this trigger. Unlike `reviewer_name`, a credential hash has no
-legitimate reason to exist in a second, unmanaged table at all, so the fix is not a retroactive
-purge but redaction at the source: `redact_audit_row(table_name, row)` (`0000_foundation.sql`)
-strips `password_hash` / `token_hash` from the JSONB *before* `log_db_changes()` ever writes it,
-scoped to exactly those two tables — every other table's snapshot, `reviews` included, is
-untouched. An audit trail that never held the value needs no later purge of it, so this does not
-reduce the scope of the still-open `reviewer_name` redaction above.
+**The generic audit trail this section used to flag (§6.1) has been removed, closing that gap.** An
+earlier revision of this schema carried a generic, trigger-populated audit table — every domain
+table had an `AFTER INSERT OR UPDATE OR DELETE` trigger that snapshotted the whole row on every
+write, including the anonymizing UPDATE itself, so a purged `reviewer_name` stayed preserved,
+unredacted, in every prior snapshot of that review. §6.1's fix was to have this job's cron step also
+redact every snapshot row referencing the review's id after running the anonymizing UPDATE. That
+generic audit table — the table itself, its indexes, its two plpgsql helper functions, and the enum
+backing it — has since been dropped entirely: it had no application-code reader anywhere and no
+retention or purge job of its own, so it was removed rather than wired up. With no snapshot table
+left for stale PII to leak into, there is no second redaction step to build — `ReviewSyncRepository
+.purgeExpiredReviewerPii`'s single `UPDATE reviews SET reviewer_name = NULL, external_reviewer_id =
+NULL, anonymized_at = now() ...` is, and is expected to remain, the whole job. The same removal also
+closes a related credential-hash concern this section used to track separately: the same generic
+trigger used to capture `users.password_hash` and `refresh_tokens` / `password_reset_tokens
+.token_hash` verbatim on every write to those tables, redacted at the source before the earlier fix
+landed — with the audit table itself gone, there is no longer anywhere for a credential hash to leak
+into either.
 
 **Staff erasure is anonymize-in-place (§6.2), never a delete.** An owner or member is also a data
 subject. On an erasure request or offboarding: clear `users.name` / `email` / `password_hash` (see
@@ -861,7 +857,7 @@ whose entire body is `cronQueue.addReviewSyncPollJob()`.
 |---|---|
 | `'0 */15 * * * *'` (**built**) | One `CronJobName.REVIEW_SYNC_POLL` job |
 | `CronExpression.EVERY_DAY_AT_2AM` (**built**) | One `CronJobName.REVIEWER_RETENTION_PURGE` job — the reviewer-anonymization half of the nightly retention purge |
-| — (still unbuilt) | The `audit_logs` redaction step (§6.1) and §8.1's stale-`sync_runs` sweep — not yet folded into the retention purge job above, or scheduled anywhere else |
+| — (still unbuilt) | §8.1's stale-`sync_runs` sweep — not yet folded into the retention purge job above, or scheduled anywhere else |
 
 Note carefully: `CronQueue` publishes to `QueueName.CRON` and `CronProcessor` dispatches on
 `CronJobName` with a `switch (job.name)`. So "cron" here is itself a queue — the `@Cron` tick is a
@@ -924,10 +920,12 @@ via `isAwsDeploymentTarget()` evaluated at module-definition time:
 replica. With more than one worker, the 15-minute tick fires more than once — which §8.1's
 `UNIQUE (location_id) WHERE status = 'running'` index absorbs harmlessly for ingestion, since the
 losing tick's insert simply fails. The **nightly retention job has no such guard**: two replicas
-would both run the purge and both sweep `audit_logs`. Idempotent-ish, but wasteful and racy on the
-redaction step. Either the cron tick needs a distributed lock (a Redis `SET NX`, or a BullMQ
-repeatable job with a fixed `jobId`, which dedupes at the queue rather than in-process), or the
-deployment must pin exactly one worker replica and say so.
+would both run the purge concurrently against the same candidate rows. The advisory lock in
+`purgeExpiredReviewerPii` (see [Retention and erasure jobs](#retention-and-erasure-jobs)) makes the
+losing replica's run a fast no-op rather than a race, but it is still wasteful for both replicas to
+attempt it. Either the cron tick needs a distributed lock (a Redis `SET NX`, or a BullMQ repeatable
+job with a fixed `jobId`, which dedupes at the queue rather than in-process), or the deployment must
+pin exactly one worker replica and say so.
 
 ## Gap between current code and target design
 
@@ -949,8 +947,8 @@ partial unique indexes §8 asks for already applied.
 
 - ~~Two cron entries~~ — **both built.** `CronScheduler.scheduleReviewSyncPoll` (the 15-minute
   fan-out) and `scheduleReviewerRetentionPurge` (the reviewer-anonymization half of the nightly
-  retention purge) both exist. The `audit_logs` redaction step (§6.1), staff erasure (§6.2), and
-  §8.1's stale-`sync_runs` sweep remain unbuilt.
+  retention purge) both exist. Staff erasure (§6.2) and §8.1's stale-`sync_runs` sweep remain
+  unbuilt.
 - **`review-sync` exists** as a real queue, carrying both backfill and poll. Classification does
   **not** have its own queue — `ReviewClassificationService` is called in-process from
   `review-sync`'s own job handler (both `runBackfill` and `runPoll`), since a per-review job would
@@ -1019,4 +1017,3 @@ rather than things this document can assume:
 | `users.name` / `email` are `NOT NULL`, so §6.2's anonymize-in-place UPDATE cannot run | Drop `NOT NULL`, or write per-user unique placeholders (`idx_users_tenant_id_email` is unique) |
 | ~~§8.3's CAS predicate `status = 'new'` cannot match on the §8.6/§8.12 re-entry path~~ — resolved differently: classification claims on `classification = 'pending_classification'` instead, leaving `status` for a future generation module. See [Classification — implemented](#classification--implemented). | No schema change; `status = 'new' → 'in_review'` remains available for generation to implement §8.3 as written, once it exists |
 | `prompt_category` has no `auto_reply_candidate` equivalent; mapping needs `reviews.sentiment`, which is nullable | Document an explicit fallback — see `../prompts/overview.md` |
-| §6.1's `audit_logs` redaction step | Not built; indexes for it exist |

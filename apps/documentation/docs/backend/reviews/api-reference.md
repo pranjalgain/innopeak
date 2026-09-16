@@ -422,8 +422,8 @@ Success `200`:
 
 Note what this response cannot include: **there is no `rejected_by_user_id` column.**
 `review_responses` has `created_by_user_id` and `approved_by_user_id` only, so a rejection's
-author is recoverable from `audit_logs` (via the `log_db_changes()` trigger) but not from the
-operational tables — see
+author is not recoverable at all — there is no generic audit trail in this schema to fall back
+on either — see
 [Schema prerequisites](#schema-prerequisites-not-yet-in-the-migrations).
 
 Errors: `404 REVIEW_NOT_FOUND`, `404 RESPONSE_NOT_FOUND`, `409 RESPONSE_ALREADY_ACTIONED`,
@@ -572,7 +572,7 @@ Success `200`:
 ```
 
 As with reject, there is **no `dismissed_by_user_id` or `dismissed_at` column** on `reviews` —
-only `audit_logs` records who dismissed what. See
+and no audit trail records who dismissed what either. See
 [Schema prerequisites](#schema-prerequisites-not-yet-in-the-migrations).
 
 Errors: `404 REVIEW_NOT_FOUND`, `409 REVIEW_NOT_DISMISSIBLE` (already `responded` or already
@@ -646,9 +646,9 @@ Run `pnpm db:migrate` then `pnpm db:introspect` before writing repository code.
 
 **2. No attribution column for a rejection or a dismissal.** `review_responses` has
 `created_by_user_id` and `approved_by_user_id`; there is no `rejected_by_user_id`, and `reviews`
-has no `dismissed_by_user_id` / `dismissed_at`. Both actions are recoverable from `audit_logs`
-via the `log_db_changes()` trigger, but not from the operational tables — so "who dismissed
-this?" is a JSON scan, not a join. `PLAN.md` §6.2 argues at length that losing the
+has no `dismissed_by_user_id` / `dismissed_at`. Neither action is recoverable from anywhere —
+there is no generic audit trail in this schema — so "who dismissed this?" has no answer today,
+not even a slow one. `PLAN.md` §6.2 argues at length that losing the
 who-approved-this trail would be worse than the GDPR gap it was discussing, precisely because
 human approval is this system's core safety mechanism; the same argument applies with slightly
 less force to the negative decisions. **Required follow-up migration** if rejection/dismissal

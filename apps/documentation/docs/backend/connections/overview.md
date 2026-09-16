@@ -63,12 +63,7 @@ Two structural details on that table worth knowing before reading any endpoint:
   writes a `locations` row must copy the value off the connection row it points at, not accept it
   from a request body.
 - **`user_locations` is the only table in this module with no `tenant_id`.** Tenant scoping has to
-  be enforced by joining through `locations`. This has a second, less obvious consequence: the
-  global `log_db_changes()` trigger extracts `audit_logs.tenant_id` generically from the written
-  row's own `tenant_id` key (`PLAN.md` §6.1), so every `user_locations` audit row lands with
-  `tenant_id = NULL` and is invisible to a tenant-scoped audit query. Not fatal — the `locations`
-  and `review_provider_connections` writes around it are captured correctly — but don't rely on a
-  tenant-filtered `audit_logs` read to reconstruct location-visibility changes.
+  be enforced by joining through `locations`.
 
 The enums that matter, with their exact value lists as declared in `0000_foundation.sql`:
 

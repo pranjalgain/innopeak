@@ -1,7 +1,7 @@
 -- Migration: auth_hardening
 -- Google Business Profile Review Management — auth hardening (OTP + refresh-token rotation)
 -- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
--- Depends on: 0000_foundation.sql (enum types, log_db_changes()), 0002_tenant_auth.sql
+-- Depends on: 0000_foundation.sql (enum types), 0002_tenant_auth.sql
 --   (users, password_reset_tokens)
 --
 -- Follow-up to 0002_tenant_auth.sql, which is already applied everywhere and therefore must not
@@ -60,8 +60,3 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
-
-DROP TRIGGER IF EXISTS refresh_tokens_audit_trigger ON refresh_tokens;
-CREATE TRIGGER refresh_tokens_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON refresh_tokens
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();

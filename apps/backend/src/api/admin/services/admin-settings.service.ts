@@ -9,7 +9,7 @@ import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-ov
 import { AdminUsersDbService } from '@db/repositories/admin-users/admin-users.db-service';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
-import type { PlatformSettingsRow } from '@db/repositories/platform-settings/platform-settings.repository';
+import type { PlatformSettingsPatch } from '@db/repositories/platform-settings/platform-settings.repository';
 import {
   BadRequestException,
   ConflictException,
@@ -276,14 +276,18 @@ export class AdminSettingsService {
    * this has nothing to do with *admin* login specifically — a platform admin's own password
    * field on `/login` is unconditional regardless of what this table says (see `LoginView`'s own
    * comment), since admins have no SSO identity to fall back on at all yet.
+   *
+   * `admin.id` — not part of `patch` — is threaded through to `update()` so
+   * `platform_settings.updated_by_platform_admin_id` always reflects whoever is actually calling,
+   * rather than trusting a caller-supplied value for who made the change.
    */
   async updatePlatformSettings(
     actor: AuthUser,
     dto: UpdatePlatformSettingsDto
   ): Promise<PlatformSettingsResponseDto> {
-    requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
+    const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
 
-    const patch: Partial<PlatformSettingsRow> = {};
+    const patch: PlatformSettingsPatch = {};
     if (dto.ssoLoginEnabled !== undefined) patch.ssoLoginEnabled = dto.ssoLoginEnabled;
     if (dto.passwordLoginEnabled !== undefined)
       patch.passwordLoginEnabled = dto.passwordLoginEnabled;
@@ -309,7 +313,7 @@ export class AdminSettingsService {
     // by the database.
     let row;
     try {
-      row = await this.platformSettingsDbService.update(patch);
+      row = await this.platformSettingsDbService.update(patch, admin.id);
     } catch (error) {
       if (isCheckViolation(error, 'platform_settings_at_least_one_method_check')) {
         throw new BadRequestException(MESSAGES.ADMIN.PLATFORM_SETTINGS_NO_METHOD_ENABLED);

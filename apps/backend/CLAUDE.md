@@ -45,7 +45,7 @@ The project uses maximum strictness. Key implications:
 
 | Migration | Tables |
 |-----------|--------|
-| `0000_foundation` | audit_logs |
+| `0000_foundation` | No tables — shared enum types only. Used to also carry a generic, trigger-populated `audit_logs` table (`log_db_changes()`, on every domain table); removed entirely (dropped table, indexes, both plpgsql functions, and the `audit_operation_type` enum) since it had no reader anywhere in the product |
 | `0001_platform_admin` | platform_admins, platform_admin_identities, platform_admin_invites |
 | `0002_tenant_auth` | tenants, tenant_identity_providers, users, tenant_settings, blocklist_terms, user_identities, password_reset_tokens |
 | `0003_review_provider_locations` | review_provider_connections, notification_recipients, locations, user_locations |
@@ -54,6 +54,8 @@ The project uses maximum strictness. Key implications:
 | `0006_prompts` | prompts, prompt_versions (`template VARCHAR(1000)`) |
 | `0007_auth_hardening` | refresh_tokens |
 | `0008_dev_platform_admin` | No tables. Seeds the root `platform_admins` row — the one identity with no other creation path (`idx_platform_admins_single_root` allows one NULL-inviter row; every later admin is invited). Seeds no tenant: an owner comes from `POST /v1/auth/signup` + `verify-email`. Journaled, so it applies everywhere — read its header before deploying |
+| `0009_platform_settings` | platform_settings — a single, platform-wide singleton row (`id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1)`) controlling which login methods the sign-in/sign-up screens offer and whether tenant owners can invite teammates |
+| `0010_admin_overview` | platform_activity_log — a small, purpose-built log of platform-admin actions (business suspend/reactivate, admin invite send/revoke, admin enable/disable, user activate/deactivate), written explicitly by application code rather than trigger-populated. Not a generic audit trail — it only covers those specific actions |
 
 **Schema changes are edited into the original migration file**, not added as a follow-up `ALTER`.
 Nothing is deployed, so a local database is recreated rather than upgraded. The catch: drizzle's

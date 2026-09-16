@@ -246,11 +246,9 @@ Marks every unread notification read for the current user — the popover header
 read" button, which the panel disables when `unreadCount === 0`.
 
 `UPDATE in_app_notifications SET read_at = now() WHERE user_id = <jwt> AND read_at IS NULL`. The
-`read_at IS NULL` predicate is load-bearing twice over: it preserves the original read timestamps
-of already-read rows, and it keeps the write set small enough that the row-level audit trigger
-(`log_db_changes()`, one `audit_logs` row per updated row — see
-[Gap § 1](./overview.md#1-the-in-app-notification-centre-has-no-table-the-big-one)) stays
-proportional to what actually changed rather than to the user's whole history.
+`read_at IS NULL` predicate is load-bearing: it preserves the original read timestamps of
+already-read rows, and it keeps the write proportional to what actually changed rather than to
+the user's whole history.
 
 **Not scoped by `page` or by anything else.** It marks the user's entire unread set, including rows
 the client has never fetched. That matches the button's label and is the behaviour the frontend

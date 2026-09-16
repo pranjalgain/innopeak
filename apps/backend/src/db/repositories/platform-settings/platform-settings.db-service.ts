@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import {
+  type PlatformSettingsPatch,
   PlatformSettingsRepository,
   type PlatformSettingsRow,
 } from './platform-settings.repository';
@@ -13,7 +14,10 @@ export class PlatformSettingsDbService {
     return this.platformSettingsRepository.get();
   }
 
-  async update(patch: Partial<PlatformSettingsRow>): Promise<PlatformSettingsRow | null> {
-    return this.platformSettingsRepository.update(patch);
+  async update(
+    patch: PlatformSettingsPatch,
+    actorPlatformAdminId: string
+  ): Promise<PlatformSettingsRow | null> {
+    return this.platformSettingsRepository.update(patch, actorPlatformAdminId);
   }
 }

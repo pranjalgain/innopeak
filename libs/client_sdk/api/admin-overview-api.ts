@@ -41,7 +41,7 @@ export const AdminOverviewApiAxiosParamCreator = function (
 ) {
   return {
     /**
-     * A purpose-built log (`platform_activity_log`), not the generic `audit_logs` table — business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
+     * A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
      * @summary Most recent platform-admin actions
      * @param {number} [limit]
      * @param {*} [options] Override http request option.
@@ -147,7 +147,7 @@ export const AdminOverviewApiFp = function (configuration?: Configuration) {
     AdminOverviewApiAxiosParamCreator(configuration);
   return {
     /**
-     * A purpose-built log (`platform_activity_log`), not the generic `audit_logs` table — business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
+     * A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
      * @summary Most recent platform-admin actions
      * @param {number} [limit]
      * @param {*} [options] Override http request option.
@@ -225,7 +225,7 @@ export const AdminOverviewApiFactory = function (
   const localVarFp = AdminOverviewApiFp(configuration);
   return {
     /**
-     * A purpose-built log (`platform_activity_log`), not the generic `audit_logs` table — business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
+     * A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
      * @summary Most recent platform-admin actions
      * @param {AdminOverviewApiAdminOverviewControllerGetRecentActivityV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -263,7 +263,7 @@ export const AdminOverviewApiFactory = function (
  */
 export interface AdminOverviewApiInterface {
   /**
-   * A purpose-built log (`platform_activity_log`), not the generic `audit_logs` table — business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
+   * A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
    * @summary Most recent platform-admin actions
    * @param {AdminOverviewApiAdminOverviewControllerGetRecentActivityV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -300,7 +300,7 @@ export class AdminOverviewApi
   implements AdminOverviewApiInterface
 {
   /**
-   * A purpose-built log (`platform_activity_log`), not the generic `audit_logs` table — business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
+   * A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
    * @summary Most recent platform-admin actions
    * @param {AdminOverviewApiAdminOverviewControllerGetRecentActivityV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.

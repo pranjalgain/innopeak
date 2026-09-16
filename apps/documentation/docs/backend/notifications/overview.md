@@ -59,7 +59,6 @@ This module owns the **records** of those attempts and the API that reads them.
 | `reviews` | `notifications.review_id` target (`NOT NULL`, `ON DELETE CASCADE`). Supplies the deep-link the frontend's `reviewId` needs, and the escalation context in the message body. Owned by the review pipeline. |
 | `review_responses` | Joined via `generation_group_id` to recover *which snippets* a given notification included. Not FK-linked — `generation_group_id` is a bare nullable `UUID` on both tables, deliberately (`PLAN.md` §2). Owned by the review pipeline. |
 | `users` | `notifications.recipient_user_id` target (`NOT NULL`, `ON DELETE RESTRICT` — a user with delivery history cannot be hard-deleted, only anonymized; see `PLAN.md` §6.2). |
-| `audit_logs` | Every `INSERT`/`UPDATE`/`DELETE` on `notifications` is captured row-level by the `notifications_audit_trigger` → `log_db_changes()`. Not optional and not annotation-driven — see `PLAN.md` §6.1. |
 
 `notifications` columns, in full, because the rest of this document depends on knowing exactly
 what is and isn't there:
@@ -396,10 +395,6 @@ CREATE INDEX idx_in_app_notifications_user_unread
     ON in_app_notifications(user_id) WHERE read_at IS NULL;
 CREATE UNIQUE INDEX idx_in_app_notifications_dedupe
     ON in_app_notifications(user_id, type, review_id, generation_group_id);
-
-CREATE TRIGGER in_app_notifications_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON in_app_notifications
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
 ```
 
 Column by column, why each one is there:
@@ -422,15 +417,11 @@ an escalation event while letting a genuine re-escalation through on its new
 deduplicated at all** — which is the correct behaviour there (each incident is a fresh notice), and
 is called out here so it reads as a decision rather than the same bug twice.
 
-Two operational notes on this table:
+One operational note on this table:
 
-- The audit trigger is row-level and unconditional. `PATCH /read-all` is a bulk `UPDATE`, so it
-  writes one `audit_logs` row per notification marked. That is a real cost at volume and an
-  argument for the endpoint's `updatedCount` being bounded in practice, not for skipping the
-  trigger — `PLAN.md` §6.1 keeps coverage unconditional on purpose.
 - GDPR: `title` and `description` are free text composed from review content and may contain a
-  reviewer name. The retention/erasure job (`PLAN.md` §6, §6.1) must cover this table and its
-  `audit_logs` snapshots the same way it covers `reviews`.
+  reviewer name. The retention/erasure job (`PLAN.md` §6) must cover this table the same way it
+  covers `reviews`.
 
 ### 2. A failed delivery records no reason
 

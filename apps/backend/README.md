@@ -442,16 +442,6 @@ WebSocket gateway via Socket.IO:
 
 ---
 
-## Audit Logging
-
-Application-level audit logging with decorator support:
-
-- `@AuditLog('action', 'SEVERITY')` decorator on controller methods
-- Automatic capture of user, IP, user-agent, request details
-- Stored in `audit_logs` table for compliance and traceability
-
----
-
 ## AI Integration
 
 ### Service Layer

@@ -19,12 +19,6 @@
 // Enums
 //////////////////////////////////////////////////////////////////////////
 
-Enum audit_operation_type {
-  INSERT
-  UPDATE
-  DELETE
-}
-
 Enum tenant_status {
   pending_activation
   active
@@ -194,29 +188,6 @@ Enum prompt_tone {
   formal
   playful
   empathetic
-}
-
-//////////////////////////////////////////////////////////////////////////
-// Shared audit infrastructure
-//////////////////////////////////////////////////////////////////////////
-
-Table audit_logs {
-  id integer [pk, increment, note: 'serial, not uuidv7() — this table predates and is unrelated to the domain tables\' PK convention']
-  event_timestamp timestamp [default: `now()`]
-  table_name varchar [not null]
-  operation_type audit_operation_type [not null]
-  tenant_id uuid [note: 'extracted generically from whichever row the trigger fired on, not a real column reference — NULL for the handful of platform-level tables that have no tenant_id of their own (tenants itself, platform_admins and its two child tables). No FK: this table is defined before tenants exists, and audit history should survive a tenant being deleted rather than cascade-deleting with it.']
-  db_user varchar [note: 'the Postgres role that executed the write (session_user) — not an application user; there is no FK to users']
-  db_name varchar [note: 'the Postgres database name (current_database())']
-  old_value jsonb [note: 'full row snapshot — present on UPDATE/DELETE']
-  new_value jsonb [note: 'full row snapshot — present on INSERT/UPDATE']
-  triggered_by varchar [default: 'current_user', note: 'a Postgres role/trigger name (session_user or TG_NAME), bounded like table_name/db_user/db_name above']
-
-  Note: '''Populated automatically by a single AFTER INSERT OR UPDATE OR DELETE trigger (log_db_changes()) attached to every domain table below — not written to by application code, so there is no way for a write to any domain table to skip being logged here.
-
-  This is deliberately the only audit log table in this schema (see PLAN.md §6.1): an earlier design also had a separate app-level, opt-in event table, dropped because it had no tenant_id/user_id column, zero actual usage, and the same GDPR redaction burden as this table for none of its automatic-coverage benefit.
-
-  GDPR note (PLAN.md §6.1): because old_value/new_value capture the full row, the retention/erasure job that anonymizes a reviews row must also redact every matching audit_logs row (matched by table_name and the row's id inside the JSON) — not just the row created by the anonymizing UPDATE itself, since every earlier snapshot of that row also carried the un-redacted value. Four indexes support these lookups, not expressible as plain DBML indexes: a btree each on table_name and tenant_id, and GIN indexes on old_value and new_value.'''
 }
 
 //////////////////////////////////////////////////////////////////////////
