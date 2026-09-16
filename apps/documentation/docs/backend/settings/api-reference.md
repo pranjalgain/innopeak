@@ -427,9 +427,8 @@ return and the service raises `409 BLOCKLIST_TERM_EXISTS`. The `409` is the righ
 is already doing exactly what the owner is asking for.
 
 There is no reactivation path, because removal is a hard `DELETE` rather than a soft one. That is
-deliberate: `blocklist_terms` carries an audit trigger, so a delete is already recorded with its
-old row snapshot, and `reviews.matched_keywords` stores matched terms as JSONB text with no foreign
-key — so removing a term never orphans the escalation it caused.
+deliberate: `reviews.matched_keywords` stores matched terms as JSONB text with no foreign key — so
+removing a term never orphans the escalation it caused.
 
 Request:
 
@@ -507,8 +506,7 @@ affordance is a removal, not a mute — leaving a soft-deleted row behind would 
 `POST` of the same word return `200 reactivated: true` for something the owner believes they
 deleted. Second, deleting the row does not destroy the history of why a past review escalated:
 `reviews.matched_keywords` stores the matched term text on the review itself (`PLAN.md` §2,
-`reviews`), and `blocklist_terms_audit_trigger` writes a full `old_value` snapshot into
-`audit_logs` on every `DELETE` (`0000_foundation.sql`). The audit story survives the row.
+`reviews`), independent of whether the blocklist term that caused it still exists.
 
 No request body.
 

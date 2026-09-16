@@ -89,9 +89,8 @@ export class CronService {
    * `PLAN.md` §6's nightly reviewer-retention purge. Only tenants with an explicit
    * `review_data_retention_months` set are touched — see
    * `ReviewSyncRepository.purgeExpiredReviewerPii` for the full query and its idempotency/locking
-   * guarantees. `audit_logs` redaction (§6.1) and the stale-`sync_runs` sweep (§8.1, cosmetic —
-   * see the ingestion doc) are separate, still-unbuilt follow-ups to this same job, not part of
-   * it yet.
+   * guarantees. The stale-`sync_runs` sweep (§8.1, cosmetic — see the ingestion doc) is a
+   * separate, still-unbuilt follow-up to this same job, not part of it yet.
    */
   async purgeExpiredReviewerPii(): Promise<void> {
     const purged = await this.reviewSyncDbService.purgeExpiredReviewerPii();

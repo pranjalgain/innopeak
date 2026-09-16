@@ -8,13 +8,22 @@ export interface PlatformSettingsRow {
   passwordLoginEnabled: boolean;
   socialLoginEnabled: boolean;
   inviteMembersEnabled: boolean;
+  /** Which platform admin's `update()` call most recently changed this row — null on the seeded
+   *  row, before anyone has touched it. Never part of a caller-supplied patch (see
+   *  `PlatformSettingsPatch`): `update()` sets it itself, from whoever is actually calling. */
+  updatedByPlatformAdminId: string | null;
 }
+
+/** What a caller may actually toggle — excludes `updatedByPlatformAdminId`, which `update()`
+ *  derives from its own `actorPlatformAdminId` argument rather than trusting the patch to supply. */
+export type PlatformSettingsPatch = Partial<Omit<PlatformSettingsRow, 'updatedByPlatformAdminId'>>;
 
 const SETTINGS_COLUMNS = {
   ssoLoginEnabled: schema.platformSettings.ssoLoginEnabled,
   passwordLoginEnabled: schema.platformSettings.passwordLoginEnabled,
   socialLoginEnabled: schema.platformSettings.socialLoginEnabled,
   inviteMembersEnabled: schema.platformSettings.inviteMembersEnabled,
+  updatedByPlatformAdminId: schema.platformSettings.updatedByPlatformAdminId,
 } as const;
 
 /** The table's own CHECK constraint (`platform_settings_id_check`) makes id=1 the only row that
@@ -40,10 +49,13 @@ export class PlatformSettingsRepository {
     return rows[0] ?? null;
   }
 
-  async update(patch: Partial<PlatformSettingsRow>): Promise<PlatformSettingsRow | null> {
+  async update(
+    patch: PlatformSettingsPatch,
+    actorPlatformAdminId: string
+  ): Promise<PlatformSettingsRow | null> {
     const rows = await this.dbService.db
       .update(schema.platformSettings)
-      .set({ ...patch, updatedAt: sql`now()` })
+      .set({ ...patch, updatedByPlatformAdminId: actorPlatformAdminId, updatedAt: sql`now()` })
       .where(eq(schema.platformSettings.id, SINGLETON_ID))
       .returning(SETTINGS_COLUMNS);
 

@@ -1,7 +1,7 @@
 -- Migration: tenant_auth
 -- Google Business Profile Review Management — tenant provisioning & user auth module
 -- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
--- Depends on: 0000_foundation.sql (enum types, log_db_changes()), 0001_platform_admin.sql
+-- Depends on: 0000_foundation.sql (enum types), 0001_platform_admin.sql
 --   (tenants.created_by_platform_admin_id references platform_admins)
 
 -- ───────────────────────────────────────────────────────────────────────
@@ -20,10 +20,6 @@ CREATE TABLE IF NOT EXISTS tenants (
 CREATE INDEX idx_tenants_created_by_platform_admin_id ON tenants(created_by_platform_admin_id);
 CREATE INDEX idx_tenants_status ON tenants(status);
 
-CREATE TRIGGER tenants_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON tenants
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
-
 -- ───────────────────────────────────────────────────────────────────────
 -- tenant_identity_providers — depends on: tenants
 -- ───────────────────────────────────────────────────────────────────────
@@ -40,10 +36,6 @@ CREATE TABLE IF NOT EXISTS tenant_identity_providers (
 
 CREATE INDEX idx_tenant_identity_providers_tenant_id ON tenant_identity_providers(tenant_id);
 CREATE UNIQUE INDEX idx_tenant_identity_providers_provider_tenant_id ON tenant_identity_providers(provider, provider_tenant_id);
-
-CREATE TRIGGER tenant_identity_providers_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON tenant_identity_providers
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
 
 -- ───────────────────────────────────────────────────────────────────────
 -- users — depends on: tenants
@@ -79,10 +71,6 @@ CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_status ON users(status);
 CREATE INDEX idx_users_invited_by_user_id ON users(invited_by_user_id);
 
-CREATE TRIGGER users_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON users
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
-
 -- ───────────────────────────────────────────────────────────────────────
 -- tenant_settings — depends on: tenants
 -- ───────────────────────────────────────────────────────────────────────
@@ -116,10 +104,6 @@ CREATE TABLE IF NOT EXISTS tenant_settings (
 
 CREATE UNIQUE INDEX idx_tenant_settings_tenant_id ON tenant_settings(tenant_id);
 
-CREATE TRIGGER tenant_settings_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON tenant_settings
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
-
 -- ───────────────────────────────────────────────────────────────────────
 -- blocklist_terms — depends on: tenants
 -- ───────────────────────────────────────────────────────────────────────
@@ -142,10 +126,6 @@ CREATE TABLE IF NOT EXISTS blocklist_terms (
 CREATE INDEX idx_blocklist_terms_tenant_id ON blocklist_terms(tenant_id);
 CREATE UNIQUE INDEX idx_blocklist_terms_tenant_id_lower_term ON blocklist_terms(tenant_id, lower(term));
 
-CREATE TRIGGER blocklist_terms_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON blocklist_terms
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
-
 -- ───────────────────────────────────────────────────────────────────────
 -- user_identities — depends on: users
 -- ───────────────────────────────────────────────────────────────────────
@@ -162,10 +142,6 @@ CREATE TABLE IF NOT EXISTS user_identities (
 
 CREATE INDEX idx_user_identities_user_id ON user_identities(user_id);
 CREATE UNIQUE INDEX idx_user_identities_provider_provider_user_id ON user_identities(provider, provider_user_id);
-
-CREATE TRIGGER user_identities_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON user_identities
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
 
 -- ───────────────────────────────────────────────────────────────────────
 -- password_reset_tokens — depends on: users
@@ -184,7 +160,3 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 
 CREATE INDEX idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
 CREATE UNIQUE INDEX idx_password_reset_tokens_token_hash ON password_reset_tokens(token_hash);
-
-CREATE TRIGGER password_reset_tokens_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON password_reset_tokens
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();

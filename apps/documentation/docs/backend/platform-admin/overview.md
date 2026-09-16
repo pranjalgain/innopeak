@@ -58,7 +58,6 @@ other modules. Column-level detail lives in the migrations; this table is the ma
 | `tenant_settings` | Written once, on provisioning, because classification depends on the row existing (`PLAN.md` §8.10). The insert can omit `escalation_rating_threshold` — it is `NOT NULL DEFAULT 3`. Read-only otherwise. |
 | `review_provider_connections`, `locations`, `sync_runs` | Read-only, for the connection/sync health shown in tenant inspection and platform metrics. `review_provider_connections.status` (`google_connection_status`) and `locations.last_synced_at` / `last_sync_status` / `last_sync_error` are the health signals; see [Connections Module](../connections/overview.md). |
 | `reviews` | Read-only, aggregate only — counts by `status` and `classification` for the metrics overview. Never row-level: a platform admin has no business reading `reviewer_name` or `review_text` out of the metrics path. |
-| `audit_logs` | Written **implicitly** by the `log_db_changes()` trigger on every table this module touches, never by application code. Read by nothing in this module today. See [Tenant scoping and attribution](#tenant-scoping-and-attribution) for what it can and cannot attribute. |
 
 The enums that matter here, all declared in `0000_foundation.sql`:
 
@@ -74,8 +73,6 @@ The enums that matter here, all declared in `0000_foundation.sql`:
 - **`tenant_status`** — `pending_activation` \| `active` \| `suspended`. All three are load-bearing
   for this module and the distinction between the first two is easy to lose; see [Operations
   flows](#operations-flows).
-- **`audit_operation_type`** — `INSERT` \| `UPDATE` \| `DELETE`, the only classification
-  `audit_logs.operation_type` carries.
 
 ## Operations flows
 
@@ -169,16 +166,19 @@ and it closes that gap.
 ## Tenant scoping and attribution
 
 Most tables in this schema carry a `tenant_id UUID NOT NULL`, so most queries are single-tenant
-by construction. Nine do not, and the distinction matters here. Five are genuinely unscoped —
-`tenants`, `platform_admins`, `platform_admin_identities`, `platform_admin_invites`, `audit_logs`.
-The other four are tenant data that is scoped only **transitively, through a parent FK**:
-`user_identities` and `password_reset_tokens` (via `users`), `user_locations` (via `locations` —
-see [Connections](../connections/overview.md#data-model)), and `prompt_versions` (via `prompts` —
-see [Prompts](../prompts/overview.md#data-model); `tone` itself is a column on `prompts`, so it
-carries `tenant_id` directly and isn't in this list). On those four a `WHERE tenant_id = ?`
-predicate is not available at all; scoping has to be a join, which is a materially weaker guard
-than a local column and the place a cross-tenant read is most likely to slip through. A
-cross-tenant principal is, by definition, the one
+by construction. Eleven do not, and the distinction matters here. Six are platform-level rather
+than tenant data at all — `tenants`, `platform_admins`, `platform_admin_identities`,
+`platform_admin_invites`, `platform_settings`, and `platform_activity_log` (which does have a
+`tenant_id`, but nullable: it is set on the `business_*` and `user_*` activity types, and NULL on
+the admin-targeted ones, where `platform_activity_log_target_check` requires it to be).
+The other five are tenant data that is scoped only **transitively, through a parent FK**:
+`user_identities`, `password_reset_tokens` and `refresh_tokens` (via `users`), `user_locations`
+(via `locations` — see [Connections](../connections/overview.md#data-model)), and
+`prompt_versions` (via `prompts` — see [Prompts](../prompts/overview.md#data-model); `tone` itself
+is a column on `prompts`, so it carries `tenant_id` directly and isn't in this list). On those
+five a `WHERE tenant_id = ?` predicate is not available at all; scoping has to be a join, which is
+a materially weaker guard than a local column and the place a cross-tenant read is most likely to
+slip through. A cross-tenant principal is, by definition, the one
 thing that invariant did not plan for — and the auth module has already documented the sharp edge:
 the tenant-user JWT payload carries `tenantId`, the platform-admin payload has **none**, and auth's
 security notes call trusting `tenantId` without first checking `type` "the highest-severity mistake
@@ -251,36 +251,6 @@ from outside its own three tables: `tenants.created_by_platform_admin_id`. There
 "acted by platform admin" concept on any tenant-scoped table anywhere**. Support access is
 therefore read-only until a migration adds one.
 
-**What `audit_logs` can and cannot attribute.** `log_db_changes()` (`0000_foundation.sql`) fires
-`AFTER INSERT OR UPDATE OR DELETE` on every domain table and writes a full `to_jsonb` snapshot,
-with no application code required. `PLAN.md` §6.1 is the design note behind it. Reading the actual
-function and table:
-
-- **It captures the change.** A suspension writes an `audit_logs` row with `table_name =
-  'tenants'`, `operation_type = 'UPDATE'`, and `old_value`/`new_value` showing
-  `status: 'active' → 'suspended'`. The *what* is covered, automatically, for every write this
-  module makes.
-- **It cannot say who.** The only actor columns are `db_user` (`session_user`), `db_name`, and
-  `triggered_by` (`TG_NAME` for `AFTER` triggers, else `current_user`). All three are database-level
-  values, identical for every request the application makes through its single connection pool.
-  There is no `user_id`, `platform_admin_id`, or actor column of any kind on `audit_logs`. A
-  suspension and an owner's settings change are indistinguishable in actor terms.
-- **A suspension is not findable by tenant.** `log_db_changes()` derives `audit_logs.tenant_id`
-  generically as `(new_row->>'tenant_id')::UUID`. The `tenants` table has an `id` column, not a
-  `tenant_id` column, so every audit row for a `tenants` write lands with `tenant_id = NULL` — as
-  do all `platform_admins`-family rows, which `0000_foundation.sql`'s comment notes is correct for
-  genuinely unscoped rows. `0000_foundation.sql:87-89` states this deliberately — *"not a gap,
-  those rows genuinely aren't scoped to one tenant"* — and `PLAN.md` §6.1 agrees, so this is a
-  **query-side constraint, not a migration**: "show me everything that happened to this tenant"
-  cannot be a single filter on `idx_audit_logs_tenant_id`; it must also match
-  `table_name = 'tenants'` on `new_value->>'id'`, or the tenant's own suspension is silently
-  omitted. Worth knowing before someone writes that query and trusts it.
-- **It cannot log a read at all.** The trigger is a write trigger. Support access is a read
-  activity, and `PLAN.md` §6.1 anticipates exactly this case, naming "logging a *read* rather than
-  a write, e.g. 'a platform admin viewed this tenant's data'" as the one need that would justify
-  reintroducing "a narrow, purpose-built table with a proper `user_id`." Support access is that
-  need arriving.
-
 **Follow-up migration required before support access ships**, stated the same way auth's
 api-reference flags its missing `refresh_tokens` table — as a prerequisite, not an assumption:
 
@@ -300,10 +270,7 @@ CREATE TABLE platform_admin_support_grants (
 -- Plus, for the read trail §6.1 anticipates:
 --   platform_admin_access_events (grant_id, route, method, tenant_id, occurred_at)
 -- Plus, if a platform admin is ever to WRITE inside a tenant:
---   an acted_by_platform_admin_id column on each writable tenant table, or an actor column on
---   audit_logs populated from a per-transaction GUC (SET LOCAL app.actor_platform_admin_id)
---   that log_db_changes() reads via current_setting(..., true) — the function reads nothing of
---   the sort today, so this is a change to the trigger function, not only to a table.
+--   an acted_by_platform_admin_id column on each writable tenant table.
 ```
 
 Until the first of those exists, the support-access grant has nowhere durable to live, `grantId`
@@ -418,16 +385,12 @@ are constraints to design around rather than migrations that gate shipping:
 - **No support-access grant table.** See the `platform_admin_support_grants` sketch above. Without
   it, `POST /tenants/:tenantId/support-access` has nowhere to record a grant, `GET /support-access`
   has nothing to list, and `DELETE /support-access/:grantId` has nothing to revoke.
-- **No read-audit table.** `log_db_changes()` is a write trigger; `PLAN.md` §6.1 names
-  platform-admin reads as the case that would justify a purpose-built table with a real `user_id`.
-- **No actor attribution on writes.** `audit_logs` has no actor column and `log_db_changes()`
-  captures none. Suspension is audited as a change with no author. Closing this means either an
-  actor column populated from a per-transaction GUC (a change to the trigger *function*, not just a
-  table) or `acted_by_platform_admin_id` columns on writable tenant tables.
-- **`audit_logs.tenant_id` is NULL for every `tenants` write**, because the function reads
-  `new_row->>'tenant_id'` and `tenants` has no such column. A per-tenant audit query using
-  `idx_audit_logs_tenant_id` will not find the tenant's own suspension. Either the function
-  special-cases `tenants` (falling back to `->>'id'` for that table) or the query does.
+- **No read-audit table.** `PLAN.md` §6.1 names platform-admin reads as the case that would
+  justify a purpose-built table with a real `user_id`.
+- **No actor attribution on writes.** Nothing in the schema records who made a write to a tenant
+  table — there is no actor column, GUC, or session variable capturing the acting platform admin,
+  so a suspension is indistinguishable from any other write in actor terms. Closing this means
+  `acted_by_platform_admin_id` columns on writable tenant tables.
 - **No `refresh_tokens` table** — auth's prerequisite, inherited. The support-access token is
   deliberately non-refreshable partly so this module adds no new dependency on it.
 

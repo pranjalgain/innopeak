@@ -1,6 +1,20 @@
 -- Migration: platform_settings
 -- Created at: 2026-09-11T09:43:54.417Z
 --
+-- ⚠ RECREATE YOUR DATABASE AFTER PULLING A CHANGE TO THIS FILE.
+-- Per the repo convention this file is edited in place rather than followed by an ALTER
+-- migration, and drizzle's migrator walks meta/_journal.json by timestamp and never re-reads a
+-- file it has already applied. On an existing database `pnpm db:migrate` therefore reports
+-- success and changes nothing — silently. `updated_by_platform_admin_id` (added below) is in
+-- `PlatformSettingsRepository`'s SELECT list, so a stale database does not fail at migrate time;
+-- it fails at runtime with `column "updated_by_platform_admin_id" does not exist` on
+-- GET /v1/settings/platform-config — which is @Public() and read by the sign-in screen before any
+-- session exists. The login page degrades rather than dying (the password form is unconditional),
+-- but the SSO/social buttons hide behind a retry that can never succeed, and the shipped defaults
+-- are sso_login_enabled = true / password_login_enabled = false — so an SSO-only tenant is locked
+-- out with no explanation. The Admin Settings platform-config tab 500s outright.
+--   pnpm backend:down && pnpm backend:up && pnpm db:migrate
+--
 -- A single, platform-wide settings row — not scoped to a tenant, not scoped to a platform admin.
 -- Replaces what used to be three `NEXT_PUBLIC_AUTH_*_ENABLED` env vars plus
 -- `NEXT_PUBLIC_INVITE_MEMBERS_ENABLED`: which login methods the sign-in/sign-up screens offer,
@@ -20,6 +34,15 @@ CREATE TABLE IF NOT EXISTS platform_settings (
     password_login_enabled BOOLEAN NOT NULL DEFAULT false,
     social_login_enabled BOOLEAN NOT NULL DEFAULT false,
     invite_members_enabled BOOLEAN NOT NULL DEFAULT false,
+    -- Which platform admin last changed this row — same shape as `created_by_user_id` elsewhere
+    -- (0004_reviews.sql, 0006_prompts.sql): a plain FK, SET NULL rather than CASCADE, since this
+    -- is a live "current state" row, not a history log — losing track of *who* once that admin's
+    -- own row is gone is an acceptable trade for not letting a deleted admin's row veto deleting
+    -- them. NULL until the first update (the seeded row in this migration has no actor). Only
+    -- ever an *accepted* admin's id in practice: the two paths that hard-delete a `platform_admins`
+    -- row (`deleteInvitedAdmin`, `deleteExpiredInvite`) are both scoped to `status = 'invited'`,
+    -- an admin who never accepted and so could never have updated this table.
+    updated_by_platform_admin_id UUID REFERENCES platform_admins(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     -- Belt-and-suspenders alongside the service-level check in AdminSettingsService — a tenant
@@ -33,10 +56,6 @@ CREATE TABLE IF NOT EXISTS platform_settings (
         sso_login_enabled OR password_login_enabled OR social_login_enabled
     )
 );
-
-CREATE TRIGGER platform_settings_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON platform_settings
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
 
 -- Idempotent: a second run must not fail trying to insert a second id=1 row.
 INSERT INTO platform_settings (id)

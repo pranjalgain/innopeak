@@ -219,10 +219,8 @@ the overview's [Gap](./overview.md#gap-between-current-code-and-target-design)),
 keeps ingesting reviews and, if `tenant_settings.auto_post_enabled` is true, keeps posting replies.
 `pipelineHalted` reports what is actually true rather than what would be reassuring.
 
-`reason` is required and persists nowhere today: `audit_logs` captures the status change via
-`tenants_audit_trigger` but has no column for a reason and, per the overview's [Tenant scoping and
-attribution](./overview.md#tenant-scoping-and-attribution), none for the actor either. Collecting
-it now puts the field in the contract ahead of the storage rather than retrofitting a shipped API.
+`reason` is required and persists nowhere today. Collecting it now puts the field in the contract
+ahead of the storage rather than retrofitting a shipped API.
 
 Request:
 
@@ -500,10 +498,10 @@ Lists grants — active first, then expired and revoked — so support access is
 invisible. This is the oversight surface, and it is the reason the grant table has to exist before
 the mint endpoint ships: without it, a support session leaves behind nothing at all.
 
-It records that a grant was *issued*, not what was *read* through it. `log_db_changes()` is a write
-trigger and cannot log a read; `PLAN.md` §6.1 anticipates exactly this, naming "logging a *read*
-rather than a write, e.g. 'a platform admin viewed this tenant's data'" as the one need that would
-justify a purpose-built table with a proper `user_id`. A per-request read trail
+It records that a grant was *issued*, not what was *read* through it. Nothing today logs a read;
+`PLAN.md` §6.1 anticipates exactly this, naming "logging a *read* rather than a write, e.g. 'a
+platform admin viewed this tenant's data'" as the one need that would justify a purpose-built table
+with a proper `user_id`. A per-request read trail
 (`platform_admin_access_events`) is a second, separate follow-up — see the overview's [Tenant
 scoping and attribution](./overview.md#tenant-scoping-and-attribution).
 
@@ -847,23 +845,16 @@ mistakes are not scoped to one tenant. The considerations below are ordered by b
   the `409 SUPPORT_ACCESS_ALREADY_ACTIVE` rule that stops an admin from quietly holding
   overlapping sessions. Prefer the default 15 minutes; a 60-minute grant should be justified in the
   `reason`.
-- **The audit trail records what changed, not who changed it.** `log_db_changes()` fires on every
-  write this module makes and snapshots the row, so a suspension is captured with
-  `old_value`/`new_value`. But `audit_logs`'s only actor columns are `db_user` (`session_user`),
-  `db_name`, and `triggered_by` — all database-level values, identical for every application
-  request through the shared pool. There is no `user_id` or `platform_admin_id` column of any kind.
-  Worse for investigations, `log_db_changes()` derives `audit_logs.tenant_id` from
-  `new_row->>'tenant_id'`, and `tenants` has an `id` rather than a `tenant_id`, so every audit row
-  for a `tenants` write lands with `tenant_id = NULL` — a per-tenant audit query using
-  `idx_audit_logs_tenant_id` silently omits that tenant's own suspension. Both are flagged in the
-  overview's [Gap](./overview.md#gap-between-current-code-and-target-design) as required follow-ups,
-  not accepted behaviour.
-- **Reads are not audited at all.** The trigger is a write trigger. `PLAN.md` §6.1 anticipates this
-  exact case — "logging a *read* rather than a write, e.g. 'a platform admin viewed this tenant's
-  data'" — as the one need that would justify a narrow purpose-built table with a proper `user_id`.
-  Until it exists, `GET /support-access` shows that a grant was issued and why, and nothing shows
-  what was read through it. Do not describe support access as fully audited before that table
-  lands.
+- **Nothing today attributes a write to an actor.** There is no actor column, GUC, or session
+  variable anywhere in the schema capturing which platform admin made a given write, so a
+  suspension is indistinguishable from any other write in actor terms. Flagged in the overview's
+  [Gap](./overview.md#gap-between-current-code-and-target-design) as a required follow-up, not
+  accepted behaviour.
+- **Reads are not audited at all.** `PLAN.md` §6.1 anticipates this exact case — "logging a *read*
+  rather than a write, e.g. 'a platform admin viewed this tenant's data'" — as the one need that
+  would justify a narrow purpose-built table with a proper `user_id`. Until it exists, `GET
+  /support-access` shows that a grant was issued and why, and nothing shows what was read through
+  it. Do not describe support access as fully audited before that table lands.
 - **Suspension latency matters operationally, not just theoretically.** `PLAN.md` §8.20 accepts
   that a suspended tenant's already-issued access tokens keep working until expiry — up to 15
   minutes. For a support workflow that means suspension is a policy action, not containment: an

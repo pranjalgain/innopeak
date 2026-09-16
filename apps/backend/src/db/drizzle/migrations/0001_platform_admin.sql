@@ -1,7 +1,7 @@
 -- Migration: platform_admin
 -- Google Business Profile Review Management — platform admin module
 -- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
--- Depends on: 0000_foundation.sql (enum types, log_db_changes())
+-- Depends on: 0000_foundation.sql (enum types)
 --
 -- platform_admins is the SaaS-level support/ops hierarchy — fully separate from the
 -- tenant-scoped `users` table (PLAN.md §2), no FK to any tenant table anywhere in this file.
@@ -33,10 +33,6 @@ CREATE INDEX idx_platform_admins_invited_by_platform_admin_id ON platform_admins
 -- (PLAN.md §2). Every subsequently invited admin must record who invited them.
 CREATE UNIQUE INDEX idx_platform_admins_single_root ON platform_admins((TRUE)) WHERE invited_by_platform_admin_id IS NULL;
 
-CREATE TRIGGER platform_admins_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON platform_admins
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
-
 -- ───────────────────────────────────────────────────────────────────────
 -- platform_admin_identities — depends on: platform_admins
 -- ───────────────────────────────────────────────────────────────────────
@@ -52,10 +48,6 @@ CREATE TABLE IF NOT EXISTS platform_admin_identities (
 
 CREATE INDEX idx_platform_admin_identities_platform_admin_id ON platform_admin_identities(platform_admin_id);
 CREATE UNIQUE INDEX idx_platform_admin_identities_provider_provider_user_id ON platform_admin_identities(provider, provider_user_id);
-
-CREATE TRIGGER platform_admin_identities_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON platform_admin_identities
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
 
 -- ───────────────────────────────────────────────────────────────────────
 -- platform_admin_invites — depends on: platform_admins
@@ -74,7 +66,3 @@ CREATE TABLE IF NOT EXISTS platform_admin_invites (
 
 CREATE INDEX idx_platform_admin_invites_platform_admin_id ON platform_admin_invites(platform_admin_id);
 CREATE UNIQUE INDEX idx_platform_admin_invites_token_hash ON platform_admin_invites(token_hash);
-
-CREATE TRIGGER platform_admin_invites_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON platform_admin_invites
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();

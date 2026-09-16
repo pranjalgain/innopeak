@@ -9,7 +9,6 @@ import {
   jsonb,
   pgEnum,
   pgTable,
-  serial,
   smallint,
   text,
   timestamp,
@@ -18,7 +17,6 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
-export const auditOperationType = pgEnum('audit_operation_type', ['INSERT', 'UPDATE', 'DELETE']);
 export const platformActivityType = pgEnum('platform_activity_type', [
   'business_suspended',
   'business_reactivated',
@@ -106,43 +104,6 @@ export const userStatus = pgEnum('user_status', [
   'active',
   'disabled',
 ]);
-
-export const auditLogs = pgTable(
-  'audit_logs',
-  {
-    id: serial().primaryKey().notNull(),
-    eventTimestamp: timestamp('event_timestamp', {
-      withTimezone: true,
-      mode: 'string',
-    }).defaultNow(),
-    tableName: varchar('table_name', { length: 100 }).notNull(),
-    operationType: auditOperationType('operation_type').notNull(),
-    tenantId: uuid('tenant_id'),
-    dbUser: varchar('db_user', { length: 100 }),
-    dbName: varchar('db_name', { length: 100 }),
-    oldValue: jsonb('old_value'),
-    newValue: jsonb('new_value'),
-    triggeredBy: varchar('triggered_by', { length: 100 }).default(sql`CURRENT_USER`),
-  },
-  table => [
-    index('idx_audit_logs_new_value_gin').using(
-      'gin',
-      table.newValue.asc().nullsLast().op('jsonb_ops')
-    ),
-    index('idx_audit_logs_old_value_gin').using(
-      'gin',
-      table.oldValue.asc().nullsLast().op('jsonb_ops')
-    ),
-    index('idx_audit_logs_table_name').using(
-      'btree',
-      table.tableName.asc().nullsLast().op('text_ops')
-    ),
-    index('idx_audit_logs_tenant_id').using(
-      'btree',
-      table.tenantId.asc().nullsLast().op('uuid_ops')
-    ),
-  ]
-);
 
 export const platformAdmins = pgTable(
   'platform_admins',
@@ -1118,6 +1079,7 @@ export const platformSettings = pgTable(
     passwordLoginEnabled: boolean('password_login_enabled').default(false).notNull(),
     socialLoginEnabled: boolean('social_login_enabled').default(false).notNull(),
     inviteMembersEnabled: boolean('invite_members_enabled').default(false).notNull(),
+    updatedByPlatformAdminId: uuid('updated_by_platform_admin_id'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -1126,6 +1088,11 @@ export const platformSettings = pgTable(
       .notNull(),
   },
   table => [
+    foreignKey({
+      columns: [table.updatedByPlatformAdminId],
+      foreignColumns: [platformAdmins.id],
+      name: 'platform_settings_updated_by_platform_admin_id_fkey',
+    }).onDelete('set null'),
     check('platform_settings_id_check', sql`id = 1`),
     check(
       'platform_settings_at_least_one_method_check',

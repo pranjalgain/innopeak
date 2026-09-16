@@ -1,7 +1,7 @@
 -- Migration: notifications
 -- Google Business Profile Review Management — notifications module
 -- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
--- Depends on: 0000_foundation.sql (enum types, log_db_changes()), 0002_tenant_auth.sql
+-- Depends on: 0000_foundation.sql (enum types), 0002_tenant_auth.sql
 --   (tenants, users), 0004_reviews.sql (reviews)
 
 -- ───────────────────────────────────────────────────────────────────────
@@ -38,7 +38,3 @@ CREATE INDEX idx_notifications_generation_group_id ON notifications(generation_g
 -- reliably populated for the 'escalation' notification_type (Postgres treats NULLs in a unique
 -- index as distinct from each other, so a NULL here would silently stop being deduplicated at all).
 CREATE UNIQUE INDEX idx_notifications_review_recipient_type ON notifications(review_id, recipient_user_id, type, generation_group_id);
-
-CREATE TRIGGER notifications_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON notifications
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();

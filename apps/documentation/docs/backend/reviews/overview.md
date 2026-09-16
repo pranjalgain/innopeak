@@ -130,12 +130,12 @@ and both would go on to call Google's API. Widening it means the *second* approv
 database level, before any API call is made (`PLAN.md` §2 `review_responses`, §8.5). The second
 makes the historical backfill job idempotent and safely re-runnable (`PLAN.md` §7).
 
-Both tables carry an `AFTER INSERT OR UPDATE OR DELETE` audit trigger
-(`log_db_changes()`, `0000_foundation.sql`) that snapshots every row change into `audit_logs`
-with the extracted `tenant_id`. That is where the full history of who changed what lives — which
-matters here because several actions this module performs have no dedicated attribution column of
-their own; see [Gap](#gap-between-current-code-and-target-design). It also means the GDPR
-redaction gap in `PLAN.md` §6.1 applies to every write this module makes to a `reviews` row.
+Neither table has a generic row-level change history behind it — there is no audit trail anywhere
+in this codebase that would otherwise cover this gap. That matters here because several actions
+this module performs have no dedicated attribution column of their own: a rejection
+(`review_responses.status` → `rejected`) and a dismissal (`reviews.status` → `dismissed`) record
+no user at all, so today there is no way to reconstruct who rejected a response or dismissed a
+review; see [Gap](#gap-between-current-code-and-target-design).
 
 There is **no `set_updated_at` trigger anywhere in the migrations** — `updated_at` on both tables
 defaults to `NOW()` on insert and is not maintained afterwards by the database. Every `UPDATE`

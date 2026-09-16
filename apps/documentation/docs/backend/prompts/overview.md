@@ -71,12 +71,6 @@ Indexes and constraints, all verified in `0006_prompts.sql`:
   lookup, and it is the concurrency control for appends (see [Editing a
   prompt](#editing-a-prompt-appends-a-version)).
 - `idx_review_responses_prompt_version_id` — plain index on the new FK column.
-- Both tables carry an `AFTER INSERT OR UPDATE OR DELETE` audit trigger (`prompts_audit_trigger`,
-  `prompt_versions_audit_trigger`) executing `log_db_changes()` from `0000_foundation.sql`, so
-  every template edit lands in `audit_logs` as well as in `prompt_versions` — and a tone change
-  lands in `audit_logs` via the same `prompts_audit_trigger` that covers `name`/`description`
-  edits, with no dedicated trigger of its own. That redundancy is fine — `audit_logs` is a
-  cross-table forensic record, `prompt_versions` is a product feature with its own UI.
 
 ### Enums
 

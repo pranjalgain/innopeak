@@ -417,12 +417,15 @@ Drop table: `audit_logs` (app-level audit, written by `AuditService.log()`, crea
 
 > [!IMPORTANT]
 > Do not confuse with `db_audit_logs`. That's a *separate*, DB-trigger-based audit
-> mechanism (unrelated to `@AuditLog()`/`AuditService`), created in `0000_init.sql` with a trigger
-> function `log_db_changes()` (`0001_triggers_and_functions.sql`) attached to the `users` table via
-> `users_audit_trigger` (`0002_create_users.sql`). If you want to remove *all* audit logging
-> (app-level **and** DB-level), you must additionally drop: the `users_audit_trigger` trigger, the
-> `log_db_changes()` and `prevent_audit_log_deletion()` functions/triggers, and the `db_audit_logs`
-> table — all in raw SQL, not in `schema.ts`.
+> mechanism (unrelated to `@AuditLog()`/`AuditService`) — a trigger function (`log_db_changes()`)
+> attached to every domain table, capturing a full-row JSONB snapshot on every write. **InnoPeak
+> already removed this one too** (branch `fix/audit-log`): the table (named `audit_logs` in
+> InnoPeak's actual schema, not `db_audit_logs`), its indexes, `log_db_changes()` and its
+> `redact_audit_row()` helper, the `audit_operation_type` enum, and all ~21 per-table triggers are
+> gone from `0000_foundation.sql` and every migration file that used to attach one. It had no
+> application-code reader and no retention job of its own. If you're following this guide on a
+> *different* project that still has it, the steps below (drop the table/functions/triggers in raw
+> SQL, not `schema.ts`) still apply.
 
 ### Env vars
 

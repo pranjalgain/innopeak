@@ -1,7 +1,7 @@
 -- Migration: reviews
 -- Google Business Profile Review Management — review ingestion & response pipeline module
 -- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
--- Depends on: 0000_foundation.sql (enum types, log_db_changes()), 0002_tenant_auth.sql
+-- Depends on: 0000_foundation.sql (enum types), 0002_tenant_auth.sql
 --   (tenants, users), 0003_review_provider_locations.sql (locations)
 
 -- ───────────────────────────────────────────────────────────────────────
@@ -39,10 +39,6 @@ CREATE INDEX idx_reviews_classification ON reviews(classification);
 CREATE INDEX idx_reviews_reviewed_at ON reviews(reviewed_at);
 CREATE INDEX idx_reviews_external_reviewer_id ON reviews(external_reviewer_id);
 
-CREATE TRIGGER reviews_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON reviews
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
-
 -- ───────────────────────────────────────────────────────────────────────
 -- sync_runs — depends on: tenants, locations
 -- ───────────────────────────────────────────────────────────────────────
@@ -76,10 +72,6 @@ CREATE INDEX idx_sync_runs_location_id_started_at ON sync_runs(location_id, star
 -- application-level staleness check so a crashed run stuck at 'running' doesn't
 -- permanently block the location.
 CREATE UNIQUE INDEX idx_sync_runs_location_id_running ON sync_runs(location_id) WHERE status = 'running';
-
-CREATE TRIGGER sync_runs_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON sync_runs
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
 
 -- ───────────────────────────────────────────────────────────────────────
 -- review_responses — depends on: tenants, reviews, users
@@ -122,7 +114,3 @@ CREATE UNIQUE INDEX idx_review_responses_review_id_live_reply
 CREATE UNIQUE INDEX idx_review_responses_review_id_imported
     ON review_responses(review_id)
     WHERE source = 'imported';
-
-CREATE TRIGGER review_responses_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON review_responses
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();

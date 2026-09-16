@@ -1,7 +1,7 @@
 -- Migration: review_provider_locations
 -- Google Business Profile Review Management — review provider connections & locations module
 -- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
--- Depends on: 0000_foundation.sql (enum types, log_db_changes()), 0002_tenant_auth.sql
+-- Depends on: 0000_foundation.sql (enum types), 0002_tenant_auth.sql
 --   (tenants, users)
 --
 -- ⚠ RECREATE YOUR DATABASE AFTER PULLING A CHANGE TO THIS FILE.
@@ -47,10 +47,6 @@ CREATE INDEX idx_review_provider_connections_tenant_id ON review_provider_connec
 CREATE INDEX idx_review_provider_connections_connected_by_user_id ON review_provider_connections(connected_by_user_id);
 CREATE UNIQUE INDEX idx_review_provider_connections_tenant_provider_account ON review_provider_connections(tenant_id, provider, provider_account_id);
 
-CREATE TRIGGER review_provider_connections_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON review_provider_connections
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
-
 -- ───────────────────────────────────────────────────────────────────────
 -- notification_recipients — depends on: tenants, users
 -- ───────────────────────────────────────────────────────────────────────
@@ -70,10 +66,6 @@ CREATE TABLE IF NOT EXISTS notification_recipients (
 
 CREATE INDEX idx_notification_recipients_tenant_id ON notification_recipients(tenant_id);
 CREATE INDEX idx_notification_recipients_user_id ON notification_recipients(user_id);
-
-CREATE TRIGGER notification_recipients_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON notification_recipients
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
 
 -- ───────────────────────────────────────────────────────────────────────
 -- locations — depends on: tenants, review_provider_connections
@@ -109,10 +101,6 @@ CREATE INDEX idx_locations_tenant_id ON locations(tenant_id);
 CREATE INDEX idx_locations_provider_connection_id ON locations(provider_connection_id);
 CREATE UNIQUE INDEX idx_locations_provider_connection_external_location ON locations(provider_connection_id, external_location_id);
 
-CREATE TRIGGER locations_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON locations
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
-
 -- ───────────────────────────────────────────────────────────────────────
 -- user_locations — depends on: users, locations
 -- ───────────────────────────────────────────────────────────────────────
@@ -128,10 +116,6 @@ CREATE TABLE IF NOT EXISTS user_locations (
 CREATE INDEX idx_user_locations_user_id ON user_locations(user_id);
 CREATE INDEX idx_user_locations_location_id ON user_locations(location_id);
 CREATE UNIQUE INDEX idx_user_locations_user_id_location_id ON user_locations(user_id, location_id);
-
-CREATE TRIGGER user_locations_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON user_locations
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
 
 -- ───────────────────────────────────────────────────────────────────────
 -- tenants.active_location_id — depends on: tenants (0002_tenant_auth.sql), locations

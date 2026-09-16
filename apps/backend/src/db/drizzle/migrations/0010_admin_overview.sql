@@ -2,13 +2,10 @@
 -- Created at: 2026-09-11T10:41:17.519Z
 --
 -- Backs the Super Admin Overview page's "Activity" panel — a small, purpose-built log of
--- platform-admin actions (business suspend/reactivate, admin invite send/revoke), distinct from
--- the generic `audit_logs` table. `audit_logs` cannot serve this: its `triggered_by` column is
--- populated by `log_db_changes()`'s trigger machinery (the trigger's own name, or `current_user`
--- for a BEFORE trigger) — never the actual signed-in platform admin who initiated the request —
--- and none of the write paths this log covers (tenants.status, platform_admins invites) carry an
--- actor column of their own to recover that from either. This table is written explicitly, once,
--- by the same service call that performs the action, with the real actor already in hand.
+-- platform-admin actions (business suspend/reactivate, admin invite send/revoke). Written
+-- explicitly, once, by the same service call that performs the action, with the real actor
+-- already in hand — not inferred from a generic trigger, which is why `actor_email` etc. are
+-- plain columns here rather than something recovered after the fact from another log.
 CREATE TYPE platform_activity_type AS ENUM (
     'business_suspended',
     'business_reactivated',

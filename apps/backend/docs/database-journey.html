@@ -224,12 +224,10 @@
     <p class="kicker">Before the journey <span class="screen-tag">five clusters, one thread</span></p>
     <h2>Where the 19 tables live</h2>
     <p>Every domain table carries a <code>tenant_id</code> — that's the thread running under all
-      five clusters below. Sync &amp; Audit isn't a step in the journey; it's a trigger
-      (<code>log_db_changes()</code>) sitting behind every write in the other four, which is why
-      it's drawn underneath rather than in line with the rest.</p>
+      four clusters below.</p>
 
     <figure class="wide">
-      <svg viewBox="0 0 1160 470" role="img" aria-label="Five table clusters: Identity and Tenancy, Provider and Location, Reviews, and Settings and Alerts run left to right in the order a tenant reaches them; Sync and Audit sits beneath all four, dash-linked to each, because its trigger fires on every write.">
+      <svg viewBox="0 0 1160 300" role="img" aria-label="Four table clusters: Identity and Tenancy, Provider and Location, Reviews, and Settings and Alerts run left to right in the order a tenant reaches them.">
         <defs>
           <marker id="ov-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"></path>
@@ -257,10 +255,11 @@
 
         <line class="cluster-link" x1="520" y1="125" x2="580" y2="125" marker-end="url(#ov-arrow)"></line>
 
-        <rect class="cluster-box" x="580" y="70" width="180" height="110" rx="10"></rect>
+        <rect class="cluster-box" x="580" y="70" width="180" height="130" rx="10"></rect>
         <text class="cluster-title" x="596" y="98">Reviews</text>
         <text class="cluster-item" x="596" y="122">reviews</text>
         <text class="cluster-item" x="596" y="140">review_responses</text>
+        <text class="cluster-item" x="596" y="158">sync_runs</text>
 
         <line class="cluster-link" x1="760" y1="125" x2="820" y2="125" marker-end="url(#ov-arrow)"></line>
 
@@ -270,22 +269,12 @@
         <text class="cluster-item" x="836" y="100">blocklist_terms</text>
         <text class="cluster-item" x="836" y="118">notification_recipients</text>
         <text class="cluster-item" x="836" y="136">notifications</text>
-
-        <rect class="cluster-box" x="260" y="320" width="640" height="110" rx="10"></rect>
-        <text class="cluster-title" x="276" y="348">Sync &amp; Audit</text>
-        <text class="cluster-item" x="276" y="372">sync_runs</text>
-        <text class="cluster-item" x="500" y="372">audit_logs</text>
-        <text class="op-col" x="276" y="396">every INSERT / UPDATE / DELETE on the four clusters above writes a row here</text>
-
-        <line class="cluster-link" x1="135" y1="260" x2="400" y2="320"></line>
-        <line class="cluster-link" x1="410" y1="190" x2="480" y2="320"></line>
-        <line class="cluster-link" x1="670" y1="180" x2="620" y2="320"></line>
-        <line class="cluster-link" x1="935" y1="220" x2="740" y2="320"></line>
       </svg>
       <figcaption>Left to right is roughly the order a tenant reaches each cluster for the first
         time — sign-up, then connecting a location, then reviews flowing in, then tuning settings.
-        The dashed lines into Sync &amp; Audit aren't foreign keys; they're the audit trigger every
-        table above already carries.</figcaption>
+        <code>sync_runs</code> lives inside Reviews rather than getting its own cluster: it's
+        driven by the background review-sync job, not by anything a person does in this
+        journey.</figcaption>
     </figure>
   </section>
 
@@ -767,20 +756,6 @@
         explicit erasure request, and upstream deletion are three different reasons a review stops
         being live data.</figcaption>
     </figure>
-  </section>
-
-  <section class="panel">
-    <p class="kicker">Every step above <span class="screen-tag">audit_logs</span></p>
-    <h2>Nothing above happens quietly</h2>
-    <p>Each of the other 18 tables carries an <code>AFTER INSERT OR UPDATE OR DELETE</code>
-      trigger calling <code>log_db_changes()</code>, which writes the table name, the operation,
-      and the old and new row as JSON into <code>audit_logs</code>. It's the one table in this
-      whole journey nobody has to remember to write to — deliberately the only audit log table in
-      this schema, rather than splitting the same accountability need across two tables where one
-      needed manual per-endpoint annotation to ever get written to at all. The trigger also pulls
-      <code>tenant_id</code> straight out of whichever row changed, so a tenant's own audit history
-      — or a platform admin's investigation scoped to one tenant — doesn't mean scanning every
-      row's JSON to find it.</p>
   </section>
 
   <footer class="colophon">

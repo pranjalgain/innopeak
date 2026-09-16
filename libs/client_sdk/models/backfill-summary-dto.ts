@@ -5,7 +5,7 @@
 export interface BackfillSummaryDto {
   syncRunId: string;
   status: BackfillSummaryDtoStatusEnum;
-  trigger: string;
+  trigger: BackfillSummaryDtoTriggerEnum;
   startedAt: string;
 }
 
@@ -17,3 +17,10 @@ export const BackfillSummaryDtoStatusEnum = {
 
 export type BackfillSummaryDtoStatusEnum =
   (typeof BackfillSummaryDtoStatusEnum)[keyof typeof BackfillSummaryDtoStatusEnum];
+export const BackfillSummaryDtoTriggerEnum = {
+  Scheduled: 'scheduled',
+  Backfill: 'backfill',
+} as const;
+
+export type BackfillSummaryDtoTriggerEnum =
+  (typeof BackfillSummaryDtoTriggerEnum)[keyof typeof BackfillSummaryDtoTriggerEnum];

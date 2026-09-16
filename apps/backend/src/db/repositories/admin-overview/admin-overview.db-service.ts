@@ -21,14 +21,12 @@ export class AdminOverviewDbService {
    * Never throws. Every caller records activity *after* its primary write has already committed
    * (suspending a business, creating or deleting an invite), and those two writes are not in one
    * transaction — so letting a failure here propagate would answer a request that genuinely
-   * succeeded with a 500, telling the admin their action did not apply when it did. That is
-   * strictly worse than a missing row in a display feed.
-   *
-   * Losing the entry is survivable precisely because this table is not the system of record: the
-   * `log_db_changes()` triggers on `tenants` and `platform_admins` write the underlying row change
-   * to `audit_logs` independently of anything here. This feed is the human-readable view on the
-   * Overview page, so a dropped row costs a line of history, not the audit trail — and it is
-   * logged at error level so it is still visible rather than silent.
+   * succeeded with a 500, telling the admin their action did not apply when it did. That is worse
+   * than losing a line of this display feed: this table is now the only record of the action (no
+   * generic audit trail behind it to fall back on), but failing a suspend/invite/disable that has
+   * already taken effect over a logging hiccup would be a strictly worse outcome for the admin —
+   * so a dropped entry is logged at error level, so it is still visible rather than silent, and
+   * swallowed rather than surfaced as a failure of the action itself.
    */
   async recordActivityBestEffort(input: RecordActivityInput): Promise<void> {
     try {

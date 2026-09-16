@@ -25,9 +25,8 @@ export function ApiGetRecentActivity(): ReturnType<typeof applyDecorators> {
     ApiOperation({
       summary: 'Most recent platform-admin actions',
       description:
-        'A purpose-built log (`platform_activity_log`), not the generic `audit_logs` table — ' +
-        'business suspend/reactivate and admin invite send/revoke, newest first, with the real ' +
-        'actor who performed each one.',
+        'A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin ' +
+        'invite send/revoke, newest first, with the real actor who performed each one.',
     }),
     ApiResponse({ status: HttpStatus.OK, type: [PlatformActivityResponseDto] }),
     ApiResponse({ status: HttpStatus.BAD_REQUEST, description: '`limit` outside 1-50' }),

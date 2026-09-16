@@ -397,6 +397,7 @@ describe('AdminSettingsService', () => {
       passwordLoginEnabled: true,
       socialLoginEnabled: true,
       inviteMembersEnabled: false,
+      updatedByPlatformAdminId: null,
     };
 
     it('rejects a tenant-user token without touching the DB', async () => {
@@ -416,7 +417,26 @@ describe('AdminSettingsService', () => {
 
       await target.updatePlatformSettings(admin, { passwordLoginEnabled: true });
 
-      expect(platformSettingsDbService.update).toHaveBeenCalledWith({ passwordLoginEnabled: true });
+      expect(platformSettingsDbService.update).toHaveBeenCalledWith(
+        { passwordLoginEnabled: true },
+        admin.id
+      );
+    });
+
+    it("records the calling admin's id as the actor, not anything from the request body", async () => {
+      platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+      platformSettingsDbService.update.mockResolvedValue({
+        ...allEnabledRow,
+        socialLoginEnabled: false,
+        updatedByPlatformAdminId: admin.id,
+      });
+
+      await target.updatePlatformSettings(admin, { socialLoginEnabled: false });
+
+      expect(platformSettingsDbService.update).toHaveBeenCalledWith(
+        { socialLoginEnabled: false },
+        admin.id
+      );
     });
 
     it('throws 404 if the singleton row is somehow missing before the write', async () => {
@@ -456,6 +476,7 @@ describe('AdminSettingsService', () => {
         passwordLoginEnabled: true,
         socialLoginEnabled: false,
         inviteMembersEnabled: false,
+        updatedByPlatformAdminId: null,
       });
 
       await expect(

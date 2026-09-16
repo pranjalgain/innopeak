@@ -562,36 +562,10 @@ export class ReviewSyncRepository {
         RETURNING r.id
       `);
 
-      const reviewIds = result.rows.map(row => (row as { id: string }).id);
-
-      // The gap `0000_foundation.sql`'s own GDPR note documents: log_db_changes() snapshots a full
-      // row on every write, so the UPDATE above is itself captured verbatim in audit_logs before
-      // the anonymization — the reviewer_name/external_reviewer_id this purge just cleared from
-      // `reviews` survives in every prior snapshot of that row too (every intermediate UPDATE
-      // before this one also captured the name, not just the latest). Without also redacting here,
-      // the purge deletes the tenant-facing copy while leaving an unpurged, indefinitely-retained
-      // copy sitting in the audit trail — the exact PII this job exists to remove from long-term
-      // storage. `idx_audit_logs_table_name`/`idx_audit_logs_old_value_gin`/`_new_value_gin`
-      // (see 0000_foundation.sql) make this a targeted scan rather than a full-table one.
-      if (reviewIds.length > 0) {
-        // A Postgres array-literal string (`{id1,id2,...}`), not a JS array: drizzle-orm's `sql`
-        // template expands an interpolated array into one bound parameter per element
-        // (`ANY(($0, $1, ...))`), which is not valid syntax to cast to `uuid[]` — a single literal
-        // string cast via `::uuid[]` is what actually binds as one array-typed parameter.
-        const reviewIdsArrayLiteral = `{${reviewIds.join(',')}}`;
-
-        await tx.execute(sql`
-          UPDATE audit_logs
-          SET old_value = old_value - 'reviewer_name' - 'external_reviewer_id',
-              new_value = new_value - 'reviewer_name' - 'external_reviewer_id'
-          WHERE table_name = 'reviews'
-            AND (
-              (old_value->>'id')::uuid = ANY(${reviewIdsArrayLiteral}::uuid[])
-              OR (new_value->>'id')::uuid = ANY(${reviewIdsArrayLiteral}::uuid[])
-            )
-        `);
-      }
-
+      // `audit_logs` (and the second redaction pass this job used to run against it) is gone —
+      // that table snapshotted a full row on every write with nothing purging it, which meant the
+      // reviewer_name this purge nulls above still lingered forever in every prior snapshot of the
+      // row. With no snapshot table left to leak into, the anonymizing UPDATE above is the whole job.
       return result.rows.length;
     });
   }

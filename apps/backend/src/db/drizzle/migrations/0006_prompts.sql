@@ -1,7 +1,7 @@
 -- Migration: prompts
 -- Google Business Profile Review Management — AI reply prompt management module
 -- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
--- Depends on: 0000_foundation.sql (log_db_changes()), 0002_tenant_auth.sql (tenants, users),
+-- Depends on: 0002_tenant_auth.sql (tenants, users),
 --   0004_reviews.sql (review_responses)
 --
 -- Backs the tenant-owned, versioned, tone-tunable reply prompts each owner edits — distinct
@@ -42,10 +42,6 @@ CREATE TABLE IF NOT EXISTS prompts (
 
 CREATE UNIQUE INDEX idx_prompts_tenant_id_category ON prompts(tenant_id, category);
 
-CREATE TRIGGER prompts_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON prompts
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
-
 -- ───────────────────────────────────────────────────────────────────────
 -- prompt_versions — depends on: prompts, users
 -- ───────────────────────────────────────────────────────────────────────
@@ -70,10 +66,6 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
 );
 
 CREATE UNIQUE INDEX idx_prompt_versions_prompt_id_version ON prompt_versions(prompt_id, version);
-
-CREATE TRIGGER prompt_versions_audit_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON prompt_versions
-    FOR EACH ROW EXECUTE FUNCTION log_db_changes();
 
 -- ───────────────────────────────────────────────────────────────────────
 -- review_responses — extend existing table (0004_reviews.sql)
