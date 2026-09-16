@@ -44,6 +44,8 @@ export interface MessageCatalog {
     PROVIDER_NOT_CONFIGURED: string;
     DISCONNECTED: string;
     LOCATION_CONFIRMED: string;
+    LOCATION_INACTIVE: string;
+    ACTIVE_LOCATION_UPDATED: string;
   };
   DASHBOARD: {
     TENANT_ONLY: string;

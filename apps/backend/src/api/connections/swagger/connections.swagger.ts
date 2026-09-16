@@ -2,12 +2,13 @@ import { LocationStatus } from '@common/enums/location-status.enum';
 import { applyDecorators } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
-import { ConfirmLocationDto } from '../dto/connection-request.dto';
+import { ConfirmLocationDto, SetActiveLocationDto } from '../dto/connection-request.dto';
 import {
   AvailableLocationsResponseDto,
-  ConfirmLocationResponseDto,
+  ConfirmLocationsResponseDto,
   ConnectionStatusResponseDto,
   DisconnectResponseDto,
+  LocationDto,
   LocationListResponseDto,
 } from '../dto/connection-response.dto';
 import { ReturnTo } from '../enums/return-to.enum';
@@ -119,33 +120,58 @@ export function ApiConfirmLocation(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
     ApiBearerAuth(),
     ApiOperation({
-      summary: 'Confirm the managed location and start the historical backfill',
+      summary: 'Confirm the managed locations and start each historical backfill',
       description:
-        'One transaction across three tables: upsert `locations`, insert `user_locations`, ' +
-        'acquire the backfill `sync_runs` row. The job is enqueued only after that commits — ' +
-        'BullMQ and Postgres share no transaction. Idempotent: a double-submitted confirm still ' +
-        'answers 201 with `backfillAlreadyRunning: true` and the existing run, rather than a 409 ' +
-        'that would leave the client with no id to poll. If the enqueue itself fails (a Redis/BullMQ ' +
-        'blip after the transaction already committed), the sync run is immediately compensated ' +
-        'to `error` rather than left stuck `running` forever, and this request answers 503 — the ' +
-        'location is confirmed, but the caller must confirm it again to start a fresh import.',
+        'One transaction across three tables, looped once per confirmed location: upsert ' +
+        '`locations`, insert `user_locations`, acquire the backfill `sync_runs` row. Each job is ' +
+        'enqueued only after that transaction commits — BullMQ and Postgres share no transaction. ' +
+        'Idempotent per location: a double-submitted confirm still answers 201 with ' +
+        '`backfillAlreadyRunning: true` and the existing run for that location, rather than a 409 ' +
+        'that would leave the client with no id to poll. If an enqueue itself fails (a Redis/BullMQ ' +
+        "blip after the transaction already committed), that location's sync run is immediately " +
+        'compensated to `error` rather than left stuck `running` forever, and this request answers ' +
+        '503 — every location up to that point is confirmed, but the caller must confirm again to ' +
+        'start a fresh import for the ones that failed to enqueue.',
     }),
     ApiBody({
       type: ConfirmLocationDto,
       examples: {
         default: {
-          summary: 'Confirm the discovered location',
-          value: { externalLocationId: 'locations/12345678901234567890' },
+          summary: 'Confirm the discovered locations',
+          value: {
+            externalLocationIds: [
+              'locations/12345678901234567890',
+              'locations/98765432109876543210',
+            ],
+          },
         },
       },
     }),
-    ApiResponse({ status: 201, type: ConfirmLocationResponseDto }),
+    ApiResponse({ status: 201, type: ConfirmLocationsResponseDto }),
     ApiResponse({ status: 404, description: 'CONNECTION_NOT_FOUND | EXTERNAL_LOCATION_NOT_FOUND' }),
     ApiResponse({ status: 409, description: 'CONNECTION_NEEDS_REAUTH | LOCATION_LIMIT_REACHED' }),
     ApiResponse({
       status: 503,
       description:
-        'BACKFILL_ENQUEUE_FAILED — the location is confirmed, but starting the import failed; retry the confirm.',
+        'BACKFILL_ENQUEUE_FAILED — the locations up to this point are confirmed, but starting the import for the rest failed; retry the confirm.',
     })
+  );
+}
+
+export function ApiSetActiveLocation(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: "Switch the tenant's currently-viewed business",
+      description:
+        "A single shared value for the whole tenant, not per-user — every member's Dashboard/" +
+        'Review Queue reads it, so only an owner may change it. The location must belong to this ' +
+        "tenant and be active; a deactivated location or another tenant's id is rejected.",
+    }),
+    ApiBody({ type: SetActiveLocationDto }),
+    ApiResponse({ status: 200, type: LocationDto }),
+    ApiResponse({ status: 403, description: 'Caller is a member, not an owner' }),
+    ApiResponse({ status: 404, description: 'LOCATION_NOT_FOUND' }),
+    ApiResponse({ status: 409, description: 'LOCATION_INACTIVE' })
   );
 }

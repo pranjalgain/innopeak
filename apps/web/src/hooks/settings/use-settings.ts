@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { SettingsApiError, SettingsService } from "@/app/_libs/services/settings.service";
+import { connectionLocationsQueryKey } from "@/hooks/connections/use-business-switcher";
 import { useConnection } from "@/hooks/connections/use-connection";
 import type { GeneralSettings, NotificationChannel, SettingsData } from "@/types/domain";
 
@@ -193,10 +194,16 @@ export function useSettings(): UseSettingsResult {
         // "connected" until it next refetches on its own — the guard, the reconnect banner and
         // any other reader of that cache entry would all lag the change this tab just made.
         await refreshConnection();
+        // The locations list is a separate cache entry, and `useBusinessSwitcher` only *disables*
+        // its query once there's no connection — a disabled query keeps whatever it already
+        // fetched, so the header's switcher would go on offering the locations this disconnect
+        // just deactivated. Removed rather than invalidated: there is nothing to refetch while
+        // disconnected, and the query is disabled anyway.
+        queryClient.removeQueries({ queryKey: connectionLocationsQueryKey });
       },
       onError: () => toast.error(t("disconnectFailed")),
     });
-  }, [settings, setSettings, t, refreshConnection, disconnectMutation]);
+  }, [settings, setSettings, t, refreshConnection, disconnectMutation, queryClient]);
 
   return {
     settings,

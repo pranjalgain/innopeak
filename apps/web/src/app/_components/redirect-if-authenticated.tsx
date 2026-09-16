@@ -28,17 +28,25 @@ interface RedirectIfAuthenticatedProps {
  * actually navigates away.
  */
 export function RedirectIfAuthenticated({ children }: RedirectIfAuthenticatedProps) {
-  const { hasToken } = useAuthToken();
+  const { hasToken, tokenType } = useAuthToken();
 
   useEffect(() => {
     if (hasToken === true) {
+      // Sent to the home that actually belongs to this principal, not a fixed `/dashboard` —
+      // a platform admin's token redirected there would immediately fail RequireAuth's own
+      // type check and bounce back to `/forbidden`/`/login`, and worse, an admin landing back on
+      // THIS page via that path would see hasToken=true again and redirect to /dashboard again:
+      // the exact infinite loop this pairing with `RequireAuth`/`proxy.ts` exists to prevent.
+      // `tokenType === null` (a decode hiccup on an otherwise-valid token) falls back to the
+      // tenant destination rather than blocking the redirect outright.
+      //
       // A hard redirect, not router.replace() — calling router.replace() from an effect on a
       // page's first mount was observed to fetch the destination's RSC payload (200 OK) but
       // never actually swap the URL/content, leaving the user stuck on this page. window.location
       // side-steps that entirely, same technique AuthService.logout() already uses.
-      window.location.href = ROUTES.DASHBOARD;
+      window.location.href = tokenType === "platform_admin" ? ROUTES.ADMIN : ROUTES.DASHBOARD;
     }
-  }, [hasToken]);
+  }, [hasToken, tokenType]);
 
   if (hasToken === true) return null;
 

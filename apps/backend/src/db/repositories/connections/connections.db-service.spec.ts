@@ -52,7 +52,7 @@ function locationRow(externalLocationId: string) {
  * closes it with a transaction-scoped advisory lock: the second call blocks until the first
  * commits, so its own recheck here runs against the first one's already-committed row.
  */
-describe('ConnectionsDbService.confirmLocation — location limit is rechecked under lock', () => {
+describe('ConnectionsDbService.confirmLocations — location limit is rechecked under lock', () => {
   let service: ConnectionsDbService;
   const acquireLocationConfirmLock = jest.fn();
   const findLocationsByTenant = jest.fn();
@@ -109,13 +109,11 @@ describe('ConnectionsDbService.confirmLocation — location limit is rechecked u
   it('acquires the per-tenant lock before checking the active-location count', async () => {
     findLocationsByTenant.mockResolvedValue([]);
 
-    await service.confirmLocation({
+    await service.confirmLocations({
       tenantId: 'tenant-1',
       userId: 'user-1',
       connection,
-      externalLocationId: 'locations/1',
-      name: 'The Coffee House',
-      address: null,
+      locations: [{ externalLocationId: 'locations/1', name: 'The Coffee House', address: null }],
       maxActiveLocations: 1,
     });
 
@@ -129,13 +127,11 @@ describe('ConnectionsDbService.confirmLocation — location limit is rechecked u
     findLocationsByTenant.mockResolvedValue([locationRow('locations/1')]);
 
     await expect(
-      service.confirmLocation({
+      service.confirmLocations({
         tenantId: 'tenant-1',
         userId: 'user-1',
         connection,
-        externalLocationId: 'locations/2',
-        name: 'The Bakery',
-        address: null,
+        locations: [{ externalLocationId: 'locations/2', name: 'The Bakery', address: null }],
         maxActiveLocations: 1,
       })
     ).rejects.toBeInstanceOf(LocationLimitExceededError);
@@ -143,36 +139,188 @@ describe('ConnectionsDbService.confirmLocation — location limit is rechecked u
     expect(upsertLocation).not.toHaveBeenCalled();
   });
 
+  it('rejects the whole batch once an earlier location in the same call fills the limit', async () => {
+    findLocationsByTenant.mockResolvedValue([]);
+
+    await expect(
+      service.confirmLocations({
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+        connection,
+        locations: [
+          { externalLocationId: 'locations/1', name: 'The Coffee House', address: null },
+          { externalLocationId: 'locations/2', name: 'The Bakery', address: null },
+        ],
+        maxActiveLocations: 1,
+      })
+    ).rejects.toBeInstanceOf(LocationLimitExceededError);
+
+    expect(upsertLocation).toHaveBeenCalledTimes(1);
+  });
+
   it('allows re-confirming the same location even while at the limit', async () => {
     findLocationsByTenant.mockResolvedValue([locationRow('locations/1')]);
 
-    const result = await service.confirmLocation({
+    const [result] = await service.confirmLocations({
       tenantId: 'tenant-1',
       userId: 'user-1',
       connection,
-      externalLocationId: 'locations/1',
-      name: 'The Coffee House',
-      address: null,
+      locations: [{ externalLocationId: 'locations/1', name: 'The Coffee House', address: null }],
       maxActiveLocations: 1,
     });
 
-    expect(result.location.externalLocationId).toBe('locations/1');
+    expect(result?.location.externalLocationId).toBe('locations/1');
     expect(upsertLocation).toHaveBeenCalled();
   });
 
   it('allows a new location under the limit', async () => {
     findLocationsByTenant.mockResolvedValue([]);
 
-    const result = await service.confirmLocation({
+    const [result] = await service.confirmLocations({
       tenantId: 'tenant-1',
       userId: 'user-1',
       connection,
-      externalLocationId: 'locations/1',
-      name: 'The Coffee House',
-      address: null,
+      locations: [{ externalLocationId: 'locations/1', name: 'The Coffee House', address: null }],
       maxActiveLocations: 1,
     });
 
-    expect(result.location.externalLocationId).toBe('locations/1');
+    expect(result?.location.externalLocationId).toBe('locations/1');
+  });
+
+  it('confirms multiple locations from a single request inside one transaction', async () => {
+    findLocationsByTenant.mockResolvedValue([]);
+
+    const results = await service.confirmLocations({
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      connection,
+      locations: [
+        { externalLocationId: 'locations/1', name: 'The Coffee House', address: null },
+        { externalLocationId: 'locations/2', name: 'The Bakery', address: null },
+      ],
+      maxActiveLocations: 2,
+    });
+
+    expect(results.map(result => result.location.externalLocationId)).toEqual([
+      'locations/1',
+      'locations/2',
+    ]);
+    expect(upsertLocation).toHaveBeenCalledTimes(2);
+    expect(attachUserToLocation).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * The partial unique index `idx_sync_runs_location_id_running` allows one *running* run per
+ * location regardless of trigger, so acquiring a backfill can lose to whatever is already there.
+ * The conflict handler's job is to report that honestly — and, crucially, to notice when there is
+ * nothing there after all.
+ */
+describe('ConnectionsDbService.confirmLocations — sync-run acquisition conflicts', () => {
+  let service: ConnectionsDbService;
+  const findLocationsByTenant = jest.fn();
+  const upsertLocation = jest.fn();
+  const acquireSyncRun = jest.fn();
+  const findRunningRunForLocation = jest.fn();
+
+  const txMock = {
+    transaction: jest.fn(async (fn: (nested: unknown) => Promise<unknown>) => fn({})),
+  };
+
+  function runRow(overrides: Partial<{ id: string; trigger: SyncTrigger }> = {}) {
+    return {
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      locationId: 'location-locations/1',
+      trigger: SyncTrigger.BACKFILL,
+      startedAt: '2026-01-01T00:00:00.000Z',
+      completedAt: null,
+      status: SyncRunStatus.RUNNING,
+      reviewsFetched: null,
+      reviewsTotal: null,
+      errorMessage: null,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  /** What node-postgres raises when the partial unique index rejects a second running run. */
+  function uniqueViolation(): Error {
+    return Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+      constraint: 'idx_sync_runs_location_id_running',
+    });
+  }
+
+  async function confirmOne() {
+    return service.confirmLocations({
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      connection,
+      locations: [{ externalLocationId: 'locations/1', name: 'The Coffee House', address: null }],
+      maxActiveLocations: 5,
+    });
+  }
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    findLocationsByTenant.mockResolvedValue([]);
+    upsertLocation.mockImplementation((_tx: unknown, input: { externalLocationId: string }) =>
+      Promise.resolve(locationRow(input.externalLocationId))
+    );
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConnectionsDbService,
+        {
+          provide: ConnectionsRepository,
+          useValue: {
+            transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(txMock)),
+            acquireLocationConfirmLock: jest.fn().mockResolvedValue(undefined),
+            findLocationsByTenant,
+            upsertLocation,
+            attachUserToLocation: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        { provide: ReviewSyncRepository, useValue: { acquireSyncRun, findRunningRunForLocation } },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ConnectionsDbService);
+  });
+
+  it('reports the run that is genuinely still blocking, reading it through the open transaction', async () => {
+    const blocking = runRow({ id: 'scheduled-run', trigger: SyncTrigger.SCHEDULED });
+    acquireSyncRun.mockRejectedValue(uniqueViolation());
+    findRunningRunForLocation.mockResolvedValue(blocking);
+
+    const [result] = await confirmOne();
+
+    expect(result?.backfillAlreadyRunning).toBe(true);
+    expect(result?.backfill?.id).toBe('scheduled-run');
+    // Through `tx`, not a second pooled connection — the outer transaction is still holding this
+    // tenant's advisory lock while this read happens.
+    expect(findRunningRunForLocation).toHaveBeenCalledWith('location-locations/1', txMock);
+  });
+
+  /**
+   * Regression: the blocking run can finish between the constraint violation and the follow-up
+   * read, leaving nothing running. That used to be reported as `{backfill: null,
+   * backfillAlreadyRunning: true}` — and the caller skips enqueuing on that flag, so the location
+   * ended up active, never backfilled, with `onboarding_backfill_completed_at` NULL forever. That
+   * also excludes it from `findLocationsDueForPoll`, so nothing retried it and no error surfaced.
+   */
+  it('takes the now-free index instead of reporting a backfill that is not running', async () => {
+    acquireSyncRun
+      .mockRejectedValueOnce(uniqueViolation())
+      .mockResolvedValueOnce(runRow({ id: 'run-after-retry' }));
+    findRunningRunForLocation.mockResolvedValue(null);
+
+    const [result] = await confirmOne();
+
+    expect(result?.backfillAlreadyRunning).toBe(false);
+    expect(result?.backfill?.id).toBe('run-after-retry');
+    expect(acquireSyncRun).toHaveBeenCalledTimes(2);
   });
 });

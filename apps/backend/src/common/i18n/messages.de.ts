@@ -58,7 +58,7 @@ export const messagesDe: MessageCatalog = {
       'Dieser Standort ist für das verbundene Google-Konto nicht sichtbar. Verbinden Sie sich erneut und versuchen Sie es noch einmal.',
     CONNECTION_NEEDS_REAUTH:
       'Die Google-Verbindung ist abgelaufen. Verbinden Sie Ihr Google Business-Profil erneut, um fortzufahren.',
-    LOCATION_LIMIT_REACHED: 'Für dieses Konto ist bereits ein aktiver Standort vorhanden.',
+    LOCATION_LIMIT_REACHED: 'Zu viele Standorte für dieses Konto.',
     BACKFILL_ENQUEUE_FAILED:
       'Standort verbunden, aber der Rezensionsimport konnte nicht gestartet werden. Bitte bestätigen Sie diesen Standort erneut.',
     PROVIDER_UNAVAILABLE:
@@ -67,6 +67,8 @@ export const messagesDe: MessageCatalog = {
       'Google Business-Profil ist auf diesem Server nicht konfiguriert. Wenden Sie sich an den Support.',
     DISCONNECTED: 'Google Business-Profil getrennt.',
     LOCATION_CONFIRMED: 'Standort verbunden. Ihr Rezensionsverlauf wird importiert.',
+    LOCATION_INACTIVE: 'Dieser Standort ist getrennt und kann nicht ausgewählt werden.',
+    ACTIVE_LOCATION_UPDATED: 'Aktiver Standort aktualisiert.',
   },
   DASHBOARD: {
     TENANT_ONLY: 'Dashboard-Analysen stehen nur Mandantenbenutzern zur Verfügung.',

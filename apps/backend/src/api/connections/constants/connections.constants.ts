@@ -4,6 +4,7 @@ import { ReturnTo } from '../enums/return-to.enum';
 export const CONNECTION_ERROR_CODES = {
   CONNECTION_NOT_FOUND: 'CONNECTION_NOT_FOUND',
   LOCATION_NOT_FOUND: 'LOCATION_NOT_FOUND',
+  LOCATION_INACTIVE: 'LOCATION_INACTIVE',
   EXTERNAL_LOCATION_NOT_FOUND: 'EXTERNAL_LOCATION_NOT_FOUND',
   CONNECTION_NEEDS_REAUTH: 'CONNECTION_NEEDS_REAUTH',
   LOCATION_LIMIT_REACHED: 'LOCATION_LIMIT_REACHED',
@@ -56,8 +57,14 @@ export const OAUTH_SID_COOKIE_NAME = 'gbp_oauth_sid';
 export const OAUTH_SID_COOKIE_PATH = '/v1/connections';
 export const OAUTH_STATE_TTL_SECONDS = 600;
 
-/** MVP: one active location per tenant. An application rule — no database constraint backs it. */
-export const MAX_ACTIVE_LOCATIONS = 1;
+/**
+ * A tenant can now confirm more than one location at OAuth-confirm time (multi-select), so this
+ * is no longer "the" product limit — it's a sanity ceiling against a pathological Google account
+ * (or a confused/malicious client sending an oversized `externalLocationIds` array) rather than
+ * an intended UX constraint. Still an application rule, not a database constraint: nothing about
+ * the `locations` schema caps rows per tenant.
+ */
+export const MAX_ACTIVE_LOCATIONS = 50;
 
 /** The backfill poll runs every ~2.5s; the global 30/min tier kills it inside the first minute. */
 export const BACKFILL_POLL_THROTTLE = { limit: 120, ttl: 60000 } as const;

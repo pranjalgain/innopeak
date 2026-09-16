@@ -81,10 +81,11 @@ Class | Method | HTTP request | Description
 *ConnectionsApi* | [**connectionsControllerAuthorizeV1**](docs/ConnectionsApi.md#connectionscontrollerauthorizev1) | **GET** /v1/connections/google/authorize | Start the Google Business Profile grant (302 to consent)
 *ConnectionsApi* | [**connectionsControllerAvailableLocationsV1**](docs/ConnectionsApi.md#connectionscontrolleravailablelocationsv1) | **GET** /v1/connections/google/available-locations | Locations the granted Google account can see (live provider call)
 *ConnectionsApi* | [**connectionsControllerCallbackV1**](docs/ConnectionsApi.md#connectionscontrollercallbackv1) | **GET** /v1/connections/google/callback | Google OAuth callback (public — Google performs this request)
-*ConnectionsApi* | [**connectionsControllerConfirmLocationV1**](docs/ConnectionsApi.md#connectionscontrollerconfirmlocationv1) | **POST** /v1/connections/locations | Confirm the managed location and start the historical backfill
+*ConnectionsApi* | [**connectionsControllerConfirmLocationV1**](docs/ConnectionsApi.md#connectionscontrollerconfirmlocationv1) | **POST** /v1/connections/locations | Confirm the managed locations and start each historical backfill
 *ConnectionsApi* | [**connectionsControllerDisconnectV1**](docs/ConnectionsApi.md#connectionscontrollerdisconnectv1) | **DELETE** /v1/connections/google | Disconnect Google Business Profile
 *ConnectionsApi* | [**connectionsControllerGetConnectionV1**](docs/ConnectionsApi.md#connectionscontrollergetconnectionv1) | **GET** /v1/connections | The tenant\&#39;s whole connection picture in one call
 *ConnectionsApi* | [**connectionsControllerListLocationsV1**](docs/ConnectionsApi.md#connectionscontrollerlistlocationsv1) | **GET** /v1/connections/locations | The tenant\&#39;s persisted locations
+*ConnectionsApi* | [**connectionsControllerSetActiveLocationV1**](docs/ConnectionsApi.md#connectionscontrollersetactivelocationv1) | **PATCH** /v1/connections/active-location | Switch the tenant\&#39;s currently-viewed business
 *ConnectionsSyncApi* | [**connectionsSyncControllerGetBackfillV1**](docs/ConnectionsSyncApi.md#connectionssynccontrollergetbackfillv1) | **GET** /v1/connections/locations/{locationId}/backfill | Progress of the one-time historical import
 *ConnectionsSyncApi* | [**connectionsSyncControllerGetSyncHealthV1**](docs/ConnectionsSyncApi.md#connectionssynccontrollergetsynchealthv1) | **GET** /v1/connections/locations/{locationId}/sync-health | Is ingestion working for this location
 *ConnectionsSyncApi* | [**connectionsSyncControllerListSyncRunsV1**](docs/ConnectionsSyncApi.md#connectionssynccontrollerlistsyncrunsv1) | **GET** /v1/connections/locations/{locationId}/sync-runs | Paginated sync-run history, newest first
@@ -121,6 +122,7 @@ Class | Method | HTTP request | Description
  - [CompleteGoogleSignupDto](docs/CompleteGoogleSignupDto.md)
  - [ConfirmLocationDto](docs/ConfirmLocationDto.md)
  - [ConfirmLocationResponseDto](docs/ConfirmLocationResponseDto.md)
+ - [ConfirmLocationsResponseDto](docs/ConfirmLocationsResponseDto.md)
  - [ConnectionLocationDto](docs/ConnectionLocationDto.md)
  - [ConnectionStatusResponseDto](docs/ConnectionStatusResponseDto.md)
  - [ConnectionSummaryDto](docs/ConnectionSummaryDto.md)
@@ -152,6 +154,7 @@ Class | Method | HTTP request | Description
  - [ReviewResponseItemDto](docs/ReviewResponseItemDto.md)
  - [ReviewsMetaDto](docs/ReviewsMetaDto.md)
  - [SendAdminInviteDto](docs/SendAdminInviteDto.md)
+ - [SetActiveLocationDto](docs/SetActiveLocationDto.md)
  - [SetAdminStatusDto](docs/SetAdminStatusDto.md)
  - [SetPasswordDto](docs/SetPasswordDto.md)
  - [SignupDto](docs/SignupDto.md)

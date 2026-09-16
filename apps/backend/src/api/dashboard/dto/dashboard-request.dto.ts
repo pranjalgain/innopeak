@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 export const DASHBOARD_WINDOW_DAYS_DEFAULT = 7;
 /** A year of history is the widest window the dashboard's range selector offers (90d) plus room to
@@ -25,6 +25,18 @@ export class DashboardWindowQueryDto {
   @Min(1)
   @Max(DASHBOARD_WINDOW_DAYS_MAX)
   days: number = DASHBOARD_WINDOW_DAYS_DEFAULT;
+
+  @ApiPropertyOptional({
+    example: '0190f4c2-1d55-7b09-8e42-6a3c9f01b7d4',
+    description:
+      'Scope to one location (`locations.id`). Omitted means every location the tenant has ' +
+      "confirmed, aggregated — matching this endpoint's behavior before multi-location existed. " +
+      "A location from another tenant yields zero rows, not a 403, same as the reviews list's own " +
+      'locationId filter.',
+  })
+  @IsOptional()
+  @IsUUID()
+  locationId?: string;
 }
 
 export class RecentEscalatedQueryDto {
@@ -40,4 +52,13 @@ export class RecentEscalatedQueryDto {
   @Min(1)
   @Max(DASHBOARD_ESCALATED_LIMIT_MAX)
   limit: number = DASHBOARD_ESCALATED_LIMIT_DEFAULT;
+
+  @ApiPropertyOptional({
+    example: '0190f4c2-1d55-7b09-8e42-6a3c9f01b7d4',
+    description:
+      'Scope to one location (`locations.id`). Omitted means every location, aggregated.',
+  })
+  @IsOptional()
+  @IsUUID()
+  locationId?: string;
 }

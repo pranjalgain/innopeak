@@ -150,6 +150,10 @@
   "languageSwitcher": {
     "syncFailed": "Could not save your language preference. Please try again."
   },
+  "businessSwitcher": {
+    "label": "Switch business",
+    "switchFailed": "Could not switch your active business. Please try again."
+  },
   "auth": {
     "login": {
       "title": "Sign in to InnoPeak",
@@ -212,7 +216,8 @@
       "title": "We found your business",
       "subtitle": "Confirm this is the location you'd like InnoPeak to manage.",
       "button": "Continue",
-      "subtitleMultiple": "Choose the location you'd like InnoPeak to manage.",
+      "buttonMultiple": "Continue with {count} locations",
+      "subtitleMultiple": "Choose the locations you'd like InnoPeak to manage.",
       "noAddress": "No address on file"
     },
     "backfilling": {
@@ -460,8 +465,9 @@
       "connectButton": "Connect Google Business Profile",
       "connecting": "Redirecting to Google…",
       "disconnectButton": "Disconnect",
-      "disconnectConfirm": "Are you sure? This location will stop syncing new reviews.",
-      "cancel": "Cancel"
+      "disconnectConfirm": "Are you sure? This disconnects your entire Google Business Profile connection — every location below will stop syncing new reviews.",
+      "cancel": "Cancel",
+      "otherLocations": "Other connected locations"
     },
     "ai": {
       "title": "AI Replies",
@@ -617,7 +623,6 @@
     "needsAttention": {
       "title": "Needs attention",
       "subtitle": "Businesses with a Google Business Profile connection issue",
-      "empty": "Nothing needs attention right now.",
       "viewAll": "View all businesses →",
       "statuses": {
         "needs_reauth": "Needs reauth",
@@ -869,6 +874,17 @@
       "title": "Couldn't load this",
       "description": "Something went wrong on our side. This isn't an empty list — try again in a moment.",
       "retry": "Try again"
+    }
+  },
+  "accessState": {
+    "returnHome": "Return home",
+    "forbidden": {
+      "title": "Forbidden",
+      "description": "Your account doesn't have access to this page. If you think that's wrong, ask an owner on your team to check your access."
+    },
+    "unauthorized": {
+      "title": "Unauthorized",
+      "description": "You need to be signed in to view this page."
     }
   }
 }

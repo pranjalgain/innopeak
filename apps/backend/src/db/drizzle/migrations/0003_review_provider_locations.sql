@@ -3,6 +3,17 @@
 -- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
 -- Depends on: 0000_foundation.sql (enum types, log_db_changes()), 0002_tenant_auth.sql
 --   (tenants, users)
+--
+-- ⚠ RECREATE YOUR DATABASE AFTER PULLING A CHANGE TO THIS FILE.
+-- Per the repo convention this file is edited in place rather than followed by an ALTER
+-- migration, and drizzle's migrator walks meta/_journal.json by timestamp and never re-reads a
+-- file it has already applied. On an existing database `pnpm db:migrate` therefore reports
+-- success and changes nothing — silently. `tenants.active_location_id` (added below, alongside
+-- multi-location support) is read by AuthRepository.findActiveLocationId on the
+-- GET /v1/connections path, so a stale database does not fail at migrate time; it fails at
+-- runtime with `column "active_location_id" does not exist`, taking out the dashboard guard,
+-- Settings and onboarding resume together.
+--   pnpm backend:down && pnpm backend:up && pnpm db:migrate
 
 -- ───────────────────────────────────────────────────────────────────────
 -- review_provider_connections — depends on: tenants, users
@@ -121,3 +132,20 @@ CREATE UNIQUE INDEX idx_user_locations_user_id_location_id ON user_locations(use
 CREATE TRIGGER user_locations_audit_trigger
     AFTER INSERT OR UPDATE OR DELETE ON user_locations
     FOR EACH ROW EXECUTE FUNCTION log_db_changes();
+
+-- ───────────────────────────────────────────────────────────────────────
+-- tenants.active_location_id — depends on: tenants (0002_tenant_auth.sql), locations
+-- A tenant can now confirm more than one location (multi-select at OAuth confirm time), so the
+-- app needs to know which ONE is currently shown on the Dashboard/Review Queue. Deliberately a
+-- single shared value on `tenants`, not per-user: every member of a tenant sees the same
+-- currently-selected business, and only an owner may change it (enforced at the API layer via
+-- @Roles(OWNER), same as confirming a location in the first place — this is not a database
+-- constraint). `ON DELETE SET NULL` rather than a NOT NULL column: removing/deactivating the
+-- currently-selected location must not fail the delete, and a NULL here reads correctly as "no
+-- selection yet" (falls back to the tenant's first active location — see
+-- ConnectionsService.getConnectionStatus's own existing fallback for the same case). Added here,
+-- after `locations`, rather than in 0002_tenant_auth.sql, purely so this column's FK target
+-- already exists within the same migration file.
+-- ───────────────────────────────────────────────────────────────────────
+
+ALTER TABLE tenants ADD COLUMN active_location_id UUID REFERENCES locations(id) ON DELETE SET NULL;

@@ -25,6 +25,8 @@ export const ROUTES = {
   ADMIN_BUSINESSES: "/admin/businesses",
   ADMIN_USERS: "/admin/users",
   ADMIN_SETTINGS: "/admin/settings",
+  FORBIDDEN: "/forbidden",
+  UNAUTHORIZED: "/unauthorized",
 } as const;
 
 /**

@@ -41,14 +41,16 @@ export const DashboardApiAxiosParamCreator = function (
 ) {
   return {
     /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled.
+     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled. `locationId` scopes every count to one location; omitted means every location the tenant has confirmed, aggregated together.
      * @summary Aggregated metrics for the dashboard stat cards
      * @param {number} [days] Size of the trailing window, counted from &#x60;reviewed_at&#x60;.
+     * @param {string} [locationId] Scope to one location (&#x60;locations.id&#x60;). Omitted means every location the tenant has confirmed, aggregated — matching this endpoint\&#39;s behavior before multi-location existed. A location from another tenant yields zero rows, not a 403, same as the reviews list\&#39;s own locationId filter.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     dashboardControllerGetMetricsV1: async (
       days?: number,
+      locationId?: string,
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       const localVarPath = `/v1/dashboard/metrics`;
@@ -75,6 +77,10 @@ export const DashboardApiAxiosParamCreator = function (
         localVarQueryParameter['days'] = days;
       }
 
+      if (locationId !== undefined) {
+        localVarQueryParameter['locationId'] = locationId;
+      }
+
       localVarHeaderParameter['Accept'] = 'application/json';
 
       setSearchParams(localVarUrlObj, localVarQueryParameter);
@@ -92,14 +98,16 @@ export const DashboardApiAxiosParamCreator = function (
       };
     },
     /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine.
+     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine. `locationId` scopes the list to one location; omitted means every location the tenant has confirmed.
      * @summary Most recent escalated reviews still awaiting action
      * @param {number} [limit]
+     * @param {string} [locationId] Scope to one location (&#x60;locations.id&#x60;). Omitted means every location, aggregated.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     dashboardControllerGetRecentEscalatedV1: async (
       limit?: number,
+      locationId?: string,
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       const localVarPath = `/v1/dashboard/recent-escalated`;
@@ -124,6 +132,10 @@ export const DashboardApiAxiosParamCreator = function (
 
       if (limit !== undefined) {
         localVarQueryParameter['limit'] = limit;
+      }
+
+      if (locationId !== undefined) {
+        localVarQueryParameter['locationId'] = locationId;
       }
 
       localVarHeaderParameter['Accept'] = 'application/json';
@@ -153,14 +165,16 @@ export const DashboardApiFp = function (configuration?: Configuration) {
     DashboardApiAxiosParamCreator(configuration);
   return {
     /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled.
+     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled. `locationId` scopes every count to one location; omitted means every location the tenant has confirmed, aggregated together.
      * @summary Aggregated metrics for the dashboard stat cards
      * @param {number} [days] Size of the trailing window, counted from &#x60;reviewed_at&#x60;.
+     * @param {string} [locationId] Scope to one location (&#x60;locations.id&#x60;). Omitted means every location the tenant has confirmed, aggregated — matching this endpoint\&#39;s behavior before multi-location existed. A location from another tenant yields zero rows, not a 403, same as the reviews list\&#39;s own locationId filter.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     async dashboardControllerGetMetricsV1(
       days?: number,
+      locationId?: string,
       options?: RawAxiosRequestConfig,
     ): Promise<
       (axios?: AxiosInstance, basePath?: string) => AxiosPromise<MetricsDto>
@@ -168,6 +182,7 @@ export const DashboardApiFp = function (configuration?: Configuration) {
       const localVarAxiosArgs =
         await localVarAxiosParamCreator.dashboardControllerGetMetricsV1(
           days,
+          locationId,
           options,
         );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
@@ -184,14 +199,16 @@ export const DashboardApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine.
+     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine. `locationId` scopes the list to one location; omitted means every location the tenant has confirmed.
      * @summary Most recent escalated reviews still awaiting action
      * @param {number} [limit]
+     * @param {string} [locationId] Scope to one location (&#x60;locations.id&#x60;). Omitted means every location, aggregated.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     async dashboardControllerGetRecentEscalatedV1(
       limit?: number,
+      locationId?: string,
       options?: RawAxiosRequestConfig,
     ): Promise<
       (
@@ -202,6 +219,7 @@ export const DashboardApiFp = function (configuration?: Configuration) {
       const localVarAxiosArgs =
         await localVarAxiosParamCreator.dashboardControllerGetRecentEscalatedV1(
           limit,
+          locationId,
           options,
         );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
@@ -231,7 +249,7 @@ export const DashboardApiFactory = function (
   const localVarFp = DashboardApiFp(configuration);
   return {
     /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled.
+     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled. `locationId` scopes every count to one location; omitted means every location the tenant has confirmed, aggregated together.
      * @summary Aggregated metrics for the dashboard stat cards
      * @param {DashboardApiDashboardControllerGetMetricsV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -242,11 +260,15 @@ export const DashboardApiFactory = function (
       options?: RawAxiosRequestConfig,
     ): AxiosPromise<MetricsDto> {
       return localVarFp
-        .dashboardControllerGetMetricsV1(requestParameters.days, options)
+        .dashboardControllerGetMetricsV1(
+          requestParameters.days,
+          requestParameters.locationId,
+          options,
+        )
         .then((request) => request(axios, basePath));
     },
     /**
-     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine.
+     * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine. `locationId` scopes the list to one location; omitted means every location the tenant has confirmed.
      * @summary Most recent escalated reviews still awaiting action
      * @param {DashboardApiDashboardControllerGetRecentEscalatedV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -259,6 +281,7 @@ export const DashboardApiFactory = function (
       return localVarFp
         .dashboardControllerGetRecentEscalatedV1(
           requestParameters.limit,
+          requestParameters.locationId,
           options,
         )
         .then((request) => request(axios, basePath));
@@ -271,7 +294,7 @@ export const DashboardApiFactory = function (
  */
 export interface DashboardApiInterface {
   /**
-   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled.
+   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled. `locationId` scopes every count to one location; omitted means every location the tenant has confirmed, aggregated together.
    * @summary Aggregated metrics for the dashboard stat cards
    * @param {DashboardApiDashboardControllerGetMetricsV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -283,7 +306,7 @@ export interface DashboardApiInterface {
   ): AxiosPromise<MetricsDto>;
 
   /**
-   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine.
+   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine. `locationId` scopes the list to one location; omitted means every location the tenant has confirmed.
    * @summary Most recent escalated reviews still awaiting action
    * @param {DashboardApiDashboardControllerGetRecentEscalatedV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -303,6 +326,11 @@ export interface DashboardApiDashboardControllerGetMetricsV1Request {
    * Size of the trailing window, counted from &#x60;reviewed_at&#x60;.
    */
   readonly days?: number;
+
+  /**
+   * Scope to one location (&#x60;locations.id&#x60;). Omitted means every location the tenant has confirmed, aggregated — matching this endpoint\&#39;s behavior before multi-location existed. A location from another tenant yields zero rows, not a 403, same as the reviews list\&#39;s own locationId filter.
+   */
+  readonly locationId?: string;
 }
 
 /**
@@ -310,6 +338,11 @@ export interface DashboardApiDashboardControllerGetMetricsV1Request {
  */
 export interface DashboardApiDashboardControllerGetRecentEscalatedV1Request {
   readonly limit?: number;
+
+  /**
+   * Scope to one location (&#x60;locations.id&#x60;). Omitted means every location, aggregated.
+   */
+  readonly locationId?: string;
 }
 
 /**
@@ -317,7 +350,7 @@ export interface DashboardApiDashboardControllerGetRecentEscalatedV1Request {
  */
 export class DashboardApi extends BaseAPI implements DashboardApiInterface {
   /**
-   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled.
+   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. `total`, `avgRating` and `ratingDistribution` cover the trailing `days` window, measured on `reviewed_at` (when the review was left) rather than `created_at` (when the sync imported it). `pending` and `escalated` are open-backlog counts and are intentionally not windowed — see the response schema for why. `ratingDistribution` buckets 1-5 are always present, zero-filled. `locationId` scopes every count to one location; omitted means every location the tenant has confirmed, aggregated together.
    * @summary Aggregated metrics for the dashboard stat cards
    * @param {DashboardApiDashboardControllerGetMetricsV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -328,12 +361,16 @@ export class DashboardApi extends BaseAPI implements DashboardApiInterface {
     options?: RawAxiosRequestConfig,
   ) {
     return DashboardApiFp(this.configuration)
-      .dashboardControllerGetMetricsV1(requestParameters.days, options)
+      .dashboardControllerGetMetricsV1(
+        requestParameters.days,
+        requestParameters.locationId,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 
   /**
-   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine.
+   * Scoped to the caller\'s own tenant, taken from the access token. There is deliberately no tenant parameter — one would let any authenticated user read another business\'s data. Newest `reviewed_at` first, restricted to reviews still open (status `new` or `in_review`) so a resolved escalation drops off the list. Carries the stored `escalationReason` — the client must not infer it from the star rating, since a 5-star blocklist match is routine. `locationId` scopes the list to one location; omitted means every location the tenant has confirmed.
    * @summary Most recent escalated reviews still awaiting action
    * @param {DashboardApiDashboardControllerGetRecentEscalatedV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -344,7 +381,11 @@ export class DashboardApi extends BaseAPI implements DashboardApiInterface {
     options?: RawAxiosRequestConfig,
   ) {
     return DashboardApiFp(this.configuration)
-      .dashboardControllerGetRecentEscalatedV1(requestParameters.limit, options)
+      .dashboardControllerGetRecentEscalatedV1(
+        requestParameters.limit,
+        requestParameters.locationId,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 }

@@ -58,6 +58,8 @@ interface AppShellProps {
   profileHref: string;
   /** Off for the Super Admin shell — review-escalation notifications are a tenant concept. */
   showNotifications?: boolean;
+  /** Forwarded to `AppHeader` — see its own prop doc. */
+  showBusinessSwitcher?: boolean;
 }
 
 /**
@@ -77,6 +79,7 @@ export function AppShell({
   identity,
   profileHref,
   showNotifications = true,
+  showBusinessSwitcher = true,
 }: AppShellProps) {
   const t = useTranslations(navNamespace);
   const tAppShell = useTranslations("appShell");
@@ -89,7 +92,13 @@ export function AppShell({
   if (breakpoint === "mobile") {
     return (
       <div className="flex min-h-dvh flex-col">
-        <AppHeader title={title} identity={identity} profileHref={profileHref} showNotifications={showNotifications} />
+        <AppHeader
+          title={title}
+          identity={identity}
+          profileHref={profileHref}
+          showNotifications={showNotifications}
+          showBusinessSwitcher={showBusinessSwitcher}
+        />
         <main className="min-w-0 flex-1 overflow-y-auto pb-16">{children}</main>
         <MobileBottomNav navItems={navItems} navNamespace={navNamespace} homeHref={homeHref} />
       </div>
@@ -218,6 +227,7 @@ export function AppShell({
           identity={identity}
           profileHref={profileHref}
           showNotifications={showNotifications}
+          showBusinessSwitcher={showBusinessSwitcher}
           showAccountMenu={false}
         />
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>

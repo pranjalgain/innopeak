@@ -58,18 +58,31 @@ export const ACCESS_TOKEN_COOKIE_NAME = 'access_token';
 export const ACCESS_TOKEN_COOKIE_PATH = '/';
 
 /**
- * Carries no credential — just "a session exists", so it is safe to scope broadly and to outlive
- * the 15-minute access token. It exists because the frontend's `proxy.ts` middleware has to decide
- * whether to render a page or redirect *before* any client JS runs, and the two cookies that do
- * carry credentials are both wrong for that job: `access_token` expires after 15 minutes (so an
- * idle-but-refreshable visitor would be bounced to /login), and `refresh_token` is deliberately
- * scoped to `/v1/auth` (so a browser never sends it on a page request at all). Lives exactly as
- * long as the refresh token, since that is precisely the window in which a session can still be
- * revived without re-authenticating.
+ * Carries no credential — just "a session exists, and which kind" — so it is safe to scope
+ * broadly. It exists because the frontend's `proxy.ts` middleware has to decide whether to render
+ * a page or redirect *before* any client JS runs, and the two cookies that do carry credentials
+ * are both wrong for that job: `access_token` expires after 15 minutes (so an idle-but-refreshable
+ * visitor would be bounced to /login), and `refresh_token` is deliberately scoped to `/v1/auth`
+ * (so a browser never sends it on a page request at all).
+ *
+ * The value distinguishes a tenant session from a platform-admin one — not just "signed in" but
+ * "signed in as what" — so `proxy.ts` can route a platform admin away from tenant-only pages (and
+ * vice versa) at the edge, before any page ever renders. Without that, a platform admin manually
+ * navigating to a tenant route had no `session` cookie at all (see `setAdminSessionCookies`'s own
+ * history — earlier versions cleared it outright), `proxy.ts` bounced them to `/login`, and
+ * `/login`'s own client-side guard saw their still-valid `access_token` in localStorage and bounced
+ * them straight back — an infinite loop between the two pages that never reached the backend at
+ * all.
+ *
+ * Lives as long as the underlying session can be revived: for a tenant, that's the refresh token's
+ * lifetime (`REFRESH_TOKEN_TTL_SECONDS`); for a platform admin, who has no refresh token at all,
+ * that's just the access token's own lifetime (`ACCESS_TOKEN_TTL_SECONDS`) — see
+ * `setAdminSessionCookies`.
  */
 export const SESSION_HINT_COOKIE_NAME = 'session';
 export const SESSION_HINT_COOKIE_PATH = '/';
-export const SESSION_HINT_COOKIE_VALUE = '1';
+export const SESSION_HINT_TENANT_VALUE = 'tenant';
+export const SESSION_HINT_ADMIN_VALUE = 'admin';
 
 /**
  * Per-account cap on verify-email OTP guesses. The global ThrottlerGuard only limits per IP, which

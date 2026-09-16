@@ -13,6 +13,7 @@ import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useBusinessSwitcher } from "@/hooks/connections/use-business-switcher";
 import type { ConnectionInfo } from "@/types/domain";
 
 interface ConnectionSettingsSectionProps {
@@ -38,6 +39,23 @@ export function ConnectionSettingsSection({
   const [isConfirming, setIsConfirming] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const isConnected = connection.status === "connected";
+  // Read-only: this tab only shows what's confirmed, it doesn't switch between them (that's the
+  // header's BusinessSwitcher, already visible on this page) — reusing its hook avoids a second
+  // fetch of the same `["connections", "locations"]` data.
+  const { locations, activeLocationId } = useBusinessSwitcher();
+  const activeLocation = locations.find((location) => location.id === activeLocationId) ?? null;
+  const otherLocations = locations.filter((location) => location.id !== activeLocation?.id);
+
+  // The tile below names the active location from the SAME data that decides which locations are
+  // "other", never from the `connection` prop alone. That prop comes from the `["settings"]` query,
+  // a separate cached copy of the same server state, and switching business from the header's
+  // BusinessSwitcher writes only `["connection"]` — so the two disagree until Settings happens to
+  // refetch (5-minute staleTime, no refetch on focus). While they disagreed, the just-deselected
+  // location was rendered as the connected one AND listed under "other connected locations", with
+  // the genuinely active one shown nowhere. Falls back to the prop whenever the locations list
+  // hasn't loaded (or a single-location tenant has nothing to switch between).
+  const activeBusinessName = activeLocation?.businessName ?? connection.businessName;
+  const activeLastSyncedAt = activeLocation?.lastSyncedAt ?? connection.lastSyncedAt;
 
   // A full-page navigation into the OAuth flow, returning to this tab via the backend's
   // `?tab=connection` redirect. Previously the only way back from "disconnected" was the
@@ -59,10 +77,10 @@ export function ConnectionSettingsSection({
             <LuStore className="size-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold">{connection.businessName}</p>
+            <p className="text-sm font-semibold">{activeBusinessName}</p>
             <p className="text-muted-foreground mt-0.5 text-[13px]">
               {t("lastSynced", {
-                date: format.dateTime(new Date(connection.lastSyncedAt), DATE_FORMAT),
+                date: format.dateTime(new Date(activeLastSyncedAt), DATE_FORMAT),
               })}
             </p>
           </div>
@@ -76,6 +94,33 @@ export function ConnectionSettingsSection({
             {isConnected ? t("statusConnected") : t("statusDisconnected")}
           </Badge>
         </div>
+
+        {isConnected && otherLocations.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              {t("otherLocations")}
+            </p>
+            <div className="flex flex-col gap-2">
+              {otherLocations.map((location) => (
+                <div
+                  key={location.id}
+                  className="border-border flex items-center gap-4 rounded-lg border p-4">
+                  <div className="bg-accent text-accent-foreground flex size-11 shrink-0 items-center justify-center rounded-md">
+                    <LuStore className="size-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">{location.businessName}</p>
+                    {location.address ? (
+                      <p className="text-muted-foreground mt-0.5 truncate text-[13px]">
+                        {location.address}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {!isConnected ? (
           <div>

@@ -4,31 +4,32 @@ import { LuMapPin } from "react-icons/lu";
 import type { AvailableLocation } from "@/app/_libs/services/connection.service";
 import { cn } from "@/app/_libs/utils/cn";
 import { Button } from "@/components/ui/button";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface ConfirmLocationStageProps {
   locations: AvailableLocation[];
-  selectedLocationId: string | null;
-  onSelect: (externalLocationId: string) => void;
+  selectedLocationIds: string[];
+  onToggle: (externalLocationId: string) => void;
   onContinue: () => void;
   isSubmitting?: boolean;
 }
 
 /**
- * One location renders as today's single confirmation card; several render the same card inside a
- * radio group. The multi-location branch is not speculative — a franchise's connected account
- * really does return several, and silently taking `locations[0]` would connect the wrong store
- * with no visible recourse.
+ * One location renders as today's single confirmation card; several render the same card behind
+ * a checkbox. The multi-location branch is not speculative — a franchise's connected account
+ * really does return several, and every one of them needs its reviews tracked, not just whichever
+ * happened to come back first.
  */
 export function ConfirmLocationStage({
   locations,
-  selectedLocationId,
-  onSelect,
+  selectedLocationIds,
+  onToggle,
   onContinue,
   isSubmitting = false,
 }: ConfirmLocationStageProps) {
   const t = useTranslations("onboardingConnect.confirmLocation");
   const isSingle = locations.length === 1;
+  const selectedCount = selectedLocationIds.length;
 
   return (
     <div className="animate-in fade-in slide-in-from-right-2 flex flex-col items-center gap-4 text-center duration-300 ease-fluid">
@@ -45,33 +46,33 @@ export function ConfirmLocationStage({
       {isSingle ? (
         <LocationCard location={locations[0]} isSelected />
       ) : (
-        <RadioGroup
-          value={selectedLocationId ?? undefined}
-          onValueChange={onSelect}
-          className="flex w-full flex-col gap-2"
-        >
-          {locations.map((location) => (
-            <label
-              key={location.externalLocationId}
-              className="flex w-full cursor-pointer items-center gap-3"
-            >
-              <RadioGroupItem value={location.externalLocationId} className="shrink-0" />
-              <LocationCard
-                location={location}
-                isSelected={location.externalLocationId === selectedLocationId}
-              />
-            </label>
-          ))}
-        </RadioGroup>
+        <div className="flex w-full flex-col gap-2">
+          {locations.map((location) => {
+            const isSelected = selectedLocationIds.includes(location.externalLocationId);
+            return (
+              <label
+                key={location.externalLocationId}
+                className="flex w-full cursor-pointer items-center gap-3"
+              >
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={() => onToggle(location.externalLocationId)}
+                  className="shrink-0"
+                />
+                <LocationCard location={location} isSelected={isSelected} />
+              </label>
+            );
+          })}
+        </div>
       )}
 
       <Button
         type="button"
         size="block"
         onClick={onContinue}
-        disabled={isSubmitting || !selectedLocationId}
+        disabled={isSubmitting || selectedCount === 0}
       >
-        {t("button")}
+        {isSingle || selectedCount <= 1 ? t("button") : t("buttonMultiple", { count: selectedCount })}
       </Button>
     </div>
   );

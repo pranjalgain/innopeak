@@ -2,6 +2,7 @@ import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import { DemoDataDbService } from '@db/repositories/demo-data/demo-data.db-service';
 import {
   BadRequestException,
   ConflictException,
@@ -40,6 +41,7 @@ describe('AuthService', () => {
   let otpAttemptService: jest.Mocked<OtpAttemptService>;
   let loginAttemptService: jest.Mocked<LoginAttemptService>;
   let queueManager: jest.Mocked<AddingJobsToQueueManager>;
+  let demoDataDbService: jest.Mocked<DemoDataDbService>;
 
   const tokenPair = { accessToken: 'access', refreshToken: 'refresh', expiresIn: 900 };
 
@@ -97,6 +99,13 @@ describe('AuthService', () => {
       addRegisterationOtpEmailJob: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<AddingJobsToQueueManager>;
 
+    // Fire-and-forget dev-only seeding (`seedDemoDataIfDev`) — `NODE_ENV=test` is not production,
+    // so this path runs in every `verifyEmail` test too. Resolved, never asserted on: none of the
+    // tests here care about it, only that it can't throw synchronously or block the real result.
+    demoDataDbService = {
+      seedForTenant: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<DemoDataDbService>;
+
     const configService = { get: jest.fn(() => 10) } as unknown as ConfigService;
 
     googleIdentityProvider = {
@@ -131,6 +140,7 @@ describe('AuthService', () => {
         { provide: GoogleIdentityProvider, useValue: googleIdentityProvider },
         { provide: GoogleOAuthStateService, useValue: googleOAuthStateService },
         { provide: PendingGoogleSignupService, useValue: pendingGoogleSignupService },
+        { provide: DemoDataDbService, useValue: demoDataDbService },
       ],
     }).compile();
 
@@ -313,6 +323,62 @@ describe('AuthService', () => {
       expect(result.body.user.email).toBe('jane@thecoffeehouse.com');
       expect(result.body.hasConnectedBusiness).toBe(false);
       expect(result.refreshToken).toBe('refresh');
+    });
+
+    describe('dev demo data seeding — see seedDemoDataIfDev', () => {
+      const verifiedUser = {
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        email: 'jane@thecoffeehouse.com',
+        name: 'Jane Doe',
+        role: UserRole.OWNER,
+        passwordHash: 'hashed-password',
+        status: UserStatus.ACTIVE,
+        locale: null,
+      };
+
+      it('seeds demo data for the newly-activated tenant, keyed off its business name', async () => {
+        authDbService.verifyEmail.mockResolvedValue(verifiedUser);
+        authDbService.findTenantStatus.mockResolvedValue({
+          status: TenantStatus.ACTIVE,
+          name: 'The Coffee House',
+        });
+
+        await target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' });
+        // Fire-and-forget: give the un-awaited seeding chain a turn to run.
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(demoDataDbService.seedForTenant).toHaveBeenCalledWith({
+          tenantId: 'tenant-1',
+          userId: 'user-1',
+          businessName: 'The Coffee House',
+        });
+      });
+
+      it('does not attempt to seed when the tenant lookup comes back empty', async () => {
+        authDbService.verifyEmail.mockResolvedValue(verifiedUser);
+        authDbService.findTenantStatus.mockResolvedValue(null);
+
+        await target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' });
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(demoDataDbService.seedForTenant).not.toHaveBeenCalled();
+      });
+
+      it('never lets a seeding failure surface as a failed verify-email response', async () => {
+        authDbService.verifyEmail.mockResolvedValue(verifiedUser);
+        authDbService.findTenantStatus.mockResolvedValue({
+          status: TenantStatus.ACTIVE,
+          name: 'The Coffee House',
+        });
+        demoDataDbService.seedForTenant.mockRejectedValue(new Error('seed failed'));
+
+        // The awaited result is what the real signup response depends on — it must resolve
+        // normally regardless of what the un-awaited seeding call does afterward.
+        await expect(
+          target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' })
+        ).resolves.toMatchObject({ body: { accessToken: 'access' } });
+      });
     });
   });
 
@@ -800,6 +866,7 @@ describe('AuthService', () => {
         authDbService.resolveGoogleIdentity.mockResolvedValue({
           kind: 'known',
           user: resolvedUser,
+          firstActivation: false,
         });
         authDbService.findTenantStatus.mockResolvedValue({
           status: TenantStatus.ACTIVE,
@@ -950,6 +1017,7 @@ describe('AuthService', () => {
         authDbService.resolveGoogleIdentity.mockResolvedValue({
           kind: 'known',
           user: { ...resolvedUser, status: UserStatus.DISABLED },
+          firstActivation: false,
         });
 
         const outcome = await target.handleGoogleCallback({
@@ -974,6 +1042,7 @@ describe('AuthService', () => {
         authDbService.resolveGoogleIdentity.mockResolvedValue({
           kind: 'known',
           user: resolvedUser,
+          firstActivation: false,
         });
         authDbService.findTenantStatus.mockResolvedValue({
           status: TenantStatus.SUSPENDED,
@@ -988,6 +1057,60 @@ describe('AuthService', () => {
         });
 
         expect(outcome).toMatchObject({ failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE });
+      });
+
+      describe('dev demo data seeding — the Google-linking equivalent of verifyEmail', () => {
+        it('seeds demo data when the callback just promoted a pending_verification row', async () => {
+          googleOAuthStateService.consume.mockResolvedValue(loginState);
+          googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+          authDbService.resolveGoogleIdentity.mockResolvedValue({
+            kind: 'known',
+            user: resolvedUser,
+            firstActivation: true,
+          });
+          authDbService.findTenantStatus.mockResolvedValue({
+            status: TenantStatus.ACTIVE,
+            name: 'Test Tenant',
+          });
+
+          await target.handleGoogleCallback({
+            code: 'c',
+            state: 's',
+            error: undefined,
+            sid: 'sid',
+          });
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(demoDataDbService.seedForTenant).toHaveBeenCalledWith({
+            tenantId: 'tenant-1',
+            userId: 'user-1',
+            businessName: 'Test Tenant',
+          });
+        });
+
+        it('does not seed for a returning user signing back in — firstActivation is false', async () => {
+          googleOAuthStateService.consume.mockResolvedValue(loginState);
+          googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+          authDbService.resolveGoogleIdentity.mockResolvedValue({
+            kind: 'known',
+            user: resolvedUser,
+            firstActivation: false,
+          });
+          authDbService.findTenantStatus.mockResolvedValue({
+            status: TenantStatus.ACTIVE,
+            name: 'Test Tenant',
+          });
+
+          await target.handleGoogleCallback({
+            code: 'c',
+            state: 's',
+            error: undefined,
+            sid: 'sid',
+          });
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(demoDataDbService.seedForTenant).not.toHaveBeenCalled();
+        });
       });
     });
 
@@ -1033,6 +1156,46 @@ describe('AuthService', () => {
         await expect(
           target.completeGoogleSignup('pending-nonce', 'The Coastal Table')
         ).rejects.toThrow(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+      });
+
+      it('seeds dev demo data unconditionally — this path only ever creates a brand-new tenant', async () => {
+        pendingGoogleSignupService.consume.mockResolvedValue({
+          ok: true,
+          identity: {
+            providerUserId: 'google-sub-1',
+            email: 'owner@example.com',
+            name: 'Jane Doe',
+          },
+        });
+        authDbService.completeGoogleSignup.mockResolvedValue(resolvedUser);
+        authDbService.findTenantStatus.mockResolvedValue({
+          status: TenantStatus.ACTIVE,
+          name: 'The Coastal Table',
+        });
+
+        await target.completeGoogleSignup('pending-nonce', 'The Coastal Table');
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(demoDataDbService.seedForTenant).toHaveBeenCalledWith({
+          tenantId: 'tenant-1',
+          userId: 'user-1',
+          businessName: 'The Coastal Table',
+        });
+      });
+
+      it('never seeds when the email was claimed in the meantime — no tenant was actually created', async () => {
+        pendingGoogleSignupService.consume.mockResolvedValue({
+          ok: true,
+          identity: { providerUserId: 'google-sub-1', email: 'owner@example.com', name: null },
+        });
+        authDbService.completeGoogleSignup.mockResolvedValue(null);
+
+        await expect(
+          target.completeGoogleSignup('pending-nonce', 'The Coastal Table')
+        ).rejects.toThrow();
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(demoDataDbService.seedForTenant).not.toHaveBeenCalled();
       });
 
       /** Same `assertEmailNotAPlatformAdmin` guard as `signup` — shares the one private method. */

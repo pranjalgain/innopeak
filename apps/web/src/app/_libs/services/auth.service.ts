@@ -4,7 +4,6 @@ import { refreshSession } from "@/app/_libs/api-sdk/config";
 import { SUPER_ADMIN_EMAIL } from "@/app/_libs/constants/current-owner";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError, unwrap } from "@/app/_libs/services/api-error";
-import { SessionService } from "@/app/_libs/services/session.service";
 import { TokenService } from "@/app/_libs/services/token.service";
 import type { AppLocale } from "@/i18n/locales";
 
@@ -67,15 +66,14 @@ export interface VerifyOtpResult {
  * string instead — real Microsoft SSO doesn't exist in the backend at all yet.
  */
 export class AuthService {
-  private static async resolveLoginDestination(email: string): Promise<string> {
+  private static resolveLoginDestination(email: string): string {
     const isSuperAdmin = email.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
-    await SessionService.setRole(isSuperAdmin ? "super_admin" : "tenant");
     return isSuperAdmin ? ROUTES.ADMIN : ROUTES.DASHBOARD;
   }
 
   static async loginWithMicrosoft(email: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 600));
-    window.location.assign(await this.resolveLoginDestination(email));
+    window.location.assign(this.resolveLoginDestination(email));
   }
 
   /**
@@ -112,7 +110,6 @@ export class AuthService {
 
     if ("admin" in data) {
       TokenService.setAccessToken(data.accessToken);
-      await SessionService.setRole("super_admin");
       return { kind: "admin_success" };
     }
 
@@ -120,7 +117,6 @@ export class AuthService {
     TokenService.setName(data.user.name);
     TokenService.setHasPassword(data.user.hasPassword);
     TokenService.setBusinessName(data.user.businessName);
-    await SessionService.setRole("tenant");
     return { kind: "success", hasConnectedBusiness: data.hasConnectedBusiness };
   }
 
@@ -141,7 +137,6 @@ export class AuthService {
    */
   static async signupWithMicrosoft(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 600));
-    await SessionService.setRole("tenant");
   }
 
   /** Real signup. Throws (ApiError, 409 on an already-registered email) — the caller catches. */
@@ -201,7 +196,6 @@ export class AuthService {
     TokenService.setName(data.user.name);
     TokenService.setHasPassword(data.user.hasPassword);
     TokenService.setBusinessName(data.user.businessName);
-    await SessionService.setRole("tenant");
     return { hasConnectedBusiness: data.hasConnectedBusiness };
   }
 
@@ -221,7 +215,6 @@ export class AuthService {
       TokenService.setName(data.user.name);
       TokenService.setHasPassword(data.user.hasPassword);
       TokenService.setBusinessName(data.user.businessName);
-      await SessionService.setRole("tenant");
       return { verified: true, hasConnectedBusiness: data.hasConnectedBusiness };
     } catch (error) {
       // Only a 400 actually means "that code is wrong" — the backend returns it for
@@ -260,7 +253,6 @@ export class AuthService {
       await authApi.authControllerLogoutV1();
     } finally {
       TokenService.clear();
-      await SessionService.setRole("tenant");
       window.location.assign(ROUTES.LOGIN);
     }
   }

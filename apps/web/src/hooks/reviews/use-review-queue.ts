@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
+import { useConnection } from "@/hooks/connections/use-connection";
 import type { Review, ReviewQueueFilters } from "@/types/domain";
 
 interface UseReviewQueueResult {
@@ -46,6 +47,7 @@ interface ReviewQueueQueryParams {
   page: number;
   pageSize: number;
   filters: { status: ReviewQueueFilters["status"]; classification: ReviewQueueFilters["classification"]; search: string };
+  locationId: string | null;
 }
 
 export const reviewQueueQueryKey = (params: ReviewQueueQueryParams) =>
@@ -59,9 +61,17 @@ export const reviewQueueQueryKey = (params: ReviewQueueQueryParams) =>
  * reflected the backend's own `page`/`total`, and a business with more than 50 reviews would never
  * show anything past row 50 no matter how many times "Next" was clicked. This fetches exactly the
  * page being displayed, using `GET /v1/reviews`'s own `page`/`pageSize`/`meta.total`.
+ *
+ * Scoped to whichever business the Business Switcher currently has active (`useConnection()`'s
+ * `state.location.id`). Folded into the query key, not just the request: switching the active
+ * location must read as a different query to react-query, not a background refetch of the same
+ * one, otherwise a page change or the debounce timer racing the switch could serve one business's
+ * rows under a key that now means another.
  */
 export function useReviewQueue(): UseReviewQueueResult {
   const t = useTranslations("reviewQueue.toasts");
+  const { state, isLoading: isResolvingLocation } = useConnection();
+  const locationId = state?.location?.id ?? null;
   const [page, setPageState] = useState(1);
   const [filters, setFilters] = useState<ReviewQueueFilters>(INITIAL_FILTERS);
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -74,11 +84,21 @@ export function useReviewQueue(): UseReviewQueueResult {
   }, [filters.search]);
 
   // A filter change invalidates the current page — page 3 of "escalated" may not exist once the
-  // status filter narrows the result set. Reset before the query params below change, rather than
-  // fetching page 3 of the new set and only then discovering it's empty.
-  useEffect(() => {
+  // status filter narrows the result set, and the same is true of switching business: page 3 of
+  // one location's reviews may not exist for another. Reset before the query params below change,
+  // rather than fetching page 3 of the new set and only then discovering it's empty.
+  //
+  // Adjusted during render, not in an effect. An effect runs *after* the render it belongs to, so
+  // the render that first saw the new location had already built `queryParams` with the old page
+  // and issued `page=3&locationId=<new>` — a wasted round trip, and with `keepPreviousData` the
+  // list visibly showed the previous business's rows with a wrong total before settling. React
+  // re-runs this render immediately on the set, without committing the first one.
+  const paramsKey = `${filters.status}|${filters.classification}|${debouncedSearch}|${locationId ?? ""}`;
+  const [lastParamsKey, setLastParamsKey] = useState(paramsKey);
+  if (lastParamsKey !== paramsKey) {
+    setLastParamsKey(paramsKey);
     setPageState(1);
-  }, [filters.status, filters.classification, debouncedSearch]);
+  }
 
   const queryParams: ReviewQueueQueryParams = {
     page,
@@ -88,11 +108,16 @@ export function useReviewQueue(): UseReviewQueueResult {
       classification: filters.classification,
       search: debouncedSearch,
     },
+    locationId,
   };
 
   const reviewsQuery = useQuery({
     queryKey: reviewQueueQueryKey(queryParams),
-    queryFn: () => ReviewService.getReviews(queryParams),
+    queryFn: () => ReviewService.getReviews({ ...queryParams, locationId: locationId ?? undefined }),
+    // Waits for `["connection"]` to settle, same as the dashboard's queries: a null `locationId`
+    // means "every location" to the API, so firing before the active one is known lists the whole
+    // tenant's reviews and then replaces them.
+    enabled: !isResolvingLocation,
     // Keeps the previous page's rows on screen while the next page loads, instead of the list
     // flashing empty on every click — matches the original hook, which never cleared `reviews`
     // before a new fetch resolved.
@@ -121,7 +146,10 @@ export function useReviewQueue(): UseReviewQueueResult {
     // `isFetching`, not `isLoading`: the original set its loading flag around every fetch,
     // including a page/filter change once data already exists, not just the very first load
     // (which is all `isLoading` alone would cover once `placeholderData` keeps `data` defined).
-    isLoading: reviewsQuery.isFetching,
+    // `!isResolvingLocation` included for the same reason the `enabled` gate exists: a disabled
+    // query is not fetching, so without it the queue would flash its empty state while the active
+    // location is still being resolved.
+    isLoading: isResolvingLocation || reviewsQuery.isFetching,
     // `keepPreviousData` only holds the prior page's rows while this one is still *pending* — once
     // the fetch actually settles as an error, `data` (and so `reviews` above) reverts to empty,
     // indistinguishable from a genuinely empty result set unless the caller also checks this.

@@ -27,9 +27,10 @@ export class DashboardService {
    * to be two round trips for the same `days` window; callers that need both should share one
    * `getMetrics` call rather than each hitting the endpoint separately.
    */
-  static async getMetrics(range: DateRange): Promise<MetricsDto> {
+  static async getMetrics(range: DateRange, locationId?: string): Promise<MetricsDto> {
     const response = await dashboardApi.dashboardControllerGetMetricsV1({
       days: RANGE_DAYS[range],
+      locationId,
     });
     return unwrap<MetricsDto>(response.data);
   }
@@ -58,8 +59,11 @@ export class DashboardService {
     });
   }
 
-  static async getAttentionReviews(limit = 4): Promise<AttentionReview[]> {
-    const response = await dashboardApi.dashboardControllerGetRecentEscalatedV1({ limit });
+  static async getAttentionReviews(limit = 4, locationId?: string): Promise<AttentionReview[]> {
+    const response = await dashboardApi.dashboardControllerGetRecentEscalatedV1({
+      limit,
+      locationId,
+    });
     const reviews = unwrap<RecentEscalatedDto[]>(response.data);
 
     return reviews.map((review) => {
