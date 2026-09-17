@@ -5,6 +5,7 @@ import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { TenantMemberService } from "@/app/_libs/services/tenant-member.service";
+import { authErrorMessage } from "@/hooks/auth/use-auth";
 import type { TenantMember } from "@/types/domain";
 
 export const tenantMembersQueryKey = ["tenant-members"] as const;
@@ -39,14 +40,25 @@ export function useTenantMembers(): UseTenantMembersResult {
     async (email: string) => {
       try {
         const member = await inviteMemberMutation.mutateAsync(email);
-        queryClient.setQueryData<TenantMember[]>(tenantMembersQueryKey, (prev) => [
-          ...(prev ?? []),
-          member,
-        ]);
+        // Appended only when there is a list to append to. `[...(prev ?? []), member]` looked
+        // equivalent but silently replaced the whole cache with a one-element array whenever the
+        // roster query had failed or not yet loaded — every other member vanished from the screen
+        // until a refetch. `undefined` leaves the cache untouched and lets the invalidate below
+        // fetch the real list.
+        queryClient.setQueryData<TenantMember[]>(tenantMembersQueryKey, (prev) =>
+          prev ? [...prev, member] : undefined,
+        );
+        // Also the only path back to a fresh roster after an invitee accepts elsewhere: nothing
+        // pushes that update to the owner's open tab, so without this, the owner's list keeps
+        // reading "invited" until `staleTime` (5 min) passes and something else happens to
+        // trigger a refetch.
+        void queryClient.invalidateQueries({ queryKey: tenantMembersQueryKey });
         toast.success(t("invited", { email }));
         return true;
-      } catch {
-        toast.error(t("inviteFailed"));
+      } catch (error) {
+        // A 4xx here carries copy worth showing as-is — "This email already has a pending
+        // invite." tells the owner something actionable that the generic fallback below does not.
+        toast.error(authErrorMessage(error, t("inviteFailed")));
         return false;
       }
     },
@@ -65,9 +77,10 @@ export function useTenantMembers(): UseTenantMembersResult {
           tenantMembersQueryKey,
           (prev) => prev?.filter((member) => member.id !== id) ?? prev,
         );
+        void queryClient.invalidateQueries({ queryKey: tenantMembersQueryKey });
         toast.success(t("revoked"));
-      } catch {
-        toast.error(t("revokeFailed"));
+      } catch (error) {
+        toast.error(authErrorMessage(error, t("revokeFailed")));
       }
     },
     [t, revokeInviteMutation, queryClient],

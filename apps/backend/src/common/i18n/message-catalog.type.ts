@@ -34,8 +34,11 @@ export interface MessageCatalog {
     GOOGLE_PENDING_SIGNUP_EXPIRED: string;
     TENANT_CONTEXT_REQUIRED: string;
     /** Same message for a token that never existed, was already used, or has expired — see
-     *  Security considerations (no enumeration). Covers both the password and Google accept paths. */
+     *  Security considerations (no enumeration). Covers the password and Google accept paths for
+     *  both the platform-admin and tenant-member invite flows — the same generic wording applies
+     *  to either. */
     INVALID_OR_EXPIRED_INVITE: string;
+    /** Shared by `PlatformAdminAuthService.acceptAdminInvite` and `AuthService.acceptMemberInvite`. */
     INVITE_ACCEPTED: string;
   };
   CONNECTIONS: {
@@ -83,6 +86,15 @@ export interface MessageCatalog {
     /** Should never fire in practice — the migration seeds `platform_settings` unconditionally
      *  and its id is CHECK-constrained to exactly 1 row. */
     PLATFORM_CONFIG_MISSING: string;
+    MEMBER_INVITE_SENT: string;
+    MEMBER_INVITE_REVOKED: string;
+    /** A live, unexpired invite already exists for this email in this tenant. */
+    MEMBER_EMAIL_ALREADY_INVITED: string;
+    MEMBER_NOT_FOUND: string;
+    /** The id exists but is no longer `invited` (already accepted, or never was) — a 409, not a 404, since the roster entry is plainly still there. */
+    MEMBER_INVITE_NOT_REVOCABLE: string;
+    /** `platform_settings.invite_members_enabled` is off. */
+    MEMBER_INVITES_DISABLED: string;
   };
   ADMIN: {
     /** `requirePlatformAdmin`'s failure case — should never fire in practice, since every admin

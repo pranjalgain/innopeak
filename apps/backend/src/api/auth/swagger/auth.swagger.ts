@@ -1,11 +1,20 @@
-import { applyDecorators } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
+import { applyDecorators, HttpStatus } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+} from '@nestjs/swagger';
 
+import { AcceptMemberInviteDto } from '../dto/accept-member-invite.dto';
 import { AuthenticatedUserDto } from '../dto/authenticated-user.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import { CompleteGoogleSignupDto } from '../dto/complete-google-signup.dto';
 import type { LoginPendingVerificationDto } from '../dto/login-response.dto';
 import { LoginDto } from '../dto/login.dto';
+import { MemberInvitePreviewDto } from '../dto/member-invite-preview.dto';
 import { ResendOtpDto } from '../dto/resend-otp.dto';
 import { SetPasswordDto } from '../dto/set-password.dto';
 import { SignupResponseDto } from '../dto/signup-response.dto';
@@ -590,6 +599,84 @@ export function ApiGoogleCallback(): ReturnType<typeof applyDecorators> {
       status: 302,
       description: 'Signed in, sent to collect a business name, or redirected with ?error=',
     })
+  );
+}
+
+export function ApiValidateMemberInvite(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Preview a tenant-member invite',
+      description:
+        'Lets the accept screen show "You\'ve been invited as `<email>`" before asking for a ' +
+        'name and password, without spending the token. Same generic 404 for a token that never ' +
+        'existed, was already used, or has expired as the platform-admin equivalent.',
+    }),
+    ApiParam({ name: 'token', description: 'The raw invite token from the accept-invite link' }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      type: MemberInvitePreviewDto,
+      examples: {
+        default: {
+          summary: 'Live invite',
+          value: { email: 'sam.rivera@thecoffeehouse.com' },
+        },
+      },
+    }),
+    ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Invalid, used, or expired token' })
+  );
+}
+
+export function ApiAcceptMemberInvite(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Accept a tenant-member invite by setting a name and password',
+      description:
+        'Sets `users.name`/`password_hash`, flips `status` `invited` -> `active`, and consumes ' +
+        'the invite token — a guarded compare-and-swap, so a double-submit cannot redeem the ' +
+        'same token twice. Signs the member in on success, same shape as `POST /v1/auth/login`. ' +
+        'See `GET /v1/auth/invite/:token/google` for the SSO alternative.',
+    }),
+    ApiBody({
+      type: AcceptMemberInviteDto,
+      examples: {
+        default: {
+          summary: 'Typical request',
+          value: {
+            token: 'kx7F2m9pQnR4vL8wZs1cYb3dEaJhTgUo',
+            name: 'Sam Rivera',
+            password: 'NewStr0ng@Pass',
+          },
+        },
+      },
+    }),
+    ApiResponse({ status: HttpStatus.OK, type: TokenResponseDto }),
+    ApiResponse({
+      status: HttpStatus.BAD_REQUEST,
+      description: 'Validation failed, or invalid/expired invite',
+    })
+  );
+}
+
+export function ApiInviteGoogleAuthorize(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Accept a tenant-member invite via Google',
+      description:
+        'The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route ' +
+        'as `GET /v1/auth/google` login, since a first-time invitee has no `user_identities` row ' +
+        'yet for that callback branch to find. Re-validates the token (unexpired, unused) before ' +
+        'ever redirecting, so a dead link fails fast on this screen rather than after the round ' +
+        'trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the ' +
+        'IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` ' +
+        "otherwise, token left unconsumed) — the check that stops someone else's Google account " +
+        'from redeeming this link.',
+    }),
+    ApiParam({ name: 'token', description: 'The raw invite token from the accept-invite link' }),
+    ApiResponse({
+      status: 302,
+      description: 'Redirect to Google, or to the accept page with ?error=',
+    }),
+    ApiResponse({ status: 503, description: 'GOOGLE_CLIENT_ID / SECRET / CALLBACK_URL unset' })
   );
 }
 

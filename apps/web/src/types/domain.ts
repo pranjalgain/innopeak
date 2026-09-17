@@ -149,6 +149,8 @@ export interface TenantOwnerProfile {
   hasPassword: boolean;
   /** The tenant/company name set at signup (`tenants.name`) — read-only in Settings. */
   businessName: string;
+  /** The shell's own role badge reads this — see `MemberRole` for the invited-teammate case, which `DashboardLayout` had no way to distinguish from an owner before this field existed. */
+  role: MemberRole;
 }
 
 /** Mirrors the real `user_role`/`user_status` enums on the tenant-scoped `users` table. */

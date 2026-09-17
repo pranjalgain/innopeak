@@ -31,8 +31,13 @@ interface UseSettingsResult {
  * `saveGeneral` is the one path that writes `PUT /v1/settings` — the General tab stages edits
  * locally (its own Save/Cancel) and calls it once on an explicit Save click; the AI tab's reply-
  * count select calls it immediately on change instead, since it has no staged-draft UI of its own.
+ *
+ * `enabled` (default `true`) gates the underlying query — `GET /v1/settings` is
+ * `@Roles(UserRole.OWNER)` on the backend, so `SettingsView` passes `false` for a `member`
+ * caller. Without it, every tenant member hit this 403 on every Settings visit and saw a
+ * "Couldn't load settings" toast for a page they were never going to be allowed to load.
  */
-export function useSettings(): UseSettingsResult {
+export function useSettings(enabled = true): UseSettingsResult {
   const t = useTranslations("settings.toasts");
   const queryClient = useQueryClient();
   const { refresh: refreshConnection } = useConnection();
@@ -40,6 +45,7 @@ export function useSettings(): UseSettingsResult {
   const settingsQuery = useQuery({
     queryKey: settingsQueryKey,
     queryFn: () => SettingsService.getSettings(),
+    enabled,
   });
 
   useEffect(() => {

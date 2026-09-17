@@ -122,4 +122,51 @@ describe('HttpLoggingInterceptor', () => {
     const [message] = logger.http.mock.calls[0] as [string, string];
     expect(message).toContain('Content-Length: unknown');
   });
+
+  it('redacts the invite token path segment on the tenant-member and admin invite routes', async () => {
+    const context = buildContext({ url: '/v1/auth/invite/eyJhbGciOiJIUzI1NiJ9-raw-token' });
+    const callHandler: CallHandler = { handle: () => of('ok') };
+
+    await firstValueFrom(interceptor.intercept(context, callHandler));
+
+    const [message] = logger.http.mock.calls[0] as [string, string];
+    expect(message).toContain('URL: /v1/auth/invite/[REDACTED]');
+    expect(message).not.toContain('eyJhbGciOiJIUzI1NiJ9-raw-token');
+  });
+
+  it('redacts the invite token but leaves the trailing "google" segment on the invite-Google-authorize route', async () => {
+    const context = buildContext({ url: '/v1/admin/auth/invite/some-raw-token/google' });
+    const callHandler: CallHandler = { handle: () => of('ok') };
+
+    await firstValueFrom(interceptor.intercept(context, callHandler));
+
+    const [message] = logger.http.mock.calls[0] as [string, string];
+    expect(message).toContain('URL: /v1/admin/auth/invite/[REDACTED]/google');
+  });
+
+  it('leaves the literal "accept" segment alone, since that route carries its token in the body, not the path', async () => {
+    const context = buildContext({ url: '/v1/auth/invite/accept' });
+    const callHandler: CallHandler = { handle: () => of('ok') };
+
+    await firstValueFrom(interceptor.intercept(context, callHandler));
+
+    const [message] = logger.http.mock.calls[0] as [string, string];
+    expect(message).toContain('URL: /v1/auth/invite/accept');
+  });
+
+  it('drops the raw query string from the logged URL, since Query: already logs a redacted copy', async () => {
+    const context = buildContext({
+      url: '/v1/auth/google/callback?code=raw-auth-code&state=signed-state-value',
+      query: { code: 'raw-auth-code', state: 'signed-state-value' },
+    });
+    const callHandler: CallHandler = { handle: () => of('ok') };
+
+    await firstValueFrom(interceptor.intercept(context, callHandler));
+
+    const [message] = logger.http.mock.calls[0] as [string, string];
+    expect(message).toContain('URL: /v1/auth/google/callback,');
+    expect(message).not.toContain('raw-auth-code');
+    expect(message).not.toContain('signed-state-value');
+    expect(message).toContain('Query: {"code":"[REDACTED]","state":"[REDACTED]"}');
+  });
 });

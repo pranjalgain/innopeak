@@ -8,6 +8,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   Query,
   Req,
@@ -41,12 +42,14 @@ import {
 } from './constants/google-auth.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { AcceptMemberInviteDto } from './dto/accept-member-invite.dto';
 import { AuthenticatedUserDto } from './dto/authenticated-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CompleteGoogleSignupDto } from './dto/complete-google-signup.dto';
 import { GoogleAuthorizeQueryDto } from './dto/google-authorize-query.dto';
 import { LoginPendingVerificationDto } from './dto/login-response.dto';
 import { LoginDto } from './dto/login.dto';
+import { MemberInvitePreviewDto } from './dto/member-invite-preview.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { SignupResponseDto } from './dto/signup-response.dto';
@@ -58,10 +61,12 @@ import { VerifyEmailDto } from './dto/verify-email.dto';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import { AuthService } from './services/auth.service';
 import {
+  ApiAcceptMemberInvite,
   ApiChangePassword,
   ApiCompleteGoogleSignup,
   ApiGoogleAuthorize,
   ApiGoogleCallback,
+  ApiInviteGoogleAuthorize,
   ApiLogin,
   ApiLogout,
   ApiMe,
@@ -71,6 +76,7 @@ import {
   ApiSetPassword,
   ApiSignup,
   ApiUpdateLocale,
+  ApiValidateMemberInvite,
   ApiVerifyEmail,
 } from './swagger/auth.swagger';
 import type { AuthUser } from './types/auth-user.type';
@@ -367,6 +373,68 @@ export class AuthController {
 
     this.setSessionCookies(res, outcome.tokens.refreshToken, outcome.tokens.body.accessToken);
     res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.SUCCESS);
+  }
+
+  /**
+   * Read-only preview so the accept screen can show "You've been invited as `<email>`" before
+   * ever asking for a name or password. `@Public()` — the invitee has no session yet. See
+   * `apps/documentation/docs/backend/auth/tenant-member-invite-design.md`.
+   */
+  @Get(RouteNames.INVITE_VALIDATE)
+  @Public()
+  @Throttle({ short: { limit: 20, ttl: 60000 } })
+  @ApiValidateMemberInvite()
+  async validateMemberInvite(
+    @Param('token') token: string
+  ): Promise<ApiResponse<MemberInvitePreviewDto>> {
+    const result = await this.authService.validateMemberInvite(token);
+    return ResponseUtil.success(result, undefined, HttpStatus.OK);
+  }
+
+  /**
+   * The password path for accepting a tenant-member invite. Signs the member in immediately on
+   * success, same as `login` above.
+   */
+  @Post(RouteNames.INVITE_ACCEPT)
+  @Public()
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiAcceptMemberInvite()
+  async acceptMemberInvite(
+    @Body() dto: AcceptMemberInviteDto,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<ApiResponse<TokenResponseDto>> {
+    const result = await this.authService.acceptMemberInvite(dto);
+    this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
+    return ResponseUtil.success(result.body, MESSAGES.AUTH.INVITE_ACCEPTED, HttpStatus.OK);
+  }
+
+  /**
+   * The SSO alternative to `acceptMemberInvite` — deliberately its own route, not
+   * `GET /v1/auth/google`, since a first-time invitee has no `user_identities` row yet for that
+   * generic callback branch to find. Completion happens at the shared
+   * `GET /v1/auth/google/callback` via `OAuthIntent.INVITE`.
+   */
+  @Get(RouteNames.INVITE_GOOGLE)
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiInviteGoogleAuthorize()
+  async inviteGoogleAuthorize(@Param('token') token: string, @Res() res: Response): Promise<void> {
+    const redirect = await this.authService.buildMemberInviteGoogleRedirect(token);
+
+    if (!redirect.ok) {
+      res.redirect(HttpStatus.FOUND, redirect.redirectUrl);
+      return;
+    }
+
+    // Same binding cookie every entry point into the shared Google callback sets — one cookie
+    // name, one purpose, regardless of which controller starts the round trip.
+    res.cookie(
+      GOOGLE_AUTH_SID_COOKIE_NAME,
+      redirect.sid,
+      buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, GOOGLE_AUTH_STATE_TTL_SECONDS)
+    );
+    res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }
 
   /**

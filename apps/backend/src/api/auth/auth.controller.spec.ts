@@ -20,6 +20,7 @@ function mockResponse(): Response {
   return {
     cookie: jest.fn(),
     clearCookie: jest.fn(),
+    redirect: jest.fn(),
   } as unknown as Response;
 }
 
@@ -263,5 +264,105 @@ describe('AuthController.login', () => {
     await controller.login({ email: 'jane@thecoffeehouse.com', password: 'x' }, res);
 
     expect(res.cookie).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthController.acceptMemberInvite', () => {
+  let controller: AuthController;
+  const acceptMemberInvite = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [{ provide: AuthService, useValue: { acceptMemberInvite } }],
+    }).compile();
+
+    controller = moduleRef.get(AuthController);
+  });
+
+  it('sets the tenant session cookies on a successful accept — never the admin cookie', async () => {
+    acceptMemberInvite.mockResolvedValue({
+      refreshToken: 'new-refresh-token',
+      body: {
+        accessToken: 'new-access-token',
+        expiresIn: 900,
+        user: {},
+        hasConnectedBusiness: true,
+      },
+    });
+    const res = mockResponse();
+
+    await controller.acceptMemberInvite(
+      { token: 'raw-token-1', name: 'Sam Rivera', password: 'NewStr0ng@Pass' },
+      res
+    );
+
+    expect(res.cookie).toHaveBeenCalledWith(
+      REFRESH_TOKEN_COOKIE_NAME,
+      'new-refresh-token',
+      expect.anything()
+    );
+    expect(res.cookie).toHaveBeenCalledWith(
+      ACCESS_TOKEN_COOKIE_NAME,
+      'new-access-token',
+      expect.anything()
+    );
+    expect(res.cookie).not.toHaveBeenCalledWith(
+      ADMIN_ACCESS_TOKEN_COOKIE_NAME,
+      expect.anything(),
+      expect.anything()
+    );
+  });
+});
+
+describe('AuthController.inviteGoogleAuthorize', () => {
+  let controller: AuthController;
+  const buildMemberInviteGoogleRedirect = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [{ provide: AuthService, useValue: { buildMemberInviteGoogleRedirect } }],
+    }).compile();
+
+    controller = moduleRef.get(AuthController);
+  });
+
+  it('redirects to the accept page with an error, setting no cookie, for a dead token', async () => {
+    buildMemberInviteGoogleRedirect.mockResolvedValue({
+      ok: false,
+      redirectUrl:
+        'https://app.innopeak.test/accept-invite/bad-token?error=INVALID_OR_EXPIRED_INVITE',
+    });
+    const res = mockResponse();
+
+    await controller.inviteGoogleAuthorize('bad-token', res);
+
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(
+      302,
+      'https://app.innopeak.test/accept-invite/bad-token?error=INVALID_OR_EXPIRED_INVITE'
+    );
+  });
+
+  it('sets the Google binding cookie and redirects to Google on success', async () => {
+    buildMemberInviteGoogleRedirect.mockResolvedValue({
+      ok: true,
+      authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?...',
+      sid: 'sid-value',
+    });
+    const res = mockResponse();
+
+    await controller.inviteGoogleAuthorize('raw-token-1', res);
+
+    expect(res.cookie).toHaveBeenCalledWith('google_auth_sid', 'sid-value', expect.anything());
+    expect(res.redirect).toHaveBeenCalledWith(
+      302,
+      'https://accounts.google.com/o/oauth2/v2/auth?...'
+    );
   });
 });

@@ -33,6 +33,15 @@ describe('AuthDbService', () => {
       revokeAllRefreshTokensForUser: jest.fn(),
       deleteStaleOtpTokens: jest.fn(),
       deleteStaleRefreshTokens: jest.fn(),
+      insertInvitedMember: jest.fn(),
+      insertMemberInviteToken: jest.fn(),
+      findMemberInviteStatusByEmail: jest.fn(),
+      findMemberInviteEmailByTokenHash: jest.fn(),
+      acceptMemberInviteWithPassword: jest.fn(),
+      acceptMemberInviteWithGoogleIdentity: jest.fn(),
+      deleteInvitedMember: jest.fn(),
+      deleteExpiredMemberInvite: jest.fn(),
+      listTenantMembers: jest.fn(),
       transaction: jest.fn((fn: (tx: never) => unknown) => fn(tx)),
     } as unknown as jest.Mocked<AuthRepository>;
 
@@ -328,5 +337,109 @@ describe('AuthDbService', () => {
       passwordHash: 'new-hash',
     });
     expect(authRepository.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(tx, 'user-1');
+  });
+
+  describe('createMemberInvite', () => {
+    it('inserts the invited member and its token in one transaction, and constructs the roster row from the inputs', async () => {
+      authRepository.insertInvitedMember.mockResolvedValue({ id: 'user-1' });
+
+      const result = await target.createMemberInvite({
+        tenantId: 'tenant-1',
+        invitedByUserId: 'owner-1',
+        email: 'sam.rivera@thecoffeehouse.com',
+        tokenHash: 'hash',
+        expiresAt: '2026-01-08T00:00:00Z',
+      });
+
+      expect(authRepository.insertInvitedMember).toHaveBeenCalledWith(tx, {
+        tenantId: 'tenant-1',
+        email: 'sam.rivera@thecoffeehouse.com',
+        name: 'sam.rivera@thecoffeehouse.com',
+        invitedByUserId: 'owner-1',
+      });
+      expect(authRepository.insertMemberInviteToken).toHaveBeenCalledWith(tx, {
+        userId: 'user-1',
+        tokenHash: 'hash',
+        expiresAt: '2026-01-08T00:00:00Z',
+      });
+      expect(result).toMatchObject({
+        id: 'user-1',
+        name: 'sam.rivera@thecoffeehouse.com',
+        email: 'sam.rivera@thecoffeehouse.com',
+        role: UserRole.MEMBER,
+        status: UserStatus.INVITED,
+      });
+    });
+  });
+
+  it('findMemberInviteStatusByEmail passes through to the repository', async () => {
+    authRepository.findMemberInviteStatusByEmail.mockResolvedValue(null);
+
+    await expect(
+      target.findMemberInviteStatusByEmail('sam.rivera@thecoffeehouse.com')
+    ).resolves.toBeNull();
+    expect(authRepository.findMemberInviteStatusByEmail).toHaveBeenCalledWith(
+      'sam.rivera@thecoffeehouse.com'
+    );
+  });
+
+  it('deleteExpiredMemberInvite passes through to the repository', async () => {
+    await target.deleteExpiredMemberInvite('user-1');
+    expect(authRepository.deleteExpiredMemberInvite).toHaveBeenCalledWith('user-1');
+  });
+
+  it('revokeMemberInvite passes through to the repository, tenant-scoped', async () => {
+    authRepository.deleteInvitedMember.mockResolvedValue({
+      outcome: 'revoked',
+      email: 'sam.rivera@thecoffeehouse.com',
+    });
+
+    await target.revokeMemberInvite('tenant-1', 'user-1');
+    expect(authRepository.deleteInvitedMember).toHaveBeenCalledWith('tenant-1', 'user-1');
+  });
+
+  it('listTenantMembers passes through to the repository', async () => {
+    authRepository.listTenantMembers.mockResolvedValue([]);
+
+    await expect(target.listTenantMembers('tenant-1')).resolves.toEqual([]);
+    expect(authRepository.listTenantMembers).toHaveBeenCalledWith('tenant-1');
+  });
+
+  it('findMemberInviteEmailByTokenHash passes through to the repository', async () => {
+    authRepository.findMemberInviteEmailByTokenHash.mockResolvedValue({
+      email: 'sam.rivera@thecoffeehouse.com',
+      tenantId: 'tenant-1',
+    });
+
+    await expect(target.findMemberInviteEmailByTokenHash('hash')).resolves.toEqual({
+      email: 'sam.rivera@thecoffeehouse.com',
+      tenantId: 'tenant-1',
+    });
+    expect(authRepository.findMemberInviteEmailByTokenHash).toHaveBeenCalledWith('hash');
+  });
+
+  it('acceptMemberInviteWithPassword passes through to the repository', async () => {
+    authRepository.acceptMemberInviteWithPassword.mockResolvedValue({ outcome: 'invalid' });
+
+    await expect(
+      target.acceptMemberInviteWithPassword({
+        tokenHash: 'hash',
+        name: 'Sam Rivera',
+        passwordHash: 'new-hash',
+      })
+    ).resolves.toEqual({ outcome: 'invalid' });
+  });
+
+  it('acceptMemberInviteWithGoogleIdentity passes through to the repository', async () => {
+    authRepository.acceptMemberInviteWithGoogleIdentity.mockResolvedValue({ outcome: 'invalid' });
+
+    await expect(
+      target.acceptMemberInviteWithGoogleIdentity({
+        tokenHash: 'hash',
+        providerUserId: 'google-sub-1',
+        email: 'sam.rivera@thecoffeehouse.com',
+        name: 'Sam Rivera',
+      })
+    ).resolves.toEqual({ outcome: 'invalid' });
   });
 });

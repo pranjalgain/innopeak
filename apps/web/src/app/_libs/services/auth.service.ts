@@ -1,4 +1,4 @@
-import type { AdminInvitePreviewDto } from "@innopeak/client-sdk";
+import type { AdminInvitePreviewDto, MemberInvitePreviewDto } from "@innopeak/client-sdk";
 
 import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
 import { adminAuthApi } from "@/app/_libs/api-sdk/admin-auth-api";
@@ -41,6 +41,9 @@ interface PlatformAdminTokenResponse {
 /** `GET /v1/admin/auth/invite/:token`'s response — a real generated model, unlike `PlatformAdminTokenResponse` above. */
 export type AdminInvitePreview = AdminInvitePreviewDto;
 
+/** `GET /v1/auth/invite/:token`'s response — the tenant-member counterpart to `AdminInvitePreview`. */
+export type MemberInvitePreview = MemberInvitePreviewDto;
+
 export type LoginResult =
   | { kind: "verify_needed"; email: string }
   | { kind: "success"; hasConnectedBusiness: boolean };
@@ -65,9 +68,12 @@ export interface VerifyOtpResult {
  * `acceptAdminInvite`, `startAdminInviteGoogle`) against the backend's separate
  * `/v1/admin/auth/*` routes — `loginWithPassword` below is tenant-only. See
  * `apps/documentation/docs/backend/auth/separate-admin-login-design.md` for why the two were
- * split. `resolveLoginDestination` below (used only by the still-mocked Microsoft SSO path) is
- * the one remaining place that guesses "admin" from the email string instead of a real backend
- * answer — real Microsoft SSO doesn't exist in the backend at all yet, for either principal.
+ * split. Tenant-member invites (`validateMemberInvite`, `acceptMemberInvite`,
+ * `startMemberInviteGoogle`) are their own trio too, against `/v1/auth/invite/*` — see
+ * `tenant-member-invite-design.md`. `resolveLoginDestination` below (used only by the
+ * still-mocked Microsoft SSO path) is the one remaining place that guesses "admin" from the email
+ * string instead of a real backend answer — real Microsoft SSO doesn't exist in the backend at
+ * all yet, for either principal.
  */
 export class AuthService {
   private static resolveLoginDestination(email: string): string {
@@ -432,5 +438,51 @@ export class AuthService {
   static startAdminInviteGoogle(token: string): void {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`/v1/admin/auth/invite/${encodeURIComponent(token)}/google`);
+  }
+
+  /**
+   * `GET /v1/auth/invite/:token` — the tenant-member counterpart to `validateAdminInvite`. Same
+   * generic 404 for a token that never existed, was already used, or has expired.
+   */
+  static async validateMemberInvite(token: string): Promise<MemberInvitePreview> {
+    const response = await authApi.authControllerValidateMemberInviteV1(
+      { token },
+      { authOptional: true },
+    );
+    return unwrap<MemberInvitePreview>(response.data);
+  }
+
+  /**
+   * `POST /v1/auth/invite/accept` — the password path. Unlike `acceptAdminInvite`, this carries
+   * `name` (the invite-send form is email-only, same as admin's — see the backend's
+   * `AcceptMemberInviteDto` for why the invitee supplies it here instead) and returns the same
+   * `TokenResponseDto` shape `loginWithPassword` does, since accepting signs the member in exactly
+   * like an ordinary tenant login.
+   */
+  static async acceptMemberInvite(
+    token: string,
+    name: string,
+    password: string,
+  ): Promise<{ hasConnectedBusiness: boolean }> {
+    const response = await authApi.authControllerAcceptMemberInviteV1(
+      { acceptMemberInviteDto: { token, name, password } },
+      { authOptional: true },
+    );
+    const data = unwrap<TokenResponse>(response.data);
+    TokenService.setAccessToken(data.accessToken);
+    TokenService.setName(data.user.name);
+    TokenService.setHasPassword(data.user.hasPassword);
+    TokenService.setBusinessName(data.user.businessName);
+    return { hasConnectedBusiness: data.hasConnectedBusiness };
+  }
+
+  /**
+   * The SSO alternative to `acceptMemberInvite` — a full-page navigation, same shape as
+   * `startAdminInviteGoogle`: the browser has to follow the redirect to Google's consent screen,
+   * which an XHR could not do. Never resolves — the page is gone.
+   */
+  static startMemberInviteGoogle(token: string): void {
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(`/v1/auth/invite/${encodeURIComponent(token)}/google`);
   }
 }

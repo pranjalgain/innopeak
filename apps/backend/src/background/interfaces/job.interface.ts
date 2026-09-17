@@ -20,6 +20,17 @@ export interface IAdminInviteEmailJob extends IEmailJob {
   expiresIn?: string;
 }
 
+/** Published by TenantMembersService.sendInvite — same shape as IAdminInviteEmailJob, kept as its
+ *  own interface rather than shared since the two invite flows have no other coupling. */
+export interface IMemberInviteEmailJob extends IEmailJob {
+  inviteLink: string;
+  expiresIn?: string;
+  /** The tenant the invitee is being asked to join. Without it the email reads "a team", which is
+   *  indistinguishable between senders — a recipient invited by two businesses cannot tell the two
+   *  emails apart, and an unattributed invite scores worse with spam filters. */
+  businessName: string;
+}
+
 export interface ICronJob {
   jobType: CronJobName;
   data?: Record<string, unknown> | undefined;

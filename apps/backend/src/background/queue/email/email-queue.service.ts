@@ -1,4 +1,8 @@
-import { IAdminInviteEmailJob, IOtpEmailJob } from '@bg/interfaces/job.interface';
+import {
+  IAdminInviteEmailJob,
+  IMemberInviteEmailJob,
+  IOtpEmailJob,
+} from '@bg/interfaces/job.interface';
 import { APP_NAME } from '@common/constants/app.constants';
 import { EmailService } from '@email/email.service';
 import { Injectable, Logger } from '@nestjs/common';
@@ -47,6 +51,31 @@ export class EmailQueueService {
           year: new Date().getFullYear(),
         },
         { subject: `You've been invited to ${APP_NAME}` }
+      )
+    );
+  }
+
+  /**
+   * Same reasoning as `sendAdminInviteEmail` above — the invite link belongs in the body
+   * regardless. The subject names the inviting business rather than reusing the admin invite's
+   * literal wording: identical subjects on two different invite flows thread together in a mail
+   * client that groups by subject, and a business-specific subject line also gives the recipient
+   * something to recognize before they even open the email.
+   */
+  async sendMemberInviteEmail(data: IMemberInviteEmailJob): Promise<void> {
+    await this.send('member invite email', data.email, () =>
+      this.emailService.sendTemplateEmail(
+        data.email,
+        'member-invite',
+        {
+          name: data.customerName ?? 'there',
+          businessName: data.businessName,
+          inviteUrl: data.inviteLink,
+          expiresIn: data.expiresIn ?? '7 days',
+          appName: APP_NAME,
+          year: new Date().getFullYear(),
+        },
+        { subject: `You've been invited to join ${data.businessName} on ${APP_NAME}` }
       )
     );
   }

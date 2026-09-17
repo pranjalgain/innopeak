@@ -16,6 +16,7 @@ import {
   HttpStatus,
   Injectable,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -33,10 +34,12 @@ import {
 import { TokenService } from './token.service';
 
 import { GOOGLE_AUTH_REDIRECT, GoogleAuthFailure } from '../constants/google-auth.constants';
+import { AcceptMemberInviteDto } from '../dto/accept-member-invite.dto';
 import { AuthenticatedUserDto } from '../dto/authenticated-user.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import { LoginPendingVerificationDto } from '../dto/login-response.dto';
 import { LoginDto } from '../dto/login.dto';
+import { MemberInvitePreviewDto } from '../dto/member-invite-preview.dto';
 import { ResendOtpDto } from '../dto/resend-otp.dto';
 import { SetPasswordDto } from '../dto/set-password.dto';
 import { SignupResponseDto } from '../dto/signup-response.dto';
@@ -54,7 +57,9 @@ import { GoogleIdentityProvider } from '../providers/google-identity.provider';
 import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
 import type { AuthUser } from '../types/auth-user.type';
 import type { GoogleAuthorizeRedirect } from '../types/google-authorize-redirect.type';
+import type { GoogleIdentity } from '../types/google-identity.type';
 import { normalizeEmail } from '../utils/email.utils';
+import { buildMemberInviteLink } from '../utils/member-invite-link.util';
 import { hashToken } from '../utils/token.utils';
 
 export type { GoogleAuthorizeRedirect };
@@ -522,6 +527,236 @@ export class AuthService {
   }
 
   /**
+   * `GET /v1/auth/invite/:token` — read-only preview so the accept screen can show "You've been
+   * invited as `<email>`" before ever asking for a name or password. Same generic 404 for a token
+   * that never existed, was already used, or has expired as the platform-admin equivalent
+   * (`PlatformAdminAuthService.validateAdminInvite`) — see `MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE`.
+   */
+  async validateMemberInvite(rawToken: string): Promise<MemberInvitePreviewDto> {
+    const invite = await this.authDbService.findMemberInviteEmailByTokenHash(hashToken(rawToken));
+    if (!invite) {
+      throw new NotFoundException(MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE);
+    }
+    return MemberInvitePreviewDto.from(invite);
+  }
+
+  /**
+   * `POST /v1/auth/invite/accept` — the password path. Mirrors
+   * `PlatformAdminAuthService.acceptAdminInvite`'s token issuance exactly, since accepting an
+   * invite signs the member in immediately, same as a normal login — unlike that method, this
+   * also sets `name`, since the invite-send form is email-only (see `AcceptMemberInviteDto`'s own
+   * comment). See `completeMemberInviteGoogle` for the Google alternative.
+   */
+  async acceptMemberInvite(dto: AcceptMemberInviteDto): Promise<TokenIssuanceResult> {
+    // Checked *before* redemption, not left to `buildTokenIssuanceResult`'s own `assertGoodStanding`
+    // at the end. Both refuse a suspended tenant, but only this order refuses it without having
+    // already burned the invite: reaching the check after the transaction commits leaves the member
+    // activated, the token consumed, and the link dead, so the invite is spent on a join that was
+    // never allowed to happen. Same reason `completeMemberInviteGoogle` checks at the same point.
+    await this.assertMemberInviteTenantActive(hashToken(dto.token));
+
+    const passwordHash = await this.hashingService.hash(dto.password);
+    const result = await this.authDbService.acceptMemberInviteWithPassword({
+      tokenHash: hashToken(dto.token),
+      name: dto.name,
+      passwordHash,
+    });
+
+    if (result.outcome !== 'accepted') {
+      throw new BadRequestException(MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE);
+    }
+
+    return this.buildTokenIssuanceResult({
+      id: result.id,
+      tenantId: result.tenantId,
+      email: result.email,
+      name: result.name,
+      role: UserRole.MEMBER,
+      passwordHash,
+      status: UserStatus.ACTIVE,
+      locale: null,
+    });
+  }
+
+  /**
+   * `GET /v1/auth/invite/:token/google` — the same read-only shape `buildGoogleAuthorizeRedirect`
+   * uses (never throws for an expected failure, since the browser is mid-navigation): validates
+   * the token before ever redirecting to Google, so a dead link fails fast on the accept screen
+   * rather than after a round trip that can only fail there anyway. Mirrors
+   * `PlatformAdminAuthService.buildAdminInviteGoogleRedirect`.
+   */
+  async buildMemberInviteGoogleRedirect(inviteToken: string): Promise<GoogleAuthorizeRedirect> {
+    const invite = await this.authDbService.findMemberInviteEmailByTokenHash(
+      hashToken(inviteToken)
+    );
+    if (!invite) {
+      return {
+        ok: false,
+        redirectUrl: this.memberInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+        ),
+      };
+    }
+
+    if (!this.googleIdentityProvider.isConfigured()) {
+      return {
+        ok: false,
+        redirectUrl: this.memberInviteFailureUrl(inviteToken, GoogleAuthFailure.NOT_CONFIGURED),
+      };
+    }
+
+    const { state, sid } = await this.googleOAuthStateService.mint({
+      intent: OAuthIntent.INVITE,
+      inviteToken,
+    });
+
+    return {
+      ok: true,
+      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl(state),
+      sid,
+    };
+  }
+
+  /**
+   * Completes an `OAuthIntent.INVITE` round trip: re-validates the invite, confirms the
+   * IdP-verified email matches the invited address, links the Google identity, and signs the
+   * member in. Never throws — called from the shared callback, which is mid-navigation the same
+   * way every other branch there is. Mirrors
+   * `PlatformAdminAuthService.completeAdminInviteGoogle` almost exactly; the one difference is
+   * `name`, taken from the Google profile here since there is no password-form name field for a
+   * Google-only member to have supplied.
+   *
+   * `inviteToken` is only `undefined` if the state record somehow lost it, which never happens in
+   * practice (`buildMemberInviteGoogleRedirect` always mints it alongside `intent`) — handled
+   * defensively rather than asserted, since there is no token to build a targeted redirect from
+   * either way.
+   */
+  private async completeMemberInviteGoogle(
+    inviteToken: string | undefined,
+    identity: GoogleIdentity
+  ): Promise<GoogleCallbackOutcome> {
+    if (inviteToken === undefined) {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        redirectUrl: `${GOOGLE_AUTH_REDIRECT.MEMBER_INVITE}?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
+      };
+    }
+
+    const invite = await this.authDbService.findMemberInviteEmailByTokenHash(
+      hashToken(inviteToken)
+    );
+    if (!invite) {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        redirectUrl: this.memberInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+        ),
+      };
+    }
+
+    // The check that stops someone other than the invited person from redeeming this link with
+    // their own unrelated Google account — the invite token alone proves nothing about *whose*
+    // Google account is completing it. Token is left unconsumed on a mismatch.
+    if (normalizeEmail(identity.email) !== normalizeEmail(invite.email)) {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
+        redirectUrl: this.memberInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.INVITE_EMAIL_MISMATCH
+        ),
+      };
+    }
+
+    // A suspended tenant is refused here, as a redirect — never by letting `buildTokenIssuanceResult`
+    // below reach `assertGoodStanding` and throw. This method is called from the shared callback
+    // with the browser mid-navigation, so a thrown `ForbiddenException` would paint a raw JSON 403
+    // as a document instead of returning the invitee to the accept screen with a readable error.
+    // Checked before redemption so a refused join does not also burn the invite.
+    const tenant = await this.authDbService.findTenantStatus(invite.tenantId);
+    if (tenant?.status === TenantStatus.SUSPENDED) {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+        redirectUrl: this.memberInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.ACCOUNT_UNAVAILABLE
+        ),
+      };
+    }
+
+    const result = await this.authDbService.acceptMemberInviteWithGoogleIdentity({
+      tokenHash: hashToken(inviteToken),
+      providerUserId: identity.providerUserId,
+      email: identity.email,
+      name: identity.name ?? identity.email,
+    });
+
+    if (result.outcome === 'identity_already_linked') {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
+        redirectUrl: this.memberInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED
+        ),
+      };
+    }
+    if (result.outcome !== 'accepted') {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        redirectUrl: this.memberInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+        ),
+      };
+    }
+
+    const tokens = await this.buildTokenIssuanceResult({
+      id: result.id,
+      tenantId: result.tenantId,
+      email: result.email,
+      name: result.name,
+      role: UserRole.MEMBER,
+      // A Google-accepted member never sets a password — there is nothing to hash.
+      passwordHash: null,
+      status: UserStatus.ACTIVE,
+      locale: null,
+    });
+    return { ok: true, kind: 'signed_in', tokens };
+  }
+
+  /** `${FRONTEND_URL}/accept-invite/:token?error=<code>` — shared by every failure branch above
+   *  that has an invite token to target. Public: `googleFailureRedirect` also calls this for the
+   *  `INVITE` intent, since that dispatch stays on the shared callback. */
+  private memberInviteFailureUrl(inviteToken: string, failure: GoogleAuthFailure): string {
+    const link = buildMemberInviteLink(this.configService.get<string>('FRONTEND_URL'), inviteToken);
+    return `${link}?error=${failure}`;
+  }
+
+  /**
+   * Refuses an invite into a suspended tenant before anything is written. A dead token is *not*
+   * this method's error to raise — redemption answers that uniformly a moment later, and raising
+   * here would give a suspended tenant's invite a different error than every other dead one.
+   */
+  private async assertMemberInviteTenantActive(tokenHash: string): Promise<void> {
+    const invite = await this.authDbService.findMemberInviteEmailByTokenHash(tokenHash);
+    if (!invite) {
+      return;
+    }
+
+    const tenant = await this.authDbService.findTenantStatus(invite.tenantId);
+    if (tenant?.status === TenantStatus.SUSPENDED) {
+      throw new ForbiddenException(MESSAGES.AUTH.TENANT_SUSPENDED);
+    }
+  }
+
+  /**
    * Step one of Google sign-in: mint the state and hand back where to send the browser.
    *
    * No business name here any more — see `completeGoogleSignup`. Both intents mint the same
@@ -626,6 +861,14 @@ export class AuthService {
       return outcome.ok
         ? { ok: true, kind: 'admin_signed_in', tokens: outcome.tokens }
         : { ok: false, failure: outcome.failure, redirectUrl: outcome.redirectUrl };
+    }
+
+    // The tenant-member counterpart to `ADMIN_INVITE` above, redeeming a `users` row instead of a
+    // `platform_admins` one — see `completeMemberInviteGoogle`'s own doc comment for the one real
+    // difference (this Google profile's `name` is used, since there is no password-form field a
+    // Google-only member would have supplied it in).
+    if (consumed.record.intent === OAuthIntent.INVITE) {
+      return this.completeMemberInviteGoogle(inviteToken, identity);
     }
 
     // The admin sign-in screen's own Google button. Resolves against `platform_admin_identities`
@@ -756,16 +999,22 @@ export class AuthService {
       };
     }
 
+    if (intent === OAuthIntent.INVITE && inviteToken !== undefined) {
+      return { ok: false, failure, redirectUrl: this.memberInviteFailureUrl(inviteToken, failure) };
+    }
+
     // Admin-context failures land on the admin sign-in screen. `LOGIN` would be a dead end: since
     // the split it carries no admin path at all, so an admin sent there sees the error and then
-    // has nothing to do with it. `ADMIN_INVITE` only reaches here when its token went missing —
-    // with one, the branch above targets the accept screen instead.
+    // has nothing to do with it. `ADMIN_INVITE`/`INVITE` only reach here when their token went
+    // missing — with one, the branches above target the accept screen instead.
     const base =
       intent === OAuthIntent.SIGNUP
         ? GOOGLE_AUTH_REDIRECT.SIGNUP
         : intent === OAuthIntent.ADMIN_LOGIN || intent === OAuthIntent.ADMIN_INVITE
           ? GOOGLE_AUTH_REDIRECT.ADMIN_LOGIN
-          : GOOGLE_AUTH_REDIRECT.LOGIN;
+          : intent === OAuthIntent.INVITE
+            ? GOOGLE_AUTH_REDIRECT.MEMBER_INVITE
+            : GOOGLE_AUTH_REDIRECT.LOGIN;
     return { ok: false, failure, redirectUrl: `${base}?error=${failure}` };
   }
 

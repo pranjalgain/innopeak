@@ -17,10 +17,19 @@
  * through to the tenant tables when no admin matches. Reusing it would have let the admin sign-in
  * screen quietly hand back a *tenant* session to anyone whose Google account happened to have one,
  * and would have sent every failure to the tenant `/login` page, which carries no admin path.
+ *
+ * `INVITE` is the tenant-member counterpart to `ADMIN_INVITE` — a teammate accepting a
+ * `POST /v1/settings/members` invite via Google instead of a password. Same shape: never looks up
+ * an existing `user_identities` row (this is the first time this member links Google), carries
+ * `inviteToken` in the state record, and its own `AuthService.completeMemberInviteGoogle` checks
+ * the IdP-verified email against the invited address before linking anything. Distinct from
+ * `ADMIN_INVITE` because the two redeem completely different rows (`users` vs `platform_admins`)
+ * — see `tenant-member-invite-design.md`.
  */
 export enum OAuthIntent {
   LOGIN = 'login',
   SIGNUP = 'signup',
   ADMIN_INVITE = 'admin_invite',
   ADMIN_LOGIN = 'admin_login',
+  INVITE = 'invite',
 }

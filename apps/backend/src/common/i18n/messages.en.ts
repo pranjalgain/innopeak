@@ -112,6 +112,12 @@ export const messagesEn: MessageCatalog = {
     UPDATED: 'Settings updated',
     TENANT_SETTINGS_MISSING: 'Tenant settings were not provisioned for this account',
     PLATFORM_CONFIG_MISSING: 'Platform settings are not configured.',
+    MEMBER_INVITE_SENT: 'Invite sent.',
+    MEMBER_INVITE_REVOKED: 'Invite revoked.',
+    MEMBER_EMAIL_ALREADY_INVITED: 'This email already has a pending invite.',
+    MEMBER_NOT_FOUND: 'Team member not found.',
+    MEMBER_INVITE_NOT_REVOCABLE: 'This invite has already been accepted or is no longer pending.',
+    MEMBER_INVITES_DISABLED: 'Inviting team members is turned off for this platform.',
   },
   ADMIN: {
     ADMIN_ONLY: 'Only a platform admin may perform this action.',

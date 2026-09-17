@@ -1,6 +1,11 @@
 import { JobName, QueueName } from '@bg/constants/job.constant';
 import { redactJobSecrets } from '@bg/helpers/redact-job-secrets.util';
-import { IAdminInviteEmailJob, IEmailJob, IOtpEmailJob } from '@bg/interfaces/job.interface';
+import {
+  IAdminInviteEmailJob,
+  IEmailJob,
+  IMemberInviteEmailJob,
+  IOtpEmailJob,
+} from '@bg/interfaces/job.interface';
 import { DeadLetterQueueService } from '@dead-letter-queue/dead-letter-queue.service';
 import { EmailQueueService } from '@email-queue/email-queue.service';
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
@@ -41,6 +46,11 @@ export class EmailProcessor extends WorkerHost {
         case JobName.ADMIN_INVITE_EMAIL:
           await this.emailQueueService.sendAdminInviteEmail(
             job.data as unknown as IAdminInviteEmailJob
+          );
+          break;
+        case JobName.MEMBER_INVITE_EMAIL:
+          await this.emailQueueService.sendMemberInviteEmail(
+            job.data as unknown as IMemberInviteEmailJob
           );
           break;
         default:

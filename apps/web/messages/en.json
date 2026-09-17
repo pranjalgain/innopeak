@@ -129,6 +129,7 @@
   "appShell": {
     "notifications": "Notifications",
     "accountOwnerRole": "Owner",
+    "accountMemberRole": "Member",
     "superAdminRole": "Super Admin",
     "signOut": "Sign out",
     "notificationPanel": {
@@ -145,6 +146,10 @@
     "reconnectBanner": {
       "message": "Your Google Business Profile connection has expired. New reviews aren't being imported until you reconnect.",
       "action": "Reconnect"
+    },
+    "waitingOnOwner": {
+      "title": "Almost there",
+      "description": "Your business owner still needs to connect a Google Business Profile before you can use this. Check back once they have."
     }
   },
   "languageSwitcher": {
@@ -197,6 +202,36 @@
         "confirmPasswordRequired": "Re-enter your password to confirm it."
       }
     },
+    "acceptMemberInvite": {
+      "title": "You're invited",
+      "invitedAs": "Set up your account to join as {email}.",
+      "invitedAsWithGoogle": "Set up your account to join as {email}, or continue with Google.",
+      "nameLabel": "Your name",
+      "passwordLabel": "Password",
+      "confirmPasswordLabel": "Confirm password",
+      "submit": "Accept invite",
+      "submitting": "Accepting…",
+      "orDivider": "or",
+      "continueWithGoogle": "Continue with Google",
+      "invalidTitle": "This invite isn't valid",
+      "invalidDescription": "This link is invalid or has expired. Ask whoever invited you to send a new one.",
+      "unavailableTitle": "Something went wrong",
+      "unavailableDescription": "We couldn't check this invite link. Check your connection and try again.",
+      "retry": "Try again",
+      "backToLogin": "Back to sign in",
+      "passwordMismatch": "Passwords don't match.",
+      "errors": {
+        "nameRequired": "Enter your name.",
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordUppercase": "Password must contain an uppercase letter.",
+        "passwordLowercase": "Password must contain a lowercase letter.",
+        "passwordNumber": "Password must contain a number.",
+        "passwordSpecial": "Password must contain a special character.",
+        "confirmPasswordRequired": "Re-enter your password to confirm it.",
+        "validationFailed": "We couldn't check this invite link. Please try again."
+      }
+    },
     "passwordMock": {
       "emailLabel": "Email",
       "emailPlaceholder": "you@company.com",
@@ -233,7 +268,7 @@
       "NOT_CONFIGURED": "Google sign-in is not available right now. Use email and password.",
       "INVALID_OR_EXPIRED_INVITE": "This invite link is invalid or has expired.",
       "INVITE_EMAIL_MISMATCH": "That Google account's email doesn't match the invited address. Sign in to Google with the address the invite was sent to.",
-      "GOOGLE_IDENTITY_ALREADY_LINKED": "That Google account is already linked to a different admin.",
+      "GOOGLE_IDENTITY_ALREADY_LINKED": "That Google account is already linked to a different account.",
       "fallback": "Google sign-in did not complete. Please try again."
     }
   },
@@ -443,6 +478,7 @@
       "profile": "Profile",
       "members": "Members"
     },
+    "noSettingsForMember": "There's nothing to configure here yet. Ask your business owner if you need something changed.",
     "general": {
       "title": "General",
       "description": "Core escalation and data-handling defaults for this tenant.",

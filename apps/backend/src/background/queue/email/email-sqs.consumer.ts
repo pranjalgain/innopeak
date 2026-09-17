@@ -1,5 +1,9 @@
 import { JobName, QueueName } from '@bg/constants/job.constant';
-import { IAdminInviteEmailJob, IOtpEmailJob } from '@bg/interfaces/job.interface';
+import {
+  IAdminInviteEmailJob,
+  IMemberInviteEmailJob,
+  IOtpEmailJob,
+} from '@bg/interfaces/job.interface';
 import { SqsQueueConsumerBase } from '@bg/providers/sqs-queue-consumer.base';
 import { EnvConfig } from '@config/env.config';
 import { DeadLetterQueueService } from '@dead-letter-queue/dead-letter-queue.service';
@@ -34,6 +38,9 @@ export class EmailSqsConsumer extends SqsQueueConsumerBase {
         break;
       case JobName.ADMIN_INVITE_EMAIL:
         await this.emailQueueService.sendAdminInviteEmail(data as IAdminInviteEmailJob);
+        break;
+      case JobName.MEMBER_INVITE_EMAIL:
+        await this.emailQueueService.sendMemberInviteEmail(data as IMemberInviteEmailJob);
         break;
       default:
         throw new Error(`Unknown job name: ${jobName}`);

@@ -38,7 +38,11 @@ import type { CreateBlocklistTermDto } from '../models';
 // @ts-ignore
 import type { DeleteBlocklistTermResponseDto } from '../models';
 // @ts-ignore
+import type { InviteMemberDto } from '../models';
+// @ts-ignore
 import type { PlatformSettingsResponseDto } from '../models';
+// @ts-ignore
+import type { TenantMemberResponseDto } from '../models';
 // @ts-ignore
 import type { TenantSettingsResponseDto } from '../models';
 // @ts-ignore
@@ -230,6 +234,166 @@ export const SettingsApiAxiosParamCreator = function (
       };
       const localVarHeaderParameter = {} as any;
       const localVarQueryParameter = {} as any;
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Creates the invited member\'s own row (`status: \"invited\"`, no password, `role: \"member\"`) and a 7-day invite token, then emails the invite link. Refused with 403 while `platform_settings.invite_members_enabled` is off.
+     * @summary Invite a teammate
+     * @param {InviteMemberDto} inviteMemberDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantMembersControllerInviteV1: async (
+      inviteMemberDto: InviteMemberDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'inviteMemberDto' is not null or undefined
+      assertParamExists(
+        'tenantMembersControllerInviteV1',
+        'inviteMemberDto',
+        inviteMemberDto,
+      );
+      const localVarPath = `/v1/settings/members`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        inviteMemberDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Every `users` row for the caller\'s own tenant — the owner (created at signup, never invited) and every member, invited or active. Oldest-first, so the owner leads the list.
+     * @summary List this tenant\'s team, owner included
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantMembersControllerListV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/settings/members`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Deletes the invited member\'s row outright — only while it is still `invited`. A member who has already accepted cannot be removed through this route.
+     * @summary Revoke a pending invite
+     * @param {string} memberId The invited member\&#39;s &#x60;users.id&#x60;
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantMembersControllerRevokeV1: async (
+      memberId: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'memberId' is not null or undefined
+      assertParamExists(
+        'tenantMembersControllerRevokeV1',
+        'memberId',
+        memberId,
+      );
+      const localVarPath = `/v1/settings/members/{memberId}`.replace(
+        '{memberId}',
+        encodeURIComponent(String(memberId)),
+      );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'DELETE',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
 
       localVarHeaderParameter['Accept'] = 'application/json';
 
@@ -489,6 +653,100 @@ export const SettingsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Creates the invited member\'s own row (`status: \"invited\"`, no password, `role: \"member\"`) and a 7-day invite token, then emails the invite link. Refused with 403 while `platform_settings.invite_members_enabled` is off.
+     * @summary Invite a teammate
+     * @param {InviteMemberDto} inviteMemberDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async tenantMembersControllerInviteV1(
+      inviteMemberDto: InviteMemberDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<TenantMemberResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.tenantMembersControllerInviteV1(
+          inviteMemberDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['SettingsApi.tenantMembersControllerInviteV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Every `users` row for the caller\'s own tenant — the owner (created at signup, never invited) and every member, invited or active. Oldest-first, so the owner leads the list.
+     * @summary List this tenant\'s team, owner included
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async tenantMembersControllerListV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<Array<TenantMemberResponseDto>>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.tenantMembersControllerListV1(options);
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['SettingsApi.tenantMembersControllerListV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Deletes the invited member\'s row outright — only while it is still `invited`. A member who has already accepted cannot be removed through this route.
+     * @summary Revoke a pending invite
+     * @param {string} memberId The invited member\&#39;s &#x60;users.id&#x60;
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async tenantMembersControllerRevokeV1(
+      memberId: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.tenantMembersControllerRevokeV1(
+          memberId,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['SettingsApi.tenantMembersControllerRevokeV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Owner-only. Reads the tenant_settings singleton. 404 if the signup transaction never wrote the row.
      * @summary Get tenant settings
      * @param {*} [options] Override http request option.
@@ -624,6 +882,52 @@ export const SettingsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Creates the invited member\'s own row (`status: \"invited\"`, no password, `role: \"member\"`) and a 7-day invite token, then emails the invite link. Refused with 403 while `platform_settings.invite_members_enabled` is off.
+     * @summary Invite a teammate
+     * @param {SettingsApiTenantMembersControllerInviteV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantMembersControllerInviteV1(
+      requestParameters: SettingsApiTenantMembersControllerInviteV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<TenantMemberResponseDto> {
+      return localVarFp
+        .tenantMembersControllerInviteV1(
+          requestParameters.inviteMemberDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Every `users` row for the caller\'s own tenant — the owner (created at signup, never invited) and every member, invited or active. Oldest-first, so the owner leads the list.
+     * @summary List this tenant\'s team, owner included
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantMembersControllerListV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<Array<TenantMemberResponseDto>> {
+      return localVarFp
+        .tenantMembersControllerListV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Deletes the invited member\'s row outright — only while it is still `invited`. A member who has already accepted cannot be removed through this route.
+     * @summary Revoke a pending invite
+     * @param {SettingsApiTenantMembersControllerRevokeV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantMembersControllerRevokeV1(
+      requestParameters: SettingsApiTenantMembersControllerRevokeV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .tenantMembersControllerRevokeV1(requestParameters.memberId, options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Owner-only. Reads the tenant_settings singleton. 404 if the signup transaction never wrote the row.
      * @summary Get tenant settings
      * @param {*} [options] Override http request option.
@@ -706,6 +1010,40 @@ export interface SettingsApiInterface {
   ): AxiosPromise<PlatformSettingsResponseDto>;
 
   /**
+   * Creates the invited member\'s own row (`status: \"invited\"`, no password, `role: \"member\"`) and a 7-day invite token, then emails the invite link. Refused with 403 while `platform_settings.invite_members_enabled` is off.
+   * @summary Invite a teammate
+   * @param {SettingsApiTenantMembersControllerInviteV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  tenantMembersControllerInviteV1(
+    requestParameters: SettingsApiTenantMembersControllerInviteV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<TenantMemberResponseDto>;
+
+  /**
+   * Every `users` row for the caller\'s own tenant — the owner (created at signup, never invited) and every member, invited or active. Oldest-first, so the owner leads the list.
+   * @summary List this tenant\'s team, owner included
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  tenantMembersControllerListV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<Array<TenantMemberResponseDto>>;
+
+  /**
+   * Deletes the invited member\'s row outright — only while it is still `invited`. A member who has already accepted cannot be removed through this route.
+   * @summary Revoke a pending invite
+   * @param {SettingsApiTenantMembersControllerRevokeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  tenantMembersControllerRevokeV1(
+    requestParameters: SettingsApiTenantMembersControllerRevokeV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
+
+  /**
    * Owner-only. Reads the tenant_settings singleton. 404 if the signup transaction never wrote the row.
    * @summary Get tenant settings
    * @param {*} [options] Override http request option.
@@ -740,6 +1078,23 @@ export interface SettingsApiBlocklistTermsControllerCreateV1Request {
  */
 export interface SettingsApiBlocklistTermsControllerRemoveV1Request {
   readonly id: string;
+}
+
+/**
+ * Request parameters for tenantMembersControllerInviteV1 operation in SettingsApi.
+ */
+export interface SettingsApiTenantMembersControllerInviteV1Request {
+  readonly inviteMemberDto: InviteMemberDto;
+}
+
+/**
+ * Request parameters for tenantMembersControllerRevokeV1 operation in SettingsApi.
+ */
+export interface SettingsApiTenantMembersControllerRevokeV1Request {
+  /**
+   * The invited member\&#39;s &#x60;users.id&#x60;
+   */
+  readonly memberId: string;
 }
 
 /**
@@ -809,6 +1164,53 @@ export class SettingsApi extends BaseAPI implements SettingsApiInterface {
   public platformSettingsControllerGetV1(options?: RawAxiosRequestConfig) {
     return SettingsApiFp(this.configuration)
       .platformSettingsControllerGetV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Creates the invited member\'s own row (`status: \"invited\"`, no password, `role: \"member\"`) and a 7-day invite token, then emails the invite link. Refused with 403 while `platform_settings.invite_members_enabled` is off.
+   * @summary Invite a teammate
+   * @param {SettingsApiTenantMembersControllerInviteV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public tenantMembersControllerInviteV1(
+    requestParameters: SettingsApiTenantMembersControllerInviteV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return SettingsApiFp(this.configuration)
+      .tenantMembersControllerInviteV1(
+        requestParameters.inviteMemberDto,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Every `users` row for the caller\'s own tenant — the owner (created at signup, never invited) and every member, invited or active. Oldest-first, so the owner leads the list.
+   * @summary List this tenant\'s team, owner included
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public tenantMembersControllerListV1(options?: RawAxiosRequestConfig) {
+    return SettingsApiFp(this.configuration)
+      .tenantMembersControllerListV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Deletes the invited member\'s row outright — only while it is still `invited`. A member who has already accepted cannot be removed through this route.
+   * @summary Revoke a pending invite
+   * @param {SettingsApiTenantMembersControllerRevokeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public tenantMembersControllerRevokeV1(
+    requestParameters: SettingsApiTenantMembersControllerRevokeV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return SettingsApiFp(this.configuration)
+      .tenantMembersControllerRevokeV1(requestParameters.memberId, options)
       .then((request) => request(this.axios, this.basePath));
   }
 
