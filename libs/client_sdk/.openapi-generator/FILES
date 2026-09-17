@@ -1,5 +1,6 @@
 .gitignore
 .npmignore
+.openapi-generator-ignore
 README.md
 api.ts
 api/admin-businesses-api.ts
@@ -18,7 +19,9 @@ common.ts
 configuration.ts
 git_push.sh
 index.ts
+models/accept-admin-invite-dto.ts
 models/admin-business-response-dto.ts
+models/admin-invite-preview-dto.ts
 models/admin-invite-response-dto.ts
 models/admin-profile-response-dto.ts
 models/admin-user-response-dto.ts

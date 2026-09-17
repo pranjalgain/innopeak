@@ -168,6 +168,30 @@
       "ssoUnavailable": "Couldn't check for additional sign-in options.",
       "ssoUnavailableRetry": "Try again"
     },
+    "acceptInvite": {
+      "title": "You're invited",
+      "invitedAs": "Set a password to finish setting up {email}.",
+      "invitedAsWithGoogle": "Set a password to finish setting up {email}, or continue with Google.",
+      "passwordLabel": "Password",
+      "confirmPasswordLabel": "Confirm password",
+      "submit": "Accept invite",
+      "submitting": "Accepting…",
+      "orDivider": "or",
+      "continueWithGoogle": "Continue with Google",
+      "invalidTitle": "This invite isn't valid",
+      "invalidDescription": "This link is invalid or has expired. Ask whoever invited you to send a new one.",
+      "backToLogin": "Back to sign in",
+      "passwordMismatch": "Passwords don't match.",
+      "errors": {
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordUppercase": "Password must contain an uppercase letter.",
+        "passwordLowercase": "Password must contain a lowercase letter.",
+        "passwordNumber": "Password must contain a number.",
+        "passwordSpecial": "Password must contain a special character.",
+        "confirmPasswordRequired": "Re-enter your password to confirm it."
+      }
+    },
     "passwordMock": {
       "emailLabel": "Email",
       "emailPlaceholder": "you@company.com",
@@ -202,6 +226,9 @@
       "ACCOUNT_UNAVAILABLE": "This account is not available. Contact support.",
       "PROVIDER_ERROR": "Could not reach Google. Please try again.",
       "NOT_CONFIGURED": "Google sign-in is not available right now. Use email and password.",
+      "INVALID_OR_EXPIRED_INVITE": "This invite link is invalid or has expired.",
+      "INVITE_EMAIL_MISMATCH": "That Google account's email doesn't match the invited address. Sign in to Google with the address the invite was sent to.",
+      "GOOGLE_IDENTITY_ALREADY_LINKED": "That Google account is already linked to a different admin.",
       "fallback": "Google sign-in did not complete. Please try again."
     }
   },

@@ -50,6 +50,8 @@ export const messagesDe: MessageCatalog = {
     GOOGLE_PENDING_SIGNUP_EXPIRED:
       'Diese Registrierung ist abgelaufen. Beginnen Sie erneut mit „Mit Google fortfahren“.',
     TENANT_CONTEXT_REQUIRED: 'Dieser Endpunkt ist für diesen Kontotyp nicht verfügbar.',
+    INVALID_OR_EXPIRED_INVITE: 'Dieser Einladungslink ist ungültig oder abgelaufen.',
+    INVITE_ACCEPTED: 'Einladung angenommen. Sie sind angemeldet.',
   },
   CONNECTIONS: {
     CONNECTION_NOT_FOUND:
@@ -124,6 +126,12 @@ export const messagesDe: MessageCatalog = {
     PLATFORM_SETTINGS_UPDATED: 'Plattformeinstellungen aktualisiert.',
     PLATFORM_SETTINGS_NO_METHOD_ENABLED:
       'Mindestens eine Anmeldemethode (SSO, E-Mail/Passwort oder Google) muss aktiviert bleiben.',
+    CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN: (count: number): string => {
+      if (count === 1) {
+        return 'Google ist die einzige Anmeldemöglichkeit für einen Ihrer Plattform-Administratoren. Ein Deaktivieren würde ihn aussperren. Deaktivieren Sie zuerst dieses Administratorkonto, falls dies beabsichtigt ist.';
+      }
+      return `Google ist die einzige Anmeldemöglichkeit für ${count} Ihrer Plattform-Administratoren. Ein Deaktivieren würde sie aussperren. Deaktivieren Sie zuerst diese Administratorkonten, falls dies beabsichtigt ist.`;
+    },
     ADMIN_NOT_FOUND: 'Plattform-Administrator nicht gefunden.',
     CANNOT_DISABLE_SELF: 'Sie können Ihr eigenes Administratorkonto nicht deaktivieren.',
     CANNOT_DISABLE_LAST_ADMIN: 'Mindestens ein Plattform-Administrator muss aktiv bleiben.',

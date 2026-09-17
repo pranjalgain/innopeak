@@ -9,6 +9,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   Query,
   Req,
@@ -42,6 +43,8 @@ import {
 } from './constants/google-auth.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { AcceptAdminInviteDto } from './dto/accept-admin-invite.dto';
+import { AdminInvitePreviewDto } from './dto/admin-invite-preview.dto';
 import { AuthenticatedUserDto } from './dto/authenticated-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CompleteGoogleSignupDto } from './dto/complete-google-signup.dto';
@@ -60,10 +63,12 @@ import { VerifyEmailDto } from './dto/verify-email.dto';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import { AuthService } from './services/auth.service';
 import {
+  ApiAcceptAdminInvite,
   ApiChangePassword,
   ApiCompleteGoogleSignup,
   ApiGoogleAuthorize,
   ApiGoogleCallback,
+  ApiInviteGoogleAuthorize,
   ApiLogin,
   ApiLogout,
   ApiMe,
@@ -73,6 +78,7 @@ import {
   ApiSetPassword,
   ApiSignup,
   ApiUpdateLocale,
+  ApiValidateAdminInvite,
   ApiVerifyEmail,
 } from './swagger/auth.swagger';
 import type { AuthUser } from './types/auth-user.type';
@@ -280,6 +286,41 @@ export class AuthController {
   }
 
   /**
+   * Read-only preview so the accept screen can show "You've been invited as `<email>`" before
+   * ever asking for a password. `@Public()` — the invitee has no session yet.
+   */
+  @Get(RouteNames.INVITE_VALIDATE)
+  @Public()
+  @Throttle({ short: { limit: 20, ttl: 60000 } })
+  @ApiValidateAdminInvite()
+  async validateAdminInvite(
+    @Param('token') token: string
+  ): Promise<ApiResponse<AdminInvitePreviewDto>> {
+    const result = await this.authService.validateAdminInvite(token);
+    return ResponseUtil.success(result, undefined, HttpStatus.OK);
+  }
+
+  /**
+   * The password path for accepting a platform-admin invite. `@Public()`, same reasoning as
+   * signup/login — the invitee has no session yet. Signs the admin in immediately on success, same
+   * as `login`'s admin branch (only the `access_token` cookie — no refresh token exists for this
+   * principal type).
+   */
+  @Post(RouteNames.INVITE_ACCEPT)
+  @Public()
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiAcceptAdminInvite()
+  async acceptAdminInvite(
+    @Body() dto: AcceptAdminInviteDto,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<ApiResponse<PlatformAdminTokenResponseDto>> {
+    const result = await this.authService.acceptAdminInvite(dto);
+    this.setAdminSessionCookies(res, result.body.accessToken);
+    return ResponseUtil.success(result.body, MESSAGES.AUTH.INVITE_ACCEPTED, HttpStatus.OK);
+  }
+
+  /**
    * Settings → Profile, language preference. Not `@Public()` — JwtAuthGuard supplies `user`.
    * Re-signs only the access token cookie — see `AuthService.updateLocale`'s doc comment for why
    * this deliberately does not touch the refresh token the way every other token-issuing route
@@ -329,6 +370,31 @@ export class AuthController {
   }
 
   /**
+   * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately its own route, not
+   * `GET /v1/auth/google` above, since a first-time invitee has no `platform_admin_identities`
+   * row yet for that generic callback branch to find (see `AuthService.completeAdminInviteGoogle`).
+   * Same cookie/redirect shape as `googleAuthorize`; failures (including a dead token, checked
+   * before ever redirecting) land back on the accept-invite page with `?error=`, never `/login`.
+   */
+  @Get(RouteNames.INVITE_GOOGLE)
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiInviteGoogleAuthorize()
+  async inviteGoogleAuthorize(@Param('token') token: string, @Res() res: Response): Promise<void> {
+    const redirect = await this.authService.buildAdminInviteGoogleRedirect(token);
+
+    if (!redirect.ok) {
+      res.redirect(HttpStatus.FOUND, redirect.redirectUrl);
+      return;
+    }
+
+    res.cookie(GOOGLE_AUTH_SID_COOKIE_NAME, redirect.sid, {
+      ...this.cookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, GOOGLE_AUTH_STATE_TTL_SECONDS),
+    });
+    res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
+  }
+
+  /**
    * Step two. `@Public()` because Google — not the SPA — sends the browser here, carrying no
    * bearer token; all context comes from the signed `state` plus the Redis record it names.
    *
@@ -364,6 +430,12 @@ export class AuthController {
         ...this.cookieOptions(GOOGLE_PENDING_SIGNUP_COOKIE_PATH, GOOGLE_PENDING_SIGNUP_TTL_SECONDS),
       });
       res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.NEEDS_BUSINESS_NAME);
+      return;
+    }
+
+    if (outcome.kind === 'admin_signed_in') {
+      this.setAdminSessionCookies(res, outcome.tokens.body.accessToken);
+      res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.ADMIN_SUCCESS);
       return;
     }
 

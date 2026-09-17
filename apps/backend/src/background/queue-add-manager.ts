@@ -1,5 +1,5 @@
 import { DEFAULT_JOB_OPTIONS, JobName, QueueName } from '@bg/constants/job.constant';
-import { IOtpEmailJob } from '@bg/interfaces/job.interface';
+import { IAdminInviteEmailJob, IOtpEmailJob } from '@bg/interfaces/job.interface';
 import { QueuePublisherProvider } from '@bg/providers/queue-publisher.provider';
 import { Injectable, Logger } from '@nestjs/common';
 
@@ -37,6 +37,10 @@ export class AddingJobsToQueueManager {
   }
 
   async addForgotPasswordEmailJob(jobName: JobName, data: IOtpEmailJob): Promise<void> {
+    return this.addJob(QueueName.EMAIL, jobName, data);
+  }
+
+  async addAdminInviteEmailJob(jobName: JobName, data: IAdminInviteEmailJob): Promise<void> {
     return this.addJob(QueueName.EMAIL, jobName, data);
   }
 }

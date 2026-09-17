@@ -17,6 +17,10 @@ export interface GoogleAuthStateRecord {
   intent: OAuthIntent;
   /** SHA-256 of the browser-binding cookie value. The cookie itself is never stored. */
   sidHash: string;
+  /** `OAuthIntent.ADMIN_INVITE` only — which `platform_admin_invites` row this round trip is
+   *  redeeming. Carried server-side in Redis, never round-tripped through the client beyond the
+   *  opaque signed `state`. */
+  inviteToken?: string;
 }
 
 export interface MintedGoogleState {
@@ -62,13 +66,17 @@ export class GoogleOAuthStateService {
       'insecure-local-google-auth-state-secret';
   }
 
-  async mint(input: { intent: OAuthIntent }): Promise<MintedGoogleState> {
+  async mint(input: { intent: OAuthIntent; inviteToken?: string }): Promise<MintedGoogleState> {
     const nonce = randomBytes(24).toString('base64url');
     const sid = randomBytes(32).toString('base64url');
 
+    // `exactOptionalPropertyTypes`: built conditionally rather than `inviteToken: input.inviteToken`,
+    // which would assign a literal `undefined` for every LOGIN/SIGNUP mint — a real key on the
+    // record, not merely an absent one, and a type error under this config regardless.
     const record: GoogleAuthStateRecord = {
       intent: input.intent,
       sidHash: this.hashSid(sid),
+      ...(input.inviteToken !== undefined ? { inviteToken: input.inviteToken } : {}),
     };
 
     // `NX` so a nonce collision fails rather than overwriting another in-flight consent. The

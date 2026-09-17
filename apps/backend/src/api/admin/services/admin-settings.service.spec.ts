@@ -1,6 +1,8 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth-user.type';
+import { JobName } from '@bg/constants/job.constant';
+import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { HashingService } from '@common/hashing/hashing.service';
@@ -12,9 +14,11 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
@@ -35,11 +39,14 @@ describe('AdminSettingsService', () => {
     deleteExpiredInvite: jest.Mock;
     findStatusById: jest.Mock;
     setStatusGuardingLastActive: jest.Mock;
+    countActiveGoogleOnlyAdmins: jest.Mock;
   };
   let adminUsersDbService: { existsByEmail: jest.Mock };
   let platformSettingsDbService: { get: jest.Mock; update: jest.Mock };
   let adminOverviewDbService: { recordActivityBestEffort: jest.Mock };
   let hashingService: { hash: jest.Mock; compare: jest.Mock };
+  let queueManager: { addAdminInviteEmailJob: jest.Mock };
+  let configService: { get: jest.Mock };
 
   const admin: PlatformAdminAuthUser = {
     type: JwtTokenType.PLATFORM_ADMIN,
@@ -75,11 +82,20 @@ describe('AdminSettingsService', () => {
       deleteExpiredInvite: jest.fn(),
       findStatusById: jest.fn(),
       setStatusGuardingLastActive: jest.fn(),
+      // No Google-only admins by default, so the social-login lockout guard is inert for every
+      // test that isn't specifically about it.
+      countActiveGoogleOnlyAdmins: jest.fn().mockResolvedValue(0),
     };
     adminUsersDbService = { existsByEmail: jest.fn() };
     platformSettingsDbService = { get: jest.fn(), update: jest.fn() };
     adminOverviewDbService = { recordActivityBestEffort: jest.fn() };
     hashingService = { hash: jest.fn(), compare: jest.fn() };
+    queueManager = { addAdminInviteEmailJob: jest.fn().mockResolvedValue(undefined) };
+    configService = {
+      get: jest.fn((key: string) => {
+        return key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : undefined;
+      }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -89,6 +105,8 @@ describe('AdminSettingsService', () => {
         { provide: PlatformSettingsDbService, useValue: platformSettingsDbService },
         { provide: AdminOverviewDbService, useValue: adminOverviewDbService },
         { provide: HashingService, useValue: hashingService },
+        { provide: AddingJobsToQueueManager, useValue: queueManager },
+        { provide: ConfigService, useValue: configService },
       ],
     }).compile();
 
@@ -252,6 +270,42 @@ describe('AdminSettingsService', () => {
         actorEmail: 'admin@innopeak.com',
         targetEmail: 'new@innopeak.com',
       });
+
+      // Fire-and-forget — give the un-awaited promise a tick to run.
+      await new Promise(resolve => setImmediate(resolve));
+      expect(queueManager.addAdminInviteEmailJob).toHaveBeenCalledWith(
+        JobName.ADMIN_INVITE_EMAIL,
+        expect.objectContaining({
+          email: 'new@innopeak.com',
+          inviteLink: expect.stringContaining('https://app.innopeak.test/invite/'),
+        })
+      );
+    });
+
+    /**
+     * `!isProduction()` — this codebase's one dev/prod gate — additionally logs the raw invite
+     * link, so the flow is exercisable locally without a working mailbox. `NODE_ENV` is not
+     * `'production'` in this test process, so this is the path every other test above already
+     * runs; this test is the one that actually asserts the log happened.
+     */
+    it('[dev] logs the invite link directly, in addition to queuing the email', async () => {
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+      platformAdminDbService.findByEmail.mockResolvedValue(null);
+      adminUsersDbService.existsByEmail.mockResolvedValue(false);
+      platformAdminDbService.createInvite.mockResolvedValue({
+        id: 'invite-1',
+        email: 'new@innopeak.com',
+        status: PlatformAdminStatus.INVITED,
+        invitedAt: '2026-03-01T00:00:00.000Z',
+        expiresAt: '2026-03-08T00:00:00.000Z',
+      });
+
+      await target.sendInvite(admin, { email: 'new@innopeak.com' });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining('https://app.innopeak.test/invite/')
+      );
+      logSpy.mockRestore();
     });
   });
 
@@ -504,6 +558,75 @@ describe('AdminSettingsService', () => {
       await expect(
         target.updatePlatformSettings(admin, { passwordLoginEnabled: false })
       ).resolves.toMatchObject({ passwordLoginEnabled: false });
+    });
+
+    /**
+     * Third member of the same lockout-prevention family as the two checks above and
+     * `setAdminStatus`'s guards. An admin who accepted their invite through Google has no
+     * `password_hash` at all, so this setting — which decides whether the login screen offers a
+     * Google button — is the only thing between them and no way in, and there is no admin
+     * equivalent of the tenant `set-password` flow to add a password with.
+     */
+    it('refuses to turn off Google sign-in while an admin has no other credential', async () => {
+      platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+      platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(2);
+
+      await expect(
+        target.updatePlatformSettings(admin, { socialLoginEnabled: false })
+      ).rejects.toThrow(BadRequestException);
+      expect(platformSettingsDbService.update).not.toHaveBeenCalled();
+    });
+
+    /** The count rides along in the message so the admin knows how many accounts to deal with. */
+    it('names how many admins would be stranded', async () => {
+      platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+      platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(3);
+
+      await expect(
+        target.updatePlatformSettings(admin, { socialLoginEnabled: false })
+      ).rejects.toThrow(MESSAGES.ADMIN.CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN(3));
+    });
+
+    it('allows turning off Google sign-in when every admin has a password', async () => {
+      platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+      platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(0);
+      platformSettingsDbService.update.mockResolvedValue({
+        ...allEnabledRow,
+        socialLoginEnabled: false,
+      });
+
+      await expect(
+        target.updatePlatformSettings(admin, { socialLoginEnabled: false })
+      ).resolves.toMatchObject({ socialLoginEnabled: false });
+    });
+
+    /**
+     * Scoped to the transition, not the resulting state: an admin stranded by Google already
+     * being off is recovered by turning it back on, and answering 400 to a no-op re-assertion
+     * would make that state look like this guard's doing.
+     */
+    it('does not block a no-op when Google sign-in is already off', async () => {
+      const socialOffRow = { ...allEnabledRow, socialLoginEnabled: false };
+      platformSettingsDbService.get.mockResolvedValue(socialOffRow);
+      platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(1);
+      platformSettingsDbService.update.mockResolvedValue(socialOffRow);
+
+      await expect(
+        target.updatePlatformSettings(admin, { socialLoginEnabled: false })
+      ).resolves.toMatchObject({ socialLoginEnabled: false });
+      expect(platformAdminDbService.countActiveGoogleOnlyAdmins).not.toHaveBeenCalled();
+    });
+
+    it('does not spend a query on the guard when the patch leaves Google sign-in alone', async () => {
+      platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+      platformSettingsDbService.update.mockResolvedValue({
+        ...allEnabledRow,
+        inviteMembersEnabled: false,
+      });
+
+      await target.updatePlatformSettings(admin, { inviteMembersEnabled: false });
+
+      expect(platformAdminDbService.countActiveGoogleOnlyAdmins).not.toHaveBeenCalled();
     });
   });
 });

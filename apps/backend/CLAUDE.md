@@ -213,6 +213,18 @@ contract: `apps/documentation/docs/backend/auth/`.
   account: an access token alone must never be convertible into a permanent credential. Stored
   under `token_purpose = 'set_password'`, deliberately distinct from the `reset` value reserved
   for the unbuilt public forgot-password route
+- `invite/:token` (preview) + `invite/accept` (password) + `invite/:token/google` (SSO) —
+  platform-admin invite acceptance. `AdminSettingsService.sendInvite` (`/v1/admin/settings/invites`,
+  bearer, admin-only) mints the token and emails/dev-logs the link; these three are the public
+  redemption side, against `platform_admin_invites`/`platform_admins`, not the tenant tables. The
+  Google path is its own route rather than reusing `/v1/auth/google` login, since a first-time
+  invitee has no `platform_admin_identities` row yet for that callback branch to find — completion
+  happens at the shared `GET /v1/auth/google/callback` via a third `OAuthIntent.ADMIN_INVITE`,
+  which requires the IdP-verified email to exactly match the invited address
+  (`INVITE_EMAIL_MISMATCH` otherwise). That same callback also resolves an *already-linked* admin
+  identity on ordinary `login`/`signup` round trips — a Google-accepted admin has no
+  `password_hash` and no refresh token, so without that read their session ended 15 minutes after
+  acceptance with no way back. See `apps/documentation/docs/backend/auth/invite-flow-design.md`
 
 **Tokens**
 - Access token: JWT, 15 min (`ACCESS_TOKEN_TTL_SECONDS`). Sent both as an httpOnly `access_token`

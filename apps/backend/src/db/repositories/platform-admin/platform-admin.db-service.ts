@@ -2,6 +2,7 @@ import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import { Injectable } from '@nestjs/common';
 
 import {
+  type AcceptInviteOutcome,
   type PlatformAdminInviteRow,
   type PlatformAdminProfileRow,
   PlatformAdminRepository,
@@ -109,5 +110,38 @@ export class PlatformAdminDbService {
    */
   async revokeInvite(id: string): Promise<RevokeInviteOutcome> {
     return this.platformAdminRepository.deleteInvitedAdmin(id);
+  }
+
+  /** See `PlatformAdminRepository.countActiveGoogleOnlyAdmins` — backs the social-login lockout guard. */
+  async countActiveGoogleOnlyAdmins(): Promise<number> {
+    return this.platformAdminRepository.countActiveGoogleOnlyAdmins();
+  }
+
+  /** See `PlatformAdminRepository.findByGoogleIdentity` — the login-side read of a linked admin identity. */
+  async findByGoogleIdentity(
+    providerUserId: string
+  ): Promise<{ id: string; email: string; status: PlatformAdminStatus } | null> {
+    return this.platformAdminRepository.findByGoogleIdentity(providerUserId);
+  }
+
+  /** See `PlatformAdminRepository.findInviteEmailByTokenHash` — read-only, does not consume. */
+  async findInviteEmailByTokenHash(tokenHash: string): Promise<{ email: string } | null> {
+    return this.platformAdminRepository.findInviteEmailByTokenHash(tokenHash);
+  }
+
+  /** See `PlatformAdminRepository.acceptInviteWithPassword`. */
+  async acceptInviteWithPassword(input: {
+    tokenHash: string;
+    passwordHash: string;
+  }): Promise<AcceptInviteOutcome> {
+    return this.platformAdminRepository.acceptInviteWithPassword(input);
+  }
+
+  /** See `PlatformAdminRepository.acceptInviteWithGoogleIdentity`. */
+  async acceptInviteWithGoogleIdentity(input: {
+    tokenHash: string;
+    providerUserId: string;
+  }): Promise<AcceptInviteOutcome> {
+    return this.platformAdminRepository.acceptInviteWithGoogleIdentity(input);
   }
 }

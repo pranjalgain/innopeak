@@ -1,3 +1,4 @@
+import { QueueUIModule } from '@bg/queue-ui.module';
 import { BcryptService } from '@common/hashing/bcrypt.service';
 import { HashingService } from '@common/hashing/hashing.service';
 import { Module } from '@nestjs/common';
@@ -12,6 +13,7 @@ import { AdminSettingsService } from './services/admin-settings.service';
 import { AdminUsersService } from './services/admin-users.service';
 
 @Module({
+  imports: [QueueUIModule], // for AddingJobsToQueueManager — AdminSettingsService.sendInvite enqueues the invite email
   controllers: [
     AdminUsersController,
     AdminBusinessesController,

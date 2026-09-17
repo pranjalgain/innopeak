@@ -9,6 +9,7 @@ import { EnvConfig } from '@config/env.config';
 import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
 import type { PlatformAdminByEmail } from '@db/repositories/auth/auth.repository';
 import { DemoDataDbService } from '@db/repositories/demo-data/demo-data.db-service';
+import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import {
   BadRequestException,
   ConflictException,
@@ -17,6 +18,7 @@ import {
   HttpStatus,
   Injectable,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -30,6 +32,8 @@ import { PendingGoogleSignupService } from './pending-google-signup.service';
 import { TokenService } from './token.service';
 
 import { GOOGLE_AUTH_REDIRECT, GoogleAuthFailure } from '../constants/google-auth.constants';
+import { AcceptAdminInviteDto } from '../dto/accept-admin-invite.dto';
+import { AdminInvitePreviewDto } from '../dto/admin-invite-preview.dto';
 import { AuthenticatedUserDto } from '../dto/authenticated-user.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import { LoginPendingVerificationDto } from '../dto/login-response.dto';
@@ -53,6 +57,8 @@ import { UserStatus } from '../enums/user-status.enum';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
 import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
 import type { AuthUser } from '../types/auth-user.type';
+import type { GoogleIdentity } from '../types/google-identity.type';
+import { buildAdminInviteLink } from '../utils/admin-invite-link.util';
 import { normalizeEmail } from '../utils/email.utils';
 import { hashToken } from '../utils/token.utils';
 
@@ -74,6 +80,8 @@ export type GoogleCallbackOutcome =
   /** `redirectUrl` is already the full `<page>?error=<failure>` target — computed here, from
    *  `intent`, rather than by `AuthController.googleCallback`. */
   | { ok: false; failure: GoogleAuthFailure; redirectUrl: string }
+  /** `OAuthIntent.ADMIN_INVITE` completed — see `AuthService.completeAdminInviteGoogle`. */
+  | { ok: true; kind: 'admin_signed_in'; tokens: PlatformAdminLoginResult }
   /** A genuinely new person — the caller sets `pendingSignupCookie` and redirects to collect a business name. */
   | { ok: true; kind: 'needs_business_name'; pendingSignupCookie: string }
   | { ok: true; kind: 'signed_in'; tokens: TokenIssuanceResult };
@@ -133,7 +141,8 @@ export class AuthService {
     private readonly googleIdentityProvider: GoogleIdentityProvider,
     private readonly googleOAuthStateService: GoogleOAuthStateService,
     private readonly pendingGoogleSignupService: PendingGoogleSignupService,
-    private readonly demoDataDbService: DemoDataDbService
+    private readonly demoDataDbService: DemoDataDbService,
+    private readonly platformAdminDbService: PlatformAdminDbService
   ) {}
 
   /**
@@ -150,20 +159,20 @@ export class AuthService {
   }
 
   /**
-   * Refuses a tenant signup for an email that already belongs to a *loggable-in* platform admin.
-   * The mirror of the guard `AdminSettingsService.sendInvite` applies in the other direction —
-   * together they keep the two identity tables disjoint for any admin who can actually
-   * authenticate, which matters because `login` has to resolve an email to exactly one of them.
+   * Refuses a tenant signup for an email that already belongs to a *loggable-in or invitable*
+   * platform admin. The mirror of the guard `AdminSettingsService.sendInvite` applies in the
+   * other direction — together they keep the two identity tables disjoint for any admin who can
+   * actually authenticate, which matters because `login` has to resolve an email to exactly one
+   * of them.
    *
-   * Deliberately keyed on `passwordHash` being set, not merely a row existing: an `invited` admin
-   * (no password yet — see `PlatformAdminByEmail`'s own comment) has no accept-invite flow to ever
-   * turn that row into a real, loggable-in identity (`AdminSettingsService.sendInvite`'s own
-   * comment notes this is still unbuilt). Rejecting signup for that email anyway made an invited
-   * address a dead end with no way in at all: it could not accept the invite, could not sign up as
-   * a tenant (this guard), and could not log in either (`login` falls through a null-hash admin
-   * row to the tenant path, which then has no user to find). Scoping this to a real password
-   * preserves the actual invariant this guard protects — no email resolves to two authenticatable
-   * identities — without also blocking the one path that email has left.
+   * Now that `AuthService.acceptAdminInvite`/`completeAdminInviteGoogle` exist, an `invited` admin
+   * (no password yet — see `PlatformAdminByEmail`'s own comment) is no longer a dead end: a live
+   * invite is this address's own way in, and it must block tenant signup exactly like a real
+   * password does, or the two flows could both complete and leave one email resolving to two
+   * authenticatable identities — the invariant this guard exists to protect. Only a **lapsed**
+   * invite (past `inviteExpiresAt`, same definition `AdminSettingsService.sendInvite` already
+   * uses for reuse) is not a live claim on anything and is left alone, so that address isn't
+   * blocked forever by an invite nobody ever accepted or re-sent.
    *
    * Deliberately the same generic `EMAIL_ALREADY_REGISTERED` a duplicate tenant email gets: a
    * distinct "that address belongs to a platform admin" would turn public signup into an oracle
@@ -171,7 +180,20 @@ export class AuthService {
    */
   private async assertEmailNotAPlatformAdmin(email: string): Promise<void> {
     const admin = await this.authDbService.findPlatformAdminForLogin(email);
-    if (admin?.passwordHash) {
+    if (!admin) {
+      return;
+    }
+    if (admin.passwordHash) {
+      throw new ConflictException(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+    }
+
+    const invite = await this.platformAdminDbService.findByEmail(email);
+    const isLapsed =
+      invite?.status === PlatformAdminStatus.INVITED &&
+      invite.inviteExpiresAt !== null &&
+      new Date(invite.inviteExpiresAt).getTime() <= Date.now();
+
+    if (!isLapsed) {
       throw new ConflictException(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
     }
   }
@@ -505,6 +527,79 @@ export class AuthService {
   }
 
   /**
+   * `GET /v1/auth/invite/:token` — read-only preview so the accept screen can show "You've been
+   * invited as `<email>`" before ever asking for a password. Same generic 404 for a token that
+   * never existed, was already used, or has expired — see `MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE`.
+   */
+  async validateAdminInvite(rawToken: string): Promise<AdminInvitePreviewDto> {
+    const invite = await this.platformAdminDbService.findInviteEmailByTokenHash(
+      hashToken(rawToken)
+    );
+    if (!invite) {
+      throw new NotFoundException(MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE);
+    }
+    return AdminInvitePreviewDto.from(invite);
+  }
+
+  /**
+   * `POST /v1/auth/invite/accept` — the password path. Mirrors `platformAdminLogin`'s token
+   * issuance exactly, since accepting an invite signs the admin in immediately, same as a normal
+   * login. See `completeAdminInviteGoogle` for the Google alternative.
+   */
+  async acceptAdminInvite(dto: AcceptAdminInviteDto): Promise<PlatformAdminLoginResult> {
+    const passwordHash = await this.hashingService.hash(dto.password);
+    const result = await this.platformAdminDbService.acceptInviteWithPassword({
+      tokenHash: hashToken(dto.token),
+      passwordHash,
+    });
+
+    if (result.outcome !== 'accepted') {
+      throw new BadRequestException(MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE);
+    }
+
+    return this.buildPlatformAdminLoginResult(result);
+  }
+
+  /**
+   * `GET /v1/auth/invite/:token/google` — the same read-only shape `buildGoogleAuthorizeRedirect`
+   * uses (never throws for an expected failure, since the browser is mid-navigation): validates
+   * the token before ever redirecting to Google, so a dead link fails fast on the accept screen
+   * rather than after a round trip that can only fail there anyway.
+   */
+  async buildAdminInviteGoogleRedirect(inviteToken: string): Promise<GoogleAuthorizeRedirect> {
+    const invite = await this.platformAdminDbService.findInviteEmailByTokenHash(
+      hashToken(inviteToken)
+    );
+    if (!invite) {
+      return {
+        ok: false,
+        redirectUrl: this.adminInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+        ),
+      };
+    }
+
+    if (!this.googleIdentityProvider.isConfigured()) {
+      return {
+        ok: false,
+        redirectUrl: this.adminInviteFailureUrl(inviteToken, GoogleAuthFailure.NOT_CONFIGURED),
+      };
+    }
+
+    const { state, sid } = await this.googleOAuthStateService.mint({
+      intent: OAuthIntent.ADMIN_INVITE,
+      inviteToken,
+    });
+
+    return {
+      ok: true,
+      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl(state),
+      sid,
+    };
+  }
+
+  /**
    * Settings → Profile's language preference — resolution order step 1
    * (`apps/documentation/docs/meta/multilingual.md`). Persists `users.locale`, then re-signs only
    * the access token (`TokenService.reissueAccessToken`) so the new value is on its `locale` claim
@@ -619,9 +714,10 @@ export class AuthService {
     // also single-use regardless of outcome, so a declined consent should still spend it.
     const consumed = await this.googleOAuthStateService.consume(input.state, input.sid);
     const intent = consumed.ok ? consumed.record.intent : undefined;
+    const inviteToken = consumed.ok ? consumed.record.inviteToken : undefined;
 
     if (input.error !== undefined) {
-      return this.googleFailureRedirect(GoogleAuthFailure.ACCESS_DENIED, intent);
+      return this.googleFailureRedirect(GoogleAuthFailure.ACCESS_DENIED, intent, inviteToken);
     }
 
     if (!consumed.ok) {
@@ -629,7 +725,11 @@ export class AuthService {
     }
 
     if (input.code === undefined || input.code === '') {
-      return this.googleFailureRedirect(GoogleAuthFailure.PROVIDER_ERROR, consumed.record.intent);
+      return this.googleFailureRedirect(
+        GoogleAuthFailure.PROVIDER_ERROR,
+        consumed.record.intent,
+        inviteToken
+      );
     }
 
     let identity;
@@ -637,7 +737,11 @@ export class AuthService {
       identity = await this.googleIdentityProvider.fetchIdentity(input.code);
     } catch (error) {
       this.logger.warn(`Google identity exchange failed: ${(error as Error).message}`);
-      return this.googleFailureRedirect(GoogleAuthFailure.PROVIDER_ERROR, consumed.record.intent);
+      return this.googleFailureRedirect(
+        GoogleAuthFailure.PROVIDER_ERROR,
+        consumed.record.intent,
+        inviteToken
+      );
     }
 
     // Refused rather than trusted: an unverified address would let someone claim an account by
@@ -645,8 +749,48 @@ export class AuthService {
     if (!identity.emailVerified) {
       return this.googleFailureRedirect(
         GoogleAuthFailure.EMAIL_NOT_VERIFIED,
-        consumed.record.intent
+        consumed.record.intent,
+        inviteToken
       );
+    }
+
+    // Structurally distinct from the tenant login/signup branches below: there is no
+    // `platform_admin_identities` lookup to attempt (this is always the first time this admin
+    // links Google), and completion is entirely about redeeming `inviteToken`, not resolving an
+    // identity against `users`.
+    if (consumed.record.intent === OAuthIntent.ADMIN_INVITE) {
+      return this.completeAdminInviteGoogle(inviteToken, identity);
+    }
+
+    // A Google identity already linked to a platform admin signs that admin in, and owns the
+    // request exclusively — the same rule password `login` applies by checking `platform_admins`
+    // first, for the same reason: an email must resolve to exactly one authenticatable identity,
+    // and a self-service tenant must never shadow a deliberately-provisioned admin.
+    //
+    // Checked for BOTH intents, not just `login`: the signup button reaching here with an
+    // admin-linked Google account is someone clicking the wrong button, and the right answer is
+    // their admin session — not a tenant that `completeGoogleSignup`'s own
+    // `assertEmailNotAPlatformAdmin` guard would refuse two screens later anyway.
+    //
+    // Without this lookup nothing in `src/` ever read `platform_admin_identities`, so an admin who
+    // accepted their invite through Google could sign in exactly once: no `password_hash` to log
+    // in with, no refresh token for this principal type, and no way to revoke or re-issue the
+    // invite afterwards (both paths are scoped to `status = 'invited'`).
+    const linkedAdmin = await this.platformAdminDbService.findByGoogleIdentity(
+      identity.providerUserId
+    );
+    if (linkedAdmin) {
+      if (linkedAdmin.status !== PlatformAdminStatus.ACTIVE) {
+        return this.googleFailureRedirect(
+          GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+          consumed.record.intent
+        );
+      }
+      return {
+        ok: true,
+        kind: 'admin_signed_in',
+        tokens: this.buildPlatformAdminLoginResult(linkedAdmin),
+      };
     }
 
     const email = normalizeEmail(identity.email);
@@ -704,14 +848,115 @@ export class AuthService {
    * `intent`-to-URL mapping of its own. Defaults to the login page: everywhere this is called
    * without a known `intent`, the state was never validly consumed, so there is no way to know
    * the original screen and the login page is the safer fallback (it never invents a tenant).
+   *
+   * `ADMIN_INVITE` targets the accept-invite page itself, not `/login`/`/onboarding/signup` — but
+   * only when `inviteToken` actually came back with the consumed record; if it somehow didn't
+   * (never happens in practice — `buildAdminInviteGoogleRedirect` always mints it), this falls
+   * through to the login-page default rather than building a URL with no token in it.
    */
   private googleFailureRedirect(
     failure: GoogleAuthFailure,
-    intent?: OAuthIntent
+    intent?: OAuthIntent,
+    inviteToken?: string
   ): GoogleCallbackOutcome {
+    if (intent === OAuthIntent.ADMIN_INVITE && inviteToken !== undefined) {
+      return { ok: false, failure, redirectUrl: this.adminInviteFailureUrl(inviteToken, failure) };
+    }
+
     const base =
       intent === OAuthIntent.SIGNUP ? GOOGLE_AUTH_REDIRECT.SIGNUP : GOOGLE_AUTH_REDIRECT.LOGIN;
     return { ok: false, failure, redirectUrl: `${base}?error=${failure}` };
+  }
+
+  /** `${FRONTEND_URL}/invite/:token?error=<code>` — shared by `buildAdminInviteGoogleRedirect` and
+   *  every `ADMIN_INVITE` branch of `googleFailureRedirect`/`completeAdminInviteGoogle`. */
+  private adminInviteFailureUrl(inviteToken: string, failure: GoogleAuthFailure): string {
+    const link = buildAdminInviteLink(this.configService.get<string>('FRONTEND_URL'), inviteToken);
+    return `${link}?error=${failure}`;
+  }
+
+  /**
+   * Completes an `OAuthIntent.ADMIN_INVITE` round trip: re-validates the invite, confirms the
+   * IdP-verified email matches the invited address, links the Google identity, and signs the
+   * admin in. Never throws — the browser is mid-navigation, same reasoning as every other branch
+   * of `handleGoogleCallback`.
+   *
+   * `inviteToken` is only `undefined` if the state record somehow lost it, which never happens in
+   * practice (`buildAdminInviteGoogleRedirect` always mints it alongside `intent`) — handled
+   * defensively rather than asserted, since there is no token to build a targeted redirect from
+   * either way.
+   */
+  private async completeAdminInviteGoogle(
+    inviteToken: string | undefined,
+    identity: GoogleIdentity
+  ): Promise<GoogleCallbackOutcome> {
+    if (inviteToken === undefined) {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        redirectUrl: `${GOOGLE_AUTH_REDIRECT.LOGIN}?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
+      };
+    }
+
+    const invite = await this.platformAdminDbService.findInviteEmailByTokenHash(
+      hashToken(inviteToken)
+    );
+    if (!invite) {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        redirectUrl: this.adminInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+        ),
+      };
+    }
+
+    // The check that stops someone other than the invited person from redeeming this link with
+    // their own unrelated Google account — the invite token alone proves nothing about *whose*
+    // Google account is completing it. Token is left unconsumed on a mismatch.
+    if (normalizeEmail(identity.email) !== normalizeEmail(invite.email)) {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
+        redirectUrl: this.adminInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.INVITE_EMAIL_MISMATCH
+        ),
+      };
+    }
+
+    const result = await this.platformAdminDbService.acceptInviteWithGoogleIdentity({
+      tokenHash: hashToken(inviteToken),
+      providerUserId: identity.providerUserId,
+    });
+
+    if (result.outcome === 'identity_already_linked') {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
+        redirectUrl: this.adminInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED
+        ),
+      };
+    }
+    if (result.outcome !== 'accepted') {
+      return {
+        ok: false,
+        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        redirectUrl: this.adminInviteFailureUrl(
+          inviteToken,
+          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      kind: 'admin_signed_in',
+      tokens: this.buildPlatformAdminLoginResult(result),
+    };
   }
 
   /**
@@ -782,6 +1027,15 @@ export class AuthService {
       throw new ForbiddenException(MESSAGES.AUTH.ACCOUNT_DISABLED);
     }
 
+    return this.buildPlatformAdminLoginResult(admin);
+  }
+
+  /** Shared by `platformAdminLogin`, `acceptAdminInvite`, and `completeAdminInviteGoogle` — every
+   *  path that ends in "sign this platform admin in" builds the same token + DTO shape. */
+  private buildPlatformAdminLoginResult(admin: {
+    id: string;
+    email: string;
+  }): PlatformAdminLoginResult {
     const { accessToken, expiresIn } = this.tokenService.signPlatformAdminAccessToken(admin);
 
     const summary = new PlatformAdminSummaryDto();
