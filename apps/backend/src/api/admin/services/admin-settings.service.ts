@@ -12,7 +12,6 @@ import { isProduction } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
 import { isCheckViolation, isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
-import { AdminUsersDbService } from '@db/repositories/admin-users/admin-users.db-service';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import type { PlatformSettingsPatch } from '@db/repositories/platform-settings/platform-settings.repository';
@@ -57,7 +56,6 @@ export class AdminSettingsService {
 
   constructor(
     private readonly platformAdminDbService: PlatformAdminDbService,
-    private readonly adminUsersDbService: AdminUsersDbService,
     private readonly platformSettingsDbService: PlatformSettingsDbService,
     private readonly adminOverviewDbService: AdminOverviewDbService,
     private readonly hashingService: HashingService,
@@ -122,18 +120,17 @@ export class AdminSettingsService {
   async sendInvite(actor: AuthUser, dto: SendAdminInviteDto): Promise<AdminInviteResponseDto> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
 
-    // `platform_admins` and `users` are entirely separate identity tables — nothing about
-    // `AuthService.signup` ever checks this one, so a colliding email is only caught here. Left
-    // uncaught, login would resolve the collision by checking `platform_admins` first (see that
-    // method's own comment), silently shadowing the tenant account once this invite is accepted.
-    //
-    // Deliberately checked before the lapsed-invite cleanup below, which is a real mutation: a
-    // request that ends up rejected here must not have already deleted a roster row on its way to
-    // being rejected — the caller sees a clean 409 and has every reason to believe nothing changed.
-    const belongsToTenantUser = await this.adminUsersDbService.existsByEmail(dto.email);
-    if (belongsToTenantUser) {
-      throw new ConflictException(MESSAGES.ADMIN.EMAIL_BELONGS_TO_TENANT_USER);
-    }
+    // Deliberately does NOT refuse an email that already belongs to a tenant user. This used to
+    // 409 (`EMAIL_BELONGS_TO_TENANT_USER`), because a single shared `login` had to resolve one
+    // email to exactly one of `platform_admins`/`users` and checked `platform_admins` first —
+    // so an accepted invite would have silently shadowed the tenant account. Since the
+    // tenant/admin login split there is nothing left to shadow: the two credentials live on two
+    // routes (`POST /v1/auth/login` and `POST /v1/admin/auth/login`), two cookies, and two
+    // lockout scopes, and `AuthService.signup` already dropped its mirror of this guard. Blocking
+    // here would have left the relaxation one-directional — an admin could become a tenant, but
+    // an existing tenant could never be made an admin, which is the direction that actually
+    // matters when staffing the console from people who already use the product. See the
+    // dual-identity decision in `separate-admin-login-design.md`.
 
     // A lapsed invite is not a live claim on this address. Previously any existing row answered
     // 409, and since nothing expires or sweeps `platform_admin_invites`, a single invite that was

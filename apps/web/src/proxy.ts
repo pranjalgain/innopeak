@@ -58,6 +58,7 @@ const REDIRECT_IF_AUTHENTICATED_PATHS: string[] = [
   ROUTES.HOME,
   ROUTES.LOGIN,
   ROUTES.LOGIN_MICROSOFT,
+  ROUTES.ADMIN_LOGIN,
   ROUTES.ONBOARDING_SIGNUP,
   // Reachable only via a `google_pending_signup` cookie, not a session — but an authenticated
   // visitor who lands here anyway (a stale tab, the back button) has nothing left to do: the
@@ -115,7 +116,10 @@ export function proxy(request: NextRequest): NextResponse {
       return NextResponse.redirect(new URL(ROUTES.FORBIDDEN, request.url));
     }
     if (!isAdminSession) {
-      return NextResponse.redirect(new URL(ROUTES.LOGIN, request.url));
+      // The admin's own sign-in screen, not the tenant `/login` — since the split, that screen has
+      // no admin path left on it at all, so bouncing an unauthenticated admin-area visitor there
+      // was a dead end with no way to actually sign in.
+      return NextResponse.redirect(new URL(ROUTES.ADMIN_LOGIN, request.url));
     }
   }
 
@@ -127,6 +131,7 @@ export const config = {
     "/",
     "/login",
     "/login/microsoft",
+    "/admin-login",
     "/onboarding/signup",
     "/onboarding/business-name",
     "/onboarding/connect",

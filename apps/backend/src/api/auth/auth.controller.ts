@@ -2,14 +2,12 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';
-import { isProduction } from '@config/deployment-target.util';
 import {
   Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
-  Param,
   Post,
   Query,
   Req,
@@ -18,16 +16,16 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { CookieOptions, Request, Response } from 'express';
+import type { Request, Response } from 'express';
 
 import {
   ACCESS_TOKEN_COOKIE_NAME,
   ACCESS_TOKEN_COOKIE_PATH,
   ACCESS_TOKEN_TTL_SECONDS,
+  ADMIN_ACCESS_TOKEN_COOKIE_NAME,
   REFRESH_TOKEN_COOKIE_NAME,
   REFRESH_TOKEN_COOKIE_PATH,
   REFRESH_TOKEN_TTL_SECONDS,
-  SESSION_HINT_ADMIN_VALUE,
   SESSION_HINT_COOKIE_NAME,
   SESSION_HINT_COOKIE_PATH,
   SESSION_HINT_TENANT_VALUE,
@@ -43,15 +41,12 @@ import {
 } from './constants/google-auth.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
-import { AcceptAdminInviteDto } from './dto/accept-admin-invite.dto';
-import { AdminInvitePreviewDto } from './dto/admin-invite-preview.dto';
 import { AuthenticatedUserDto } from './dto/authenticated-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CompleteGoogleSignupDto } from './dto/complete-google-signup.dto';
 import { GoogleAuthorizeQueryDto } from './dto/google-authorize-query.dto';
 import { LoginPendingVerificationDto } from './dto/login-response.dto';
 import { LoginDto } from './dto/login.dto';
-import { PlatformAdminTokenResponseDto } from './dto/platform-admin-token-response.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { SignupResponseDto } from './dto/signup-response.dto';
@@ -63,12 +58,10 @@ import { VerifyEmailDto } from './dto/verify-email.dto';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import { AuthService } from './services/auth.service';
 import {
-  ApiAcceptAdminInvite,
   ApiChangePassword,
   ApiCompleteGoogleSignup,
   ApiGoogleAuthorize,
   ApiGoogleCallback,
-  ApiInviteGoogleAuthorize,
   ApiLogin,
   ApiLogout,
   ApiMe,
@@ -78,10 +71,11 @@ import {
   ApiSetPassword,
   ApiSignup,
   ApiUpdateLocale,
-  ApiValidateAdminInvite,
   ApiVerifyEmail,
 } from './swagger/auth.swagger';
 import type { AuthUser } from './types/auth-user.type';
+import { setAdminSessionCookies } from './utils/admin-session-cookies.util';
+import { buildCookieOptions } from './utils/cookie-options.util';
 
 @Controller({ path: RouteNames.AUTH, version: '1' })
 @ApiTags('Auth')
@@ -123,11 +117,10 @@ export class AuthController {
   }
 
   /**
-   * One endpoint for every principal type — the frontend has a single sign-in screen with no
-   * "I'm an admin" toggle, so `AuthService.login` itself resolves which identity space the email
-   * belongs to (see its own doc comment). A platform admin only ever gets an access-token cookie
-   * (no refresh-token rotation exists for that principal yet); the response's `admin` field is
-   * what the frontend uses to route to `/admin` instead of `/dashboard`.
+   * Tenant-user login only — a platform admin has their own route,
+   * `POST /v1/admin/auth/login` (`PlatformAdminAuthController.login`). See
+   * `apps/documentation/docs/backend/auth/separate-admin-login-design.md` for why the two are
+   * split rather than one endpoint resolving which identity space an email belongs to.
    */
   @Post(RouteNames.LOGIN)
   @Public()
@@ -137,15 +130,8 @@ export class AuthController {
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response
-  ): Promise<
-    ApiResponse<LoginPendingVerificationDto | PlatformAdminTokenResponseDto | TokenResponseDto>
-  > {
+  ): Promise<ApiResponse<LoginPendingVerificationDto | TokenResponseDto>> {
     const result = await this.authService.login(dto);
-
-    if ('admin' in result) {
-      this.setAdminSessionCookies(res, result.body.accessToken);
-      return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
-    }
 
     if (!('refreshToken' in result)) {
       return ResponseUtil.success(result, result.message, HttpStatus.OK);
@@ -286,41 +272,6 @@ export class AuthController {
   }
 
   /**
-   * Read-only preview so the accept screen can show "You've been invited as `<email>`" before
-   * ever asking for a password. `@Public()` — the invitee has no session yet.
-   */
-  @Get(RouteNames.INVITE_VALIDATE)
-  @Public()
-  @Throttle({ short: { limit: 20, ttl: 60000 } })
-  @ApiValidateAdminInvite()
-  async validateAdminInvite(
-    @Param('token') token: string
-  ): Promise<ApiResponse<AdminInvitePreviewDto>> {
-    const result = await this.authService.validateAdminInvite(token);
-    return ResponseUtil.success(result, undefined, HttpStatus.OK);
-  }
-
-  /**
-   * The password path for accepting a platform-admin invite. `@Public()`, same reasoning as
-   * signup/login — the invitee has no session yet. Signs the admin in immediately on success, same
-   * as `login`'s admin branch (only the `access_token` cookie — no refresh token exists for this
-   * principal type).
-   */
-  @Post(RouteNames.INVITE_ACCEPT)
-  @Public()
-  @Throttle({ short: { limit: 5, ttl: 60000 } })
-  @HttpCode(HttpStatus.OK)
-  @ApiAcceptAdminInvite()
-  async acceptAdminInvite(
-    @Body() dto: AcceptAdminInviteDto,
-    @Res({ passthrough: true }) res: Response
-  ): Promise<ApiResponse<PlatformAdminTokenResponseDto>> {
-    const result = await this.authService.acceptAdminInvite(dto);
-    this.setAdminSessionCookies(res, result.body.accessToken);
-    return ResponseUtil.success(result.body, MESSAGES.AUTH.INVITE_ACCEPTED, HttpStatus.OK);
-  }
-
-  /**
    * Settings → Profile, language preference. Not `@Public()` — JwtAuthGuard supplies `user`.
    * Re-signs only the access token cookie — see `AuthService.updateLocale`'s doc comment for why
    * this deliberately does not touch the refresh token the way every other token-issuing route
@@ -364,32 +315,7 @@ export class AuthController {
     }
 
     res.cookie(GOOGLE_AUTH_SID_COOKIE_NAME, redirect.sid, {
-      ...this.cookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, GOOGLE_AUTH_STATE_TTL_SECONDS),
-    });
-    res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
-  }
-
-  /**
-   * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately its own route, not
-   * `GET /v1/auth/google` above, since a first-time invitee has no `platform_admin_identities`
-   * row yet for that generic callback branch to find (see `AuthService.completeAdminInviteGoogle`).
-   * Same cookie/redirect shape as `googleAuthorize`; failures (including a dead token, checked
-   * before ever redirecting) land back on the accept-invite page with `?error=`, never `/login`.
-   */
-  @Get(RouteNames.INVITE_GOOGLE)
-  @Public()
-  @Throttle({ short: { limit: 10, ttl: 60000 } })
-  @ApiInviteGoogleAuthorize()
-  async inviteGoogleAuthorize(@Param('token') token: string, @Res() res: Response): Promise<void> {
-    const redirect = await this.authService.buildAdminInviteGoogleRedirect(token);
-
-    if (!redirect.ok) {
-      res.redirect(HttpStatus.FOUND, redirect.redirectUrl);
-      return;
-    }
-
-    res.cookie(GOOGLE_AUTH_SID_COOKIE_NAME, redirect.sid, {
-      ...this.cookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, GOOGLE_AUTH_STATE_TTL_SECONDS),
+      ...buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, GOOGLE_AUTH_STATE_TTL_SECONDS),
     });
     res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }
@@ -427,14 +353,14 @@ export class AuthController {
 
     if (outcome.kind === 'needs_business_name') {
       res.cookie(GOOGLE_PENDING_SIGNUP_COOKIE_NAME, outcome.pendingSignupCookie, {
-        ...this.cookieOptions(GOOGLE_PENDING_SIGNUP_COOKIE_PATH, GOOGLE_PENDING_SIGNUP_TTL_SECONDS),
+        ...buildCookieOptions(GOOGLE_PENDING_SIGNUP_COOKIE_PATH, GOOGLE_PENDING_SIGNUP_TTL_SECONDS),
       });
       res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.NEEDS_BUSINESS_NAME);
       return;
     }
 
     if (outcome.kind === 'admin_signed_in') {
-      this.setAdminSessionCookies(res, outcome.tokens.body.accessToken);
+      setAdminSessionCookies(res, outcome.tokens.body.accessToken);
       res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.ADMIN_SUCCESS);
       return;
     }
@@ -479,17 +405,6 @@ export class AuthController {
     ];
   }
 
-  /** Shared attributes for all three session cookies — only `path` and `maxAge` differ between them. */
-  private cookieOptions(path: string, maxAgeSeconds?: number): CookieOptions {
-    return {
-      httpOnly: true,
-      secure: isProduction(),
-      sameSite: 'lax',
-      path,
-      ...(maxAgeSeconds === undefined ? {} : { maxAge: maxAgeSeconds * 1000 }),
-    };
-  }
-
   /**
    * Three cookies, each with a distinct job:
    *
@@ -506,17 +421,17 @@ export class AuthController {
     res.cookie(
       REFRESH_TOKEN_COOKIE_NAME,
       refreshToken,
-      this.cookieOptions(REFRESH_TOKEN_COOKIE_PATH, REFRESH_TOKEN_TTL_SECONDS)
+      buildCookieOptions(REFRESH_TOKEN_COOKIE_PATH, REFRESH_TOKEN_TTL_SECONDS)
     );
     res.cookie(
       ACCESS_TOKEN_COOKIE_NAME,
       accessToken,
-      this.cookieOptions(ACCESS_TOKEN_COOKIE_PATH, ACCESS_TOKEN_TTL_SECONDS)
+      buildCookieOptions(ACCESS_TOKEN_COOKIE_PATH, ACCESS_TOKEN_TTL_SECONDS)
     );
     res.cookie(
       SESSION_HINT_COOKIE_NAME,
       SESSION_HINT_TENANT_VALUE,
-      this.cookieOptions(SESSION_HINT_COOKIE_PATH, REFRESH_TOKEN_TTL_SECONDS)
+      buildCookieOptions(SESSION_HINT_COOKIE_PATH, REFRESH_TOKEN_TTL_SECONDS)
     );
   }
 
@@ -525,58 +440,27 @@ export class AuthController {
    * without also rotating the refresh token or touching the session hint (see
    * `AuthService.updateLocale`'s doc comment). That reuse is safe there because the signed-in
    * principal never changes across an `updateLocale` call.
-   *
-   * Do not reuse this for `login`'s admin branch — see `setAdminSessionCookies` below, which
-   * exists specifically because that assumption doesn't hold for a fresh login.
    */
   private setAccessTokenCookie(res: Response, accessToken: string): void {
     res.cookie(
       ACCESS_TOKEN_COOKIE_NAME,
       accessToken,
-      this.cookieOptions(ACCESS_TOKEN_COOKIE_PATH, ACCESS_TOKEN_TTL_SECONDS)
+      buildCookieOptions(ACCESS_TOKEN_COOKIE_PATH, ACCESS_TOKEN_TTL_SECONDS)
     );
   }
 
   /**
-   * A platform-admin login's cookie shape: just the access token — no refresh-token rotation
-   * exists for that principal yet — but with any leftover `refresh_token` cookie from a
-   * *different, prior* principal on this browser explicitly cleared first, and the session hint
-   * set to the admin value rather than cleared.
-   *
-   * The `refresh_token` clear is the original fix here: without it, logging in as an admin on a
-   * browser that still held a tenant user's unexpired `refresh_token` (scoped to `Path=/v1/auth`,
-   * 7-day lifetime, unaffected by the tenant simply closing their tab) only ever overwrote
-   * `access_token`. The tenant's `refresh_token` cookie was left standing, so the admin's *own*
-   * access token expiring 15 minutes later triggered the ordinary `/v1/auth/refresh` flow, which
-   * reads whatever `refresh_token` is present, rotates it, and overwrites `access_token` with the
-   * *tenant's* token — silently converting the admin's session into that tenant's.
-   *
-   * The session hint used to be cleared here too, on the same "leftover cookie" reasoning — but
-   * that left a platform admin with NO session hint at all, which `proxy.ts` then read as
-   * "signed out" the moment they navigated to any tenant-only route by hand: it redirected to
-   * `/login`, where the client-side guard found the admin's still-valid `access_token` in
-   * localStorage and redirected straight back — an infinite loop, since the two signals
-   * disagreed about whether this browser had a session and neither ever noticed *which kind*.
-   * Setting it to `SESSION_HINT_ADMIN_VALUE` instead keeps both signals in agreement without
-   * reopening the hijack this method exists to prevent — a stale tenant hint gets overwritten by
-   * this call exactly like the refresh token does, it just now leaves something behind that
-   * correctly says "admin," not nothing at all.
+   * Clears every session cookie either principal could hold — `refresh_token`/`access_token` for
+   * a tenant, `admin_access_token` for a platform admin, and the shared `session` hint. Clearing
+   * all of them unconditionally (rather than branching on which principal is signing out) is what
+   * lets `POST /v1/auth/logout` stay the one shared logout endpoint for both — a `clearCookie` on
+   * a cookie the browser never had is a harmless no-op, so there's nothing to lose by always
+   * clearing the full set.
    */
-  private setAdminSessionCookies(res: Response, accessToken: string): void {
-    res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, this.cookieOptions(REFRESH_TOKEN_COOKIE_PATH));
-    res.cookie(
-      SESSION_HINT_COOKIE_NAME,
-      SESSION_HINT_ADMIN_VALUE,
-      // No refresh token to extend it, unlike a tenant's — the hint can't outlive the one thing
-      // that can actually revive this session, so it shares the access token's own TTL.
-      this.cookieOptions(SESSION_HINT_COOKIE_PATH, ACCESS_TOKEN_TTL_SECONDS)
-    );
-    this.setAccessTokenCookie(res, accessToken);
-  }
-
   private clearSessionCookies(res: Response): void {
-    res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, this.cookieOptions(REFRESH_TOKEN_COOKIE_PATH));
-    res.clearCookie(ACCESS_TOKEN_COOKIE_NAME, this.cookieOptions(ACCESS_TOKEN_COOKIE_PATH));
-    res.clearCookie(SESSION_HINT_COOKIE_NAME, this.cookieOptions(SESSION_HINT_COOKIE_PATH));
+    res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, buildCookieOptions(REFRESH_TOKEN_COOKIE_PATH));
+    res.clearCookie(ACCESS_TOKEN_COOKIE_NAME, buildCookieOptions(ACCESS_TOKEN_COOKIE_PATH));
+    res.clearCookie(ADMIN_ACCESS_TOKEN_COOKIE_NAME, buildCookieOptions(ACCESS_TOKEN_COOKIE_PATH));
+    res.clearCookie(SESSION_HINT_COOKIE_NAME, buildCookieOptions(SESSION_HINT_COOKIE_PATH));
   }
 }

@@ -99,7 +99,6 @@ export interface MessageCatalog {
     INVITE_NOT_FOUND: string;
     INVITE_NOT_REVOCABLE: string;
     EMAIL_ALREADY_INVITED: string;
-    EMAIL_BELONGS_TO_TENANT_USER: string;
     PLATFORM_SETTINGS_UPDATED: string;
     /** `sso`/`password`/`social` would all end up false — see `AdminSettingsService.updatePlatformSettings`'s own comment for why this is rejected outright rather than merely discouraged. */
     PLATFORM_SETTINGS_NO_METHOD_ENABLED: string;

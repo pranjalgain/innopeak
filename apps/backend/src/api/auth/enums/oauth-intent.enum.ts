@@ -9,10 +9,18 @@
  * `ADMIN_INVITE` is the third, structurally distinct branch: it never looks up an existing
  * `platform_admin_identities` row (there isn't one yet — this is the first time this admin links
  * Google) and it carries `inviteToken` in the state record so the callback knows which invited
- * `platform_admins` row to activate. See `AuthService.completeAdminInviteGoogle`.
+ * `platform_admins` row to activate. See `PlatformAdminAuthService.completeAdminInviteGoogle`.
+ *
+ * `ADMIN_LOGIN` is the returning half of that: an admin who accepted through Google has no
+ * password at all, so Google is their *only* way back in. It resolves against
+ * `platform_admin_identities` and nothing else — deliberately not reusing `LOGIN`, which falls
+ * through to the tenant tables when no admin matches. Reusing it would have let the admin sign-in
+ * screen quietly hand back a *tenant* session to anyone whose Google account happened to have one,
+ * and would have sent every failure to the tenant `/login` page, which carries no admin path.
  */
 export enum OAuthIntent {
   LOGIN = 'login',
   SIGNUP = 'signup',
   ADMIN_INVITE = 'admin_invite',
+  ADMIN_LOGIN = 'admin_login',
 }

@@ -4,6 +4,7 @@ import { Injectable } from '@nestjs/common';
 import {
   type AcceptInviteOutcome,
   type PlatformAdminInviteRow,
+  type PlatformAdminLoginRow,
   type PlatformAdminProfileRow,
   PlatformAdminRepository,
   type RevokeInviteOutcome,
@@ -17,6 +18,11 @@ export class PlatformAdminDbService {
 
   async findById(id: string): Promise<PlatformAdminProfileRow | null> {
     return this.platformAdminRepository.findById(id);
+  }
+
+  /** See `PlatformAdminRepository.findForLogin` — the read `PlatformAdminAuthService.login` uses. */
+  async findForLogin(email: string): Promise<PlatformAdminLoginRow | null> {
+    return this.platformAdminRepository.findForLogin(email);
   }
 
   /** Live status of an admin by id, `null` if the row is gone — see `PlatformAdminRepository.findStatusById`. */

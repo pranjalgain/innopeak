@@ -446,7 +446,7 @@ export const AdminSettingsApiAxiosParamCreator = function (
       };
     },
     /**
-     * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false — see the 400 response. Does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
+     * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false, and one that would turn socialLoginEnabled off while a platform admin has Google as their only credential (an admin who accepted their invite through Google has no password, and there is no admin set-password flow to add one) — see the 400 response. Otherwise does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
      * @summary Update platform-wide feature settings
      * @param {UpdatePlatformSettingsDto} updatePlatformSettingsDto
      * @param {*} [options] Override http request option.
@@ -744,7 +744,7 @@ export const AdminSettingsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false — see the 400 response. Does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
+     * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false, and one that would turn socialLoginEnabled off while a platform admin has Google as their only credential (an admin who accepted their invite through Google has no password, and there is no admin set-password flow to add one) — see the 400 response. Otherwise does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
      * @summary Update platform-wide feature settings
      * @param {UpdatePlatformSettingsDto} updatePlatformSettingsDto
      * @param {*} [options] Override http request option.
@@ -908,7 +908,7 @@ export const AdminSettingsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false — see the 400 response. Does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
+     * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false, and one that would turn socialLoginEnabled off while a platform admin has Google as their only credential (an admin who accepted their invite through Google has no password, and there is no admin set-password flow to add one) — see the 400 response. Otherwise does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
      * @summary Update platform-wide feature settings
      * @param {AdminSettingsApiAdminSettingsControllerUpdatePlatformSettingsV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -1013,7 +1013,7 @@ export interface AdminSettingsApiInterface {
   ): AxiosPromise<AdminProfileResponseDto>;
 
   /**
-   * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false — see the 400 response. Does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
+   * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false, and one that would turn socialLoginEnabled off while a platform admin has Google as their only credential (an admin who accepted their invite through Google has no password, and there is no admin set-password flow to add one) — see the 400 response. Otherwise does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
    * @summary Update platform-wide feature settings
    * @param {AdminSettingsApiAdminSettingsControllerUpdatePlatformSettingsV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -1197,7 +1197,7 @@ export class AdminSettingsApi
   }
 
   /**
-   * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false — see the 400 response. Does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
+   * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false, and one that would turn socialLoginEnabled off while a platform admin has Google as their only credential (an admin who accepted their invite through Google has no password, and there is no admin set-password flow to add one) — see the 400 response. Otherwise does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
    * @summary Update platform-wide feature settings
    * @param {AdminSettingsApiAdminSettingsControllerUpdatePlatformSettingsV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.

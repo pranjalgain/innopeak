@@ -168,6 +168,11 @@
       "ssoUnavailable": "Weitere Anmeldeoptionen konnten nicht geprüft werden.",
       "ssoUnavailableRetry": "Erneut versuchen"
     },
+    "adminLogin": {
+      "title": "Admin-Anmeldung",
+      "orDivider": "oder",
+      "continueWithGoogle": "Mit Google fortfahren"
+    },
     "acceptInvite": {
       "title": "Sie sind eingeladen",
       "invitedAs": "Legen Sie ein Passwort fest, um die Einrichtung für {email} abzuschließen.",

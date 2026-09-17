@@ -3,6 +3,7 @@
 .openapi-generator-ignore
 README.md
 api.ts
+api/admin-auth-api.ts
 api/admin-businesses-api.ts
 api/admin-overview-api.ts
 api/admin-settings-api.ts

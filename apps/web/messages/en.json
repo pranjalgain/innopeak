@@ -168,6 +168,11 @@
       "ssoUnavailable": "Couldn't check for additional sign-in options.",
       "ssoUnavailableRetry": "Try again"
     },
+    "adminLogin": {
+      "title": "Admin sign in",
+      "orDivider": "or",
+      "continueWithGoogle": "Continue with Google"
+    },
     "acceptInvite": {
       "title": "You're invited",
       "invitedAs": "Set a password to finish setting up {email}.",

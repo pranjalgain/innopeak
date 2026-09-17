@@ -58,6 +58,20 @@ export const ACCESS_TOKEN_COOKIE_NAME = 'access_token';
 export const ACCESS_TOKEN_COOKIE_PATH = '/';
 
 /**
+ * A platform admin's own access-token cookie — a distinct name from `ACCESS_TOKEN_COOKIE_NAME`,
+ * not a reused one. Before this, both principals wrote the *same* cookie name, which is what made
+ * `PlatformAdminAuthController`'s login have to `clearCookie(REFRESH_TOKEN_COOKIE_NAME)` on the
+ * way in — a lingering tenant refresh cookie in the same browser would otherwise let that tenant's
+ * own next `/v1/auth/refresh` silently convert an admin session back into the tenant's, since
+ * `refresh_token` isn't principal-scoped either. Separate cookie *names* end that class of
+ * collision outright: a tenant session and an admin session can now coexist in the same browser
+ * (different tabs, say) without either one being able to overwrite or delete the other's
+ * credential. Scoped to `/`, same as the tenant cookie, since admin routes aren't confined to one
+ * path prefix (`/v1/admin/settings/...`, `/v1/admin/overview/...`, …).
+ */
+export const ADMIN_ACCESS_TOKEN_COOKIE_NAME = 'admin_access_token';
+
+/**
  * Carries no credential — just "a session exists, and which kind" — so it is safe to scope
  * broadly. It exists because the frontend's `proxy.ts` middleware has to decide whether to render
  * a page or redirect *before* any client JS runs, and the two cookies that do carry credentials

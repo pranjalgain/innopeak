@@ -11,6 +11,7 @@ import { RedisModule } from '@redis/redis.module';
 
 import { AuthController } from './auth.controller';
 import { ACCESS_TOKEN_TTL_SECONDS } from './constants/auth.constants';
+import { PlatformAdminAuthController } from './platform-admin-auth.controller';
 import { FixedVerifyEmailTokenProvider } from './providers/fixed-verify-email-token.provider';
 import { GoogleIdentityProvider } from './providers/google-identity.provider';
 import { GoogleOidcProvider } from './providers/google-oidc.provider';
@@ -22,6 +23,7 @@ import { GoogleOAuthStateService } from './services/google-oauth-state.service';
 import { LoginAttemptService } from './services/login-attempt.service';
 import { OtpAttemptService } from './services/otp-attempt.service';
 import { PendingGoogleSignupService } from './services/pending-google-signup.service';
+import { PlatformAdminAuthService } from './services/platform-admin-auth.service';
 import { TokenService } from './services/token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
@@ -76,9 +78,10 @@ const googleIdentityProviderFactory = {
     QueueUIModule, // for AddingJobsToQueueManager — signup/login enqueue the verification OTP
     RedisModule, // OtpAttemptService's, GoogleOAuthStateService's, and PendingGoogleSignupService's stores
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, PlatformAdminAuthController],
   providers: [
     AuthService,
+    PlatformAdminAuthService,
     TokenService,
     OtpAttemptService,
     LoginAttemptService,

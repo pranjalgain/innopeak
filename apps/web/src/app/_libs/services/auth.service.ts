@@ -1,6 +1,7 @@
 import type { AdminInvitePreviewDto } from "@innopeak/client-sdk";
 
 import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
+import { adminAuthApi } from "@/app/_libs/api-sdk/admin-auth-api";
 import { authApi } from "@/app/_libs/api-sdk/auth-api";
 import { refreshSession } from "@/app/_libs/api-sdk/config";
 import { SUPER_ADMIN_EMAIL } from "@/app/_libs/constants/current-owner";
@@ -30,20 +31,19 @@ interface TokenResponse {
   hasConnectedBusiness: boolean;
 }
 
-/** `POST /v1/auth/login`'s platform-admin branch — see `PlatformAdminTokenResponseDto` on the backend. */
+/** `POST /v1/admin/auth/login`'s response — see `PlatformAdminTokenResponseDto` on the backend. */
 interface PlatformAdminTokenResponse {
   accessToken: string;
   expiresIn: number;
   admin: { id: string; email: string };
 }
 
-/** `GET /v1/auth/invite/:token`'s response — a real generated model, unlike `PlatformAdminTokenResponse` above. */
+/** `GET /v1/admin/auth/invite/:token`'s response — a real generated model, unlike `PlatformAdminTokenResponse` above. */
 export type AdminInvitePreview = AdminInvitePreviewDto;
 
 export type LoginResult =
   | { kind: "verify_needed"; email: string }
-  | { kind: "success"; hasConnectedBusiness: boolean }
-  | { kind: "admin_success" };
+  | { kind: "success"; hasConnectedBusiness: boolean };
 
 export interface VerifyOtpResult {
   verified: boolean;
@@ -61,14 +61,13 @@ export interface VerifyOtpResult {
  * `@innopeak/client-sdk`. Hooks and components never call the backend, the SDK, or
  * `TokenService` directly, so nothing above this file needs to change if the backend contract does.
  *
- * There is one shared sign-in screen for every identity — `loginWithPassword` posts to the same
- * `POST /v1/auth/login` regardless of who's typing, and the backend itself resolves which identity
- * space the email belongs to (`platform_admins` checked first, tenant `users` as the fallback —
- * see `AuthService.login`'s doc comment on the backend). The response shape is the discriminant:
- * an `admin` field means a platform admin, `status` means a still-`pending_verification` tenant
- * account, otherwise a normal tenant token response. `resolveLoginDestination` below (used only by
- * the still-mocked Microsoft SSO path) is the one remaining place that guesses from the email
- * string instead — real Microsoft SSO doesn't exist in the backend at all yet.
+ * Platform-admin auth has its own methods (`loginAsAdmin`, `validateAdminInvite`,
+ * `acceptAdminInvite`, `startAdminInviteGoogle`) against the backend's separate
+ * `/v1/admin/auth/*` routes — `loginWithPassword` below is tenant-only. See
+ * `apps/documentation/docs/backend/auth/separate-admin-login-design.md` for why the two were
+ * split. `resolveLoginDestination` below (used only by the still-mocked Microsoft SSO path) is
+ * the one remaining place that guesses "admin" from the email string instead of a real backend
+ * answer — real Microsoft SSO doesn't exist in the backend at all yet, for either principal.
  */
 export class AuthService {
   private static resolveLoginDestination(email: string): string {
@@ -97,25 +96,23 @@ export class AuthService {
     return user;
   }
 
-  /** Real password login. Does NOT redirect — the caller branches on the result's `kind`. */
+  /**
+   * Real password login — tenant only. Does NOT redirect — the caller branches on the result's
+   * `kind`. See `loginAsAdmin` for the platform-admin equivalent, its own route entirely.
+   */
   static async loginWithPassword(email: string, password: string): Promise<LoginResult> {
     const response = await authApi.authControllerLoginV1(
       { loginDto: { email, password } },
       { authOptional: true },
     );
-    // The SDK's declared return type (`TokenResponseDto`) only documents one of the three actual
-    // shapes this route can answer with — see `PlatformAdminTokenResponse` and `LoginResult` above.
-    const data = unwrap<
-      TokenResponse | PlatformAdminTokenResponse | { status: "pending_verification"; email: string }
-    >(response.data);
+    // The SDK's declared return type (`TokenResponseDto`) only documents one of the two actual
+    // shapes this route can answer with — see `LoginResult` above.
+    const data = unwrap<TokenResponse | { status: "pending_verification"; email: string }>(
+      response.data,
+    );
 
     if ("status" in data) {
       return { kind: "verify_needed", email: data.email };
-    }
-
-    if ("admin" in data) {
-      TokenService.setAccessToken(data.accessToken);
-      return { kind: "admin_success" };
     }
 
     TokenService.setAccessToken(data.accessToken);
@@ -126,12 +123,44 @@ export class AuthService {
   }
 
   /**
+   * Platform-admin password login, against the backend's own `/v1/admin/auth/login` — no
+   * `pending_verification`/business-name branching, since admins never self-register.
+   */
+  static async loginAsAdmin(email: string, password: string): Promise<void> {
+    const response = await adminAuthApi.platformAdminAuthControllerLoginV1(
+      { loginDto: { email, password } },
+      { authOptional: true },
+    );
+    // The SDK's declared return type (`void`) is wrong the same way `authControllerLoginV1`'s is —
+    // see `loginWithPassword`'s own comment: the backend's `@ApiResponse` here never declared a
+    // `type:` the generator could turn into a model, so `PlatformAdminTokenResponse` is hand-typed
+    // and asserted onto the actual envelope.
+    const data = unwrap<PlatformAdminTokenResponse>(response.data);
+    TokenService.setAccessToken(data.accessToken);
+  }
+
+  /**
    * Real Google sign-in. No business name: login never creates a tenant, so an unknown identity
    * comes back as `?error=NO_ACCOUNT` rather than silently signing someone up.
    */
   static startGoogleLogin(): void {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
     window.location.assign("/v1/auth/google?intent=login");
+  }
+
+  /**
+   * The admin sign-in screen's Google button — its own backend route, not `startGoogleLogin`'s.
+   * An admin who accepted their invite through Google has no password at all, so the form on that
+   * screen can never sign them in and this is their only way back.
+   *
+   * Deliberately not the tenant route with a different label: that one falls through to the tenant
+   * tables when no admin identity matches, which would let the admin screen hand back a *tenant*
+   * session, and sends its failures to `/login` — a page with no admin path on it. This route
+   * resolves `platform_admin_identities` only, and errors back to `/admin-login`.
+   */
+  static startAdminGoogleLogin(): void {
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
+    window.location.assign("/v1/admin/auth/google");
   }
 
   /**
@@ -253,12 +282,22 @@ export class AuthService {
     return refreshed;
   }
 
+  /**
+   * Lands on the sign-in screen that belongs to whoever just signed out — read from the token's
+   * own `type` claim, before it is cleared. A platform admin sent to the tenant `/login` was a
+   * dead end: since the login split that page has no admin path on it at all, so the only way
+   * back into the console was to know to type `/admin-login` by hand. Falls back to the tenant
+   * page when the type can't be read (a decode hiccup, or a session already gone), which is the
+   * right default for the overwhelmingly common case.
+   */
   static async logout(): Promise<void> {
+    const destination =
+      TokenService.getTokenType() === "platform_admin" ? ROUTES.ADMIN_LOGIN : ROUTES.LOGIN;
     try {
       await authApi.authControllerLogoutV1();
     } finally {
       TokenService.clear();
-      window.location.assign(ROUTES.LOGIN);
+      window.location.assign(destination);
     }
   }
 
@@ -356,32 +395,30 @@ export class AuthService {
   }
 
   /**
-   * `GET /v1/auth/invite/:token` — public preview, so the accept screen can show "You've been
-   * invited as `<email>`" before ever asking for a password or redirecting to Google. Throws
+   * `GET /v1/admin/auth/invite/:token` — public preview, so the accept screen can show "You've
+   * been invited as `<email>`" before ever asking for a password or redirecting to Google. Throws
    * `ApiError` (404) for a token that never existed, was already used, or has expired.
    */
   static async validateAdminInvite(token: string): Promise<AdminInvitePreview> {
-    const response = await authApi.authControllerValidateAdminInviteV1(
+    const response = await adminAuthApi.platformAdminAuthControllerValidateAdminInviteV1(
       { token },
-      { authOptional: true, skipRefresh: true },
+      { authOptional: true },
     );
     return unwrap<AdminInvitePreview>(response.data);
   }
 
   /**
-   * `POST /v1/auth/invite/accept` — the password path. Signs the admin in immediately on success,
-   * same token-storage shape as `loginWithPassword`'s admin branch. Throws `ApiError` (400) for a
-   * token that never existed, was already used, or has expired, or for a weak password.
+   * `POST /v1/admin/auth/invite/accept` — the password path. Signs the admin in immediately on
+   * success, same token-storage shape as `loginAsAdmin`. Throws `ApiError` (400) for a token that
+   * never existed, was already used, or has expired, or for a weak password.
    *
-   * The SDK's declared return type (`void`) is wrong the same way `authControllerLoginV1`'s is —
-   * see `loginWithPassword`'s own comment: the backend's `@ApiResponse` here never declared a
-   * `type:` the generator could turn into a model, so `PlatformAdminTokenResponse` is hand-typed
-   * and asserted onto the actual envelope.
+   * The SDK's declared return type (`void`) is wrong the same way `loginAsAdmin`'s is — see its
+   * comment above.
    */
   static async acceptAdminInvite(token: string, password: string): Promise<void> {
-    const response = await authApi.authControllerAcceptAdminInviteV1(
+    const response = await adminAuthApi.platformAdminAuthControllerAcceptAdminInviteV1(
       { acceptAdminInviteDto: { token, password } },
-      { authOptional: true, skipRefresh: true },
+      { authOptional: true },
     );
     const data = unwrap<PlatformAdminTokenResponse>(response.data);
     TokenService.setAccessToken(data.accessToken);
@@ -394,6 +431,6 @@ export class AuthService {
    */
   static startAdminInviteGoogle(token: string): void {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign(`/v1/auth/invite/${encodeURIComponent(token)}/google`);
+    window.location.assign(`/v1/admin/auth/invite/${encodeURIComponent(token)}/google`);
   }
 }

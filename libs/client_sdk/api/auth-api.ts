@@ -30,10 +30,6 @@ import {
   operationServerMap,
 } from '../base';
 // @ts-ignore
-import type { AcceptAdminInviteDto } from '../models';
-// @ts-ignore
-import type { AdminInvitePreviewDto } from '../models';
-// @ts-ignore
 import type { AuthenticatedUserDto } from '../models';
 // @ts-ignore
 import type { ChangePasswordDto } from '../models';
@@ -64,61 +60,6 @@ export const AuthApiAxiosParamCreator = function (
   configuration?: Configuration,
 ) {
   return {
-    /**
-     * Sets `platform_admins.password_hash`, flips `status` `invited` -> `active`, and consumes the invite token — a guarded compare-and-swap (`used_at IS NULL AND expires_at > now()` inside the same UPDATE), so a double-submit cannot redeem the same token twice. Issues an admin session on success, same shape as the platform-admin branch of `POST /v1/auth/login` — only the `access_token` cookie is set (no refresh token exists for this principal type). See `GET /v1/auth/invite/:token/google` for the SSO alternative.
-     * @summary Accept a platform-admin invite by setting a password
-     * @param {AcceptAdminInviteDto} acceptAdminInviteDto
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    authControllerAcceptAdminInviteV1: async (
-      acceptAdminInviteDto: AcceptAdminInviteDto,
-      options: RawAxiosRequestConfig = {},
-    ): Promise<RequestArgs> => {
-      // verify required parameter 'acceptAdminInviteDto' is not null or undefined
-      assertParamExists(
-        'authControllerAcceptAdminInviteV1',
-        'acceptAdminInviteDto',
-        acceptAdminInviteDto,
-      );
-      const localVarPath = `/v1/auth/invite/accept`;
-      // use dummy base URL string because the URL constructor only accepts absolute URLs.
-      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-      let baseOptions;
-      if (configuration) {
-        baseOptions = configuration.baseOptions;
-      }
-
-      const localVarRequestOptions = {
-        method: 'POST',
-        ...baseOptions,
-        ...options,
-      };
-      const localVarHeaderParameter = {} as any;
-      const localVarQueryParameter = {} as any;
-
-      localVarHeaderParameter['Content-Type'] = 'application/json';
-      localVarHeaderParameter['Accept'] = 'application/json';
-
-      setSearchParams(localVarUrlObj, localVarQueryParameter);
-      let headersFromBaseOptions =
-        baseOptions && baseOptions.headers ? baseOptions.headers : {};
-      localVarRequestOptions.headers = {
-        ...localVarHeaderParameter,
-        ...headersFromBaseOptions,
-        ...options.headers,
-      };
-      localVarRequestOptions.data = serializeDataIfNeeded(
-        acceptAdminInviteDto,
-        localVarRequestOptions,
-        configuration,
-      );
-
-      return {
-        url: toPathString(localVarUrlObj),
-        options: localVarRequestOptions,
-      };
-    },
     /**
      * Requires the current password. Updates `users.password_hash`, revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Other sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Change the current user’s password
@@ -320,57 +261,7 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
-     * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/google` login, since a first-time invitee has no `platform_admin_identities` row yet for that callback to find. Re-validates the token (unexpired, unused) before ever redirecting, so a dead link fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Google account from redeeming this link.
-     * @summary Accept a platform-admin invite via Google
-     * @param {string} token The raw invite token from the accept-invite link
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    authControllerInviteGoogleAuthorizeV1: async (
-      token: string,
-      options: RawAxiosRequestConfig = {},
-    ): Promise<RequestArgs> => {
-      // verify required parameter 'token' is not null or undefined
-      assertParamExists(
-        'authControllerInviteGoogleAuthorizeV1',
-        'token',
-        token,
-      );
-      const localVarPath = `/v1/auth/invite/{token}/google`.replace(
-        '{token}',
-        encodeURIComponent(String(token)),
-      );
-      // use dummy base URL string because the URL constructor only accepts absolute URLs.
-      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-      let baseOptions;
-      if (configuration) {
-        baseOptions = configuration.baseOptions;
-      }
-
-      const localVarRequestOptions = {
-        method: 'GET',
-        ...baseOptions,
-        ...options,
-      };
-      const localVarHeaderParameter = {} as any;
-      const localVarQueryParameter = {} as any;
-
-      setSearchParams(localVarUrlObj, localVarQueryParameter);
-      let headersFromBaseOptions =
-        baseOptions && baseOptions.headers ? baseOptions.headers : {};
-      localVarRequestOptions.headers = {
-        ...localVarHeaderParameter,
-        ...headersFromBaseOptions,
-        ...options.headers,
-      };
-
-      return {
-        url: toPathString(localVarUrlObj),
-        options: localVarRequestOptions,
-      };
-    },
-    /**
-     * One endpoint for both a tenant user and a platform admin — there is no separate sign-in screen, so this resolves which identity space the email belongs to itself, checking `platform_admins` first (see `AuthService.login`\'s own doc comment for why that identity always wins over a same-email tenant account). A still-`pending_verification` tenant account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On a tenant success, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a platform-admin success, only the `access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh token yet.
+     * Tenant-user login only — platform admins have their own route, `POST /v1/admin/auth/login` (see `separate-admin-login-design.md` for why the two were split apart). A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts fail with 403. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Password login
      * @param {LoginDto} loginDto
      * @param {*} [options] Override http request option.
@@ -821,54 +712,6 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
-     * Lets the accept screen show \"You\'ve been invited as `<email>`\" before asking for a password, without spending the token — read-only, does not set `used_at`. Same check `POST /v1/auth/invite/accept` and the Google authorize route below apply: `purpose = \'invite\'`, unused, unexpired.
-     * @summary Preview a platform-admin invite
-     * @param {string} token The raw invite token from the accept-invite link
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    authControllerValidateAdminInviteV1: async (
-      token: string,
-      options: RawAxiosRequestConfig = {},
-    ): Promise<RequestArgs> => {
-      // verify required parameter 'token' is not null or undefined
-      assertParamExists('authControllerValidateAdminInviteV1', 'token', token);
-      const localVarPath = `/v1/auth/invite/{token}`.replace(
-        '{token}',
-        encodeURIComponent(String(token)),
-      );
-      // use dummy base URL string because the URL constructor only accepts absolute URLs.
-      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-      let baseOptions;
-      if (configuration) {
-        baseOptions = configuration.baseOptions;
-      }
-
-      const localVarRequestOptions = {
-        method: 'GET',
-        ...baseOptions,
-        ...options,
-      };
-      const localVarHeaderParameter = {} as any;
-      const localVarQueryParameter = {} as any;
-
-      localVarHeaderParameter['Accept'] = 'application/json';
-
-      setSearchParams(localVarUrlObj, localVarQueryParameter);
-      let headersFromBaseOptions =
-        baseOptions && baseOptions.headers ? baseOptions.headers : {};
-      localVarRequestOptions.headers = {
-        ...localVarHeaderParameter,
-        ...headersFromBaseOptions,
-        ...options.headers,
-      };
-
-      return {
-        url: toPathString(localVarUrlObj),
-        options: localVarRequestOptions,
-      };
-    },
-    /**
      * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
      * @summary Consume a signup/login verification OTP (password path only)
      * @param {VerifyEmailDto} verifyEmailDto
@@ -932,37 +775,6 @@ export const AuthApiAxiosParamCreator = function (
 export const AuthApiFp = function (configuration?: Configuration) {
   const localVarAxiosParamCreator = AuthApiAxiosParamCreator(configuration);
   return {
-    /**
-     * Sets `platform_admins.password_hash`, flips `status` `invited` -> `active`, and consumes the invite token — a guarded compare-and-swap (`used_at IS NULL AND expires_at > now()` inside the same UPDATE), so a double-submit cannot redeem the same token twice. Issues an admin session on success, same shape as the platform-admin branch of `POST /v1/auth/login` — only the `access_token` cookie is set (no refresh token exists for this principal type). See `GET /v1/auth/invite/:token/google` for the SSO alternative.
-     * @summary Accept a platform-admin invite by setting a password
-     * @param {AcceptAdminInviteDto} acceptAdminInviteDto
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    async authControllerAcceptAdminInviteV1(
-      acceptAdminInviteDto: AcceptAdminInviteDto,
-      options?: RawAxiosRequestConfig,
-    ): Promise<
-      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
-    > {
-      const localVarAxiosArgs =
-        await localVarAxiosParamCreator.authControllerAcceptAdminInviteV1(
-          acceptAdminInviteDto,
-          options,
-        );
-      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-      const localVarOperationServerBasePath =
-        operationServerMap['AuthApi.authControllerAcceptAdminInviteV1']?.[
-          localVarOperationServerIndex
-        ]?.url;
-      return (axios, basePath) =>
-        createRequestFunction(
-          localVarAxiosArgs,
-          globalAxios,
-          BASE_PATH,
-          configuration,
-        )(axios, localVarOperationServerBasePath || basePath);
-    },
     /**
      * Requires the current password. Updates `users.password_hash`, revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Other sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Change the current user’s password
@@ -1086,38 +898,7 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/google` login, since a first-time invitee has no `platform_admin_identities` row yet for that callback to find. Re-validates the token (unexpired, unused) before ever redirecting, so a dead link fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Google account from redeeming this link.
-     * @summary Accept a platform-admin invite via Google
-     * @param {string} token The raw invite token from the accept-invite link
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    async authControllerInviteGoogleAuthorizeV1(
-      token: string,
-      options?: RawAxiosRequestConfig,
-    ): Promise<
-      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
-    > {
-      const localVarAxiosArgs =
-        await localVarAxiosParamCreator.authControllerInviteGoogleAuthorizeV1(
-          token,
-          options,
-        );
-      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-      const localVarOperationServerBasePath =
-        operationServerMap['AuthApi.authControllerInviteGoogleAuthorizeV1']?.[
-          localVarOperationServerIndex
-        ]?.url;
-      return (axios, basePath) =>
-        createRequestFunction(
-          localVarAxiosArgs,
-          globalAxios,
-          BASE_PATH,
-          configuration,
-        )(axios, localVarOperationServerBasePath || basePath);
-    },
-    /**
-     * One endpoint for both a tenant user and a platform admin — there is no separate sign-in screen, so this resolves which identity space the email belongs to itself, checking `platform_admins` first (see `AuthService.login`\'s own doc comment for why that identity always wins over a same-email tenant account). A still-`pending_verification` tenant account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On a tenant success, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a platform-admin success, only the `access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh token yet.
+     * Tenant-user login only — platform admins have their own route, `POST /v1/admin/auth/login` (see `separate-admin-login-design.md` for why the two were split apart). A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts fail with 403. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Password login
      * @param {LoginDto} loginDto
      * @param {*} [options] Override http request option.
@@ -1396,40 +1177,6 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Lets the accept screen show \"You\'ve been invited as `<email>`\" before asking for a password, without spending the token — read-only, does not set `used_at`. Same check `POST /v1/auth/invite/accept` and the Google authorize route below apply: `purpose = \'invite\'`, unused, unexpired.
-     * @summary Preview a platform-admin invite
-     * @param {string} token The raw invite token from the accept-invite link
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    async authControllerValidateAdminInviteV1(
-      token: string,
-      options?: RawAxiosRequestConfig,
-    ): Promise<
-      (
-        axios?: AxiosInstance,
-        basePath?: string,
-      ) => AxiosPromise<AdminInvitePreviewDto>
-    > {
-      const localVarAxiosArgs =
-        await localVarAxiosParamCreator.authControllerValidateAdminInviteV1(
-          token,
-          options,
-        );
-      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-      const localVarOperationServerBasePath =
-        operationServerMap['AuthApi.authControllerValidateAdminInviteV1']?.[
-          localVarOperationServerIndex
-        ]?.url;
-      return (axios, basePath) =>
-        createRequestFunction(
-          localVarAxiosArgs,
-          globalAxios,
-          BASE_PATH,
-          configuration,
-        )(axios, localVarOperationServerBasePath || basePath);
-    },
-    /**
      * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
      * @summary Consume a signup/login verification OTP (password path only)
      * @param {VerifyEmailDto} verifyEmailDto
@@ -1476,24 +1223,6 @@ export const AuthApiFactory = function (
 ) {
   const localVarFp = AuthApiFp(configuration);
   return {
-    /**
-     * Sets `platform_admins.password_hash`, flips `status` `invited` -> `active`, and consumes the invite token — a guarded compare-and-swap (`used_at IS NULL AND expires_at > now()` inside the same UPDATE), so a double-submit cannot redeem the same token twice. Issues an admin session on success, same shape as the platform-admin branch of `POST /v1/auth/login` — only the `access_token` cookie is set (no refresh token exists for this principal type). See `GET /v1/auth/invite/:token/google` for the SSO alternative.
-     * @summary Accept a platform-admin invite by setting a password
-     * @param {AuthApiAuthControllerAcceptAdminInviteV1Request} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    authControllerAcceptAdminInviteV1(
-      requestParameters: AuthApiAuthControllerAcceptAdminInviteV1Request,
-      options?: RawAxiosRequestConfig,
-    ): AxiosPromise<void> {
-      return localVarFp
-        .authControllerAcceptAdminInviteV1(
-          requestParameters.acceptAdminInviteDto,
-          options,
-        )
-        .then((request) => request(axios, basePath));
-    },
     /**
      * Requires the current password. Updates `users.password_hash`, revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Other sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Change the current user’s password
@@ -1559,22 +1288,7 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/google` login, since a first-time invitee has no `platform_admin_identities` row yet for that callback to find. Re-validates the token (unexpired, unused) before ever redirecting, so a dead link fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Google account from redeeming this link.
-     * @summary Accept a platform-admin invite via Google
-     * @param {AuthApiAuthControllerInviteGoogleAuthorizeV1Request} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    authControllerInviteGoogleAuthorizeV1(
-      requestParameters: AuthApiAuthControllerInviteGoogleAuthorizeV1Request,
-      options?: RawAxiosRequestConfig,
-    ): AxiosPromise<void> {
-      return localVarFp
-        .authControllerInviteGoogleAuthorizeV1(requestParameters.token, options)
-        .then((request) => request(axios, basePath));
-    },
-    /**
-     * One endpoint for both a tenant user and a platform admin — there is no separate sign-in screen, so this resolves which identity space the email belongs to itself, checking `platform_admins` first (see `AuthService.login`\'s own doc comment for why that identity always wins over a same-email tenant account). A still-`pending_verification` tenant account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On a tenant success, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a platform-admin success, only the `access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh token yet.
+     * Tenant-user login only — platform admins have their own route, `POST /v1/admin/auth/login` (see `separate-admin-login-design.md` for why the two were split apart). A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts fail with 403. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Password login
      * @param {AuthApiAuthControllerLoginV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -1704,21 +1418,6 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Lets the accept screen show \"You\'ve been invited as `<email>`\" before asking for a password, without spending the token — read-only, does not set `used_at`. Same check `POST /v1/auth/invite/accept` and the Google authorize route below apply: `purpose = \'invite\'`, unused, unexpired.
-     * @summary Preview a platform-admin invite
-     * @param {AuthApiAuthControllerValidateAdminInviteV1Request} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    authControllerValidateAdminInviteV1(
-      requestParameters: AuthApiAuthControllerValidateAdminInviteV1Request,
-      options?: RawAxiosRequestConfig,
-    ): AxiosPromise<AdminInvitePreviewDto> {
-      return localVarFp
-        .authControllerValidateAdminInviteV1(requestParameters.token, options)
-        .then((request) => request(axios, basePath));
-    },
-    /**
      * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
      * @summary Consume a signup/login verification OTP (password path only)
      * @param {AuthApiAuthControllerVerifyEmailV1Request} requestParameters Request parameters.
@@ -1740,18 +1439,6 @@ export const AuthApiFactory = function (
  * AuthApi - interface
  */
 export interface AuthApiInterface {
-  /**
-   * Sets `platform_admins.password_hash`, flips `status` `invited` -> `active`, and consumes the invite token — a guarded compare-and-swap (`used_at IS NULL AND expires_at > now()` inside the same UPDATE), so a double-submit cannot redeem the same token twice. Issues an admin session on success, same shape as the platform-admin branch of `POST /v1/auth/login` — only the `access_token` cookie is set (no refresh token exists for this principal type). See `GET /v1/auth/invite/:token/google` for the SSO alternative.
-   * @summary Accept a platform-admin invite by setting a password
-   * @param {AuthApiAuthControllerAcceptAdminInviteV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  authControllerAcceptAdminInviteV1(
-    requestParameters: AuthApiAuthControllerAcceptAdminInviteV1Request,
-    options?: RawAxiosRequestConfig,
-  ): AxiosPromise<void>;
-
   /**
    * Requires the current password. Updates `users.password_hash`, revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Other sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
    * @summary Change the current user’s password
@@ -1799,19 +1486,7 @@ export interface AuthApiInterface {
   ): AxiosPromise<void>;
 
   /**
-   * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/google` login, since a first-time invitee has no `platform_admin_identities` row yet for that callback to find. Re-validates the token (unexpired, unused) before ever redirecting, so a dead link fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Google account from redeeming this link.
-   * @summary Accept a platform-admin invite via Google
-   * @param {AuthApiAuthControllerInviteGoogleAuthorizeV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  authControllerInviteGoogleAuthorizeV1(
-    requestParameters: AuthApiAuthControllerInviteGoogleAuthorizeV1Request,
-    options?: RawAxiosRequestConfig,
-  ): AxiosPromise<void>;
-
-  /**
-   * One endpoint for both a tenant user and a platform admin — there is no separate sign-in screen, so this resolves which identity space the email belongs to itself, checking `platform_admins` first (see `AuthService.login`\'s own doc comment for why that identity always wins over a same-email tenant account). A still-`pending_verification` tenant account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On a tenant success, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a platform-admin success, only the `access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh token yet.
+   * Tenant-user login only — platform admins have their own route, `POST /v1/admin/auth/login` (see `separate-admin-login-design.md` for why the two were split apart). A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts fail with 403. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
    * @summary Password login
    * @param {AuthApiAuthControllerLoginV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -1909,18 +1584,6 @@ export interface AuthApiInterface {
   ): AxiosPromise<UpdateLocaleResponseDto>;
 
   /**
-   * Lets the accept screen show \"You\'ve been invited as `<email>`\" before asking for a password, without spending the token — read-only, does not set `used_at`. Same check `POST /v1/auth/invite/accept` and the Google authorize route below apply: `purpose = \'invite\'`, unused, unexpired.
-   * @summary Preview a platform-admin invite
-   * @param {AuthApiAuthControllerValidateAdminInviteV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  authControllerValidateAdminInviteV1(
-    requestParameters: AuthApiAuthControllerValidateAdminInviteV1Request,
-    options?: RawAxiosRequestConfig,
-  ): AxiosPromise<AdminInvitePreviewDto>;
-
-  /**
    * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
    * @summary Consume a signup/login verification OTP (password path only)
    * @param {AuthApiAuthControllerVerifyEmailV1Request} requestParameters Request parameters.
@@ -1931,13 +1594,6 @@ export interface AuthApiInterface {
     requestParameters: AuthApiAuthControllerVerifyEmailV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<TokenResponseDto>;
-}
-
-/**
- * Request parameters for authControllerAcceptAdminInviteV1 operation in AuthApi.
- */
-export interface AuthApiAuthControllerAcceptAdminInviteV1Request {
-  readonly acceptAdminInviteDto: AcceptAdminInviteDto;
 }
 
 /**
@@ -1962,16 +1618,6 @@ export interface AuthApiAuthControllerGoogleAuthorizeV1Request {
    * Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/google/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
    */
   readonly intent: AuthControllerGoogleAuthorizeV1IntentEnum;
-}
-
-/**
- * Request parameters for authControllerInviteGoogleAuthorizeV1 operation in AuthApi.
- */
-export interface AuthApiAuthControllerInviteGoogleAuthorizeV1Request {
-  /**
-   * The raw invite token from the accept-invite link
-   */
-  readonly token: string;
 }
 
 /**
@@ -2010,16 +1656,6 @@ export interface AuthApiAuthControllerUpdateLocaleV1Request {
 }
 
 /**
- * Request parameters for authControllerValidateAdminInviteV1 operation in AuthApi.
- */
-export interface AuthApiAuthControllerValidateAdminInviteV1Request {
-  /**
-   * The raw invite token from the accept-invite link
-   */
-  readonly token: string;
-}
-
-/**
  * Request parameters for authControllerVerifyEmailV1 operation in AuthApi.
  */
 export interface AuthApiAuthControllerVerifyEmailV1Request {
@@ -2030,25 +1666,6 @@ export interface AuthApiAuthControllerVerifyEmailV1Request {
  * AuthApi - object-oriented interface
  */
 export class AuthApi extends BaseAPI implements AuthApiInterface {
-  /**
-   * Sets `platform_admins.password_hash`, flips `status` `invited` -> `active`, and consumes the invite token — a guarded compare-and-swap (`used_at IS NULL AND expires_at > now()` inside the same UPDATE), so a double-submit cannot redeem the same token twice. Issues an admin session on success, same shape as the platform-admin branch of `POST /v1/auth/login` — only the `access_token` cookie is set (no refresh token exists for this principal type). See `GET /v1/auth/invite/:token/google` for the SSO alternative.
-   * @summary Accept a platform-admin invite by setting a password
-   * @param {AuthApiAuthControllerAcceptAdminInviteV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  public authControllerAcceptAdminInviteV1(
-    requestParameters: AuthApiAuthControllerAcceptAdminInviteV1Request,
-    options?: RawAxiosRequestConfig,
-  ) {
-    return AuthApiFp(this.configuration)
-      .authControllerAcceptAdminInviteV1(
-        requestParameters.acceptAdminInviteDto,
-        options,
-      )
-      .then((request) => request(this.axios, this.basePath));
-  }
-
   /**
    * Requires the current password. Updates `users.password_hash`, revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Other sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
    * @summary Change the current user’s password
@@ -2116,23 +1733,7 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
-   * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/google` login, since a first-time invitee has no `platform_admin_identities` row yet for that callback to find. Re-validates the token (unexpired, unused) before ever redirecting, so a dead link fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Google account from redeeming this link.
-   * @summary Accept a platform-admin invite via Google
-   * @param {AuthApiAuthControllerInviteGoogleAuthorizeV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  public authControllerInviteGoogleAuthorizeV1(
-    requestParameters: AuthApiAuthControllerInviteGoogleAuthorizeV1Request,
-    options?: RawAxiosRequestConfig,
-  ) {
-    return AuthApiFp(this.configuration)
-      .authControllerInviteGoogleAuthorizeV1(requestParameters.token, options)
-      .then((request) => request(this.axios, this.basePath));
-  }
-
-  /**
-   * One endpoint for both a tenant user and a platform admin — there is no separate sign-in screen, so this resolves which identity space the email belongs to itself, checking `platform_admins` first (see `AuthService.login`\'s own doc comment for why that identity always wins over a same-email tenant account). A still-`pending_verification` tenant account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts still fail with 403. On a tenant success, the refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body; on a platform-admin success, only the `access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why that principal type has no refresh token yet.
+   * Tenant-user login only — platform admins have their own route, `POST /v1/admin/auth/login` (see `separate-admin-login-design.md` for why the two were split apart). A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts fail with 403. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
    * @summary Password login
    * @param {AuthApiAuthControllerLoginV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -2262,22 +1863,6 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
-   * Lets the accept screen show \"You\'ve been invited as `<email>`\" before asking for a password, without spending the token — read-only, does not set `used_at`. Same check `POST /v1/auth/invite/accept` and the Google authorize route below apply: `purpose = \'invite\'`, unused, unexpired.
-   * @summary Preview a platform-admin invite
-   * @param {AuthApiAuthControllerValidateAdminInviteV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  public authControllerValidateAdminInviteV1(
-    requestParameters: AuthApiAuthControllerValidateAdminInviteV1Request,
-    options?: RawAxiosRequestConfig,
-  ) {
-    return AuthApiFp(this.configuration)
-      .authControllerValidateAdminInviteV1(requestParameters.token, options)
-      .then((request) => request(this.axios, this.basePath));
-  }
-
-  /**
    * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
    * @summary Consume a signup/login verification OTP (password path only)
    * @param {AuthApiAuthControllerVerifyEmailV1Request} requestParameters Request parameters.
@@ -2298,6 +1883,7 @@ export const AuthControllerGoogleAuthorizeV1IntentEnum = {
   Login: 'login',
   Signup: 'signup',
   AdminInvite: 'admin_invite',
+  AdminLogin: 'admin_login',
 } as const;
 export type AuthControllerGoogleAuthorizeV1IntentEnum =
   (typeof AuthControllerGoogleAuthorizeV1IntentEnum)[keyof typeof AuthControllerGoogleAuthorizeV1IntentEnum];

@@ -23,8 +23,4 @@ export class AdminUsersDbService {
     }
     return this.adminUsersRepository.findById(userId);
   }
-
-  async existsByEmail(email: string): Promise<boolean> {
-    return this.adminUsersRepository.existsByEmail(email);
-  }
 }
