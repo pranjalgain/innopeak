@@ -5,8 +5,14 @@
  *
  * A login-intent round trip that resolves to no known identity is therefore a dead end by design
  * (`NO_ACCOUNT`), not a silent signup with a fabricated business name.
+ *
+ * `ADMIN_INVITE` is the third, structurally distinct branch: it never looks up an existing
+ * `platform_admin_identities` row (there isn't one yet — this is the first time this admin links
+ * Google) and it carries `inviteToken` in the state record so the callback knows which invited
+ * `platform_admins` row to activate. See `AuthService.completeAdminInviteGoogle`.
  */
 export enum OAuthIntent {
   LOGIN = 'login',
   SIGNUP = 'signup',
+  ADMIN_INVITE = 'admin_invite',
 }

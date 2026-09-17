@@ -1,5 +1,6 @@
 import { JobName, QueueName } from '@bg/constants/job.constant';
-import { IEmailJob, IOtpEmailJob } from '@bg/interfaces/job.interface';
+import { redactJobSecrets } from '@bg/helpers/redact-job-secrets.util';
+import { IAdminInviteEmailJob, IEmailJob, IOtpEmailJob } from '@bg/interfaces/job.interface';
 import { DeadLetterQueueService } from '@dead-letter-queue/dead-letter-queue.service';
 import { EmailQueueService } from '@email-queue/email-queue.service';
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
@@ -25,7 +26,10 @@ export class EmailProcessor extends WorkerHost {
     super();
   }
   async process(job: Job<IEmailJob, void, JobName>, _token?: string): Promise<void> {
-    let logString_ = `Processing job ${job.id} of type ${job.name} with data ${JSON.stringify(job.data)}...`;
+    // `redactJobSecrets` — never JSON.stringify(job.data) raw here. See that helper's own comment:
+    // this exact line previously shipped live OTPs into log files and Loki whenever debug logging
+    // was enabled, and an admin invite link would be the same kind of leak.
+    let logString_ = `Processing job ${job.id} of type ${job.name} with data ${JSON.stringify(redactJobSecrets(job.data))}...`;
     this.logger.debug(logString_, 'EmailProcessor');
     if (typeof job.log === 'function') void job.log(logString_);
 
@@ -33,6 +37,11 @@ export class EmailProcessor extends WorkerHost {
       switch (job.name) {
         case JobName.OTP_EMAIL_VERIFICATION:
           await this.emailQueueService.sendOtpEmail(job.data as unknown as IOtpEmailJob);
+          break;
+        case JobName.ADMIN_INVITE_EMAIL:
+          await this.emailQueueService.sendAdminInviteEmail(
+            job.data as unknown as IAdminInviteEmailJob
+          );
           break;
         default:
           throw new Error(`Unknown job name: ${job.name}`);

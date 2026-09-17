@@ -1,9 +1,11 @@
 import { PlatformAdminInvitePurpose } from '@auth/enums/platform-admin-invite-purpose.enum';
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
+import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 
 export interface PlatformAdminProfileRow {
   id: string;
@@ -38,6 +40,21 @@ export type SetAdminStatusOutcome =
   | { outcome: 'last_active' }
   | { outcome: 'not_found' }
   | { outcome: 'updated'; id: string; email: string; status: PlatformAdminStatus };
+
+/**
+ * `invalid` covers every reason the invite couldn't be redeemed — never existed, already used,
+ * expired, or lost a race between the read and the write below — collapsed into one outcome
+ * deliberately: distinguishing them to the caller would tell a prober which guess was closest, the
+ * same enumeration-avoidance reasoning as `MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP`.
+ *
+ * `identity_already_linked` is `acceptInviteWithGoogleIdentity`-only and IS worth telling apart —
+ * it's an actionable, non-enumerating answer ("this Google account is already someone else's"),
+ * not a guess about the token.
+ */
+export type AcceptInviteOutcome =
+  | { outcome: 'accepted'; id: string; email: string }
+  | { outcome: 'identity_already_linked' }
+  | { outcome: 'invalid' };
 
 export interface SetAdminStatusGuardInput {
   id: string;
@@ -284,6 +301,236 @@ export class PlatformAdminRepository {
       purpose: PlatformAdminInvitePurpose.INVITE,
       expiresAt: input.expiresAt,
     });
+  }
+
+  /**
+   * How many *active* admins could sign in by Google and nothing else — no `password_hash`, so no
+   * other credential exists for them at all.
+   *
+   * Exists for `AdminSettingsService.updatePlatformSettings`' lockout guard: `socialLoginEnabled`
+   * is what decides whether the login screen renders a Google button, so switching it off while
+   * one of these admins exists takes away the only way in they have. `invited` rows are excluded
+   * (no identity yet, and no session to lose) and so are `disabled` ones (already cannot sign in,
+   * so nothing to strand).
+   */
+  async countActiveGoogleOnlyAdmins(): Promise<number> {
+    const rows = await this.dbService.db
+      .select({ value: sql<number>`count(distinct ${schema.platformAdmins.id})::int` })
+      .from(schema.platformAdmins)
+      .innerJoin(
+        schema.platformAdminIdentities,
+        and(
+          eq(schema.platformAdminIdentities.platformAdminId, schema.platformAdmins.id),
+          eq(schema.platformAdminIdentities.provider, UserIdentityProvider.GOOGLE)
+        )
+      )
+      .where(
+        and(
+          eq(schema.platformAdmins.status, PlatformAdminStatus.ACTIVE),
+          isNull(schema.platformAdmins.passwordHash)
+        )
+      );
+
+    return rows[0]?.value ?? 0;
+  }
+
+  /**
+   * Resolves a Google `sub` to the platform admin that linked it at invite acceptance — the read
+   * side of `acceptInviteWithGoogleIdentity`'s write, and the only thing that makes a
+   * Google-accepted admin able to sign in ever again: that admin has no `password_hash` at all, and
+   * platform admins have no refresh token, so without this lookup their session ended 15 minutes
+   * after acceptance with no way back (`revokeInvite`/`deleteExpiredInvite` are both scoped to
+   * `status = 'invited'`, so even re-inviting the address was impossible).
+   *
+   * Keyed on `(provider, provider_user_id)` — the table's own unique index, and deliberately not
+   * the email: a Workspace address can be reassigned, a Google `sub` never is.
+   */
+  async findByGoogleIdentity(
+    providerUserId: string
+  ): Promise<{ id: string; email: string; status: PlatformAdminStatus } | null> {
+    const rows = await this.dbService.db
+      .select({
+        id: schema.platformAdmins.id,
+        email: schema.platformAdmins.email,
+        status: schema.platformAdmins.status,
+      })
+      .from(schema.platformAdminIdentities)
+      .innerJoin(
+        schema.platformAdmins,
+        eq(schema.platformAdmins.id, schema.platformAdminIdentities.platformAdminId)
+      )
+      .where(
+        and(
+          eq(schema.platformAdminIdentities.provider, UserIdentityProvider.GOOGLE),
+          eq(schema.platformAdminIdentities.providerUserId, providerUserId)
+        )
+      )
+      .limit(1);
+
+    return (
+      (rows[0] as { id: string; email: string; status: PlatformAdminStatus } | undefined) ?? null
+    );
+  }
+
+  /**
+   * Read-only preview for `GET /v1/auth/invite/:token` and the Google-authorize route — so both
+   * can fail fast on a dead link before ever asking the invitee for a password or redirecting to
+   * Google. Deliberately does **not** join on `platform_admins.status`: the invite row's own
+   * `used_at`/`expires_at` are the only source of truth for "still redeemable", and the two are
+   * never allowed to disagree (both `acceptInviteWithPassword`/`WithGoogleIdentity` below flip
+   * both in the same transaction).
+   */
+  async findInviteEmailByTokenHash(tokenHash: string): Promise<{ email: string } | null> {
+    const rows = await this.dbService.db
+      .select({ email: schema.platformAdmins.email })
+      .from(schema.platformAdminInvites)
+      .innerJoin(
+        schema.platformAdmins,
+        eq(schema.platformAdmins.id, schema.platformAdminInvites.platformAdminId)
+      )
+      .where(
+        and(
+          eq(schema.platformAdminInvites.tokenHash, tokenHash),
+          eq(schema.platformAdminInvites.purpose, PlatformAdminInvitePurpose.INVITE),
+          isNull(schema.platformAdminInvites.usedAt),
+          sql`${schema.platformAdminInvites.expiresAt} > now()`
+        )
+      )
+      .limit(1);
+
+    return (rows[0] as { email: string } | undefined) ?? null;
+  }
+
+  /**
+   * Redeems an invite by setting a password — the shared first two steps
+   * (`lockLiveInvite`/consuming it) are identical to `acceptInviteWithGoogleIdentity` below; only
+   * what happens to `platform_admins` differs (a password hash here, an identity row there).
+   */
+  async acceptInviteWithPassword(input: {
+    tokenHash: string;
+    passwordHash: string;
+  }): Promise<AcceptInviteOutcome> {
+    return this.dbService.db.transaction(async tx => {
+      const invite = await this.lockLiveInvite(tx, input.tokenHash);
+      if (!invite) {
+        return { outcome: 'invalid' };
+      }
+
+      const activated = await tx
+        .update(schema.platformAdmins)
+        .set({
+          passwordHash: input.passwordHash,
+          status: PlatformAdminStatus.ACTIVE,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(schema.platformAdmins.id, invite.platformAdminId),
+            eq(schema.platformAdmins.status, PlatformAdminStatus.INVITED)
+          )
+        )
+        .returning({ id: schema.platformAdmins.id, email: schema.platformAdmins.email });
+
+      const admin = activated[0];
+      if (!admin) {
+        // Raced with something else accepting/removing the same admin between the lock above and
+        // this write — the invite row was live a moment ago, the admin row no longer is.
+        return { outcome: 'invalid' };
+      }
+
+      await this.consumeInvite(tx, invite.id);
+      return { outcome: 'accepted', id: admin.id, email: admin.email };
+    });
+  }
+
+  /**
+   * Redeems an invite by linking a Google identity instead of setting a password — see
+   * `acceptInviteWithPassword`'s own comment. `AuthService.completeAdminInviteGoogle` has already
+   * confirmed the Google account's verified email matches the invited address before calling this;
+   * this method itself does not re-check that (it has no `email` to check against —
+   * `platform_admin_identities` carries no email column).
+   */
+  async acceptInviteWithGoogleIdentity(input: {
+    tokenHash: string;
+    providerUserId: string;
+  }): Promise<AcceptInviteOutcome> {
+    return this.dbService.db.transaction(async tx => {
+      const invite = await this.lockLiveInvite(tx, input.tokenHash);
+      if (!invite) {
+        return { outcome: 'invalid' };
+      }
+
+      const activated = await tx
+        .update(schema.platformAdmins)
+        .set({ status: PlatformAdminStatus.ACTIVE, updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(schema.platformAdmins.id, invite.platformAdminId),
+            eq(schema.platformAdmins.status, PlatformAdminStatus.INVITED)
+          )
+        )
+        .returning({ id: schema.platformAdmins.id, email: schema.platformAdmins.email });
+
+      const admin = activated[0];
+      if (!admin) {
+        return { outcome: 'invalid' };
+      }
+
+      try {
+        await tx.insert(schema.platformAdminIdentities).values({
+          platformAdminId: admin.id,
+          provider: UserIdentityProvider.GOOGLE,
+          providerUserId: input.providerUserId,
+        });
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          // This Google account is already linked to a *different* admin
+          // (`idx_platform_admin_identities_provider_provider_user_id`). Rolled back atomically
+          // with the transaction — the admin above is not left half-activated with no identity.
+          return { outcome: 'identity_already_linked' };
+        }
+        throw error;
+      }
+
+      await this.consumeInvite(tx, invite.id);
+      return { outcome: 'accepted', id: admin.id, email: admin.email };
+    });
+  }
+
+  /**
+   * Locks the live invite row (unused, unexpired) inside the caller's transaction so a concurrent
+   * redemption of the same token cannot also pass — the row-level lock, not just the `used_at`
+   * check on the later `UPDATE`, is what actually closes the double-submit race.
+   */
+  private async lockLiveInvite(
+    tx: DrizzleTransaction,
+    tokenHash: string
+  ): Promise<{ id: string; platformAdminId: string } | null> {
+    const rows = await tx
+      .select({
+        id: schema.platformAdminInvites.id,
+        platformAdminId: schema.platformAdminInvites.platformAdminId,
+      })
+      .from(schema.platformAdminInvites)
+      .where(
+        and(
+          eq(schema.platformAdminInvites.tokenHash, tokenHash),
+          eq(schema.platformAdminInvites.purpose, PlatformAdminInvitePurpose.INVITE),
+          isNull(schema.platformAdminInvites.usedAt),
+          sql`${schema.platformAdminInvites.expiresAt} > now()`
+        )
+      )
+      .for('update')
+      .limit(1);
+
+    return (rows[0] as { id: string; platformAdminId: string } | undefined) ?? null;
+  }
+
+  private async consumeInvite(tx: DrizzleTransaction, inviteId: string): Promise<void> {
+    await tx
+      .update(schema.platformAdminInvites)
+      .set({ usedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(eq(schema.platformAdminInvites.id, inviteId));
   }
 
   /** The one place `DBService`'s raw connection is touched for a transaction boundary — mirrors `AuthRepository.transaction`. */

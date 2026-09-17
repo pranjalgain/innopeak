@@ -33,6 +33,10 @@ export interface MessageCatalog {
     GOOGLE_NOT_CONFIGURED: string;
     GOOGLE_PENDING_SIGNUP_EXPIRED: string;
     TENANT_CONTEXT_REQUIRED: string;
+    /** Same message for a token that never existed, was already used, or has expired — see
+     *  Security considerations (no enumeration). Covers both the password and Google accept paths. */
+    INVALID_OR_EXPIRED_INVITE: string;
+    INVITE_ACCEPTED: string;
   };
   CONNECTIONS: {
     CONNECTION_NOT_FOUND: string;
@@ -99,6 +103,9 @@ export interface MessageCatalog {
     PLATFORM_SETTINGS_UPDATED: string;
     /** `sso`/`password`/`social` would all end up false — see `AdminSettingsService.updatePlatformSettings`'s own comment for why this is rejected outright rather than merely discouraged. */
     PLATFORM_SETTINGS_NO_METHOD_ENABLED: string;
+    /** Turning off Google sign-in would strand admins who have no password — same
+     *  lockout-prevention family as `CANNOT_DISABLE_LAST_ADMIN`. */
+    CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN: (count: number) => string;
     ADMIN_NOT_FOUND: string;
     CANNOT_DISABLE_SELF: string;
     CANNOT_DISABLE_LAST_ADMIN: string;

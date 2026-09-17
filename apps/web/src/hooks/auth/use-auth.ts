@@ -42,7 +42,7 @@ interface UseAuthResult {
  * The generic fallback is reserved for what it actually means: a 5xx, or a network failure that
  * produced no response at all, where there is no server-authored message to show.
  */
-function authErrorMessage(error: unknown, fallback: string): string {
+export function authErrorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError && error.statusCode >= 400 && error.statusCode < 500
     ? error.message
     : fallback;

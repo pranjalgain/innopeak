@@ -58,6 +58,8 @@ export const GOOGLE_AUTH_REDIRECT = {
   SIGNUP: '/onboarding/signup',
   /** A genuinely new signup lands here to supply the one thing Google cannot: a business name. */
   NEEDS_BUSINESS_NAME: '/onboarding/business-name',
+  /** Where a completed `ADMIN_INVITE` round trip lands — the admin console, not the tenant dashboard. */
+  ADMIN_SUCCESS: '/admin',
 } as const;
 
 /**
@@ -80,4 +82,14 @@ export enum GoogleAuthFailure {
   ACCOUNT_UNAVAILABLE = 'ACCOUNT_UNAVAILABLE',
   /** GOOGLE_CLIENT_ID / SECRET / CALLBACK_URL are not configured on this server. */
   NOT_CONFIGURED = 'NOT_CONFIGURED',
+  /** `ADMIN_INVITE` only: the invite token was never valid, already accepted, or has expired. */
+  INVALID_OR_EXPIRED_INVITE = 'INVALID_OR_EXPIRED_INVITE',
+  /**
+   * `ADMIN_INVITE` only: the Google account's verified email does not match the invited address —
+   * the check that stops someone other than the invited person from redeeming this link with their
+   * own unrelated Google account. Token is left unconsumed.
+   */
+  INVITE_EMAIL_MISMATCH = 'INVITE_EMAIL_MISMATCH',
+  /** `ADMIN_INVITE` only: this Google account is already linked to a *different* platform admin. */
+  GOOGLE_IDENTITY_ALREADY_LINKED = 'GOOGLE_IDENTITY_ALREADY_LINKED',
 }

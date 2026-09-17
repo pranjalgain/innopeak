@@ -1,3 +1,5 @@
+import type { AdminInvitePreviewDto } from "@innopeak/client-sdk";
+
 import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
 import { authApi } from "@/app/_libs/api-sdk/auth-api";
 import { refreshSession } from "@/app/_libs/api-sdk/config";
@@ -34,6 +36,9 @@ interface PlatformAdminTokenResponse {
   expiresIn: number;
   admin: { id: string; email: string };
 }
+
+/** `GET /v1/auth/invite/:token`'s response — a real generated model, unlike `PlatformAdminTokenResponse` above. */
+export type AdminInvitePreview = AdminInvitePreviewDto;
 
 export type LoginResult =
   | { kind: "verify_needed"; email: string }
@@ -348,5 +353,47 @@ export class AuthService {
     });
     const data = unwrap<TokenResponse>(response.data);
     TokenService.setAccessToken(data.accessToken);
+  }
+
+  /**
+   * `GET /v1/auth/invite/:token` — public preview, so the accept screen can show "You've been
+   * invited as `<email>`" before ever asking for a password or redirecting to Google. Throws
+   * `ApiError` (404) for a token that never existed, was already used, or has expired.
+   */
+  static async validateAdminInvite(token: string): Promise<AdminInvitePreview> {
+    const response = await authApi.authControllerValidateAdminInviteV1(
+      { token },
+      { authOptional: true, skipRefresh: true },
+    );
+    return unwrap<AdminInvitePreview>(response.data);
+  }
+
+  /**
+   * `POST /v1/auth/invite/accept` — the password path. Signs the admin in immediately on success,
+   * same token-storage shape as `loginWithPassword`'s admin branch. Throws `ApiError` (400) for a
+   * token that never existed, was already used, or has expired, or for a weak password.
+   *
+   * The SDK's declared return type (`void`) is wrong the same way `authControllerLoginV1`'s is —
+   * see `loginWithPassword`'s own comment: the backend's `@ApiResponse` here never declared a
+   * `type:` the generator could turn into a model, so `PlatformAdminTokenResponse` is hand-typed
+   * and asserted onto the actual envelope.
+   */
+  static async acceptAdminInvite(token: string, password: string): Promise<void> {
+    const response = await authApi.authControllerAcceptAdminInviteV1(
+      { acceptAdminInviteDto: { token, password } },
+      { authOptional: true, skipRefresh: true },
+    );
+    const data = unwrap<PlatformAdminTokenResponse>(response.data);
+    TokenService.setAccessToken(data.accessToken);
+  }
+
+  /**
+   * The SSO alternative to `acceptAdminInvite` — a full-page navigation, same shape as
+   * `startGoogleLogin`/`startGoogleSignup`: the browser has to follow the redirect to Google's
+   * consent screen, which an XHR could not do. Never resolves — the page is gone.
+   */
+  static startAdminInviteGoogle(token: string): void {
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(`/v1/auth/invite/${encodeURIComponent(token)}/google`);
   }
 }

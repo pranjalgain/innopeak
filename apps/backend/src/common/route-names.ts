@@ -32,6 +32,13 @@ export enum RouteNames {
   VERIFY_EMAIL = 'verify-email',
   RESEND_VERIFICATION_OTP = 'resend-verification-otp',
   GOOGLE_COMPLETE_SIGNUP = 'google/complete-signup',
+  // Platform-admin invite acceptance — public, nested directly under RouteNames.AUTH (not
+  // RouteNames.ADMIN_SETTINGS, which is gated by @Roles(PLATFORM_ADMIN) and requires the caller to
+  // already be one). ':token' segment name deliberately matches SendAdminInviteDto's raw token,
+  // not an id — see AuthService.validateAdminInvite.
+  INVITE_VALIDATE = 'invite/:token',
+  INVITE_ACCEPT = 'invite/accept',
+  INVITE_GOOGLE = 'invite/:token/google',
   // Connections module — nested segments under RouteNames.CONNECTIONS
   GOOGLE_AUTHORIZE = 'google/authorize',
   GOOGLE_CALLBACK = 'google/callback',

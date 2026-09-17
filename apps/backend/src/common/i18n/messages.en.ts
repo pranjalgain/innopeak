@@ -55,6 +55,10 @@ export const messagesEn: MessageCatalog = {
     GOOGLE_PENDING_SIGNUP_EXPIRED:
       'This signup has expired. Start again with "Continue with Google".',
     TENANT_CONTEXT_REQUIRED: 'This endpoint is not available for this account type.',
+    // Deliberately the same message whether the token never existed, was already used, or is
+    // expired — see the auth API reference's Security considerations (no enumeration).
+    INVALID_OR_EXPIRED_INVITE: 'This invite link is invalid or has expired.',
+    INVITE_ACCEPTED: "Invite accepted. You're signed in.",
   },
   CONNECTIONS: {
     CONNECTION_NOT_FOUND: 'No Google Business Profile connection found for this account.',
@@ -127,6 +131,11 @@ export const messagesEn: MessageCatalog = {
     PLATFORM_SETTINGS_UPDATED: 'Platform settings updated.',
     PLATFORM_SETTINGS_NO_METHOD_ENABLED:
       'At least one sign-in method (SSO, email/password, or Google) must stay enabled.',
+    CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN: (count: number): string => {
+      const who = count === 1 ? 'one of your platform admins' : `${count} of your platform admins`;
+      const target = count === 1 ? 'that admin' : 'those admins';
+      return `Google is the only way ${who} can sign in, so turning it off would lock them out. Disable ${target} first if that is intended.`;
+    },
     ADMIN_NOT_FOUND: 'Platform admin not found.',
     CANNOT_DISABLE_SELF: 'You cannot disable your own admin account.',
     CANNOT_DISABLE_LAST_ADMIN: 'At least one platform admin must stay active.',

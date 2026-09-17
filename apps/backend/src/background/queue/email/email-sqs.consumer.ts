@@ -1,5 +1,5 @@
 import { JobName, QueueName } from '@bg/constants/job.constant';
-import { IOtpEmailJob } from '@bg/interfaces/job.interface';
+import { IAdminInviteEmailJob, IOtpEmailJob } from '@bg/interfaces/job.interface';
 import { SqsQueueConsumerBase } from '@bg/providers/sqs-queue-consumer.base';
 import { EnvConfig } from '@config/env.config';
 import { DeadLetterQueueService } from '@dead-letter-queue/dead-letter-queue.service';
@@ -20,10 +20,20 @@ export class EmailSqsConsumer extends SqsQueueConsumerBase {
     super(configService);
   }
 
+  /**
+   * Must stay in step with `EmailProcessor`'s own switch — the two are the same queue under two
+   * transports (BullMQ locally, SQS on `aws`), so a job name handled in only one of them fails
+   * hard in the other. That is exactly what happened to `CronSqsConsumer` before the audit;
+   * `admin-invite-email` is the case that would otherwise have gone straight to the DLQ in `aws`
+   * mode, silently dropping every platform-admin invite email.
+   */
   protected async process(jobName: string, data: unknown): Promise<void> {
     switch (jobName as JobName) {
       case JobName.OTP_EMAIL_VERIFICATION:
         await this.emailQueueService.sendOtpEmail(data as IOtpEmailJob);
+        break;
+      case JobName.ADMIN_INVITE_EMAIL:
+        await this.emailQueueService.sendAdminInviteEmail(data as IAdminInviteEmailJob);
         break;
       default:
         throw new Error(`Unknown job name: ${jobName}`);

@@ -168,6 +168,30 @@
       "ssoUnavailable": "Weitere Anmeldeoptionen konnten nicht geprüft werden.",
       "ssoUnavailableRetry": "Erneut versuchen"
     },
+    "acceptInvite": {
+      "title": "Sie sind eingeladen",
+      "invitedAs": "Legen Sie ein Passwort fest, um die Einrichtung für {email} abzuschließen.",
+      "invitedAsWithGoogle": "Legen Sie ein Passwort fest, um die Einrichtung für {email} abzuschließen, oder fahren Sie mit Google fort.",
+      "passwordLabel": "Passwort",
+      "confirmPasswordLabel": "Passwort bestätigen",
+      "submit": "Einladung annehmen",
+      "submitting": "Wird angenommen…",
+      "orDivider": "oder",
+      "continueWithGoogle": "Mit Google fortfahren",
+      "invalidTitle": "Diese Einladung ist ungültig",
+      "invalidDescription": "Dieser Link ist ungültig oder abgelaufen. Bitten Sie die einladende Person um einen neuen Link.",
+      "backToLogin": "Zurück zur Anmeldung",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "errors": {
+        "passwordTooShort": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+        "passwordTooLong": "Das Passwort darf höchstens 128 Zeichen lang sein.",
+        "passwordUppercase": "Das Passwort muss einen Großbuchstaben enthalten.",
+        "passwordLowercase": "Das Passwort muss einen Kleinbuchstaben enthalten.",
+        "passwordNumber": "Das Passwort muss eine Zahl enthalten.",
+        "passwordSpecial": "Das Passwort muss ein Sonderzeichen enthalten.",
+        "confirmPasswordRequired": "Geben Sie Ihr Passwort erneut ein, um es zu bestätigen."
+      }
+    },
     "passwordMock": {
       "emailLabel": "E-Mail",
       "emailPlaceholder": "sie@unternehmen.de",
@@ -202,6 +226,9 @@
       "ACCOUNT_UNAVAILABLE": "Dieses Konto ist nicht verfügbar. Kontaktieren Sie den Support.",
       "PROVIDER_ERROR": "Google konnte nicht erreicht werden. Bitte versuchen Sie es erneut.",
       "NOT_CONFIGURED": "Die Google-Anmeldung ist derzeit nicht verfügbar. Nutzen Sie E-Mail und Passwort.",
+      "INVALID_OR_EXPIRED_INVITE": "Dieser Einladungslink ist ungültig oder abgelaufen.",
+      "INVITE_EMAIL_MISMATCH": "Die E-Mail-Adresse dieses Google-Kontos stimmt nicht mit der eingeladenen Adresse überein. Melden Sie sich bei Google mit der Adresse an, an die die Einladung gesendet wurde.",
+      "GOOGLE_IDENTITY_ALREADY_LINKED": "Dieses Google-Konto ist bereits mit einem anderen Administrator verknüpft.",
       "fallback": "Die Google-Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
     }
   },

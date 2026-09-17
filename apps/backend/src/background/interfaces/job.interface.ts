@@ -13,6 +13,13 @@ export interface IOtpEmailJob extends IEmailJob {
   passwordSetLink?: string;
 }
 
+/** Published by AdminSettingsService.sendInvite — deliberately its own interface rather than
+ *  reusing IOtpEmailJob's unused link fields, since this isn't an OTP email. */
+export interface IAdminInviteEmailJob extends IEmailJob {
+  inviteLink: string;
+  expiresIn?: string;
+}
+
 export interface ICronJob {
   jobType: CronJobName;
   data?: Record<string, unknown> | undefined;

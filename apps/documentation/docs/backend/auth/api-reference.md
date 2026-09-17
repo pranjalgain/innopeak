@@ -822,6 +822,29 @@ Structurally identical to the tenant user API above, against `platform_admins` /
 Differences called out explicitly; everywhere else, substitute table names and re-read the
 matching tenant-user section above.
 
+> **What's actually implemented, as of the platform-admin invite flow:** the invite/accept pair
+> below is real, but under `/v1/auth/invite/*` and `/v1/auth/login` — **not** a separate
+> `/v1/platform-admin/auth/*` namespace, and **no Microsoft, no forgot/reset-password for
+> admins**. The route table and the rest of this section below are the original forward design and
+> still describe a larger surface than what exists. The actually-shipped shape:
+>
+> | Method | Path | Auth | Throttle |
+> |---|---|---|---|
+> | `POST` | `/v1/auth/login` | Public | 10 / min — same route as tenant login, dispatches by email (see `AuthService.login`) |
+> | `GET` | `/v1/auth/invite/:token` | Public | 20 / min — preview only, **is** offered (see caveat below) |
+> | `POST` | `/v1/auth/invite/accept` | Public | 5 / min — password path |
+> | `GET` | `/v1/auth/invite/:token/google` | Public | 10 / min — Google path, own route (not `/v1/auth/google`), since a first-time invitee has no `platform_admin_identities` row for the login callback to find |
+> | `GET` | `/v1/auth/google/callback` | Public | shared with tenant login/signup — dispatches on a third `OAuthIntent.ADMIN_INVITE`, and on `login`/`signup` also resolves an already-linked `platform_admin_identities` row (that is how a Google-accepted admin signs in again afterwards — they have no password) |
+>
+> `POST /v1/admin/settings/invites` (bearer, platform-admin-only) is what actually sends the
+> invite — see the admin module's own API reference, not this one; `AuthController` only owns
+> acceptance. `INVITE_EMAIL_MISMATCH` is real and works exactly as designed below. Full details:
+> `apps/documentation/docs/backend/auth/invite-flow-design.md`.
+
+Everything from here down is the original design note this comment corrects in the two places
+above (the route table right below, and "`GET .../invite/:token` (preview) is intentionally not
+offered" further down) — read it as historical context, not as the current contract.
+
 | Method | Path | Auth | Throttle |
 |---|---|---|---|
 | `POST` | `/v1/platform-admin/auth/login` | Public | 10 / min |

@@ -41,6 +41,8 @@ export enum QueuePrefix {
 
 export enum JobName {
   OTP_EMAIL_VERIFICATION = 'email-otp-verification',
+  /** Published by AdminSettingsService.sendInvite — carries the invite link, never the raw token bare. */
+  ADMIN_INVITE_EMAIL = 'admin-invite-email',
   DLQ_FAILED_JOB = 'dlq_failed_job',
   /** One-time historical import, published after POST /v1/connections/locations commits. */
   REVIEW_BACKFILL = 'review-backfill',

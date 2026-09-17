@@ -1,6 +1,15 @@
 import { applyDecorators } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+} from '@nestjs/swagger';
 
+import { AcceptAdminInviteDto } from '../dto/accept-admin-invite.dto';
+import { AdminInvitePreviewDto } from '../dto/admin-invite-preview.dto';
 import { AuthenticatedUserDto } from '../dto/authenticated-user.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import { CompleteGoogleSignupDto } from '../dto/complete-google-signup.dto';
@@ -630,6 +639,126 @@ export function ApiCompleteGoogleSignup(): ReturnType<typeof applyDecorators> {
       description: 'Missing, expired, or already-consumed pending signup',
     }),
     ApiResponse({ status: 409, description: 'Someone else registered this email in the meantime' })
+  );
+}
+
+export function ApiValidateAdminInvite(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Preview a platform-admin invite',
+      description:
+        'Lets the accept screen show "You\'ve been invited as `<email>`" before asking for a ' +
+        'password, without spending the token — read-only, does not set `used_at`. Same check ' +
+        '`POST /v1/auth/invite/accept` and the Google authorize route below apply: `purpose = ' +
+        "'invite'`, unused, unexpired.",
+    }),
+    ApiParam({ name: 'token', description: 'The raw invite token from the accept-invite link' }),
+    ApiResponse({
+      status: 200,
+      type: AdminInvitePreviewDto,
+      examples: {
+        default: { summary: 'Valid invite', value: { email: 'priya.ops@innopeak.com' } },
+      },
+    }),
+    ApiResponse({
+      status: 404,
+      description: 'The token was never valid, already accepted, or has expired.',
+      examples: {
+        default: {
+          summary: 'Invalid or expired',
+          value: {
+            statusCode: 404,
+            status: 'Failure',
+            message: 'This invite link is invalid or has expired.',
+            error: 'Not Found',
+            traceId: '38cf5d10-00cb-4e4b-8417-f9e63e877466',
+            data: null,
+          },
+        },
+      },
+    })
+  );
+}
+
+export function ApiAcceptAdminInvite(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Accept a platform-admin invite by setting a password',
+      description:
+        'Sets `platform_admins.password_hash`, flips `status` `invited` -> `active`, and ' +
+        'consumes the invite token — a guarded compare-and-swap (`used_at IS NULL AND ' +
+        'expires_at > now()` inside the same UPDATE), so a double-submit cannot redeem the same ' +
+        'token twice. Issues an admin session on success, same shape as the platform-admin ' +
+        'branch of `POST /v1/auth/login` — only the `access_token` cookie is set (no refresh ' +
+        'token exists for this principal type). See `GET /v1/auth/invite/:token/google` for the ' +
+        'SSO alternative.',
+    }),
+    ApiBody({
+      type: AcceptAdminInviteDto,
+      examples: {
+        default: {
+          summary: 'Typical request',
+          value: { token: 'kx7F2m9pQnR4vL8wZs1cYb3dEaJhTgUo', password: 'NewStr0ng@Pass' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 200,
+      description: 'Invite accepted; admin session issued.',
+      examples: {
+        default: {
+          summary: 'Accepted',
+          value: {
+            accessToken: 'eyJhbGciOiJIUzI1NiIs...',
+            expiresIn: 900,
+            admin: { id: '0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f', email: 'priya.ops@innopeak.com' },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 400,
+      description:
+        'The token was never valid, already accepted, or has expired — one message for all ' +
+        'three, same enumeration-avoidance reasoning as INVALID_OR_EXPIRED_OTP — or `password` ' +
+        'failed complexity rules.',
+      examples: {
+        default: {
+          summary: 'Invalid or expired',
+          value: {
+            statusCode: 400,
+            status: 'Failure',
+            message: 'This invite link is invalid or has expired.',
+            error: 'Bad Request',
+            traceId: '38cf5d10-00cb-4e4b-8417-f9e63e877466',
+            data: null,
+          },
+        },
+      },
+    })
+  );
+}
+
+export function ApiInviteGoogleAuthorize(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Accept a platform-admin invite via Google',
+      description:
+        'The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route ' +
+        'as `GET /v1/auth/google` login, since a first-time invitee has no ' +
+        '`platform_admin_identities` row yet for that callback to find. Re-validates the token ' +
+        '(unexpired, unused) before ever redirecting, so a dead link fails fast on this screen ' +
+        'rather than after the round trip. Completion happens back at the shared ' +
+        '`GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited ' +
+        'address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check ' +
+        "that stops someone else's Google account from redeeming this link.",
+    }),
+    ApiParam({ name: 'token', description: 'The raw invite token from the accept-invite link' }),
+    ApiResponse({
+      status: 302,
+      description: 'Redirect to Google, or to the accept page with ?error=',
+    }),
+    ApiResponse({ status: 503, description: 'GOOGLE_CLIENT_ID / SECRET / CALLBACK_URL unset' })
   );
 }
 

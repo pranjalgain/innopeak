@@ -1,9 +1,15 @@
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import { buildAdminInviteLink } from '@auth/utils/admin-invite-link.util';
 import { requirePlatformAdmin } from '@auth/utils/require-platform-admin.util';
 import { hashToken } from '@auth/utils/token.utils';
+import { JobName } from '@bg/constants/job.constant';
+import type { IAdminInviteEmailJob } from '@bg/interfaces/job.interface';
+import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { HashingService } from '@common/hashing/hashing.service';
+import { isProduction } from '@config/deployment-target.util';
+import { EnvConfig } from '@config/env.config';
 import { isCheckViolation, isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { AdminUsersDbService } from '@db/repositories/admin-users/admin-users.db-service';
@@ -14,9 +20,11 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
 
@@ -45,12 +53,16 @@ export interface SetAdminStatusResult {
 
 @Injectable()
 export class AdminSettingsService {
+  private readonly logger = new Logger(AdminSettingsService.name);
+
   constructor(
     private readonly platformAdminDbService: PlatformAdminDbService,
     private readonly adminUsersDbService: AdminUsersDbService,
     private readonly platformSettingsDbService: PlatformSettingsDbService,
     private readonly adminOverviewDbService: AdminOverviewDbService,
-    private readonly hashingService: HashingService
+    private readonly hashingService: HashingService,
+    private readonly queueManager: AddingJobsToQueueManager,
+    private readonly configService: ConfigService<EnvConfig>
   ) {}
 
   async getProfile(actor: AuthUser): Promise<AdminProfileResponseDto> {
@@ -102,10 +114,10 @@ export class AdminSettingsService {
   }
 
   /**
-   * Creates the invited admin's row and its invite token, but does **not** email it or expose an
-   * accept-invite endpoint yet — that pairing (a public "accept invite, set a password" flow,
-   * mirroring signup/verify-email) is a separate, comparably-sized feature. An invited admin
-   * exists in the roster and can be revoked, but cannot yet complete onboarding on their own.
+   * Creates the invited admin's row and its invite token, emails the invite link (or a Google-SSO
+   * alternative — see `GET /v1/auth/invite/:token/google`), and returns the roster row. Accepting
+   * either path is `AuthService.acceptAdminInvite`/`completeAdminInviteGoogle`'s job, not this
+   * method's — this only gets the invite out the door.
    */
   async sendInvite(actor: AuthUser, dto: SendAdminInviteDto): Promise<AdminInviteResponseDto> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
@@ -173,6 +185,8 @@ export class AdminSettingsService {
       actorEmail: admin.email,
       targetEmail: dto.email,
     });
+
+    this.sendInviteEmail({ email: dto.email, rawToken });
 
     return AdminInviteResponseDto.from(row);
   }
@@ -322,6 +336,34 @@ export class AdminSettingsService {
       throw new BadRequestException(MESSAGES.ADMIN.PLATFORM_SETTINGS_NO_METHOD_ENABLED);
     }
 
+    // Third guard of the same family as the two above and `setAdminStatus`'s own: refuse a change
+    // that would lock a platform admin out of the console.
+    //
+    // An admin who accepted their invite through Google has no `password_hash` at all (see
+    // `AuthService.completeAdminInviteGoogle`), so `socialLoginEnabled` — which is what decides
+    // whether the login screen offers a Google button — is the *only* thing standing between them
+    // and no way in. There is no admin equivalent of the tenant `set-password` flow for them to
+    // add a password with, and `changePassword` above requires a current password they don't have,
+    // so the lockout would only be escapable by another admin turning this back on.
+    //
+    // Scoped to the transition, not the resulting state: re-asserting `false` when it is already
+    // off changes nothing, and answering 400 to a no-op would be surprising. (An admin stranded
+    // by that pre-existing state is recovered the same way — turn it back on.)
+    //
+    // Read-then-write, like the sign-in-methods check above: an invite accepted through Google in
+    // the window between this count and the UPDATE would slip past. Left as a documented race
+    // rather than locked down — unlike that check there is no single-table CHECK constraint that
+    // could back it up (the invariant spans `platform_admins` and `platform_admin_identities`),
+    // and the consequence is one admin re-enabling a setting, not data loss.
+    if (patch.socialLoginEnabled === false && current.socialLoginEnabled) {
+      const googleOnlyAdmins = await this.platformAdminDbService.countActiveGoogleOnlyAdmins();
+      if (googleOnlyAdmins > 0) {
+        throw new BadRequestException(
+          MESSAGES.ADMIN.CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN(googleOnlyAdmins)
+        );
+      }
+    }
+
     // The check above reads then writes, so two admins each disabling a *different* method can
     // both pass it against the same `current` and the second UPDATE still trips the CHECK. Mapping
     // it back to the same 400 keeps the answer identical whether the invariant was caught here or
@@ -340,5 +382,38 @@ export class AdminSettingsService {
       throw new NotFoundException(MESSAGES.SETTINGS.PLATFORM_CONFIG_MISSING);
     }
     return PlatformSettingsResponseDto.from(row);
+  }
+
+  /**
+   * Fire-and-forget, same shape as `AuthService.sendOtpEmail` — the transaction that created this
+   * invite already committed, so a queue-publish failure must not fail the whole request; revoking
+   * and re-sending is the recovery path for "the email never arrived."
+   *
+   * `!isProduction()` (this codebase's one dev/prod gate, since `NODE_ENV` only validates to
+   * `development`/`production` — see `env-config.module.ts`'s Joi schema) additionally logs the
+   * link directly, so the flow is exercisable locally without a working mailbox — the same spirit
+   * as `NoopEmailProvider`, which already logs "would have sent to X" for every non-production
+   * environment. This is a deliberate, explicit `Logger.log` call, not a debug-level payload dump
+   * (see `redactJobSecrets` for why that distinction matters).
+   */
+  private sendInviteEmail(input: { email: string; rawToken: string }): void {
+    const { email, rawToken } = input;
+    const inviteLink = buildAdminInviteLink(
+      this.configService.get<string>('FRONTEND_URL'),
+      rawToken
+    );
+
+    if (!isProduction()) {
+      this.logger.log(`[dev] Admin invite for ${email}: ${inviteLink}`);
+    }
+
+    const job: IAdminInviteEmailJob = {
+      email,
+      inviteLink,
+      expiresIn: `${INVITE_TTL_DAYS} days`,
+    };
+    void this.queueManager
+      .addAdminInviteEmailJob(JobName.ADMIN_INVITE_EMAIL, job)
+      .catch(() => undefined);
   }
 }
