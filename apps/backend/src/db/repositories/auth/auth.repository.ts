@@ -1,5 +1,4 @@
 import { REFRESH_TOKEN_REVOKED_RETENTION_HOURS } from '@auth/constants/auth.constants';
-import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { TokenPurpose } from '@auth/enums/token-purpose.enum';
 import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
@@ -23,14 +22,6 @@ export interface UserByEmail {
   status: UserStatus;
   /** Null means "never chose" — see the `locale` column comment in 0002_tenant_auth.sql. */
   locale: Locale | null;
-}
-
-export interface PlatformAdminByEmail {
-  id: string;
-  email: string;
-  /** Null for an `invited` admin who hasn't accepted their invite/set a password yet. */
-  passwordHash: string | null;
-  status: PlatformAdminStatus;
 }
 
 export interface InsertedTenant {
@@ -168,27 +159,6 @@ export class AuthRepository {
       .limit(1);
 
     return (rows[0] as UserByEmail | undefined) ?? null;
-  }
-
-  /**
-   * Global lookup by email, same shape as `findUserByEmail` — `idx_platform_admins_email` is a
-   * genuine unique index (not merely per-tenant, since there is no tenant scoping for this
-   * table), so at most one row can ever match. No status filter: `login` needs to see `invited`/
-   * `disabled` rows too, to answer with the right branch rather than a generic "no such account".
-   */
-  async findPlatformAdminByEmail(email: string): Promise<PlatformAdminByEmail | null> {
-    const rows = await this.dbService.db
-      .select({
-        id: schema.platformAdmins.id,
-        email: schema.platformAdmins.email,
-        passwordHash: schema.platformAdmins.passwordHash,
-        status: schema.platformAdmins.status,
-      })
-      .from(schema.platformAdmins)
-      .where(eq(schema.platformAdmins.email, email))
-      .limit(1);
-
-    return (rows[0] as PlatformAdminByEmail | undefined) ?? null;
   }
 
   /** `name` rides along even though most callers only check `status` — same row, no extra query. */

@@ -6,8 +6,8 @@ import type { Request, Response } from 'express';
 import { AuthController } from './auth.controller';
 import {
   ACCESS_TOKEN_COOKIE_NAME,
+  ADMIN_ACCESS_TOKEN_COOKIE_NAME,
   REFRESH_TOKEN_COOKIE_NAME,
-  SESSION_HINT_ADMIN_VALUE,
   SESSION_HINT_COOKIE_NAME,
 } from './constants/auth.constants';
 import { JwtTokenType } from './enums/jwt-token-type.enum';
@@ -53,8 +53,14 @@ describe('AuthController.refresh', () => {
    * to `/dashboard` forever while the client's own hard redirect fought it the other way —
    * `POST /v1/auth/refresh` firing on every bounce until the throttler started rejecting it
    * outright.
+   *
+   * `admin_access_token` is cleared here too, unconditionally, even though this route can only
+   * ever be reached by a tenant session (an admin has no refresh cookie to call it with) — see
+   * `AuthController.clearSessionCookies`'s own comment for why clearing every possible session
+   * cookie, regardless of which principal is signing out, is what lets `POST /v1/auth/logout`
+   * (and, incidentally, this failure path) stay principal-agnostic.
    */
-  it('clears all three session cookies when the refresh token is rejected', async () => {
+  it('clears every session cookie when the refresh token is rejected', async () => {
     refresh.mockRejectedValue(new UnauthorizedException('Invalid or expired refresh token.'));
     const res = mockResponse();
 
@@ -64,6 +70,7 @@ describe('AuthController.refresh', () => {
 
     expect(res.clearCookie).toHaveBeenCalledWith(REFRESH_TOKEN_COOKIE_NAME, expect.anything());
     expect(res.clearCookie).toHaveBeenCalledWith(ACCESS_TOKEN_COOKIE_NAME, expect.anything());
+    expect(res.clearCookie).toHaveBeenCalledWith(ADMIN_ACCESS_TOKEN_COOKIE_NAME, expect.anything());
     expect(res.clearCookie).toHaveBeenCalledWith(SESSION_HINT_COOKIE_NAME, expect.anything());
     expect(res.cookie).not.toHaveBeenCalled();
   });
@@ -256,76 +263,5 @@ describe('AuthController.login', () => {
     await controller.login({ email: 'jane@thecoffeehouse.com', password: 'x' }, res);
 
     expect(res.cookie).not.toHaveBeenCalled();
-  });
-
-  /**
-   * Regression target: a platform-admin login must set the access token and a `session` cookie
-   * carrying the *admin* value — never a refresh-token cookie, since there is no refresh-token
-   * concept for this principal type yet (see `TokenService.signPlatformAdminAccessToken`).
-   *
-   * The session hint is NOT skipped here (an earlier version of this test asserted the opposite).
-   * Skipping it left a platform admin with no session cookie at all, which the frontend's edge
-   * middleware then read as "signed out" the instant the admin navigated to any tenant-only route
-   * by hand — it redirected to `/login`, the client-side guard found the admin's still-valid
-   * `access_token` in localStorage and redirected straight back, forever. Setting it to the admin
-   * value (distinct from a tenant's) is what lets the edge middleware route a mismatch to
-   * `/forbidden` instead of bouncing between two pages that never agreed on the answer.
-   */
-  it('sets the access token and an admin-tagged session cookie for a platform-admin login', async () => {
-    login.mockResolvedValue({
-      admin: true,
-      body: {
-        accessToken: 'admin-access-token',
-        expiresIn: 900,
-        admin: { id: 'admin-1', email: 'admin@innopeak.com' },
-      },
-    });
-    const res = mockResponse();
-
-    await controller.login({ email: 'admin@innopeak.com', password: 'x' }, res);
-
-    expect(res.cookie).toHaveBeenCalledWith(
-      ACCESS_TOKEN_COOKIE_NAME,
-      'admin-access-token',
-      expect.anything()
-    );
-    expect(res.cookie).toHaveBeenCalledWith(
-      SESSION_HINT_COOKIE_NAME,
-      SESSION_HINT_ADMIN_VALUE,
-      expect.anything()
-    );
-    expect(res.cookie).not.toHaveBeenCalledWith(
-      REFRESH_TOKEN_COOKIE_NAME,
-      expect.anything(),
-      expect.anything()
-    );
-    expect(res.cookie).toHaveBeenCalledTimes(2);
-  });
-
-  /**
-   * Regression target: a browser can carry a *previous tenant user's* still-live `refresh_token`
-   * cookie into an admin login — the tenant simply closed their tab, and the cookie's 7-day
-   * lifetime at `Path=/v1/auth` easily outlasts that. Only setting `access_token` (as this branch
-   * used to) left that cookie standing, so the admin's own token expiring 15 minutes later
-   * triggered the ordinary `/v1/auth/refresh` flow against the *leftover tenant* cookie, silently
-   * converting the admin's session into that tenant's. The admin branch must clear it explicitly,
-   * since it never sets a refresh token of its own to overwrite it with. The `session` hint is
-   * still overwritten (not cleared) with the admin value — see the test above.
-   */
-  it('clears a leftover tenant refresh-token cookie on a platform-admin login', async () => {
-    login.mockResolvedValue({
-      admin: true,
-      body: {
-        accessToken: 'admin-access-token',
-        expiresIn: 900,
-        admin: { id: 'admin-1', email: 'admin@innopeak.com' },
-      },
-    });
-    const res = mockResponse();
-
-    await controller.login({ email: 'admin@innopeak.com', password: 'x' }, res);
-
-    expect(res.clearCookie).toHaveBeenCalledWith(REFRESH_TOKEN_COOKIE_NAME, expect.anything());
-    expect(res.clearCookie).not.toHaveBeenCalledWith(SESSION_HINT_COOKIE_NAME, expect.anything());
   });
 });

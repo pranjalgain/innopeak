@@ -126,8 +126,6 @@ export const messagesEn: MessageCatalog = {
     INVITE_NOT_FOUND: 'Invite not found.',
     INVITE_NOT_REVOCABLE: 'This invite has already been accepted or is no longer pending.',
     EMAIL_ALREADY_INVITED: 'This email is already a platform admin or has a pending invite.',
-    EMAIL_BELONGS_TO_TENANT_USER:
-      'This email already belongs to a business account and cannot be invited as a platform admin.',
     PLATFORM_SETTINGS_UPDATED: 'Platform settings updated.',
     PLATFORM_SETTINGS_NO_METHOD_ENABLED:
       'At least one sign-in method (SSO, email/password, or Google) must stay enabled.',

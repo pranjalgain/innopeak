@@ -60,6 +60,12 @@ export const GOOGLE_AUTH_REDIRECT = {
   NEEDS_BUSINESS_NAME: '/onboarding/business-name',
   /** Where a completed `ADMIN_INVITE` round trip lands — the admin console, not the tenant dashboard. */
   ADMIN_SUCCESS: '/admin',
+  /**
+   * The admin-side counterpart to `LOGIN`, for a failure on an admin-context round trip
+   * (`ADMIN_LOGIN`/`ADMIN_INVITE`). Since the tenant/admin login split, `LOGIN` carries no admin
+   * sign-in path at all, so sending an admin there leaves them with nothing to do.
+   */
+  ADMIN_LOGIN: '/admin-login',
 } as const;
 
 /**

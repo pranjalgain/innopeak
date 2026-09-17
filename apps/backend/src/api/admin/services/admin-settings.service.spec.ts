@@ -7,7 +7,6 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { HashingService } from '@common/hashing/hashing.service';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
-import { AdminUsersDbService } from '@db/repositories/admin-users/admin-users.db-service';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import {
@@ -41,7 +40,6 @@ describe('AdminSettingsService', () => {
     setStatusGuardingLastActive: jest.Mock;
     countActiveGoogleOnlyAdmins: jest.Mock;
   };
-  let adminUsersDbService: { existsByEmail: jest.Mock };
   let platformSettingsDbService: { get: jest.Mock; update: jest.Mock };
   let adminOverviewDbService: { recordActivityBestEffort: jest.Mock };
   let hashingService: { hash: jest.Mock; compare: jest.Mock };
@@ -86,7 +84,6 @@ describe('AdminSettingsService', () => {
       // test that isn't specifically about it.
       countActiveGoogleOnlyAdmins: jest.fn().mockResolvedValue(0),
     };
-    adminUsersDbService = { existsByEmail: jest.fn() };
     platformSettingsDbService = { get: jest.fn(), update: jest.fn() };
     adminOverviewDbService = { recordActivityBestEffort: jest.fn() };
     hashingService = { hash: jest.fn(), compare: jest.fn() };
@@ -101,7 +98,6 @@ describe('AdminSettingsService', () => {
       providers: [
         AdminSettingsService,
         { provide: PlatformAdminDbService, useValue: platformAdminDbService },
-        { provide: AdminUsersDbService, useValue: adminUsersDbService },
         { provide: PlatformSettingsDbService, useValue: platformSettingsDbService },
         { provide: AdminOverviewDbService, useValue: adminOverviewDbService },
         { provide: HashingService, useValue: hashingService },
@@ -162,7 +158,6 @@ describe('AdminSettingsService', () => {
 
   describe('sendInvite', () => {
     it('rejects an email that already belongs to a platform admin or has a pending invite', async () => {
-      adminUsersDbService.existsByEmail.mockResolvedValue(false);
       platformAdminDbService.findByEmail.mockResolvedValue({
         id: 'existing-1',
         status: PlatformAdminStatus.INVITED,
@@ -170,26 +165,6 @@ describe('AdminSettingsService', () => {
       });
 
       await expect(target.sendInvite(admin, { email: 'existing@innopeak.com' })).rejects.toThrow(
-        ConflictException
-      );
-      expect(platformAdminDbService.deleteExpiredInvite).not.toHaveBeenCalled();
-      expect(platformAdminDbService.createInvite).not.toHaveBeenCalled();
-    });
-
-    /**
-     * Regression target: the tenant-collision check must run, and be able to reject the request,
-     * *before* any mutation — previously the lapsed-invite row was deleted first, so a request
-     * that ultimately 409'd on a tenant-email collision still silently destroyed a roster row.
-     */
-    it('checks the tenant-email collision before deleting a lapsed invite, so a rejection has no side effect', async () => {
-      platformAdminDbService.findByEmail.mockResolvedValue({
-        id: 'stale-1',
-        status: PlatformAdminStatus.INVITED,
-        inviteExpiresAt: new Date(Date.now() - 86_400_000).toISOString(),
-      });
-      adminUsersDbService.existsByEmail.mockResolvedValue(true);
-
-      await expect(target.sendInvite(admin, { email: 'lapsed@innopeak.com' })).rejects.toThrow(
         ConflictException
       );
       expect(platformAdminDbService.deleteExpiredInvite).not.toHaveBeenCalled();
@@ -207,7 +182,6 @@ describe('AdminSettingsService', () => {
         status: PlatformAdminStatus.INVITED,
         inviteExpiresAt: new Date(Date.now() - 86_400_000).toISOString(),
       });
-      adminUsersDbService.existsByEmail.mockResolvedValue(false);
       platformAdminDbService.createInvite.mockResolvedValue({
         id: 'invite-2',
         email: 'lapsed@innopeak.com',
@@ -237,19 +211,33 @@ describe('AdminSettingsService', () => {
       expect(platformAdminDbService.deleteExpiredInvite).not.toHaveBeenCalled();
     });
 
-    it('rejects an email that already belongs to a tenant user', async () => {
+    /**
+     * The other half of the dual-identity decision (`separate-admin-login-design.md`). This used
+     * to 409: a single shared `login` had to resolve one email to exactly one identity table, so
+     * an accepted invite would have shadowed the tenant account. Post-split there are two routes,
+     * two cookies and two lockout scopes, and tenant `signup` dropped its mirror of the same
+     * guard — leaving this one in place would have made the relaxation one-directional, blocking
+     * exactly the case that matters: staffing the console with someone who already uses the
+     * product.
+     */
+    it('invites an email that already belongs to a tenant user, since the two identities are independent', async () => {
       platformAdminDbService.findByEmail.mockResolvedValue(null);
-      adminUsersDbService.existsByEmail.mockResolvedValue(true);
+      platformAdminDbService.createInvite.mockResolvedValue({
+        id: 'invite-3',
+        email: 'owner@example.com',
+        status: PlatformAdminStatus.INVITED,
+        invitedAt: '2026-03-01T00:00:00.000Z',
+        inviteExpiresAt: '2026-03-08T00:00:00.000Z',
+      });
 
-      await expect(target.sendInvite(admin, { email: 'owner@example.com' })).rejects.toThrow(
-        ConflictException
+      await expect(target.sendInvite(admin, { email: 'owner@example.com' })).resolves.toMatchObject(
+        { email: 'owner@example.com' }
       );
-      expect(platformAdminDbService.createInvite).not.toHaveBeenCalled();
+      expect(platformAdminDbService.createInvite).toHaveBeenCalled();
     });
 
     it('creates the invite for a genuinely new email', async () => {
       platformAdminDbService.findByEmail.mockResolvedValue(null);
-      adminUsersDbService.existsByEmail.mockResolvedValue(false);
       platformAdminDbService.createInvite.mockResolvedValue({
         id: 'invite-1',
         email: 'new@innopeak.com',
@@ -291,7 +279,6 @@ describe('AdminSettingsService', () => {
     it('[dev] logs the invite link directly, in addition to queuing the email', async () => {
       const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
       platformAdminDbService.findByEmail.mockResolvedValue(null);
-      adminUsersDbService.existsByEmail.mockResolvedValue(false);
       platformAdminDbService.createInvite.mockResolvedValue({
         id: 'invite-1',
         email: 'new@innopeak.com',

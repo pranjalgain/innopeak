@@ -119,21 +119,4 @@ export class AdminUsersRepository {
 
     return rows.length > 0;
   }
-
-  /**
-   * Cross-tenant existence check by email, anonymized rows excluded — used by
-   * `AdminSettingsService.sendInvite` so a platform-admin invite can never be issued to an email
-   * that already owns a tenant account (see that method's own comment for why: `platform_admins`
-   * and `users` are entirely separate identity tables, and login resolves a collision by checking
-   * `platform_admins` first, silently shadowing the tenant account).
-   */
-  async existsByEmail(email: string): Promise<boolean> {
-    const rows = await this.dbService.db
-      .select({ id: schema.users.id })
-      .from(schema.users)
-      .where(and(eq(schema.users.email, email), isNull(schema.users.anonymizedAt)))
-      .limit(1);
-
-    return rows.length > 0;
-  }
 }

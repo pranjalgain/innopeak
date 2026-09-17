@@ -2,6 +2,7 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export * from './api/admin-auth-api';
 export * from './api/admin-businesses-api';
 export * from './api/admin-overview-api';
 export * from './api/admin-settings-api';

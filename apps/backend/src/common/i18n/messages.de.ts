@@ -121,8 +121,6 @@ export const messagesDe: MessageCatalog = {
       'Diese Einladung wurde bereits angenommen oder ist nicht mehr ausstehend.',
     EMAIL_ALREADY_INVITED:
       'Diese E-Mail-Adresse ist bereits ein Plattform-Administrator oder hat eine ausstehende Einladung.',
-    EMAIL_BELONGS_TO_TENANT_USER:
-      'Diese E-Mail-Adresse gehört bereits zu einem Unternehmenskonto und kann nicht als Plattform-Administrator eingeladen werden.',
     PLATFORM_SETTINGS_UPDATED: 'Plattformeinstellungen aktualisiert.',
     PLATFORM_SETTINGS_NO_METHOD_ENABLED:
       'Mindestens eine Anmeldemethode (SSO, E-Mail/Passwort oder Google) muss aktiviert bleiben.',

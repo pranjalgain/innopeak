@@ -3,7 +3,6 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { DemoDataDbService } from '@db/repositories/demo-data/demo-data.db-service';
-import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import {
   BadRequestException,
   ConflictException,
@@ -19,12 +18,12 @@ import { GoogleOAuthStateService } from './google-oauth-state.service';
 import { LoginAttemptService } from './login-attempt.service';
 import { OtpAttemptService } from './otp-attempt.service';
 import { PendingGoogleSignupService } from './pending-google-signup.service';
+import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { TokenService } from './token.service';
 
 import { GOOGLE_AUTH_REDIRECT, GoogleAuthFailure } from '../constants/google-auth.constants';
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
-import { PlatformAdminStatus } from '../enums/platform-admin-status.enum';
 import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
@@ -44,7 +43,7 @@ describe('AuthService', () => {
   let loginAttemptService: jest.Mocked<LoginAttemptService>;
   let queueManager: jest.Mocked<AddingJobsToQueueManager>;
   let demoDataDbService: jest.Mocked<DemoDataDbService>;
-  let platformAdminDbService: jest.Mocked<PlatformAdminDbService>;
+  let platformAdminAuthService: jest.Mocked<PlatformAdminAuthService>;
 
   const tokenPair = { accessToken: 'access', refreshToken: 'refresh', expiresIn: 900 };
 
@@ -54,7 +53,6 @@ describe('AuthService', () => {
       putVerifyEmailToken: jest.fn(),
       verifyEmail: jest.fn(),
       findUserForLogin: jest.fn(),
-      findPlatformAdminForLogin: jest.fn().mockResolvedValue(null),
       findUserById: jest.fn(),
       findTenantStatus: jest.fn(),
       hasConnectedBusiness: jest.fn().mockResolvedValue(false),
@@ -111,13 +109,18 @@ describe('AuthService', () => {
       seedForTenant: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DemoDataDbService>;
 
-    platformAdminDbService = {
-      findByEmail: jest.fn().mockResolvedValue(null),
-      findByGoogleIdentity: jest.fn().mockResolvedValue(null),
-      findInviteEmailByTokenHash: jest.fn(),
-      acceptInviteWithPassword: jest.fn(),
-      acceptInviteWithGoogleIdentity: jest.fn(),
-    } as unknown as jest.Mocked<PlatformAdminDbService>;
+    // Defaults to "not a returning admin" so every plain tenant login/signup callback test below
+    // is unaffected by this lookup now running ahead of tenant resolution.
+    platformAdminAuthService = {
+      findLinkedAdmin: jest.fn().mockResolvedValue({ linked: false }),
+      completeAdminInviteGoogle: jest.fn(),
+      adminInviteFailureUrl: jest
+        .fn()
+        .mockImplementation(
+          (token: string, failure: string) =>
+            `https://app.innopeak.test/invite/${token}?error=${failure}`
+        ),
+    } as unknown as jest.Mocked<PlatformAdminAuthService>;
 
     const configService = {
       get: jest.fn((key: string) => (key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : 10)),
@@ -156,7 +159,7 @@ describe('AuthService', () => {
         { provide: GoogleOAuthStateService, useValue: googleOAuthStateService },
         { provide: PendingGoogleSignupService, useValue: pendingGoogleSignupService },
         { provide: DemoDataDbService, useValue: demoDataDbService },
-        { provide: PlatformAdminDbService, useValue: platformAdminDbService },
+        { provide: PlatformAdminAuthService, useValue: platformAdminAuthService },
       ],
     }).compile();
 
@@ -205,78 +208,13 @@ describe('AuthService', () => {
     });
 
     /**
-     * The mirror of `AdminSettingsService.sendInvite`'s guard. Without it the two identity tables
-     * could hold the same email, and `login` resolves an email to exactly one of them — so the
-     * tenant account this would have created was unreachable forever (verified by OTP, active,
-     * and still 401 on every login). Keyed on `passwordHash` being set — see the invited-admin
-     * test below for why a mere row match isn't enough.
+     * Regression for the dual-identity relaxation: since `POST /v1/admin/auth/login` split off
+     * into its own route, tenant signup no longer needs to know or care whether this email also
+     * belongs to a platform admin — that used to be a hard 409 (`assertEmailNotAPlatformAdmin`).
+     * `signup` doesn't even depend on anything admin-domain any more, so there's nothing to mock
+     * to prove this beyond "it succeeds."
      */
-    it('refuses an email that already belongs to a loggable-in platform admin, before creating anything', async () => {
-      authDbService.findPlatformAdminForLogin.mockResolvedValue({
-        id: 'admin-1',
-        email: 'jane@thecoffeehouse.com',
-        passwordHash: 'hash',
-        status: PlatformAdminStatus.ACTIVE,
-      });
-
-      await expect(target.signup(dto)).rejects.toThrow(ConflictException);
-      expect(authDbService.signup).not.toHaveBeenCalled();
-      expect(queueManager.addRegisterationOtpEmailJob).not.toHaveBeenCalled();
-    });
-
-    /** The generic message, so public signup can't be used to enumerate admin addresses. */
-    it('uses the same message as a duplicate tenant email, not an admin-specific one', async () => {
-      authDbService.findPlatformAdminForLogin.mockResolvedValue({
-        id: 'admin-1',
-        email: 'jane@thecoffeehouse.com',
-        passwordHash: 'hash',
-        status: PlatformAdminStatus.ACTIVE,
-      });
-
-      await expect(target.signup(dto)).rejects.toThrow(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
-    });
-
-    /**
-     * Now that `acceptAdminInvite`/`completeAdminInviteGoogle` exist, a live (unexpired) invite IS
-     * this address's own way in — accepting it, not signing up as a tenant, is the correct path.
-     * Allowing both to complete would leave one email resolving to two authenticatable identities,
-     * the exact invariant this guard protects. See the lapsed-invite test below for the one case
-     * that's still allowed.
-     */
-    it('refuses a tenant signup for an email with a live, unaccepted platform-admin invite', async () => {
-      authDbService.findPlatformAdminForLogin.mockResolvedValue({
-        id: 'admin-1',
-        email: 'jane@thecoffeehouse.com',
-        passwordHash: null,
-        status: PlatformAdminStatus.INVITED,
-      });
-      platformAdminDbService.findByEmail.mockResolvedValue({
-        id: 'admin-1',
-        status: PlatformAdminStatus.INVITED,
-        inviteExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-      });
-
-      await expect(target.signup(dto)).rejects.toThrow(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
-      expect(authDbService.signup).not.toHaveBeenCalled();
-    });
-
-    /**
-     * A lapsed invite is not a live claim on anything — same "lapsed" definition
-     * `AdminSettingsService.sendInvite` already uses for reuse — so it must not permanently block
-     * an address nobody ever finished inviting.
-     */
-    it('allows a tenant signup for an email whose platform-admin invite has expired', async () => {
-      authDbService.findPlatformAdminForLogin.mockResolvedValue({
-        id: 'admin-1',
-        email: 'jane@thecoffeehouse.com',
-        passwordHash: null,
-        status: PlatformAdminStatus.INVITED,
-      });
-      platformAdminDbService.findByEmail.mockResolvedValue({
-        id: 'admin-1',
-        status: PlatformAdminStatus.INVITED,
-        inviteExpiresAt: new Date(Date.now() - 60_000).toISOString(),
-      });
+    it('allows a tenant signup for an email that also belongs to a platform admin', async () => {
       authDbService.signup.mockResolvedValue({
         tenantId: 'tenant-1',
         userId: 'user-1',
@@ -547,113 +485,6 @@ describe('AuthService', () => {
       const result = await target.login({ email: activeUser.email, password: 'StrongP@ss1' });
 
       expect('refreshToken' in result && result.body.accessToken).toBe('access');
-    });
-  });
-
-  describe('login — platform admin', () => {
-    const activeAdmin = {
-      id: 'admin-1',
-      email: 'admin@innopeak.com',
-      passwordHash: 'hashed-admin-password',
-      status: PlatformAdminStatus.ACTIVE,
-    };
-
-    it('takes precedence over a colliding tenant-user email — the tenant table is never consulted', async () => {
-      authDbService.findPlatformAdminForLogin.mockResolvedValue(activeAdmin);
-      hashingService.compare.mockResolvedValue(true);
-
-      await target.login({ email: activeAdmin.email, password: 'StrongP@ss1' });
-
-      expect(authDbService.findUserForLogin).not.toHaveBeenCalled();
-    });
-
-    it('issues a platform-admin access token for a correct password on an active admin', async () => {
-      authDbService.findPlatformAdminForLogin.mockResolvedValue(activeAdmin);
-      hashingService.compare.mockResolvedValue(true);
-
-      const result = await target.login({ email: activeAdmin.email, password: 'StrongP@ss1' });
-
-      expect(result).toEqual({
-        admin: true,
-        body: {
-          accessToken: 'admin-access',
-          expiresIn: 900,
-          admin: { id: 'admin-1', email: activeAdmin.email },
-        },
-      });
-      expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
-    });
-
-    it('throws 401 when the password does not match, still paying for a real comparison', async () => {
-      authDbService.findPlatformAdminForLogin.mockResolvedValue(activeAdmin);
-      hashingService.compare.mockResolvedValue(false);
-
-      await expect(target.login({ email: activeAdmin.email, password: 'wrong' })).rejects.toThrow(
-        UnauthorizedException
-      );
-      expect(hashingService.compare).toHaveBeenCalledWith('wrong', activeAdmin.passwordHash);
-    });
-
-    it('throws 401 for an invited admin with no password set yet, same message as a wrong password', async () => {
-      authDbService.findPlatformAdminForLogin.mockResolvedValue({
-        ...activeAdmin,
-        passwordHash: null,
-        status: PlatformAdminStatus.INVITED,
-      });
-
-      await expect(target.login({ email: activeAdmin.email, password: 'x' })).rejects.toThrow(
-        UnauthorizedException
-      );
-      // Exactly one comparison either way: this now falls through to the tenant branch, which pays
-      // for the decoy when no user matches. An invited admin stays indistinguishable by timing
-      // from an active one with a wrong password.
-      expect(hashingService.compare).toHaveBeenCalledTimes(1);
-    });
-
-    /**
-     * The un-shadowing case. An invite that nobody accepted has no `password_hash` and so can
-     * never authenticate as an admin — but it used to claim the email anyway, which permanently
-     * locked out the real tenant account sitting behind it (sign up, verify by OTP, then 401 on
-     * every login, forever, with no way to tell why).
-     */
-    it('falls through to the tenant user when the admin row has no password to check', async () => {
-      authDbService.findPlatformAdminForLogin.mockResolvedValue({
-        ...activeAdmin,
-        passwordHash: null,
-        status: PlatformAdminStatus.INVITED,
-      });
-      authDbService.findUserForLogin.mockResolvedValue({
-        id: 'user-1',
-        tenantId: 'tenant-1',
-        email: activeAdmin.email,
-        role: UserRole.OWNER,
-        name: 'Jane Doe',
-        status: UserStatus.ACTIVE,
-        passwordHash: 'hashed-password',
-        locale: null,
-      });
-      authDbService.findTenantStatus.mockResolvedValue({
-        status: TenantStatus.ACTIVE,
-        name: 'The Coffee House',
-      });
-      hashingService.compare.mockResolvedValue(true);
-
-      const result = await target.login({ email: activeAdmin.email, password: 'StrongP@ss1' });
-
-      expect(result).not.toHaveProperty('admin');
-      expect(tokenService.issueTokenPair).toHaveBeenCalled();
-    });
-
-    it('throws 403 for a disabled admin who still remembers the right password', async () => {
-      authDbService.findPlatformAdminForLogin.mockResolvedValue({
-        ...activeAdmin,
-        status: PlatformAdminStatus.DISABLED,
-      });
-      hashingService.compare.mockResolvedValue(true);
-
-      await expect(
-        target.login({ email: activeAdmin.email, password: 'StrongP@ss1' })
-      ).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -1422,229 +1253,47 @@ describe('AuthService', () => {
 
         expect(demoDataDbService.seedForTenant).not.toHaveBeenCalled();
       });
-
-      /** Same `assertEmailNotAPlatformAdmin` guard as `signup` — shares the one private method. */
-      it('refuses an email that already belongs to a loggable-in platform admin', async () => {
-        pendingGoogleSignupService.consume.mockResolvedValue({
-          ok: true,
-          identity: { providerUserId: 'google-sub-1', email: 'owner@example.com', name: null },
-        });
-        authDbService.findPlatformAdminForLogin.mockResolvedValue({
-          id: 'admin-1',
-          email: 'owner@example.com',
-          passwordHash: 'hash',
-          status: PlatformAdminStatus.ACTIVE,
-        });
-
-        await expect(
-          target.completeGoogleSignup('pending-nonce', 'The Coastal Table')
-        ).rejects.toThrow(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
-        expect(authDbService.completeGoogleSignup).not.toHaveBeenCalled();
-      });
     });
   });
 
-  describe('validateAdminInvite', () => {
-    it('returns the invited email for a live token', async () => {
-      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
-        email: 'priya.ops@innopeak.com',
-      });
-
-      const result = await target.validateAdminInvite('raw-token-1');
-
-      expect(result.email).toBe('priya.ops@innopeak.com');
-    });
-
-    it('throws 404 for a token that never existed, was used, or has expired', async () => {
-      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue(null);
-
-      await expect(target.validateAdminInvite('bad-token')).rejects.toThrow(
-        MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE
-      );
-    });
-  });
-
-  describe('acceptAdminInvite', () => {
-    it('hashes the password and signs the admin in on success', async () => {
-      platformAdminDbService.acceptInviteWithPassword.mockResolvedValue({
-        outcome: 'accepted',
-        id: 'admin-1',
-        email: 'priya.ops@innopeak.com',
-      });
-
-      const result = await target.acceptAdminInvite({
-        token: 'raw-token-1',
-        password: 'NewStr0ng@Pass',
-      });
-
-      expect(hashingService.hash).toHaveBeenCalledWith('NewStr0ng@Pass');
-      expect(result.admin).toBe(true);
-      expect(result.body.admin.email).toBe('priya.ops@innopeak.com');
-      expect(tokenService.signPlatformAdminAccessToken).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'admin-1', email: 'priya.ops@innopeak.com' })
-      );
-    });
-
-    it('throws 400 for a token that never existed, was used, or has expired', async () => {
-      platformAdminDbService.acceptInviteWithPassword.mockResolvedValue({ outcome: 'invalid' });
-
-      await expect(
-        target.acceptAdminInvite({ token: 'bad-token', password: 'NewStr0ng@Pass' })
-      ).rejects.toThrow(MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE);
-    });
-  });
-
-  describe('buildAdminInviteGoogleRedirect', () => {
-    it('redirects to the accept page with an error, without minting state, for a dead token', async () => {
-      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue(null);
-
-      const redirect = await target.buildAdminInviteGoogleRedirect('bad-token');
-
-      expect(redirect).toEqual({
-        ok: false,
-        redirectUrl: `https://app.innopeak.test/invite/bad-token?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
-      });
-      expect(googleOAuthStateService.mint).not.toHaveBeenCalled();
-    });
-
-    it('answers with a redirect rather than throwing when the client is unconfigured', async () => {
-      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
-        email: 'priya.ops@innopeak.com',
-      });
-      googleIdentityProvider.isConfigured.mockReturnValue(false);
-
-      const redirect = await target.buildAdminInviteGoogleRedirect('raw-token-1');
-
-      expect(redirect).toEqual({
-        ok: false,
-        redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${GoogleAuthFailure.NOT_CONFIGURED}`,
-      });
-    });
-
-    it('mints state carrying the ADMIN_INVITE intent and the invite token', async () => {
-      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
-        email: 'priya.ops@innopeak.com',
-      });
-
-      await target.buildAdminInviteGoogleRedirect('raw-token-1');
-
-      expect(googleOAuthStateService.mint).toHaveBeenCalledWith({
-        intent: OAuthIntent.ADMIN_INVITE,
-        inviteToken: 'raw-token-1',
-      });
-    });
-  });
-
-  describe('Google sign-in — admin invite acceptance', () => {
-    const adminInviteState = {
-      ok: true as const,
-      record: {
-        intent: OAuthIntent.ADMIN_INVITE,
-        sidHash: 'h',
-        inviteToken: 'raw-token-1',
-      },
-    };
+  /**
+   * `AuthService` no longer owns the actual admin-invite/linked-admin business logic — that moved
+   * to `PlatformAdminAuthService` (see its own spec for the deep cases: email mismatch,
+   * already-linked identity, disabled admin, etc.). What's tested here is only the *dispatch*:
+   * `handleGoogleCallback` calls the right method for the right intent, and maps whatever it gets
+   * back into the right `GoogleCallbackOutcome` shape.
+   */
+  describe('Google sign-in — admin dispatch', () => {
     const identity = {
       providerUserId: 'google-sub-1',
-      email: 'Priya.Ops@Innopeak.com',
+      email: 'priya.ops@innopeak.com',
       emailVerified: true,
       name: 'Priya',
     };
 
-    it('links the identity and signs the admin in when the emails match', async () => {
-      googleOAuthStateService.consume.mockResolvedValue(adminInviteState);
-      googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
-        email: 'priya.ops@innopeak.com',
-      });
-      platformAdminDbService.acceptInviteWithGoogleIdentity.mockResolvedValue({
-        outcome: 'accepted',
-        id: 'admin-1',
-        email: 'priya.ops@innopeak.com',
-      });
+    const adminTokens = {
+      admin: true as const,
+      body: {
+        accessToken: 'admin-access',
+        expiresIn: 900,
+        admin: { id: 'admin-1', email: 'priya.ops@innopeak.com' },
+      },
+    };
 
-      const outcome = await target.handleGoogleCallback({
-        code: 'auth-code',
-        state: 'signed-state',
-        error: undefined,
-        sid: 'raw-sid',
-      });
-
-      expect(platformAdminDbService.acceptInviteWithGoogleIdentity).toHaveBeenCalledWith({
-        tokenHash: expect.any(String),
-        providerUserId: 'google-sub-1',
-      });
-      expect(outcome).toMatchObject({ ok: true, kind: 'admin_signed_in' });
-    });
-
-    /**
-     * The check that stops someone other than the invited person from redeeming this link with
-     * their own unrelated Google account — see AuthService.completeAdminInviteGoogle.
-     */
-    it('rejects a Google account whose verified email does not match the invited address, without linking anything', async () => {
-      googleOAuthStateService.consume.mockResolvedValue(adminInviteState);
-      googleIdentityProvider.fetchIdentity.mockResolvedValue({
-        ...identity,
-        email: 'someone-else@innopeak.com',
-      });
-      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
-        email: 'priya.ops@innopeak.com',
-      });
-
-      const outcome = await target.handleGoogleCallback({
-        code: 'auth-code',
-        state: 'signed-state',
-        error: undefined,
-        sid: 'raw-sid',
-      });
-
-      expect(outcome).toMatchObject({
-        ok: false,
-        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
-        redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${GoogleAuthFailure.INVITE_EMAIL_MISMATCH}`,
-      });
-      expect(platformAdminDbService.acceptInviteWithGoogleIdentity).not.toHaveBeenCalled();
-    });
-
-    it('reports a Google account already linked to a different admin distinctly from an invalid token', async () => {
-      googleOAuthStateService.consume.mockResolvedValue(adminInviteState);
-      googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
-        email: 'priya.ops@innopeak.com',
-      });
-      platformAdminDbService.acceptInviteWithGoogleIdentity.mockResolvedValue({
-        outcome: 'identity_already_linked',
-      });
-
-      const outcome = await target.handleGoogleCallback({
-        code: 'auth-code',
-        state: 'signed-state',
-        error: undefined,
-        sid: 'raw-sid',
-      });
-
-      expect(outcome).toMatchObject({
-        ok: false,
-        failure: GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
-      });
-    });
-
-    /**
-     * The regression this pairs with: nothing in `src/` read `platform_admin_identities` when the
-     * acceptance path that writes it was first built, so an admin who accepted through Google
-     * could sign in exactly once — no `password_hash`, no refresh token for this principal, and
-     * neither revoke nor re-invite available afterwards (both are scoped to `status = 'invited'`).
-     */
-    it('signs a returning Google-linked admin back in on a plain login round trip', async () => {
+    function consumeAdminLoginState(): void {
       googleOAuthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+        record: { intent: OAuthIntent.ADMIN_LOGIN, sidHash: 'h' },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      platformAdminDbService.findByGoogleIdentity.mockResolvedValue({
-        id: 'admin-1',
-        email: 'priya.ops@innopeak.com',
-        status: PlatformAdminStatus.ACTIVE,
+    }
+
+    it('signs in a linked admin on OAuthIntent.ADMIN_LOGIN', async () => {
+      consumeAdminLoginState();
+      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({
+        linked: true,
+        active: true,
+        tokens: adminTokens,
       });
 
       const outcome = await target.handleGoogleCallback({
@@ -1654,23 +1303,207 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(outcome).toMatchObject({ ok: true, kind: 'admin_signed_in' });
-      // The admin identity owns the request exclusively — the tenant lookup never runs, same rule
-      // password `login` applies by resolving `platform_admins` first.
+      expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens: adminTokens });
+    });
+
+    /**
+     * The reason ADMIN_LOGIN is its own intent rather than a reuse of LOGIN: the admin sign-in
+     * screen must never resolve to a *tenant* session just because the Google account that
+     * answered happens to own one. NO_ACCOUNT is the right dead end.
+     */
+    it('never falls through to the tenant tables when the Google account is not a linked admin', async () => {
+      consumeAdminLoginState();
+      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: false });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(authDbService.resolveGoogleIdentity).not.toHaveBeenCalled();
+      expect(outcome).toEqual({
+        ok: false,
+        failure: GoogleAuthFailure.NO_ACCOUNT,
+        redirectUrl: `/admin-login?error=${GoogleAuthFailure.NO_ACCOUNT}`,
+      });
+    });
+
+    it('sends a disabled linked admin back to the admin sign-in page', async () => {
+      consumeAdminLoginState();
+      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: true, active: false });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(outcome).toEqual({
+        ok: false,
+        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+        redirectUrl: `/admin-login?error=${GoogleAuthFailure.ACCOUNT_UNAVAILABLE}`,
+      });
+    });
+
+    /**
+     * Intent-agnostic failures (declined consent, provider error, unverified email) resolve before
+     * the per-intent dispatch, so they come through `googleFailureRedirect` instead. They must
+     * still land somewhere an admin can act on — `/login` carries no admin path since the split.
+     */
+    it('sends an intent-agnostic ADMIN_LOGIN failure to the admin page, not the tenant login', async () => {
+      googleOAuthStateService.consume.mockResolvedValue({
+        ok: true as const,
+        record: { intent: OAuthIntent.ADMIN_LOGIN, sidHash: 'h' },
+      });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: 'access_denied',
+        sid: 'raw-sid',
+      });
+
+      expect(outcome).toEqual({
+        ok: false,
+        failure: GoogleAuthFailure.ACCESS_DENIED,
+        redirectUrl: `/admin-login?error=${GoogleAuthFailure.ACCESS_DENIED}`,
+      });
+    });
+
+    it('delegates OAuthIntent.ADMIN_INVITE entirely to PlatformAdminAuthService, on success', async () => {
+      googleOAuthStateService.consume.mockResolvedValue({
+        ok: true as const,
+        record: { intent: OAuthIntent.ADMIN_INVITE, sidHash: 'h', inviteToken: 'raw-token-1' },
+      });
+      googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+      const tokens = {
+        admin: true as const,
+        body: {
+          accessToken: 'admin-access',
+          expiresIn: 900,
+          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com' },
+        },
+      };
+      platformAdminAuthService.completeAdminInviteGoogle.mockResolvedValue({ ok: true, tokens });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(platformAdminAuthService.completeAdminInviteGoogle).toHaveBeenCalledWith(
+        'raw-token-1',
+        identity
+      );
+      expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
+      // Never falls through to tenant resolution for this intent.
       expect(authDbService.resolveGoogleIdentity).not.toHaveBeenCalled();
     });
 
-    it('refuses a disabled admin rather than signing them in', async () => {
+    it('maps a PlatformAdminAuthService failure straight through, on ADMIN_INVITE', async () => {
+      googleOAuthStateService.consume.mockResolvedValue({
+        ok: true as const,
+        record: { intent: OAuthIntent.ADMIN_INVITE, sidHash: 'h', inviteToken: 'raw-token-1' },
+      });
+      googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+      platformAdminAuthService.completeAdminInviteGoogle.mockResolvedValue({
+        ok: false,
+        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
+        redirectUrl: 'https://app.innopeak.test/invite/raw-token-1?error=INVITE_EMAIL_MISMATCH',
+      });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(outcome).toEqual({
+        ok: false,
+        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
+        redirectUrl: 'https://app.innopeak.test/invite/raw-token-1?error=INVITE_EMAIL_MISMATCH',
+      });
+    });
+
+    /**
+     * Every intent-agnostic failure (bad state, missing code, unverified email) reaches
+     * `googleFailureRedirect` before `handleGoogleCallback` ever branches on `ADMIN_INVITE` — so
+     * these still have to target the accept-invite page, not `/login`, and still go through
+     * `PlatformAdminAuthService.adminInviteFailureUrl` to build that URL.
+     */
+    it('targets the accept-invite page, not /login, for an intent-agnostic failure under ADMIN_INVITE', async () => {
+      googleOAuthStateService.consume.mockResolvedValue({
+        ok: true as const,
+        record: { intent: OAuthIntent.ADMIN_INVITE, sidHash: 'h', inviteToken: 'raw-token-1' },
+      });
+      googleIdentityProvider.fetchIdentity.mockResolvedValue({ ...identity, emailVerified: false });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(platformAdminAuthService.adminInviteFailureUrl).toHaveBeenCalledWith(
+        'raw-token-1',
+        GoogleAuthFailure.EMAIL_NOT_VERIFIED
+      );
+      expect(outcome).toEqual({
+        ok: false,
+        failure: GoogleAuthFailure.EMAIL_NOT_VERIFIED,
+        redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${GoogleAuthFailure.EMAIL_NOT_VERIFIED}`,
+      });
+      expect(platformAdminAuthService.completeAdminInviteGoogle).not.toHaveBeenCalled();
+    });
+
+    it('signs a returning Google-linked admin back in on a plain login round trip, never reaching tenant resolution', async () => {
       googleOAuthStateService.consume.mockResolvedValue({
         ok: true as const,
         record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      platformAdminDbService.findByGoogleIdentity.mockResolvedValue({
-        id: 'admin-1',
-        email: 'priya.ops@innopeak.com',
-        status: PlatformAdminStatus.DISABLED,
+      const tokens = {
+        admin: true as const,
+        body: {
+          accessToken: 'admin-access',
+          expiresIn: 900,
+          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com' },
+        },
+      };
+      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({
+        linked: true,
+        active: true,
+        tokens,
       });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(platformAdminAuthService.findLinkedAdmin).toHaveBeenCalledWith('google-sub-1');
+      expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
+      // The admin identity owns the request exclusively — the tenant lookup never runs, same rule
+      // password login already applies by resolving admins first.
+      expect(authDbService.resolveGoogleIdentity).not.toHaveBeenCalled();
+    });
+
+    it('refuses a disabled linked admin rather than signing them in', async () => {
+      googleOAuthStateService.consume.mockResolvedValue({
+        ok: true as const,
+        record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+      });
+      googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: true, active: false });
 
       const outcome = await target.handleGoogleCallback({
         code: 'auth-code',
@@ -1692,10 +1525,18 @@ describe('AuthService', () => {
         record: { intent: OAuthIntent.SIGNUP, sidHash: 'h' },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      platformAdminDbService.findByGoogleIdentity.mockResolvedValue({
-        id: 'admin-1',
-        email: 'priya.ops@innopeak.com',
-        status: PlatformAdminStatus.ACTIVE,
+      const tokens = {
+        admin: true as const,
+        body: {
+          accessToken: 'admin-access',
+          expiresIn: 900,
+          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com' },
+        },
+      };
+      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({
+        linked: true,
+        active: true,
+        tokens,
       });
 
       const outcome = await target.handleGoogleCallback({
@@ -1709,10 +1550,14 @@ describe('AuthService', () => {
       expect(pendingGoogleSignupService.mint).not.toHaveBeenCalled();
     });
 
-    it('rejects a dead token before ever looking at the Google identity outcome', async () => {
-      googleOAuthStateService.consume.mockResolvedValue(adminInviteState);
+    it('falls through to ordinary tenant resolution when the identity is not linked to any admin', async () => {
+      googleOAuthStateService.consume.mockResolvedValue({
+        ok: true as const,
+        record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+      });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue(null);
+      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: false });
+      authDbService.resolveGoogleIdentity.mockResolvedValue({ kind: 'unknown' });
 
       const outcome = await target.handleGoogleCallback({
         code: 'auth-code',
@@ -1721,11 +1566,8 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(outcome).toMatchObject({
-        ok: false,
-        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
-      });
-      expect(platformAdminDbService.acceptInviteWithGoogleIdentity).not.toHaveBeenCalled();
+      expect(authDbService.resolveGoogleIdentity).toHaveBeenCalled();
+      expect(outcome).toMatchObject({ failure: GoogleAuthFailure.NO_ACCOUNT });
     });
   });
 });

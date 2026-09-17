@@ -10,7 +10,6 @@ import { Injectable } from '@nestjs/common';
 import {
   AuthRepository,
   InsertRefreshTokenInput,
-  PlatformAdminByEmail,
   PutVerifyEmailTokenInput,
   RefreshTokenRow,
   UserByEmail,
@@ -421,10 +420,6 @@ export class AuthDbService {
 
   async findUserForLogin(email: string): Promise<UserByEmail | null> {
     return this.authRepository.findUserByEmail(email);
-  }
-
-  async findPlatformAdminForLogin(email: string): Promise<PlatformAdminByEmail | null> {
-    return this.authRepository.findPlatformAdminByEmail(email);
   }
 
   async findUserById(id: string): Promise<UserByEmail | null> {

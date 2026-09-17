@@ -25,29 +25,11 @@ import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 type LoginStep = "credentials" | "otp";
 
 /**
- * Login screen — the password form is always available, unconditionally, regardless of the
- * platform's ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled settings. Those settings
- * gate only the SSO/social *buttons* below it. This is deliberate, not an oversight: this shared
- * screen is the one place both tenant and admin credentials are submitted — the backend decides
- * which after the fact (`AuthService.login` checks `platform_admins` first). Gating the password
- * field itself behind `passwordLoginEnabled`, as an earlier version of this screen did, meant a
- * Super Admin disabling "Email & password" from Admin Settings locked every admin — including
- * themselves — out of the UI with no way back in.
+ * Login screen — tenant users only. Platform admins sign in at `ROUTES.ADMIN_LOGIN` instead: see
+ * `separate-admin-login-design.md` for why the two are split rather than sharing this screen.
  *
- * **Admins can now have a Google identity too** (`platform_admin_identities`, written when an
- * invite is accepted through `GET /v1/auth/invite/:token/google` and read back by the shared
- * Google callback), which inverts part of the reasoning above: an admin who accepted that way has
- * NO password at all, so for them the Google button below is the only way in — and it is gated
- * behind `socialLoginEnabled`.
- *
- * Both ends of that are closed, so the button below staying gated is safe: the invite accept
- * screen reads the same setting (so a Google-only admin cannot be *created* while Google sign-in
- * is off), and `AdminSettingsService.updatePlatformSettings` refuses to switch it off while any
- * active admin has Google as their only credential — the same lockout-prevention family as the
- * last-active-admin guard. Still worth revisiting if Google-only admins become common: giving
- * admins their own "add a password" path would remove the single-credential situation entirely,
- * rather than guarding around it. There is no admin equivalent of the tenant `set-password` flow
- * today, and `AdminSettingsService.changePassword` requires a current password it does not have.
+ * The password form is always available, unconditionally, regardless of the platform's
+ * ssoLoginEnabled/socialLoginEnabled settings — those gate only the SSO/social *buttons* below it.
  *
  * The password path can land on a still-`pending_verification` account —
  * the backend resends a fresh OTP and reports that instead of erroring, so
@@ -95,11 +77,6 @@ export function LoginView() {
     if (result.kind === "verify_needed") {
       setPendingEmail(result.email);
       setStep("otp");
-      return;
-    }
-
-    if (result.kind === "admin_success") {
-      router.push(ROUTES.ADMIN);
       return;
     }
 

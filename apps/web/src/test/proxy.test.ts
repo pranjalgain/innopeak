@@ -47,9 +47,14 @@ describe("proxy — tenant vs admin session routing", () => {
     expect(redirectLocation(response)).toBe(ROUTES.LOGIN);
   });
 
-  test("no session at all on an admin-only route goes to /login", () => {
+  /**
+   * Not `/login` — that screen has no admin path left on it since the split
+   * (`separate-admin-login-design.md`), so bouncing an unauthenticated admin-area visitor there
+   * would be a dead end with no way to actually sign in.
+   */
+  test("no session at all on an admin-only route goes to /admin-login", () => {
     const response = proxy(requestFor(ROUTES.ADMIN));
-    expect(redirectLocation(response)).toBe(ROUTES.LOGIN);
+    expect(redirectLocation(response)).toBe(ROUTES.ADMIN_LOGIN);
   });
 
   test("a tenant session on a tenant-only route passes through", () => {
@@ -80,6 +85,21 @@ describe("proxy — tenant vs admin session routing", () => {
 
   test("no session on /login passes through and renders the login page", () => {
     const response = proxy(requestFor(ROUTES.LOGIN));
+    expect(redirectLocation(response)).toBeNull();
+  });
+
+  test("an admin session landing on /admin-login is sent to /admin, not /dashboard", () => {
+    const response = proxy(requestFor(ROUTES.ADMIN_LOGIN, "admin"));
+    expect(redirectLocation(response)).toBe(ROUTES.ADMIN);
+  });
+
+  test("a tenant session landing on /admin-login is sent to /dashboard", () => {
+    const response = proxy(requestFor(ROUTES.ADMIN_LOGIN, "tenant"));
+    expect(redirectLocation(response)).toBe(ROUTES.DASHBOARD);
+  });
+
+  test("no session on /admin-login passes through and renders the admin login page", () => {
+    const response = proxy(requestFor(ROUTES.ADMIN_LOGIN));
     expect(redirectLocation(response)).toBeNull();
   });
 

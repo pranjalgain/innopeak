@@ -28,8 +28,8 @@ const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
 
 /**
  * Email/password fields for login — always rendered, never gated behind the platform's
- * passwordLoginEnabled setting (see `LoginView`'s own comment for why: a platform admin has no
- * other way to sign in). The submit label is overridable via `submitLabel`/`submittingLabel`.
+ * passwordLoginEnabled setting. Shared by the tenant `LoginView` and the platform-admin
+ * `AdminLoginView`. The submit label is overridable via `submitLabel`/`submittingLabel`.
  *
  * Validated client-side against `_schemas/password-auth.schema.ts` so a malformed address is
  * caught here rather than spending a round trip to earn a 400. The password is only checked for

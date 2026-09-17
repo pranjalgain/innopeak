@@ -14,6 +14,14 @@ export interface PlatformAdminProfileRow {
   avatarUrl: string | null;
 }
 
+export interface PlatformAdminLoginRow {
+  id: string;
+  email: string;
+  /** Null for an `invited` admin who hasn't accepted their invite/set a password yet. */
+  passwordHash: string | null;
+  status: PlatformAdminStatus;
+}
+
 export interface PlatformAdminInviteRow {
   id: string;
   email: string;
@@ -85,6 +93,29 @@ export class PlatformAdminRepository {
       .limit(1);
 
     return (rows[0] as PlatformAdminProfileRow | undefined) ?? null;
+  }
+
+  /**
+   * By email, for `PlatformAdminAuthService.login` — the platform-admin login now queries this
+   * table directly rather than going through a shared tenant lookup, since `POST
+   * /v1/admin/auth/login` is its own route with nothing left to disambiguate (see
+   * `separate-admin-login-design.md`). `passwordHash` rides along so the caller can tell an
+   * `invited` admin (no password yet) from one that can actually authenticate, without a second
+   * query.
+   */
+  async findForLogin(email: string): Promise<PlatformAdminLoginRow | null> {
+    const rows = await this.dbService.db
+      .select({
+        id: schema.platformAdmins.id,
+        email: schema.platformAdmins.email,
+        passwordHash: schema.platformAdmins.passwordHash,
+        status: schema.platformAdmins.status,
+      })
+      .from(schema.platformAdmins)
+      .where(eq(schema.platformAdmins.email, email))
+      .limit(1);
+
+    return (rows[0] as PlatformAdminLoginRow | undefined) ?? null;
   }
 
   /**
