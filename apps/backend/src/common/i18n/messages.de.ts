@@ -105,6 +105,15 @@ export const messagesDe: MessageCatalog = {
     UPDATED: 'Einstellungen aktualisiert',
     TENANT_SETTINGS_MISSING: 'Für dieses Konto wurden keine Mandanteneinstellungen eingerichtet',
     PLATFORM_CONFIG_MISSING: 'Die Plattformeinstellungen sind nicht konfiguriert.',
+    MEMBER_INVITE_SENT: 'Einladung gesendet.',
+    MEMBER_INVITE_REVOKED: 'Einladung widerrufen.',
+    MEMBER_EMAIL_ALREADY_INVITED:
+      'Für diese E-Mail-Adresse besteht bereits eine ausstehende Einladung.',
+    MEMBER_NOT_FOUND: 'Teammitglied nicht gefunden.',
+    MEMBER_INVITE_NOT_REVOCABLE:
+      'Diese Einladung wurde bereits angenommen oder ist nicht mehr ausstehend.',
+    MEMBER_INVITES_DISABLED:
+      'Das Einladen von Teammitgliedern ist für diese Plattform deaktiviert.',
   },
   ADMIN: {
     ADMIN_ONLY: 'Nur ein Plattform-Administrator kann diese Aktion ausführen.',

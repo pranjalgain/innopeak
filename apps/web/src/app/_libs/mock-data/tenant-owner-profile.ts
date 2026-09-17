@@ -6,4 +6,5 @@ export const MOCK_TENANT_OWNER_PROFILE: TenantOwnerProfile = {
   avatarUrl: null,
   hasPassword: true,
   businessName: "The Coastal Table",
+  role: "owner",
 };

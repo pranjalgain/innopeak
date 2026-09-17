@@ -70,10 +70,12 @@ Class | Method | HTTP request | Description
 *AdminSettingsApi* | [**adminSettingsControllerUpdatePlatformSettingsV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdateplatformsettingsv1) | **PATCH** /v1/admin/settings/platform-config | Update platform-wide feature settings
 *AdminUsersApi* | [**adminUsersControllerListV1**](docs/AdminUsersApi.md#adminuserscontrollerlistv1) | **GET** /v1/admin/users | List every user across every tenant
 *AdminUsersApi* | [**adminUsersControllerToggleActiveV1**](docs/AdminUsersApi.md#adminuserscontrollertoggleactivev1) | **POST** /v1/admin/users/{userId}/toggle-active | Toggle a user\&#39;s active status
+*AuthApi* | [**authControllerAcceptMemberInviteV1**](docs/AuthApi.md#authcontrolleracceptmemberinvitev1) | **POST** /v1/auth/invite/accept | Accept a tenant-member invite by setting a name and password
 *AuthApi* | [**authControllerChangePasswordV1**](docs/AuthApi.md#authcontrollerchangepasswordv1) | **POST** /v1/auth/change-password | Change the current user’s password
 *AuthApi* | [**authControllerCompleteGoogleSignupV1**](docs/AuthApi.md#authcontrollercompletegooglesignupv1) | **POST** /v1/auth/google/complete-signup | Finish a Google signup with a business name
 *AuthApi* | [**authControllerGoogleAuthorizeV1**](docs/AuthApi.md#authcontrollergoogleauthorizev1) | **GET** /v1/auth/google | Start Google sign-in or signup
 *AuthApi* | [**authControllerGoogleCallbackV1**](docs/AuthApi.md#authcontrollergooglecallbackv1) | **GET** /v1/auth/google/callback | Google sign-in callback
+*AuthApi* | [**authControllerInviteGoogleAuthorizeV1**](docs/AuthApi.md#authcontrollerinvitegoogleauthorizev1) | **GET** /v1/auth/invite/{token}/google | Accept a tenant-member invite via Google
 *AuthApi* | [**authControllerLoginV1**](docs/AuthApi.md#authcontrollerloginv1) | **POST** /v1/auth/login | Password login
 *AuthApi* | [**authControllerLogoutV1**](docs/AuthApi.md#authcontrollerlogoutv1) | **POST** /v1/auth/logout | Revoke every refresh token for the current user
 *AuthApi* | [**authControllerMeV1**](docs/AuthApi.md#authcontrollermev1) | **GET** /v1/auth/me | The signed-in tenant user
@@ -83,6 +85,7 @@ Class | Method | HTTP request | Description
 *AuthApi* | [**authControllerSetPasswordV1**](docs/AuthApi.md#authcontrollersetpasswordv1) | **POST** /v1/auth/set-password | Set a password for an account that has never had one
 *AuthApi* | [**authControllerSignupV1**](docs/AuthApi.md#authcontrollersignupv1) | **POST** /v1/auth/signup | Owner self-registration (password path)
 *AuthApi* | [**authControllerUpdateLocaleV1**](docs/AuthApi.md#authcontrollerupdatelocalev1) | **POST** /v1/auth/locale | Set the language responses are rendered in
+*AuthApi* | [**authControllerValidateMemberInviteV1**](docs/AuthApi.md#authcontrollervalidatememberinvitev1) | **GET** /v1/auth/invite/{token} | Preview a tenant-member invite
 *AuthApi* | [**authControllerVerifyEmailV1**](docs/AuthApi.md#authcontrollerverifyemailv1) | **POST** /v1/auth/verify-email | Consume a signup/login verification OTP (password path only)
 *ConnectionsApi* | [**connectionsControllerAuthorizeV1**](docs/ConnectionsApi.md#connectionscontrollerauthorizev1) | **GET** /v1/connections/google/authorize | Start the Google Business Profile grant (302 to consent)
 *ConnectionsApi* | [**connectionsControllerAvailableLocationsV1**](docs/ConnectionsApi.md#connectionscontrolleravailablelocationsv1) | **GET** /v1/connections/google/available-locations | Locations the granted Google account can see (live provider call)
@@ -106,6 +109,9 @@ Class | Method | HTTP request | Description
 *SettingsApi* | [**blocklistTermsControllerListV1**](docs/SettingsApi.md#blocklisttermscontrollerlistv1) | **GET** /v1/settings/blocklist-terms | List blocklist terms
 *SettingsApi* | [**blocklistTermsControllerRemoveV1**](docs/SettingsApi.md#blocklisttermscontrollerremovev1) | **DELETE** /v1/settings/blocklist-terms/{id} | Remove a blocklist term
 *SettingsApi* | [**platformSettingsControllerGetV1**](docs/SettingsApi.md#platformsettingscontrollergetv1) | **GET** /v1/settings/platform-config | Get platform-wide feature settings
+*SettingsApi* | [**tenantMembersControllerInviteV1**](docs/SettingsApi.md#tenantmemberscontrollerinvitev1) | **POST** /v1/settings/members | Invite a teammate
+*SettingsApi* | [**tenantMembersControllerListV1**](docs/SettingsApi.md#tenantmemberscontrollerlistv1) | **GET** /v1/settings/members | List this tenant\&#39;s team, owner included
+*SettingsApi* | [**tenantMembersControllerRevokeV1**](docs/SettingsApi.md#tenantmemberscontrollerrevokev1) | **DELETE** /v1/settings/members/{memberId} | Revoke a pending invite
 *SettingsApi* | [**tenantSettingsControllerGetV1**](docs/SettingsApi.md#tenantsettingscontrollergetv1) | **GET** /v1/settings | Get tenant settings
 *SettingsApi* | [**tenantSettingsControllerReplaceV1**](docs/SettingsApi.md#tenantsettingscontrollerreplacev1) | **PUT** /v1/settings | Replace tenant settings
 
@@ -113,6 +119,7 @@ Class | Method | HTTP request | Description
 ### Documentation For Models
 
  - [AcceptAdminInviteDto](docs/AcceptAdminInviteDto.md)
+ - [AcceptMemberInviteDto](docs/AcceptMemberInviteDto.md)
  - [AdminBusinessResponseDto](docs/AdminBusinessResponseDto.md)
  - [AdminInvitePreviewDto](docs/AdminInvitePreviewDto.md)
  - [AdminInviteResponseDto](docs/AdminInviteResponseDto.md)
@@ -140,10 +147,12 @@ Class | Method | HTTP request | Description
  - [CurrentRunDto](docs/CurrentRunDto.md)
  - [DeleteBlocklistTermResponseDto](docs/DeleteBlocklistTermResponseDto.md)
  - [DisconnectResponseDto](docs/DisconnectResponseDto.md)
+ - [InviteMemberDto](docs/InviteMemberDto.md)
  - [LatestResponseDto](docs/LatestResponseDto.md)
  - [LocationDto](docs/LocationDto.md)
  - [LocationListResponseDto](docs/LocationListResponseDto.md)
  - [LoginDto](docs/LoginDto.md)
+ - [MemberInvitePreviewDto](docs/MemberInvitePreviewDto.md)
  - [MetricsDto](docs/MetricsDto.md)
  - [PaginationMetaDto](docs/PaginationMetaDto.md)
  - [PlatformActivityResponseDto](docs/PlatformActivityResponseDto.md)
@@ -170,6 +179,7 @@ Class | Method | HTTP request | Description
  - [SyncHealthResponseDto](docs/SyncHealthResponseDto.md)
  - [SyncRunDto](docs/SyncRunDto.md)
  - [SyncRunListResponseDto](docs/SyncRunListResponseDto.md)
+ - [TenantMemberResponseDto](docs/TenantMemberResponseDto.md)
  - [TenantSettingsResponseDto](docs/TenantSettingsResponseDto.md)
  - [TokenResponseDto](docs/TokenResponseDto.md)
  - [UpdateAdminAvatarDto](docs/UpdateAdminAvatarDto.md)

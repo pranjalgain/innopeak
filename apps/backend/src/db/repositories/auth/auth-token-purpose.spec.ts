@@ -22,5 +22,9 @@ describe('token purposes', () => {
   it('purges every purpose the app actually mints', () => {
     expect(PURGEABLE_OTP_PURPOSES).toContain(TokenPurpose.VERIFY_EMAIL);
     expect(PURGEABLE_OTP_PURPOSES).toContain(TokenPurpose.SET_PASSWORD);
+    // Tenant-member invites (insertInvitedMember/acceptMemberInviteWith*) started writing this
+    // purpose alongside the other two — a used or lapsed invite token is exactly the same kind of
+    // dead weight the other purposes already get swept for.
+    expect(PURGEABLE_OTP_PURPOSES).toContain(TokenPurpose.INVITE);
   });
 });

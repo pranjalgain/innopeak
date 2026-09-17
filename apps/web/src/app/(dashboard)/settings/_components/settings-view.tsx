@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 import { useSettings } from "@/hooks/settings/use-settings";
+import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
 
 function SettingsSkeleton() {
   return (
@@ -45,6 +46,12 @@ const TABS = [
 export function SettingsView() {
   const t = useTranslations("settings");
   const searchParams = useSearchParams();
+  // Every tab but Profile and Members reads from `GET /v1/settings`, which is
+  // `@Roles(UserRole.OWNER)` on the backend — a `member` caller gets a 403 there today, the exact
+  // shape of route this invite feature was the first to make reachable by a non-owner. `enabled`
+  // below stops `useSettings()` from ever making that doomed request for one.
+  const { profile } = useTenantOwnerProfile();
+  const isMember = profile?.role === "member";
   const {
     settings,
     isLoading,
@@ -54,7 +61,7 @@ export function SettingsView() {
     updateRecipientChannel,
     toggleRecipientActive,
     disconnect,
-  } = useSettings();
+  } = useSettings(!isMember);
   // Deliberately NOT part of the loading gate below (nor `settings` itself, which is required):
   // General/Blocklist/Notifications/Connection/AI need nothing from it, only whether the
   // Profile/Members tabs are offered does. Gating the whole page on it meant a failed
@@ -87,6 +94,36 @@ export function SettingsView() {
     if (requestedTab === "members" && !platformSettings?.inviteMembersEnabled) return "general";
     return requestedTab;
   }, [requestedTab, platformSettings?.passwordLoginEnabled, platformSettings?.inviteMembersEnabled]);
+
+  if (isMember) {
+    // Profile is the one tab this route ever offers a member — every other tab reads from
+    // `GET /v1/settings`, `@Roles(UserRole.OWNER)` on the backend, and that query is disabled
+    // entirely for a member (see the `useSettings()` call above), so `settings` never loads for
+    // one. Returning here, ahead of the `!settings` skeleton-gate below, is what stops that from
+    // reading as a permanently-stuck loading state instead of ever reaching a tab. Still gated on
+    // `passwordLoginEnabled`, same as the owner path: a member's Profile tab has nothing to show
+    // when password sign-in itself is off platform-wide.
+    if (!platformSettings?.passwordLoginEnabled) {
+      return (
+        <div className="p-fluid-page flex flex-col gap-6">
+          <p className="text-muted-foreground text-sm">{t("noSettingsForMember")}</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-fluid-page flex flex-col gap-6">
+        <Tabs defaultValue="profile" className="max-w-3xl gap-5">
+          <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
+            <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger>
+          </TabsList>
+          <TabsContent value="profile">
+            <ProfileSettingsSection />
+          </TabsContent>
+        </Tabs>
+      </div>
+    );
+  }
 
   if (isLoading || !settings) {
     return <SettingsSkeleton />;

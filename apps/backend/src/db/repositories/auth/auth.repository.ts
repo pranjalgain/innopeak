@@ -9,6 +9,7 @@ import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-co
 import type { Locale } from '@common/i18n/locale';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
+import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 
@@ -81,12 +82,15 @@ export interface InsertRefreshTokenInput {
  * `deleteStaleOtpTokens` sweep has to cover — a purpose that writes rows but is missing here is
  * one whose spent rows nothing ever deletes.
  *
- * `invite`/`reset` are absent because nothing writes them yet (see `TokenPurpose`); whichever
- * commit starts to must add them here too.
+ * `INVITE` (tenant-member invites — `insertInvitedMember`/`acceptMemberInviteWith*`) joined this
+ * list the day that flow started writing rows here; a used or lapsed invite token is exactly the
+ * same kind of dead weight `VERIFY_EMAIL`/`SET_PASSWORD` already are. `reset` stays absent —
+ * nothing writes it yet (see `TokenPurpose`).
  */
 export const PURGEABLE_OTP_PURPOSES = [
   TokenPurpose.VERIFY_EMAIL,
   TokenPurpose.SET_PASSWORD,
+  TokenPurpose.INVITE,
 ] as const;
 
 /** A refresh-token row that may or may not still be live — see `findRefreshTokenByHash`. */
@@ -96,6 +100,58 @@ export interface RefreshTokenRow {
   /** Null while the token is still spendable; otherwise when it was rotated out or revoked. */
   revokedAt: string | null;
 }
+
+export interface InsertInvitedMemberInput {
+  tenantId: string;
+  email: string;
+  /** `users.name` is `NOT NULL`, and the invite-send form is email-only (the invitee picks their
+   *  own name on the accept screen) — the email itself is the placeholder until then, same
+   *  fallback shape `AuthDbService.completeGoogleSignup` already uses (`input.name ?? input.email`). */
+  name: string;
+  invitedByUserId: string;
+}
+
+export interface InsertMemberInviteTokenInput {
+  userId: string;
+  tokenHash: string;
+  expiresAt: string;
+}
+
+/** Mirrors `PlatformAdminRepository.findByEmail`'s shape — global, not tenant-scoped, since
+ *  `idx_users_email_active` is a global uniqueness guarantee. */
+export interface MemberInviteStatusRow {
+  id: string;
+  tenantId: string;
+  status: UserStatus;
+  inviteExpiresAt: string | null;
+}
+
+export interface TenantMemberRow {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  status: UserStatus;
+  invitedAt: string;
+}
+
+/**
+ * `invalid` covers every reason the invite couldn't be redeemed — never existed, already used,
+ * expired, or lost a race between the read and the write — collapsed deliberately, same
+ * enumeration-avoidance reasoning as `PlatformAdminRepository`'s own `AcceptInviteOutcome`.
+ * `identity_already_linked` is Google-accept-only and IS worth telling apart — an actionable,
+ * non-enumerating answer, not a guess about the token.
+ */
+export type AcceptMemberInviteOutcome =
+  | { outcome: 'accepted'; id: string; tenantId: string; email: string; name: string }
+  | { outcome: 'identity_already_linked' }
+  | { outcome: 'invalid' };
+
+/** Same three-way split as `PlatformAdminRepository.RevokeInviteOutcome`, and for the same reason
+ *  — an already-accepted member is a 409 the caller can see is wrong ("already active"), not a 404
+ *  indistinguishable from a typo'd id. */
+export type RevokeMemberInviteOutcome =
+  { outcome: 'not_found' } | { outcome: 'not_invited' } | { outcome: 'revoked'; email: string };
 
 /**
  * Mechanical Drizzle queries only — no cross-table composition or transaction ownership, that's
@@ -693,6 +749,401 @@ export class AuthRepository {
     }
 
     return row;
+  }
+
+  /**
+   * Creates the invited member's own `users` row — `status: invited`, no password, attributed to
+   * the owner who sent the invite. Mirrors `PlatformAdminRepository.insertInvitedAdmin`; the one
+   * structural difference is there is no separate invite-row table to also write here — the
+   * invite token lives on `password_reset_tokens` (`insertMemberInviteToken`), inserted as its own
+   * statement in the same transaction, same as `signup`'s `insertOwnerUser` +
+   * `putVerifyEmailToken` pair.
+   */
+  async insertInvitedMember(
+    tx: DrizzleTransaction,
+    input: InsertInvitedMemberInput
+  ): Promise<InsertedUser> {
+    const rows = await tx
+      .insert(schema.users)
+      .values({
+        tenantId: input.tenantId,
+        name: input.name,
+        email: input.email,
+        role: UserRole.MEMBER,
+        status: UserStatus.INVITED,
+        invitedByUserId: input.invitedByUserId,
+      })
+      .returning({ id: schema.users.id });
+    const row = rows[0];
+
+    if (!row) {
+      throw new Error('Failed to create invited member');
+    }
+
+    return row;
+  }
+
+  /** A plain insert, not an upsert — a brand-new `users` row from `insertInvitedMember` never has
+   *  a prior invite token to replace, unlike `putVerifyEmailToken`'s upsert-on-`(user_id, purpose)`
+   *  shape for a row that can be re-issued a code many times over its life. */
+  async insertMemberInviteToken(
+    tx: DrizzleTransaction,
+    input: InsertMemberInviteTokenInput
+  ): Promise<void> {
+    await tx.insert(schema.passwordResetTokens).values({
+      userId: input.userId,
+      tokenHash: input.tokenHash,
+      purpose: TokenPurpose.INVITE,
+      expiresAt: input.expiresAt,
+    });
+  }
+
+  /**
+   * Global lookup, not tenant-scoped — mirrors `PlatformAdminRepository.findByEmail` for the same
+   * reason: `idx_users_email_active` is a global uniqueness guarantee (one non-anonymized account
+   * per email, across every tenant), so "is this email already claimed" has to check globally
+   * before `TenantMembersService.sendInvite` ever attempts the insert. `inviteExpiresAt` comes from
+   * the left-joined `invite`-purpose `password_reset_tokens` row, `null` for anyone who wasn't
+   * invited (a self-registered or platform-admin-provisioned owner).
+   */
+  async findMemberInviteStatusByEmail(email: string): Promise<MemberInviteStatusRow | null> {
+    const rows = await this.dbService.db
+      .select({
+        id: schema.users.id,
+        tenantId: schema.users.tenantId,
+        status: schema.users.status,
+        inviteExpiresAt: schema.passwordResetTokens.expiresAt,
+      })
+      .from(schema.users)
+      .leftJoin(
+        schema.passwordResetTokens,
+        and(
+          eq(schema.passwordResetTokens.userId, schema.users.id),
+          eq(schema.passwordResetTokens.purpose, TokenPurpose.INVITE)
+        )
+      )
+      .where(and(eq(schema.users.email, email), isNull(schema.users.anonymizedAt)))
+      .limit(1);
+
+    return (rows[0] as MemberInviteStatusRow | undefined) ?? null;
+  }
+
+  /**
+   * Read-only preview for `GET /v1/auth/invite/:token` and the Google-authorize route — so both
+   * can fail fast on a dead link before ever asking the invitee for a name/password or redirecting
+   * to Google. Mirrors `PlatformAdminRepository.findInviteEmailByTokenHash`: the invite row's own
+   * `used_at`/`expires_at` are the only source of truth for "still redeemable", never
+   * `users.status` — `acceptMemberInviteWith*` below flip both in the same transaction, so they
+   * can never disagree.
+   */
+  async findMemberInviteEmailByTokenHash(
+    tokenHash: string
+  ): Promise<{ email: string; tenantId: string } | null> {
+    const rows = await this.dbService.db
+      .select({ email: schema.users.email, tenantId: schema.users.tenantId })
+      .from(schema.passwordResetTokens)
+      .innerJoin(schema.users, eq(schema.users.id, schema.passwordResetTokens.userId))
+      .where(
+        and(
+          eq(schema.passwordResetTokens.tokenHash, tokenHash),
+          eq(schema.passwordResetTokens.purpose, TokenPurpose.INVITE),
+          isNull(schema.passwordResetTokens.usedAt),
+          gt(schema.passwordResetTokens.expiresAt, sql`now()`)
+        )
+      )
+      .limit(1);
+
+    return (rows[0] as { email: string; tenantId: string } | undefined) ?? null;
+  }
+
+  /**
+   * Redeems a member invite by setting a name and password — the shared first step
+   * (`lockLiveMemberInvite`) is identical to `acceptMemberInviteWithGoogleIdentity` below; only
+   * what happens to `users` differs (a name + password hash here, a name + identity row there).
+   */
+  async acceptMemberInviteWithPassword(input: {
+    tokenHash: string;
+    name: string;
+    passwordHash: string;
+  }): Promise<AcceptMemberInviteOutcome> {
+    return this.dbService.db.transaction(async tx => {
+      const invite = await this.lockLiveMemberInvite(tx, input.tokenHash);
+      if (!invite) {
+        return { outcome: 'invalid' };
+      }
+
+      const activated = await tx
+        .update(schema.users)
+        .set({
+          name: input.name,
+          passwordHash: input.passwordHash,
+          status: UserStatus.ACTIVE,
+          emailVerifiedAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
+        .where(and(eq(schema.users.id, invite.userId), eq(schema.users.status, UserStatus.INVITED)))
+        .returning({
+          id: schema.users.id,
+          tenantId: schema.users.tenantId,
+          email: schema.users.email,
+          name: schema.users.name,
+        });
+
+      const member = activated[0];
+      if (!member) {
+        // Raced with something else accepting/removing the same member between the lock above and
+        // this write — the invite row was live a moment ago, the users row no longer is.
+        return { outcome: 'invalid' };
+      }
+
+      await this.consumeMemberInvite(tx, invite.id);
+      return {
+        outcome: 'accepted',
+        id: member.id,
+        tenantId: member.tenantId,
+        email: member.email,
+        name: member.name,
+      };
+    });
+  }
+
+  /**
+   * Redeems a member invite by linking a Google identity and setting a name, instead of a
+   * password. `AuthService.completeMemberInviteGoogle` has already confirmed the Google account's
+   * verified email matches the invited address before calling this.
+   *
+   * A plain insert into `user_identities`, not `upsertUserIdentity` — that method's
+   * `onConflictDoUpdate` on `(provider, provider_user_id)` exists for a *returning* user relinking
+   * their own account, and reusing it here would silently steal a Google identity already linked
+   * to a *different* user rather than reporting `identity_already_linked`, the same distinction
+   * `PlatformAdminRepository.acceptInviteWithGoogleIdentity`'s own comment makes.
+   */
+  async acceptMemberInviteWithGoogleIdentity(input: {
+    tokenHash: string;
+    providerUserId: string;
+    email: string;
+    name: string;
+  }): Promise<AcceptMemberInviteOutcome> {
+    return this.dbService.db.transaction(async tx => {
+      const invite = await this.lockLiveMemberInvite(tx, input.tokenHash);
+      if (!invite) {
+        return { outcome: 'invalid' };
+      }
+
+      const activated = await tx
+        .update(schema.users)
+        .set({
+          name: input.name,
+          status: UserStatus.ACTIVE,
+          emailVerifiedAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
+        .where(and(eq(schema.users.id, invite.userId), eq(schema.users.status, UserStatus.INVITED)))
+        .returning({
+          id: schema.users.id,
+          tenantId: schema.users.tenantId,
+          email: schema.users.email,
+          name: schema.users.name,
+        });
+
+      const member = activated[0];
+      if (!member) {
+        return { outcome: 'invalid' };
+      }
+
+      try {
+        await tx.insert(schema.userIdentities).values({
+          userId: member.id,
+          provider: UserIdentityProvider.GOOGLE,
+          providerUserId: input.providerUserId,
+          email: input.email,
+        });
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          // This Google account is already linked to a *different* user
+          // (`idx_user_identities_provider_provider_user_id`). Rolled back atomically with the
+          // transaction — the member above is not left half-activated with no identity.
+          return { outcome: 'identity_already_linked' };
+        }
+        throw error;
+      }
+
+      await this.consumeMemberInvite(tx, invite.id);
+      return {
+        outcome: 'accepted',
+        id: member.id,
+        tenantId: member.tenantId,
+        email: member.email,
+        name: member.name,
+      };
+    });
+  }
+
+  /**
+   * Locks the live invite row (unused, unexpired) inside the caller's transaction so a concurrent
+   * redemption of the same token cannot also pass — mirrors
+   * `PlatformAdminRepository.lockLiveInvite` exactly, on `password_reset_tokens` instead of
+   * `platform_admin_invites`.
+   */
+  private async lockLiveMemberInvite(
+    tx: DrizzleTransaction,
+    tokenHash: string
+  ): Promise<{ id: string; userId: string } | null> {
+    const rows = await tx
+      .select({ id: schema.passwordResetTokens.id, userId: schema.passwordResetTokens.userId })
+      .from(schema.passwordResetTokens)
+      .where(
+        and(
+          eq(schema.passwordResetTokens.tokenHash, tokenHash),
+          eq(schema.passwordResetTokens.purpose, TokenPurpose.INVITE),
+          isNull(schema.passwordResetTokens.usedAt),
+          gt(schema.passwordResetTokens.expiresAt, sql`now()`)
+        )
+      )
+      .for('update')
+      .limit(1);
+
+    return (rows[0] as { id: string; userId: string } | undefined) ?? null;
+  }
+
+  private async consumeMemberInvite(tx: DrizzleTransaction, inviteId: string): Promise<void> {
+    await tx
+      .update(schema.passwordResetTokens)
+      .set({ usedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(eq(schema.passwordResetTokens.id, inviteId));
+  }
+
+  /**
+   * Deletes the invited member's own row outright — not a soft-disable, since the member never
+   * accepted and never had a real account to begin with. Scoped to `status = 'invited'` AND
+   * `tenant_id` so an owner can never revoke another tenant's pending invite or a member who has
+   * since accepted.
+   *
+   * **Both** statements carry that tenant scope, the token delete included. Filtering the token
+   * delete on `user_id` alone was a cross-tenant write: the `users` delete below still refused to
+   * match, so the caller correctly got a 404, but the other tenant's invite token was already gone
+   * by then and the transaction committed anyway — killing a pending invite in a tenant the caller
+   * has no access to, with the 404 making it look like nothing had happened.
+   *
+   * Deletes the `password_reset_tokens` row explicitly, in its own statement, *before* deleting
+   * `users` — deliberately not left to the FK's own `ON DELETE CASCADE`, which would delete them
+   * in the opposite order (lock `users` first, cascade to the token second).
+   *
+   * That ordering matters because `lockLiveMemberInvite` (the accept path's compare-and-swap)
+   * locks the token row first and only then updates `users`. Two transactions that acquire the
+   * same two locks in *opposite* orders are exactly Postgres's textbook deadlock shape: a revoke
+   * racing an in-flight accept could have this method holding the `users` row lock waiting for the
+   * token lock accept already holds, while accept waits for the `users` lock this method already
+   * holds — a circular wait Postgres can only resolve by aborting one side with a raw `deadlock
+   * detected` error instead of the clean 409/400 either path is supposed to produce. Matching
+   * accept's own lock order (token, then user) makes that circular wait structurally impossible:
+   * whichever transaction gets there first simply finishes before the other can start waiting on
+   * it.
+   *
+   * (`PlatformAdminRepository.deleteInvitedAdmin` has the identical latent risk against
+   * `acceptInviteWith*`'s own `lockLiveInvite` — tracked separately, since fixing it touches a
+   * different, already-shipped table pair.)
+   */
+  async deleteInvitedMember(
+    tenantId: string,
+    memberId: string
+  ): Promise<RevokeMemberInviteOutcome> {
+    return this.dbService.db.transaction(async tx => {
+      await tx.delete(schema.passwordResetTokens).where(
+        and(
+          eq(schema.passwordResetTokens.purpose, TokenPurpose.INVITE),
+          inArray(
+            schema.passwordResetTokens.userId,
+            tx
+              .select({ id: schema.users.id })
+              .from(schema.users)
+              .where(and(eq(schema.users.id, memberId), eq(schema.users.tenantId, tenantId)))
+          )
+        )
+      );
+
+      const rows = await tx
+        .delete(schema.users)
+        .where(
+          and(
+            eq(schema.users.id, memberId),
+            eq(schema.users.tenantId, tenantId),
+            eq(schema.users.status, UserStatus.INVITED)
+          )
+        )
+        .returning({ id: schema.users.id, email: schema.users.email });
+
+      const deleted = rows[0];
+      if (deleted) {
+        return { outcome: 'revoked' as const, email: deleted.email };
+      }
+
+      // Nothing matched: either no such id in this tenant at all, or an id whose row is no longer
+      // `invited` (already accepted — in which case the delete above harmlessly removed its
+      // already-spent token row, same cleanup the nightly sweep would have done anyway). One extra
+      // read only on the failure path, so the happy path stays two statements, not three.
+      const existing = await tx
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, memberId), eq(schema.users.tenantId, tenantId)))
+        .limit(1);
+
+      return { outcome: existing.length > 0 ? ('not_invited' as const) : ('not_found' as const) };
+    });
+  }
+
+  /**
+   * Drops a lapsed invite so the same address can be invited again — see
+   * `findMemberInviteStatusByEmail` for why a stale row otherwise claims that email forever (the
+   * global `idx_users_email_active` index, not merely a per-tenant one). Scoped to `invited` for
+   * the same reason `deleteInvitedMember` is: an accepted member must never be removed by an
+   * invite-flow path. Global, not tenant-scoped — the row being replaced was found via the global
+   * lookup in the first place.
+   *
+   * Takes the same token-then-user lock order `deleteInvitedMember` does, and for the same reason
+   * — see its comment. The window here is narrower (this only runs against an invite the caller
+   * has already read as lapsed, and accept only locks a token it reads as live), but "narrower"
+   * depends on the app clock and the database clock agreeing about the expiry instant, which is
+   * not an invariant worth resting a deadlock on. Every writer of this table pair takes the two
+   * locks in one order.
+   */
+  async deleteExpiredMemberInvite(id: string): Promise<void> {
+    await this.dbService.db.transaction(async tx => {
+      await tx
+        .delete(schema.passwordResetTokens)
+        .where(
+          and(
+            eq(schema.passwordResetTokens.userId, id),
+            eq(schema.passwordResetTokens.purpose, TokenPurpose.INVITE)
+          )
+        );
+
+      await tx
+        .delete(schema.users)
+        .where(and(eq(schema.users.id, id), eq(schema.users.status, UserStatus.INVITED)));
+    });
+  }
+
+  /**
+   * Every user in a tenant — owner and members alike, invited or active — for the Team Members
+   * list. Excludes anonymized rows, same as every other user-facing read in this repository.
+   * Ordered oldest-first so the owner (always the first row created) leads the list.
+   */
+  async listTenantMembers(tenantId: string): Promise<TenantMemberRow[]> {
+    const rows = await this.dbService.db
+      .select({
+        id: schema.users.id,
+        name: schema.users.name,
+        email: schema.users.email,
+        role: schema.users.role,
+        status: schema.users.status,
+        invitedAt: schema.users.createdAt,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.tenantId, tenantId), isNull(schema.users.anonymizedAt)))
+      .orderBy(schema.users.createdAt);
+
+    return rows as TenantMemberRow[];
   }
 
   /**

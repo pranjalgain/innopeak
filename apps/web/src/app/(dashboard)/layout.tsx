@@ -56,7 +56,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             name: displayName,
             initials: displayName === "" ? "" : getInitials(displayName),
             avatarUrl: profile?.avatarUrl ?? null,
-            roleLabel: t("accountOwnerRole"),
+            // Defaults to the owner label while `profile` is still loading — there's no locally
+            // stored role to read optimistically the way `displayName` has one, and the
+            // overwhelming majority of sessions are owners. Corrects itself the moment
+            // `GET /v1/auth/me` answers, same "briefly wrong, then right" trade-off `displayName`
+            // already makes above. Before invited teammates existed, every tenant user actually
+            // was an owner, so this hardcoded label was never wrong in practice.
+            roleLabel: profile?.role === "member" ? t("accountMemberRole") : t("accountOwnerRole"),
           }}
         >
           {children}

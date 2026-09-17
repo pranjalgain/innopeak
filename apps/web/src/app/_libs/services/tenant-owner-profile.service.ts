@@ -25,6 +25,7 @@ export class TenantOwnerProfileService {
       email: me.email,
       businessName: me.businessName,
       hasPassword: me.hasPassword,
+      role: me.role,
       avatarUrl: MOCK_TENANT_OWNER_PROFILE.avatarUrl,
     };
   }

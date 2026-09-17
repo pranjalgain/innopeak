@@ -36,6 +36,12 @@ export enum RouteNames {
   // RouteNames.ADMIN_SETTINGS, which is gated by @Roles(PLATFORM_ADMIN) and requires the caller to
   // already be one). ':token' segment name deliberately matches SendAdminInviteDto's raw token,
   // not an id — see PlatformAdminAuthService.validateAdminInvite.
+  //
+  // Deliberately not ADMIN_-prefixed, unlike ADMIN_SETTINGS_INVITES/ADMIN_SETTINGS_INVITE_BY_ID
+  // below: these three are reused verbatim by AuthController for the tenant-member invite flow
+  // (mounted at RouteNames.AUTH instead of ADMIN_AUTH), giving /v1/auth/invite/* the exact same
+  // shape as /v1/admin/auth/invite/* rather than duplicating three near-identical enum members.
+  // See apps/documentation/docs/backend/auth/tenant-member-invite-design.md.
   ADMIN_AUTH = 'admin/auth',
   INVITE_VALIDATE = 'invite/:token',
   INVITE_ACCEPT = 'invite/accept',
@@ -82,6 +88,11 @@ export enum RouteNames {
   ADMIN_OVERVIEW = 'admin/overview',
   ADMIN_OVERVIEW_REVIEW_STATS = 'review-stats',
   ADMIN_OVERVIEW_ACTIVITY = 'activity',
+
+  // Tenant team members — owner-authenticated (@Roles(UserRole.OWNER)), nested under
+  // RouteNames.SETTINGS. See tenant-member-invite-design.md.
+  MEMBERS = 'members',
+  MEMBER_BY_ID = ':memberId',
 
   TEST = 'test',
   CUSTOM = 'custom',

@@ -21,6 +21,7 @@ configuration.ts
 git_push.sh
 index.ts
 models/accept-admin-invite-dto.ts
+models/accept-member-invite-dto.ts
 models/admin-business-response-dto.ts
 models/admin-invite-preview-dto.ts
 models/admin-invite-response-dto.ts
@@ -49,10 +50,12 @@ models/current-run-dto.ts
 models/delete-blocklist-term-response-dto.ts
 models/disconnect-response-dto.ts
 models/index.ts
+models/invite-member-dto.ts
 models/latest-response-dto.ts
 models/location-dto.ts
 models/location-list-response-dto.ts
 models/login-dto.ts
+models/member-invite-preview-dto.ts
 models/metrics-dto.ts
 models/pagination-meta-dto.ts
 models/platform-activity-response-dto.ts
@@ -79,6 +82,7 @@ models/signup-response-dto.ts
 models/sync-health-response-dto.ts
 models/sync-run-dto.ts
 models/sync-run-list-response-dto.ts
+models/tenant-member-response-dto.ts
 models/tenant-settings-response-dto.ts
 models/token-response-dto.ts
 models/update-admin-avatar-dto.ts

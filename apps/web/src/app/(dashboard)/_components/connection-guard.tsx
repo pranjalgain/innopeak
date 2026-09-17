@@ -14,6 +14,7 @@ import { ApiError } from "@/app/_libs/services/api-error";
 import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { Button } from "@/components/ui/button";
 import { useConnection } from "@/hooks/connections/use-connection";
+import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
 
 interface ConnectionGuardProps {
   children: ReactNode;
@@ -39,13 +40,26 @@ interface ConnectionGuardProps {
  *    otherwise silently render a broken dashboard shell — empty data, no error — if it somehow
  *    didn't). Unlike a 5xx, retrying this can never succeed, so failing open here would just hide
  *    a real, permanent access problem instead of surfacing it.
+ *  - **A `member` never reaches the connect stepper.** `disconnected` used to redirect every
+ *    caller there, but every route the stepper drives (`GET /v1/connections/google/authorize`,
+ *    `POST /v1/connections/locations`, …) is `@Roles(UserRole.OWNER)` — a member landed on a
+ *    stepper whose only button 403s, with no way off it (this component runs on every dashboard
+ *    route, so there is nowhere else to navigate to). They get `WaitingOnOwnerScreen` instead,
+ *    which explains the state rather than offering an action that cannot succeed.
  */
 export function ConnectionGuard({ children }: ConnectionGuardProps) {
   const { state, isLoading, error } = useConnection();
+  // The redirect-vs-explain decision below must not fire before this resolves — `isMember`
+  // defaults to `false` while `profile` is still loading, so redirecting on that default would
+  // send an about-to-be-revealed member to the stepper for one render before bouncing them back.
+  const { profile, isLoading: isProfileLoading } = useTenantOwnerProfile();
+  const isMember = profile?.role === "member";
   const router = useRouter();
 
   const isForbidden = error instanceof ApiError && error.statusCode === 403;
-  const shouldRedirect = !isLoading && !error && state?.status === "disconnected";
+  const isDisconnected = !isLoading && !error && state?.status === "disconnected";
+  const shouldRedirect = isDisconnected && !isProfileLoading && !isMember;
+  const shouldExplainToMember = isDisconnected && !isProfileLoading && isMember;
 
   useEffect(() => {
     if (shouldRedirect) router.replace(ROUTES.ONBOARDING_CONNECT);
@@ -55,10 +69,12 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
     else if (isForbidden) window.location.href = ROUTES.FORBIDDEN;
   }, [shouldRedirect, isForbidden, router]);
 
-  if (isLoading) return <ShellSkeleton />;
+  if (isLoading || (isDisconnected && isProfileLoading)) return <ShellSkeleton />;
 
   // Only the brief instant before either redirect fires renders nothing.
   if (shouldRedirect || isForbidden) return null;
+
+  if (shouldExplainToMember) return <WaitingOnOwnerScreen />;
 
   if (state?.status === "needs_reauth") {
     return (
@@ -70,6 +86,23 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
   }
 
   return <>{children}</>;
+}
+
+/**
+ * Where a `member` lands instead of the connect stepper while their tenant has no Google Business
+ * Profile connected yet — see `ConnectionGuard`'s own comment on why a member cannot use that
+ * stepper at all. Expected to be rare: almost every invite lands on an already-connected tenant,
+ * since inviting a teammate is itself something only an owner who has set the business up does.
+ */
+function WaitingOnOwnerScreen() {
+  const t = useTranslations("appShell.waitingOnOwner");
+
+  return (
+    <div className="flex min-h-svh flex-col items-center justify-center gap-2 px-6 text-center">
+      <h1 className="text-lg font-semibold">{t("title")}</h1>
+      <p className="text-muted-foreground max-w-sm text-sm">{t("description")}</p>
+    </div>
+  );
 }
 
 function ReconnectBanner() {

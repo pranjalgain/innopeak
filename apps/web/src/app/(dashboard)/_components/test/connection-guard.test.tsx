@@ -6,8 +6,11 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError } from "@/app/_libs/services/api-error";
 import { ConnectionService, type ConnectionState } from "@/app/_libs/services/connection.service";
+import { TenantOwnerProfileService } from "@/app/_libs/services/tenant-owner-profile.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
 import { connectionQueryKey } from "@/hooks/connections/use-connection";
+import { tenantOwnerProfileQueryKey } from "@/hooks/settings/use-tenant-owner-profile";
+import type { TenantOwnerProfile } from "@/types/domain";
 
 import messages from "../../../../../messages/en.json";
 import { ConnectionGuard } from "../connection-guard";
@@ -25,6 +28,18 @@ function state(overrides: Partial<ConnectionState> = {}): ConnectionState {
     providerAccountId: "accounts/1",
     connectedAt: "2026-01-01T00:00:00.000Z",
     location: null,
+    ...overrides,
+  };
+}
+
+function profile(overrides: Partial<TenantOwnerProfile> = {}): TenantOwnerProfile {
+  return {
+    name: "Maria Delgado",
+    email: "maria@coastaltable.com",
+    avatarUrl: null,
+    hasPassword: true,
+    businessName: "The Coastal Table",
+    role: "owner",
     ...overrides,
   };
 }
@@ -47,6 +62,11 @@ describe("ConnectionGuard", () => {
   beforeEach(() => {
     replace.mockClear();
     vi.restoreAllMocks();
+    // A default owner profile for every test that doesn't care about role — without this,
+    // `useTenantOwnerProfile()` (now called unconditionally by this guard) would hit the real
+    // `AuthService.me()` HTTP call in every other test in this file, same as `ConnectionService`
+    // already gets a mock in each one below.
+    vi.spyOn(TenantOwnerProfileService, "get").mockResolvedValue(profile());
   });
 
   test("renders the dashboard for a connected tenant", async () => {
@@ -58,13 +78,46 @@ describe("ConnectionGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  test("redirects a disconnected tenant to onboarding", async () => {
+  test("redirects a disconnected owner to onboarding", async () => {
     vi.spyOn(ConnectionService, "getState").mockResolvedValue(state({ status: "disconnected" }));
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(tenantOwnerProfileQueryKey, profile({ role: "owner" }));
 
-    renderGuard();
+    renderGuard(queryClient);
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
     expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+  });
+
+  /**
+   * Regression: the connect stepper this used to send every disconnected caller to is entirely
+   * `@Roles(UserRole.OWNER)` on the backend — a member landed there with no button that could
+   * ever succeed, and no other route to escape to, since this guard runs on every dashboard page.
+   */
+  test("shows a member a waiting screen instead of the onboarding stepper when disconnected", async () => {
+    vi.spyOn(ConnectionService, "getState").mockResolvedValue(state({ status: "disconnected" }));
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(tenantOwnerProfileQueryKey, profile({ role: "member" }));
+
+    renderGuard(queryClient);
+
+    expect(await screen.findByText("Almost there")).toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+  });
+
+  test("does not redirect a disconnected tenant before the caller's role is known", () => {
+    // `isMember` defaults to `false` while `profile` is still loading — redirecting on that
+    // default would send an about-to-be-revealed member to the stepper for one render before
+    // bouncing them back. The decision must wait, not assume owner.
+    vi.spyOn(ConnectionService, "getState").mockResolvedValue(state({ status: "disconnected" }));
+    vi.spyOn(TenantOwnerProfileService, "get").mockReturnValue(new Promise(() => undefined));
+
+    renderGuard();
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+    expect(screen.queryByText("Almost there")).not.toBeInTheDocument();
   });
 
   test("renders the dashboard with a reconnect banner when the grant expired", async () => {

@@ -66,6 +66,15 @@ export const GOOGLE_AUTH_REDIRECT = {
    * sign-in path at all, so sending an admin there leaves them with nothing to do.
    */
   ADMIN_LOGIN: '/admin-login',
+  /**
+   * `OAuthIntent.INVITE` failures with no invite token to build a targeted accept-page URL from
+   * (see `AuthService.googleFailureRedirect`). The accept screen is `/accept-invite/:token`, a
+   * dynamic segment with no tokenless variant, so this deliberately does *not* point at
+   * `/accept-invite` — that route does not exist and the browser would land on a 404 with the
+   * `?error=` never read. `LOGIN` is the same fallback `ADMIN_INVITE` makes to `ADMIN_LOGIN`: a
+   * real page that renders the error, even though there is nothing further to do with the invite.
+   */
+  MEMBER_INVITE: '/login',
 } as const;
 
 /**
@@ -88,14 +97,14 @@ export enum GoogleAuthFailure {
   ACCOUNT_UNAVAILABLE = 'ACCOUNT_UNAVAILABLE',
   /** GOOGLE_CLIENT_ID / SECRET / CALLBACK_URL are not configured on this server. */
   NOT_CONFIGURED = 'NOT_CONFIGURED',
-  /** `ADMIN_INVITE` only: the invite token was never valid, already accepted, or has expired. */
+  /** `ADMIN_INVITE`/`INVITE`: the invite token was never valid, already accepted, or has expired. */
   INVALID_OR_EXPIRED_INVITE = 'INVALID_OR_EXPIRED_INVITE',
   /**
-   * `ADMIN_INVITE` only: the Google account's verified email does not match the invited address —
-   * the check that stops someone other than the invited person from redeeming this link with their
-   * own unrelated Google account. Token is left unconsumed.
+   * `ADMIN_INVITE`/`INVITE`: the Google account's verified email does not match the invited
+   * address — the check that stops someone other than the invited person from redeeming this link
+   * with their own unrelated Google account. Token is left unconsumed.
    */
   INVITE_EMAIL_MISMATCH = 'INVITE_EMAIL_MISMATCH',
-  /** `ADMIN_INVITE` only: this Google account is already linked to a *different* platform admin. */
+  /** `ADMIN_INVITE`/`INVITE`: this Google account is already linked to a *different* admin/member. */
   GOOGLE_IDENTITY_ALREADY_LINKED = 'GOOGLE_IDENTITY_ALREADY_LINKED',
 }

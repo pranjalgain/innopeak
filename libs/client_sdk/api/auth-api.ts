@@ -30,6 +30,8 @@ import {
   operationServerMap,
 } from '../base';
 // @ts-ignore
+import type { AcceptMemberInviteDto } from '../models';
+// @ts-ignore
 import type { AuthenticatedUserDto } from '../models';
 // @ts-ignore
 import type { ChangePasswordDto } from '../models';
@@ -37,6 +39,8 @@ import type { ChangePasswordDto } from '../models';
 import type { CompleteGoogleSignupDto } from '../models';
 // @ts-ignore
 import type { LoginDto } from '../models';
+// @ts-ignore
+import type { MemberInvitePreviewDto } from '../models';
 // @ts-ignore
 import type { ResendOtpDto } from '../models';
 // @ts-ignore
@@ -60,6 +64,61 @@ export const AuthApiAxiosParamCreator = function (
   configuration?: Configuration,
 ) {
   return {
+    /**
+     * Sets `users.name`/`password_hash`, flips `status` `invited` -> `active`, and consumes the invite token — a guarded compare-and-swap, so a double-submit cannot redeem the same token twice. Signs the member in on success, same shape as `POST /v1/auth/login`. See `GET /v1/auth/invite/:token/google` for the SSO alternative.
+     * @summary Accept a tenant-member invite by setting a name and password
+     * @param {AcceptMemberInviteDto} acceptMemberInviteDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerAcceptMemberInviteV1: async (
+      acceptMemberInviteDto: AcceptMemberInviteDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'acceptMemberInviteDto' is not null or undefined
+      assertParamExists(
+        'authControllerAcceptMemberInviteV1',
+        'acceptMemberInviteDto',
+        acceptMemberInviteDto,
+      );
+      const localVarPath = `/v1/auth/invite/accept`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        acceptMemberInviteDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
     /**
      * Requires the current password. Updates `users.password_hash`, revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Other sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Change the current user’s password
@@ -231,6 +290,56 @@ export const AuthApiAxiosParamCreator = function (
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       const localVarPath = `/v1/auth/google/callback`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/google` login, since a first-time invitee has no `user_identities` row yet for that callback branch to find. Re-validates the token (unexpired, unused) before ever redirecting, so a dead link fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Google account from redeeming this link.
+     * @summary Accept a tenant-member invite via Google
+     * @param {string} token The raw invite token from the accept-invite link
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerInviteGoogleAuthorizeV1: async (
+      token: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'token' is not null or undefined
+      assertParamExists(
+        'authControllerInviteGoogleAuthorizeV1',
+        'token',
+        token,
+      );
+      const localVarPath = `/v1/auth/invite/{token}/google`.replace(
+        '{token}',
+        encodeURIComponent(String(token)),
+      );
       // use dummy base URL string because the URL constructor only accepts absolute URLs.
       const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
       let baseOptions;
@@ -712,6 +821,54 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
+     * Lets the accept screen show \"You\'ve been invited as `<email>`\" before asking for a name and password, without spending the token. Same generic 404 for a token that never existed, was already used, or has expired as the platform-admin equivalent.
+     * @summary Preview a tenant-member invite
+     * @param {string} token The raw invite token from the accept-invite link
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerValidateMemberInviteV1: async (
+      token: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'token' is not null or undefined
+      assertParamExists('authControllerValidateMemberInviteV1', 'token', token);
+      const localVarPath = `/v1/auth/invite/{token}`.replace(
+        '{token}',
+        encodeURIComponent(String(token)),
+      );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
      * @summary Consume a signup/login verification OTP (password path only)
      * @param {VerifyEmailDto} verifyEmailDto
@@ -775,6 +932,40 @@ export const AuthApiAxiosParamCreator = function (
 export const AuthApiFp = function (configuration?: Configuration) {
   const localVarAxiosParamCreator = AuthApiAxiosParamCreator(configuration);
   return {
+    /**
+     * Sets `users.name`/`password_hash`, flips `status` `invited` -> `active`, and consumes the invite token — a guarded compare-and-swap, so a double-submit cannot redeem the same token twice. Signs the member in on success, same shape as `POST /v1/auth/login`. See `GET /v1/auth/invite/:token/google` for the SSO alternative.
+     * @summary Accept a tenant-member invite by setting a name and password
+     * @param {AcceptMemberInviteDto} acceptMemberInviteDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerAcceptMemberInviteV1(
+      acceptMemberInviteDto: AcceptMemberInviteDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<TokenResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerAcceptMemberInviteV1(
+          acceptMemberInviteDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.authControllerAcceptMemberInviteV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
     /**
      * Requires the current password. Updates `users.password_hash`, revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Other sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Change the current user’s password
@@ -887,6 +1078,37 @@ export const AuthApiFp = function (configuration?: Configuration) {
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
         operationServerMap['AuthApi.authControllerGoogleCallbackV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/google` login, since a first-time invitee has no `user_identities` row yet for that callback branch to find. Re-validates the token (unexpired, unused) before ever redirecting, so a dead link fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Google account from redeeming this link.
+     * @summary Accept a tenant-member invite via Google
+     * @param {string} token The raw invite token from the accept-invite link
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerInviteGoogleAuthorizeV1(
+      token: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerInviteGoogleAuthorizeV1(
+          token,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.authControllerInviteGoogleAuthorizeV1']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -1177,6 +1399,40 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Lets the accept screen show \"You\'ve been invited as `<email>`\" before asking for a name and password, without spending the token. Same generic 404 for a token that never existed, was already used, or has expired as the platform-admin equivalent.
+     * @summary Preview a tenant-member invite
+     * @param {string} token The raw invite token from the accept-invite link
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerValidateMemberInviteV1(
+      token: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<MemberInvitePreviewDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerValidateMemberInviteV1(
+          token,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.authControllerValidateMemberInviteV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
      * @summary Consume a signup/login verification OTP (password path only)
      * @param {VerifyEmailDto} verifyEmailDto
@@ -1223,6 +1479,24 @@ export const AuthApiFactory = function (
 ) {
   const localVarFp = AuthApiFp(configuration);
   return {
+    /**
+     * Sets `users.name`/`password_hash`, flips `status` `invited` -> `active`, and consumes the invite token — a guarded compare-and-swap, so a double-submit cannot redeem the same token twice. Signs the member in on success, same shape as `POST /v1/auth/login`. See `GET /v1/auth/invite/:token/google` for the SSO alternative.
+     * @summary Accept a tenant-member invite by setting a name and password
+     * @param {AuthApiAuthControllerAcceptMemberInviteV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerAcceptMemberInviteV1(
+      requestParameters: AuthApiAuthControllerAcceptMemberInviteV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<TokenResponseDto> {
+      return localVarFp
+        .authControllerAcceptMemberInviteV1(
+          requestParameters.acceptMemberInviteDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
     /**
      * Requires the current password. Updates `users.password_hash`, revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Other sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Change the current user’s password
@@ -1285,6 +1559,21 @@ export const AuthApiFactory = function (
     ): AxiosPromise<void> {
       return localVarFp
         .authControllerGoogleCallbackV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/google` login, since a first-time invitee has no `user_identities` row yet for that callback branch to find. Re-validates the token (unexpired, unused) before ever redirecting, so a dead link fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Google account from redeeming this link.
+     * @summary Accept a tenant-member invite via Google
+     * @param {AuthApiAuthControllerInviteGoogleAuthorizeV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerInviteGoogleAuthorizeV1(
+      requestParameters: AuthApiAuthControllerInviteGoogleAuthorizeV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .authControllerInviteGoogleAuthorizeV1(requestParameters.token, options)
         .then((request) => request(axios, basePath));
     },
     /**
@@ -1418,6 +1707,21 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Lets the accept screen show \"You\'ve been invited as `<email>`\" before asking for a name and password, without spending the token. Same generic 404 for a token that never existed, was already used, or has expired as the platform-admin equivalent.
+     * @summary Preview a tenant-member invite
+     * @param {AuthApiAuthControllerValidateMemberInviteV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerValidateMemberInviteV1(
+      requestParameters: AuthApiAuthControllerValidateMemberInviteV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<MemberInvitePreviewDto> {
+      return localVarFp
+        .authControllerValidateMemberInviteV1(requestParameters.token, options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
      * @summary Consume a signup/login verification OTP (password path only)
      * @param {AuthApiAuthControllerVerifyEmailV1Request} requestParameters Request parameters.
@@ -1439,6 +1743,18 @@ export const AuthApiFactory = function (
  * AuthApi - interface
  */
 export interface AuthApiInterface {
+  /**
+   * Sets `users.name`/`password_hash`, flips `status` `invited` -> `active`, and consumes the invite token — a guarded compare-and-swap, so a double-submit cannot redeem the same token twice. Signs the member in on success, same shape as `POST /v1/auth/login`. See `GET /v1/auth/invite/:token/google` for the SSO alternative.
+   * @summary Accept a tenant-member invite by setting a name and password
+   * @param {AuthApiAuthControllerAcceptMemberInviteV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerAcceptMemberInviteV1(
+    requestParameters: AuthApiAuthControllerAcceptMemberInviteV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<TokenResponseDto>;
+
   /**
    * Requires the current password. Updates `users.password_hash`, revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Other sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
    * @summary Change the current user’s password
@@ -1482,6 +1798,18 @@ export interface AuthApiInterface {
    * @throws {RequiredError}
    */
   authControllerGoogleCallbackV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
+
+  /**
+   * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/google` login, since a first-time invitee has no `user_identities` row yet for that callback branch to find. Re-validates the token (unexpired, unused) before ever redirecting, so a dead link fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Google account from redeeming this link.
+   * @summary Accept a tenant-member invite via Google
+   * @param {AuthApiAuthControllerInviteGoogleAuthorizeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerInviteGoogleAuthorizeV1(
+    requestParameters: AuthApiAuthControllerInviteGoogleAuthorizeV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<void>;
 
@@ -1584,6 +1912,18 @@ export interface AuthApiInterface {
   ): AxiosPromise<UpdateLocaleResponseDto>;
 
   /**
+   * Lets the accept screen show \"You\'ve been invited as `<email>`\" before asking for a name and password, without spending the token. Same generic 404 for a token that never existed, was already used, or has expired as the platform-admin equivalent.
+   * @summary Preview a tenant-member invite
+   * @param {AuthApiAuthControllerValidateMemberInviteV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerValidateMemberInviteV1(
+    requestParameters: AuthApiAuthControllerValidateMemberInviteV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<MemberInvitePreviewDto>;
+
+  /**
    * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
    * @summary Consume a signup/login verification OTP (password path only)
    * @param {AuthApiAuthControllerVerifyEmailV1Request} requestParameters Request parameters.
@@ -1594,6 +1934,13 @@ export interface AuthApiInterface {
     requestParameters: AuthApiAuthControllerVerifyEmailV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<TokenResponseDto>;
+}
+
+/**
+ * Request parameters for authControllerAcceptMemberInviteV1 operation in AuthApi.
+ */
+export interface AuthApiAuthControllerAcceptMemberInviteV1Request {
+  readonly acceptMemberInviteDto: AcceptMemberInviteDto;
 }
 
 /**
@@ -1618,6 +1965,16 @@ export interface AuthApiAuthControllerGoogleAuthorizeV1Request {
    * Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/google/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
    */
   readonly intent: AuthControllerGoogleAuthorizeV1IntentEnum;
+}
+
+/**
+ * Request parameters for authControllerInviteGoogleAuthorizeV1 operation in AuthApi.
+ */
+export interface AuthApiAuthControllerInviteGoogleAuthorizeV1Request {
+  /**
+   * The raw invite token from the accept-invite link
+   */
+  readonly token: string;
 }
 
 /**
@@ -1656,6 +2013,16 @@ export interface AuthApiAuthControllerUpdateLocaleV1Request {
 }
 
 /**
+ * Request parameters for authControllerValidateMemberInviteV1 operation in AuthApi.
+ */
+export interface AuthApiAuthControllerValidateMemberInviteV1Request {
+  /**
+   * The raw invite token from the accept-invite link
+   */
+  readonly token: string;
+}
+
+/**
  * Request parameters for authControllerVerifyEmailV1 operation in AuthApi.
  */
 export interface AuthApiAuthControllerVerifyEmailV1Request {
@@ -1666,6 +2033,25 @@ export interface AuthApiAuthControllerVerifyEmailV1Request {
  * AuthApi - object-oriented interface
  */
 export class AuthApi extends BaseAPI implements AuthApiInterface {
+  /**
+   * Sets `users.name`/`password_hash`, flips `status` `invited` -> `active`, and consumes the invite token — a guarded compare-and-swap, so a double-submit cannot redeem the same token twice. Signs the member in on success, same shape as `POST /v1/auth/login`. See `GET /v1/auth/invite/:token/google` for the SSO alternative.
+   * @summary Accept a tenant-member invite by setting a name and password
+   * @param {AuthApiAuthControllerAcceptMemberInviteV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerAcceptMemberInviteV1(
+    requestParameters: AuthApiAuthControllerAcceptMemberInviteV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .authControllerAcceptMemberInviteV1(
+        requestParameters.acceptMemberInviteDto,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
   /**
    * Requires the current password. Updates `users.password_hash`, revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Other sessions die. Tenant-user tokens only. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
    * @summary Change the current user’s password
@@ -1729,6 +2115,22 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   public authControllerGoogleCallbackV1(options?: RawAxiosRequestConfig) {
     return AuthApiFp(this.configuration)
       .authControllerGoogleCallbackV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * The SSO alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/google` login, since a first-time invitee has no `user_identities` row yet for that callback branch to find. Re-validates the token (unexpired, unused) before ever redirecting, so a dead link fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/google/callback`: the IdP-verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Google account from redeeming this link.
+   * @summary Accept a tenant-member invite via Google
+   * @param {AuthApiAuthControllerInviteGoogleAuthorizeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerInviteGoogleAuthorizeV1(
+    requestParameters: AuthApiAuthControllerInviteGoogleAuthorizeV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .authControllerInviteGoogleAuthorizeV1(requestParameters.token, options)
       .then((request) => request(this.axios, this.basePath));
   }
 
@@ -1863,6 +2265,22 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
+   * Lets the accept screen show \"You\'ve been invited as `<email>`\" before asking for a name and password, without spending the token. Same generic 404 for a token that never existed, was already used, or has expired as the platform-admin equivalent.
+   * @summary Preview a tenant-member invite
+   * @param {AuthApiAuthControllerValidateMemberInviteV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerValidateMemberInviteV1(
+    requestParameters: AuthApiAuthControllerValidateMemberInviteV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .authControllerValidateMemberInviteV1(requestParameters.token, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
    * Marks the code used, activates the user, and — since reaching this screen already proved the caller knows the account password (either just set at signup or just typed at login) — issues a token pair, same as a successful login. Same INVALID_OR_EXPIRED_OTP error for a code that never existed, was already used, expired, or belongs to an account no longer pending_verification — never distinguished (Security considerations). The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body — only `accessToken` is.
    * @summary Consume a signup/login verification OTP (password path only)
    * @param {AuthApiAuthControllerVerifyEmailV1Request} requestParameters Request parameters.
@@ -1884,6 +2302,7 @@ export const AuthControllerGoogleAuthorizeV1IntentEnum = {
   Signup: 'signup',
   AdminInvite: 'admin_invite',
   AdminLogin: 'admin_login',
+  Invite: 'invite',
 } as const;
 export type AuthControllerGoogleAuthorizeV1IntentEnum =
   (typeof AuthControllerGoogleAuthorizeV1IntentEnum)[keyof typeof AuthControllerGoogleAuthorizeV1IntentEnum];

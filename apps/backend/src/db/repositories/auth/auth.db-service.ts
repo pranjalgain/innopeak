@@ -8,10 +8,14 @@ import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
 
 import {
+  AcceptMemberInviteOutcome,
   AuthRepository,
   InsertRefreshTokenInput,
+  MemberInviteStatusRow,
   PutVerifyEmailTokenInput,
   RefreshTokenRow,
+  RevokeMemberInviteOutcome,
+  TenantMemberRow,
   UserByEmail,
 } from './auth.repository';
 
@@ -519,5 +523,92 @@ export class AuthDbService {
       otpTokens: await this.authRepository.deleteStaleOtpTokens(tx),
       refreshTokens: await this.authRepository.deleteStaleRefreshTokens(tx),
     }));
+  }
+
+  /** See `PlatformAdminRepository.findByEmail` / `AuthRepository.findMemberInviteStatusByEmail` — the global check `TenantMembersService.sendInvite` runs before ever attempting the insert. */
+  async findMemberInviteStatusByEmail(email: string): Promise<MemberInviteStatusRow | null> {
+    return this.authRepository.findMemberInviteStatusByEmail(email);
+  }
+
+  /** Drops a lapsed invite so the same address can be invited again — see `AuthRepository.deleteExpiredMemberInvite`. */
+  async deleteExpiredMemberInvite(id: string): Promise<void> {
+    await this.authRepository.deleteExpiredMemberInvite(id);
+  }
+
+  /**
+   * Creates the invited member's `users` row and its `password_reset_tokens` invite row in one
+   * transaction — mirrors `PlatformAdminDbService.createInvite`. Constructs the returned row from
+   * the inputs rather than re-reading what was just written, same as that method.
+   */
+  async createMemberInvite(input: {
+    tenantId: string;
+    invitedByUserId: string;
+    email: string;
+    tokenHash: string;
+    expiresAt: string;
+  }): Promise<TenantMemberRow> {
+    const inserted = await this.authRepository.transaction(async tx => {
+      const user = await this.authRepository.insertInvitedMember(tx, {
+        tenantId: input.tenantId,
+        email: input.email,
+        // `users.name` is `NOT NULL`; the invitee picks their own on the accept screen. See
+        // `InsertInvitedMemberInput.name`'s own comment.
+        name: input.email,
+        invitedByUserId: input.invitedByUserId,
+      });
+      await this.authRepository.insertMemberInviteToken(tx, {
+        userId: user.id,
+        tokenHash: input.tokenHash,
+        expiresAt: input.expiresAt,
+      });
+      return user;
+    });
+
+    return {
+      id: inserted.id,
+      name: input.email,
+      email: input.email,
+      role: UserRole.MEMBER,
+      status: UserStatus.INVITED,
+      invitedAt: new Date().toISOString(),
+    };
+  }
+
+  /** See `AuthRepository.deleteInvitedMember` — tenant-scoped, so an owner can only revoke their own tenant's pending invites. */
+  async revokeMemberInvite(tenantId: string, memberId: string): Promise<RevokeMemberInviteOutcome> {
+    return this.authRepository.deleteInvitedMember(tenantId, memberId);
+  }
+
+  /** See `AuthRepository.listTenantMembers` — the Team Members list, owner and members alike. */
+  async listTenantMembers(tenantId: string): Promise<TenantMemberRow[]> {
+    return this.authRepository.listTenantMembers(tenantId);
+  }
+
+  /**
+   * Read-only preview for the accept screen — see `AuthRepository.findMemberInviteEmailByTokenHash`.
+   */
+  async findMemberInviteEmailByTokenHash(
+    tokenHash: string
+  ): Promise<{ email: string; tenantId: string } | null> {
+    return this.authRepository.findMemberInviteEmailByTokenHash(tokenHash);
+  }
+
+  /** CAS-redeems a member invite by password — see `AuthRepository.acceptMemberInviteWithPassword`. */
+  async acceptMemberInviteWithPassword(input: {
+    tokenHash: string;
+    name: string;
+    passwordHash: string;
+  }): Promise<AcceptMemberInviteOutcome> {
+    return this.authRepository.acceptMemberInviteWithPassword(input);
+  }
+
+  /** CAS-redeems a member invite via Google — see `AuthRepository.acceptMemberInviteWithGoogleIdentity`. */
+  async acceptMemberInviteWithGoogleIdentity(input: {
+    tokenHash: string;
+    providerUserId: string;
+    email: string;
+    name: string;
+  }): Promise<AcceptMemberInviteOutcome> {
+    return this.authRepository.acceptMemberInviteWithGoogleIdentity(input);
   }
 }

@@ -7,6 +7,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -63,6 +64,9 @@ describe('AuthService', () => {
       insertRefreshToken: jest.fn(),
       resolveGoogleIdentity: jest.fn(),
       completeGoogleSignup: jest.fn(),
+      findMemberInviteEmailByTokenHash: jest.fn(),
+      acceptMemberInviteWithPassword: jest.fn(),
+      acceptMemberInviteWithGoogleIdentity: jest.fn(),
     } as unknown as jest.Mocked<AuthDbService>;
 
     hashingService = {
@@ -1252,6 +1256,319 @@ describe('AuthService', () => {
         await new Promise(resolve => setImmediate(resolve));
 
         expect(demoDataDbService.seedForTenant).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('validateMemberInvite', () => {
+    it('returns the invited email for a live token', async () => {
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+        email: 'sam.rivera@thecoffeehouse.com',
+        tenantId: 'tenant-1',
+      });
+
+      await expect(target.validateMemberInvite('raw-token-1')).resolves.toEqual({
+        email: 'sam.rivera@thecoffeehouse.com',
+      });
+    });
+
+    it('throws 404 for a token that never existed, was already used, or has expired', async () => {
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue(null);
+
+      await expect(target.validateMemberInvite('bad-token')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('acceptMemberInvite', () => {
+    it('signs the member in on success, with a real refresh token (unlike admin acceptance)', async () => {
+      authDbService.acceptMemberInviteWithPassword.mockResolvedValue({
+        outcome: 'accepted',
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        email: 'sam.rivera@thecoffeehouse.com',
+        name: 'Sam Rivera',
+      });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'The Coffee House',
+      });
+
+      const result = await target.acceptMemberInvite({
+        token: 'raw-token-1',
+        name: 'Sam Rivera',
+        password: 'NewStr0ng@Pass',
+      });
+
+      expect(authDbService.acceptMemberInviteWithPassword).toHaveBeenCalledWith({
+        tokenHash: expect.any(String) as string,
+        name: 'Sam Rivera',
+        passwordHash: 'hashed-password',
+      });
+      expect(result.body.accessToken).toBe('access');
+      expect(result.refreshToken).toBe('refresh');
+    });
+
+    it('throws 400 for an invalid/expired/already-used token', async () => {
+      authDbService.acceptMemberInviteWithPassword.mockResolvedValue({ outcome: 'invalid' });
+
+      await expect(
+        target.acceptMemberInvite({
+          token: 'bad-token',
+          name: 'Sam Rivera',
+          password: 'NewStr0ng@Pass',
+        })
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    /**
+     * Refused before `acceptMemberInviteWithPassword` ever runs — not after, the way
+     * `buildTokenIssuanceResult`'s own `assertGoodStanding` would catch it. Reaching the check
+     * only after redemption commits leaves the member activated and the token consumed on a join
+     * that was never allowed to happen; the invite must survive a refused attempt.
+     */
+    it("refuses a suspended tenant's invite before the invite is consumed", async () => {
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+        email: 'sam.rivera@thecoffeehouse.com',
+        tenantId: 'tenant-1',
+      });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'The Coffee House',
+      });
+
+      await expect(
+        target.acceptMemberInvite({
+          token: 'raw-token-1',
+          name: 'Sam Rivera',
+          password: 'NewStr0ng@Pass',
+        })
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(authDbService.acceptMemberInviteWithPassword).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('buildMemberInviteGoogleRedirect', () => {
+    it('redirects to the accept page with an error, without minting state, for a dead token', async () => {
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue(null);
+
+      const redirect = await target.buildMemberInviteGoogleRedirect('bad-token');
+
+      expect(redirect).toEqual({
+        ok: false,
+        redirectUrl: `https://app.innopeak.test/accept-invite/bad-token?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
+      });
+      expect(googleOAuthStateService.mint).not.toHaveBeenCalled();
+    });
+
+    it('answers with a redirect rather than throwing when the client is unconfigured', async () => {
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+        email: 'sam.rivera@thecoffeehouse.com',
+        tenantId: 'tenant-1',
+      });
+      googleIdentityProvider.isConfigured.mockReturnValue(false);
+
+      const redirect = await target.buildMemberInviteGoogleRedirect('raw-token-1');
+
+      expect(redirect).toEqual({
+        ok: false,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.NOT_CONFIGURED}`,
+      });
+    });
+
+    it('mints state carrying the INVITE intent and the invite token', async () => {
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+        email: 'sam.rivera@thecoffeehouse.com',
+        tenantId: 'tenant-1',
+      });
+
+      await target.buildMemberInviteGoogleRedirect('raw-token-1');
+
+      expect(googleOAuthStateService.mint).toHaveBeenCalledWith({
+        intent: OAuthIntent.INVITE,
+        inviteToken: 'raw-token-1',
+      });
+    });
+  });
+
+  /**
+   * `handleGoogleCallback`'s dispatch for `OAuthIntent.INVITE` — the tenant-member counterpart to
+   * the admin-dispatch tests below. Unlike the admin flow, this logic lives directly on
+   * `AuthService` (`completeMemberInviteGoogle`), not a separate service, so these exercise the
+   * real behaviour rather than a delegation boundary.
+   */
+  describe('Google sign-in — member invite dispatch', () => {
+    const identity = {
+      providerUserId: 'google-sub-1',
+      email: 'Sam.Rivera@TheCoffeeHouse.com',
+      emailVerified: true,
+      name: 'Sam Rivera',
+    };
+
+    function consumeInviteState(): void {
+      googleOAuthStateService.consume.mockResolvedValue({
+        ok: true as const,
+        record: { intent: OAuthIntent.INVITE, sidHash: 'h', inviteToken: 'raw-token-1' },
+      });
+      googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+    }
+
+    it('signs the member in on success, normalizing the email comparison', async () => {
+      consumeInviteState();
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+        email: 'sam.rivera@thecoffeehouse.com',
+        tenantId: 'tenant-1',
+      });
+      authDbService.acceptMemberInviteWithGoogleIdentity.mockResolvedValue({
+        outcome: 'accepted',
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        email: 'sam.rivera@thecoffeehouse.com',
+        name: 'Sam Rivera',
+      });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'The Coffee House',
+      });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(authDbService.acceptMemberInviteWithGoogleIdentity).toHaveBeenCalledWith({
+        tokenHash: expect.any(String) as string,
+        providerUserId: 'google-sub-1',
+        email: 'Sam.Rivera@TheCoffeeHouse.com',
+        name: 'Sam Rivera',
+      });
+      expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
+      // Never falls through to tenant login/signup resolution for this intent.
+      expect(authDbService.resolveGoogleIdentity).not.toHaveBeenCalled();
+    });
+
+    it('redirects to the accept page with an error for a dead token', async () => {
+      consumeInviteState();
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue(null);
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(outcome).toEqual({
+        ok: false,
+        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
+      });
+      expect(authDbService.acceptMemberInviteWithGoogleIdentity).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The check that stops someone other than the invited person from redeeming this link with
+     * their own unrelated Google account — the invite token alone proves nothing about *whose*
+     * Google account is completing it.
+     */
+    it('rejects a Google account whose email does not match the invited address, leaving the token unconsumed', async () => {
+      consumeInviteState();
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+        email: 'someone-else@thecoffeehouse.com',
+        tenantId: 'tenant-1',
+      });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(outcome).toEqual({
+        ok: false,
+        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.INVITE_EMAIL_MISMATCH}`,
+      });
+      expect(authDbService.acceptMemberInviteWithGoogleIdentity).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Refused as a redirect, before `acceptMemberInviteWithGoogleIdentity` ever runs — never by
+     * letting `buildTokenIssuanceResult`'s own `assertGoodStanding` throw. This runs from the
+     * shared callback with the browser mid-navigation, so a thrown `ForbiddenException` would
+     * paint a raw JSON 403 as a document instead of returning to the accept screen. The invite
+     * must also survive a refused attempt, same as the password path.
+     */
+    it("redirects with ACCOUNT_UNAVAILABLE for a suspended tenant's invite, leaving it unconsumed", async () => {
+      consumeInviteState();
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+        email: 'sam.rivera@thecoffeehouse.com',
+        tenantId: 'tenant-1',
+      });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'The Coffee House',
+      });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(outcome).toEqual({
+        ok: false,
+        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.ACCOUNT_UNAVAILABLE}`,
+      });
+      expect(authDbService.acceptMemberInviteWithGoogleIdentity).not.toHaveBeenCalled();
+    });
+
+    it('reports an already-linked Google identity distinctly, without a second guess about the token', async () => {
+      consumeInviteState();
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+        email: 'sam.rivera@thecoffeehouse.com',
+        tenantId: 'tenant-1',
+      });
+      authDbService.acceptMemberInviteWithGoogleIdentity.mockResolvedValue({
+        outcome: 'identity_already_linked',
+      });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(outcome).toEqual({
+        ok: false,
+        failure: GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED}`,
+      });
+    });
+
+    it('sends an intent-agnostic failure (e.g. access denied) to the accept page, not /login', async () => {
+      googleOAuthStateService.consume.mockResolvedValue({
+        ok: true as const,
+        record: { intent: OAuthIntent.INVITE, sidHash: 'h', inviteToken: 'raw-token-1' },
+      });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: 'access_denied',
+        sid: 'raw-sid',
+      });
+
+      expect(outcome).toEqual({
+        ok: false,
+        failure: GoogleAuthFailure.ACCESS_DENIED,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.ACCESS_DENIED}`,
       });
     });
   });
