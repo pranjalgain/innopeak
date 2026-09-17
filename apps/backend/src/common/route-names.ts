@@ -27,6 +27,7 @@ export enum RouteNames {
   ME = 'me',
   CHANGE_PASSWORD = 'change-password',
   SET_PASSWORD = 'set-password',
+  REQUEST_SET_PASSWORD_OTP = 'set-password/request-otp',
   UPDATE_LOCALE = 'locale',
   VERIFY_EMAIL = 'verify-email',
   RESEND_VERIFICATION_OTP = 'resend-verification-otp',

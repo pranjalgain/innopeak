@@ -49,7 +49,7 @@ export class PromptsController {
     @Query() query: ListPromptsQueryDto,
     @CurrentUser() user: AuthUser
   ): Promise<ApiResponse<PromptListResponseDto>> {
-    const result = await this.promptsService.list(user, query.includeHistory ?? false);
+    const result = await this.promptsService.list(user, query.includeHistory);
     return ResponseUtil.success(result, MESSAGES.PROMPTS.LISTED);
   }
 

@@ -4,7 +4,6 @@ import { Test } from '@nestjs/testing';
 import type { Request, Response } from 'express';
 
 import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
 import {
   ACCESS_TOKEN_COOKIE_NAME,
   REFRESH_TOKEN_COOKIE_NAME,
@@ -14,6 +13,7 @@ import {
 import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { UserRole } from './enums/user-role.enum';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
+import { AuthService } from './services/auth.service';
 import type { TenantAuthUser } from './types/auth-user.type';
 
 function mockResponse(): Response {

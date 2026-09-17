@@ -41,9 +41,14 @@ export class TenantOwnerProfileService {
     await AuthService.changePassword(currentPassword, newPassword);
   }
 
+  /** See `AuthService.requestSetPasswordOtp`. */
+  static async requestSetPasswordOtp(): Promise<void> {
+    await AuthService.requestSetPasswordOtp();
+  }
+
   /** For an account with no password yet (Google/SSO-only) — see `AuthService.setPassword`. */
-  static async setPassword(newPassword: string): Promise<void> {
-    await AuthService.setPassword(newPassword);
+  static async setPassword(newPassword: string, otp: string): Promise<void> {
+    await AuthService.setPassword(newPassword, otp);
   }
 }
 

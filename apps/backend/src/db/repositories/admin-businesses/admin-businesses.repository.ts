@@ -6,6 +6,11 @@ import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { desc, eq, sql } from 'drizzle-orm';
 
+export interface SetBusinessStatusInput {
+  tenantId: string;
+  status: TenantStatus;
+}
+
 export interface AdminBusinessRow {
   id: string;
   name: string;
@@ -120,11 +125,11 @@ export class AdminBusinessesRepository {
   }
 
   /** Returns whether a row was actually updated — the caller re-reads via `findById`. */
-  async setStatus(tenantId: string, status: TenantStatus): Promise<boolean> {
+  async setStatus(input: SetBusinessStatusInput): Promise<boolean> {
     const rows = await this.dbService.db
       .update(schema.tenants)
-      .set({ status, updatedAt: sql`now()` })
-      .where(eq(schema.tenants.id, tenantId))
+      .set({ status: input.status, updatedAt: sql`now()` })
+      .where(eq(schema.tenants.id, input.tenantId))
       .returning({ id: schema.tenants.id });
 
     return rows.length > 0;

@@ -127,3 +127,17 @@ export const LOGIN_LOCKOUT_WINDOW_SECONDS = 900;
  * has the spent copy most likely stole it. See `TokenService.rotate`.
  */
 export const REFRESH_REUSE_GRACE_SECONDS = 10;
+
+/**
+ * Minimum age a revoked refresh-token row must reach before `purgeStaleAuthTokens` will delete it
+ * — a floor on `TokenService.handleSpentToken`'s replay-detection window, independent of *when*
+ * that daily cron happens to run relative to the moment the row was revoked.
+ *
+ * Without this floor, a row revoked right before the cron's fixed run time got almost no
+ * detection window at all (rotated at 02:59, gone at 03:00), while one revoked right after got
+ * nearly a full day — an unpredictable 0–24h window rather than the "about a day" the cron's own
+ * cadence implies. Deleting only rows revoked at least this long ago guarantees every token gets
+ * the same minimum window before a replay of it silently degrades from a caught reuse (family
+ * revoked) to an untracked no-op (`findRefreshTokenByHash` just returns nothing).
+ */
+export const REFRESH_TOKEN_REVOKED_RETENTION_HOURS = 24;

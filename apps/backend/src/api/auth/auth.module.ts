@@ -10,20 +10,20 @@ import { PassportModule } from '@nestjs/passport';
 import { RedisModule } from '@redis/redis.module';
 
 import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
 import { ACCESS_TOKEN_TTL_SECONDS } from './constants/auth.constants';
-import { LoginAttemptService } from './login-attempt.service';
-import { OtpAttemptService } from './otp-attempt.service';
 import { FixedVerifyEmailTokenProvider } from './providers/fixed-verify-email-token.provider';
 import { GoogleIdentityProvider } from './providers/google-identity.provider';
 import { GoogleOidcProvider } from './providers/google-oidc.provider';
 import { MockGoogleIdentityProvider } from './providers/mock-google-identity.provider';
 import { RandomVerifyEmailTokenProvider } from './providers/random-verify-email-token.provider';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
+import { AuthService } from './services/auth.service';
 import { GoogleOAuthStateService } from './services/google-oauth-state.service';
+import { LoginAttemptService } from './services/login-attempt.service';
+import { OtpAttemptService } from './services/otp-attempt.service';
 import { PendingGoogleSignupService } from './services/pending-google-signup.service';
+import { TokenService } from './services/token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { TokenService } from './token.service';
 
 // Non-production swaps in the fixed dev bypass code when DEV_VERIFY_EMAIL_TOKEN is set — same
 // DI-swap pattern EmailModule uses for NoopEmailProvider, so AuthService itself never branches on

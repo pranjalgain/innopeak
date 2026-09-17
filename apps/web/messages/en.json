@@ -504,13 +504,19 @@
       "addPassword": "Add password",
       "setPassword": "Set password",
       "settingPassword": "Setting…",
+      "sendingCode": "Sending…",
+      "otpSentDescription": "We emailed you a 6-digit code. Enter it below along with your new password.",
+      "otpLabel": "Verification code",
+      "resendCode": "Resend code",
+      "resendCodeIn": "Resend code ({seconds}s)",
       "toasts": {
         "loadFailed": "Could not load your profile.",
         "updateFailed": "Could not save this change. Please try again.",
         "currentPasswordIncorrect": "Current password is incorrect.",
         "avatarUpdated": "Profile picture updated.",
         "passwordChanged": "Password changed. Other sessions have been signed out.",
-        "passwordSet": "Password set. You can now also sign in with a password."
+        "passwordSet": "Password set. You can now also sign in with a password.",
+        "otpSent": "Verification code sent. Check your email to continue."
       },
       "errors": {
         "currentPasswordRequired": "Enter your current password.",
@@ -520,7 +526,9 @@
         "passwordLowercase": "Password must contain a lowercase letter.",
         "passwordNumber": "Password must contain a number.",
         "passwordSpecial": "Password must contain a special character.",
-        "confirmPasswordRequired": "Re-enter your new password to confirm it."
+        "confirmPasswordRequired": "Re-enter your new password to confirm it.",
+        "otpRequired": "Enter the verification code.",
+        "otpInvalid": "The verification code must be exactly 6 digits."
       }
     },
     "members": {

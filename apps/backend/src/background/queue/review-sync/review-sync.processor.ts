@@ -61,9 +61,20 @@ export class ReviewSyncProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * BullMQ fires `failed` after *every* failed attempt, not only the last one — so a job that
+   * fails once and then succeeds on retry used to land in the DLQ anyway, even though nothing
+   * ultimately failed. The DLQ never replays, so that corrupted the signal (a "failure" that
+   * later self-healed) rather than causing any double-processing. Only forward it once BullMQ
+   * itself has given up — `attemptsMade` has reached `opts.attempts` (default 1 if unset).
+   */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<IReviewSyncJob, void, JobName>): Promise<void> {
     this.logger.error(`Job ${job.id} has failed: ${job.failedReason}`);
+
+    if (job.attemptsMade < (job.opts.attempts ?? 1)) {
+      return;
+    }
 
     await this.dlqService.addFailedJobToDLQ({
       originalQueueName: QueueName.REVIEW_SYNC,

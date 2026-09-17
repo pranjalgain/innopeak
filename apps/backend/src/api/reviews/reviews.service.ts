@@ -11,7 +11,7 @@ import type {
 } from '@db/repositories/review-sync/reviews-read.repository';
 import { Injectable, NotFoundException } from '@nestjs/common';
 
-import { REVIEWS_PAGE_SIZE_DEFAULT } from './dto/review-request.dto';
+import { REVIEWS_PAGE_SIZE_DEFAULT } from './constants/reviews.constants';
 import type {
   LatestResponseDto,
   ReviewDetailResponseDto,
@@ -75,9 +75,10 @@ export class ReviewsService {
 
     // One query for the whole page's responses rather than one per review — a 20-item queue would
     // otherwise be 21 round trips just to render its status badges.
-    const responses = await this.reviewSyncDbService.findResponsesForReviews(
-      reviews.map(review => review.id)
-    );
+    const responses = await this.reviewSyncDbService.findResponsesForReviews({
+      reviewIds: reviews.map(review => review.id),
+      tenantId: tenantUser.tenantId,
+    });
     const byReview = this.groupByReview(responses);
 
     return {
@@ -102,10 +103,10 @@ export class ReviewsService {
    */
   async getReview(input: { user: AuthUser; reviewId: string }): Promise<ReviewDetailResponseDto> {
     const tenantUser = requireTenantUser(input.user, MESSAGES.REVIEWS.TENANT_ONLY);
-    const review = await this.reviewSyncDbService.findReviewForTenant(
-      input.reviewId,
-      tenantUser.tenantId
-    );
+    const review = await this.reviewSyncDbService.findReviewForTenant({
+      reviewId: input.reviewId,
+      tenantId: tenantUser.tenantId,
+    });
 
     if (!review) {
       throw new NotFoundException({
@@ -114,7 +115,10 @@ export class ReviewsService {
       });
     }
 
-    const responses = await this.reviewSyncDbService.findResponsesForReviews([review.id]);
+    const responses = await this.reviewSyncDbService.findResponsesForReviews({
+      reviewIds: [review.id],
+      tenantId: tenantUser.tenantId,
+    });
 
     return {
       ...this.toListItem(review),

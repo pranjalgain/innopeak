@@ -17,9 +17,17 @@ type Translate = (key: string) => string;
  * account that has never had one (Google/SSO-only). A factory for the same reason: built at
  * render with the caller's translator, memoized (`useMemo`) to keep the resolver identity stable.
  */
+const OTP_LENGTH = 6;
+const OTP_PATTERN = /^\d{6}$/;
+
 export function setPasswordSchema(t: Translate) {
   return z
     .object({
+      otp: z
+        .string()
+        .min(1, t("errors.otpRequired"))
+        .length(OTP_LENGTH, t("errors.otpInvalid"))
+        .regex(OTP_PATTERN, t("errors.otpInvalid")),
       newPassword: z
         .string()
         .min(PASSWORD_MIN_LENGTH, t("errors.passwordTooShort"))

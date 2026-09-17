@@ -39,6 +39,11 @@ export type SetAdminStatusOutcome =
   | { outcome: 'not_found' }
   | { outcome: 'updated'; id: string; email: string; status: PlatformAdminStatus };
 
+export interface SetAdminStatusGuardInput {
+  id: string;
+  status: PlatformAdminStatus;
+}
+
 const PROFILE_COLUMNS = {
   id: schema.platformAdmins.id,
   email: schema.platformAdmins.email,
@@ -96,9 +101,9 @@ export class PlatformAdminRepository {
    * not treat `invited` rows any differently, but the service never asks it to.
    */
   async setStatusGuardingLastActive(
-    id: string,
-    status: PlatformAdminStatus
+    input: SetAdminStatusGuardInput
   ): Promise<SetAdminStatusOutcome> {
+    const { id, status } = input;
     return this.dbService.db.transaction(async tx => {
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtext('platform_admins:status-guard'), 0)`

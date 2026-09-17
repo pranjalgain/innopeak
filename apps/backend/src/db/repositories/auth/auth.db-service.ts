@@ -9,18 +9,21 @@ import { Injectable } from '@nestjs/common';
 
 import {
   AuthRepository,
+  InsertRefreshTokenInput,
   PlatformAdminByEmail,
+  PutVerifyEmailTokenInput,
   RefreshTokenRow,
   UserByEmail,
 } from './auth.repository';
 
-import { PromptsRepository } from '../prompts/prompts.repository';
+import { PromptsDbService } from '../prompts/prompts.db-service';
 
 /** Index name Postgres reports as `constraint` on the 23505 a losing concurrent signup raises — see 0002_tenant_auth.sql. */
 const USERS_EMAIL_ACTIVE_INDEX = 'idx_users_email_active';
 
 export interface PurgeStaleTokensResult {
-  verifyEmailTokens: number;
+  /** Spent/expired `password_reset_tokens` rows across every purpose this codebase mints — see `AuthRepository.deleteStaleOtpTokens`. */
+  otpTokens: number;
   refreshTokens: number;
 }
 
@@ -38,6 +41,31 @@ export interface SignupInput {
   passwordHash: string;
   tokenHash: string;
   tokenExpiresAt: Date;
+}
+
+interface UserTokenHashInput {
+  userId: string;
+  tokenHash: string;
+}
+
+interface VerifyEmailInput {
+  email: string;
+  tokenHash: string;
+}
+
+interface UpdatePasswordInput {
+  userId: string;
+  passwordHash: string;
+}
+
+interface UpdateLocaleInput {
+  userId: string;
+  locale: Locale;
+}
+
+interface SetActiveLocationIdInput {
+  tenantId: string;
+  locationId: string | null;
 }
 
 /**
@@ -86,7 +114,7 @@ export interface VerifiedUser {
 export class AuthDbService {
   constructor(
     private readonly authRepository: AuthRepository,
-    private readonly promptsRepository: PromptsRepository
+    private readonly promptsDbService: PromptsDbService
   ) {}
 
   /**
@@ -150,7 +178,7 @@ export class AuthDbService {
    * and each of them verifying reaches this same path.
    */
   private async provisionTenantWorkspace(tx: DrizzleTransaction, tenantId: string): Promise<void> {
-    await this.promptsRepository.insertDefaultsForTenant(tx, tenantId);
+    await this.promptsDbService.insertDefaultsForTenant(tx, tenantId);
   }
 
   /**
@@ -323,9 +351,26 @@ export class AuthDbService {
   }
 
   /** Issues (or reissues) a verify_email code for an already-existing user — signup's resumable path, login's pending-verification path, and an explicit resend all go through this. */
-  async putVerifyEmailToken(userId: string, tokenHash: string, expiresAt: string): Promise<void> {
+  async putVerifyEmailToken(input: PutVerifyEmailTokenInput): Promise<void> {
+    const { userId, tokenHash, expiresAt } = input;
     await this.authRepository.transaction(tx =>
       this.authRepository.putVerifyEmailToken(tx, { userId, tokenHash, expiresAt })
+    );
+  }
+
+  /** Issues (or reissues) the OTP `AuthService.setPassword` requires before a passwordless account can adopt one — see `AuthRepository.putSetPasswordOtp`. */
+  async putSetPasswordOtp(input: PutVerifyEmailTokenInput): Promise<void> {
+    const { userId, tokenHash, expiresAt } = input;
+    await this.authRepository.transaction(tx =>
+      this.authRepository.putSetPasswordOtp(tx, { userId, tokenHash, expiresAt })
+    );
+  }
+
+  /** CAS-consumes the set-password OTP; true only if it matched, was unused, and hadn't expired. */
+  async consumeSetPasswordOtp(input: UserTokenHashInput): Promise<boolean> {
+    const { userId, tokenHash } = input;
+    return this.authRepository.transaction(tx =>
+      this.authRepository.consumeSetPasswordOtp(tx, { userId, tokenHash })
     );
   }
 
@@ -335,7 +380,8 @@ export class AuthDbService {
    * INVALID_OR_EXPIRED_OTP error, never distinguishing which (auth API reference's Security
    * considerations). On success, returns everything the caller needs to issue tokens.
    */
-  async verifyEmail(email: string, tokenHash: string): Promise<VerifiedUser | null> {
+  async verifyEmail(input: VerifyEmailInput): Promise<VerifiedUser | null> {
+    const { email, tokenHash } = input;
     const user = await this.authRepository.findUserByEmail(email);
     if (user?.status !== UserStatus.PENDING_VERIFICATION) {
       return null;
@@ -393,7 +439,8 @@ export class AuthDbService {
     return this.authRepository.hasConnectedBusiness(tenantId);
   }
 
-  async insertRefreshToken(userId: string, tokenHash: string, expiresAt: string): Promise<void> {
+  async insertRefreshToken(input: InsertRefreshTokenInput): Promise<void> {
+    const { userId, tokenHash, expiresAt } = input;
     await this.authRepository.transaction(tx =>
       this.authRepository.insertRefreshToken(tx, { userId, tokenHash, expiresAt })
     );
@@ -441,7 +488,8 @@ export class AuthDbService {
    * crash between the two cannot leave the old password live alongside already-revoked tokens
    * (or the reverse — a new hash with old refresh tokens still valid).
    */
-  async updatePasswordAndRevokeSessions(userId: string, passwordHash: string): Promise<void> {
+  async updatePasswordAndRevokeSessions(input: UpdatePasswordInput): Promise<void> {
+    const { userId, passwordHash } = input;
     await this.authRepository.transaction(async tx => {
       await this.authRepository.updatePasswordHash(tx, { userId, passwordHash });
       await this.authRepository.revokeAllRefreshTokensForUser(tx, userId);
@@ -449,7 +497,8 @@ export class AuthDbService {
   }
 
   /** Settings → Profile's language preference. No session revoke — unlike a password change, a locale is not a security boundary. */
-  async updateLocale(userId: string, locale: Locale): Promise<void> {
+  async updateLocale(input: UpdateLocaleInput): Promise<void> {
+    const { userId, locale } = input;
     await this.authRepository.transaction(tx =>
       this.authRepository.updateLocale(tx, { userId, locale })
     );
@@ -462,16 +511,17 @@ export class AuthDbService {
   }
 
   /** `null` clears the pointer — see `ConnectionsService.disconnect`. */
-  async setActiveLocationId(tenantId: string, locationId: string | null): Promise<void> {
+  async setActiveLocationId(input: SetActiveLocationIdInput): Promise<void> {
+    const { tenantId, locationId } = input;
     await this.authRepository.transaction(tx =>
       this.authRepository.updateActiveLocationId(tx, { tenantId, locationId })
     );
   }
 
-  /** Daily housekeeping (CronJobName.AUTH_TOKEN_CLEANUP): drops used/expired verify_email codes and revoked/expired refresh tokens. */
+  /** Daily housekeeping (CronJobName.AUTH_TOKEN_CLEANUP): drops used/expired OTP codes (verify_email and set_password) and revoked/expired refresh tokens. */
   async purgeStaleTokens(): Promise<PurgeStaleTokensResult> {
     return this.authRepository.transaction(async tx => ({
-      verifyEmailTokens: await this.authRepository.deleteStaleVerifyEmailTokens(tx),
+      otpTokens: await this.authRepository.deleteStaleOtpTokens(tx),
       refreshTokens: await this.authRepository.deleteStaleRefreshTokens(tx),
     }));
   }

@@ -176,6 +176,7 @@ Auth-specific overrides on top of the `short` window (`apps/backend/src/api/auth
 | `POST /v1/auth/login` | 10 / minute |
 | `POST /v1/auth/refresh` | 20 / minute |
 | `POST /v1/auth/change-password` | 5 / minute |
+| `POST /v1/auth/set-password/request-otp` | 5 / minute |
 | `POST /v1/auth/set-password` | 5 / minute |
 | `GET /v1/auth/google` | 10 / minute |
 | `POST /v1/auth/google/complete-signup` | 5 / minute |
@@ -211,7 +212,8 @@ for what needs to change before it matches the InnoPeak tenant model.
 | `POST` | `/v1/auth/logout` | `@Public()` | Authority from the `refresh_token` cookie, **not** a bearer token — see the API reference for why. Revokes all refresh tokens for that user. |
 | `GET` | `/v1/auth/me` | Bearer | The authoritative "who is signed in", read from the DB. |
 | `POST` | `/v1/auth/change-password` | Bearer | Requires the current password. Issues a fresh token pair and revokes every other session. |
-| `POST` | `/v1/auth/set-password` | Bearer | For an account that has never had one (Google-only). |
+| `POST` | `/v1/auth/set-password/request-otp` | Bearer | Mails the step-up code `set-password` requires. Uniform acknowledgement whether or not a fresh code went out (per-email cooldown). |
+| `POST` | `/v1/auth/set-password` | Bearer | For an account that has never had one (Google-only). Takes `otp` from the route above — an access token alone is not proof enough to grant a permanent credential. |
 | `GET` | `/v1/auth/google` | `@Public()` | Redirects into Google's consent screen. Bare OIDC over `fetch`, not a passport strategy. |
 | `GET` | `/v1/auth/google/callback` | `@Public()` | Google callback; every outcome is a `302`. |
 | `POST` | `/v1/auth/google/complete-signup` | `@Public()` | Supplies the business name Google cannot, against the `google_pending_signup` cookie. |
@@ -276,6 +278,12 @@ Mapped to the schema tables above, independent of which login method is used:
 5. **Email verification** — `purpose = 'verify_email'`, password path only. SSO logins skip this
    entirely since the identity provider already vouches for the email, which is why the
    Microsoft-only signup flow has no email-verification step to render at all.
+5b. **Adding a password to an SSO-only account** — `purpose = 'set_password'`, single-use and
+   time-boxed like the rest. Deliberately its own purpose rather than reusing `'reset'`: the two
+   would share the one-row-per-`(user_id, purpose)` slot and silently invalidate each other, and a
+   code minted behind a bearer token would satisfy a consume from the *public* reset route once
+   that is built. See [`POST
+   /v1/auth/set-password`](./api-reference.md#post-v1authset-password).
 6. **Platform admin invite/login** — same shapes as 1–4 but against `platform_admins` /
    `platform_admin_identities` / `platform_admin_invites`, kept structurally separate per the note
    in [Data model](#data-model).

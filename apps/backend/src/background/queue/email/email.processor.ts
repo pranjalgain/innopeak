@@ -68,12 +68,23 @@ export class EmailProcessor extends WorkerHost {
     if (typeof job.log === 'function') void job.log(`Job ${job.id} has been completed`);
   }
 
+  /**
+   * BullMQ fires `failed` after *every* failed attempt, not only the last one — so a job that
+   * fails once and then succeeds on retry used to land in the DLQ anyway, even though nothing
+   * ultimately failed. The DLQ never replays, so that corrupted the signal (a "failure" that
+   * later self-healed) rather than causing any double-processing. Only forward it once BullMQ
+   * itself has given up — `attemptsMade` has reached `opts.attempts` (default 1 if unset).
+   */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<IEmailJob, void, JobName>): Promise<void> {
     const logString_ = `Job ${job.id} has failed with reason: ${job.failedReason}`;
     this.logger.error(logString_);
     this.logger.error(job.stacktrace);
     if (typeof job.log === 'function') void job.log(logString_);
+
+    if (job.attemptsMade < (job.opts.attempts ?? 1)) {
+      return;
+    }
 
     // Push the failed job to the Dead Letter Queue
     await this.dlqService.addFailedJobToDLQ({

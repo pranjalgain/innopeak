@@ -21,7 +21,12 @@ export class CronSqsConsumer extends SqsQueueConsumerBase {
   }
 
   async process(jobName: string, data: unknown): Promise<void> {
-    switch (jobName as CronJobName) {
+    // Narrowed once into a variable (rather than switching on the cast expression directly) so
+    // the compiler can actually narrow it to `never` below — a cast repeated at each `case` isn't
+    // narrowable, which silently defeats the exhaustiveness check.
+    const name = jobName as CronJobName;
+
+    switch (name) {
       case CronJobName.DAILY_MAIL:
         this.cronService.sendDailyMail((data as ICronJob | undefined) ?? undefined);
         break;
@@ -31,8 +36,14 @@ export class CronSqsConsumer extends SqsQueueConsumerBase {
       case CronJobName.REVIEW_SYNC_POLL:
         await this.cronService.pollDueLocations();
         break;
-      default:
-        throw new Error(`Unknown job name: ${jobName}`);
+      case CronJobName.REVIEWER_RETENTION_PURGE:
+        await this.cronService.purgeExpiredReviewerPii();
+        break;
+      default: {
+        // Exhaustiveness check: a new CronJobName member left unhandled here fails the build.
+        const unhandled: never = name;
+        throw new Error(`Unknown job name: ${String(unhandled)}`);
+      }
     }
   }
 

@@ -14,20 +14,21 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
 import { AuthService } from './auth.service';
-import { GoogleAuthFailure } from './constants/google-auth.constants';
-import { JwtTokenType } from './enums/jwt-token-type.enum';
-import { OAuthIntent } from './enums/oauth-intent.enum';
-import { PlatformAdminStatus } from './enums/platform-admin-status.enum';
-import { TenantStatus } from './enums/tenant-status.enum';
-import { UserRole } from './enums/user-role.enum';
-import { UserStatus } from './enums/user-status.enum';
+import { GoogleOAuthStateService } from './google-oauth-state.service';
 import { LoginAttemptService } from './login-attempt.service';
 import { OtpAttemptService } from './otp-attempt.service';
-import { GoogleIdentityProvider } from './providers/google-identity.provider';
-import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
-import { GoogleOAuthStateService } from './services/google-oauth-state.service';
-import { PendingGoogleSignupService } from './services/pending-google-signup.service';
+import { PendingGoogleSignupService } from './pending-google-signup.service';
 import { TokenService } from './token.service';
+
+import { GOOGLE_AUTH_REDIRECT, GoogleAuthFailure } from '../constants/google-auth.constants';
+import { JwtTokenType } from '../enums/jwt-token-type.enum';
+import { OAuthIntent } from '../enums/oauth-intent.enum';
+import { PlatformAdminStatus } from '../enums/platform-admin-status.enum';
+import { TenantStatus } from '../enums/tenant-status.enum';
+import { UserRole } from '../enums/user-role.enum';
+import { UserStatus } from '../enums/user-status.enum';
+import { GoogleIdentityProvider } from '../providers/google-identity.provider';
+import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
 
 describe('AuthService', () => {
   let target: AuthService;
@@ -57,6 +58,8 @@ describe('AuthService', () => {
       hasConnectedBusiness: jest.fn().mockResolvedValue(false),
       updatePasswordAndRevokeSessions: jest.fn(),
       updateLocale: jest.fn(),
+      putSetPasswordOtp: jest.fn(),
+      consumeSetPasswordOtp: jest.fn().mockResolvedValue(true),
       insertRefreshToken: jest.fn(),
       resolveGoogleIdentity: jest.fn(),
       completeGoogleSignup: jest.fn(),
@@ -486,11 +489,11 @@ describe('AuthService', () => {
         status: UserStatus.PENDING_VERIFICATION,
         email: activeUser.email,
       });
-      expect(authDbService.putVerifyEmailToken).toHaveBeenCalledWith(
-        activeUser.id,
-        expect.any(String),
-        expect.any(String)
-      );
+      expect(authDbService.putVerifyEmailToken).toHaveBeenCalledWith({
+        userId: activeUser.id,
+        tokenHash: expect.any(String),
+        expiresAt: expect.any(String),
+      });
       expect(queueManager.addRegisterationOtpEmailJob).toHaveBeenCalled();
       expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
     });
@@ -656,11 +659,11 @@ describe('AuthService', () => {
 
       const result = await target.resendOtp({ email: 'jane@thecoffeehouse.com' });
 
-      expect(authDbService.putVerifyEmailToken).toHaveBeenCalledWith(
-        'user-1',
-        expect.any(String),
-        expect.any(String)
-      );
+      expect(authDbService.putVerifyEmailToken).toHaveBeenCalledWith({
+        userId: 'user-1',
+        tokenHash: expect.any(String),
+        expiresAt: expect.any(String),
+      });
       expect(queueManager.addRegisterationOtpEmailJob).toHaveBeenCalled();
       expect(result.message).toBeTruthy();
     });
@@ -747,15 +750,151 @@ describe('AuthService', () => {
 
       const result = await target.changePassword(tenantUser, dto);
 
-      expect(authDbService.updatePasswordAndRevokeSessions).toHaveBeenCalledWith(
-        'user-1',
-        'new-hash'
-      );
+      expect(authDbService.updatePasswordAndRevokeSessions).toHaveBeenCalledWith({
+        userId: 'user-1',
+        passwordHash: 'new-hash',
+      });
       expect(tokenService.issueTokenPair).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'user-1', tenantId: 'tenant-1' })
       );
       expect(result.body.accessToken).toBe('access');
       expect(result.refreshToken).toBe('refresh');
+    });
+  });
+
+  describe('setPassword', () => {
+    const tenantUser = {
+      type: JwtTokenType.TENANT_USER as const,
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      email: 'jane@thecoffeehouse.com',
+      role: UserRole.OWNER as const,
+      locale: null,
+    };
+    const passwordlessUser = {
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      name: 'Jane Doe',
+      email: 'jane@thecoffeehouse.com',
+      passwordHash: null,
+      role: UserRole.OWNER as const,
+      status: UserStatus.ACTIVE as const,
+      locale: null,
+    };
+
+    /**
+     * The regression this guards: a stolen access token alone used to be sufficient to call
+     * `setPassword` on a Google-only account, turning a 15-minute credential into a permanent
+     * one. `otp` must now be checked against a freshly-issued, purpose-scoped code before the
+     * password is ever hashed or written.
+     */
+    it('rejects when the OTP does not match a live set-password code', async () => {
+      authDbService.findUserById.mockResolvedValue(passwordlessUser);
+      authDbService.consumeSetPasswordOtp.mockResolvedValue(false);
+
+      await expect(
+        target.setPassword(tenantUser, { newPassword: 'NewStr0ng@Pass', otp: '000000' })
+      ).rejects.toThrow(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
+
+      expect(authDbService.consumeSetPasswordOtp).toHaveBeenCalledWith({
+        userId: 'user-1',
+        tokenHash: expect.any(String),
+      });
+      expect(authDbService.updatePasswordAndRevokeSessions).not.toHaveBeenCalled();
+      expect(hashingService.hash).not.toHaveBeenCalled();
+    });
+
+    it('rejects an exhausted OTP attempt budget without ever checking the code', async () => {
+      authDbService.findUserById.mockResolvedValue(passwordlessUser);
+      otpAttemptService.consumeAttempt.mockResolvedValue(false);
+
+      await expect(
+        target.setPassword(tenantUser, { newPassword: 'NewStr0ng@Pass', otp: '000000' })
+      ).rejects.toThrow(MESSAGES.AUTH.TOO_MANY_OTP_ATTEMPTS);
+
+      expect(authDbService.consumeSetPasswordOtp).not.toHaveBeenCalled();
+    });
+
+    it('sets the password once the OTP is valid, and still refuses an account that already has one', async () => {
+      authDbService.findUserById.mockResolvedValue(passwordlessUser);
+      authDbService.consumeSetPasswordOtp.mockResolvedValue(true);
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'The Coffee House',
+      });
+
+      await target.setPassword(tenantUser, { newPassword: 'NewStr0ng@Pass', otp: '482913' });
+
+      expect(authDbService.updatePasswordAndRevokeSessions).toHaveBeenCalledWith({
+        userId: 'user-1',
+        passwordHash: 'hashed-password',
+      });
+      expect(otpAttemptService.reset).toHaveBeenCalledWith('jane@thecoffeehouse.com');
+
+      authDbService.findUserById.mockResolvedValue({
+        ...passwordlessUser,
+        passwordHash: 'already-set',
+      });
+      await expect(
+        target.setPassword(tenantUser, { newPassword: 'NewStr0ng@Pass', otp: '482913' })
+      ).rejects.toThrow(MESSAGES.AUTH.PASSWORD_ALREADY_SET);
+      expect(authDbService.consumeSetPasswordOtp).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('requestSetPasswordOtp', () => {
+    const tenantUser = {
+      type: JwtTokenType.TENANT_USER as const,
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      email: 'jane@thecoffeehouse.com',
+      role: UserRole.OWNER as const,
+      locale: null,
+    };
+    const passwordlessUser = {
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      name: 'Jane Doe',
+      email: 'jane@thecoffeehouse.com',
+      passwordHash: null,
+      role: UserRole.OWNER as const,
+      status: UserStatus.ACTIVE as const,
+      locale: null,
+    };
+
+    it('mails a fresh OTP for a passwordless account', async () => {
+      authDbService.findUserById.mockResolvedValue(passwordlessUser);
+
+      const result = await target.requestSetPasswordOtp(tenantUser);
+
+      expect(authDbService.putSetPasswordOtp).toHaveBeenCalledWith({
+        userId: 'user-1',
+        tokenHash: expect.any(String),
+        expiresAt: expect.any(String),
+      });
+      expect(result.message).toBe(MESSAGES.AUTH.SET_PASSWORD_OTP_ACK);
+    });
+
+    it('rejects an account that already has a password, without sending anything', async () => {
+      authDbService.findUserById.mockResolvedValue({
+        ...passwordlessUser,
+        passwordHash: 'already-set',
+      });
+
+      await expect(target.requestSetPasswordOtp(tenantUser)).rejects.toThrow(
+        MESSAGES.AUTH.PASSWORD_ALREADY_SET
+      );
+      expect(authDbService.putSetPasswordOtp).not.toHaveBeenCalled();
+    });
+
+    it('silently no-ops within the resend cooldown, same shape as the signup/login OTP', async () => {
+      authDbService.findUserById.mockResolvedValue(passwordlessUser);
+      otpAttemptService.claimResend.mockResolvedValue(false);
+
+      const result = await target.requestSetPasswordOtp(tenantUser);
+
+      expect(authDbService.putSetPasswordOtp).not.toHaveBeenCalled();
+      expect(result.message).toBe(MESSAGES.AUTH.SET_PASSWORD_OTP_ACK);
     });
   });
 
@@ -804,7 +943,7 @@ describe('AuthService', () => {
 
       const result = await target.updateLocale(tenantUser, { locale: 'de' });
 
-      expect(authDbService.updateLocale).toHaveBeenCalledWith('user-1', 'de');
+      expect(authDbService.updateLocale).toHaveBeenCalledWith({ userId: 'user-1', locale: 'de' });
       expect(tokenService.reissueAccessToken).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'user-1', locale: 'de' })
       );
@@ -814,6 +953,43 @@ describe('AuthService', () => {
       expect(result.expiresIn).toBe(900);
       expect(result).not.toHaveProperty('refreshToken');
       expect(result.user.locale).toBe('de');
+    });
+
+    /**
+     * The regression this guards: a disabled user renewing their access token forever by hitting
+     * this route every 14 minutes instead of `/v1/auth/refresh` (which does revoke). Before this
+     * check, `updateLocale` fetched the tenant row and reissued a token without ever reading
+     * `user.status`.
+     */
+    it('rejects a disabled user rather than reissuing a token', async () => {
+      authDbService.findUserById.mockResolvedValue({
+        ...storedUser,
+        status: UserStatus.DISABLED,
+      });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'The Coffee House',
+      });
+
+      await expect(target.updateLocale(tenantUser, { locale: 'de' })).rejects.toThrow(
+        MESSAGES.AUTH.ACCOUNT_DISABLED
+      );
+      expect(authDbService.updateLocale).not.toHaveBeenCalled();
+      expect(tokenService.reissueAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('rejects a member of a suspended tenant rather than reissuing a token', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'The Coffee House',
+      });
+
+      await expect(target.updateLocale(tenantUser, { locale: 'de' })).rejects.toThrow(
+        MESSAGES.AUTH.TENANT_SUSPENDED
+      );
+      expect(authDbService.updateLocale).not.toHaveBeenCalled();
+      expect(tokenService.reissueAccessToken).not.toHaveBeenCalled();
     });
   });
 
@@ -850,12 +1026,15 @@ describe('AuthService', () => {
         expect(googleOAuthStateService.mint).toHaveBeenCalledWith({ intent: OAuthIntent.SIGNUP });
       });
 
-      it('answers 503 rather than failing at boot when the client is unconfigured', async () => {
+      it('answers with a redirect rather than throwing when the client is unconfigured', async () => {
         googleIdentityProvider.isConfigured.mockReturnValue(false);
 
-        await expect(
-          target.buildGoogleAuthorizeRedirect({ intent: OAuthIntent.LOGIN })
-        ).rejects.toThrow(MESSAGES.AUTH.GOOGLE_NOT_CONFIGURED);
+        const redirect = await target.buildGoogleAuthorizeRedirect({ intent: OAuthIntent.LOGIN });
+
+        expect(redirect).toEqual({
+          ok: false,
+          redirectUrl: `${GOOGLE_AUTH_REDIRECT.LOGIN}?error=${GoogleAuthFailure.NOT_CONFIGURED}`,
+        });
       });
     });
 
@@ -896,7 +1075,11 @@ describe('AuthService', () => {
           sid: 'sid',
         });
 
-        expect(outcome).toEqual({ ok: false, failure: GoogleAuthFailure.INVALID_STATE });
+        expect(outcome).toEqual({
+          ok: false,
+          failure: GoogleAuthFailure.INVALID_STATE,
+          redirectUrl: `${GOOGLE_AUTH_REDIRECT.LOGIN}?error=${GoogleAuthFailure.INVALID_STATE}`,
+        });
         expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
       });
 
@@ -970,17 +1153,17 @@ describe('AuthService', () => {
           sid: 'sid',
         });
 
-        // Keeps the intent so the caller can send an abandoned *signup* back to the signup page
+        // Keeps the signup-page redirect so the caller can send an abandoned *signup* back there
         // rather than to /login, and spends the state either way — it is single-use.
         expect(outcome).toEqual({
           ok: false,
           failure: GoogleAuthFailure.ACCESS_DENIED,
-          intent: OAuthIntent.SIGNUP,
+          redirectUrl: `${GOOGLE_AUTH_REDIRECT.SIGNUP}?error=${GoogleAuthFailure.ACCESS_DENIED}`,
         });
         expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
       });
 
-      it('still reports a declined consent when the state is unusable, just without an intent', async () => {
+      it('still reports a declined consent when the state is unusable, falling back to the login page', async () => {
         googleOAuthStateService.consume.mockResolvedValue({ ok: false });
 
         const outcome = await target.handleGoogleCallback({
@@ -990,7 +1173,11 @@ describe('AuthService', () => {
           sid: undefined,
         });
 
-        expect(outcome).toEqual({ ok: false, failure: GoogleAuthFailure.ACCESS_DENIED });
+        expect(outcome).toEqual({
+          ok: false,
+          failure: GoogleAuthFailure.ACCESS_DENIED,
+          redirectUrl: `${GOOGLE_AUTH_REDIRECT.LOGIN}?error=${GoogleAuthFailure.ACCESS_DENIED}`,
+        });
         expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
       });
 
@@ -1007,7 +1194,7 @@ describe('AuthService', () => {
 
         expect(outcome).toMatchObject({
           failure: GoogleAuthFailure.PROVIDER_ERROR,
-          intent: OAuthIntent.SIGNUP,
+          redirectUrl: `${GOOGLE_AUTH_REDIRECT.SIGNUP}?error=${GoogleAuthFailure.PROVIDER_ERROR}`,
         });
       });
 
@@ -1030,7 +1217,7 @@ describe('AuthService', () => {
         expect(outcome).toEqual({
           ok: false,
           failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-          intent: OAuthIntent.LOGIN,
+          redirectUrl: `${GOOGLE_AUTH_REDIRECT.LOGIN}?error=${GoogleAuthFailure.ACCOUNT_UNAVAILABLE}`,
         });
         // Refused before any token is minted — not merely revoked on the next refresh.
         expect(tokenService.issueTokenPair).not.toHaveBeenCalled();

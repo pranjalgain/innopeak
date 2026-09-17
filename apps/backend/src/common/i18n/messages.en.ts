@@ -39,6 +39,10 @@ export const messagesEn: MessageCatalog = {
     // to 15 minutes). Claiming the sessions are already gone overstates what happened.
     PASSWORD_CHANGED: 'Password changed. Other sessions are being signed out.',
     PASSWORD_SET: 'Password set. You can now sign in with a password too.',
+    // Same enumeration-shape reasoning as RESEND_OTP_ACK: the caller is already authenticated, so
+    // this doesn't need to hide whether the account exists, but it does hide whether a code was
+    // actually re-sent or the previous one is still live within its cooldown.
+    SET_PASSWORD_OTP_ACK: 'Verification code sent. Check your email to continue.',
     LOCALE_UPDATED: 'Language preference updated.',
     TENANT_ONLY: 'This action is only available to tenant users.',
     // Thrown by requireTenantUser() when a platform-admin token reaches a tenant-scoped route.

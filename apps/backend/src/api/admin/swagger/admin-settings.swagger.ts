@@ -10,11 +10,25 @@ import { SetAdminStatusDto } from '../dto/set-admin-status.dto';
 import { UpdateAdminAvatarDto } from '../dto/update-admin-avatar.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 
+const ADMIN_PROFILE_EXAMPLE = { email: 'admin@innopeak.com', avatarUrl: null };
+
+const ADMIN_INVITE_EXAMPLE = {
+  id: '0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f',
+  email: 'priya.ops@innopeak.com',
+  status: 'invited',
+  invitedAt: '2026-03-01T09:12:00.000Z',
+  expiresAt: '2026-03-08T09:12:00.000Z',
+};
+
 export function ApiGetAdminProfile(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
     ApiBearerAuth(),
     ApiOperation({ summary: "Get the signed-in platform admin's own profile" }),
-    ApiResponse({ status: HttpStatus.OK, type: AdminProfileResponseDto }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      type: AdminProfileResponseDto,
+      examples: { default: { summary: 'Admin profile', value: ADMIN_PROFILE_EXAMPLE } },
+    }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
   );
@@ -27,8 +41,28 @@ export function ApiUpdateAdminAvatar(): ReturnType<typeof applyDecorators> {
       summary: 'Set the avatar URL',
       description: 'Stores an already-hosted image URL — this does not accept a file upload.',
     }),
-    ApiBody({ type: UpdateAdminAvatarDto }),
-    ApiResponse({ status: HttpStatus.OK, type: AdminProfileResponseDto }),
+    ApiBody({
+      type: UpdateAdminAvatarDto,
+      examples: {
+        default: {
+          summary: 'Typical request',
+          value: { avatarUrl: 'https://cdn.innopeak.com/avatars/admin-1.png' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      type: AdminProfileResponseDto,
+      examples: {
+        default: {
+          summary: 'Avatar updated',
+          value: {
+            ...ADMIN_PROFILE_EXAMPLE,
+            avatarUrl: 'https://cdn.innopeak.com/avatars/admin-1.png',
+          },
+        },
+      },
+    }),
     ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
@@ -44,8 +78,22 @@ export function ApiChangeAdminPassword(): ReturnType<typeof applyDecorators> {
         'No session to revoke afterward — a platform admin has no refresh-token concept yet, so ' +
         'there is nothing else to rotate on a successful change.',
     }),
-    ApiBody({ type: ChangeAdminPasswordDto }),
-    ApiResponse({ status: HttpStatus.OK, description: 'Password changed.' }),
+    ApiBody({
+      type: ChangeAdminPasswordDto,
+      examples: {
+        default: {
+          summary: 'Typical request',
+          value: { currentPassword: 'StrongP@ss1', newPassword: 'NewStr0ng@Pass' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Password changed.',
+      examples: {
+        default: { summary: 'Password changed', value: { message: 'Password changed.' } },
+      },
+    }),
     ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'No password set on this account' }),
     ApiResponse({
       status: HttpStatus.UNAUTHORIZED,
@@ -65,7 +113,11 @@ export function ApiListAdminInvites(): ReturnType<typeof applyDecorators> {
         'PlatformAdminInvite[] shape), not only pending invites — each row also carries its own ' +
         'invite metadata where one exists.',
     }),
-    ApiResponse({ status: HttpStatus.OK, type: [AdminInviteResponseDto] }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      type: [AdminInviteResponseDto],
+      examples: { default: { summary: 'Admin roster', value: [ADMIN_INVITE_EXAMPLE] } },
+    }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
   );
@@ -81,8 +133,17 @@ export function ApiSendAdminInvite(): ReturnType<typeof applyDecorators> {
         'invite token record. Does **not** email the invite or expose an accept-invite endpoint ' +
         'yet — that pairing is separate, comparably-sized follow-up work.',
     }),
-    ApiBody({ type: SendAdminInviteDto }),
-    ApiResponse({ status: HttpStatus.CREATED, type: AdminInviteResponseDto }),
+    ApiBody({
+      type: SendAdminInviteDto,
+      examples: {
+        default: { summary: 'Typical request', value: { email: 'priya.ops@innopeak.com' } },
+      },
+    }),
+    ApiResponse({
+      status: HttpStatus.CREATED,
+      type: AdminInviteResponseDto,
+      examples: { default: { summary: 'Invite created', value: ADMIN_INVITE_EXAMPLE } },
+    }),
     ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' }),
@@ -102,7 +163,11 @@ export function ApiRevokeAdminInvite(): ReturnType<typeof applyDecorators> {
         "Deletes the invited admin's row outright — only while it is still `invited`. An admin " +
         'who has already accepted or been disabled cannot be revoked through this route.',
     }),
-    ApiResponse({ status: HttpStatus.OK, description: 'Invite revoked.' }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Invite revoked.',
+      examples: { default: { summary: 'Invite revoked', value: { message: 'Invite revoked.' } } },
+    }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' }),
     ApiResponse({
@@ -122,8 +187,20 @@ export function ApiSetAdminStatus(): ReturnType<typeof applyDecorators> {
         'JwtStrategy, a disable ends the target admin’s access on their next request. Cannot ' +
         'target yourself, an invited (not-yet-accepted) admin, or the last active admin.',
     }),
-    ApiBody({ type: SetAdminStatusDto }),
-    ApiResponse({ status: HttpStatus.OK, type: AdminInviteResponseDto }),
+    ApiBody({
+      type: SetAdminStatusDto,
+      examples: { default: { summary: 'Disable an admin', value: { enabled: false } } },
+    }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      type: AdminInviteResponseDto,
+      examples: {
+        default: {
+          summary: 'Admin disabled',
+          value: { ...ADMIN_INVITE_EXAMPLE, status: 'disabled', expiresAt: null },
+        },
+      },
+    }),
     ApiResponse({
       status: HttpStatus.BAD_REQUEST,
       description: 'Cannot disable yourself or the last active admin',
@@ -151,8 +228,27 @@ export function ApiUpdatePlatformSettings(): ReturnType<typeof applyDecorators> 
         "400 response. Does not affect platform-admin login: a Super Admin's own password field " +
         'on /login is unconditional regardless of this setting.',
     }),
-    ApiBody({ type: UpdatePlatformSettingsDto }),
-    ApiResponse({ status: HttpStatus.OK, type: PlatformSettingsResponseDto }),
+    ApiBody({
+      type: UpdatePlatformSettingsDto,
+      examples: {
+        default: { summary: 'Enable password login', value: { passwordLoginEnabled: true } },
+      },
+    }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      type: PlatformSettingsResponseDto,
+      examples: {
+        default: {
+          summary: 'Settings updated',
+          value: {
+            ssoLoginEnabled: true,
+            passwordLoginEnabled: true,
+            socialLoginEnabled: false,
+            inviteMembersEnabled: false,
+          },
+        },
+      },
+    }),
     ApiResponse({
       status: HttpStatus.BAD_REQUEST,
       description:

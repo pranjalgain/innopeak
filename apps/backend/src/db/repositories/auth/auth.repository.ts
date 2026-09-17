@@ -1,3 +1,4 @@
+import { REFRESH_TOKEN_REVOKED_RETENTION_HOURS } from '@auth/constants/auth.constants';
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { TokenPurpose } from '@auth/enums/token-purpose.enum';
@@ -10,7 +11,7 @@ import type { Locale } from '@common/i18n/locale';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, gt, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 
 export interface UserByEmail {
   id: string;
@@ -83,6 +84,19 @@ export interface InsertRefreshTokenInput {
   tokenHash: string;
   expiresAt: string;
 }
+
+/**
+ * Every `token_purpose` this codebase actually mints, and therefore every one the nightly
+ * `deleteStaleOtpTokens` sweep has to cover — a purpose that writes rows but is missing here is
+ * one whose spent rows nothing ever deletes.
+ *
+ * `invite`/`reset` are absent because nothing writes them yet (see `TokenPurpose`); whichever
+ * commit starts to must add them here too.
+ */
+export const PURGEABLE_OTP_PURPOSES = [
+  TokenPurpose.VERIFY_EMAIL,
+  TokenPurpose.SET_PASSWORD,
+] as const;
 
 /** A refresh-token row that may or may not still be live — see `findRefreshTokenByHash`. */
 export interface RefreshTokenRow {
@@ -409,6 +423,59 @@ export class AuthRepository {
   }
 
   /**
+   * Same upsert-on-(user_id, purpose) shape as `putVerifyEmailToken`, under the `token_purpose`
+   * enum's own `set_password` value. This is the step-up proof `AuthService.setPassword` requires
+   * before converting an access token (a 15-minute credential) into a permanent one on a
+   * passwordless account: without it, a stolen access token alone was sufficient.
+   *
+   * Deliberately NOT `reset`, which the auth API reference reserves for the (unbuilt) public
+   * forgot-password route: one shared value would make this upsert silently invalidate a live
+   * reset token, and would let a code minted here — behind an access token — satisfy a consume
+   * from that unauthenticated route, and vice versa.
+   */
+  async putSetPasswordOtp(tx: DrizzleTransaction, input: PutVerifyEmailTokenInput): Promise<void> {
+    await tx
+      .insert(schema.passwordResetTokens)
+      .values({
+        userId: input.userId,
+        tokenHash: input.tokenHash,
+        purpose: TokenPurpose.SET_PASSWORD,
+        expiresAt: input.expiresAt,
+      })
+      .onConflictDoUpdate({
+        target: [schema.passwordResetTokens.userId, schema.passwordResetTokens.purpose],
+        set: {
+          tokenHash: input.tokenHash,
+          expiresAt: input.expiresAt,
+          usedAt: null,
+          updatedAt: sql`now()`,
+        },
+      });
+  }
+
+  /** `consumeVerifyEmailToken`'s CAS shape, scoped to the `set_password`-purpose row `putSetPasswordOtp` writes. */
+  async consumeSetPasswordOtp(
+    tx: DrizzleTransaction,
+    input: { userId: string; tokenHash: string }
+  ): Promise<boolean> {
+    const rows = await tx
+      .update(schema.passwordResetTokens)
+      .set({ usedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.passwordResetTokens.userId, input.userId),
+          eq(schema.passwordResetTokens.tokenHash, input.tokenHash),
+          eq(schema.passwordResetTokens.purpose, TokenPurpose.SET_PASSWORD),
+          isNull(schema.passwordResetTokens.usedAt),
+          gt(schema.passwordResetTokens.expiresAt, sql`now()`)
+        )
+      )
+      .returning({ id: schema.passwordResetTokens.id });
+
+    return rows.length > 0;
+  }
+
+  /**
    * Scoped to `status = 'pending_verification'` defensively — a verify_email token should never
    * exist for a user in any other status today, but this guards against a stale/reused token
    * silently reactivating an account that isn't actually pending verification. Returns whether it
@@ -532,13 +599,16 @@ export class AuthRepository {
     return rows.length > 0;
   }
 
-  /** Housekeeping — a consumed or expired verify_email code has no further use once its window is over. Returns the number of rows removed. */
-  async deleteStaleVerifyEmailTokens(tx: DrizzleTransaction): Promise<number> {
+  /**
+   * Housekeeping — a consumed or expired OTP has no further use once its window is over. Returns
+   * the number of rows removed.
+   */
+  async deleteStaleOtpTokens(tx: DrizzleTransaction): Promise<number> {
     const rows = await tx
       .delete(schema.passwordResetTokens)
       .where(
         and(
-          eq(schema.passwordResetTokens.purpose, TokenPurpose.VERIFY_EMAIL),
+          inArray(schema.passwordResetTokens.purpose, PURGEABLE_OTP_PURPOSES),
           or(
             isNotNull(schema.passwordResetTokens.usedAt),
             lt(schema.passwordResetTokens.expiresAt, sql`now()`)
@@ -550,13 +620,27 @@ export class AuthRepository {
     return rows.length;
   }
 
-  /** Housekeeping — a revoked or expired refresh token can never be honored again (`findRefreshTokenByHash` already excludes expired ones, and `rotate()` never re-checks a revoked one), so the row is dead weight. Returns the number of rows removed. */
+  /**
+   * Housekeeping — an expired refresh token can never be honored again
+   * (`findRefreshTokenByHash` already excludes expired ones), so that row is dead weight
+   * immediately. A revoked row is different: `TokenService.handleSpentToken` needs it to still
+   * exist to tell a reuse replay from a lost rotation race, so it's kept for at least
+   * `REFRESH_TOKEN_REVOKED_RETENTION_HOURS` past `revokedAt` — see that constant's own comment for
+   * why a bare "revoked at all" check here previously gave replay detection an unpredictable
+   * (sometimes near-zero) window instead of a consistent one. Returns the number of rows removed.
+   */
   async deleteStaleRefreshTokens(tx: DrizzleTransaction): Promise<number> {
     const rows = await tx
       .delete(schema.refreshTokens)
       .where(
         or(
-          isNotNull(schema.refreshTokens.revokedAt),
+          and(
+            isNotNull(schema.refreshTokens.revokedAt),
+            lt(
+              schema.refreshTokens.revokedAt,
+              sql`now() - interval '1 hour' * ${REFRESH_TOKEN_REVOKED_RETENTION_HOURS}`
+            )
+          ),
           lt(schema.refreshTokens.expiresAt, sql`now()`)
         )
       )

@@ -47,8 +47,11 @@ export class CronProcessor extends WorkerHost {
         case CronJobName.REVIEWER_RETENTION_PURGE:
           await this.cronService.purgeExpiredReviewerPii();
           break;
-        default:
-          throw new Error(`Unknown job name: ${String(job.name)}`);
+        default: {
+          // Exhaustiveness check: a new CronJobName member left unhandled here fails the build.
+          const unhandled: never = job.name;
+          throw new Error(`Unknown job name: ${String(unhandled)}`);
+        }
       }
 
       logMessage = `Completed job ${job.id} of type ${job.name}`;

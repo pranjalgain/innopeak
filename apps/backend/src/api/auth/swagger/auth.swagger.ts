@@ -103,6 +103,40 @@ export function ApiChangePassword(): ReturnType<typeof applyDecorators> {
   );
 }
 
+export function ApiRequestSetPasswordOtp(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Request the OTP required to set a password on a passwordless account',
+      description:
+        'Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the ' +
+        "caller's own address, proving live mailbox control rather than just possession of an " +
+        'access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the ' +
+        'account already has a password.',
+    }),
+    ApiResponse({
+      status: 200,
+      description:
+        'Acknowledged — a fresh code was sent, or one is still live within its cooldown.',
+      examples: {
+        default: {
+          summary: 'Acknowledged',
+          value: {
+            statusCode: 200,
+            status: 'Success',
+            message: 'Verification code sent. Check your email to continue.',
+            data: { message: 'Verification code sent. Check your email to continue.' },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'The account already has a password — use change-password instead.',
+    })
+  );
+}
+
 export function ApiSetPassword(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
     ApiBearerAuth(),
@@ -110,15 +144,19 @@ export function ApiSetPassword(): ReturnType<typeof applyDecorators> {
       summary: 'Set a password for an account that has never had one',
       description:
         'For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to ' +
-        'prove, so unlike POST /v1/auth/change-password this takes only `newPassword`. Revokes ' +
-        'every refresh token for the user, then issues a fresh pair so this tab stays signed in. ' +
-        'Tenant-user tokens only. 400s if the account already has a password — use ' +
-        'change-password instead.',
+        'prove, so unlike POST /v1/auth/change-password this takes `otp` (from ' +
+        'POST /v1/auth/set-password/request-otp) instead. Revokes every refresh token for the ' +
+        'user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. ' +
+        '400s if the account already has a password, or if the OTP is missing/expired/wrong — ' +
+        'use change-password instead in the former case.',
     }),
     ApiBody({
       type: SetPasswordDto,
       examples: {
-        default: { summary: 'Typical request', value: { newPassword: 'NewStr0ng@Pass' } },
+        default: {
+          summary: 'Typical request',
+          value: { newPassword: 'NewStr0ng@Pass', otp: '482913' },
+        },
       },
     }),
     ApiResponse({
@@ -129,7 +167,9 @@ export function ApiSetPassword(): ReturnType<typeof applyDecorators> {
     }),
     ApiResponse({
       status: 400,
-      description: 'The account already has a password, or newPassword failed complexity rules.',
+      description:
+        'The account already has a password, newPassword failed complexity rules, or the OTP is ' +
+        'missing/expired/wrong.',
       examples: {
         alreadySet: {
           summary: 'Password already set',
@@ -137,6 +177,17 @@ export function ApiSetPassword(): ReturnType<typeof applyDecorators> {
             statusCode: 400,
             status: 'Failure',
             message: 'This account already has a password. Use change password instead.',
+            error: 'Bad Request',
+            traceId: '38cf5d10-00cb-4e4b-8417-f9e63e877466',
+            data: null,
+          },
+        },
+        invalidOtp: {
+          summary: 'Invalid or expired OTP',
+          value: {
+            statusCode: 400,
+            status: 'Failure',
+            message: 'Invalid or expired verification code.',
             error: 'Bad Request',
             traceId: '38cf5d10-00cb-4e4b-8417-f9e63e877466',
             data: null,

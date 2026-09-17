@@ -6,6 +6,7 @@ import {
   type PlatformAdminProfileRow,
   PlatformAdminRepository,
   type RevokeInviteOutcome,
+  type SetAdminStatusGuardInput,
   type SetAdminStatusOutcome,
 } from './platform-admin.repository';
 
@@ -24,10 +25,9 @@ export class PlatformAdminDbService {
 
   /** See `PlatformAdminRepository.setStatusGuardingLastActive` — the actual last-active-admin guard lives there, atomically. */
   async setStatusGuardingLastActive(
-    id: string,
-    status: PlatformAdminStatus
+    input: SetAdminStatusGuardInput
   ): Promise<SetAdminStatusOutcome> {
-    return this.platformAdminRepository.setStatusGuardingLastActive(id, status);
+    return this.platformAdminRepository.setStatusGuardingLastActive(input);
   }
 
   async findByEmail(

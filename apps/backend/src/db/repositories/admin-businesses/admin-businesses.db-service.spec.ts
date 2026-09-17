@@ -134,7 +134,10 @@ describe('AdminBusinessesDbService', () => {
     it('returns null without re-reading when no tenant matched', async () => {
       adminBusinessesRepository.setStatus.mockResolvedValue(false);
 
-      const result = await target.setStatus('missing', TenantStatus.SUSPENDED);
+      const result = await target.setStatus({
+        tenantId: 'missing',
+        status: TenantStatus.SUSPENDED,
+      });
 
       expect(result).toBeNull();
       expect(adminBusinessesRepository.findById).not.toHaveBeenCalled();
@@ -144,7 +147,10 @@ describe('AdminBusinessesDbService', () => {
       adminBusinessesRepository.setStatus.mockResolvedValue(true);
       adminBusinessesRepository.findById.mockResolvedValue(row({ status: TenantStatus.SUSPENDED }));
 
-      const result = await target.setStatus('tenant-1', TenantStatus.SUSPENDED);
+      const result = await target.setStatus({
+        tenantId: 'tenant-1',
+        status: TenantStatus.SUSPENDED,
+      });
 
       expect(result?.status).toBe(BusinessStatus.SUSPENDED);
     });

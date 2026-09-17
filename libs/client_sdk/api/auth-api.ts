@@ -443,6 +443,51 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
+     * Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the caller\'s own address, proving live mailbox control rather than just possession of an access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the account already has a password.
+     * @summary Request the OTP required to set a password on a passwordless account
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerRequestSetPasswordOtpV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/auth/set-password/request-otp`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * The OTP stepper\'s \"Resend\" button — doesn\'t collect a password (unlike login), so it always returns the same generic acknowledgement whether or not the email matches a pending_verification account, same enumeration-prevention shape as forgot-password.
      * @summary Resend a verification OTP
      * @param {ResendOtpDto} resendOtpDto
@@ -498,7 +543,7 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
-     * For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to prove, so unlike POST /v1/auth/change-password this takes only `newPassword`. Revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. 400s if the account already has a password — use change-password instead.
+     * For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to prove, so unlike POST /v1/auth/change-password this takes `otp` (from POST /v1/auth/set-password/request-otp) instead. Revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. 400s if the account already has a password, or if the OTP is missing/expired/wrong — use change-password instead in the former case.
      * @summary Set a password for an account that has never had one
      * @param {SetPasswordDto} setPasswordDto
      * @param {*} [options] Override http request option.
@@ -971,6 +1016,34 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the caller\'s own address, proving live mailbox control rather than just possession of an access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the account already has a password.
+     * @summary Request the OTP required to set a password on a passwordless account
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerRequestSetPasswordOtpV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerRequestSetPasswordOtpV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.authControllerRequestSetPasswordOtpV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * The OTP stepper\'s \"Resend\" button — doesn\'t collect a password (unlike login), so it always returns the same generic acknowledgement whether or not the email matches a pending_verification account, same enumeration-prevention shape as forgot-password.
      * @summary Resend a verification OTP
      * @param {ResendOtpDto} resendOtpDto
@@ -1002,7 +1075,7 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to prove, so unlike POST /v1/auth/change-password this takes only `newPassword`. Revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. 400s if the account already has a password — use change-password instead.
+     * For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to prove, so unlike POST /v1/auth/change-password this takes `otp` (from POST /v1/auth/set-password/request-otp) instead. Revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. 400s if the account already has a password, or if the OTP is missing/expired/wrong — use change-password instead in the former case.
      * @summary Set a password for an account that has never had one
      * @param {SetPasswordDto} setPasswordDto
      * @param {*} [options] Override http request option.
@@ -1269,6 +1342,19 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the caller\'s own address, proving live mailbox control rather than just possession of an access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the account already has a password.
+     * @summary Request the OTP required to set a password on a passwordless account
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerRequestSetPasswordOtpV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .authControllerRequestSetPasswordOtpV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * The OTP stepper\'s \"Resend\" button — doesn\'t collect a password (unlike login), so it always returns the same generic acknowledgement whether or not the email matches a pending_verification account, same enumeration-prevention shape as forgot-password.
      * @summary Resend a verification OTP
      * @param {AuthApiAuthControllerResendOtpV1Request} requestParameters Request parameters.
@@ -1284,7 +1370,7 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to prove, so unlike POST /v1/auth/change-password this takes only `newPassword`. Revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. 400s if the account already has a password — use change-password instead.
+     * For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to prove, so unlike POST /v1/auth/change-password this takes `otp` (from POST /v1/auth/set-password/request-otp) instead. Revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. 400s if the account already has a password, or if the OTP is missing/expired/wrong — use change-password instead in the former case.
      * @summary Set a password for an account that has never had one
      * @param {AuthApiAuthControllerSetPasswordV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -1440,6 +1526,16 @@ export interface AuthApiInterface {
   ): AxiosPromise<TokenResponseDto>;
 
   /**
+   * Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the caller\'s own address, proving live mailbox control rather than just possession of an access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the account already has a password.
+   * @summary Request the OTP required to set a password on a passwordless account
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerRequestSetPasswordOtpV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
+
+  /**
    * The OTP stepper\'s \"Resend\" button — doesn\'t collect a password (unlike login), so it always returns the same generic acknowledgement whether or not the email matches a pending_verification account, same enumeration-prevention shape as forgot-password.
    * @summary Resend a verification OTP
    * @param {AuthApiAuthControllerResendOtpV1Request} requestParameters Request parameters.
@@ -1452,7 +1548,7 @@ export interface AuthApiInterface {
   ): AxiosPromise<void>;
 
   /**
-   * For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to prove, so unlike POST /v1/auth/change-password this takes only `newPassword`. Revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. 400s if the account already has a password — use change-password instead.
+   * For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to prove, so unlike POST /v1/auth/change-password this takes `otp` (from POST /v1/auth/set-password/request-otp) instead. Revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. 400s if the account already has a password, or if the OTP is missing/expired/wrong — use change-password instead in the former case.
    * @summary Set a password for an account that has never had one
    * @param {AuthApiAuthControllerSetPasswordV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -1689,6 +1785,20 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
+   * Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the caller\'s own address, proving live mailbox control rather than just possession of an access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the account already has a password.
+   * @summary Request the OTP required to set a password on a passwordless account
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerRequestSetPasswordOtpV1(
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .authControllerRequestSetPasswordOtpV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
    * The OTP stepper\'s \"Resend\" button — doesn\'t collect a password (unlike login), so it always returns the same generic acknowledgement whether or not the email matches a pending_verification account, same enumeration-prevention shape as forgot-password.
    * @summary Resend a verification OTP
    * @param {AuthApiAuthControllerResendOtpV1Request} requestParameters Request parameters.
@@ -1705,7 +1815,7 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
-   * For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to prove, so unlike POST /v1/auth/change-password this takes only `newPassword`. Revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. 400s if the account already has a password — use change-password instead.
+   * For a Google/SSO-only account (`users.password_hash IS NULL`) — no current password to prove, so unlike POST /v1/auth/change-password this takes `otp` (from POST /v1/auth/set-password/request-otp) instead. Revokes every refresh token for the user, then issues a fresh pair so this tab stays signed in. Tenant-user tokens only. 400s if the account already has a password, or if the OTP is missing/expired/wrong — use change-password instead in the former case.
    * @summary Set a password for an account that has never had one
    * @param {AuthApiAuthControllerSetPasswordV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.

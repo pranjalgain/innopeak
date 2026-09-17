@@ -184,12 +184,12 @@ describe('PromptsService', () => {
 
       expect(result.version.version).toBe(2);
       expect(result.versionCount).toBe(2);
-      expect(promptsDbService.appendVersion).toHaveBeenCalledWith(
+      expect(promptsDbService.appendVersion).toHaveBeenCalledWith({
         promptId,
-        tenantUser.tenantId,
-        nextTemplate,
-        tenantUser.id
-      );
+        tenantId: tenantUser.tenantId,
+        template: nextTemplate,
+        createdByUserId: tenantUser.id,
+      });
     });
 
     it('maps a unique-violation on retry exhaustion to VERSION_CONFLICT', async () => {
@@ -225,11 +225,11 @@ describe('PromptsService', () => {
 
       const result = await target.updateTone(promptId, 'friendly', tenantUser);
       expect(result.tone).toBe('friendly');
-      expect(promptsDbService.updateTone).toHaveBeenCalledWith(
+      expect(promptsDbService.updateTone).toHaveBeenCalledWith({
         promptId,
-        tenantUser.tenantId,
-        'friendly'
-      );
+        tenantId: tenantUser.tenantId,
+        tone: 'friendly',
+      });
     });
   });
 });

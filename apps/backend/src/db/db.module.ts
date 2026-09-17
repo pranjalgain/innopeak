@@ -13,6 +13,7 @@ import { AuthDbService } from './repositories/auth/auth.db-service';
 import { AuthRepository } from './repositories/auth/auth.repository';
 import { ConnectionsDbService } from './repositories/connections/connections.db-service';
 import { ConnectionsRepository } from './repositories/connections/connections.repository';
+import { DashboardDbService } from './repositories/dashboard/dashboard.db-service';
 import { DashboardRepository } from './repositories/dashboard/dashboard.repository';
 import { DemoDataDbService } from './repositories/demo-data/demo-data.db-service';
 import { DemoDataRepository } from './repositories/demo-data/demo-data.repository';
@@ -44,6 +45,7 @@ const repositories = [
   TenantSettingsRepository,
   SettingsDbService,
   DashboardRepository,
+  DashboardDbService,
   DemoDataRepository,
   DemoDataDbService,
   ReviewPipelineDbService,

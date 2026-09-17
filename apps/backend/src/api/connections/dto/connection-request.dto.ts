@@ -53,7 +53,9 @@ export class ConfirmLocationDto {
   @IsArray()
   @ArrayNotEmpty()
   @ArrayUnique()
-  @ArrayMaxSize(MAX_ACTIVE_LOCATIONS)
+  @ArrayMaxSize(MAX_ACTIVE_LOCATIONS, {
+    message: `externalLocationIds must contain at most ${MAX_ACTIVE_LOCATIONS} entries`,
+  })
   @IsString({ each: true })
   @Length(1, 255, { each: true })
   externalLocationIds!: string[];
@@ -74,7 +76,9 @@ export class SetActiveLocationDto {
 export class ListLocationsQueryDto {
   @ApiPropertyOptional({ example: LocationStatus.ACTIVE, enum: LocationStatus })
   @IsOptional()
-  @IsEnum(LocationStatus)
+  @IsEnum(LocationStatus, {
+    message: `status must be one of: ${Object.values(LocationStatus).join(', ')}`,
+  })
   status?: LocationStatus;
 }
 
@@ -100,11 +104,15 @@ export class ListSyncRunsQueryDto {
 
   @ApiPropertyOptional({ example: SyncRunStatus.ERROR, enum: SyncRunStatus })
   @IsOptional()
-  @IsEnum(SyncRunStatus)
+  @IsEnum(SyncRunStatus, {
+    message: `status must be one of: ${Object.values(SyncRunStatus).join(', ')}`,
+  })
   status?: SyncRunStatus;
 
   @ApiPropertyOptional({ example: SyncTrigger.BACKFILL, enum: SyncTrigger })
   @IsOptional()
-  @IsEnum(SyncTrigger)
+  @IsEnum(SyncTrigger, {
+    message: `trigger must be one of: ${Object.values(SyncTrigger).join(', ')}`,
+  })
   trigger?: SyncTrigger;
 }

@@ -31,6 +31,18 @@ import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 /** Matches the frontend mock's own window — see `PlatformAdminInviteService`. */
 const INVITE_TTL_DAYS = 7;
 
+export interface SetAdminStatusParams {
+  targetAdminId: string;
+  enabled: boolean;
+}
+
+/** `message` rides along so the controller never has to branch on `enabled` itself to pick
+ *  between `MESSAGES.ADMIN.ADMIN_ENABLED`/`ADMIN_DISABLED` — that decision belongs here. */
+export interface SetAdminStatusResult {
+  admin: AdminInviteResponseDto;
+  message: string;
+}
+
 @Injectable()
 export class AdminSettingsService {
   constructor(
@@ -204,9 +216,9 @@ export class AdminSettingsService {
    */
   async setAdminStatus(
     actor: AuthUser,
-    targetAdminId: string,
-    enabled: boolean
-  ): Promise<AdminInviteResponseDto> {
+    params: SetAdminStatusParams
+  ): Promise<SetAdminStatusResult> {
+    const { targetAdminId, enabled } = params;
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
 
     if (targetAdminId === admin.id) {
@@ -230,10 +242,10 @@ export class AdminSettingsService {
     // transaction as the write, guarded by an advisory lock that serializes every concurrent
     // status change. This `findStatusById` above stays only for the fast, friendly 404/409s.
     const nextStatus = enabled ? PlatformAdminStatus.ACTIVE : PlatformAdminStatus.DISABLED;
-    const result = await this.platformAdminDbService.setStatusGuardingLastActive(
-      targetAdminId,
-      nextStatus
-    );
+    const result = await this.platformAdminDbService.setStatusGuardingLastActive({
+      id: targetAdminId,
+      status: nextStatus,
+    });
     if (result.outcome === 'not_found') {
       // Raced with a delete between the status read above and the guarded write.
       throw new NotFoundException(MESSAGES.ADMIN.ADMIN_NOT_FOUND);
@@ -252,13 +264,16 @@ export class AdminSettingsService {
     // Reuses the roster DTO shape the Members tab already renders (id/email/status), so the client
     // can swap the row in place without a refetch. `invitedAt`/`expiresAt` are not meaningful for a
     // status change and are surfaced as the admin's own timestamps by `listInvites` anyway.
-    return AdminInviteResponseDto.from({
-      id: result.id,
-      email: result.email,
-      status: result.status,
-      invitedAt: new Date().toISOString(),
-      expiresAt: null,
-    });
+    return {
+      admin: AdminInviteResponseDto.from({
+        id: result.id,
+        email: result.email,
+        status: result.status,
+        invitedAt: new Date().toISOString(),
+        expiresAt: null,
+      }),
+      message: enabled ? MESSAGES.ADMIN.ADMIN_ENABLED : MESSAGES.ADMIN.ADMIN_DISABLED,
+    };
   }
 
   /**

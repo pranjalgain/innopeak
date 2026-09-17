@@ -81,12 +81,12 @@ describe('CronService', () => {
   describe('purgeStaleAuthTokens', () => {
     it('delegates to AuthDbService.purgeStaleTokens and logs the counts', async () => {
       const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
-      authDbService.purgeStaleTokens.mockResolvedValue({ verifyEmailTokens: 3, refreshTokens: 12 });
+      authDbService.purgeStaleTokens.mockResolvedValue({ otpTokens: 3, refreshTokens: 12 });
 
       await target.purgeStaleAuthTokens();
 
       expect(authDbService.purgeStaleTokens).toHaveBeenCalledTimes(1);
-      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('3 stale verify_email'));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('3 stale OTP'));
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('12 stale refresh'));
     });
 

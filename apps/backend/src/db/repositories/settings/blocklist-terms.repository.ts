@@ -1,9 +1,13 @@
 import { DBService } from '@db/db.service';
-import { blocklistTerms } from '@db/drizzle/schema';
+import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 
-import type { BlocklistTermRecord } from '../../../api/settings/types/blocklist-term.type';
+import type {
+  BlocklistTermRecord,
+  CreateBlocklistTermInput,
+  DeleteBlocklistTermInput,
+} from '../../../api/settings/types/blocklist-term.type';
 
 interface InsertedRow {
   id: string;
@@ -18,13 +22,13 @@ export class BlocklistTermsRepository {
   async listByTenant(tenantId: string): Promise<BlocklistTermRecord[]> {
     const rows = await this.dbService.db
       .select({
-        id: blocklistTerms.id,
-        term: blocklistTerms.term,
-        createdAt: blocklistTerms.createdAt,
+        id: schema.blocklistTerms.id,
+        term: schema.blocklistTerms.term,
+        createdAt: schema.blocklistTerms.createdAt,
       })
-      .from(blocklistTerms)
-      .where(eq(blocklistTerms.tenantId, tenantId))
-      .orderBy(sql`lower(${blocklistTerms.term})`);
+      .from(schema.blocklistTerms)
+      .where(eq(schema.blocklistTerms.tenantId, tenantId))
+      .orderBy(sql`lower(${schema.blocklistTerms.term})`);
 
     return rows.map(row => ({ id: row.id, term: row.term, createdAt: row.createdAt }));
   }
@@ -32,12 +36,12 @@ export class BlocklistTermsRepository {
   /**
    * Returns null when the tenant already has this term — `idx_blocklist_terms_tenant_id_lower_term`
    * is unique on `(tenant_id, lower(term))`, so the conflict is case-insensitive and DO NOTHING
-   * yields no row. Removal is a hard DELETE, so there is no inactive row to revive: the audit
-   * trigger on this table already keeps the history a soft delete would have preserved, and
-   * `reviews.matched_keywords` stores matched terms as text with no FK, so deleting one never
-   * orphans the escalation it caused.
+   * yields no row. Removal is a hard DELETE with no history kept — `reviews.matched_keywords`
+   * stores matched terms as text with no FK, so deleting one never orphans the escalation it
+   * caused.
    */
-  async insertTerm(tenantId: string, term: string): Promise<BlocklistTermRecord | null> {
+  async insertTerm(input: CreateBlocklistTermInput): Promise<BlocklistTermRecord | null> {
+    const { tenantId, term } = input;
     const result = await this.dbService.db.execute(sql`
       INSERT INTO blocklist_terms (tenant_id, term)
       VALUES (${tenantId}::uuid, ${term})
@@ -58,11 +62,12 @@ export class BlocklistTermsRepository {
     };
   }
 
-  async deleteForTenant(id: string, tenantId: string): Promise<boolean> {
+  async deleteForTenant(input: DeleteBlocklistTermInput): Promise<boolean> {
+    const { id, tenantId } = input;
     const rows = await this.dbService.db
-      .delete(blocklistTerms)
-      .where(and(eq(blocklistTerms.id, id), eq(blocklistTerms.tenantId, tenantId)))
-      .returning({ id: blocklistTerms.id });
+      .delete(schema.blocklistTerms)
+      .where(and(eq(schema.blocklistTerms.id, id), eq(schema.blocklistTerms.tenantId, tenantId)))
+      .returning({ id: schema.blocklistTerms.id });
 
     return rows.length > 0;
   }

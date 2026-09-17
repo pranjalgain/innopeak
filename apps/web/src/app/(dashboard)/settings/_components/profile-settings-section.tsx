@@ -3,7 +3,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
 
@@ -25,6 +25,7 @@ import {
 } from "@/components/common/password-requirements-list";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
@@ -34,7 +35,8 @@ const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
 /** Only reachable while the platform's passwordLoginEnabled setting is on — there's no password to manage otherwise. */
 export function ProfileSettingsSection() {
   const t = useTranslations("settings.profile");
-  const { profile, isLoading, updateAvatar, changePassword, setPassword } = useTenantOwnerProfile();
+  const { profile, isLoading, updateAvatar, changePassword, requestSetPasswordOtp, setPassword } =
+    useTenantOwnerProfile();
 
   if (isLoading || !profile) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
 
@@ -70,7 +72,7 @@ export function ProfileSettingsSection() {
         {profile.hasPassword ? (
           <ChangePasswordForm changePassword={changePassword} />
         ) : (
-          <AddPasswordForm setPassword={setPassword} />
+          <AddPasswordForm requestSetPasswordOtp={requestSetPasswordOtp} setPassword={setPassword} />
         )}
       </CardContent>
     </Card>
@@ -197,18 +199,26 @@ function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) {
 }
 
 interface AddPasswordFormProps {
-  setPassword: (newPassword: string) => Promise<boolean>;
+  requestSetPasswordOtp: () => Promise<boolean>;
+  setPassword: (newPassword: string, otp: string) => Promise<boolean>;
 }
+
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
 /**
  * Shown instead of `ChangePasswordForm` for a Google/SSO-only account — there is no current
  * password to prove, so the fields (and the collapsed prompt in front of them) are deliberately
- * different rather than a `ChangePasswordForm` with one field hidden.
+ * different rather than a `ChangePasswordForm` with one field hidden. A step-up OTP (mailed by
+ * `requestSetPasswordOtp`) stands in for that missing current-password proof: without it, an
+ * access token alone would be enough to grant this account a permanent credential — see
+ * `AuthService.setPassword`'s doc comment on the backend.
  */
-function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
+function AddPasswordForm({ requestSetPasswordOtp, setPassword }: AddPasswordFormProps) {
   const t = useTranslations("settings.profile");
   const schema = useMemo(() => setPasswordSchema(t), [t]);
   const [expanded, setExpanded] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
 
   const {
     register,
@@ -218,7 +228,7 @@ function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
   } = useForm<SetPasswordFields>({
     resolver: zodResolver(schema),
     mode: "onTouched",
-    defaultValues: { newPassword: "", confirmPassword: "" },
+    defaultValues: { otp: "", newPassword: "", confirmPassword: "" },
   });
 
   const [newPasswordValue, setNewPasswordValue] = useState("");
@@ -228,16 +238,36 @@ function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
     newPasswordValue.length > 0 &&
     !passwordMeetsRequirements(requirements);
 
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => setCooldown((prev) => Math.max(prev - 1, 0)), 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
+
   const collapse = () => {
     reset();
     setNewPasswordValue("");
     setExpanded(false);
+    setCooldown(0);
+  };
+
+  const sendOtp = async () => {
+    setIsSendingOtp(true);
+    try {
+      const sent = await requestSetPasswordOtp();
+      if (sent) {
+        setExpanded(true);
+        setCooldown(OTP_RESEND_COOLDOWN_SECONDS);
+      }
+    } finally {
+      setIsSendingOtp(false);
+    }
   };
 
   // On success `profile.hasPassword` flips to true and this component unmounts (replaced by
   // `ChangePasswordForm`), so there's no local state left to clear.
   const submitPassword = handleSubmit(async (values) => {
-    await setPassword(values.newPassword);
+    await setPassword(values.newPassword, values.otp);
   });
 
   if (!expanded) {
@@ -248,8 +278,8 @@ function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
           <p className="text-muted-foreground mt-0.5 text-[13px]">{t("addPasswordDescription")}</p>
         </div>
         <div>
-          <Button type="button" variant="outline" onClick={() => setExpanded(true)}>
-            {t("addPassword")}
+          <Button type="button" variant="outline" onClick={() => void sendOtp()} disabled={isSendingOtp}>
+            {isSendingOtp ? t("sendingCode") : t("addPassword")}
           </Button>
         </div>
       </div>
@@ -261,7 +291,31 @@ function AddPasswordForm({ setPassword }: AddPasswordFormProps) {
       className="border-border flex max-w-sm flex-col gap-4 border-t pt-5"
       onSubmit={submitPassword}
       noValidate>
-      <p className="text-sm font-medium">{t("addPasswordTitle")}</p>
+      <div>
+        <p className="text-sm font-medium">{t("addPasswordTitle")}</p>
+        <p className="text-muted-foreground mt-0.5 text-[13px]">{t("otpSentDescription")}</p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="owner-add-otp">{t("otpLabel")}</Label>
+        <Input
+          id="owner-add-otp"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          {...register("otp")}
+        />
+        {errors.otp ? <p className={FIELD_ERROR_CLASS}>{errors.otp.message}</p> : null}
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto w-fit p-0"
+          disabled={cooldown > 0 || isSendingOtp}
+          onClick={() => void sendOtp()}>
+          {cooldown > 0 ? t("resendCodeIn", { seconds: cooldown }) : t("resendCode")}
+        </Button>
+      </div>
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="owner-add-password">{t("newPasswordLabel")}</Label>

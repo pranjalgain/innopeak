@@ -1,5 +1,6 @@
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
+import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { PromptsDbService } from '@db/repositories/prompts/prompts.db-service';
 import {
   BadRequestException,
@@ -23,11 +24,8 @@ import {
   PromptVersionDto,
   UpdatePromptToneResponseDto,
 } from './dto/prompt-response.dto';
-import type {
-  AppendedPromptVersion,
-  PromptVersionRecord,
-  PromptWithVersions,
-} from './types/prompt.type';
+import type { AppendedPromptVersion } from './types/prompt.type';
+import { toPromptDto } from './utils/prompt-response.util';
 
 import type { AuthUser } from '../auth/types/auth-user.type';
 
@@ -37,16 +35,17 @@ export class PromptsService {
 
   constructor(private readonly promptsDbService: PromptsDbService) {}
 
-  async list(user: AuthUser, includeHistory: boolean): Promise<PromptListResponseDto> {
+  async list(user: AuthUser, includeHistory: boolean | undefined): Promise<PromptListResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.PROMPTS.TENANT_ONLY);
     const rows = await this.promptsDbService.listWithVersions(tenantUser.tenantId);
+    const embedHistory = includeHistory ?? false;
 
     // A prompt with no versions is skipped, not fatal. `prompts` and `prompt_versions` are
     // separate tables with nothing forcing a version to exist, so one malformed row would
     // otherwise 404 the entire listing and take every healthy prompt down with it.
     const dtos: PromptDto[] = [];
     for (const row of rows) {
-      const dto = this.toPromptDto(row, includeHistory);
+      const dto = toPromptDto(row, embedHistory);
       if (dto === null) {
         this.logger.warn(
           `Prompt ${row.prompt.id} (tenant ${tenantUser.tenantId}) has no versions; omitted from the listing.`
@@ -87,14 +86,14 @@ export class PromptsService {
 
     let appended: AppendedPromptVersion | null;
     try {
-      appended = await this.promptsDbService.appendVersion(
+      appended = await this.promptsDbService.appendVersion({
         promptId,
-        tenantUser.tenantId,
+        tenantId: tenantUser.tenantId,
         template,
-        tenantUser.id
-      );
+        createdByUserId: tenantUser.id,
+      });
     } catch (error: unknown) {
-      if (this.isUniqueViolation(error)) {
+      if (isUniqueViolation(error)) {
         throw new ConflictException(MESSAGES.PROMPTS.VERSION_CONFLICT);
       }
       throw error;
@@ -104,7 +103,7 @@ export class PromptsService {
       throw new NotFoundException(MESSAGES.PROMPTS.NOT_FOUND);
     }
 
-    const versionCount = await this.promptsDbService.countVersions(promptId);
+    const versionCount = await this.promptsDbService.countVersions(promptId, tenantUser.tenantId);
     const versionDto = PromptVersionDto.from({
       id: appended.id,
       promptId,
@@ -124,55 +123,14 @@ export class PromptsService {
     user: AuthUser
   ): Promise<UpdatePromptToneResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.PROMPTS.TENANT_ONLY);
-    const updated = await this.promptsDbService.updateTone(promptId, tenantUser.tenantId, tone);
+    const updated = await this.promptsDbService.updateTone({
+      promptId,
+      tenantId: tenantUser.tenantId,
+      tone,
+    });
     if (updated === null) {
       throw new NotFoundException(MESSAGES.PROMPTS.NOT_FOUND);
     }
     return UpdatePromptToneResponseDto.from(updated);
-  }
-
-  /** Null when the prompt has no versions — see `list`, which omits those rather than failing. */
-  private toPromptDto(row: PromptWithVersions, includeHistory: boolean): PromptDto | null {
-    const current = row.versions[row.versions.length - 1];
-    if (current === undefined) {
-      return null;
-    }
-
-    const dto = new PromptDto();
-    dto.id = row.prompt.id;
-    dto.category = row.prompt.category;
-    dto.name = row.prompt.name;
-    dto.description = row.prompt.description ?? '';
-    dto.currentVersion = PromptVersionDto.from(current);
-    dto.tone = row.prompt.tone;
-    dto.versionCount = row.versions.length;
-    dto.createdAt = row.prompt.createdAt.toISOString();
-    dto.updatedAt = row.prompt.updatedAt.toISOString();
-    if (includeHistory) {
-      dto.versions = row.versions.map((version: PromptVersionRecord) =>
-        PromptVersionDto.from(version)
-      );
-    }
-    return dto;
-  }
-
-  private isUniqueViolation(error: unknown): boolean {
-    let current: unknown = error;
-    for (let i = 0; i < 4; i += 1) {
-      if (
-        typeof current === 'object' &&
-        current !== null &&
-        'code' in current &&
-        current.code === '23505'
-      ) {
-        return true;
-      }
-      if (typeof current === 'object' && current !== null && 'cause' in current) {
-        current = current.cause;
-        continue;
-      }
-      return false;
-    }
-    return false;
   }
 }

@@ -8,7 +8,7 @@ import {
   OTP_ATTEMPT_WINDOW_SECONDS,
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_SECONDS,
-} from './constants/auth.constants';
+} from '../constants/auth.constants';
 
 /**
  * Per-account attempt ceiling for the verify-email OTP, on top of the per-IP ThrottlerGuard.

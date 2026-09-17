@@ -1,10 +1,11 @@
 import type { AuthUser } from '@auth/types/auth-user.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
-import type { DashboardMetrics } from '@db/repositories/dashboard/dashboard.repository';
-import { DashboardRepository } from '@db/repositories/dashboard/dashboard.repository';
+import type { DashboardMetrics } from '@db/repositories/dashboard/dashboard.db-service';
+import { DashboardDbService } from '@db/repositories/dashboard/dashboard.db-service';
 import { Injectable } from '@nestjs/common';
 
+import type { DashboardWindowQueryDto, RecentEscalatedQueryDto } from './dto/dashboard-request.dto';
 import type { RecentEscalatedDto } from './dto/recent-escalated.dto';
 
 /**
@@ -12,15 +13,18 @@ import type { RecentEscalatedDto } from './dto/recent-escalated.dto';
  */
 @Injectable()
 export class DashboardService {
-  constructor(private readonly dashboardRepo: DashboardRepository) {}
+  constructor(private readonly dashboardDbService: DashboardDbService) {}
 
   /**
    * Retrieves aggregated metrics — including the rating distribution (1‑5) — for the given time
    * window, optionally scoped to one location.
    */
-  async getMetrics(days: number, user: AuthUser, locationId?: string): Promise<DashboardMetrics> {
+  async getMetrics(user: AuthUser, query: DashboardWindowQueryDto): Promise<DashboardMetrics> {
     const tenantUser = requireTenantUser(user, MESSAGES.DASHBOARD.TENANT_ONLY);
-    return this.dashboardRepo.getMetrics(days, tenantUser.tenantId, locationId);
+    return this.dashboardDbService.getMetrics(query.days, {
+      tenantId: tenantUser.tenantId,
+      locationId: query.locationId,
+    });
   }
 
   /**
@@ -28,11 +32,13 @@ export class DashboardService {
    * location.
    */
   async getRecentEscalated(
-    limit: number,
     user: AuthUser,
-    locationId?: string
+    query: RecentEscalatedQueryDto
   ): Promise<RecentEscalatedDto[]> {
     const tenantUser = requireTenantUser(user, MESSAGES.DASHBOARD.TENANT_ONLY);
-    return this.dashboardRepo.getRecentEscalated(limit, tenantUser.tenantId, locationId);
+    return this.dashboardDbService.getRecentEscalated(query.limit, {
+      tenantId: tenantUser.tenantId,
+      locationId: query.locationId,
+    });
   }
 }

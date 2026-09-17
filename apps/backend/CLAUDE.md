@@ -45,7 +45,7 @@ The project uses maximum strictness. Key implications:
 
 | Migration | Tables |
 |-----------|--------|
-| `0000_foundation` | No tables — shared enum types only. Used to also carry a generic, trigger-populated `audit_logs` table (`log_db_changes()`, on every domain table); removed entirely (dropped table, indexes, both plpgsql functions, and the `audit_operation_type` enum) since it had no reader anywhere in the product |
+| `0000_foundation` | No tables — shared enum types only. Used to also carry a generic, trigger-populated `audit_logs` table (`log_db_changes()`, on every domain table); removed entirely (dropped table, indexes, both plpgsql functions, and the `audit_operation_type` enum) since it had no reader anywhere in the product. `token_purpose` gained a `set_password` member (the step-up OTP for adding a password to an SSO-only account) — **recreate your local DB after pulling that change**, see the file's own header |
 | `0001_platform_admin` | platform_admins, platform_admin_identities, platform_admin_invites |
 | `0002_tenant_auth` | tenants, tenant_identity_providers, users, tenant_settings, blocklist_terms, user_identities, password_reset_tokens |
 | `0003_review_provider_locations` | review_provider_connections, notification_recipients, locations, user_locations |
@@ -208,6 +208,11 @@ contract: `apps/documentation/docs/backend/auth/`.
 - `login` — password check first, then status: an unverified account gets a
   "pending verification" response plus a new OTP, a verified one gets tokens
 - `refresh` / `logout` — refresh token read from its httpOnly cookie, never from the body
+- `set-password/request-otp` + `set-password` — Bearer, not `@Public()`. Lets a Google-only
+  account (`password_hash IS NULL`) adopt a password, gated on a step-up OTP mailed to that
+  account: an access token alone must never be convertible into a permanent credential. Stored
+  under `token_purpose = 'set_password'`, deliberately distinct from the `reset` value reserved
+  for the unbuilt public forgot-password route
 
 **Tokens**
 - Access token: JWT, 15 min (`ACCESS_TOKEN_TTL_SECONDS`). Sent both as an httpOnly `access_token`

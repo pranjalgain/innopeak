@@ -3,15 +3,14 @@ import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
-import {
-  DEFAULT_PROMPT_TONE,
-  DEFAULT_PROMPTS,
-} from '../../../api/prompts/constants/default-prompts.constant';
-import type { PromptToneValue } from '../../../api/prompts/constants/prompts.constants';
 import type {
   AppendedPromptVersion,
+  AppendPromptVersionInput,
+  PromptCategory,
   PromptRecord,
+  PromptTone,
   PromptVersionRecord,
+  UpdatePromptToneInput,
 } from '../../../api/prompts/types/prompt.type';
 
 @Injectable()
@@ -19,47 +18,40 @@ export class PromptsRepository {
   constructor(private readonly dbService: DBService) {}
 
   /**
-   * Provisions a tenant's starting prompts and their v1 templates. Takes the caller's `tx` so it
-   * joins the signup transaction — a tenant that committed without prompts is exactly the broken
-   * state this exists to prevent, and both tables have to land together or the listing sees a
-   * prompt with no versions.
-   *
-   * `ON CONFLICT DO NOTHING` against `idx_prompts_tenant_id_category` makes it re-runnable, so a
-   * retry or a later backfill over an already-provisioned tenant is a no-op rather than a 23505.
-   * `created_by_user_id` stays NULL: these are system-provisioned, not authored by the owner.
+   * Mechanical half of tenant provisioning: inserts one `prompts` row per given input, within the
+   * caller's `tx` so it joins the signup transaction. `ON CONFLICT DO NOTHING` against
+   * `idx_prompts_tenant_id_category` makes it re-runnable, so a retry or a later backfill over an
+   * already-provisioned tenant is a no-op rather than a 23505. Only rows this statement actually
+   * created come back, so an already-provisioned category is skipped by the caller too.
    */
-  async insertDefaultsForTenant(tx: DrizzleTransaction, tenantId: string): Promise<void> {
-    const inserted = await tx
-      .insert(schema.prompts)
-      .values(
-        DEFAULT_PROMPTS.map(prompt => ({
-          tenantId,
-          category: prompt.category,
-          name: prompt.name,
-          description: prompt.description,
-          tone: DEFAULT_PROMPT_TONE,
-        }))
-      )
-      // Targeted rather than bare: this names `idx_prompts_tenant_id_category` as the arbiter, so
-      // any *other* unique violation stays an error instead of being silently swallowed.
-      .onConflictDoNothing({ target: [schema.prompts.tenantId, schema.prompts.category] })
-      .returning({ id: schema.prompts.id, category: schema.prompts.category });
+  async insertPrompts(
+    tx: DrizzleTransaction,
+    rows: Array<{
+      tenantId: string;
+      category: PromptCategory;
+      name: string;
+      description: string;
+      tone: PromptTone;
+    }>
+  ): Promise<Array<{ id: string; category: PromptCategory }>> {
+    return (
+      tx
+        .insert(schema.prompts)
+        .values(rows)
+        // Targeted rather than bare: this names `idx_prompts_tenant_id_category` as the arbiter, so
+        // any *other* unique violation stays an error instead of being silently swallowed.
+        .onConflictDoNothing({ target: [schema.prompts.tenantId, schema.prompts.category] })
+        .returning({ id: schema.prompts.id, category: schema.prompts.category })
+    );
+  }
 
-    // Only rows this statement actually created come back, so an already-provisioned category is
-    // skipped here too and keeps the version history it has.
-    const templates = new Map(DEFAULT_PROMPTS.map(prompt => [prompt.category, prompt.template]));
-    const versions = inserted.flatMap(row => {
-      const template = templates.get(row.category);
-      // Unreachable — every returned category came from DEFAULT_PROMPTS. Skipped rather than
-      // asserted past, because `noUncheckedIndexedAccess` types `Map.get` as possibly undefined
-      // and inserting `undefined` into a NOT NULL column is the worse failure.
-      return template === undefined
-        ? []
-        : [{ promptId: row.id, version: 1, template, createdByUserId: null }];
-    });
-
-    if (versions.length > 0) {
-      await tx.insert(schema.promptVersions).values(versions);
+  /** Mechanical half of tenant provisioning: inserts the v1 rows for prompts just created. */
+  async insertPromptVersions(
+    tx: DrizzleTransaction,
+    rows: Array<{ promptId: string; version: number; template: string; createdByUserId: null }>
+  ): Promise<void> {
+    if (rows.length > 0) {
+      await tx.insert(schema.promptVersions).values(rows);
     }
   }
 
@@ -99,12 +91,24 @@ export class PromptsRepository {
     return rows.map(row => this.mapVersion(row.version, row.createdByName));
   }
 
-  async findCurrentVersion(promptId: string): Promise<PromptVersionRecord | null> {
+  /**
+   * Joined to `prompts` and scoped by `tenantId` even though every current caller already
+   * verified the prompt belongs to this tenant just before calling in — `prompt_versions` carries
+   * no `tenant_id` of its own, so the only way to make that latent (safe only by caller
+   * discipline) rather than a real hole is to check it here too.
+   */
+  async findCurrentVersion(
+    promptId: string,
+    tenantId: string
+  ): Promise<PromptVersionRecord | null> {
     const rows = await this.dbService.db
       .select({ version: schema.promptVersions, createdByName: schema.users.name })
       .from(schema.promptVersions)
+      .innerJoin(schema.prompts, eq(schema.prompts.id, schema.promptVersions.promptId))
       .leftJoin(schema.users, eq(schema.users.id, schema.promptVersions.createdByUserId))
-      .where(eq(schema.promptVersions.promptId, promptId))
+      .where(
+        and(eq(schema.promptVersions.promptId, promptId), eq(schema.prompts.tenantId, tenantId))
+      )
       .orderBy(sql`${schema.promptVersions.version} DESC`)
       .limit(1);
 
@@ -112,20 +116,21 @@ export class PromptsRepository {
     return row === undefined ? null : this.mapVersion(row.version, row.createdByName);
   }
 
-  async countVersions(promptId: string): Promise<number> {
+  /** Same tenant-scoping rationale as `findCurrentVersion`. */
+  async countVersions(promptId: string, tenantId: string): Promise<number> {
     const rows = await this.dbService.db
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.promptVersions)
-      .where(eq(schema.promptVersions.promptId, promptId));
+      .innerJoin(schema.prompts, eq(schema.prompts.id, schema.promptVersions.promptId))
+      .where(
+        and(eq(schema.promptVersions.promptId, promptId), eq(schema.prompts.tenantId, tenantId))
+      );
 
     return rows[0]?.count ?? 0;
   }
 
-  async updateTone(
-    promptId: string,
-    tenantId: string,
-    tone: PromptToneValue
-  ): Promise<PromptRecord | null> {
+  async updateTone(input: UpdatePromptToneInput): Promise<PromptRecord | null> {
+    const { promptId, tenantId, tone } = input;
     const rows = await this.dbService.db
       .update(schema.prompts)
       .set({ tone, updatedAt: sql`now()` })
@@ -136,12 +141,8 @@ export class PromptsRepository {
     return row === undefined ? null : this.mapPrompt(row);
   }
 
-  async appendVersion(
-    promptId: string,
-    tenantId: string,
-    template: string,
-    createdByUserId: string | null
-  ): Promise<AppendedPromptVersion | null> {
+  async appendVersion(input: AppendPromptVersionInput): Promise<AppendedPromptVersion | null> {
+    const { promptId, tenantId, template, createdByUserId } = input;
     const createdBySql = createdByUserId === null ? sql`NULL` : sql`${createdByUserId}::uuid`;
 
     const result = await this.dbService.db.execute(sql`

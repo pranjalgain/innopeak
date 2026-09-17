@@ -7,6 +7,8 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { ReviewSyncRepository, type SyncRunRow } from './review-sync.repository';
 import {
+  type FindResponsesForReviewsInput,
+  type FindReviewByIdForTenantInput,
   type ListReviewsFilter,
   type ReviewResponseRow,
   type ReviewRow,
@@ -342,12 +344,12 @@ export class ReviewSyncDbService {
     return this.reviewsReadRepository.listReviews(filter);
   }
 
-  findReviewForTenant(reviewId: string, tenantId: string): Promise<ReviewRow | null> {
-    return this.reviewsReadRepository.findReviewByIdForTenant(reviewId, tenantId);
+  findReviewForTenant(input: FindReviewByIdForTenantInput): Promise<ReviewRow | null> {
+    return this.reviewsReadRepository.findReviewByIdForTenant(input);
   }
 
-  findResponsesForReviews(reviewIds: string[]): Promise<ReviewResponseRow[]> {
-    return this.reviewsReadRepository.findResponsesForReviews(reviewIds);
+  findResponsesForReviews(input: FindResponsesForReviewsInput): Promise<ReviewResponseRow[]> {
+    return this.reviewsReadRepository.findResponsesForReviews(input);
   }
 
   /** `PLAN.md` §6's nightly reviewer-retention purge — see `ReviewSyncRepository.purgeExpiredReviewerPii`. */

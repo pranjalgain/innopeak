@@ -15,9 +15,13 @@ interface UseTenantOwnerProfileResult {
   isLoading: boolean;
   updateAvatar: (avatarUrl: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
+  /** Step-up verification ahead of `setPassword` — mails a 6-digit code. Returns whether it was
+   *  acknowledged (network/unexpected failures only; the backend's own ack is always "success"
+   *  whether or not a fresh code actually went out, to avoid leaking cooldown state). */
+  requestSetPasswordOtp: () => Promise<boolean>;
   /** For an account with no password yet — flips `profile.hasPassword` to true on success, so the
    *  form swaps to the normal change-password one without a reload. */
-  setPassword: (newPassword: string) => Promise<boolean>;
+  setPassword: (newPassword: string, otp: string) => Promise<boolean>;
 }
 
 export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
@@ -77,14 +81,34 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
     [t, changePasswordMutation],
   );
 
+  const requestSetPasswordOtpMutation = useMutation({
+    mutationFn: () => TenantOwnerProfileService.requestSetPasswordOtp(),
+  });
+
+  const requestSetPasswordOtp = useCallback(async () => {
+    try {
+      await requestSetPasswordOtpMutation.mutateAsync();
+      toast.success(t("otpSent"));
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError && error.statusCode === 400) {
+        toast.error(error.message);
+      } else {
+        toast.error(t("updateFailed"));
+      }
+      return false;
+    }
+  }, [t, requestSetPasswordOtpMutation]);
+
   const setPasswordMutation = useMutation({
-    mutationFn: (newPassword: string) => TenantOwnerProfileService.setPassword(newPassword),
+    mutationFn: ({ newPassword, otp }: { newPassword: string; otp: string }) =>
+      TenantOwnerProfileService.setPassword(newPassword, otp),
   });
 
   const setPassword = useCallback(
-    async (newPassword: string) => {
+    async (newPassword: string, otp: string) => {
       try {
-        await setPasswordMutation.mutateAsync(newPassword);
+        await setPasswordMutation.mutateAsync({ newPassword, otp });
         queryClient.setQueryData<TenantOwnerProfile>(tenantOwnerProfileQueryKey, (current) =>
           current ? { ...current, hasPassword: true } : current,
         );
@@ -107,6 +131,7 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
     isLoading: profileQuery.isLoading,
     updateAvatar,
     changePassword,
+    requestSetPasswordOtp,
     setPassword,
   };
 }

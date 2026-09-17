@@ -4,13 +4,14 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Length, Max, Min } from 'class-validator';
 
-export const REVIEWS_PAGE_SIZE_DEFAULT = 20;
-export const REVIEWS_PAGE_SIZE_MAX = 100;
+import { REVIEWS_PAGE_SIZE_DEFAULT, REVIEWS_PAGE_SIZE_MAX } from '../constants/reviews.constants';
 
 export class ListReviewsQueryDto {
   @ApiPropertyOptional({ example: ReviewStatus.IN_REVIEW, enum: ReviewStatus })
   @IsOptional()
-  @IsEnum(ReviewStatus)
+  @IsEnum(ReviewStatus, {
+    message: `status must be one of: ${Object.values(ReviewStatus).join(', ')}`,
+  })
   status?: ReviewStatus;
 
   @ApiPropertyOptional({
@@ -20,7 +21,9 @@ export class ListReviewsQueryDto {
       'The frontend\'s "unclassified" is NOT a valid value here — it has no column behind it.',
   })
   @IsOptional()
-  @IsEnum(ReviewClassification)
+  @IsEnum(ReviewClassification, {
+    message: `classification must be one of: ${Object.values(ReviewClassification).join(', ')}`,
+  })
   classification?: ReviewClassification;
 
   @ApiPropertyOptional({

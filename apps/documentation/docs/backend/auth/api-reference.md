@@ -544,6 +544,8 @@ Success `200`:
 | `POST` | `/v1/auth/forgot-password` | Public | 5 / min |
 | `POST` | `/v1/auth/reset-password` | Public | 5 / min |
 | `POST` | `/v1/auth/change-password` | Bearer | 5 / min |
+| `POST` | `/v1/auth/set-password/request-otp` | Bearer | 5 / min |
+| `POST` | `/v1/auth/set-password` | Bearer | 5 / min |
 
 #### `POST /v1/auth/verify-email`
 
@@ -572,8 +574,13 @@ distinguishing "this code existed once" from "this code never existed."
 > **Not implemented.** Neither this route nor `/v1/auth/reset-password` exists in
 > `AuthController`, and `ForgotPasswordDto` / `ResetPasswordDto` do not exist either. There is
 > therefore **no password-recovery path today**: an owner who forgets their password and has no
-> Google identity cannot regain access. `TokenPurpose.RESET` is reserved in the DB enum for this.
-> The contract below is the intended design, kept as the spec to build against.
+> Google identity cannot regain access. `TokenPurpose.RESET` is reserved in the DB enum for this,
+> and **stays** reserved — the superficially similar
+> [`set-password`](#post-v1authset-password) step-up OTP has its own `set_password` purpose
+> precisely so this public route and that authenticated one can never redeem each other's codes.
+> Whichever commit builds this must also add `reset` to `PURGEABLE_OTP_PURPOSES`, or its spent
+> rows will never be cleaned up. The contract below is the intended design, kept as the spec to
+> build against.
 
 Request: `{ "email": "jane@thecoffeehouse.com" }` (existing `ForgotPasswordDto`).
 
@@ -647,9 +654,75 @@ Success `200`:
 
 Errors: `401 INVALID_CURRENT_PASSWORD` (`currentPassword` didn't match), `400 NO_PASSWORD_SET`
 (SSO-only user with `password_hash IS NULL` — this endpoint isn't how such a user sets an
-initial password; that would be a separate "set password" flow, not modeled here), `403` when
+initial password; that is [`POST /v1/auth/set-password`](#post-v1authset-password)), `403` when
 the bearer is a platform-admin token (this route is tenant-user only), `400` validation, `401`
 missing/expired access token.
+
+#### `POST /v1/auth/set-password/request-otp`
+
+Bearer, tenant user only. Throttle 5 / minute. No request body — the account is taken from the
+access token. Mails a 6-digit code to that account's own address and stores its sha256 in
+`password_reset_tokens` with `purpose = 'set_password'`, upserted on `(user_id, purpose)` so
+issuing a new code replaces the live one.
+
+This exists because [`set-password`](#post-v1authset-password) has no current password to demand
+as proof. Without a second factor, a **stolen access token alone** would be enough to turn a
+15-minute credential into a permanent one on any Google-only account — the exact conversion
+`TokenService`'s own doc comment says no route may perform. Requiring a code that only the
+mailbox owner can read restores that boundary.
+
+`purpose = 'set_password'` is deliberately **not** `'reset'`, which stays reserved for the
+unbuilt public [forgot-password](#post-v1authforgot-password) route: one shared value would make
+the two flows overwrite each other's live token on the `(user_id, purpose)` unique index, and
+would let a code minted here — behind a bearer token — satisfy a consume from that
+*unauthenticated* route, and vice versa.
+
+Response `200` is a uniform acknowledgement whether or not a fresh code actually went out — a
+send inside the per-email cooldown (`OTP_RESEND_COOLDOWN_SECONDS`) is skipped silently, and the
+previously-issued code remains valid, so the message holds either way:
+
+```json
+{ "message": "Verification code sent. Check your email to continue." }
+```
+
+Errors: `400 PASSWORD_ALREADY_SET` (the account already has a password — use
+[`change-password`](#post-v1authchange-password)), `403` platform-admin token, `401`
+missing/expired access token.
+
+#### `POST /v1/auth/set-password`
+
+Bearer, tenant user only. Throttle 5 / minute. Backs Settings → Profile → Add password, shown
+instead of the change-password form when `hasPassword` is false.
+
+Request (`SetPasswordDto`):
+
+```json
+{
+  "newPassword": "NewStr0ng@Pass",
+  "otp": "482913"
+}
+```
+
+| Field | Type | Rules |
+|---|---|---|
+| `newPassword` | string | required, same rules as [`POST /v1/auth/signup`](#post-v1authsignup)'s `password` (8–128 chars, `PASSWORD_PATTERN`). |
+| `otp` | string | required, exactly 6 digits — from [`set-password/request-otp`](#post-v1authset-passwordrequest-otp). |
+
+The per-account OTP attempt budget is spent **before** the code is compared (same shape as
+[`verify-email`](#post-v1authverify-email)), so an exhausted account cannot be probed for the
+code at all. The code is then consumed compare-and-swap — `used_at IS NULL AND expires_at > now()`
+lives in the `WHERE` of the same `UPDATE` that spends it, so two concurrent submissions cannot
+both succeed. Only then is the password hashed and written.
+
+On success, identical to [`change-password`](#post-v1authchange-password): one transaction writes
+`users.password_hash` and revokes every refresh token for that user, then a fresh pair is issued
+so the calling tab stays signed in. Body is the same `TokenResponseDto`; envelope `message` is
+`Password set. You can now sign in with a password too.`
+
+Errors: `400 PASSWORD_ALREADY_SET`, `400 INVALID_OR_EXPIRED_OTP` (wrong, already-used, or expired
+code — one message for all three, per [Security
+considerations](#security-considerations)), `429 TOO_MANY_OTP_ATTEMPTS`, `403` platform-admin
+token, `400` validation, `401` missing/expired access token.
 
 ### Team / invite
 

@@ -6,12 +6,12 @@ import { Test } from '@nestjs/testing';
 import { AuthDbService } from './auth.db-service';
 import { AuthRepository } from './auth.repository';
 
-import { PromptsRepository } from '../prompts/prompts.repository';
+import { PromptsDbService } from '../prompts/prompts.db-service';
 
 describe('AuthDbService', () => {
   let target: AuthDbService;
   let authRepository: jest.Mocked<AuthRepository>;
-  let promptsRepository: jest.Mocked<PromptsRepository>;
+  let promptsDbService: jest.Mocked<PromptsDbService>;
   const tx = {} as never;
 
   beforeEach(async () => {
@@ -31,20 +31,20 @@ describe('AuthDbService', () => {
       insertRefreshToken: jest.fn(),
       revokeRefreshToken: jest.fn(),
       revokeAllRefreshTokensForUser: jest.fn(),
-      deleteStaleVerifyEmailTokens: jest.fn(),
+      deleteStaleOtpTokens: jest.fn(),
       deleteStaleRefreshTokens: jest.fn(),
       transaction: jest.fn((fn: (tx: never) => unknown) => fn(tx)),
     } as unknown as jest.Mocked<AuthRepository>;
 
-    promptsRepository = {
+    promptsDbService = {
       insertDefaultsForTenant: jest.fn(),
-    } as unknown as jest.Mocked<PromptsRepository>;
+    } as unknown as jest.Mocked<PromptsDbService>;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthDbService,
         { provide: AuthRepository, useValue: authRepository },
-        { provide: PromptsRepository, useValue: promptsRepository },
+        { provide: PromptsDbService, useValue: promptsDbService },
       ],
     }).compile();
 
@@ -111,7 +111,7 @@ describe('AuthDbService', () => {
         expiresAt: input.tokenExpiresAt.toISOString(),
       });
       // Provisioning waits for verification — this tenant may never activate.
-      expect(promptsRepository.insertDefaultsForTenant).not.toHaveBeenCalled();
+      expect(promptsDbService.insertDefaultsForTenant).not.toHaveBeenCalled();
     });
 
     it('returns null when a concurrent signup wins the idx_users_email_active race after the pre-check passed', async () => {
@@ -177,15 +177,15 @@ describe('AuthDbService', () => {
   });
 
   it('purgeStaleTokens deletes both stale sets in one transaction and reports the counts', async () => {
-    authRepository.deleteStaleVerifyEmailTokens.mockResolvedValue(3);
+    authRepository.deleteStaleOtpTokens.mockResolvedValue(3);
     authRepository.deleteStaleRefreshTokens.mockResolvedValue(12);
 
     await expect(target.purgeStaleTokens()).resolves.toEqual({
-      verifyEmailTokens: 3,
+      otpTokens: 3,
       refreshTokens: 12,
     });
     expect(authRepository.transaction).toHaveBeenCalledTimes(1);
-    expect(authRepository.deleteStaleVerifyEmailTokens).toHaveBeenCalledWith(tx);
+    expect(authRepository.deleteStaleOtpTokens).toHaveBeenCalledWith(tx);
     expect(authRepository.deleteStaleRefreshTokens).toHaveBeenCalledWith(tx);
   });
 
@@ -204,7 +204,10 @@ describe('AuthDbService', () => {
     it('returns null when no user exists at that email', async () => {
       authRepository.findUserByEmail.mockResolvedValue(null);
 
-      const result = await target.verifyEmail('jane@thecoffeehouse.com', 'code-hash');
+      const result = await target.verifyEmail({
+        email: 'jane@thecoffeehouse.com',
+        tokenHash: 'code-hash',
+      });
 
       expect(result).toBeNull();
       expect(authRepository.transaction).not.toHaveBeenCalled();
@@ -213,7 +216,7 @@ describe('AuthDbService', () => {
     it('returns null when the account is not pending_verification', async () => {
       authRepository.findUserByEmail.mockResolvedValue({ ...user, status: UserStatus.ACTIVE });
 
-      const result = await target.verifyEmail(user.email, 'code-hash');
+      const result = await target.verifyEmail({ email: user.email, tokenHash: 'code-hash' });
 
       expect(result).toBeNull();
       expect(authRepository.transaction).not.toHaveBeenCalled();
@@ -223,11 +226,11 @@ describe('AuthDbService', () => {
       authRepository.findUserByEmail.mockResolvedValue(user);
       authRepository.consumeVerifyEmailToken.mockResolvedValue(false);
 
-      const result = await target.verifyEmail(user.email, 'code-hash');
+      const result = await target.verifyEmail({ email: user.email, tokenHash: 'code-hash' });
 
       expect(result).toBeNull();
       expect(authRepository.activateUser).not.toHaveBeenCalled();
-      expect(promptsRepository.insertDefaultsForTenant).not.toHaveBeenCalled();
+      expect(promptsDbService.insertDefaultsForTenant).not.toHaveBeenCalled();
     });
 
     it("provisions the tenant's default prompts in the same transaction as activation", async () => {
@@ -235,9 +238,9 @@ describe('AuthDbService', () => {
       authRepository.consumeVerifyEmailToken.mockResolvedValue(true);
       authRepository.activateUser.mockResolvedValue(true);
 
-      await target.verifyEmail(user.email, 'code-hash');
+      await target.verifyEmail({ email: user.email, tokenHash: 'code-hash' });
 
-      expect(promptsRepository.insertDefaultsForTenant).toHaveBeenCalledWith(tx, user.tenantId);
+      expect(promptsDbService.insertDefaultsForTenant).toHaveBeenCalledWith(tx, user.tenantId);
       expect(authRepository.transaction).toHaveBeenCalledTimes(1);
     });
 
@@ -246,7 +249,7 @@ describe('AuthDbService', () => {
       authRepository.consumeVerifyEmailToken.mockResolvedValue(true);
       authRepository.activateUser.mockResolvedValue(true);
 
-      await target.verifyEmail(user.email, 'code-hash');
+      await target.verifyEmail({ email: user.email, tokenHash: 'code-hash' });
 
       expect(authRepository.activateTenant).toHaveBeenCalledWith(tx, user.tenantId);
     });
@@ -256,9 +259,9 @@ describe('AuthDbService', () => {
       authRepository.consumeVerifyEmailToken.mockResolvedValue(true);
       authRepository.activateUser.mockResolvedValue(false);
 
-      await target.verifyEmail(user.email, 'code-hash');
+      await target.verifyEmail({ email: user.email, tokenHash: 'code-hash' });
 
-      expect(promptsRepository.insertDefaultsForTenant).not.toHaveBeenCalled();
+      expect(promptsDbService.insertDefaultsForTenant).not.toHaveBeenCalled();
     });
 
     it('returns null when the code consumes but activation guard blocks it', async () => {
@@ -266,7 +269,7 @@ describe('AuthDbService', () => {
       authRepository.consumeVerifyEmailToken.mockResolvedValue(true);
       authRepository.activateUser.mockResolvedValue(false);
 
-      const result = await target.verifyEmail(user.email, 'code-hash');
+      const result = await target.verifyEmail({ email: user.email, tokenHash: 'code-hash' });
 
       expect(result).toBeNull();
     });
@@ -276,7 +279,7 @@ describe('AuthDbService', () => {
       authRepository.consumeVerifyEmailToken.mockResolvedValue(true);
       authRepository.activateUser.mockResolvedValue(true);
 
-      const result = await target.verifyEmail(user.email, 'code-hash');
+      const result = await target.verifyEmail({ email: user.email, tokenHash: 'code-hash' });
 
       expect(result).toEqual({
         id: user.id,
@@ -297,7 +300,11 @@ describe('AuthDbService', () => {
   });
 
   it('putVerifyEmailToken wraps the repository call in a transaction', async () => {
-    await target.putVerifyEmailToken('user-1', 'hash', '2026-01-01T00:00:00Z');
+    await target.putVerifyEmailToken({
+      userId: 'user-1',
+      tokenHash: 'hash',
+      expiresAt: '2026-01-01T00:00:00Z',
+    });
 
     expect(authRepository.putVerifyEmailToken).toHaveBeenCalledWith(tx, {
       userId: 'user-1',
@@ -314,7 +321,7 @@ describe('AuthDbService', () => {
   });
 
   it('updatePasswordAndRevokeSessions writes the hash and revokes sessions in one transaction', async () => {
-    await target.updatePasswordAndRevokeSessions('user-1', 'new-hash');
+    await target.updatePasswordAndRevokeSessions({ userId: 'user-1', passwordHash: 'new-hash' });
 
     expect(authRepository.updatePasswordHash).toHaveBeenCalledWith(tx, {
       userId: 'user-1',

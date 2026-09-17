@@ -1,3 +1,5 @@
+import type { PromptToneValue } from '../constants/prompts.constants';
+
 export type PromptCategory = 'escalated' | 'neutral' | 'positive';
 export type PromptTone = 'empathetic' | 'formal' | 'friendly' | 'playful' | 'professional';
 
@@ -40,4 +42,19 @@ export interface AppendedPromptVersion {
   createdAt: Date;
   createdByUserId: string | null;
   createdByName: string | null;
+}
+
+/** Groups `PromptsRepository`/`PromptsDbService`'s `updateTone` trailing scalars (rule 12). */
+export interface UpdatePromptToneInput {
+  promptId: string;
+  tenantId: string;
+  tone: PromptToneValue;
+}
+
+/** Groups `PromptsRepository`/`PromptsDbService`'s `appendVersion` trailing scalars (rule 12). */
+export interface AppendPromptVersionInput {
+  promptId: string;
+  tenantId: string;
+  template: string;
+  createdByUserId: string | null;
 }

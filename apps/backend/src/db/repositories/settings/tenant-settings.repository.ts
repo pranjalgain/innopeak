@@ -1,5 +1,5 @@
 import { DBService } from '@db/db.service';
-import { tenantSettings } from '@db/drizzle/schema';
+import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 
@@ -15,15 +15,15 @@ export class TenantSettingsRepository {
   async findByTenant(tenantId: string): Promise<TenantSettingsRecord | null> {
     const rows = await this.dbService.db
       .select({
-        id: tenantSettings.id,
-        escalationRatingThreshold: tenantSettings.escalationRatingThreshold,
-        autoPostEnabled: tenantSettings.autoPostEnabled,
-        reviewDataRetentionMonths: tenantSettings.reviewDataRetentionMonths,
-        aiReplyCount: tenantSettings.aiReplyCount,
-        updatedAt: tenantSettings.updatedAt,
+        id: schema.tenantSettings.id,
+        escalationRatingThreshold: schema.tenantSettings.escalationRatingThreshold,
+        autoPostEnabled: schema.tenantSettings.autoPostEnabled,
+        reviewDataRetentionMonths: schema.tenantSettings.reviewDataRetentionMonths,
+        aiReplyCount: schema.tenantSettings.aiReplyCount,
+        updatedAt: schema.tenantSettings.updatedAt,
       })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.tenantId, tenantId))
+      .from(schema.tenantSettings)
+      .where(eq(schema.tenantSettings.tenantId, tenantId))
       .limit(1);
 
     const row = rows[0];
@@ -35,7 +35,7 @@ export class TenantSettingsRepository {
     write: TenantSettingsWrite
   ): Promise<TenantSettingsRecord | null> {
     const rows = await this.dbService.db
-      .update(tenantSettings)
+      .update(schema.tenantSettings)
       .set({
         escalationRatingThreshold: write.escalationRatingThreshold,
         autoPostEnabled: write.autoPostEnabled,
@@ -43,14 +43,14 @@ export class TenantSettingsRepository {
         aiReplyCount: write.aiReplyCount,
         updatedAt: sql`now()`,
       })
-      .where(eq(tenantSettings.tenantId, tenantId))
+      .where(eq(schema.tenantSettings.tenantId, tenantId))
       .returning({
-        id: tenantSettings.id,
-        escalationRatingThreshold: tenantSettings.escalationRatingThreshold,
-        autoPostEnabled: tenantSettings.autoPostEnabled,
-        reviewDataRetentionMonths: tenantSettings.reviewDataRetentionMonths,
-        aiReplyCount: tenantSettings.aiReplyCount,
-        updatedAt: tenantSettings.updatedAt,
+        id: schema.tenantSettings.id,
+        escalationRatingThreshold: schema.tenantSettings.escalationRatingThreshold,
+        autoPostEnabled: schema.tenantSettings.autoPostEnabled,
+        reviewDataRetentionMonths: schema.tenantSettings.reviewDataRetentionMonths,
+        aiReplyCount: schema.tenantSettings.aiReplyCount,
+        updatedAt: schema.tenantSettings.updatedAt,
       });
 
     const row = rows[0];
@@ -59,9 +59,9 @@ export class TenantSettingsRepository {
 
   async findEscalationRatingThreshold(tenantId: string): Promise<number | null> {
     const rows = await this.dbService.db
-      .select({ threshold: tenantSettings.escalationRatingThreshold })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.tenantId, tenantId))
+      .select({ threshold: schema.tenantSettings.escalationRatingThreshold })
+      .from(schema.tenantSettings)
+      .where(eq(schema.tenantSettings.tenantId, tenantId))
       .limit(1);
 
     return rows[0]?.threshold ?? null;
@@ -69,9 +69,9 @@ export class TenantSettingsRepository {
 
   async findAutoPostEnabled(tenantId: string): Promise<boolean | null> {
     const rows = await this.dbService.db
-      .select({ autoPostEnabled: tenantSettings.autoPostEnabled })
-      .from(tenantSettings)
-      .where(eq(tenantSettings.tenantId, tenantId))
+      .select({ autoPostEnabled: schema.tenantSettings.autoPostEnabled })
+      .from(schema.tenantSettings)
+      .where(eq(schema.tenantSettings.tenantId, tenantId))
       .limit(1);
 
     return rows[0]?.autoPostEnabled ?? null;

@@ -3,6 +3,16 @@
 -- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
 -- Target: PostgreSQL 18 (uses native uuidv7() for all domain-table primary keys)
 --
+-- ⚠ RECREATE YOUR DATABASE AFTER PULLING A CHANGE TO THIS FILE.
+-- Per the repo convention this file is edited in place rather than followed by an ALTER
+-- migration, and drizzle's migrator walks meta/_journal.json by timestamp and never re-reads a
+-- file it has already applied. On an existing database `pnpm db:migrate` therefore reports
+-- success and changes nothing — silently. The `set_password` member added to `token_purpose`
+-- below is written by POST /v1/auth/set-password/request-otp, so a stale database does not fail
+-- at migrate time; it fails at runtime with
+-- `invalid input value for enum token_purpose: "set_password"` the first time a Google-only
+-- account tries to add a password. Run `pnpm backend:down && pnpm backend:up && pnpm db:migrate`.
+--
 -- First of six migrations that together make up the full InnoPeak schema (applied in this
 -- numeric order — each later file only references tables/enums already created by an
 -- earlier one, no forward references, no ALTER TABLE anywhere in this set):
@@ -42,7 +52,11 @@ CREATE TYPE tenant_identity_provider AS ENUM ('entra_id', 'google_workspace');
 CREATE TYPE user_identity_provider AS ENUM ('entra_id', 'google');
 CREATE TYPE user_role AS ENUM ('owner', 'member');
 CREATE TYPE user_status AS ENUM ('pending_verification', 'invited', 'active', 'disabled');
-CREATE TYPE token_purpose AS ENUM ('verify_email', 'invite', 'reset');
+-- `set_password` is deliberately distinct from `reset`: `reset` is reserved for the (unbuilt)
+-- public forgot-password flow, and sharing one value would let a code minted by the
+-- authenticated set-password flow be redeemed by that public route — and make the
+-- one-row-per-(user, purpose) upsert silently clobber whichever token was issued first.
+CREATE TYPE token_purpose AS ENUM ('verify_email', 'invite', 'reset', 'set_password');
 CREATE TYPE platform_admin_status AS ENUM ('invited', 'active', 'disabled');
 CREATE TYPE platform_admin_invite_purpose AS ENUM ('invite', 'reset');
 CREATE TYPE review_provider AS ENUM ('google');
