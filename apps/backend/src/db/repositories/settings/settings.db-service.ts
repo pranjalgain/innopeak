@@ -3,7 +3,11 @@ import { Injectable } from '@nestjs/common';
 import { BlocklistTermsRepository } from './blocklist-terms.repository';
 import { TenantSettingsRepository } from './tenant-settings.repository';
 
-import type { BlocklistTermRecord } from '../../../api/settings/types/blocklist-term.type';
+import type {
+  BlocklistTermRecord,
+  CreateBlocklistTermInput,
+  DeleteBlocklistTermInput,
+} from '../../../api/settings/types/blocklist-term.type';
 import type {
   TenantSettingsRecord,
   TenantSettingsWrite,
@@ -20,12 +24,12 @@ export class SettingsDbService {
     return this.blocklistTermsRepository.listByTenant(tenantId);
   }
 
-  async insertBlocklistTerm(tenantId: string, term: string): Promise<BlocklistTermRecord | null> {
-    return this.blocklistTermsRepository.insertTerm(tenantId, term);
+  async insertBlocklistTerm(input: CreateBlocklistTermInput): Promise<BlocklistTermRecord | null> {
+    return this.blocklistTermsRepository.insertTerm(input);
   }
 
-  async deleteBlocklistTerm(id: string, tenantId: string): Promise<boolean> {
-    return this.blocklistTermsRepository.deleteForTenant(id, tenantId);
+  async deleteBlocklistTerm(input: DeleteBlocklistTermInput): Promise<boolean> {
+    return this.blocklistTermsRepository.deleteForTenant(input);
   }
 
   async findTenantSettings(tenantId: string): Promise<TenantSettingsRecord | null> {

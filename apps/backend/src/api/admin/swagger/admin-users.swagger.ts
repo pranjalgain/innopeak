@@ -3,6 +3,17 @@ import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 import { AdminUserResponseDto } from '../dto/admin-user-response.dto';
 
+const ADMIN_USER_EXAMPLE = {
+  id: '0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f',
+  businessId: '0190f3aa-2a3e-7c1a-9b1e-8f2a1c3d4e5f',
+  businessName: 'The Coffee House',
+  name: 'Jane Doe',
+  email: 'jane@thecoffeehouse.com',
+  role: 'owner',
+  isActive: true,
+  lastLoginAt: '2026-03-01T09:12:00.000Z',
+};
+
 export function ApiListAdminUsers(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
     ApiBearerAuth(),
@@ -12,7 +23,11 @@ export function ApiListAdminUsers(): ReturnType<typeof applyDecorators> {
         'Platform-admin only. No pagination/filter params yet — the console does its own ' +
         'client-side paging over the full list.',
     }),
-    ApiResponse({ status: HttpStatus.OK, type: [AdminUserResponseDto] }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      type: [AdminUserResponseDto],
+      examples: { default: { summary: 'Admin user list', value: [ADMIN_USER_EXAMPLE] } },
+    }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
   );
@@ -29,7 +44,13 @@ export function ApiToggleAdminUserActive(): ReturnType<typeof applyDecorators> {
         "before — 'active' if their email was ever verified, otherwise 'pending_verification', so " +
         'disabling an unverified signup never doubles as verifying them.',
     }),
-    ApiResponse({ status: HttpStatus.OK, type: AdminUserResponseDto }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      type: AdminUserResponseDto,
+      examples: {
+        default: { summary: 'User disabled', value: { ...ADMIN_USER_EXAMPLE, isActive: false } },
+      },
+    }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' }),
     ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'No such user' })

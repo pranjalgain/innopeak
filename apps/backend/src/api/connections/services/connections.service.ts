@@ -11,10 +11,7 @@ import {
   ConnectionsDbService,
   LocationLimitExceededError,
 } from '@db/repositories/connections/connections.db-service';
-import type {
-  LocationRow,
-  ProviderConnectionRow,
-} from '@db/repositories/connections/connections.repository';
+import type { ProviderConnectionRow } from '@db/repositories/connections/connections.repository';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import {
   BadGatewayException,
@@ -50,22 +47,12 @@ import type {
   ConnectionStatusResponseDto,
   DisconnectResponseDto,
   LocationDto,
+  LocationListResponseDto,
 } from '../dto/connection-response.dto';
 import { ConnectionState } from '../enums/connection-state.enum';
 import { ReturnTo } from '../enums/return-to.enum';
-
-export interface AuthorizeResult {
-  authorizationUrl: string;
-  /** Set as the browser-binding cookie by the controller. */
-  sid: string;
-}
-
-export interface CallbackInput {
-  code?: string | undefined;
-  state?: string | undefined;
-  error?: string | undefined;
-  sid?: string | undefined;
-}
+import type { AuthorizeResult, CallbackInput } from '../types/connections.type';
+import { hasRequiredOAuthScope, toLocationDto } from '../utils/connections.utils';
 
 @Injectable()
 export class ConnectionsService {
@@ -223,7 +210,7 @@ export class ConnectionsService {
       // gate on, and Google lets a user untick it at the consent screen — the grant then succeeds
       // and produces a connection that authorizes but cannot read a single review. Catching it
       // here names the actual problem instead of surfacing a 403 later as "reconnect".
-      if (!this.hasRequiredScope(tokens.scope)) {
+      if (!hasRequiredOAuthScope(tokens.scope)) {
         this.logger.warn(
           `Tenant ${record.tenantId} granted scopes [${tokens.scope ?? ''}] without ${GOOGLE_OAUTH.SCOPES.join(' ')}.`
         );
@@ -311,7 +298,7 @@ export class ConnectionsService {
   async listLocations(input: {
     user: AuthUser;
     status?: LocationStatus | undefined;
-  }): Promise<LocationDto[]> {
+  }): Promise<LocationListResponseDto> {
     // Only `.id` is read below, which exists on every AuthUser variant — but `user_locations` is
     // a tenant-user table, so a platform admin's id would just look up nothing. Narrowing here
     // keeps that failure a clear 403 instead of a silently empty list.
@@ -321,7 +308,7 @@ export class ConnectionsService {
       input.status
     );
 
-    return locations.map(location => this.toLocationDto(location));
+    return { locations: locations.map(location => toLocationDto(location)) };
   }
 
   /**
@@ -411,7 +398,7 @@ export class ConnectionsService {
 
     return {
       locations: results.map(result => ({
-        ...this.toLocationDto(result.location),
+        ...toLocationDto(result.location),
         backfill: result.backfill
           ? {
               syncRunId: result.backfill.id,
@@ -457,9 +444,9 @@ export class ConnectionsService {
       });
     }
 
-    await this.authDbService.setActiveLocationId(tenantId, location.id);
+    await this.authDbService.setActiveLocationId({ tenantId, locationId: location.id });
 
-    return this.toLocationDto(location);
+    return toLocationDto(location);
   }
 
   /**
@@ -485,7 +472,7 @@ export class ConnectionsService {
     // business the tenant no longer has. Nothing breaks today — `getConnectionStatus` is its only
     // reader and falls back to the first active location — but a reconnect that confirms a
     // different set of locations would otherwise inherit a pointer into the old, deactivated one.
-    await this.authDbService.setActiveLocationId(tenantId, null);
+    await this.authDbService.setActiveLocationId({ tenantId, locationId: null });
 
     const credentialRevoked = await this.credentialService.revokeAndDelete(
       connection.credentialReference
@@ -562,19 +549,6 @@ export class ConnectionsService {
         code: CONNECTION_ERROR_CODES.BACKFILL_ENQUEUE_FAILED,
       });
     }
-  }
-
-  /**
-   * A token response with no `scope` field is accepted: Google only omits it when every requested
-   * scope was granted, so absence is not the same signal as a list that lacks `business.manage`.
-   */
-  private hasRequiredScope(granted: string | undefined): boolean {
-    if (!granted) {
-      return true;
-    }
-
-    const grantedScopes = new Set(granted.split(' '));
-    return GOOGLE_OAUTH.SCOPES.every(scope => grantedScopes.has(scope));
   }
 
   /**
@@ -684,23 +658,6 @@ export class ConnectionsService {
         code: CONNECTION_ERROR_CODES.PROVIDER_UNAVAILABLE,
       });
     }
-  }
-
-  private toLocationDto(location: LocationRow): LocationDto {
-    return {
-      id: location.id,
-      connectionId: location.providerConnectionId,
-      provider: location.provider,
-      externalLocationId: location.externalLocationId,
-      name: location.name,
-      address: location.address,
-      status: location.status,
-      lastSyncedAt: location.lastSyncedAt,
-      lastSyncStatus: location.lastSyncStatus,
-      lastSyncError: location.lastSyncError,
-      onboardingBackfillCompletedAt: location.onboardingBackfillCompletedAt,
-      createdAt: location.createdAt,
-    };
   }
 
   private redirectWithSuccess(returnTo: ReturnTo): string {

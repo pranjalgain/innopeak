@@ -49,6 +49,29 @@ describe('DeadLetterQueueService', () => {
       );
     });
 
+    /**
+     * The regression this guards: a failed OTP email job used to sit in the DLQ (days-long
+     * retention) with the plaintext, still-live OTP in `originalJobData` — a real credential
+     * leaking into a longer-retention, lower-scrutiny queue than the one it failed out of.
+     */
+    it('redacts a plaintext otp field before publishing to the DLQ', async () => {
+      queuePublisher.publish.mockResolvedValue(undefined);
+      const otpJobData: IDLQFailedJobData = {
+        ...data,
+        originalJobData: { email: 'user@example.com', customerName: 'Jane', otp: '482913' },
+      };
+
+      await target.addFailedJobToDLQ(otpJobData);
+
+      expect(queuePublisher.publish).toHaveBeenCalledWith(
+        QueueName.DEAD_LETTER,
+        JobName.DLQ_FAILED_JOB,
+        expect.objectContaining({
+          originalJobData: { email: 'user@example.com', customerName: 'Jane', otp: '[redacted]' },
+        })
+      );
+    });
+
     it('propagates the error when the queue add call rejects', async () => {
       const error = new Error('Redis connection lost');
       queuePublisher.publish.mockRejectedValue(error);

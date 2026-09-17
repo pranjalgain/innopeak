@@ -1,6 +1,7 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth-user.type';
+import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { HashingService } from '@common/hashing/hashing.service';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
@@ -301,13 +302,17 @@ describe('AdminSettingsService', () => {
         status: PlatformAdminStatus.DISABLED,
       });
 
-      const result = await target.setAdminStatus(admin, 'admin-2', false);
+      const result = await target.setAdminStatus(admin, {
+        targetAdminId: 'admin-2',
+        enabled: false,
+      });
 
-      expect(platformAdminDbService.setStatusGuardingLastActive).toHaveBeenCalledWith(
-        'admin-2',
-        PlatformAdminStatus.DISABLED
-      );
-      expect(result.status).toBe(PlatformAdminStatus.DISABLED);
+      expect(platformAdminDbService.setStatusGuardingLastActive).toHaveBeenCalledWith({
+        id: 'admin-2',
+        status: PlatformAdminStatus.DISABLED,
+      });
+      expect(result.admin.status).toBe(PlatformAdminStatus.DISABLED);
+      expect(result.message).toBe(MESSAGES.ADMIN.ADMIN_DISABLED);
       expect(adminOverviewDbService.recordActivityBestEffort).toHaveBeenCalledWith({
         type: PlatformActivityType.ADMIN_DISABLED,
         actorPlatformAdminId: 'admin-1',
@@ -325,17 +330,21 @@ describe('AdminSettingsService', () => {
         status: PlatformAdminStatus.ACTIVE,
       });
 
-      await target.setAdminStatus(admin, 'admin-2', true);
+      const result = await target.setAdminStatus(admin, {
+        targetAdminId: 'admin-2',
+        enabled: true,
+      });
 
+      expect(result.message).toBe(MESSAGES.ADMIN.ADMIN_ENABLED);
       expect(adminOverviewDbService.recordActivityBestEffort).toHaveBeenCalledWith(
         expect.objectContaining({ type: PlatformActivityType.ADMIN_ENABLED })
       );
     });
 
     it('refuses to disable your own account (self-lockout)', async () => {
-      await expect(target.setAdminStatus(admin, 'admin-1', false)).rejects.toThrow(
-        BadRequestException
-      );
+      await expect(
+        target.setAdminStatus(admin, { targetAdminId: 'admin-1', enabled: false })
+      ).rejects.toThrow(BadRequestException);
       expect(platformAdminDbService.setStatusGuardingLastActive).not.toHaveBeenCalled();
     });
 
@@ -351,17 +360,17 @@ describe('AdminSettingsService', () => {
         outcome: 'last_active',
       });
 
-      await expect(target.setAdminStatus(admin, 'admin-2', false)).rejects.toThrow(
-        BadRequestException
-      );
+      await expect(
+        target.setAdminStatus(admin, { targetAdminId: 'admin-2', enabled: false })
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('404s when the target admin does not exist', async () => {
       platformAdminDbService.findStatusById.mockResolvedValue(null);
 
-      await expect(target.setAdminStatus(admin, 'admin-2', false)).rejects.toThrow(
-        NotFoundException
-      );
+      await expect(
+        target.setAdminStatus(admin, { targetAdminId: 'admin-2', enabled: false })
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('404s when the target was deleted between the status read and the guarded write', async () => {
@@ -370,24 +379,24 @@ describe('AdminSettingsService', () => {
         outcome: 'not_found',
       });
 
-      await expect(target.setAdminStatus(admin, 'admin-2', false)).rejects.toThrow(
-        NotFoundException
-      );
+      await expect(
+        target.setAdminStatus(admin, { targetAdminId: 'admin-2', enabled: false })
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('409s when the target is still an unaccepted invite', async () => {
       platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.INVITED);
 
-      await expect(target.setAdminStatus(admin, 'admin-2', false)).rejects.toThrow(
-        ConflictException
-      );
+      await expect(
+        target.setAdminStatus(admin, { targetAdminId: 'admin-2', enabled: false })
+      ).rejects.toThrow(ConflictException);
       expect(platformAdminDbService.setStatusGuardingLastActive).not.toHaveBeenCalled();
     });
 
     it('rejects a tenant-user token', async () => {
-      await expect(target.setAdminStatus(tenantUser, 'admin-2', false)).rejects.toThrow(
-        ForbiddenException
-      );
+      await expect(
+        target.setAdminStatus(tenantUser, { targetAdminId: 'admin-2', enabled: false })
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 

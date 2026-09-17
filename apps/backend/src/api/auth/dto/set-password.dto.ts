@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsString, Length, Matches } from 'class-validator';
 
-import { PASSWORD_PATTERN } from '../constants/auth.constants';
+import { OTP_LENGTH, OTP_PATTERN, PASSWORD_PATTERN } from '../constants/auth.constants';
 
 export class SetPasswordDto {
   @ApiProperty({
@@ -19,4 +19,21 @@ export class SetPasswordDto {
       'newPassword must contain an uppercase letter, a lowercase letter, a digit, and a special character',
   })
   newPassword!: string;
+
+  @ApiProperty({
+    example: '482913',
+    minLength: OTP_LENGTH,
+    maxLength: OTP_LENGTH,
+    pattern: OTP_PATTERN.source,
+    description:
+      'The 6-digit code emailed to this account by POST /v1/auth/set-password/request-otp — ' +
+      'proof of live mailbox control, since an access token alone is not (see Security ' +
+      'considerations in the auth API reference).',
+  })
+  @IsString({ message: 'Enter the verification code.' })
+  @Length(OTP_LENGTH, OTP_LENGTH, {
+    message: `The verification code must be exactly ${OTP_LENGTH} digits.`,
+  })
+  @Matches(OTP_PATTERN, { message: `The verification code must be exactly ${OTP_LENGTH} digits.` })
+  otp!: string;
 }

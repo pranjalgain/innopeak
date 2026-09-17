@@ -4,7 +4,11 @@ import { BusinessStatus } from '@common/enums/business-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import { Injectable } from '@nestjs/common';
 
-import { AdminBusinessesRepository, type AdminBusinessRow } from './admin-businesses.repository';
+import {
+  AdminBusinessesRepository,
+  type AdminBusinessRow,
+  type SetBusinessStatusInput,
+} from './admin-businesses.repository';
 
 export interface AdminBusinessSummary {
   id: string;
@@ -32,12 +36,12 @@ export class AdminBusinessesDbService {
    * tenant was previously `pending_activation` or `active` — both collapse to the same
    * `BusinessStatus.ACTIVE` anyway, so there is nothing to preserve by branching on the prior value.
    */
-  async setStatus(tenantId: string, status: TenantStatus): Promise<AdminBusinessSummary | null> {
-    const updated = await this.adminBusinessesRepository.setStatus(tenantId, status);
+  async setStatus(input: SetBusinessStatusInput): Promise<AdminBusinessSummary | null> {
+    const updated = await this.adminBusinessesRepository.setStatus(input);
     if (!updated) {
       return null;
     }
-    const row = await this.adminBusinessesRepository.findById(tenantId);
+    const row = await this.adminBusinessesRepository.findById(input.tenantId);
     return row ? toSummary(row) : null;
   }
 }

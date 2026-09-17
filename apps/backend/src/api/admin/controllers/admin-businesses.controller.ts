@@ -49,7 +49,10 @@ export class AdminBusinessesController {
     @Param('tenantId', ParseUUIDPipe) tenantId: string,
     @Body() dto: UpdateBusinessStatusDto
   ): Promise<ApiResponseDto<AdminBusinessResponseDto>> {
-    const result = await this.adminBusinessesService.setStatus(user, tenantId, dto.status);
+    const result = await this.adminBusinessesService.setStatus(user, {
+      tenantId,
+      status: dto.status,
+    });
     return ResponseUtil.success(result, MESSAGES.ADMIN.BUSINESS_STATUS_UPDATED, HttpStatus.OK);
   }
 }

@@ -28,6 +28,7 @@ describe('EmailProcessor', () => {
       failedReason: undefined,
       stacktrace: [],
       attemptsMade: 1,
+      opts: { attempts: 1 },
       log: jest.fn().mockResolvedValue(1),
       ...overrides,
     }) as unknown as EmailJobHandle;
@@ -128,6 +129,36 @@ describe('EmailProcessor', () => {
       expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledWith(
         expect.objectContaining({ originalJobId: '' })
       );
+    });
+
+    /**
+     * The regression this guards: BullMQ fires `failed` after every failed attempt, not only the
+     * last one. A job configured for 3 attempts that fails once used to land in the DLQ on that
+     * first failure too — even though it goes on to retry and can still succeed — corrupting the
+     * DLQ's signal with failures that self-healed.
+     */
+    it('does not push to the DLQ when more retry attempts remain', async () => {
+      const job = buildJob({ attemptsMade: 1, opts: { attempts: 3 } });
+
+      await processor.onFailed(job);
+
+      expect(dlqService.addFailedJobToDLQ).not.toHaveBeenCalled();
+    });
+
+    it('pushes to the DLQ once the final retry attempt is exhausted', async () => {
+      const job = buildJob({ attemptsMade: 3, opts: { attempts: 3 } });
+
+      await processor.onFailed(job);
+
+      expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats a missing opts.attempts as a single-attempt job (terminal on first failure)', async () => {
+      const job = buildJob({ attemptsMade: 1, opts: {} });
+
+      await processor.onFailed(job);
+
+      expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -500,3 +500,65 @@ describe('ReviewSyncDbService.completeRun', () => {
     );
   });
 });
+
+describe('ReviewSyncDbService.findReviewForTenant', () => {
+  let service: ReviewSyncDbService;
+  const findReviewByIdForTenant = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: {} },
+        { provide: ReviewsReadRepository, useValue: { findReviewByIdForTenant } },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('passes the reviewId/tenantId pair through as a single named input', async () => {
+    findReviewByIdForTenant.mockResolvedValue(null);
+
+    await service.findReviewForTenant({ reviewId: 'review-1', tenantId: 'tenant-1' });
+
+    expect(findReviewByIdForTenant).toHaveBeenCalledWith({
+      reviewId: 'review-1',
+      tenantId: 'tenant-1',
+    });
+  });
+});
+
+describe('ReviewSyncDbService.findResponsesForReviews', () => {
+  let service: ReviewSyncDbService;
+  const findResponsesForReviews = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: {} },
+        { provide: ReviewsReadRepository, useValue: { findResponsesForReviews } },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('passes the reviewIds/tenantId pair through as a single named input', async () => {
+    findResponsesForReviews.mockResolvedValue([]);
+
+    await service.findResponsesForReviews({ reviewIds: ['review-1'], tenantId: 'tenant-1' });
+
+    expect(findResponsesForReviews).toHaveBeenCalledWith({
+      reviewIds: ['review-1'],
+      tenantId: 'tenant-1',
+    });
+  });
+});

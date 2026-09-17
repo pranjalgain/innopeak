@@ -42,6 +42,7 @@ export const messagesDe: MessageCatalog = {
       'Für dieses Konto ist bereits ein Passwort festgelegt. Verwenden Sie stattdessen die Funktion zum Ändern des Passworts.',
     PASSWORD_CHANGED: 'Passwort geändert. Andere Sitzungen werden abgemeldet.',
     PASSWORD_SET: 'Passwort festgelegt. Sie können sich jetzt auch mit einem Passwort anmelden.',
+    SET_PASSWORD_OTP_ACK: 'Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren.',
     LOCALE_UPDATED: 'Spracheinstellung aktualisiert.',
     TENANT_ONLY: 'Diese Aktion steht nur Mandantenbenutzern zur Verfügung.',
     GOOGLE_NOT_CONFIGURED:

@@ -14,19 +14,19 @@ import {
   REFRESH_REUSE_GRACE_SECONDS,
   REFRESH_TOKEN_BYTES,
   REFRESH_TOKEN_TTL_SECONDS,
-} from './constants/auth.constants';
-import { JwtTokenType } from './enums/jwt-token-type.enum';
-import { TenantStatus } from './enums/tenant-status.enum';
-import { UserRole } from './enums/user-role.enum';
-import { UserStatus } from './enums/user-status.enum';
-import { RefreshTokenSupersededException } from './errors/refresh-token.error';
+} from '../constants/auth.constants';
+import { JwtTokenType } from '../enums/jwt-token-type.enum';
+import { TenantStatus } from '../enums/tenant-status.enum';
+import { UserRole } from '../enums/user-role.enum';
+import { UserStatus } from '../enums/user-status.enum';
+import { RefreshTokenSupersededException } from '../errors/refresh-token.error';
 import {
   PlatformAdminJwtPayload,
   RefreshJwtPayload,
   TenantJwtPayload,
-} from './types/jwt-payload.type';
-import { TokenResponse } from './types/token-response.type';
-import { hashToken } from './utils/token.utils';
+} from '../types/jwt-payload.type';
+import { TokenResponse } from '../types/token-response.type';
+import { hashToken } from '../utils/token.utils';
 
 export interface TokenSubject {
   id: string;
@@ -41,6 +41,11 @@ export interface TokenSubject {
 export interface PlatformAdminTokenSubject {
   id: string;
   email: string;
+}
+
+interface SpentTokenInput {
+  revokedAt: string;
+  userId: string;
 }
 
 /** A signed pair plus what `refresh_tokens` needs to record it — separated from persisting so `rotate` can commit the insert atomically with the revoke. */
@@ -78,11 +83,11 @@ export class TokenService {
 
   async issueTokenPair(user: TokenSubject): Promise<TokenResponse> {
     const signed = this.signTokenPair(user);
-    await this.authDbService.insertRefreshToken(
-      user.id,
-      signed.refreshTokenHash,
-      signed.refreshExpiresAt
-    );
+    await this.authDbService.insertRefreshToken({
+      userId: user.id,
+      tokenHash: signed.refreshTokenHash,
+      expiresAt: signed.refreshExpiresAt,
+    });
 
     return signed.tokens;
   }
@@ -123,7 +128,7 @@ export class TokenService {
     }
 
     if (existing.revokedAt !== null) {
-      await this.handleSpentToken(existing.revokedAt, payload.sub);
+      await this.handleSpentToken({ revokedAt: existing.revokedAt, userId: payload.sub });
     }
 
     const stored = existing;
@@ -182,11 +187,15 @@ export class TokenService {
    *   again with credentials. Losing a session is the cheap outcome; leaving a thief holding a
    *   self-renewing 7-day chain is not.
    *
-   * Note the daily `purgeStaleTokens` cron deletes revoked rows, so a replay more than a day late
-   * finds no row and lands in the "session gone" branch above instead — the same 401, just without
-   * the family revoke. Detection covers the window in which a stolen token is actually useful.
+   * Note the daily `purgeStaleTokens` cron eventually deletes revoked rows too — not immediately
+   * on revocation, but only once a row has been revoked for at least
+   * `REFRESH_TOKEN_REVOKED_RETENTION_HOURS`, so this detection window is a consistent floor rather
+   * than however long happened to remain until the cron's next fixed run. A replay older than that
+   * floor finds no row and lands in the "session gone" branch above instead — the same 401, just
+   * without the family revoke.
    */
-  private async handleSpentToken(revokedAt: string, userId: string): Promise<never> {
+  private async handleSpentToken(input: SpentTokenInput): Promise<never> {
+    const { revokedAt, userId } = input;
     const revokedAgeMs = Date.now() - new Date(revokedAt).getTime();
 
     if (revokedAgeMs <= REFRESH_REUSE_GRACE_SECONDS * 1000) {

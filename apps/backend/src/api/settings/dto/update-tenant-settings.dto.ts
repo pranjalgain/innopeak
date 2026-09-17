@@ -4,9 +4,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsInt, IsOptional, Max, Min, ValidateIf } from 'class-validator';
 
-/** `reviews.review_data_retention_months` is a Postgres `INTEGER` — a value past this reaches the
- * database as an uncaught `22003 value out of range`, a 500 rather than a validation 400. */
-const POSTGRES_INTEGER_MAX = 2147483647;
+import { POSTGRES_INTEGER_MAX } from '../constants/settings.constants';
 
 export class UpdateTenantSettingsDto {
   @ApiProperty({

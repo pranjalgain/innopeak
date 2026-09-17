@@ -130,8 +130,10 @@ export class AdminSettingsController {
     @Param('adminId', ParseUUIDPipe) adminId: string,
     @Body() dto: SetAdminStatusDto
   ): Promise<ApiResponseDto<AdminInviteResponseDto>> {
-    const result = await this.adminSettingsService.setAdminStatus(user, adminId, dto.enabled);
-    const message = dto.enabled ? MESSAGES.ADMIN.ADMIN_ENABLED : MESSAGES.ADMIN.ADMIN_DISABLED;
+    const { admin: result, message } = await this.adminSettingsService.setAdminStatus(user, {
+      targetAdminId: adminId,
+      enabled: dto.enabled,
+    });
     return ResponseUtil.success(result, message, HttpStatus.OK);
   }
 

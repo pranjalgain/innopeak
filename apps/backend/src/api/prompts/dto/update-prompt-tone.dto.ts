@@ -9,6 +9,6 @@ export class UpdatePromptToneDto {
     enum: PROMPT_TONES,
     example: 'professional',
   })
-  @IsIn(PROMPT_TONES)
+  @IsIn(PROMPT_TONES, { message: `tone must be one of: ${PROMPT_TONES.join(', ')}` })
   tone!: PromptToneValue;
 }

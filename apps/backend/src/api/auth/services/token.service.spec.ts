@@ -5,13 +5,14 @@ import { JwtService } from '@nestjs/jwt';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
-import { ACCESS_TOKEN_TTL_SECONDS } from './constants/auth.constants';
-import { JwtTokenType } from './enums/jwt-token-type.enum';
-import { TenantStatus } from './enums/tenant-status.enum';
-import { UserRole } from './enums/user-role.enum';
-import { UserStatus } from './enums/user-status.enum';
-import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import { TokenService } from './token.service';
+
+import { ACCESS_TOKEN_TTL_SECONDS } from '../constants/auth.constants';
+import { JwtTokenType } from '../enums/jwt-token-type.enum';
+import { TenantStatus } from '../enums/tenant-status.enum';
+import { UserRole } from '../enums/user-role.enum';
+import { UserStatus } from '../enums/user-status.enum';
+import { RefreshTokenSupersededException } from '../errors/refresh-token.error';
 
 describe('TokenService', () => {
   let target: TokenService;
@@ -77,16 +78,14 @@ describe('TokenService', () => {
 
       expect(result.accessToken).toBe('access-token');
       expect(result.refreshToken).toBe('refresh-token');
-      expect(authDbService.insertRefreshToken).toHaveBeenCalledWith(
-        user.id,
-        expect.any(String),
-        expect.any(String)
-      );
+      expect(authDbService.insertRefreshToken).toHaveBeenCalledWith({
+        userId: user.id,
+        tokenHash: expect.any(String),
+        expiresAt: expect.any(String),
+      });
       // never persists the raw refresh token itself
       expect(authDbService.insertRefreshToken).not.toHaveBeenCalledWith(
-        user.id,
-        'refresh-token',
-        expect.any(String)
+        expect.objectContaining({ tokenHash: 'refresh-token' })
       );
     });
 

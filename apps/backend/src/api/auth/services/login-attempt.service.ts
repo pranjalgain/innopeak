@@ -4,7 +4,7 @@ import { Redis } from 'ioredis';
 
 import { createHash } from 'crypto';
 
-import { LOGIN_LOCKOUT_THRESHOLD, LOGIN_LOCKOUT_WINDOW_SECONDS } from './constants/auth.constants';
+import { LOGIN_LOCKOUT_THRESHOLD, LOGIN_LOCKOUT_WINDOW_SECONDS } from '../constants/auth.constants';
 
 /**
  * Per-account password-login ceiling, the counterpart to `OtpAttemptService` for the login route.

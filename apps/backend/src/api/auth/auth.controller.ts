@@ -19,7 +19,6 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { CookieOptions, Request, Response } from 'express';
 
-import { AuthService } from './auth.service';
 import {
   ACCESS_TOKEN_COOKIE_NAME,
   ACCESS_TOKEN_COOKIE_PATH,
@@ -40,7 +39,6 @@ import {
   GOOGLE_PENDING_SIGNUP_COOKIE_NAME,
   GOOGLE_PENDING_SIGNUP_COOKIE_PATH,
   GOOGLE_PENDING_SIGNUP_TTL_SECONDS,
-  GoogleAuthFailure,
 } from './constants/google-auth.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
@@ -59,8 +57,8 @@ import { TokenResponseDto } from './dto/token-response.dto';
 import { UpdateLocaleResponseDto } from './dto/update-locale-response.dto';
 import { UpdateLocaleDto } from './dto/update-locale.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
-import { OAuthIntent } from './enums/oauth-intent.enum';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
+import { AuthService } from './services/auth.service';
 import {
   ApiChangePassword,
   ApiCompleteGoogleSignup,
@@ -70,6 +68,7 @@ import {
   ApiLogout,
   ApiMe,
   ApiRefresh,
+  ApiRequestSetPasswordOtp,
   ApiResendOtp,
   ApiSetPassword,
   ApiSignup,
@@ -250,6 +249,22 @@ export class AuthController {
   }
 
   /** Settings → Profile, "Add password" — only for an account with no `password_hash` yet. */
+  /**
+   * Step-up verification `setPassword` requires — see `AuthService.requestSetPasswordOtp`'s doc
+   * comment for why an access token alone isn't proof enough to grant a passwordless account its
+   * first password. Same throttle shape as `resendOtp`.
+   */
+  @Post(RouteNames.REQUEST_SET_PASSWORD_OTP)
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiRequestSetPasswordOtp()
+  async requestSetPasswordOtp(
+    @CurrentUser() user: AuthUser
+  ): Promise<ApiResponse<{ message: string }>> {
+    const result = await this.authService.requestSetPasswordOtp(user);
+    return ResponseUtil.success(result, result.message, HttpStatus.OK);
+  }
+
   @Post(RouteNames.SET_PASSWORD)
   @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
@@ -298,19 +313,12 @@ export class AuthController {
     @Query() query: GoogleAuthorizeQueryDto,
     @Res() res: Response
   ): Promise<void> {
-    const returnTo =
-      query.intent === OAuthIntent.SIGNUP
-        ? GOOGLE_AUTH_REDIRECT.SIGNUP
-        : GOOGLE_AUTH_REDIRECT.LOGIN;
+    const redirect = await this.authService.buildGoogleAuthorizeRedirect({ intent: query.intent });
 
-    let redirect: { authorizationUrl: string; sid: string };
-    try {
-      redirect = await this.authService.buildGoogleAuthorizeRedirect({ intent: query.intent });
-    } catch {
-      // Same reasoning as the callback below: the browser navigated here, so an exception filter's
-      // JSON body would paint as a document and strand the user on an API error page. The only
-      // expected failure is an unconfigured Google client.
-      res.redirect(HttpStatus.FOUND, `${returnTo}?error=${GoogleAuthFailure.NOT_CONFIGURED}`);
+    if (!redirect.ok) {
+      // The browser navigated here, so an exception filter's JSON body would paint as a document
+      // and strand the user on an API error page — redirect instead, same as the callback below.
+      res.redirect(HttpStatus.FOUND, redirect.redirectUrl);
       return;
     }
 
@@ -347,11 +355,7 @@ export class AuthController {
     res.clearCookie(GOOGLE_AUTH_SID_COOKIE_NAME, { path: GOOGLE_AUTH_SID_COOKIE_PATH });
 
     if (!outcome.ok) {
-      const base =
-        outcome.intent === OAuthIntent.SIGNUP
-          ? GOOGLE_AUTH_REDIRECT.SIGNUP
-          : GOOGLE_AUTH_REDIRECT.LOGIN;
-      res.redirect(HttpStatus.FOUND, `${base}?error=${outcome.failure}`);
+      res.redirect(HttpStatus.FOUND, outcome.redirectUrl);
       return;
     }
 

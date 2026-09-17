@@ -17,44 +17,52 @@ import {
   HttpStatus,
   Injectable,
   Logger,
-  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
 
-import { GoogleAuthFailure } from './constants/google-auth.constants';
-import { AuthenticatedUserDto } from './dto/authenticated-user.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
-import { LoginPendingVerificationDto } from './dto/login-response.dto';
-import { LoginDto } from './dto/login.dto';
-import { PlatformAdminSummaryDto } from './dto/platform-admin-summary.dto';
-import { PlatformAdminTokenResponseDto } from './dto/platform-admin-token-response.dto';
-import { ResendOtpDto } from './dto/resend-otp.dto';
-import { SetPasswordDto } from './dto/set-password.dto';
-import { SignupResponseDto } from './dto/signup-response.dto';
-import { SignupDto } from './dto/signup.dto';
-import { TokenResponseDto } from './dto/token-response.dto';
-import { UpdateLocaleResponseDto } from './dto/update-locale-response.dto';
-import { UpdateLocaleDto } from './dto/update-locale.dto';
-import { VerifyEmailDto } from './dto/verify-email.dto';
-import { JwtTokenType } from './enums/jwt-token-type.enum';
-import { OAuthIntent } from './enums/oauth-intent.enum';
-import { PlatformAdminStatus } from './enums/platform-admin-status.enum';
-import { TenantStatus } from './enums/tenant-status.enum';
-import { UserRole } from './enums/user-role.enum';
-import { UserStatus } from './enums/user-status.enum';
+import { GoogleOAuthStateService } from './google-oauth-state.service';
 import { LoginAttemptService } from './login-attempt.service';
 import { OtpAttemptService } from './otp-attempt.service';
-import { GoogleIdentityProvider } from './providers/google-identity.provider';
-import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
-import { GoogleOAuthStateService } from './services/google-oauth-state.service';
-import { PendingGoogleSignupService } from './services/pending-google-signup.service';
+import { PendingGoogleSignupService } from './pending-google-signup.service';
 import { TokenService } from './token.service';
-import type { AuthUser } from './types/auth-user.type';
-import { normalizeEmail } from './utils/email.utils';
-import { hashToken } from './utils/token.utils';
+
+import { GOOGLE_AUTH_REDIRECT, GoogleAuthFailure } from '../constants/google-auth.constants';
+import { AuthenticatedUserDto } from '../dto/authenticated-user.dto';
+import { ChangePasswordDto } from '../dto/change-password.dto';
+import { LoginPendingVerificationDto } from '../dto/login-response.dto';
+import { LoginDto } from '../dto/login.dto';
+import { PlatformAdminSummaryDto } from '../dto/platform-admin-summary.dto';
+import { PlatformAdminTokenResponseDto } from '../dto/platform-admin-token-response.dto';
+import { ResendOtpDto } from '../dto/resend-otp.dto';
+import { SetPasswordDto } from '../dto/set-password.dto';
+import { SignupResponseDto } from '../dto/signup-response.dto';
+import { SignupDto } from '../dto/signup.dto';
+import { TokenResponseDto } from '../dto/token-response.dto';
+import { UpdateLocaleResponseDto } from '../dto/update-locale-response.dto';
+import { UpdateLocaleDto } from '../dto/update-locale.dto';
+import { VerifyEmailDto } from '../dto/verify-email.dto';
+import { JwtTokenType } from '../enums/jwt-token-type.enum';
+import { OAuthIntent } from '../enums/oauth-intent.enum';
+import { PlatformAdminStatus } from '../enums/platform-admin-status.enum';
+import { TenantStatus } from '../enums/tenant-status.enum';
+import { UserRole } from '../enums/user-role.enum';
+import { UserStatus } from '../enums/user-status.enum';
+import { GoogleIdentityProvider } from '../providers/google-identity.provider';
+import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
+import type { AuthUser } from '../types/auth-user.type';
+import { normalizeEmail } from '../utils/email.utils';
+import { hashToken } from '../utils/token.utils';
+
+export interface GoogleAuthorizeInput {
+  intent: OAuthIntent;
+}
+
+/** `AuthController.googleAuthorize` redirects either way — this carries the already-computed target, computed here rather than in the controller. */
+export type GoogleAuthorizeRedirect =
+  { ok: false; redirectUrl: string } | { ok: true; authorizationUrl: string; sid: string };
 
 /**
  * What a successful verify-email/login/refresh actually produces: the JSON body (no refresh
@@ -63,7 +71,9 @@ import { hashToken } from './utils/token.utils';
  * never be able to read it.
  */
 export type GoogleCallbackOutcome =
-  | { ok: false; failure: GoogleAuthFailure; intent?: OAuthIntent }
+  /** `redirectUrl` is already the full `<page>?error=<failure>` target — computed here, from
+   *  `intent`, rather than by `AuthController.googleCallback`. */
+  | { ok: false; failure: GoogleAuthFailure; redirectUrl: string }
   /** A genuinely new person — the caller sets `pendingSignupCookie` and redirects to collect a business name. */
   | { ok: true; kind: 'needs_business_name'; pendingSignupCookie: string }
   | { ok: true; kind: 'signed_in'; tokens: TokenIssuanceResult };
@@ -82,6 +92,29 @@ export interface TokenIssuanceResult {
 export interface PlatformAdminLoginResult {
   admin: true;
   body: PlatformAdminTokenResponseDto;
+}
+
+interface PlatformAdminLoginInput {
+  email: string;
+  password: string;
+  admin: PlatformAdminByEmail;
+}
+
+interface IssueOtpInput {
+  userId: string;
+  email: string;
+  name: string;
+}
+
+interface SendOtpEmailInput {
+  email: string;
+  customerName: string;
+  rawOtp: string;
+}
+
+interface SeedDemoDataIfDevInput {
+  userId: string;
+  tenantId: string;
 }
 
 @Injectable()
@@ -164,7 +197,7 @@ export class AuthService {
       throw new ConflictException(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
     }
 
-    this.sendOtpEmail(email, result.ownerName, rawOtp);
+    this.sendOtpEmail({ email, customerName: result.ownerName, rawOtp });
 
     return SignupResponseDto.from(result, MESSAGES.AUTH.SIGNUP_OTP_SENT(email));
   }
@@ -185,7 +218,7 @@ export class AuthService {
       throw new HttpException(MESSAGES.AUTH.TOO_MANY_OTP_ATTEMPTS, HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    const user = await this.authDbService.verifyEmail(email, hashToken(dto.otp));
+    const user = await this.authDbService.verifyEmail({ email, tokenHash: hashToken(dto.otp) });
 
     if (!user) {
       throw new BadRequestException(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
@@ -199,7 +232,7 @@ export class AuthService {
     // `handleGoogleCallback`'s `firstActivation` check and `completeGoogleSignup`'s unconditional
     // call — three paths, one moment each, all meaning "a brand-new tenant just finished signing
     // up." See `seedDemoDataIfDev`.
-    this.seedDemoDataIfDev(user.id, user.tenantId);
+    this.seedDemoDataIfDev({ userId: user.id, tenantId: user.tenantId });
 
     return this.buildTokenIssuanceResult(user);
   }
@@ -245,7 +278,7 @@ export class AuthService {
     // tenant one against the decoy when no user matches.
     const admin = await this.authDbService.findPlatformAdminForLogin(email);
     if (admin?.passwordHash) {
-      return this.platformAdminLogin(email, dto.password, admin);
+      return this.platformAdminLogin({ email, password: dto.password, admin });
     }
 
     const user = await this.authDbService.findUserForLogin(email);
@@ -279,7 +312,7 @@ export class AuthService {
     }
 
     if (user.status === UserStatus.PENDING_VERIFICATION) {
-      await this.issueOtp(user.id, email, user.name);
+      await this.issueOtp({ userId: user.id, email, name: user.name });
 
       const response = new LoginPendingVerificationDto();
       response.status = UserStatus.PENDING_VERIFICATION;
@@ -302,7 +335,7 @@ export class AuthService {
     const user = await this.authDbService.findUserForLogin(email);
 
     if (user?.status === UserStatus.PENDING_VERIFICATION) {
-      await this.issueOtp(user.id, email, user.name);
+      await this.issueOtp({ userId: user.id, email, name: user.name });
     }
 
     return { message: MESSAGES.AUTH.RESEND_OTP_ACK };
@@ -357,7 +390,10 @@ export class AuthService {
     }
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
-    await this.authDbService.updatePasswordAndRevokeSessions(user.id, newPasswordHash);
+    await this.authDbService.updatePasswordAndRevokeSessions({
+      userId: user.id,
+      passwordHash: newPasswordHash,
+    });
 
     return this.buildTokenIssuanceResult({ ...user, passwordHash: newPasswordHash });
   }
@@ -386,8 +422,12 @@ export class AuthService {
 
   /**
    * The other half of `changePassword` — for an account that has never had one (Google/SSO-only,
-   * `password_hash IS NULL`), so there is no current password to prove. Settings' "Add password"
-   * flow calls this instead; once it succeeds, that same account uses `changePassword` from then on.
+   * `password_hash IS NULL`), so there is no current password to prove. `changePassword` proves
+   * intent with the current password; this proves it with a fresh OTP from
+   * `requestSetPasswordOtp` instead, since without *some* second factor an access token alone
+   * (stolen or otherwise) would be enough to turn a 15-minute credential into a permanent one —
+   * see `requestSetPasswordOtp`'s doc comment. Settings' "Add password" flow calls this once the
+   * OTP step completes; from then on that account uses `changePassword`.
    */
   async setPassword(actor: AuthUser, dto: SetPasswordDto): Promise<TokenIssuanceResult> {
     if (actor.type !== JwtTokenType.TENANT_USER) {
@@ -403,10 +443,65 @@ export class AuthService {
       throw new BadRequestException(MESSAGES.AUTH.PASSWORD_ALREADY_SET);
     }
 
+    // Budget spent before comparison, same shape as `verifyEmail` — an exhausted account can't be
+    // probed for the code at all.
+    if (!(await this.otpAttemptService.consumeAttempt(user.email))) {
+      throw new HttpException(MESSAGES.AUTH.TOO_MANY_OTP_ATTEMPTS, HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    const otpValid = await this.authDbService.consumeSetPasswordOtp({
+      userId: user.id,
+      tokenHash: hashToken(dto.otp),
+    });
+    if (!otpValid) {
+      throw new BadRequestException(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
+    }
+    await this.otpAttemptService.reset(user.email);
+
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
-    await this.authDbService.updatePasswordAndRevokeSessions(user.id, newPasswordHash);
+    await this.authDbService.updatePasswordAndRevokeSessions({
+      userId: user.id,
+      passwordHash: newPasswordHash,
+    });
 
     return this.buildTokenIssuanceResult({ ...user, passwordHash: newPasswordHash });
+  }
+
+  /**
+   * Step-up verification `setPassword` requires before it will act: proof the caller currently
+   * controls the account's mailbox, not just its access token. Without this, `setPassword` was
+   * reachable by anyone holding a stolen access token alone — no current password to prove (there
+   * is none yet) and no re-auth step, so a 15-minute credential became an indefinite one on any
+   * Google-only account. Mailed via the same OTP machinery as signup/login, under the
+   * `token_purpose` enum's `reset` value (see `AuthRepository.putSetPasswordOtp`) — this account
+   * already proved its email once at signup; this re-proves it's still the one reading that inbox
+   * right now.
+   */
+  async requestSetPasswordOtp(actor: AuthUser): Promise<{ message: string }> {
+    if (actor.type !== JwtTokenType.TENANT_USER) {
+      throw new ForbiddenException(MESSAGES.AUTH.TENANT_ONLY);
+    }
+
+    const user = await this.authDbService.findUserById(actor.id);
+    if (!user) {
+      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+    }
+
+    if (user.passwordHash) {
+      throw new BadRequestException(MESSAGES.AUTH.PASSWORD_ALREADY_SET);
+    }
+
+    if (await this.otpAttemptService.claimResend(user.email)) {
+      const rawOtp = this.verifyEmailTokenProvider.generate();
+      await this.authDbService.putSetPasswordOtp({
+        userId: user.id,
+        tokenHash: hashToken(rawOtp),
+        expiresAt: this.otpExpiresAt().toISOString(),
+      });
+      this.sendOtpEmail({ email: user.email, customerName: user.name, rawOtp });
+    }
+
+    return { message: MESSAGES.AUTH.SET_PASSWORD_OTP_ACK };
   }
 
   /**
@@ -434,10 +529,12 @@ export class AuthService {
       throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
     }
 
-    await this.authDbService.updateLocale(user.id, dto.locale);
+    const tenant = await this.authDbService.findTenantStatus(user.tenantId);
+    await this.assertGoodStanding(user.status, tenant);
+
+    await this.authDbService.updateLocale({ userId: user.id, locale: dto.locale });
 
     const updatedUser = { ...user, locale: dto.locale };
-    const tenant = await this.authDbService.findTenantStatus(updatedUser.tenantId);
     const { accessToken, expiresIn } = this.tokenService.reissueAccessToken(updatedUser);
 
     const response = new UpdateLocaleResponseDto();
@@ -456,18 +553,19 @@ export class AuthService {
    * silently on a refused claim keeps the caller's response identical either way — `resendOtp`
    * already answers the same generic acknowledgement regardless of whether anything was sent.
    */
-  private async issueOtp(userId: string, email: string, name: string): Promise<void> {
+  private async issueOtp(input: IssueOtpInput): Promise<void> {
+    const { userId, email, name } = input;
     if (!(await this.otpAttemptService.claimResend(email))) {
       return;
     }
 
     const rawOtp = this.verifyEmailTokenProvider.generate();
-    await this.authDbService.putVerifyEmailToken(
+    await this.authDbService.putVerifyEmailToken({
       userId,
-      hashToken(rawOtp),
-      this.otpExpiresAt().toISOString()
-    );
-    this.sendOtpEmail(email, name, rawOtp);
+      tokenHash: hashToken(rawOtp),
+      expiresAt: this.otpExpiresAt().toISOString(),
+    });
+    this.sendOtpEmail({ email, customerName: name, rawOtp });
   }
 
   /**
@@ -475,17 +573,30 @@ export class AuthService {
    *
    * No business name here any more — see `completeGoogleSignup`. Both intents mint the same
    * state now; the only thing that ever varied per intent was `businessName`.
+   *
+   * Returns a result rather than throwing on the one expected failure (an unconfigured Google
+   * client): the browser navigated here directly, so `AuthController.googleAuthorize` redirects
+   * either way rather than rendering a JSON error body as a document — computing which redirect
+   * that is belongs here, not in the controller.
    */
-  async buildGoogleAuthorizeRedirect(input: {
-    intent: OAuthIntent;
-  }): Promise<{ authorizationUrl: string; sid: string }> {
+  async buildGoogleAuthorizeRedirect(
+    input: GoogleAuthorizeInput
+  ): Promise<GoogleAuthorizeRedirect> {
     if (!this.googleIdentityProvider.isConfigured()) {
-      throw new ServiceUnavailableException(MESSAGES.AUTH.GOOGLE_NOT_CONFIGURED);
+      const base =
+        input.intent === OAuthIntent.SIGNUP
+          ? GOOGLE_AUTH_REDIRECT.SIGNUP
+          : GOOGLE_AUTH_REDIRECT.LOGIN;
+      return { ok: false, redirectUrl: `${base}?error=${GoogleAuthFailure.NOT_CONFIGURED}` };
     }
 
     const { state, sid } = await this.googleOAuthStateService.mint({ intent: input.intent });
 
-    return { authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl(state), sid };
+    return {
+      ok: true,
+      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl(state),
+      sid,
+    };
   }
 
   /**
@@ -510,19 +621,15 @@ export class AuthService {
     const intent = consumed.ok ? consumed.record.intent : undefined;
 
     if (input.error !== undefined) {
-      return { ok: false, failure: GoogleAuthFailure.ACCESS_DENIED, ...(intent ? { intent } : {}) };
+      return this.googleFailureRedirect(GoogleAuthFailure.ACCESS_DENIED, intent);
     }
 
     if (!consumed.ok) {
-      return { ok: false, failure: GoogleAuthFailure.INVALID_STATE };
+      return this.googleFailureRedirect(GoogleAuthFailure.INVALID_STATE);
     }
 
     if (input.code === undefined || input.code === '') {
-      return {
-        ok: false,
-        failure: GoogleAuthFailure.PROVIDER_ERROR,
-        intent: consumed.record.intent,
-      };
+      return this.googleFailureRedirect(GoogleAuthFailure.PROVIDER_ERROR, consumed.record.intent);
     }
 
     let identity;
@@ -530,21 +637,16 @@ export class AuthService {
       identity = await this.googleIdentityProvider.fetchIdentity(input.code);
     } catch (error) {
       this.logger.warn(`Google identity exchange failed: ${(error as Error).message}`);
-      return {
-        ok: false,
-        failure: GoogleAuthFailure.PROVIDER_ERROR,
-        intent: consumed.record.intent,
-      };
+      return this.googleFailureRedirect(GoogleAuthFailure.PROVIDER_ERROR, consumed.record.intent);
     }
 
     // Refused rather than trusted: an unverified address would let someone claim an account by
     // registering a Google profile against an email they do not control.
     if (!identity.emailVerified) {
-      return {
-        ok: false,
-        failure: GoogleAuthFailure.EMAIL_NOT_VERIFIED,
-        intent: consumed.record.intent,
-      };
+      return this.googleFailureRedirect(
+        GoogleAuthFailure.EMAIL_NOT_VERIFIED,
+        consumed.record.intent
+      );
     }
 
     const email = normalizeEmail(identity.email);
@@ -556,7 +658,7 @@ export class AuthService {
     if (lookup.kind === 'unknown') {
       if (consumed.record.intent === OAuthIntent.LOGIN) {
         // Login can never create a tenant it has no name for.
-        return { ok: false, failure: GoogleAuthFailure.NO_ACCOUNT, intent: consumed.record.intent };
+        return this.googleFailureRedirect(GoogleAuthFailure.NO_ACCOUNT, consumed.record.intent);
       }
 
       const pendingSignupCookie = await this.pendingGoogleSignupService.mint({
@@ -571,31 +673,45 @@ export class AuthService {
     // (`TokenService.rotate`). Without it a disabled account could still sign in through the
     // Google button — the one entry point that never looked at `users.status`.
     if (lookup.user.status === UserStatus.DISABLED) {
-      return {
-        ok: false,
-        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-        intent: consumed.record.intent,
-      };
+      return this.googleFailureRedirect(
+        GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+        consumed.record.intent
+      );
     }
 
     const tenant = await this.authDbService.findTenantStatus(lookup.user.tenantId);
     if (tenant?.status === TenantStatus.SUSPENDED) {
-      return {
-        ok: false,
-        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-        intent: consumed.record.intent,
-      };
+      return this.googleFailureRedirect(
+        GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+        consumed.record.intent
+      );
     }
 
     // The Google-linking equivalent of `verifyEmail` returning non-null — see
     // `GoogleIdentityLookup.firstActivation`'s own comment for why this is the one reliable
     // "a brand-new tenant just finished signing up" signal on this path.
     if (lookup.firstActivation) {
-      this.seedDemoDataIfDev(lookup.user.id, lookup.user.tenantId);
+      this.seedDemoDataIfDev({ userId: lookup.user.id, tenantId: lookup.user.tenantId });
     }
 
     const tokens = await this.buildTokenIssuanceResult(lookup.user, tenant);
     return { ok: true, kind: 'signed_in', tokens };
+  }
+
+  /**
+   * Builds the `?error=` redirect target for a callback failure — moved here (out of
+   * `AuthController.googleCallback`) so the controller's job stays "read `ok`, act," with no
+   * `intent`-to-URL mapping of its own. Defaults to the login page: everywhere this is called
+   * without a known `intent`, the state was never validly consumed, so there is no way to know
+   * the original screen and the login page is the safer fallback (it never invents a tenant).
+   */
+  private googleFailureRedirect(
+    failure: GoogleAuthFailure,
+    intent?: OAuthIntent
+  ): GoogleCallbackOutcome {
+    const base =
+      intent === OAuthIntent.SIGNUP ? GOOGLE_AUTH_REDIRECT.SIGNUP : GOOGLE_AUTH_REDIRECT.LOGIN;
+    return { ok: false, failure, redirectUrl: `${base}?error=${failure}` };
   }
 
   /**
@@ -630,7 +746,7 @@ export class AuthService {
 
     // Unconditional here (unlike the other two hooks) — `completeGoogleSignup` only ever reaches
     // this point by inserting a brand-new tenant, never by promoting an existing row.
-    this.seedDemoDataIfDev(user.id, user.tenantId);
+    this.seedDemoDataIfDev({ userId: user.id, tenantId: user.tenantId });
 
     return this.buildTokenIssuanceResult(user);
   }
@@ -646,10 +762,9 @@ export class AuthService {
    * terms if it is ever called from somewhere else, and the decoy keeps that arm constant-time.
    */
   private async platformAdminLogin(
-    email: string,
-    password: string,
-    admin: PlatformAdminByEmail
+    input: PlatformAdminLoginInput
   ): Promise<PlatformAdminLoginResult> {
+    const { email, password, admin } = input;
     const passwordMatches = await this.hashingService.compare(
       password,
       admin.passwordHash ?? (await this.decoyPasswordHash())
@@ -814,7 +929,8 @@ export class AuthService {
    * this is a genuine first activation before calling in — this method itself doesn't re-check
    * that, only the environment gate.
    */
-  private seedDemoDataIfDev(userId: string, tenantId: string): void {
+  private seedDemoDataIfDev(input: SeedDemoDataIfDevInput): void {
+    const { userId, tenantId } = input;
     if (isProduction()) return;
 
     void (async (): Promise<void> => {
@@ -835,12 +951,12 @@ export class AuthService {
     })();
   }
 
-  private sendOtpEmail(email: string, customerName: string, rawOtp: string): void {
+  private sendOtpEmail(input: SendOtpEmailInput): void {
     const ttlMinutes = this.configService.get<number>('VERIFY_EMAIL_OTP_TTL_MINUTES') ?? 10;
     const job: IOtpEmailJob = {
-      email,
-      customerName,
-      otp: rawOtp,
+      email: input.email,
+      customerName: input.customerName,
+      otp: input.rawOtp,
       expiresIn: `${ttlMinutes} minutes`,
     };
     void this.queueManager

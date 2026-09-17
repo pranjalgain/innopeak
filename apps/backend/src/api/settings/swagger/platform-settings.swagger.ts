@@ -12,6 +12,20 @@ export function ApiGetPlatformSettings(): ReturnType<typeof applyDecorators> {
         'whether a tenant Settings > Members tab can send invites. Read-only here; a Super Admin ' +
         'changes these from Admin Settings (PATCH /v1/admin/settings/platform-config).',
     }),
-    ApiResponse({ status: HttpStatus.OK, type: PlatformSettingsResponseDto })
+    ApiResponse({
+      status: HttpStatus.OK,
+      type: PlatformSettingsResponseDto,
+      examples: {
+        default: {
+          summary: 'Typical response',
+          value: {
+            ssoLoginEnabled: true,
+            passwordLoginEnabled: false,
+            socialLoginEnabled: false,
+            inviteMembersEnabled: false,
+          },
+        },
+      },
+    })
   );
 }

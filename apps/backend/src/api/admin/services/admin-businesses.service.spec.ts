@@ -82,12 +82,12 @@ describe('AdminBusinessesService', () => {
         status: BusinessStatus.SUSPENDED,
       });
 
-      await target.setStatus(admin, 'tenant-1', BusinessStatus.SUSPENDED);
+      await target.setStatus(admin, { tenantId: 'tenant-1', status: BusinessStatus.SUSPENDED });
 
-      expect(adminBusinessesDbService.setStatus).toHaveBeenCalledWith(
-        'tenant-1',
-        TenantStatus.SUSPENDED
-      );
+      expect(adminBusinessesDbService.setStatus).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        status: TenantStatus.SUSPENDED,
+      });
       expect(adminOverviewDbService.recordActivityBestEffort).toHaveBeenCalledWith({
         type: PlatformActivityType.BUSINESS_SUSPENDED,
         actorPlatformAdminId: 'admin-1',
@@ -105,12 +105,12 @@ describe('AdminBusinessesService', () => {
     it('maps BusinessStatus.ACTIVE to the real TenantStatus.ACTIVE and logs the activity', async () => {
       adminBusinessesDbService.setStatus.mockResolvedValue(summary);
 
-      await target.setStatus(admin, 'tenant-1', BusinessStatus.ACTIVE);
+      await target.setStatus(admin, { tenantId: 'tenant-1', status: BusinessStatus.ACTIVE });
 
-      expect(adminBusinessesDbService.setStatus).toHaveBeenCalledWith(
-        'tenant-1',
-        TenantStatus.ACTIVE
-      );
+      expect(adminBusinessesDbService.setStatus).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        status: TenantStatus.ACTIVE,
+      });
       expect(adminOverviewDbService.recordActivityBestEffort).toHaveBeenCalledWith({
         type: PlatformActivityType.BUSINESS_REACTIVATED,
         actorPlatformAdminId: 'admin-1',
@@ -123,9 +123,9 @@ describe('AdminBusinessesService', () => {
     it('throws 404 when no such tenant exists, without logging any activity', async () => {
       adminBusinessesDbService.setStatus.mockResolvedValue(null);
 
-      await expect(target.setStatus(admin, 'missing', BusinessStatus.ACTIVE)).rejects.toThrow(
-        NotFoundException
-      );
+      await expect(
+        target.setStatus(admin, { tenantId: 'missing', status: BusinessStatus.ACTIVE })
+      ).rejects.toThrow(NotFoundException);
       expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
     });
   });

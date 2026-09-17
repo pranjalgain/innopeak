@@ -1,3 +1,6 @@
+import { LocationStatus } from '@common/enums/location-status.enum';
+import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
+import { SyncHealthStatus } from '@common/enums/sync-health-status.enum';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { applyDecorators } from '@nestjs/common';
@@ -29,7 +32,30 @@ export function ApiBackfillProgress(): ReturnType<typeof applyDecorators> {
         'client shows an indeterminate bar rather than a fabricated percentage. Throttled at ' +
         '120/min because a 2-second poll dies on the global 30/min tier inside the first minute.',
     }),
-    ApiResponse({ status: 200, type: BackfillProgressResponseDto }),
+    ApiResponse({
+      status: 200,
+      type: BackfillProgressResponseDto,
+      examples: {
+        default: {
+          summary: 'Backfill in progress',
+          value: {
+            locationId: '0190f4c2-1d55-7b09-8e42-6a3c9f01b7d4',
+            syncRunId: '0190f4c3-9e07-7d15-a4c8-3f1b6d2e9057',
+            status: SyncRunStatus.RUNNING,
+            trigger: SyncTrigger.BACKFILL,
+            startedAt: '2026-09-01T09:05:03.000Z',
+            completedAt: null,
+            reviewsFetched: 12,
+            totalToImport: 20,
+            progress: 60,
+            errorMessage: null,
+            isStale: false,
+            onboardingBackfillCompletedAt: null,
+            livePollingEnabled: false,
+          },
+        },
+      },
+    }),
     ApiResponse({ status: 404, description: "LOCATION_NOT_FOUND (including another tenant's)" })
   );
 }
@@ -47,7 +73,26 @@ export function ApiSyncHealth(): ReturnType<typeof applyDecorators> {
         're-derives it — notably, an inactive location is not "broken", and a location that has ' +
         'never synced is not unhealthy.',
     }),
-    ApiResponse({ status: 200, type: SyncHealthResponseDto }),
+    ApiResponse({
+      status: 200,
+      type: SyncHealthResponseDto,
+      examples: {
+        default: {
+          summary: 'Healthy location, no run currently in flight',
+          value: {
+            locationId: '0190f4c2-1d55-7b09-8e42-6a3c9f01b7d4',
+            healthy: true,
+            locationStatus: LocationStatus.ACTIVE,
+            connectionStatus: ReviewProviderConnectionStatus.ACTIVE,
+            lastSyncedAt: '2026-09-01T14:15:00.000Z',
+            lastSyncStatus: SyncHealthStatus.OK,
+            lastSyncError: null,
+            livePollingEnabled: true,
+            currentRun: null,
+          },
+        },
+      },
+    }),
     ApiResponse({ status: 404, description: 'LOCATION_NOT_FOUND' })
   );
 }
@@ -68,7 +113,29 @@ export function ApiListSyncRuns(): ReturnType<typeof applyDecorators> {
     ApiQuery({ name: 'pageSize', required: false, example: 20 }),
     ApiQuery({ name: 'status', required: false, enum: SyncRunStatus }),
     ApiQuery({ name: 'trigger', required: false, enum: SyncTrigger }),
-    ApiResponse({ status: 200, type: SyncRunListResponseDto }),
+    ApiResponse({
+      status: 200,
+      type: SyncRunListResponseDto,
+      examples: {
+        default: {
+          summary: 'One page of sync-run history',
+          value: {
+            runs: [
+              {
+                id: '0190f5aa-7b31-7e02-9c44-1d8f3a6b5c20',
+                trigger: SyncTrigger.SCHEDULED,
+                status: SyncRunStatus.OK,
+                startedAt: '2026-09-01T14:15:00.000Z',
+                completedAt: '2026-09-01T14:15:07.000Z',
+                reviewsFetched: 3,
+                errorMessage: null,
+              },
+            ],
+            meta: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+          },
+        },
+      },
+    }),
     ApiResponse({ status: 404, description: 'LOCATION_NOT_FOUND' })
   );
 }

@@ -1,4 +1,9 @@
 import { LocationStatus } from '@common/enums/location-status.enum';
+import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
+import { ReviewProvider } from '@common/enums/review-provider.enum';
+import { SyncHealthStatus } from '@common/enums/sync-health-status.enum';
+import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
+import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { applyDecorators } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
@@ -11,7 +16,23 @@ import {
   LocationDto,
   LocationListResponseDto,
 } from '../dto/connection-response.dto';
+import { ConnectionState } from '../enums/connection-state.enum';
 import { ReturnTo } from '../enums/return-to.enum';
+
+const LOCATION_DTO_EXAMPLE = {
+  id: '0190f4c2-1d55-7b09-8e42-6a3c9f01b7d4',
+  connectionId: '0190f4c1-8a21-7c33-9f01-2b7d5e8a4410',
+  provider: ReviewProvider.GOOGLE,
+  externalLocationId: 'locations/12345678901234567890',
+  name: 'The Coastal Table',
+  address: '214 Harbor St, Portland, ME',
+  status: LocationStatus.ACTIVE,
+  lastSyncedAt: '2026-09-01T14:15:00.000Z',
+  lastSyncStatus: SyncHealthStatus.OK,
+  lastSyncError: null,
+  onboardingBackfillCompletedAt: '2026-09-01T09:11:42.000Z',
+  createdAt: '2026-09-01T09:05:02.000Z',
+};
 
 export function ApiGetConnection(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
@@ -24,7 +45,49 @@ export function ApiGetConnection(): ReturnType<typeof applyDecorators> {
         'connection is a 200 with `connected: false`, never a 404: not-connected-yet is the ' +
         'normal state of every tenant between signup and onboarding.',
     }),
-    ApiResponse({ status: 200, type: ConnectionStatusResponseDto }),
+    ApiResponse({
+      status: 200,
+      type: ConnectionStatusResponseDto,
+      examples: {
+        connected: {
+          summary: 'Connected, with an active location',
+          value: {
+            connected: true,
+            status: ConnectionState.CONNECTED,
+            connection: {
+              id: '0190f4c1-8a21-7c33-9f01-2b7d5e8a4410',
+              provider: ReviewProvider.GOOGLE,
+              providerAccountId: 'accounts/108327761122',
+              connectionStatus: ReviewProviderConnectionStatus.ACTIVE,
+              tokenExpiresAt: '2026-09-04T10:12:00.000Z',
+              connectedByUserId: '0190f3b2-4c17-7a88-b210-9e4f1c7d3a02',
+              connectedAt: '2026-09-01T09:04:11.000Z',
+            },
+            location: {
+              id: '0190f4c2-1d55-7b09-8e42-6a3c9f01b7d4',
+              provider: ReviewProvider.GOOGLE,
+              externalLocationId: 'locations/12345678901234567890',
+              businessName: 'The Coastal Table',
+              address: '214 Harbor St, Portland, ME',
+              status: LocationStatus.ACTIVE,
+              lastSyncedAt: '2026-09-01T14:15:00.000Z',
+              lastSyncStatus: SyncHealthStatus.OK,
+              lastSyncError: null,
+              onboardingBackfillCompletedAt: '2026-09-01T09:11:42.000Z',
+            },
+          },
+        },
+        notConnected: {
+          summary: 'Never connected (or fully disconnected)',
+          value: {
+            connected: false,
+            status: ConnectionState.DISCONNECTED,
+            connection: null,
+            location: null,
+          },
+        },
+      },
+    }),
     ApiResponse({ status: 401, description: 'Missing or expired access token' })
   );
 }
@@ -78,7 +141,21 @@ export function ApiDisconnect(): ReturnType<typeof applyDecorators> {
         'the connection and `reviews`/`sync_runs` cascade from locations, so a delete would take ' +
         "the tenant's entire review history with it.",
     }),
-    ApiResponse({ status: 200, type: DisconnectResponseDto }),
+    ApiResponse({
+      status: 200,
+      type: DisconnectResponseDto,
+      examples: {
+        default: {
+          summary: 'Disconnected successfully',
+          value: {
+            provider: ReviewProvider.GOOGLE,
+            deactivatedLocationIds: ['0190f4c2-1d55-7b09-8e42-6a3c9f01b7d4'],
+            credentialRevoked: true,
+            pollingStopped: true,
+          },
+        },
+      },
+    }),
     ApiResponse({ status: 404, description: 'CONNECTION_NOT_FOUND' })
   );
 }
@@ -94,7 +171,27 @@ export function ApiAvailableLocations(): ReturnType<typeof applyDecorators> {
         "removed on Google's side. Also the first place a stale grant surfaces interactively: a " +
         '401/403 from Google sets `needs_reauth` before answering 409.',
     }),
-    ApiResponse({ status: 200, type: AvailableLocationsResponseDto }),
+    ApiResponse({
+      status: 200,
+      type: AvailableLocationsResponseDto,
+      examples: {
+        default: {
+          summary: 'Locations available on the granted Google account',
+          value: {
+            provider: ReviewProvider.GOOGLE,
+            connectionId: '0190f4c1-8a21-7c33-9f01-2b7d5e8a4410',
+            locations: [
+              {
+                externalLocationId: 'locations/12345678901234567890',
+                name: 'The Coastal Table',
+                address: '214 Harbor St, Portland, ME',
+                alreadyConnected: false,
+              },
+            ],
+          },
+        },
+      },
+    }),
     ApiResponse({ status: 409, description: 'CONNECTION_NEEDS_REAUTH' }),
     ApiResponse({ status: 502, description: 'PROVIDER_UNAVAILABLE' })
   );
@@ -112,7 +209,16 @@ export function ApiListLocations(): ReturnType<typeof applyDecorators> {
         'addressable.',
     }),
     ApiQuery({ name: 'status', required: false, enum: LocationStatus }),
-    ApiResponse({ status: 200, type: LocationListResponseDto })
+    ApiResponse({
+      status: 200,
+      type: LocationListResponseDto,
+      examples: {
+        default: {
+          summary: "The tenant's persisted locations",
+          value: { locations: [LOCATION_DTO_EXAMPLE] },
+        },
+      },
+    })
   );
 }
 
@@ -147,7 +253,29 @@ export function ApiConfirmLocation(): ReturnType<typeof applyDecorators> {
         },
       },
     }),
-    ApiResponse({ status: 201, type: ConfirmLocationsResponseDto }),
+    ApiResponse({
+      status: 201,
+      type: ConfirmLocationsResponseDto,
+      examples: {
+        default: {
+          summary: 'One location confirmed, backfill started',
+          value: {
+            locations: [
+              {
+                ...LOCATION_DTO_EXAMPLE,
+                backfill: {
+                  syncRunId: '0190f4c3-9e07-7d15-a4c8-3f1b6d2e9057',
+                  status: SyncRunStatus.RUNNING,
+                  trigger: SyncTrigger.BACKFILL,
+                  startedAt: '2026-09-01T09:05:03.000Z',
+                },
+                backfillAlreadyRunning: false,
+              },
+            ],
+          },
+        },
+      },
+    }),
     ApiResponse({ status: 404, description: 'CONNECTION_NOT_FOUND | EXTERNAL_LOCATION_NOT_FOUND' }),
     ApiResponse({ status: 409, description: 'CONNECTION_NEEDS_REAUTH | LOCATION_LIMIT_REACHED' }),
     ApiResponse({
@@ -168,8 +296,22 @@ export function ApiSetActiveLocation(): ReturnType<typeof applyDecorators> {
         'Review Queue reads it, so only an owner may change it. The location must belong to this ' +
         "tenant and be active; a deactivated location or another tenant's id is rejected.",
     }),
-    ApiBody({ type: SetActiveLocationDto }),
-    ApiResponse({ status: 200, type: LocationDto }),
+    ApiBody({
+      type: SetActiveLocationDto,
+      examples: {
+        default: {
+          summary: 'Switch to a different confirmed location',
+          value: { locationId: '0190f4c2-1d55-7b09-8e42-6a3c9f01b7d4' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 200,
+      type: LocationDto,
+      examples: {
+        default: { summary: 'Active location updated', value: LOCATION_DTO_EXAMPLE },
+      },
+    }),
     ApiResponse({ status: 403, description: 'Caller is a member, not an owner' }),
     ApiResponse({ status: 404, description: 'LOCATION_NOT_FOUND' }),
     ApiResponse({ status: 409, description: 'LOCATION_INACTIVE' })

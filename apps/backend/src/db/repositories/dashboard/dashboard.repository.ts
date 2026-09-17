@@ -8,12 +8,18 @@ import { Injectable } from '@nestjs/common';
 import type { SQL } from 'drizzle-orm';
 import { and, count, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 
-export interface DashboardMetrics {
+export interface RatingCountRow {
+  rating: number;
+  value: number;
+}
+
+/** Raw aggregates for the dashboard's stat cards, before `DashboardDbService` zero-fills `ratingCounts` into a 1-5 `ratingDistribution`. */
+export interface DashboardMetricsRow {
   total: number;
   avgRating: number | null;
   pending: number;
   escalated: number;
-  ratingDistribution: Record<number, number>;
+  ratingCounts: RatingCountRow[];
 }
 
 export interface RecentEscalatedRow {
@@ -25,9 +31,12 @@ export interface RecentEscalatedRow {
   reviewedAt: string | null;
 }
 
-/** A review is "open" while it still needs someone to act on it. `responded` and `dismissed` are
- * both terminal, so neither belongs in a backlog count. */
-const OPEN_STATUSES = [ReviewStatus.NEW, ReviewStatus.IN_REVIEW];
+/** The already-decided scope every query in this repository runs against — see the class doc comment. */
+export interface DashboardQueryScope {
+  tenantId: string;
+  locationIds: string[];
+  openStatuses: ReviewStatus[];
+}
 
 const RECENT_ESCALATED_COLUMNS = {
   id: schema.reviews.id,
@@ -39,26 +48,43 @@ const RECENT_ESCALATED_COLUMNS = {
 } as const;
 
 /**
- * Repository for dashboard analytics.
+ * Mechanical queries over `reviews`/`locations` for dashboard analytics — no policy of its own
+ * (which statuses count as "open", which locations count when none is named, how the rating
+ * distribution is zero-filled). That lives one layer up in `DashboardDbService`; every method
+ * here takes the already-decided `locationIds`/`openStatuses` as plain parameters.
  */
 @Injectable()
 export class DashboardRepository {
   constructor(private readonly dbService: DBService) {}
 
+  /** Every currently-active location id for a tenant — `DashboardDbService` calls this to resolve "no location named" into a concrete scope. */
+  async findActiveLocationIds(tenantId: string): Promise<string[]> {
+    const rows = await this.dbService.db
+      .select({ id: schema.locations.id })
+      .from(schema.locations)
+      .where(
+        and(
+          eq(schema.locations.tenantId, tenantId),
+          eq(schema.locations.status, LocationStatus.ACTIVE)
+        )
+      );
+
+    return rows.map(row => row.id);
+  }
+
   /**
-   * Aggregated metrics for the dashboard's stat cards, plus the same window's rating distribution.
+   * Aggregated raw counts for the dashboard's stat cards, plus the same window's per-rating
+   * counts (not yet zero-filled — see `DashboardMetricsRow`). Merged into one method (and one
+   * round trip) because every caller wants both for the same `days`/`tenantId`/`locationIds` set.
    *
-   * `total`, `avgRating` and `ratingDistribution` are windowed; `pending` and `escalated` are not
-   * — see MetricsDto, which documents why each card counts what it counts. Merged into one method
-   * (and one round trip) because every caller wants both for the same `days`/`tenantId` pair.
-   *
-   * `locationId` is optional and additive, same as `ReviewsReadRepository.listReviews`'s own
-   * filter: omitted means every location the tenant has confirmed, aggregated together — the
-   * behavior this method always had before multi-location existed.
+   * `scope.locationIds` is the caller's already-resolved scope: `DashboardDbService.getMetrics`
+   * decides whether that's one named location or every currently-active one. An empty array is a
+   * meaningful input, not an error — `inArray` over `[]` matches no rows, correctly yielding
+   * all-zero metrics for a tenant with no active locations.
    */
-  async getMetrics(days: number, tenantId: string, locationId?: string): Promise<DashboardMetrics> {
-    const inWindow = this.windowedTenantReviews(days, tenantId, locationId);
-    const open = this.openTenantReviews(tenantId, locationId);
+  async getMetrics(days: number, scope: DashboardQueryScope): Promise<DashboardMetricsRow> {
+    const inWindow = this.windowedTenantReviews(days, scope);
+    const open = this.openTenantReviews(scope);
 
     const [totalRows, avgRows, pendingRows, escalatedRows, distributionRows] = await Promise.all([
       this.dbService.db.select({ value: count() }).from(schema.reviews).where(inWindow),
@@ -82,38 +108,28 @@ export class DashboardRepository {
         .groupBy(schema.reviews.rating),
     ]);
 
-    // Zero-filled first so every bucket exists even for an empty window — the client renders five
-    // bars unconditionally — then overlaid with the rows that came back.
-    const ratingDistribution: Record<number, number> = {};
-    for (let rating = 1; rating <= 5; rating++) {
-      ratingDistribution[rating] = 0;
-    }
-    for (const row of distributionRows) {
-      ratingDistribution[row.rating] = row.value;
-    }
-
     return {
       total: totalRows[0]?.value ?? 0,
       avgRating: avgRows[0]?.avgRating ?? null,
       pending: pendingRows[0]?.value ?? 0,
       escalated: escalatedRows[0]?.value ?? 0,
-      ratingDistribution,
+      ratingCounts: distributionRows,
     };
   }
 
   /**
-   * The most recently reviewed escalations still awaiting action, newest first.
+   * The most recently reviewed escalations still awaiting action, newest first, within the
+   * caller-resolved `scope.locationIds` — see `getMetrics`'s doc comment on that parameter.
    */
   async getRecentEscalated(
     limit: number,
-    tenantId: string,
-    locationId?: string
+    scope: DashboardQueryScope
   ): Promise<RecentEscalatedRow[]> {
     const conditions = [
-      eq(schema.reviews.tenantId, tenantId),
+      eq(schema.reviews.tenantId, scope.tenantId),
       eq(schema.reviews.classification, ReviewClassification.ESCALATED),
-      inArray(schema.reviews.status, OPEN_STATUSES),
-      this.locationScope(tenantId, locationId),
+      inArray(schema.reviews.status, scope.openStatuses),
+      inArray(schema.reviews.locationId, scope.locationIds),
     ];
 
     const rows = await this.dbService.db
@@ -133,8 +149,8 @@ export class DashboardRepository {
   }
 
   /**
-   * Reviews belonging to `tenantId` (and, if given, scoped to one `locationId`) that the reviewer
-   * left inside the trailing `days` window.
+   * Reviews belonging to `tenantId`, scoped to `locationIds`, that the reviewer left inside the
+   * trailing `days` window.
    *
    * Windowed on `reviewed_at`, not `created_at`: `created_at` is the row's insert time and the
    * sync leaves it at `defaultNow()`, so an onboarding backfill stamps a business's entire review
@@ -143,58 +159,20 @@ export class DashboardRepository {
    * number. `reviewed_at` is nullable and `gt` excludes NULLs — correct here, since a review with
    * no date cannot be placed in a window.
    */
-  private windowedTenantReviews(
-    days: number,
-    tenantId: string,
-    locationId?: string
-  ): SQL | undefined {
-    const conditions = [
-      eq(schema.reviews.tenantId, tenantId),
+  private windowedTenantReviews(days: number, scope: DashboardQueryScope): SQL | undefined {
+    return and(
+      eq(schema.reviews.tenantId, scope.tenantId),
       gt(schema.reviews.reviewedAt, sql`now() - make_interval(days => ${days})`),
-      this.locationScope(tenantId, locationId),
-    ];
-    return and(...conditions);
-  }
-
-  /**
-   * Which locations' reviews count toward a figure: one named location, or — when none is named —
-   * every location the tenant *currently* has, not every location it has ever had.
-   *
-   * `reviews.tenant_id` alone was the old answer, and it silently included deactivated ones. A
-   * tenant that disconnects and reconnects under a different Google account gets fresh `locations`
-   * rows (the upsert's conflict target is `(provider_connection_id, external_location_id)`, and
-   * the connection id changed), so the same business's reviews are imported a second time under a
-   * new `location_id` while the originals linger on the deactivated row. Every un-scoped total —
-   * review count, pending, escalated, the rating distribution — then read roughly double, for a
-   * location the Business Switcher no longer offers and the tenant cannot get back to.
-   */
-  private locationScope(tenantId: string, locationId?: string): SQL | undefined {
-    if (locationId) {
-      return eq(schema.reviews.locationId, locationId);
-    }
-
-    return inArray(
-      schema.reviews.locationId,
-      this.dbService.db
-        .select({ id: schema.locations.id })
-        .from(schema.locations)
-        .where(
-          and(
-            eq(schema.locations.tenantId, tenantId),
-            eq(schema.locations.status, LocationStatus.ACTIVE)
-          )
-        )
+      inArray(schema.reviews.locationId, scope.locationIds)
     );
   }
 
-  /** Reviews belonging to `tenantId` (and, if given, scoped to one `locationId`) that still need
-   *  someone to act on them — shared between the `pending`/`escalated` stat cards. */
-  private openTenantReviews(tenantId: string, locationId?: string): SQL | undefined {
-    const conditions = [
-      eq(schema.reviews.tenantId, tenantId),
-      inArray(schema.reviews.status, OPEN_STATUSES),
-      this.locationScope(tenantId, locationId),
-    ];
-    return and(...conditions);
+  /** Reviews belonging to `scope.tenantId`, scoped to `scope.locationIds`, whose status is in `scope.openStatuses` — shared between the `pending`/`escalated` stat cards. */
+  private openTenantReviews(scope: DashboardQueryScope): SQL | undefined {
+    return and(
+      eq(schema.reviews.tenantId, scope.tenantId),
+      inArray(schema.reviews.status, scope.openStatuses),
+      inArray(schema.reviews.locationId, scope.locationIds)
+    );
   }
 }

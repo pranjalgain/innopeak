@@ -22,7 +22,10 @@ export class BlocklistTermsService {
 
   async create(user: AuthUser, term: string): Promise<BlocklistTermDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.SETTINGS.TENANT_ONLY);
-    const row = await this.settingsDbService.insertBlocklistTerm(tenantUser.tenantId, term);
+    const row = await this.settingsDbService.insertBlocklistTerm({
+      tenantId: tenantUser.tenantId,
+      term,
+    });
     if (row === null) {
       throw new ConflictException(MESSAGES.SETTINGS.BLOCKLIST_TERM_EXISTS);
     }
@@ -31,7 +34,10 @@ export class BlocklistTermsService {
 
   async remove(user: AuthUser, id: string): Promise<DeleteBlocklistTermResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.SETTINGS.TENANT_ONLY);
-    const deleted = await this.settingsDbService.deleteBlocklistTerm(id, tenantUser.tenantId);
+    const deleted = await this.settingsDbService.deleteBlocklistTerm({
+      id,
+      tenantId: tenantUser.tenantId,
+    });
     if (!deleted) {
       throw new NotFoundException(MESSAGES.SETTINGS.BLOCKLIST_TERM_NOT_FOUND);
     }

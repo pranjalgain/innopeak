@@ -10,6 +10,11 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthUser } from '../../auth/types/auth-user.type';
 import { AdminBusinessResponseDto } from '../dto/admin-business-response.dto';
 
+export interface SetBusinessStatusParams {
+  tenantId: string;
+  status: BusinessStatus;
+}
+
 @Injectable()
 export class AdminBusinessesService {
   constructor(
@@ -35,13 +40,16 @@ export class AdminBusinessesService {
    */
   async setStatus(
     actor: AuthUser,
-    tenantId: string,
-    status: BusinessStatus
+    params: SetBusinessStatusParams
   ): Promise<AdminBusinessResponseDto> {
+    const { tenantId, status } = params;
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const tenantStatus =
       status === BusinessStatus.SUSPENDED ? TenantStatus.SUSPENDED : TenantStatus.ACTIVE;
-    const summary = await this.adminBusinessesDbService.setStatus(tenantId, tenantStatus);
+    const summary = await this.adminBusinessesDbService.setStatus({
+      tenantId,
+      status: tenantStatus,
+    });
     if (!summary) {
       throw new NotFoundException(MESSAGES.ADMIN.BUSINESS_NOT_FOUND);
     }

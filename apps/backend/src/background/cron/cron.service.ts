@@ -28,7 +28,7 @@ export class CronService {
   async purgeStaleAuthTokens(): Promise<void> {
     const purged = await this.authDbService.purgeStaleTokens();
     this.logger.log(
-      `Purged ${purged.verifyEmailTokens} stale verify_email token(s) and ${purged.refreshTokens} stale refresh token(s)`
+      `Purged ${purged.otpTokens} stale OTP token(s) and ${purged.refreshTokens} stale refresh token(s)`
     );
   }
 

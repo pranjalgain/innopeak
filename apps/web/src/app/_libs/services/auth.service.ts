@@ -285,11 +285,29 @@ export class AuthService {
   }
 
   /**
-   * The other half of `changePassword` — for an account that has never had one (Google/SSO-only).
-   * No `currentPassword` to send: there is nothing to prove yet. Same token-storage shape as
-   * `changePassword` on success.
+   * Step-up verification ahead of `setPassword` — mails a 6-digit code to the caller's own
+   * address. Required because an access token alone isn't proof enough to grant a passwordless
+   * (Google-only) account its first password; see `setPassword`'s doc comment.
    */
-  static async setPassword(newPassword: string): Promise<void> {
+  static async requestSetPasswordOtp(): Promise<void> {
+    if (!TokenService.getAccessToken()) {
+      const revived = await this.refreshAccessToken();
+      if (!revived) {
+        throw new ApiError(401, "Invalid or expired access token.");
+      }
+    }
+
+    await authApi.authControllerRequestSetPasswordOtpV1({ skipRefresh: true });
+  }
+
+  /**
+   * The other half of `changePassword` — for an account that has never had one (Google/SSO-only).
+   * No `currentPassword` to send: there is nothing to prove yet. Takes `otp` from
+   * `requestSetPasswordOtp` instead, since without some proof of live mailbox control an access
+   * token alone (stolen or otherwise) would be enough to grant a permanent credential. Same
+   * token-storage shape as `changePassword` on success.
+   */
+  static async setPassword(newPassword: string, otp: string): Promise<void> {
     if (!TokenService.getAccessToken()) {
       const revived = await this.refreshAccessToken();
       if (!revived) {
@@ -298,7 +316,7 @@ export class AuthService {
     }
 
     const response = await authApi.authControllerSetPasswordV1(
-      { setPasswordDto: { newPassword } },
+      { setPasswordDto: { newPassword, otp } },
       { skipRefresh: true },
     );
     const data = unwrap<TokenResponse>(response.data);

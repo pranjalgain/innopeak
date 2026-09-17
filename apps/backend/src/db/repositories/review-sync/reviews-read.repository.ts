@@ -58,6 +58,16 @@ export interface ListReviewsFilter {
   search?: string | undefined;
 }
 
+export interface FindReviewByIdForTenantInput {
+  reviewId: string;
+  tenantId: string;
+}
+
+export interface FindResponsesForReviewsInput {
+  reviewIds: string[];
+  tenantId: string;
+}
+
 const REVIEW_COLUMNS = {
   id: schema.reviews.id,
   locationId: schema.reviews.locationId,
@@ -160,11 +170,13 @@ export class ReviewsReadRepository {
     return { reviews: reviews as ReviewRow[], total: totals[0]?.value ?? 0 };
   }
 
-  async findReviewByIdForTenant(reviewId: string, tenantId: string): Promise<ReviewRow | null> {
+  async findReviewByIdForTenant(input: FindReviewByIdForTenantInput): Promise<ReviewRow | null> {
     const rows = await this.dbService.db
       .select(REVIEW_COLUMNS)
       .from(schema.reviews)
-      .where(and(eq(schema.reviews.id, reviewId), eq(schema.reviews.tenantId, tenantId)))
+      .where(
+        and(eq(schema.reviews.id, input.reviewId), eq(schema.reviews.tenantId, input.tenantId))
+      )
       .limit(1);
 
     return (rows[0] as ReviewRow | undefined) ?? null;
@@ -174,9 +186,14 @@ export class ReviewsReadRepository {
    * Every response for a set of reviews, in one query rather than one per review — the list
    * endpoint needs `latestResponse` for a whole page, and a per-row query would make rendering a
    * 20-item queue 21 round trips.
+   *
+   * Scoped by `tenantId` even though every current caller already resolved `reviewIds` from a
+   * tenant-scoped read: `review_responses.tenant_id` is a real column on this table, so the
+   * defense costs nothing and this stops being latent (safe only because of caller discipline)
+   * the moment a future write surface takes an attacker-supplied review id.
    */
-  async findResponsesForReviews(reviewIds: string[]): Promise<ReviewResponseRow[]> {
-    if (reviewIds.length === 0) {
+  async findResponsesForReviews(input: FindResponsesForReviewsInput): Promise<ReviewResponseRow[]> {
+    if (input.reviewIds.length === 0) {
       return [];
     }
 
@@ -184,7 +201,12 @@ export class ReviewsReadRepository {
       this.dbService.db
         .select(RESPONSE_COLUMNS)
         .from(schema.reviewResponses)
-        .where(inArray(schema.reviewResponses.reviewId, reviewIds))
+        .where(
+          and(
+            inArray(schema.reviewResponses.reviewId, input.reviewIds),
+            eq(schema.reviewResponses.tenantId, input.tenantId)
+          )
+        )
         // created_at then id: id is a uuidv7 and so breaks ties in generation order rather than
         // arbitrarily. That ordering is what makes the derived "Snippet A"/"Snippet B" label stable
         // across clients instead of depending on the order each one happened to receive rows in.

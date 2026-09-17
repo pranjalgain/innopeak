@@ -94,7 +94,12 @@ export const tenantIdentityProvider = pgEnum('tenant_identity_provider', [
   'google_workspace',
 ]);
 export const tenantStatus = pgEnum('tenant_status', ['pending_activation', 'active', 'suspended']);
-export const tokenPurpose = pgEnum('token_purpose', ['verify_email', 'invite', 'reset']);
+export const tokenPurpose = pgEnum('token_purpose', [
+  'verify_email',
+  'invite',
+  'reset',
+  'set_password',
+]);
 export const userIdentityProvider = pgEnum('user_identity_provider', ['entra_id', 'google']);
 export const userLocale = pgEnum('user_locale', ['en', 'de']);
 export const userRole = pgEnum('user_role', ['owner', 'member']);

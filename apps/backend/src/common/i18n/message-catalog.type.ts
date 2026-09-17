@@ -27,6 +27,7 @@ export interface MessageCatalog {
     PASSWORD_ALREADY_SET: string;
     PASSWORD_CHANGED: string;
     PASSWORD_SET: string;
+    SET_PASSWORD_OTP_ACK: string;
     LOCALE_UPDATED: string;
     TENANT_ONLY: string;
     GOOGLE_NOT_CONFIGURED: string;

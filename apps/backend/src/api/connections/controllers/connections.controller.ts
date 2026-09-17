@@ -7,7 +7,6 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';
-import { isProduction } from '@config/deployment-target.util';
 import {
   Body,
   Controller,
@@ -23,13 +22,12 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { CookieOptions, Request, Response } from 'express';
+import type { Request, Response } from 'express';
 
 import {
   DEFAULT_RETURN_TO,
   OAUTH_SID_COOKIE_NAME,
   OAUTH_SID_COOKIE_PATH,
-  OAUTH_STATE_TTL_SECONDS,
 } from '../constants/connections.constants';
 import {
   AuthorizeQueryDto,
@@ -56,6 +54,7 @@ import {
   ApiListLocations,
   ApiSetActiveLocation,
 } from '../swagger/connections.swagger';
+import { buildOauthSidCookieOptions } from '../utils/connections.utils';
 
 @Controller({ path: RouteNames.CONNECTIONS, version: '1' })
 @ApiTags('Connections')
@@ -84,7 +83,7 @@ export class ConnectionsController {
       returnTo: query.returnTo ?? DEFAULT_RETURN_TO,
     });
 
-    res.cookie(OAUTH_SID_COOKIE_NAME, sid, this.oauthSidCookieOptions());
+    res.cookie(OAUTH_SID_COOKIE_NAME, sid, buildOauthSidCookieOptions());
     res.redirect(HttpStatus.FOUND, authorizationUrl);
   }
 
@@ -136,12 +135,12 @@ export class ConnectionsController {
     @CurrentUser() user: AuthUser,
     @Query() query: ListLocationsQueryDto
   ): Promise<ApiResponseDto<LocationListResponseDto>> {
-    const locations = await this.connectionsService.listLocations({
+    const response = await this.connectionsService.listLocations({
       user,
       status: query.status,
     });
 
-    return ResponseUtil.success({ locations }, undefined, HttpStatus.OK);
+    return ResponseUtil.success(response, undefined, HttpStatus.OK);
   }
 
   @Post(RouteNames.LOCATIONS)
@@ -189,23 +188,5 @@ export class ConnectionsController {
       MESSAGES.CONNECTIONS.ACTIVE_LOCATION_UPDATED,
       HttpStatus.OK
     );
-  }
-
-  /**
-   * `SameSite=Lax`, not Strict: the callback arrives as a top-level GET navigation from Google,
-   * which Lax permits and Strict does not — Strict would drop the cookie on exactly the request
-   * that needs it and make every legitimate connect fail as INVALID_STATE.
-   *
-   * Path-scoped to /v1/connections so it is never sent on any other request, and short-lived
-   * because a consent round trip that takes more than ten minutes has been abandoned.
-   */
-  private oauthSidCookieOptions(): CookieOptions {
-    return {
-      httpOnly: true,
-      secure: isProduction(),
-      sameSite: 'lax',
-      path: OAUTH_SID_COOKIE_PATH,
-      maxAge: OAUTH_STATE_TTL_SECONDS * 1000,
-    };
   }
 }
