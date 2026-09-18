@@ -61,22 +61,15 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1788850267831,
-      "tag": "0008_dev_platform_admin",
+      "when": 1789119834421,
+      "tag": "0008_platform_settings",
       "breakpoints": true
     },
     {
       "idx": 9,
       "version": "7",
-      "when": 1789119834421,
-      "tag": "0009_platform_settings",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
       "when": 1789123277522,
-      "tag": "0010_admin_overview",
+      "tag": "0009_admin_overview",
       "breakpoints": true
     }
   ]

@@ -1,4 +1,4 @@
-/** Mirrors the `platform_activity_type` Postgres enum (`0010_admin_overview.sql`). */
+/** Mirrors the `platform_activity_type` Postgres enum (`0009_admin_overview.sql`). */
 export enum PlatformActivityType {
   BUSINESS_SUSPENDED = 'business_suspended',
   BUSINESS_REACTIVATED = 'business_reactivated',

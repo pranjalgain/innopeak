@@ -1,3 +1,4 @@
+import { AuthModule } from '@auth/auth.module';
 import { QueueUIModule } from '@bg/queue-ui.module';
 import { BcryptService } from '@common/hashing/bcrypt.service';
 import { HashingService } from '@common/hashing/hashing.service';
@@ -13,7 +14,10 @@ import { AdminSettingsService } from './services/admin-settings.service';
 import { AdminUsersService } from './services/admin-users.service';
 
 @Module({
-  imports: [QueueUIModule], // for AddingJobsToQueueManager — AdminSettingsService.sendInvite enqueues the invite email
+  imports: [
+    QueueUIModule, // for AddingJobsToQueueManager — AdminSettingsService.sendInvite enqueues the invite email
+    AuthModule, // for TokenService — AdminSettingsService.updateLocale reissues the access token
+  ],
   controllers: [
     AdminUsersController,
     AdminBusinessesController,

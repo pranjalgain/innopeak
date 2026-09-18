@@ -22,6 +22,7 @@ describe('AdminBusinessesService', () => {
     type: JwtTokenType.PLATFORM_ADMIN,
     id: 'admin-1',
     email: 'admin@innopeak.com',
+    locale: null,
   };
 
   const tenantUser: TenantAuthUser = {

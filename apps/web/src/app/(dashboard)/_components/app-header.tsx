@@ -6,6 +6,7 @@ import { BusinessSwitcher } from "@/app/(dashboard)/_components/business-switche
 import { NotificationPanel } from "@/app/(dashboard)/_components/notification-panel";
 import type { ShellIdentity } from "@/app/(dashboard)/_components/shell-nav";
 import { LanguageSwitcher } from "@/app/_components/language-switcher";
+import { ThemeToggle } from "@/app/_components/theme-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,9 +44,9 @@ interface AppHeaderProps {
 /**
  * Top bar shared by every dashboard-shell screen: page title, the business switcher (only renders
  * once there's more than one confirmed location to choose between — see `BusinessSwitcher`), the
- * language switcher (always here — it's the one control on screen regardless of breakpoint, see
- * `AppShell`, unlike the account menu below it), notifications, and — on mobile only — the account
- * menu (the sidebar's footer covers it everywhere else, see `showAccountMenu`).
+ * language switcher and theme toggle (always here — the one pair of controls on screen regardless
+ * of breakpoint, see `AppShell`, unlike the account menu below it), notifications, and — on mobile
+ * only — the account menu (the sidebar's footer covers it everywhere else, see `showAccountMenu`).
  */
 export function AppHeader({
   title,
@@ -65,6 +66,7 @@ export function AppHeader({
       <div className="flex items-center gap-2">
         {showBusinessSwitcher ? <BusinessSwitcher /> : null}
         <LanguageSwitcher />
+        <ThemeToggle />
         {showNotifications ? <NotificationPanel /> : null}
 
         {showAccountMenu ? (

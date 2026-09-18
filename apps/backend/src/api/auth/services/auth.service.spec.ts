@@ -594,7 +594,7 @@ describe('AuthService', () => {
     it('rejects a platform-admin token without looking up a user', async () => {
       await expect(
         target.changePassword(
-          { type: JwtTokenType.PLATFORM_ADMIN, id: 'admin-1', email: 'a@x.com' },
+          { type: JwtTokenType.PLATFORM_ADMIN, id: 'admin-1', email: 'a@x.com', locale: null },
           dto
         )
       ).rejects.toThrow(ForbiddenException);
@@ -794,7 +794,7 @@ describe('AuthService', () => {
     it('rejects a platform-admin token without looking up a user', async () => {
       await expect(
         target.updateLocale(
-          { type: JwtTokenType.PLATFORM_ADMIN, id: 'admin-1', email: 'a@x.com' },
+          { type: JwtTokenType.PLATFORM_ADMIN, id: 'admin-1', email: 'a@x.com', locale: null },
           { locale: 'de' }
         )
       ).rejects.toThrow(ForbiddenException);
@@ -1593,7 +1593,7 @@ describe('AuthService', () => {
       body: {
         accessToken: 'admin-access',
         expiresIn: 900,
-        admin: { id: 'admin-1', email: 'priya.ops@innopeak.com' },
+        admin: { id: 'admin-1', email: 'priya.ops@innopeak.com', locale: null },
       },
     };
 
@@ -1701,7 +1701,7 @@ describe('AuthService', () => {
         body: {
           accessToken: 'admin-access',
           expiresIn: 900,
-          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com' },
+          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com', locale: null },
         },
       };
       platformAdminAuthService.completeAdminInviteGoogle.mockResolvedValue({ ok: true, tokens });
@@ -1791,7 +1791,7 @@ describe('AuthService', () => {
         body: {
           accessToken: 'admin-access',
           expiresIn: 900,
-          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com' },
+          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com', locale: null },
         },
       };
       platformAdminAuthService.findLinkedAdmin.mockResolvedValue({
@@ -1847,7 +1847,7 @@ describe('AuthService', () => {
         body: {
           accessToken: 'admin-access',
           expiresIn: 900,
-          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com' },
+          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com', locale: null },
         },
       };
       platformAdminAuthService.findLinkedAdmin.mockResolvedValue({

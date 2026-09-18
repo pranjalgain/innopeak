@@ -45,7 +45,15 @@ export function AdminLoginView() {
 
   const handleSubmit = async (email: string, password: string) => {
     const succeeded = await loginAsAdmin(email, password);
-    if (succeeded) router.push(ROUTES.ADMIN);
+    if (!succeeded) return;
+
+    // Sign-in may have just restored this admin's saved language into the locale cookie
+    // (`AuthService.loginAsAdmin`). That cookie is read on the server, so without dropping the
+    // router cache the next screen renders from a payload produced before it existed — an admin
+    // whose preference is German lands on one English page and only gets German on the navigation
+    // after that.
+    router.refresh();
+    router.push(ROUTES.ADMIN);
   };
 
   return (

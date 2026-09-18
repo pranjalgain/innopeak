@@ -34,7 +34,7 @@
 -- an `audit_operation_type` enum for it. Removed: it had no reader anywhere in the product, it
 -- had no retention or purge of its own, and its full-row JSONB snapshots made every domain-table
 -- write leave a second, unmanaged copy of that row's data (PII included) sitting in the database
--- indefinitely. `0010_admin_overview.sql`'s `platform_activity_log` — a small, typed, purpose-
+-- indefinitely. `0009_admin_overview.sql`'s `platform_activity_log` — a small, typed, purpose-
 -- built table written only where a platform admin action actually needs to be shown on the
 -- Overview page — already covers the one thing that table was read for. Removing this also
 -- deletes the `purgeExpiredReviewerPii` job's second redaction pass against

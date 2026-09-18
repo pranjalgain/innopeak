@@ -1,6 +1,7 @@
 import { applyDecorators, HttpStatus } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
+import { UpdateLocaleDto } from '../../auth/dto/update-locale.dto';
 import { PlatformSettingsResponseDto } from '../../settings/dto/platform-settings-response.dto';
 import { AdminInviteResponseDto } from '../dto/admin-invite-response.dto';
 import { AdminProfileResponseDto } from '../dto/admin-profile-response.dto';
@@ -8,9 +9,10 @@ import { ChangeAdminPasswordDto } from '../dto/change-admin-password.dto';
 import { SendAdminInviteDto } from '../dto/send-admin-invite.dto';
 import { SetAdminStatusDto } from '../dto/set-admin-status.dto';
 import { UpdateAdminAvatarDto } from '../dto/update-admin-avatar.dto';
+import { UpdateAdminLocaleResponseDto } from '../dto/update-admin-locale-response.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 
-const ADMIN_PROFILE_EXAMPLE = { email: 'admin@innopeak.com', avatarUrl: null };
+const ADMIN_PROFILE_EXAMPLE = { email: 'admin@innopeak.com', avatarUrl: null, locale: null };
 
 const ADMIN_INVITE_EXAMPLE = {
   id: '0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f',
@@ -64,6 +66,40 @@ export function ApiUpdateAdminAvatar(): ReturnType<typeof applyDecorators> {
       },
     }),
     ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
+  );
+}
+
+export function ApiUpdateAdminLocale(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Set the language responses are rendered in',
+      description:
+        'Persists `platform_admins.locale`, then re-signs the access token (no refresh token to ' +
+        'touch — a platform admin has none) so the new value is on its `locale` claim right ' +
+        'away rather than waiting for the next login. Platform-admin tokens only.',
+    }),
+    ApiBody({
+      type: UpdateLocaleDto,
+      examples: { default: { summary: 'Typical request', value: { locale: 'de' } } },
+    }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Locale updated; a fresh access token is issued.',
+      type: UpdateAdminLocaleResponseDto,
+      examples: {
+        default: {
+          summary: 'Updated',
+          value: {
+            accessToken: 'eyJhbGciOiJIUzI1NiIs...',
+            expiresIn: 900,
+            admin: { ...ADMIN_PROFILE_EXAMPLE, locale: 'de' },
+          },
+        },
+      },
+    }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
   );

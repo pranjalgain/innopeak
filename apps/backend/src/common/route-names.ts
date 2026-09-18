@@ -75,6 +75,7 @@ export enum RouteNames {
   ADMIN_SETTINGS_PROFILE = 'profile',
   ADMIN_SETTINGS_PROFILE_AVATAR = 'profile/avatar',
   ADMIN_SETTINGS_CHANGE_PASSWORD = 'profile/change-password',
+  ADMIN_SETTINGS_LOCALE = 'profile/locale',
   ADMIN_SETTINGS_INVITES = 'invites',
   ADMIN_SETTINGS_INVITE_BY_ID = 'invites/:inviteId',
   ADMIN_SETTINGS_ADMIN_STATUS = 'admins/:adminId/status',

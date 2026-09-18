@@ -92,5 +92,10 @@ const googleIdentityProviderFactory = {
     PendingGoogleSignupService,
     { provide: HashingService, useClass: BcryptService },
   ],
+  // `TokenService`/`JwtModule` only — `AdminSettingsService.updateLocale` needs
+  // `signPlatformAdminAccessToken` to reissue the caller's access token with its fresh `locale`
+  // claim, the same reissue-not-relogin shape `AuthService.updateLocale` already uses for a
+  // tenant user. Nothing else here is meant for use outside this module.
+  exports: [TokenService, JwtModule],
 })
 export class AuthModule {}

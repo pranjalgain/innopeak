@@ -19,6 +19,9 @@ export interface TenantJwtPayload {
 export interface PlatformAdminJwtPayload {
   sub: string; // platform_admins.id
   email: string;
+  /** `platform_admins.locale` at the time this token was signed — null means the admin never
+   * chose one. Stale until the token is refreshed, same as the tenant claim above. */
+  locale: Locale | null;
   type: JwtTokenType.PLATFORM_ADMIN;
   iat?: number;
   exp?: number;

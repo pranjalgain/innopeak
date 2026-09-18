@@ -1,4 +1,5 @@
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import type { Locale } from '@common/i18n/locale';
 import { Injectable } from '@nestjs/common';
 
 import {
@@ -55,6 +56,13 @@ export class PlatformAdminDbService {
 
   async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
     await this.platformAdminRepository.updatePasswordHash(id, passwordHash);
+  }
+
+  /** See `PlatformAdminRepository.updateLocale`. Re-fetches, same reasoning as `updateAvatarUrl`
+   *  above — the caller needs the fresh row to reissue the access token's `locale` claim. */
+  async updateLocale(id: string, locale: Locale): Promise<PlatformAdminProfileRow | null> {
+    await this.platformAdminRepository.updateLocale(id, locale);
+    return this.platformAdminRepository.findById(id);
   }
 
   /**
@@ -124,9 +132,12 @@ export class PlatformAdminDbService {
   }
 
   /** See `PlatformAdminRepository.findByGoogleIdentity` — the login-side read of a linked admin identity. */
-  async findByGoogleIdentity(
-    providerUserId: string
-  ): Promise<{ id: string; email: string; status: PlatformAdminStatus } | null> {
+  async findByGoogleIdentity(providerUserId: string): Promise<{
+    id: string;
+    email: string;
+    status: PlatformAdminStatus;
+    locale: Locale | null;
+  } | null> {
     return this.platformAdminRepository.findByGoogleIdentity(providerUserId);
   }
 

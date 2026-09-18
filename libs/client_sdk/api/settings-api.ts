@@ -44,6 +44,8 @@ import type { PlatformSettingsResponseDto } from '../models';
 // @ts-ignore
 import type { TenantMemberResponseDto } from '../models';
 // @ts-ignore
+import type { TenantMembersControllerRevokeV1200Response } from '../models';
+// @ts-ignore
 import type { TenantSettingsResponseDto } from '../models';
 // @ts-ignore
 import type { UpdateTenantSettingsDto } from '../models';
@@ -726,7 +728,10 @@ export const SettingsApiFp = function (configuration?: Configuration) {
       memberId: string,
       options?: RawAxiosRequestConfig,
     ): Promise<
-      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<TenantMembersControllerRevokeV1200Response>
     > {
       const localVarAxiosArgs =
         await localVarAxiosParamCreator.tenantMembersControllerRevokeV1(
@@ -922,7 +927,7 @@ export const SettingsApiFactory = function (
     tenantMembersControllerRevokeV1(
       requestParameters: SettingsApiTenantMembersControllerRevokeV1Request,
       options?: RawAxiosRequestConfig,
-    ): AxiosPromise<void> {
+    ): AxiosPromise<TenantMembersControllerRevokeV1200Response> {
       return localVarFp
         .tenantMembersControllerRevokeV1(requestParameters.memberId, options)
         .then((request) => request(axios, basePath));
@@ -1041,7 +1046,7 @@ export interface SettingsApiInterface {
   tenantMembersControllerRevokeV1(
     requestParameters: SettingsApiTenantMembersControllerRevokeV1Request,
     options?: RawAxiosRequestConfig,
-  ): AxiosPromise<void>;
+  ): AxiosPromise<TenantMembersControllerRevokeV1200Response>;
 
   /**
    * Owner-only. Reads the tenant_settings singleton. 404 if the signup transaction never wrote the row.

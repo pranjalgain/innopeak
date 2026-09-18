@@ -35,11 +35,15 @@ export function SiteHeader() {
         </nav>
 
         {/* `gap-1` below `sm` only — German's longer "Anmelden"/"Jetzt starten" leave this row
-            a few pixels short of fitting at the narrowest real phone widths (~360px) even with
-            the language switcher already reduced to icon-only there; `sm:gap-2` restores the
-            original spacing the moment there's room for it, so nothing changes above ~375px. */}
+            a few pixels short of fitting at the narrowest real phone widths (~360px); `sm:gap-2`
+            restores the original spacing the moment there's room for it, so nothing changes
+            above ~375px. `compact` on the switch buys back the width its default size (tuned for
+            pages with room to spare) would otherwise cost here — see that prop's own comment.
+            `ThemeToggle` is deliberately not here at all — this row has no width budget left for
+            a second control on top of that, even a compact one. It's still reachable from
+            `(auth)/layout.tsx` one click away (Sign in), and every authenticated screen. */}
         <div className="flex items-center gap-1 sm:gap-2">
-          <LanguageSwitcher />
+          <LanguageSwitcher compact />
           <Button asChild variant="ghost" size="sm">
             <Link href={ROUTES.LOGIN as Route}>{t("signIn")}</Link>
           </Button>

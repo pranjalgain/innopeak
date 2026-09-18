@@ -48,7 +48,7 @@ const ACTIVITY_COLUMNS = {
  * `reviews`/`review_responses` aggregated platform-wide (no `tenantId` filter — the one place in
  * this codebase those two tables are queried across every tenant at once), plus
  * `platform_activity_log`, a purpose-built log of platform-admin actions (see
- * `0010_admin_overview.sql` for why it's written explicitly rather than trigger-populated).
+ * `0009_admin_overview.sql` for why it's written explicitly rather than trigger-populated).
  */
 @Injectable()
 export class AdminOverviewRepository {

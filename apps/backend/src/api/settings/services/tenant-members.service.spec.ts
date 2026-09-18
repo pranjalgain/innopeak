@@ -45,7 +45,9 @@ describe('TenantMembersService', () => {
       deleteExpiredMemberInvite: jest.fn(),
       createMemberInvite: jest.fn(),
       revokeMemberInvite: jest.fn(),
-      findTenantStatus: jest.fn().mockResolvedValue({ status: TenantStatus.ACTIVE, name: 'The Coffee House' }),
+      findTenantStatus: jest
+        .fn()
+        .mockResolvedValue({ status: TenantStatus.ACTIVE, name: 'The Coffee House' }),
     };
     platformSettingsDbService = { get: jest.fn() };
     queueManager = { addMemberInviteEmailJob: jest.fn().mockResolvedValue(undefined) };
