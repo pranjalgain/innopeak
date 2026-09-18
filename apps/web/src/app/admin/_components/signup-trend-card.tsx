@@ -15,7 +15,7 @@ interface MonthBucket {
 }
 
 /** How many months the chart shows, counting back from the current one. */
-const WINDOW_MONTHS = 12;
+const WINDOW_MONTHS = 6;
 
 /**
  * Buckets `createdAt` by calendar month — a real derivation from the businesses already loaded,

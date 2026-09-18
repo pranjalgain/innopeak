@@ -25,7 +25,7 @@ export function AdminOverviewView() {
     userCount,
     totalReviewsFetched,
     totalRepliesSent,
-    recentActivity,
+    activityFeed,
     isLoading,
     isError,
     refetch,
@@ -103,7 +103,7 @@ export function AdminOverviewView() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           <SignupTrendCard businesses={businesses} />
-          <ActivityLogCard entries={recentActivity} />
+          <ActivityLogCard entries={activityFeed} />
         </div>
       )}
     </div>

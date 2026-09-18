@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { useForm } from "react-hook-form";
 import { LuSend, LuUsers } from "react-icons/lu";
@@ -52,19 +52,35 @@ export function MembersSettingsSection() {
     mode: "onTouched",
     defaultValues: { email: "" },
   });
+  // The schema has no separate "required" rule — an empty string simply fails `.email()` — so
+  // blurring the field before typing anything (`mode: "onTouched"`) surfaces the same "not a valid
+  // email" message a real typo would. That reads as the form nagging someone who hasn't done
+  // anything yet; an untouched-but-empty field isn't invalid, it's just not filled in.
+  //
+  // Mirrored into local state via `register`'s onChange rather than read with `watch()` — same
+  // reasoning `ProfileSettingsSection`'s password checklist documents: `watch()` can't be
+  // memoized safely and React Compiler skips optimizing the whole component around it.
+  const [emailValue, setEmailValue] = useState("");
+  const showEmailError = Boolean(errors.email) && emailValue.trim().length > 0;
 
   // Cleared only on success, so a rejected invite leaves the address in place to correct.
   const submitInvite = handleSubmit(async (values) => {
     const succeeded = await inviteMember(values.email);
-    if (succeeded) reset();
+    if (succeeded) {
+      reset();
+      setEmailValue("");
+    }
   });
 
   if (isLoading) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
 
   return (
-    <Card>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LuUsers className="text-primary size-4" />
+          {t("title")}
+        </CardTitle>
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
@@ -74,15 +90,17 @@ export function MembersSettingsSection() {
               type="email"
               placeholder={t("emailPlaceholder")}
               className="flex-1"
-              {...register("email")}
+              {...register("email", {
+                onChange: (event) => setEmailValue(event.target.value),
+              })}
             />
             <Button type="submit" disabled={!isValid || isSubmitting}>
               <LuSend />
               {t("inviteButton")}
             </Button>
           </div>
-          {errors.email ? (
-            <p className="text-destructive text-[12.5px]">{errors.email.message}</p>
+          {showEmailError ? (
+            <p className="text-destructive text-[12.5px]">{errors.email?.message}</p>
           ) : null}
         </form>
 
@@ -96,8 +114,9 @@ export function MembersSettingsSection() {
             {pageItems.map((member, index) => (
               <div
                 key={member.id}
+                style={{ animationDelay: `${index * 50}ms` }}
                 className={cn(
-                  "flex flex-wrap items-center justify-between gap-3 py-3",
+                  "animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards ease-fluid motion-reduce:animate-none hover:bg-accent/40 -mx-2 flex flex-wrap items-center justify-between gap-3 rounded-md px-2 py-3 transition-colors duration-300",
                   index !== pageItems.length - 1 && "border-border border-b",
                 )}>
                 <div className="flex min-w-0 items-center gap-2.5">

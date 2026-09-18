@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
-import { LuPlus, LuX } from "react-icons/lu";
+import { LuPlus, LuShieldBan, LuX } from "react-icons/lu";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,9 +38,12 @@ export function BlocklistSettingsSection({
   };
 
   return (
-    <Card>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LuShieldBan className="text-primary size-4" />
+          {t("title")}
+        </CardTitle>
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
@@ -48,10 +51,11 @@ export function BlocklistSettingsSection({
           <p className="text-muted-foreground text-sm">{t("empty")}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {terms.map((term) => (
+            {terms.map((term, index) => (
               <div
                 key={term.id}
-                className="bg-secondary text-secondary-foreground inline-flex items-center gap-2 rounded-md py-1.5 pr-1.5 pl-3.5 text-[13px] font-medium">
+                style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
+                className="bg-secondary text-secondary-foreground animate-in fade-in zoom-in-95 fill-mode-backwards ease-fluid motion-reduce:animate-none hover:bg-secondary/70 inline-flex items-center gap-2 rounded-md py-1.5 pr-1.5 pl-3.5 text-[13px] font-medium transition-colors duration-300">
                 <span>{term.term}</span>
                 <Button
                   type="button"

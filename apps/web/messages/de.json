@@ -182,7 +182,9 @@
     "adminLogin": {
       "title": "Admin-Anmeldung",
       "orDivider": "oder",
-      "continueWithGoogle": "Mit Google fortfahren"
+      "continueWithGoogle": "Mit Google fortfahren",
+      "notAdmin": "Kein Plattform-Administrator?",
+      "tenantSignIn": "Hier anmelden"
     },
     "acceptInvite": {
       "title": "Sie sind eingeladen",
@@ -725,13 +727,16 @@
     },
     "activityLog": {
       "title": "Aktivität",
-      "subtitle": "Letzte Aktionen der Plattform-Administratoren",
+      "subtitle": "Letzte Plattformaktivität",
       "empty": "Noch keine Aktivität.",
       "messages": {
+        "business_joined": "Neues Unternehmen \"{businessName}\" registriert",
         "business_suspended": "{businessName} gesperrt",
         "business_reactivated": "{businessName} reaktiviert",
         "admin_invite_sent": "{email} als Plattform-Administrator eingeladen",
         "admin_invite_revoked": "Einladung für {email} widerrufen",
+        "admin_disabled": "Administrator {email} deaktiviert",
+        "admin_enabled": "Administrator {email} aktiviert",
         "user_activated": "{email} bei {businessName} reaktiviert",
         "user_deactivated": "{email} bei {businessName} deaktiviert"
       }

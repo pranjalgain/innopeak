@@ -1,7 +1,7 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
-import { LuPlus, LuX } from "react-icons/lu";
+import { LuPlus, LuSettings2, LuX } from "react-icons/lu";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -82,9 +82,12 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
   };
 
   return (
-    <Card>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LuSettings2 className="text-primary size-4" />
+          {t("title")}
+        </CardTitle>
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
@@ -184,7 +187,7 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
         </div>
 
         {isDirty ? (
-          <div className="flex justify-end gap-2.5">
+          <div className="animate-in fade-in slide-in-from-bottom-1 ease-fluid motion-reduce:animate-none flex justify-end gap-2.5 duration-300">
             <Button type="button" variant="outline" onClick={handleCancel} disabled={isSaving}>
               {t("cancel")}
             </Button>

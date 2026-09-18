@@ -8,7 +8,7 @@ import { type FormEvent, useCallback, useMemo, useState } from "react";
 
 
 import { useForm } from "react-hook-form";
-import { LuMailPlus, LuSend } from "react-icons/lu";
+import { LuMailPlus, LuSend, LuToggleLeft, LuUserRound } from "react-icons/lu";
 
 import { platformAdminDisplayName } from "@/app/_libs/utils/admin-identity";
 import { getInitials } from "@/app/_libs/utils/initials";
@@ -60,9 +60,12 @@ function ProfileSection() {
   if (isError || !profile) return <LoadErrorState onRetry={refetch} />;
 
   return (
-    <Card>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LuUserRound className="text-primary size-4" />
+          {t("title")}
+        </CardTitle>
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
@@ -152,7 +155,7 @@ function ChangePasswordForm({ changePassword, isChangingPassword }: ChangePasswo
 
   return (
     <form
-      className="border-border flex max-w-sm flex-col gap-4 border-t pt-5"
+      className="border-border animate-in fade-in slide-in-from-bottom-1 ease-fluid motion-reduce:animate-none flex max-w-sm flex-col gap-4 border-t pt-5 duration-300"
       onSubmit={(e) => void handlePasswordSubmit(e)}>
       <p className="text-sm font-medium">{t("changePasswordTitle")}</p>
 
@@ -229,11 +232,21 @@ function InviteSection() {
     mode: "onTouched",
     defaultValues: { email: "" },
   });
+  // The schema has no separate "required" rule — an empty string simply fails `.email()` — so
+  // blurring the field before typing anything (`mode: "onTouched"`) surfaced the same "not a valid
+  // email" message a real typo would, nagging an admin who hadn't done anything yet. Mirrored into
+  // local state via `register`'s onChange rather than read with `watch()`, which React Compiler
+  // can't safely memoize — see `MembersSettingsSection`'s identical fix on the tenant side.
+  const [emailValue, setEmailValue] = useState("");
+  const showEmailError = Boolean(errors.email) && emailValue.trim().length > 0;
 
   // Cleared only on success, so a rejected invite leaves the address in place to correct.
   const submitInvite = handleSubmit(async (values) => {
     const succeeded = await sendInvite(values.email);
-    if (succeeded) reset();
+    if (succeeded) {
+      reset();
+      setEmailValue("");
+    }
   });
 
   if (isLoading) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
@@ -242,9 +255,12 @@ function InviteSection() {
   if (isError) return <LoadErrorState onRetry={refetch} />;
 
   return (
-    <Card>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LuMailPlus className="text-primary size-4" />
+          {t("title")}
+        </CardTitle>
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
@@ -262,18 +278,20 @@ function InviteSection() {
               type="email"
               placeholder={t("emailPlaceholder")}
               className="flex-1"
-              aria-invalid={errors.email ? true : undefined}
-              aria-describedby={errors.email ? "invite-email-error" : undefined}
-              {...register("email")}
+              aria-invalid={showEmailError ? true : undefined}
+              aria-describedby={showEmailError ? "invite-email-error" : undefined}
+              {...register("email", {
+                onChange: (event) => setEmailValue(event.target.value),
+              })}
             />
             <Button type="submit" disabled={!isValid || isSubmitting}>
               <LuSend />
               {t("sendButton")}
             </Button>
           </div>
-          {errors.email ? (
+          {showEmailError ? (
             <p id="invite-email-error" role="alert" className="text-destructive text-[12.5px]">
-              {errors.email.message}
+              {errors.email?.message}
             </p>
           ) : null}
         </form>
@@ -285,10 +303,11 @@ function InviteSection() {
           </p>
         ) : (
           <div className="flex flex-col">
-            {invites.map((invite) => (
+            {invites.map((invite, index) => (
               <div
                 key={invite.id}
-                className="border-border flex flex-wrap items-center justify-between gap-3 border-b py-3 last:border-b-0">
+                style={{ animationDelay: `${index * 50}ms` }}
+                className="border-border animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards ease-fluid motion-reduce:animate-none hover:bg-accent/40 -mx-2 flex flex-wrap items-center justify-between gap-3 rounded-md border-b px-2 py-3 transition-colors duration-300 last:border-b-0">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{invite.email}</p>
                   <p className="text-muted-foreground text-[13px]">
@@ -372,6 +391,10 @@ interface PlatformToggleRowProps {
   checked: boolean;
   disabled: boolean;
   onCheckedChange: (checked: boolean) => void;
+  /** Manual stagger, since these four rows are individually written out below rather than
+   *  mapped from an array — 60ms increments matches the delay step used everywhere else this
+   *  page staggers a list. */
+  delayMs: number;
 }
 
 function PlatformToggleRow({
@@ -380,9 +403,12 @@ function PlatformToggleRow({
   checked,
   disabled,
   onCheckedChange,
+  delayMs,
 }: PlatformToggleRowProps) {
   return (
-    <div className="border-border flex items-center justify-between gap-4 border-b py-4 last:border-b-0">
+    <div
+      style={{ animationDelay: `${delayMs}ms` }}
+      className="border-border animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards ease-fluid motion-reduce:animate-none flex items-center justify-between gap-4 border-b py-4 duration-300 last:border-b-0">
       <div>
         <p className="text-[13px] font-medium">{label}</p>
         <p className="text-muted-foreground mt-0.5 text-[13px]">{helper}</p>
@@ -406,9 +432,12 @@ function PlatformSection() {
   };
 
   return (
-    <Card>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LuToggleLeft className="text-primary size-4" />
+          {t("title")}
+        </CardTitle>
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col">
@@ -418,6 +447,7 @@ function PlatformSection() {
           checked={settings.ssoLoginEnabled}
           disabled={isUpdating}
           onCheckedChange={toggle("ssoLoginEnabled")}
+          delayMs={0}
         />
         <PlatformToggleRow
           label={t("password.label")}
@@ -425,6 +455,7 @@ function PlatformSection() {
           checked={settings.passwordLoginEnabled}
           disabled={isUpdating}
           onCheckedChange={toggle("passwordLoginEnabled")}
+          delayMs={60}
         />
         <PlatformToggleRow
           label={t("social.label")}
@@ -432,6 +463,7 @@ function PlatformSection() {
           checked={settings.socialLoginEnabled}
           disabled={isUpdating}
           onCheckedChange={toggle("socialLoginEnabled")}
+          delayMs={120}
         />
         <PlatformToggleRow
           label={t("inviteMembers.label")}
@@ -439,6 +471,7 @@ function PlatformSection() {
           checked={settings.inviteMembersEnabled}
           disabled={isUpdating}
           onCheckedChange={toggle("inviteMembersEnabled")}
+          delayMs={180}
         />
       </CardContent>
     </Card>

@@ -24,13 +24,16 @@ export function AiSettingsSection({ aiReplyCount, onReplyCountChange }: AiSettin
   const tToasts = useTranslations("settings.toasts");
 
   return (
-    <Card>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LuSparkles className="text-primary size-4" />
+          {t("title")}
+        </CardTitle>
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-4 rounded-lg border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards ease-fluid motion-reduce:animate-none flex flex-col gap-4 rounded-lg border border-border p-4 duration-300 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
               <LuMessagesSquare className="size-4" />
@@ -63,7 +66,9 @@ export function AiSettingsSection({ aiReplyCount, onReplyCountChange }: AiSettin
           </Select>
         </div>
 
-        <div className="flex flex-col gap-4 rounded-lg border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div
+          style={{ animationDelay: "60ms" }}
+          className="animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards ease-fluid motion-reduce:animate-none flex flex-col gap-4 rounded-lg border border-border p-4 duration-300 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
               <LuSparkles className="size-4" />

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { LanguageSwitcher } from "@/app/_components/language-switcher";
+import { ThemeToggle } from "@/app/_components/theme-toggle";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { InnoPeakLogo } from "@/assets/icons/innopeak-logo";
 import { Button } from "@/components/ui/button";
@@ -34,17 +35,26 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        {/* `gap-1` below `sm` only — German's longer "Anmelden"/"Jetzt starten" leave this row
-            a few pixels short of fitting at the narrowest real phone widths (~360px); `sm:gap-2`
-            restores the original spacing the moment there's room for it, so nothing changes
-            above ~375px. `compact` on the switch buys back the width its default size (tuned for
-            pages with room to spare) would otherwise cost here — see that prop's own comment.
-            `ThemeToggle` is deliberately not here at all — this row has no width budget left for
-            a second control on top of that, even a compact one. It's still reachable from
-            `(auth)/layout.tsx` one click away (Sign in), and every authenticated screen. */}
+        {/* `gap-1` below `sm` only — German's longer "Anmelden"/"Jetzt starten" already left this
+            row a few pixels short of fitting at the narrowest real phone widths (~360px) before
+            `ThemeToggle` existed; `sm:gap-2` restores the original spacing the moment there's room
+            for it. `compact` on both switches buys back some of the width their default size
+            (tuned for pages with room to spare) would otherwise cost here — see that prop's own
+            comment on each.
+
+            `ThemeToggle` used to be left out of this row entirely on the theory that a marketing
+            visitor could always reach it one click away at sign-in — but an unauthenticated
+            visitor who only ever looks at the landing page never gets that click, so the row
+            carries both controls now. There simply isn't 48px more to spare below `sm` on top of
+            an already-tight row, verified by measuring the layout viewport a real ~360px phone is
+            forced to at each step: `Sign in` is what goes to make room, hidden below `sm` rather
+            than shrunk further (no smaller `Button` size exists) or dropped for everyone. It's a
+            redundant path at that width, not a lost one — `getStarted` already leads to a signup
+            screen with its own "Already have an account? Sign in" link. */}
         <div className="flex items-center gap-1 sm:gap-2">
           <LanguageSwitcher compact />
-          <Button asChild variant="ghost" size="sm">
+          <ThemeToggle compact />
+          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
             <Link href={ROUTES.LOGIN as Route}>{t("signIn")}</Link>
           </Button>
           <Button asChild size="sm">

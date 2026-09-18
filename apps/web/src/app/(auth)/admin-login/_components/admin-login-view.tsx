@@ -1,5 +1,7 @@
 "use client";
 
+import type { Route } from "next";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useTranslations } from "next-intl";
@@ -18,6 +20,12 @@ import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
  * (`POST /v1/admin/auth/login`), separate from the tenant `LoginView`. No signup link and no OTP
  * step: admins can't self-register, they're invited at `(auth)/invite/[token]`. See
  * `separate-admin-login-design.md`.
+ *
+ * Carries the same small link back that `LoginView` carries forward to here, so a tenant user who
+ * lands on this screen — a stale bookmark, a link shared out of context — has a way off it besides
+ * guessing `/login`. "Invalid email or password" reads identically whether the account doesn't
+ * exist here at all or the password is genuinely wrong, so without this the only way out is
+ * already knowing the tenant route exists.
  *
  * The Google button is not optional decoration. An admin who accepted their invite through Google
  * has no `password_hash` at all, so the form above can never sign them in — Google is their only
@@ -78,6 +86,13 @@ export function AdminLoginView() {
             />
           </>
         ) : null}
+
+        <div className="text-muted-foreground mt-6 text-center text-xs">
+          {t("notAdmin")}{" "}
+          <Link href={ROUTES.LOGIN as Route} className="font-medium">
+            {t("tenantSignIn")}
+          </Link>
+        </div>
       </div>
     </>
   );

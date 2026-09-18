@@ -66,13 +66,16 @@ export function ConnectionSettingsSection({
   };
 
   return (
-    <Card>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LuStore className="text-primary size-4" />
+          {t("title")}
+        </CardTitle>
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        <div className="border-border flex items-center gap-4 rounded-lg border p-4">
+        <div className="border-border animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards ease-fluid motion-reduce:animate-none flex items-center gap-4 rounded-lg border p-4 duration-300">
           <div className="bg-accent text-accent-foreground flex size-11 shrink-0 items-center justify-center rounded-md">
             <LuStore className="size-5" />
           </div>
@@ -101,10 +104,11 @@ export function ConnectionSettingsSection({
               {t("otherLocations")}
             </p>
             <div className="flex flex-col gap-2">
-              {otherLocations.map((location) => (
+              {otherLocations.map((location, index) => (
                 <div
                   key={location.id}
-                  className="border-border flex items-center gap-4 rounded-lg border p-4">
+                  style={{ animationDelay: `${index * 60}ms` }}
+                  className="border-border animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards ease-fluid motion-reduce:animate-none flex items-center gap-4 rounded-lg border p-4 duration-300">
                   <div className="bg-accent text-accent-foreground flex size-11 shrink-0 items-center justify-center rounded-md">
                     <LuStore className="size-5" />
                   </div>
