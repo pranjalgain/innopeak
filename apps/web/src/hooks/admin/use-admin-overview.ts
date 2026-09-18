@@ -9,12 +9,16 @@ import { AdminBusinessService } from "@/app/_libs/services/admin-business.servic
 import { AdminUserService } from "@/app/_libs/services/admin-user.service";
 import { PlatformReviewStatsService } from "@/app/_libs/services/platform-review-stats.service";
 import {
+  type AdminActivityFeedEntry,
+  buildActivityFeed,
+} from "@/app/_libs/utils/admin-activity-feed";
+import {
   adminBusinessesQueryKey,
   adminOverviewActivityQueryKey,
   adminOverviewReviewStatsQueryKey,
   adminUsersQueryKey,
 } from "@/hooks/admin/admin-query-keys";
-import type { AdminBusiness, PlatformActivityEntry } from "@/types/domain";
+import type { AdminBusiness } from "@/types/domain";
 
 interface UseAdminOverviewResult {
   /** The raw rows — the needs-attention/recent-businesses/signup-trend panels each derive their own view from this same list rather than each fetching separately. */
@@ -23,7 +27,9 @@ interface UseAdminOverviewResult {
   userCount: number;
   totalReviewsFetched: number;
   totalRepliesSent: number;
-  recentActivity: PlatformActivityEntry[];
+  /** The admin-action log merged with synthesized "business joined" entries — see
+   *  `buildActivityFeed`'s own doc comment for why the merge, rather than either source alone. */
+  activityFeed: AdminActivityFeedEntry[];
   isLoading: boolean;
   /** Distinct from "loaded, but empty" — every panel needs to tell an outage from a quiet platform. */
   isError: boolean;
@@ -80,7 +86,7 @@ export function useAdminOverview(): UseAdminOverviewResult {
     userCount: usersQuery.data?.length ?? 0,
     totalReviewsFetched: reviewStatsQuery.data?.totalReviewsFetched ?? 0,
     totalRepliesSent: reviewStatsQuery.data?.totalRepliesSent ?? 0,
-    recentActivity: activityQuery.data ?? [],
+    activityFeed: buildActivityFeed(businessesQuery.data ?? [], activityQuery.data ?? []),
     isLoading,
     isError: isAnyError,
     refetch: () => {

@@ -23,8 +23,12 @@ import { cn } from "@/app/_libs/utils/cn";
  * spot: the outgoing one rotates out and shrinks while the incoming one rotates in and grows, so
  * the swap reads as one continuous turn rather than a hard cut. `prefers-reduced-motion` still
  * gets a plain, instant swap — `motion-reduce:transition-none` on every animated piece.
+ *
+ * `compact`: same purpose and same dimensions as `LanguageSwitcher`'s prop of the same name — the
+ * marketing header now carries both controls with no more width than it used to give the language
+ * switch alone, so both shrink together rather than one crowding the row at full size.
  */
-export function ThemeToggle() {
+export function ThemeToggle({ compact = false }: { compact?: boolean } = {}) {
   const t = useTranslations("themeToggle");
   const { resolvedTheme, setTheme } = useTheme();
   // `resolvedTheme` is `undefined` on the server and on first client render — next-themes only
@@ -40,7 +44,7 @@ export function ThemeToggle() {
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
-    return <ThemeTogglePlaceholder />;
+    return <ThemeTogglePlaceholder compact={compact} />;
   }
 
   const isDark = resolvedTheme === "dark";
@@ -55,14 +59,17 @@ export function ThemeToggle() {
       // what is actually on.
       aria-label={t("label")}
       className={cn(
-        "focus-visible:ring-ring/50 relative inline-flex h-8 w-14 shrink-0 items-center rounded-full",
+        "focus-visible:ring-ring/50 relative inline-flex shrink-0 items-center rounded-full",
+        compact ? "h-7 w-12" : "h-8 w-14",
         "border-border bg-accent border transition-colors duration-300 ease-fluid outline-none focus-visible:ring-[3px]",
         "motion-reduce:transition-none",
       )}>
       <SwitchPrimitive.Thumb
         className={cn(
-          "border-border bg-card shadow-elevated relative flex size-6 items-center justify-center rounded-full border",
-          "translate-x-1 transition-transform duration-300 ease-fluid data-[state=checked]:translate-x-7",
+          "border-border bg-card shadow-elevated relative flex items-center justify-center rounded-full border",
+          compact ? "size-5" : "size-6",
+          "translate-x-1 transition-transform duration-300 ease-fluid",
+          compact ? "data-[state=checked]:translate-x-6" : "data-[state=checked]:translate-x-7",
           "motion-reduce:transition-none",
         )}>
         <LuSun
@@ -95,18 +102,20 @@ export function ThemeToggle() {
  * state change here to animate, and the real switch mounting into the same position must not look
  * like movement.
  */
-function ThemeTogglePlaceholder() {
+function ThemeTogglePlaceholder({ compact }: { compact: boolean }) {
   return (
     <div
       aria-hidden="true"
       className={cn(
-        "relative inline-flex h-8 w-14 shrink-0 items-center rounded-full",
+        "relative inline-flex shrink-0 items-center rounded-full",
+        compact ? "h-7 w-12" : "h-8 w-14",
         "border-border bg-accent border",
       )}>
       <div
         className={cn(
-          "border-border bg-card shadow-elevated relative flex size-6 items-center justify-center rounded-full border",
-          "translate-x-1 dark:translate-x-7",
+          "border-border bg-card shadow-elevated relative flex items-center justify-center rounded-full border",
+          compact ? "size-5" : "size-6",
+          compact ? "translate-x-1 dark:translate-x-6" : "translate-x-1 dark:translate-x-7",
         )}>
         <LuSun className="text-warning absolute size-3.5 dark:hidden" />
         <LuMoon className="text-primary absolute hidden size-3.5 dark:block" />

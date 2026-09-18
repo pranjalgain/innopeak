@@ -132,7 +132,16 @@
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.546 0.245 262.881);
   --sidebar-primary-foreground: oklch(0.379 0.146 265.522);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
+  /* Was oklch(0.274 0.006 286.033) — the stock shadcn dark value, never harmonized with this
+     brand's palette. Its chroma (0.006, effectively neutral) and hue (286, violet-leaning) don't
+     match `--accent`'s 0.045/258 (blue, tracking `--primary`), unlike light mode where
+     `--sidebar-accent` deliberately mirrors `--accent` almost exactly. The result was a selected
+     nav item distinguished from the sidebar only by a +0.064 lightness step with no hue shift at
+     all — imperceptible at a glance, unlike light mode's clearly blue-tinted pill. Now mirrors
+     `--accent`'s hue/chroma, with lightness raised to 0.32 (vs `--accent`'s 0.25) since the
+     sidebar's own background (0.21) sits well above the page background (0.125) this is layered
+     on top of. */
+  --sidebar-accent: oklch(0.32 0.05 258);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.488 0.243 264.376);

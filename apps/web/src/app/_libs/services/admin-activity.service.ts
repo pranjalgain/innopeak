@@ -25,8 +25,9 @@ function toDomain(dto: {
 }
 
 /**
- * A log of platform-admin actions (business suspend/reactivate, admin invite send/revoke),
- * against the real `GET /v1/admin/overview/activity` endpoint. Hooks/components only ever call
+ * A log of platform-admin actions (business suspend/reactivate, admin invite send/revoke,
+ * admin enable/disable, tenant-user activate/deactivate), against the real
+ * `GET /v1/admin/overview/activity` endpoint. Hooks/components only ever call
  * `useAdminOverview`, never this class directly.
  */
 export class AdminActivityService {

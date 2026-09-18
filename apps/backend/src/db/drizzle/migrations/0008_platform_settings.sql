@@ -31,9 +31,9 @@ CREATE TABLE IF NOT EXISTS platform_settings (
     -- NEXT_PUBLIC_INVITE_MEMBERS_ENABLED=false) so migrating an existing environment changes
     -- nothing observable until a Super Admin actually flips one.
     sso_login_enabled BOOLEAN NOT NULL DEFAULT true,
-    password_login_enabled BOOLEAN NOT NULL DEFAULT false,
-    social_login_enabled BOOLEAN NOT NULL DEFAULT false,
-    invite_members_enabled BOOLEAN NOT NULL DEFAULT false,
+    password_login_enabled BOOLEAN NOT NULL DEFAULT true,
+    social_login_enabled BOOLEAN NOT NULL DEFAULT true,
+    invite_members_enabled BOOLEAN NOT NULL DEFAULT true,
     -- Which platform admin last changed this row — same shape as `created_by_user_id` elsewhere
     -- (0004_reviews.sql, 0006_prompts.sql): a plain FK, SET NULL rather than CASCADE, since this
     -- is a live "current state" row, not a history log — losing track of *who* once that admin's

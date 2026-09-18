@@ -303,12 +303,17 @@ export interface PlatformSettings {
   inviteMembersEnabled: boolean;
 }
 
-/** A platform-admin action worth surfacing on the Super Admin overview's activity feed. */
+/** A platform-admin action worth surfacing on the Super Admin overview's activity feed. Mirrors
+ *  the backend's `platform_activity_type` enum exactly — the API performs no runtime validation
+ *  of `type` on the way out (a plain cast in `AdminActivityService`), so a value missing here is a
+ *  value this union silently lies about, breaking `ActivityLogCard`'s exhaustive `Record`s render. */
 export type PlatformActivityType =
   | "business_suspended"
   | "business_reactivated"
   | "admin_invite_sent"
   | "admin_invite_revoked"
+  | "admin_disabled"
+  | "admin_enabled"
   | "user_activated"
   | "user_deactivated";
 

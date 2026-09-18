@@ -1,31 +1,47 @@
 import { useLocale, useTranslations } from "next-intl";
 import type { ComponentType } from "react";
-import { LuMail, LuMailX, LuUserCheck, LuUserMinus, LuUserPlus, LuUserX } from "react-icons/lu";
+import {
+  LuBuilding2,
+  LuMail,
+  LuMailX,
+  LuShieldCheck,
+  LuShieldOff,
+  LuUserCheck,
+  LuUserMinus,
+  LuUserPlus,
+  LuUserX,
+} from "react-icons/lu";
 
+import type { AdminActivityFeedEntry, AdminActivityFeedType } from "@/app/_libs/utils/admin-activity-feed";
 import { formatRelativeTime } from "@/app/_libs/utils/relative-time";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { PlatformActivityEntry, PlatformActivityType } from "@/types/domain";
 
 interface ActivityLogCardProps {
-  entries: PlatformActivityEntry[];
+  entries: AdminActivityFeedEntry[];
 }
 
-const TYPE_ICON: Record<PlatformActivityType, ComponentType<{ className?: string }>> = {
+const TYPE_ICON: Record<AdminActivityFeedType, ComponentType<{ className?: string }>> = {
   business_suspended: LuUserX,
   business_reactivated: LuUserCheck,
   admin_invite_sent: LuMail,
   admin_invite_revoked: LuMailX,
+  admin_disabled: LuShieldOff,
+  admin_enabled: LuShieldCheck,
   user_activated: LuUserPlus,
   user_deactivated: LuUserMinus,
+  business_joined: LuBuilding2,
 };
 
-const TYPE_ICON_CLASSNAME: Record<PlatformActivityType, string> = {
+const TYPE_ICON_CLASSNAME: Record<AdminActivityFeedType, string> = {
   business_suspended: "bg-destructive-soft text-destructive",
   business_reactivated: "bg-success-soft text-success",
   admin_invite_sent: "bg-accent text-primary",
   admin_invite_revoked: "bg-warning-soft text-warning",
+  admin_disabled: "bg-destructive-soft text-destructive",
+  admin_enabled: "bg-success-soft text-success",
   user_activated: "bg-success-soft text-success",
   user_deactivated: "bg-destructive-soft text-destructive",
+  business_joined: "bg-accent text-primary",
 };
 
 export function ActivityLogCard({ entries }: ActivityLogCardProps) {

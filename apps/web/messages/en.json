@@ -182,7 +182,9 @@
     "adminLogin": {
       "title": "Admin sign in",
       "orDivider": "or",
-      "continueWithGoogle": "Continue with Google"
+      "continueWithGoogle": "Continue with Google",
+      "notAdmin": "Not a platform admin?",
+      "tenantSignIn": "Sign in here"
     },
     "acceptInvite": {
       "title": "You're invited",
@@ -725,13 +727,16 @@
     },
     "activityLog": {
       "title": "Activity",
-      "subtitle": "Recent platform admin actions",
+      "subtitle": "Recent platform activity",
       "empty": "No activity yet.",
       "messages": {
+        "business_joined": "New business \"{businessName}\" signed up",
         "business_suspended": "Suspended {businessName}",
         "business_reactivated": "Reactivated {businessName}",
         "admin_invite_sent": "Invited {email} as a platform admin",
         "admin_invite_revoked": "Revoked the invite for {email}",
+        "admin_disabled": "Disabled admin {email}",
+        "admin_enabled": "Enabled admin {email}",
         "user_activated": "Reactivated {email} at {businessName}",
         "user_deactivated": "Deactivated {email} at {businessName}"
       }

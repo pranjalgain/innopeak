@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
+import { LuUserRound } from "react-icons/lu";
 
 
 import {
@@ -41,9 +42,12 @@ export function ProfileSettingsSection() {
   if (isLoading || !profile) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
 
   return (
-    <Card>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LuUserRound className="text-primary size-4" />
+          {t("title")}
+        </CardTitle>
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
@@ -145,7 +149,7 @@ function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) {
 
   return (
     <form
-      className="border-border flex max-w-sm flex-col gap-4 border-t pt-5"
+      className="border-border animate-in fade-in slide-in-from-bottom-1 ease-fluid motion-reduce:animate-none flex max-w-sm flex-col gap-4 border-t pt-5 duration-300"
       onSubmit={submitPassword}
       noValidate>
       <p className="text-sm font-medium">{t("changePasswordTitle")}</p>
@@ -288,7 +292,7 @@ function AddPasswordForm({ requestSetPasswordOtp, setPassword }: AddPasswordForm
 
   return (
     <form
-      className="border-border flex max-w-sm flex-col gap-4 border-t pt-5"
+      className="border-border animate-in fade-in slide-in-from-bottom-1 ease-fluid motion-reduce:animate-none flex max-w-sm flex-col gap-4 border-t pt-5 duration-300"
       onSubmit={submitPassword}
       noValidate>
       <div>
