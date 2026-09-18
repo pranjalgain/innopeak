@@ -1,6 +1,7 @@
 import { PlatformAdminInvitePurpose } from '@auth/enums/platform-admin-invite-purpose.enum';
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
+import type { Locale } from '@common/i18n/locale';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
@@ -12,6 +13,7 @@ export interface PlatformAdminProfileRow {
   email: string;
   passwordHash: string | null;
   avatarUrl: string | null;
+  locale: Locale | null;
 }
 
 export interface PlatformAdminLoginRow {
@@ -20,6 +22,7 @@ export interface PlatformAdminLoginRow {
   /** Null for an `invited` admin who hasn't accepted their invite/set a password yet. */
   passwordHash: string | null;
   status: PlatformAdminStatus;
+  locale: Locale | null;
 }
 
 export interface PlatformAdminInviteRow {
@@ -60,7 +63,7 @@ export type SetAdminStatusOutcome =
  * not a guess about the token.
  */
 export type AcceptInviteOutcome =
-  | { outcome: 'accepted'; id: string; email: string }
+  | { outcome: 'accepted'; id: string; email: string; locale: Locale | null }
   | { outcome: 'identity_already_linked' }
   | { outcome: 'invalid' };
 
@@ -74,6 +77,7 @@ const PROFILE_COLUMNS = {
   email: schema.platformAdmins.email,
   passwordHash: schema.platformAdmins.passwordHash,
   avatarUrl: schema.platformAdmins.avatarUrl,
+  locale: schema.platformAdmins.locale,
 } as const;
 
 /**
@@ -110,6 +114,7 @@ export class PlatformAdminRepository {
         email: schema.platformAdmins.email,
         passwordHash: schema.platformAdmins.passwordHash,
         status: schema.platformAdmins.status,
+        locale: schema.platformAdmins.locale,
       })
       .from(schema.platformAdmins)
       .where(eq(schema.platformAdmins.email, email))
@@ -252,6 +257,16 @@ export class PlatformAdminRepository {
       .where(eq(schema.platformAdmins.id, id));
   }
 
+  /** Settings → Profile's language preference — the platform-admin counterpart to
+   *  `AuthRepository.updateLocale`. No session to revoke, same reasoning as `updatePasswordHash`
+   *  gives for why a locale change is not a security boundary. */
+  async updateLocale(id: string, locale: Locale): Promise<void> {
+    await this.dbService.db
+      .update(schema.platformAdmins)
+      .set({ locale, updatedAt: sql`now()` })
+      .where(eq(schema.platformAdmins.id, id));
+  }
+
   /**
    * Every platform admin — the seeded root included — each left-joined to its own `invite`-purpose
    * `platform_admin_invites` row for `invitedAt`/`expiresAt`. The root has no such row (seeded
@@ -376,14 +391,18 @@ export class PlatformAdminRepository {
    * Keyed on `(provider, provider_user_id)` — the table's own unique index, and deliberately not
    * the email: a Workspace address can be reassigned, a Google `sub` never is.
    */
-  async findByGoogleIdentity(
-    providerUserId: string
-  ): Promise<{ id: string; email: string; status: PlatformAdminStatus } | null> {
+  async findByGoogleIdentity(providerUserId: string): Promise<{
+    id: string;
+    email: string;
+    status: PlatformAdminStatus;
+    locale: Locale | null;
+  } | null> {
     const rows = await this.dbService.db
       .select({
         id: schema.platformAdmins.id,
         email: schema.platformAdmins.email,
         status: schema.platformAdmins.status,
+        locale: schema.platformAdmins.locale,
       })
       .from(schema.platformAdminIdentities)
       .innerJoin(
@@ -399,7 +418,9 @@ export class PlatformAdminRepository {
       .limit(1);
 
     return (
-      (rows[0] as { id: string; email: string; status: PlatformAdminStatus } | undefined) ?? null
+      (rows[0] as
+        | { id: string; email: string; status: PlatformAdminStatus; locale: Locale | null }
+        | undefined) ?? null
     );
   }
 
@@ -470,7 +491,8 @@ export class PlatformAdminRepository {
       }
 
       await this.consumeInvite(tx, invite.id);
-      return { outcome: 'accepted', id: admin.id, email: admin.email };
+      // Always null: a just-accepted invite has no prior session to have set a preference from.
+      return { outcome: 'accepted', id: admin.id, email: admin.email, locale: null };
     });
   }
 
@@ -524,7 +546,8 @@ export class PlatformAdminRepository {
       }
 
       await this.consumeInvite(tx, invite.id);
-      return { outcome: 'accepted', id: admin.id, email: admin.email };
+      // Always null: a just-accepted invite has no prior session to have set a preference from.
+      return { outcome: 'accepted', id: admin.id, email: admin.email, locale: null };
     });
   }
 

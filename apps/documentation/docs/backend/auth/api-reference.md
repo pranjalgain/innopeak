@@ -867,8 +867,10 @@ Differences from the tenant-user surface:
   `.../google/callback`). Platform admins are never self-registered — the first ("root") admin is
   created by a seed script, enforced at the database level by `idx_platform_admins_single_root`
   (which permits *at most* one root, so zero-admins is also a valid state — hence the seed).
-  **That seed is `0008_dev_platform_admin.sql`**, which inserts exactly one NULL-inviter row and
-  is guarded so a replay is a no-op rather than a unique violation. Nothing else writes
+  **That seed is `src/db/seeds/seed-platform-admin.ts`** (`pnpm db:seed:admin`), which inserts
+  exactly one NULL-inviter row and is idempotent, so a replay is a no-op rather than a unique
+  violation. It was the migration `0008_dev_platform_admin.sql` until that was removed for
+  committing the root password in plain text. Nothing else writes
   `platform_admins` — no route, no service. The remaining gap is not creation but authentication:
   nothing mints a `platform_admin` JWT (`JwtStrategy` validates one, `TokenService` never issues
   one, and `/v1/auth/login` resolves through `users`), so the seeded root cannot sign in until

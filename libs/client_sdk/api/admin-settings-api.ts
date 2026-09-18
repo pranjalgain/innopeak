@@ -44,6 +44,10 @@ import type { SetAdminStatusDto } from '../models';
 // @ts-ignore
 import type { UpdateAdminAvatarDto } from '../models';
 // @ts-ignore
+import type { UpdateAdminLocaleResponseDto } from '../models';
+// @ts-ignore
+import type { UpdateLocaleDto } from '../models';
+// @ts-ignore
 import type { UpdatePlatformSettingsDto } from '../models';
 /**
  * AdminSettingsApi - axios parameter creator
@@ -446,6 +450,65 @@ export const AdminSettingsApiAxiosParamCreator = function (
       };
     },
     /**
+     * Persists `platform_admins.locale`, then re-signs the access token (no refresh token to touch — a platform admin has none) so the new value is on its `locale` claim right away rather than waiting for the next login. Platform-admin tokens only.
+     * @summary Set the language responses are rendered in
+     * @param {UpdateLocaleDto} updateLocaleDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminSettingsControllerUpdateLocaleV1: async (
+      updateLocaleDto: UpdateLocaleDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'updateLocaleDto' is not null or undefined
+      assertParamExists(
+        'adminSettingsControllerUpdateLocaleV1',
+        'updateLocaleDto',
+        updateLocaleDto,
+      );
+      const localVarPath = `/v1/admin/settings/profile/locale`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'PATCH',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        updateLocaleDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false, and one that would turn socialLoginEnabled off while a platform admin has Google as their only credential (an admin who accepted their invite through Google has no password, and there is no admin set-password flow to add one) — see the 400 response. Otherwise does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
      * @summary Update platform-wide feature settings
      * @param {UpdatePlatformSettingsDto} updatePlatformSettingsDto
@@ -744,6 +807,40 @@ export const AdminSettingsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Persists `platform_admins.locale`, then re-signs the access token (no refresh token to touch — a platform admin has none) so the new value is on its `locale` claim right away rather than waiting for the next login. Platform-admin tokens only.
+     * @summary Set the language responses are rendered in
+     * @param {UpdateLocaleDto} updateLocaleDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async adminSettingsControllerUpdateLocaleV1(
+      updateLocaleDto: UpdateLocaleDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<UpdateAdminLocaleResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.adminSettingsControllerUpdateLocaleV1(
+          updateLocaleDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminSettingsApi.adminSettingsControllerUpdateLocaleV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false, and one that would turn socialLoginEnabled off while a platform admin has Google as their only credential (an admin who accepted their invite through Google has no password, and there is no admin set-password flow to add one) — see the 400 response. Otherwise does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
      * @summary Update platform-wide feature settings
      * @param {UpdatePlatformSettingsDto} updatePlatformSettingsDto
@@ -908,6 +1005,24 @@ export const AdminSettingsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Persists `platform_admins.locale`, then re-signs the access token (no refresh token to touch — a platform admin has none) so the new value is on its `locale` claim right away rather than waiting for the next login. Platform-admin tokens only.
+     * @summary Set the language responses are rendered in
+     * @param {AdminSettingsApiAdminSettingsControllerUpdateLocaleV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminSettingsControllerUpdateLocaleV1(
+      requestParameters: AdminSettingsApiAdminSettingsControllerUpdateLocaleV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<UpdateAdminLocaleResponseDto> {
+      return localVarFp
+        .adminSettingsControllerUpdateLocaleV1(
+          requestParameters.updateLocaleDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false, and one that would turn socialLoginEnabled off while a platform admin has Google as their only credential (an admin who accepted their invite through Google has no password, and there is no admin set-password flow to add one) — see the 400 response. Otherwise does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
      * @summary Update platform-wide feature settings
      * @param {AdminSettingsApiAdminSettingsControllerUpdatePlatformSettingsV1Request} requestParameters Request parameters.
@@ -1013,6 +1128,18 @@ export interface AdminSettingsApiInterface {
   ): AxiosPromise<AdminProfileResponseDto>;
 
   /**
+   * Persists `platform_admins.locale`, then re-signs the access token (no refresh token to touch — a platform admin has none) so the new value is on its `locale` claim right away rather than waiting for the next login. Platform-admin tokens only.
+   * @summary Set the language responses are rendered in
+   * @param {AdminSettingsApiAdminSettingsControllerUpdateLocaleV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  adminSettingsControllerUpdateLocaleV1(
+    requestParameters: AdminSettingsApiAdminSettingsControllerUpdateLocaleV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<UpdateAdminLocaleResponseDto>;
+
+  /**
    * Partial update — any field omitted is left unchanged. Controls which login methods the sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. Takes effect immediately for every visitor; no redeploy required. Rejects a patch that would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false, and one that would turn socialLoginEnabled off while a platform admin has Google as their only credential (an admin who accepted their invite through Google has no password, and there is no admin set-password flow to add one) — see the 400 response. Otherwise does not affect platform-admin login: a Super Admin\'s own password field on /login is unconditional regardless of this setting.
    * @summary Update platform-wide feature settings
    * @param {AdminSettingsApiAdminSettingsControllerUpdatePlatformSettingsV1Request} requestParameters Request parameters.
@@ -1060,6 +1187,13 @@ export interface AdminSettingsApiAdminSettingsControllerSetAdminStatusV1Request 
  */
 export interface AdminSettingsApiAdminSettingsControllerUpdateAvatarV1Request {
   readonly updateAdminAvatarDto: UpdateAdminAvatarDto;
+}
+
+/**
+ * Request parameters for adminSettingsControllerUpdateLocaleV1 operation in AdminSettingsApi.
+ */
+export interface AdminSettingsApiAdminSettingsControllerUpdateLocaleV1Request {
+  readonly updateLocaleDto: UpdateLocaleDto;
 }
 
 /**
@@ -1191,6 +1325,25 @@ export class AdminSettingsApi
     return AdminSettingsApiFp(this.configuration)
       .adminSettingsControllerUpdateAvatarV1(
         requestParameters.updateAdminAvatarDto,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Persists `platform_admins.locale`, then re-signs the access token (no refresh token to touch — a platform admin has none) so the new value is on its `locale` claim right away rather than waiting for the next login. Platform-admin tokens only.
+   * @summary Set the language responses are rendered in
+   * @param {AdminSettingsApiAdminSettingsControllerUpdateLocaleV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public adminSettingsControllerUpdateLocaleV1(
+    requestParameters: AdminSettingsApiAdminSettingsControllerUpdateLocaleV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminSettingsApiFp(this.configuration)
+      .adminSettingsControllerUpdateLocaleV1(
+        requestParameters.updateLocaleDto,
         options,
       )
       .then((request) => request(this.axios, this.basePath));

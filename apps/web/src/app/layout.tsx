@@ -29,7 +29,17 @@ export default async function RootLayout({
     <html lang={locale} suppressHydrationWarning>
       <body className={`${geologica.variable} ${firacode.variable} font-sans antialiased`}>
         <NextIntlClientProvider messages={messages}>
-          <ThemeProvider attribute="class" forcedTheme="light" disableTransitionOnChange>
+          {/* `disableTransitionOnChange` left at its default (`false`), deliberately and with
+              eyes open: the base-layer `*` rule in `globals.css` means *every* element does
+              cross-fade its colors on a theme change, which is exactly the situation next-themes'
+              transition-suppression was built to kill. Here that simultaneous fade is the
+              intended effect rather than the artifact — a whole-page palette dissolve, not a
+              flash — so enabling suppression would turn the feature off. The cost is real and
+              accepted: colour-heavy pages (the auth screens' decorative SVG field, long admin
+              tables) animate a lot of nodes at once on toggle. If that ever reads as jank on a
+              low-end device, the fix is to narrow the `*` rule's property list, not to switch
+              suppression on — that would take the deliberate fade with it. */}
+          <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
             <TanstackProvider>
               {children}
               <SonnarToaster />

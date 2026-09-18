@@ -153,7 +153,11 @@
     }
   },
   "languageSwitcher": {
-    "syncFailed": "Could not save your language preference. Please try again."
+    "syncFailed": "Could not save your language preference. Please try again.",
+    "label": "German"
+  },
+  "themeToggle": {
+    "label": "Dark mode"
   },
   "businessSwitcher": {
     "label": "Switch business",
@@ -171,7 +175,9 @@
       "noAccount": "Don't have an account?",
       "signUp": "Sign up",
       "ssoUnavailable": "Couldn't check for additional sign-in options.",
-      "ssoUnavailableRetry": "Try again"
+      "ssoUnavailableRetry": "Try again",
+      "platformAdmin": "Platform admin?",
+      "adminSignIn": "Sign in here"
     },
     "adminLogin": {
       "title": "Admin sign in",

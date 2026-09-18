@@ -1,5 +1,7 @@
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import { TokenService } from '@auth/services/token.service';
 import { buildAdminInviteLink } from '@auth/utils/admin-invite-link.util';
+import { remainingSessionSeconds } from '@auth/utils/remaining-session-seconds.util';
 import { requirePlatformAdmin } from '@auth/utils/require-platform-admin.util';
 import { hashToken } from '@auth/utils/token.utils';
 import { JobName } from '@bg/constants/job.constant';
@@ -27,12 +29,14 @@ import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
 
+import type { UpdateLocaleDto } from '../../auth/dto/update-locale.dto';
 import type { AuthUser } from '../../auth/types/auth-user.type';
 import { PlatformSettingsResponseDto } from '../../settings/dto/platform-settings-response.dto';
 import { AdminInviteResponseDto } from '../dto/admin-invite-response.dto';
 import { AdminProfileResponseDto } from '../dto/admin-profile-response.dto';
 import { ChangeAdminPasswordDto } from '../dto/change-admin-password.dto';
 import { SendAdminInviteDto } from '../dto/send-admin-invite.dto';
+import { UpdateAdminLocaleResponseDto } from '../dto/update-admin-locale-response.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 
 /** Matches the frontend mock's own window — see `PlatformAdminInviteService`. */
@@ -60,6 +64,7 @@ export class AdminSettingsService {
     private readonly adminOverviewDbService: AdminOverviewDbService,
     private readonly hashingService: HashingService,
     private readonly queueManager: AddingJobsToQueueManager,
+    private readonly tokenService: TokenService,
     private readonly configService: ConfigService<EnvConfig>
   ) {}
 
@@ -103,6 +108,41 @@ export class AdminSettingsService {
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
     await this.platformAdminDbService.updatePasswordHash(admin.id, newPasswordHash);
+  }
+
+  /**
+   * Settings → Profile's language preference — the platform-admin counterpart to
+   * `AuthService.updateLocale`. Persists `platform_admins.locale`, then re-signs only the access
+   * token (`TokenService.signPlatformAdminAccessToken`, reused as the reissue primitive — a
+   * platform admin has no refresh token for this to disturb in the first place, unlike the tenant
+   * case that method's own doc comment explains) so the new value is on its `locale` claim
+   * immediately rather than waiting for the next login. Without persisting it at all, an admin's
+   * choice would silently revert the moment their access token expires and they have to log back
+   * in — 15 minutes later, since a platform admin has no refresh token to renew a session with.
+   *
+   * The replacement token inherits the presenting token's own deadline rather than starting a
+   * fresh 15 minutes. That distinction is the whole reason this route is safe to expose: an admin
+   * session is deliberately un-renewable, so a route that handed back a full-TTL token every time
+   * it was called would let anyone holding a leaked access token keep it alive forever by pinging
+   * this endpoint just under the expiry. Refreshing the claim must not move the deadline.
+   */
+  async updateLocale(actor: AuthUser, dto: UpdateLocaleDto): Promise<UpdateAdminLocaleResponseDto> {
+    const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
+    const row = await this.platformAdminDbService.updateLocale(admin.id, dto.locale);
+    if (!row) {
+      throw new NotFoundException(MESSAGES.ADMIN.USER_NOT_FOUND);
+    }
+
+    const { accessToken, expiresIn } = this.tokenService.signPlatformAdminAccessToken(
+      row,
+      remainingSessionSeconds(admin.sessionExpiresAt)
+    );
+
+    const response = new UpdateAdminLocaleResponseDto();
+    response.accessToken = accessToken;
+    response.expiresIn = expiresIn;
+    response.admin = AdminProfileResponseDto.from(row);
+    return response;
   }
 
   async listInvites(actor: AuthUser): Promise<AdminInviteResponseDto[]> {

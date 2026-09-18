@@ -67,6 +67,7 @@ Class | Method | HTTP request | Description
 *AdminSettingsApi* | [**adminSettingsControllerSendInviteV1**](docs/AdminSettingsApi.md#adminsettingscontrollersendinvitev1) | **POST** /v1/admin/settings/invites | Invite a new platform admin
 *AdminSettingsApi* | [**adminSettingsControllerSetAdminStatusV1**](docs/AdminSettingsApi.md#adminsettingscontrollersetadminstatusv1) | **PATCH** /v1/admin/settings/admins/{adminId}/status | Disable or re-enable a platform admin
 *AdminSettingsApi* | [**adminSettingsControllerUpdateAvatarV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdateavatarv1) | **PUT** /v1/admin/settings/profile/avatar | Set the avatar URL
+*AdminSettingsApi* | [**adminSettingsControllerUpdateLocaleV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdatelocalev1) | **PATCH** /v1/admin/settings/profile/locale | Set the language responses are rendered in
 *AdminSettingsApi* | [**adminSettingsControllerUpdatePlatformSettingsV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdateplatformsettingsv1) | **PATCH** /v1/admin/settings/platform-config | Update platform-wide feature settings
 *AdminUsersApi* | [**adminUsersControllerListV1**](docs/AdminUsersApi.md#adminuserscontrollerlistv1) | **GET** /v1/admin/users | List every user across every tenant
 *AdminUsersApi* | [**adminUsersControllerToggleActiveV1**](docs/AdminUsersApi.md#adminuserscontrollertoggleactivev1) | **POST** /v1/admin/users/{userId}/toggle-active | Toggle a user\&#39;s active status
@@ -180,9 +181,11 @@ Class | Method | HTTP request | Description
  - [SyncRunDto](docs/SyncRunDto.md)
  - [SyncRunListResponseDto](docs/SyncRunListResponseDto.md)
  - [TenantMemberResponseDto](docs/TenantMemberResponseDto.md)
+ - [TenantMembersControllerRevokeV1200Response](docs/TenantMembersControllerRevokeV1200Response.md)
  - [TenantSettingsResponseDto](docs/TenantSettingsResponseDto.md)
  - [TokenResponseDto](docs/TokenResponseDto.md)
  - [UpdateAdminAvatarDto](docs/UpdateAdminAvatarDto.md)
+ - [UpdateAdminLocaleResponseDto](docs/UpdateAdminLocaleResponseDto.md)
  - [UpdateBusinessStatusDto](docs/UpdateBusinessStatusDto.md)
  - [UpdateLocaleDto](docs/UpdateLocaleDto.md)
  - [UpdateLocaleResponseDto](docs/UpdateLocaleResponseDto.md)

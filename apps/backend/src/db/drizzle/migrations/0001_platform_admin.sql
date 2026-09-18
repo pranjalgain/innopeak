@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS platform_admins (
     -- Nullable, no default: Settings' Profile tab shows the InnoPeak logo/an initial until an
     -- admin uploads one, same as a tenant owner with no avatar today.
     avatar_url VARCHAR(2048),
+    -- Reuses `user_locale` (0000_foundation.sql) rather than a second identical enum — the type
+    -- is a generic two-value locale domain, not something `users` owns exclusively. NULL means
+    -- "never chose," same reasoning as `users.locale`'s own comment: a DEFAULT would silently pin
+    -- every existing admin to one language instead of letting Accept-Language decide for them.
+    locale user_locale,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -22,6 +22,7 @@ interface UnverifiedClaims {
   role?: unknown;
   locale?: unknown;
   type?: unknown;
+  exp?: unknown;
 }
 
 @Injectable()
@@ -73,7 +74,18 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       if (status !== PlatformAdminStatus.ACTIVE) {
         throw new UnauthorizedException(MESSAGES.AUTH.ACCOUNT_DISABLED);
       }
-      return { type: JwtTokenType.PLATFORM_ADMIN, id: payload.sub, email: payload.email };
+      // Same fallback as the tenant branch below: a token signed before this claim existed has
+      // no `locale` at all — falls through to `Accept-Language`, same as `null` (never chosen).
+      const locale: Locale | null = isSupportedLocale(payload.locale) ? payload.locale : null;
+      return {
+        type: JwtTokenType.PLATFORM_ADMIN,
+        id: payload.sub,
+        email: payload.email,
+        locale,
+        // Carried so a mid-session claim refresh can re-sign to this same deadline instead of
+        // granting a fresh TTL — see `PlatformAdminAuthUser.sessionExpiresAt`.
+        ...(typeof payload.exp === 'number' ? { sessionExpiresAt: payload.exp } : {}),
+      };
     }
 
     if (

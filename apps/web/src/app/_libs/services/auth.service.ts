@@ -2,13 +2,32 @@ import type { AdminInvitePreviewDto, MemberInvitePreviewDto } from "@innopeak/cl
 
 import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
 import { adminAuthApi } from "@/app/_libs/api-sdk/admin-auth-api";
+import { adminSettingsApi } from "@/app/_libs/api-sdk/admin-settings-api";
 import { authApi } from "@/app/_libs/api-sdk/auth-api";
 import { refreshSession } from "@/app/_libs/api-sdk/config";
 import { SUPER_ADMIN_EMAIL } from "@/app/_libs/constants/current-owner";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError, unwrap } from "@/app/_libs/services/api-error";
 import { TokenService } from "@/app/_libs/services/token.service";
+import { setLocaleCookie } from "@/app/_libs/utils/locale";
 import type { AppLocale } from "@/i18n/locales";
+
+/**
+ * Pushes a just-signed-in account's saved language into the cookie the UI actually reads
+ * (`src/i18n/request.ts`), so the preference survives a new device or cleared browsing data
+ * rather than living only wherever it was first chosen. The backend localizes its own responses
+ * from the token claim regardless, so skipping this is what leaves a session rendering its chrome
+ * in one language and its toasts in another.
+ *
+ * A `null` stored locale means the account never chose one — leave the cookie untouched so
+ * whatever the visitor already has (or `Accept-Language`) still decides, rather than pinning them
+ * to a default they never picked.
+ */
+function restoreStoredLocale(locale: AppLocale | null): void {
+  if (locale) {
+    setLocaleCookie(locale);
+  }
+}
 
 export interface AuthenticatedUser {
   id: string;
@@ -35,7 +54,14 @@ interface TokenResponse {
 interface PlatformAdminTokenResponse {
   accessToken: string;
   expiresIn: number;
-  admin: { id: string; email: string };
+  admin: { id: string; email: string; locale: AppLocale | null };
+}
+
+/** `PATCH /v1/admin/settings/profile/locale`'s response — see `UpdateAdminLocaleResponseDto`. */
+interface AdminUpdateLocaleResponse {
+  accessToken: string;
+  expiresIn: number;
+  admin: { email: string; avatarUrl: string | null; locale: AppLocale | null };
 }
 
 /** `GET /v1/admin/auth/invite/:token`'s response — a real generated model, unlike `PlatformAdminTokenResponse` above. */
@@ -125,6 +151,7 @@ export class AuthService {
     TokenService.setName(data.user.name);
     TokenService.setHasPassword(data.user.hasPassword);
     TokenService.setBusinessName(data.user.businessName);
+    restoreStoredLocale(data.user.locale);
     return { kind: "success", hasConnectedBusiness: data.hasConnectedBusiness };
   }
 
@@ -143,6 +170,7 @@ export class AuthService {
     // and asserted onto the actual envelope.
     const data = unwrap<PlatformAdminTokenResponse>(response.data);
     TokenService.setAccessToken(data.accessToken);
+    restoreStoredLocale(data.admin.locale);
   }
 
   /**
@@ -377,11 +405,18 @@ export class AuthService {
   }
 
   /**
-   * Persists the signed-in user's language preference (`users.locale`) so backend responses —
-   * error/success messages, and eventually emails — render in the same language as the UI, not
-   * just this browser's `Accept-Language` header. A no-op for a signed-out visitor: the language
-   * switcher lives on public pages too, where there is no account to persist the choice against
-   * and the cookie-only `NEXT_LOCALE` mechanism already covers the UI's own strings.
+   * Persists the signed-in caller's language preference — `users.locale` for a tenant user,
+   * `platform_admins.locale` for a platform admin — so backend responses (error/success messages,
+   * eventually emails) render in the same language as the UI, not just this browser's
+   * `Accept-Language` header. A no-op for a signed-out visitor: the language switcher lives on
+   * public pages too, where there is no account to persist the choice against and the cookie-only
+   * `NEXT_LOCALE` mechanism already covers the UI's own strings.
+   *
+   * Branches on `TokenService.getTokenType()` rather than calling one shared endpoint for both —
+   * `PATCH /v1/auth/locale` is tenant-only on the backend (see `AuthService.updateLocale`'s own
+   * `TENANT_ONLY` guard) precisely because this codebase deliberately never shares one auth flow
+   * between the two principals (`separate-admin-login-design.md`); the admin counterpart is its
+   * own route, `PATCH /v1/admin/settings/profile/locale`.
    *
    * Throws on failure rather than swallowing it: the caller (the language switcher) waits for
    * this to resolve before it flips the UI's own language, so a failed sync must not be reported
@@ -390,6 +425,15 @@ export class AuthService {
    */
   static async updateLocale(locale: AppLocale): Promise<void> {
     if (!TokenService.getStoredAccessToken()) {
+      return;
+    }
+
+    if (TokenService.getTokenType() === "platform_admin") {
+      const response = await adminSettingsApi.adminSettingsControllerUpdateLocaleV1({
+        updateLocaleDto: { locale },
+      });
+      const data = unwrap<AdminUpdateLocaleResponse>(response.data);
+      TokenService.setAccessToken(data.accessToken);
       return;
     }
 
@@ -428,6 +472,7 @@ export class AuthService {
     );
     const data = unwrap<PlatformAdminTokenResponse>(response.data);
     TokenService.setAccessToken(data.accessToken);
+    restoreStoredLocale(data.admin.locale);
   }
 
   /**

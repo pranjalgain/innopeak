@@ -93,8 +93,8 @@ src/auth/decorators/permissions.decorator.ts  # @Permissions(), PERMISSIONS_KEY
 - **`src/db/repositories/users/users.repository.ts`** — strip the `roles`/`userRoles` joins from
   `findById`, `findByEmail`, and the list-with-roles helper; drop `roles` from the returned shape.
 - **`src/db/seeds/`** — already gone, along with `seed.sh` and the `pnpm db:seed` script.
-  `0008_dev_platform_admin.sql` seeds the root platform admin; a dev tenant owner is created
-  through `POST /v1/auth/signup` + `verify-email` rather than seeded.
+  `src/db/seeds/seed-platform-admin.ts` (`pnpm db:seed:admin`) seeds the root platform admin; a
+  dev tenant owner is created through `POST /v1/auth/signup` + `verify-email` rather than seeded.
 
 ### Database
 

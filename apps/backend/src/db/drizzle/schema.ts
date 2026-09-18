@@ -122,6 +122,7 @@ export const platformAdmins = pgTable(
     invitedByPlatformAdminId: uuid('invited_by_platform_admin_id'),
     status: platformAdminStatus().notNull(),
     avatarUrl: varchar('avatar_url', { length: 2048 }),
+    locale: userLocale(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),

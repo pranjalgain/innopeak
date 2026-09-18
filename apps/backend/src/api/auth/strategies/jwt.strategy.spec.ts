@@ -82,8 +82,29 @@ describe('JwtStrategy', () => {
       type: JwtTokenType.PLATFORM_ADMIN,
       id: 'admin-1',
       email: 'root@innopeak.io',
+      locale: null,
     });
     expect(platformAdminDbService.findStatusById).toHaveBeenCalledWith('admin-1');
+  });
+
+  /** Same claim-passthrough the tenant branch gets — a platform admin who has chosen a locale
+   *  must see it on every request, not just the one right after they changed it. */
+  it("carries a platform_admin payload's locale claim through to the returned user", async () => {
+    platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.ACTIVE);
+
+    await expect(
+      target.validate({
+        sub: 'admin-1',
+        email: 'root@innopeak.io',
+        locale: 'de',
+        type: JwtTokenType.PLATFORM_ADMIN,
+      })
+    ).resolves.toEqual({
+      type: JwtTokenType.PLATFORM_ADMIN,
+      id: 'admin-1',
+      email: 'root@innopeak.io',
+      locale: 'de',
+    });
   });
 
   /**

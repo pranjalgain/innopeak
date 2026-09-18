@@ -12,14 +12,19 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 /**
- * Step 1 of the locale resolution order: the authenticated tenant user's own stored preference,
- * embedded in the access token by `TokenService.signTokenPair`. `undefined` for anyone else
- * (unauthenticated, or a platform admin, who has no locale) — `resolveRequestLocale` falls
- * through to `Accept-Language` for those exactly as it does for a tenant user who never chose one.
+ * Step 1 of the locale resolution order: the authenticated caller's own stored preference,
+ * embedded in the access token by `TokenService.signTokenPair`/`signPlatformAdminAccessToken` —
+ * a tenant user's `users.locale` or a platform admin's `platform_admins.locale`, whichever
+ * principal the token belongs to. `undefined` only for an unauthenticated caller —
+ * `resolveRequestLocale` falls through to `Accept-Language` for that case exactly as it does for
+ * a signed-in caller who never chose one (`locale: null`).
  */
 export function requestUserLocale(request: Request): Locale | null | undefined {
   const user = request.user as AuthUser | undefined;
-  return user?.type === JwtTokenType.TENANT_USER ? user.locale : undefined;
+  if (user?.type === JwtTokenType.TENANT_USER || user?.type === JwtTokenType.PLATFORM_ADMIN) {
+    return user.locale;
+  }
+  return undefined;
 }
 
 @Injectable()

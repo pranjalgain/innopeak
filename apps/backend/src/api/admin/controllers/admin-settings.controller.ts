@@ -2,6 +2,7 @@ import { CurrentUser } from '@auth/decorators/current-user.decorator';
 import { Roles } from '@auth/decorators/roles.decorator';
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import type { AuthUser } from '@auth/types/auth-user.type';
+import { setAdminSessionCookies } from '@auth/utils/admin-session-cookies.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
@@ -18,10 +19,13 @@ import {
   Patch,
   Post,
   Put,
+  Res,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
 
+import { UpdateLocaleDto } from '../../auth/dto/update-locale.dto';
 import { PlatformSettingsResponseDto } from '../../settings/dto/platform-settings-response.dto';
 import { AdminInviteResponseDto } from '../dto/admin-invite-response.dto';
 import { AdminProfileResponseDto } from '../dto/admin-profile-response.dto';
@@ -29,6 +33,7 @@ import { ChangeAdminPasswordDto } from '../dto/change-admin-password.dto';
 import { SendAdminInviteDto } from '../dto/send-admin-invite.dto';
 import { SetAdminStatusDto } from '../dto/set-admin-status.dto';
 import { UpdateAdminAvatarDto } from '../dto/update-admin-avatar.dto';
+import { UpdateAdminLocaleResponseDto } from '../dto/update-admin-locale-response.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 import { AdminSettingsService } from '../services/admin-settings.service';
 import {
@@ -39,6 +44,7 @@ import {
   ApiSendAdminInvite,
   ApiSetAdminStatus,
   ApiUpdateAdminAvatar,
+  ApiUpdateAdminLocale,
   ApiUpdatePlatformSettings,
 } from '../swagger/admin-settings.swagger';
 
@@ -66,6 +72,19 @@ export class AdminSettingsController {
   ): Promise<ApiResponseDto<AdminProfileResponseDto>> {
     const result = await this.adminSettingsService.updateAvatar(user, dto.avatarUrl);
     return ResponseUtil.success(result, MESSAGES.ADMIN.AVATAR_UPDATED, HttpStatus.OK);
+  }
+
+  @Patch(RouteNames.ADMIN_SETTINGS_LOCALE)
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiUpdateAdminLocale()
+  async updateLocale(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateLocaleDto,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<ApiResponseDto<UpdateAdminLocaleResponseDto>> {
+    const result = await this.adminSettingsService.updateLocale(user, dto);
+    setAdminSessionCookies(res, result.accessToken);
+    return ResponseUtil.success(result, MESSAGES.AUTH.LOCALE_UPDATED, HttpStatus.OK);
   }
 
   @Post(RouteNames.ADMIN_SETTINGS_CHANGE_PASSWORD)

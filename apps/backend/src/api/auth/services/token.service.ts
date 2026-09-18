@@ -41,6 +41,9 @@ export interface TokenSubject {
 export interface PlatformAdminTokenSubject {
   id: string;
   email: string;
+  /** Same reasoning as `TokenSubject.locale` — embedded so locale resolution never needs a
+   * per-request DB lookup. Null means "never chose", same as `platform_admins.locale`. */
+  locale: Locale | null;
 }
 
 interface SpentTokenInput {
@@ -272,17 +275,31 @@ export class TokenService {
    * `platform_admins`), so there is nothing to rotate. A platform admin simply re-authenticates
    * with `login` once this token's 15-minute TTL lapses. Worth revisiting if admin sessions turn
    * out to need to outlive that without repeated logins.
+   *
+   * `expiresInSeconds` exists for the one caller that re-signs an *already authenticated* admin's
+   * token to refresh a claim mid-session (`AdminSettingsService.updateLocale`). It must pass the
+   * lifetime remaining on the presenting token, so the replacement dies at the same moment the
+   * original would have. Defaulting it to the full TTL instead would quietly turn that route into
+   * a session-extension primitive — the one thing the "admins hold no refresh token" design is
+   * meant to prevent. Sign-in paths omit it: they are establishing a session, not continuing one.
    */
-  signPlatformAdminAccessToken(admin: PlatformAdminTokenSubject): {
+  signPlatformAdminAccessToken(
+    admin: PlatformAdminTokenSubject,
+    expiresInSeconds: number = ACCESS_TOKEN_TTL_SECONDS
+  ): {
     accessToken: string;
     expiresIn: number;
   } {
     const payload: PlatformAdminJwtPayload = {
       sub: admin.id,
       email: admin.email,
+      locale: admin.locale,
       type: JwtTokenType.PLATFORM_ADMIN,
     };
-    return { accessToken: this.jwtService.sign(payload), expiresIn: ACCESS_TOKEN_TTL_SECONDS };
+    return {
+      accessToken: this.jwtService.sign(payload, { expiresIn: expiresInSeconds }),
+      expiresIn: expiresInSeconds,
+    };
   }
 
   /** Pure signing, no I/O — `expiresIn` is the *access* token's lifetime (what the client schedules its refresh around), not the refresh token's. */

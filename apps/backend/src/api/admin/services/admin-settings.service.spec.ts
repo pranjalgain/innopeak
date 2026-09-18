@@ -1,5 +1,6 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import { TokenService } from '@auth/services/token.service';
 import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth-user.type';
 import { JobName } from '@bg/constants/job.constant';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
@@ -39,17 +40,20 @@ describe('AdminSettingsService', () => {
     findStatusById: jest.Mock;
     setStatusGuardingLastActive: jest.Mock;
     countActiveGoogleOnlyAdmins: jest.Mock;
+    updateLocale: jest.Mock;
   };
   let platformSettingsDbService: { get: jest.Mock; update: jest.Mock };
   let adminOverviewDbService: { recordActivityBestEffort: jest.Mock };
   let hashingService: { hash: jest.Mock; compare: jest.Mock };
   let queueManager: { addAdminInviteEmailJob: jest.Mock };
   let configService: { get: jest.Mock };
+  let tokenService: { signPlatformAdminAccessToken: jest.Mock };
 
   const admin: PlatformAdminAuthUser = {
     type: JwtTokenType.PLATFORM_ADMIN,
     id: 'admin-1',
     email: 'admin@innopeak.com',
+    locale: null,
   };
 
   const tenantUser: TenantAuthUser = {
@@ -66,6 +70,7 @@ describe('AdminSettingsService', () => {
     email: 'admin@innopeak.com',
     passwordHash: 'hashed-password',
     avatarUrl: null,
+    locale: null,
   };
 
   beforeEach(async () => {
@@ -83,6 +88,7 @@ describe('AdminSettingsService', () => {
       // No Google-only admins by default, so the social-login lockout guard is inert for every
       // test that isn't specifically about it.
       countActiveGoogleOnlyAdmins: jest.fn().mockResolvedValue(0),
+      updateLocale: jest.fn(),
     };
     platformSettingsDbService = { get: jest.fn(), update: jest.fn() };
     adminOverviewDbService = { recordActivityBestEffort: jest.fn() };
@@ -92,6 +98,11 @@ describe('AdminSettingsService', () => {
       get: jest.fn((key: string) => {
         return key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : undefined;
       }),
+    };
+    tokenService = {
+      signPlatformAdminAccessToken: jest
+        .fn()
+        .mockReturnValue({ accessToken: 'admin-access-token', expiresIn: 900 }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -103,6 +114,7 @@ describe('AdminSettingsService', () => {
         { provide: HashingService, useValue: hashingService },
         { provide: AddingJobsToQueueManager, useValue: queueManager },
         { provide: ConfigService, useValue: configService },
+        { provide: TokenService, useValue: tokenService },
       ],
     }).compile();
 
@@ -122,6 +134,57 @@ describe('AdminSettingsService', () => {
 
       expect(platformAdminDbService.findById).toHaveBeenCalledWith('admin-1');
       expect(result.email).toBe('admin@innopeak.com');
+    });
+  });
+
+  describe('updateLocale', () => {
+    it('rejects a tenant-user token without persisting anything', async () => {
+      await expect(target.updateLocale(tenantUser, { locale: 'de' })).rejects.toThrow(
+        ForbiddenException
+      );
+      expect(platformAdminDbService.updateLocale).not.toHaveBeenCalled();
+    });
+
+    it('throws 404 if the admin row is gone by the time the write lands', async () => {
+      platformAdminDbService.updateLocale.mockResolvedValue(null);
+
+      await expect(target.updateLocale(admin, { locale: 'de' })).rejects.toThrow(NotFoundException);
+      expect(tokenService.signPlatformAdminAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('persists the new locale and reissues the access token with it on the claim', async () => {
+      const updatedRow = { ...profileRow, locale: 'de' as const };
+      platformAdminDbService.updateLocale.mockResolvedValue(updatedRow);
+
+      const result = await target.updateLocale(admin, { locale: 'de' });
+
+      expect(platformAdminDbService.updateLocale).toHaveBeenCalledWith('admin-1', 'de');
+      expect(tokenService.signPlatformAdminAccessToken).toHaveBeenCalledWith(
+        updatedRow,
+        expect.any(Number)
+      );
+      expect(result).toMatchObject({
+        accessToken: 'admin-access-token',
+        expiresIn: 900,
+        admin: { email: 'admin@innopeak.com', locale: 'de' },
+      });
+    });
+
+    // Guards the session-extension hole: an admin has no refresh token, so if this route reset the
+    // clock every call, anyone holding a leaked access token could ping it just under the expiry
+    // and never be logged out. The replacement must die when the presented token would have.
+    it("re-signs to the presented token's own deadline rather than a fresh TTL", async () => {
+      platformAdminDbService.updateLocale.mockResolvedValue({ ...profileRow, locale: 'de' });
+      const sixtySecondsLeft = Math.floor(Date.now() / 1000) + 60;
+
+      await target.updateLocale({ ...admin, sessionExpiresAt: sixtySecondsLeft }, { locale: 'de' });
+
+      const [, expiresInSeconds] = tokenService.signPlatformAdminAccessToken.mock.calls[0] as [
+        unknown,
+        number,
+      ];
+      expect(expiresInSeconds).toBeLessThanOrEqual(60);
+      expect(expiresInSeconds).toBeGreaterThan(0);
     });
   });
 

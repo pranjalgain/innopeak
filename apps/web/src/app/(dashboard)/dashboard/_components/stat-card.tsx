@@ -24,7 +24,10 @@ export function StatCard({ label, value, icon: Icon, warning = false }: StatCard
         </div>
         <div className="mt-auto">
           <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-bold">{value}</p>
+          {/* `font-semibold`/`tabular-nums` to match the admin overview's own stat tiles
+              (`admin-overview-view.tsx`) — this app's one other stat-number pattern — and to keep
+              a changing figure from jittering the label's baseline as its digit widths vary. */}
+          <p className="text-2xl font-semibold tabular-nums">{value}</p>
         </div>
       </CardContent>
     </Card>

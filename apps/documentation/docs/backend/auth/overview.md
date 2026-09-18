@@ -454,9 +454,10 @@ this note (the module already lives at `src/api/auth/`, not `src/auth/`, and
 suggest most of it is similarly out of date. Worth a dedicated reconciliation pass against current
 code rather than patching individual claims further as they're noticed.
 - **The root platform admin is seeded, but cannot yet be logged into.**
-  `0008_dev_platform_admin.sql` inserts the one row `idx_platform_admins_single_root` expects (a
-  NULL inviter), which is the only way that identity can come into existence — nothing under
-  `src/` writes `platform_admins`. What is still missing is token issuance: `JwtStrategy`
+  `src/db/seeds/seed-platform-admin.ts` (`pnpm db:seed:admin`) inserts the one row
+  `idx_platform_admins_single_root` expects (a NULL inviter), which is the only way that identity
+  can come into existence. It was a migration (`0008_dev_platform_admin.sql`, since removed) until
+  that was found to commit the password in plain text. What is still missing is token issuance: `JwtStrategy`
   *validates* a `platform_admin` token, but neither `TokenService` nor `AuthService` mints one,
   and `/v1/auth/login` resolves through `users` only. So the row is in place for when the
   platform-admin auth routes land, and unusable until then.

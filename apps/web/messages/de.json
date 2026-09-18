@@ -157,7 +157,11 @@
     "switchFailed": "Ihr aktives Unternehmen konnte nicht gewechselt werden. Bitte versuchen Sie es erneut."
   },
   "languageSwitcher": {
-    "syncFailed": "Spracheinstellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
+    "syncFailed": "Spracheinstellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+    "label": "Deutsch"
+  },
+  "themeToggle": {
+    "label": "Dunkles Design"
   },
   "auth": {
     "login": {
@@ -171,7 +175,9 @@
       "noAccount": "Noch kein Konto?",
       "signUp": "Registrieren",
       "ssoUnavailable": "Weitere Anmeldeoptionen konnten nicht geprüft werden.",
-      "ssoUnavailableRetry": "Erneut versuchen"
+      "ssoUnavailableRetry": "Erneut versuchen",
+      "platformAdmin": "Plattform-Administrator?",
+      "adminSignIn": "Hier anmelden"
     },
     "adminLogin": {
       "title": "Admin-Anmeldung",

@@ -121,6 +121,7 @@ describe('TokenService', () => {
       const result = target.signPlatformAdminAccessToken({
         id: 'admin-1',
         email: 'admin@innopeak.com',
+        locale: null,
       });
 
       expect(result).toEqual({
@@ -128,12 +129,46 @@ describe('TokenService', () => {
         expiresIn: ACCESS_TOKEN_TTL_SECONDS,
       });
       expect(jwtService.sign).toHaveBeenCalledTimes(1);
-      expect(jwtService.sign).toHaveBeenCalledWith({
-        sub: 'admin-1',
-        email: 'admin@innopeak.com',
-        type: JwtTokenType.PLATFORM_ADMIN,
-      });
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        {
+          sub: 'admin-1',
+          email: 'admin@innopeak.com',
+          locale: null,
+          type: JwtTokenType.PLATFORM_ADMIN,
+        },
+        { expiresIn: ACCESS_TOKEN_TTL_SECONDS }
+      );
       expect(authDbService.insertRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it("carries the admin's locale onto the signed payload", () => {
+      jwtService.sign.mockReturnValueOnce('admin-access-token');
+
+      target.signPlatformAdminAccessToken({
+        id: 'admin-1',
+        email: 'admin@innopeak.com',
+        locale: 'de',
+      });
+
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ locale: 'de' }),
+        expect.anything()
+      );
+    });
+
+    // The security property behind `remainingSessionSeconds`: a mid-session claim refresh must
+    // not hand back a longer-lived token than the one that authorized it, or the route doing the
+    // refreshing becomes a way to keep an un-renewable admin session alive forever.
+    it('honours an explicit remaining lifetime instead of granting a fresh TTL', () => {
+      jwtService.sign.mockReturnValueOnce('admin-access-token');
+
+      const result = target.signPlatformAdminAccessToken(
+        { id: 'admin-1', email: 'admin@innopeak.com', locale: 'de' },
+        42
+      );
+
+      expect(result).toEqual({ accessToken: 'admin-access-token', expiresIn: 42 });
+      expect(jwtService.sign).toHaveBeenCalledWith(expect.anything(), { expiresIn: 42 });
     });
   });
 

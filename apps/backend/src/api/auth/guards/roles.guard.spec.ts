@@ -39,6 +39,7 @@ const platformAdmin: AuthUser = {
   type: JwtTokenType.PLATFORM_ADMIN,
   id: 'admin-1',
   email: 'admin@innopeak.com',
+  locale: null,
 };
 
 describe('RolesGuard', () => {

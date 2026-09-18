@@ -90,6 +90,7 @@ describe('PlatformAdminAuthService', () => {
       email: 'admin@innopeak.com',
       passwordHash: 'hashed-admin-password',
       status: PlatformAdminStatus.ACTIVE,
+      locale: null,
     };
 
     it('issues a platform-admin access token for a correct password on an active admin', async () => {
@@ -103,7 +104,9 @@ describe('PlatformAdminAuthService', () => {
         body: {
           accessToken: 'admin-access',
           expiresIn: 900,
-          admin: { id: 'admin-1', email: activeAdmin.email },
+          // `locale` rides along on sign-in so the client can restore the admin's saved language
+          // before its own cookie exists — see `PlatformAdminSummaryDto.locale`.
+          admin: { id: 'admin-1', email: activeAdmin.email, locale: activeAdmin.locale },
         },
       });
     });
@@ -194,6 +197,7 @@ describe('PlatformAdminAuthService', () => {
         outcome: 'accepted',
         id: 'admin-1',
         email: 'priya.ops@innopeak.com',
+        locale: null,
       });
 
       const result = await target.acceptAdminInvite({
@@ -301,6 +305,7 @@ describe('PlatformAdminAuthService', () => {
         outcome: 'accepted',
         id: 'admin-1',
         email: 'priya.ops@innopeak.com',
+        locale: null,
       });
 
       const outcome = await target.completeAdminInviteGoogle('raw-token-1', identity);
@@ -387,6 +392,7 @@ describe('PlatformAdminAuthService', () => {
         id: 'admin-1',
         email: 'priya.ops@innopeak.com',
         status: PlatformAdminStatus.ACTIVE,
+        locale: null,
       });
 
       const result = await target.findLinkedAdmin('google-sub-1');
@@ -402,6 +408,7 @@ describe('PlatformAdminAuthService', () => {
         id: 'admin-1',
         email: 'priya.ops@innopeak.com',
         status: PlatformAdminStatus.DISABLED,
+        locale: null,
       });
 
       const result = await target.findLinkedAdmin('google-sub-1');

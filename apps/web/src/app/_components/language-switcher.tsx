@@ -1,80 +1,113 @@
 "use client";
 
+import * as SwitchPrimitive from "@radix-ui/react-switch";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { LuCheck, LuLanguages } from "react-icons/lu";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { AuthService } from "@/app/_libs/services/auth.service";
+import { cn } from "@/app/_libs/utils/cn";
 import { setLocaleCookie } from "@/app/_libs/utils/locale";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { type AppLocale, LOCALE_LABELS, SUPPORTED_LOCALES } from "@/i18n/locales";
+import { type AppLocale } from "@/i18n/locales";
 
 /**
- * Standalone, always-visible language toggle — one control, present in every chrome
- * surface (the public marketing header, the pre-auth login/signup corner, and the
- * dashboard/admin top bar) rather than nested inside an account dropdown a signed-in
- * user has to open first to discover it. Writes the `NEXT_LOCALE` cookie
- * `src/i18n/request.ts` reads, then `router.refresh()` so the current page's Server
- * Components re-render against it — no full reload, since `refresh()` re-fetches the
- * RSC tree for the current URL and therefore re-runs `request.ts` on that same round
- * trip.
+ * Standalone, always-visible language toggle — same "always in chrome, never nested inside a
+ * menu a user has to open first" reasoning the previous Light/Dark/System-style dropdown draft
+ * had, and the same reason `ThemeToggle` exists as one. Rebuilt as a binary switch (this
+ * codebase supports exactly two locales — `SUPPORTED_LOCALES` — so there is no third option a
+ * toggle would have nowhere to put, unlike theme's dropped "System"), sharing `ThemeToggle`'s
+ * exact sliding-thumb mechanics: the outgoing locale code shrinks/fades out while the incoming
+ * one grows/fades in, so the swap reads as one continuous motion. `prefers-reduced-motion` still
+ * gets a plain, instant swap via `motion-reduce:transition-none` on every animated piece.
+ *
+ * `checked` is driven by `useLocale()`, not by local state that flips optimistically — the sync
+ * call below (`AuthService.updateLocale`) can fail, and on failure this returns before the
+ * cookie/locale actually change. Because the underlying `locale` value never moved, the switch
+ * — a controlled component — simply never animates in the first place, the same "don't move
+ * until it's real" guarantee the old dropdown's `syncFailed` toast plus no-op already gave.
+ *
+ * `compact`: the marketing header (`SiteHeader`) has no width to spare — its own comment already
+ * measured this row as fitting the *previous* icon-only trigger with only a few pixels left at
+ * ~360px, and this switch's default size is wider than that trigger was. `compact` trims the
+ * track/thumb down (48px vs 56px) to fit there instead of shrinking the switch everywhere,
+ * which would make it feel like a different, smaller control on the pages that have room.
  */
-export function LanguageSwitcher() {
-  const locale = useLocale();
+export function LanguageSwitcher({ compact = false }: { compact?: boolean } = {}) {
+  const locale = useLocale() as AppLocale;
   const router = useRouter();
   const t = useTranslations("languageSwitcher");
+  const [isSyncing, setIsSyncing] = useState(false);
+  // `router.refresh()` is what actually moves `useLocale()`, and therefore the switch. Marking it
+  // as a transition gives us `isPending` for exactly that stretch, which the `disabled` below
+  // needs: clearing `isSyncing` on its own would re-enable the control while it still displays the
+  // outgoing locale, and a click in that gap re-sends the locale already in flight instead of
+  // reversing it.
+  const [isPending, startTransition] = useTransition();
 
-  /**
-   * Waits for `AuthService.updateLocale` (a no-op for a signed-out visitor) before touching the
-   * cookie or the UI — the two must not disagree, so a signed-in user's failed server sync keeps
-   * the UI in its current language too, with a toast, rather than silently drifting: the chrome
-   * would otherwise switch instantly while every backend-originated message (API errors, mutation
-   * toasts, eventually emails) kept arriving in the old language until the user tried again.
-   */
   async function selectLocale(next: AppLocale): Promise<void> {
+    setIsSyncing(true);
     try {
       await AuthService.updateLocale(next);
     } catch {
+      setIsSyncing(false);
       toast.error(t("syncFailed"));
       return;
     }
 
     setLocaleCookie(next);
-    router.refresh();
+    // Ordered so the control is never momentarily enabled: `startTransition` raises `isPending`
+    // before `isSyncing` drops, and the two are read together by `disabled`. A `finally` clearing
+    // `isSyncing` ahead of this would leave that gap open to whatever React chose to batch.
+    startTransition(() => router.refresh());
+    setIsSyncing(false);
   }
 
+  const isGerman = locale === "de";
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" aria-label={LOCALE_LABELS[locale as AppLocale]}>
-          <LuLanguages aria-hidden="true" />
-          {/* Icon-only below `sm` — the site header's fixed row of controls (logo, this,
-              sign-in, the CTA) has no slack left for both an icon and a locale code once
-              German's longer button labels are in play; see the German-vs-English
-              responsiveness check in the design doc's Verification section. The dropdown
-              itself still spells out each language in full once opened. */}
-          <span className="hidden sm:inline">{(locale as AppLocale).toUpperCase()}</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {SUPPORTED_LOCALES.map(option => (
-          <DropdownMenuItem
-            key={option}
-            onClick={() => void selectLocale(option)}
-            className="cursor-pointer justify-between"
-          >
-            {LOCALE_LABELS[option]}
-            {option === locale ? <LuCheck aria-hidden="true" /> : null}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <SwitchPrimitive.Root
+      checked={isGerman}
+      disabled={isSyncing || isPending}
+      onCheckedChange={(checked) => void selectLocale(checked ? "de" : "en")}
+      // Names what the switch controls, not the action it would perform. Radix emits
+      // `role="switch"` plus `aria-checked`, so "Switch to English" while German is active would
+      // be announced as "switch to English, switch, on" — stating that English is on when it is
+      // precisely what is off.
+      aria-label={t("label")}
+      className={cn(
+        "focus-visible:ring-ring/50 relative inline-flex shrink-0 items-center rounded-full",
+        compact ? "h-7 w-12" : "h-8 w-14",
+        "border-border bg-accent border transition-colors duration-300 ease-fluid outline-none focus-visible:ring-[3px]",
+        "motion-reduce:transition-none disabled:cursor-wait disabled:opacity-70",
+      )}>
+      <SwitchPrimitive.Thumb
+        className={cn(
+          "border-border bg-card shadow-elevated relative flex items-center justify-center rounded-full border",
+          compact ? "size-5" : "size-6",
+          "translate-x-1 transition-transform duration-300 ease-fluid",
+          compact ? "data-[state=checked]:translate-x-6" : "data-[state=checked]:translate-x-7",
+          "motion-reduce:transition-none",
+        )}>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "text-muted-foreground absolute text-[9px] font-semibold tracking-wide backface-hidden transition-all duration-300 ease-fluid",
+            "motion-reduce:transition-none",
+            isGerman ? "scale-50 rotate-90 opacity-0" : "scale-100 rotate-0 opacity-100",
+          )}>
+          EN
+        </span>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "text-muted-foreground absolute text-[9px] font-semibold tracking-wide backface-hidden transition-all duration-300 ease-fluid",
+            "motion-reduce:transition-none",
+            isGerman ? "scale-100 rotate-0 opacity-100" : "scale-50 -rotate-90 opacity-0",
+          )}>
+          DE
+        </span>
+      </SwitchPrimitive.Thumb>
+    </SwitchPrimitive.Root>
   );
 }

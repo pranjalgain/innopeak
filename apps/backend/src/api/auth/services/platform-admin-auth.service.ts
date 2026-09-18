@@ -1,5 +1,6 @@
 import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
+import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import {
@@ -356,12 +357,14 @@ export class PlatformAdminAuthService {
   private buildPlatformAdminLoginResult(admin: {
     id: string;
     email: string;
+    locale: Locale | null;
   }): PlatformAdminLoginResult {
     const { accessToken, expiresIn } = this.tokenService.signPlatformAdminAccessToken(admin);
 
     const summary = new PlatformAdminSummaryDto();
     summary.id = admin.id;
     summary.email = admin.email;
+    summary.locale = admin.locale;
 
     const body = new PlatformAdminTokenResponseDto();
     body.accessToken = accessToken;

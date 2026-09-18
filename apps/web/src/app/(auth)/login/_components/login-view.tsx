@@ -26,7 +26,11 @@ type LoginStep = "credentials" | "otp";
 
 /**
  * Login screen — tenant users only. Platform admins sign in at `ROUTES.ADMIN_LOGIN` instead: see
- * `separate-admin-login-design.md` for why the two are split rather than sharing this screen.
+ * `separate-admin-login-design.md` for why the two are split rather than sharing this screen. A
+ * small, deliberately low-key link to that screen sits below the sign-up prompt — without it,
+ * nothing on screen tells an admin they're on the wrong form; they'd just see "Invalid email or
+ * password" for a perfectly correct password, indistinguishable from an actual typo, with no path
+ * off that dead end short of already knowing `/admin-login` exists.
  *
  * The password form is always available, unconditionally, regardless of the platform's
  * ssoLoginEnabled/socialLoginEnabled settings — those gate only the SSO/social *buttons* below it.
@@ -80,6 +84,10 @@ export function LoginView() {
       return;
     }
 
+    // Drops the router cache so the destination renders with the locale cookie sign-in may have
+    // just restored (`AuthService.loginWithPassword`) rather than a payload built before it —
+    // see the same call in `AdminLoginView`.
+    router.refresh();
     router.push(result.hasConnectedBusiness ? ROUTES.DASHBOARD : ROUTES.ONBOARDING_CONNECT);
   };
 
@@ -161,6 +169,13 @@ export function LoginView() {
               {t("noAccount")}{" "}
               <Link href={ROUTES.ONBOARDING_SIGNUP as Route} className="font-medium">
                 {t("signUp")}
+              </Link>
+            </div>
+
+            <div className="text-muted-foreground mt-2 text-center text-xs">
+              {t("platformAdmin")}{" "}
+              <Link href={ROUTES.ADMIN_LOGIN as Route} className="font-medium">
+                {t("adminSignIn")}
               </Link>
             </div>
           </>
