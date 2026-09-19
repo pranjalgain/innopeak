@@ -29,6 +29,11 @@ export enum RouteNames {
   SET_PASSWORD = 'set-password',
   REQUEST_SET_PASSWORD_OTP = 'set-password/request-otp',
   UPDATE_LOCALE = 'locale',
+  // Direct-to-provider avatar upload — see the ADMIN_SETTINGS_AVATAR_* pair below for the
+  // platform-admin counterpart of this same two-step shape. `authorize` matches GOOGLE_AUTHORIZE's
+  // own naming below for the same "start this externally-mediated step" shape.
+  AVATAR_AUTHORIZE = 'avatar/authorize',
+  AVATAR_CONFIRM = 'avatar/confirm',
   VERIFY_EMAIL = 'verify-email',
   RESEND_VERIFICATION_OTP = 'resend-verification-otp',
   GOOGLE_COMPLETE_SIGNUP = 'google/complete-signup',
@@ -73,7 +78,11 @@ export enum RouteNames {
   ADMIN_BUSINESS_STATUS = ':tenantId/status',
   ADMIN_SETTINGS = 'admin/settings',
   ADMIN_SETTINGS_PROFILE = 'profile',
-  ADMIN_SETTINGS_PROFILE_AVATAR = 'profile/avatar',
+  // Direct-to-provider avatar upload: mint a signed authorization, then confirm what the client
+  // actually uploaded — see MediaService. Same two-step shape as AVATAR_AUTHORIZE/AVATAR_CONFIRM
+  // above (the tenant side), one per profile screen.
+  ADMIN_SETTINGS_AVATAR_AUTHORIZE = 'profile/avatar/authorize',
+  ADMIN_SETTINGS_AVATAR_CONFIRM = 'profile/avatar/confirm',
   ADMIN_SETTINGS_CHANGE_PASSWORD = 'profile/change-password',
   ADMIN_SETTINGS_LOCALE = 'profile/locale',
   ADMIN_SETTINGS_INVITES = 'invites',

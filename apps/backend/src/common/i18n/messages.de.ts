@@ -44,6 +44,7 @@ export const messagesDe: MessageCatalog = {
     PASSWORD_SET: 'Passwort festgelegt. Sie können sich jetzt auch mit einem Passwort anmelden.',
     SET_PASSWORD_OTP_ACK: 'Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren.',
     LOCALE_UPDATED: 'Spracheinstellung aktualisiert.',
+    AVATAR_UPDATED: 'Avatar aktualisiert.',
     TENANT_ONLY: 'Diese Aktion steht nur Mandantenbenutzern zur Verfügung.',
     GOOGLE_NOT_CONFIGURED:
       'Die Google-Anmeldung ist auf diesem Server nicht konfiguriert. Wenden Sie sich an den Support oder verwenden Sie E-Mail-Adresse und Passwort.',
@@ -52,6 +53,12 @@ export const messagesDe: MessageCatalog = {
     TENANT_CONTEXT_REQUIRED: 'Dieser Endpunkt ist für diesen Kontotyp nicht verfügbar.',
     INVALID_OR_EXPIRED_INVITE: 'Dieser Einladungslink ist ungültig oder abgelaufen.',
     INVITE_ACCEPTED: 'Einladung angenommen. Sie sind angemeldet.',
+  },
+  MEDIA: {
+    UPLOAD_NOT_VERIFIED: 'Das hochgeladene Bild konnte nicht verifiziert werden.',
+    UNSUPPORTED_FORMAT:
+      'Dieses Bildformat wird nicht unterstützt. Bitte laden Sie eine JPG-, PNG-, WEBP-, GIF-, AVIF-, HEIC- oder BMP-Datei hoch.',
+    FILE_TOO_LARGE: 'Dieses Bild ist zu groß. Bitte laden Sie eine Datei unter 10 MB hoch.',
   },
   CONNECTIONS: {
     CONNECTION_NOT_FOUND:

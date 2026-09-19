@@ -65,22 +65,31 @@ export function useSettings(enabled = true): UseSettingsResult {
   // But unlike the old plain `useState`, a failed write here now sits in react-query's shared
   // cache for the rest of its 5-minute staleTime, visible to any other reader of `["settings"]` —
   // so a failure rolls the optimistic write back instead of leaving it there unnoticed.
+  // Callbacks live on the mutation itself, not on the individual `mutate()` call. Per-call
+  // callbacks are dropped whenever a second `mutate()` supersedes the first on the same observer,
+  // so toggling two recipients in quick succession silently lost the first one's toast *and* its
+  // rollback. `onMutate`'s returned context is what carries each call's own snapshot back to its
+  // own `onError`.
   const backgroundPersistMutation = useMutation({
-    mutationFn: (next: SettingsData) => SettingsService.updateSettings(next),
+    mutationFn: ({ next }: { next: SettingsData; successMessage: string }) =>
+      SettingsService.updateSettings(next),
+    onMutate: ({ next }) => {
+      const previous = queryClient.getQueryData<SettingsData>(settingsQueryKey);
+      setSettings(next);
+      return { previous };
+    },
+    onSuccess: (_data, { successMessage }) => toast.success(successMessage),
+    onError: (_error, _variables, context) => {
+      if (context?.previous) setSettings(context.previous);
+      toast.error(t("updateFailed"));
+    },
   });
 
   const persist = useCallback(
-    (next: SettingsData) => {
-      const previous = queryClient.getQueryData<SettingsData>(settingsQueryKey);
-      setSettings(next);
-      backgroundPersistMutation.mutate(next, {
-        onError: () => {
-          if (previous) setSettings(previous);
-          toast.error(t("updateFailed"));
-        },
-      });
+    (next: SettingsData, successMessage: string) => {
+      backgroundPersistMutation.mutate({ next, successMessage });
     },
-    [queryClient, setSettings, backgroundPersistMutation, t],
+    [backgroundPersistMutation],
   );
 
   const saveGeneralMutation = useMutation({
@@ -157,13 +166,15 @@ export function useSettings(enabled = true): UseSettingsResult {
   const updateRecipientChannel = useCallback(
     (id: string, channel: NotificationChannel) => {
       if (!settings) return;
-      persist({
-        ...settings,
-        notificationRecipients: settings.notificationRecipients.map((recipient) =>
-          recipient.id === id ? { ...recipient, channel } : recipient,
-        ),
-      });
-      toast.success(t("notificationChannelUpdated"));
+      persist(
+        {
+          ...settings,
+          notificationRecipients: settings.notificationRecipients.map((recipient) =>
+            recipient.id === id ? { ...recipient, channel } : recipient,
+          ),
+        },
+        t("notificationChannelUpdated"),
+      );
     },
     [settings, persist, t],
   );
@@ -171,13 +182,15 @@ export function useSettings(enabled = true): UseSettingsResult {
   const toggleRecipientActive = useCallback(
     (id: string) => {
       if (!settings) return;
-      persist({
-        ...settings,
-        notificationRecipients: settings.notificationRecipients.map((recipient) =>
-          recipient.id === id ? { ...recipient, isActive: !recipient.isActive } : recipient,
-        ),
-      });
-      toast.success(t("notificationToggled"));
+      persist(
+        {
+          ...settings,
+          notificationRecipients: settings.notificationRecipients.map((recipient) =>
+            recipient.id === id ? { ...recipient, isActive: !recipient.isActive } : recipient,
+          ),
+        },
+        t("notificationToggled"),
+      );
     },
     [settings, persist, t],
   );

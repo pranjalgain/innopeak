@@ -18,7 +18,6 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
-  Put,
   Res,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -32,7 +31,6 @@ import { AdminProfileResponseDto } from '../dto/admin-profile-response.dto';
 import { ChangeAdminPasswordDto } from '../dto/change-admin-password.dto';
 import { SendAdminInviteDto } from '../dto/send-admin-invite.dto';
 import { SetAdminStatusDto } from '../dto/set-admin-status.dto';
-import { UpdateAdminAvatarDto } from '../dto/update-admin-avatar.dto';
 import { UpdateAdminLocaleResponseDto } from '../dto/update-admin-locale-response.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 import { AdminSettingsService } from '../services/admin-settings.service';
@@ -43,7 +41,6 @@ import {
   ApiRevokeAdminInvite,
   ApiSendAdminInvite,
   ApiSetAdminStatus,
-  ApiUpdateAdminAvatar,
   ApiUpdateAdminLocale,
   ApiUpdatePlatformSettings,
 } from '../swagger/admin-settings.swagger';
@@ -61,17 +58,6 @@ export class AdminSettingsController {
   ): Promise<ApiResponseDto<AdminProfileResponseDto>> {
     const result = await this.adminSettingsService.getProfile(user);
     return ResponseUtil.success(result, undefined, HttpStatus.OK);
-  }
-
-  @Put(RouteNames.ADMIN_SETTINGS_PROFILE_AVATAR)
-  @Throttle({ short: { limit: 10, ttl: 60000 } })
-  @ApiUpdateAdminAvatar()
-  async updateAvatar(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: UpdateAdminAvatarDto
-  ): Promise<ApiResponseDto<AdminProfileResponseDto>> {
-    const result = await this.adminSettingsService.updateAvatar(user, dto.avatarUrl);
-    return ResponseUtil.success(result, MESSAGES.ADMIN.AVATAR_UPDATED, HttpStatus.OK);
   }
 
   @Patch(RouteNames.ADMIN_SETTINGS_LOCALE)

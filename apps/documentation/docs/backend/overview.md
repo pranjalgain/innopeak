@@ -27,6 +27,7 @@ contracts). The pipeline has no HTTP surface, so it has an overview only.
 | Reviews | The review queue, review detail, and AI reply-draft approve/edit/reject | [Overview](./reviews/overview.md) · [API](./reviews/api-reference.md) |
 | Prompts | Versioned reply prompts, per-owner tone, prompt performance | [Overview](./prompts/overview.md) · [API](./prompts/api-reference.md) |
 | Settings | Tenant profile, escalation threshold, blocklist, notification recipients | [Overview](./settings/overview.md) · [API](./settings/api-reference.md) |
+| Media | Stored assets: direct-to-provider profile avatar upload for tenant users and platform admins | [Overview](./media/overview.md) · [API](./media/api-reference.md) |
 | Notifications | Escalation delivery records and the in-app notification centre | [Overview](./notifications/overview.md) · [API](./notifications/api-reference.md) |
 | Dashboard | Read-only aggregate metrics over reviews and responses | [Overview](./dashboard/overview.md) · [API](./dashboard/api-reference.md) |
 | Platform Admin | Cross-tenant support and operations for GeekyAnts staff | [Overview](./platform-admin/overview.md) · [API](./platform-admin/api-reference.md) |

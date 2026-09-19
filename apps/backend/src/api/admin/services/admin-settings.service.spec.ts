@@ -31,7 +31,6 @@ describe('AdminSettingsService', () => {
   let platformAdminDbService: {
     findById: jest.Mock;
     findByEmail: jest.Mock;
-    updateAvatarUrl: jest.Mock;
     updatePasswordHash: jest.Mock;
     listInvites: jest.Mock;
     createInvite: jest.Mock;
@@ -77,7 +76,6 @@ describe('AdminSettingsService', () => {
     platformAdminDbService = {
       findById: jest.fn(),
       findByEmail: jest.fn(),
-      updateAvatarUrl: jest.fn(),
       updatePasswordHash: jest.fn(),
       listInvites: jest.fn(),
       createInvite: jest.fn(),

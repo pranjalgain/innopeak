@@ -1,11 +1,13 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { toast } from "sonner";
 
 import { ApiError } from "@/app/_libs/services/api-error";
+import { avatarUploadErrorMessage } from "@/app/_libs/services/avatar-upload.service";
 import { TenantOwnerProfileService } from "@/app/_libs/services/tenant-owner-profile.service";
+import { useQueryErrorToast } from "@/hooks/common/use-query-error-toast";
 import type { TenantOwnerProfile } from "@/types/domain";
 
 export const tenantOwnerProfileQueryKey = ["tenant-owner-profile"] as const;
@@ -13,7 +15,9 @@ export const tenantOwnerProfileQueryKey = ["tenant-owner-profile"] as const;
 interface UseTenantOwnerProfileResult {
   profile: TenantOwnerProfile | null;
   isLoading: boolean;
-  updateAvatar: (avatarUrl: string) => Promise<void>;
+  updateAvatar: (file: File) => Promise<void>;
+  /** In-flight flag for the avatar upload, so the picker can disable itself and show a spinner. */
+  isUploadingAvatar: boolean;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
   /** Step-up verification ahead of `setPassword` — mails a 6-digit code. Returns whether it was
    *  acknowledged (network/unexpected failures only; the backend's own ack is always "success"
@@ -33,23 +37,32 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
     queryFn: () => TenantOwnerProfileService.get(),
   });
 
-  useEffect(() => {
-    if (profileQuery.isError) toast.error(t("loadFailed"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileQuery.isError]);
+  // This hook is called from several simultaneously mounted components (the dashboard shell,
+  // ConnectionGuard, SettingsView, the Profile tab itself) that all share this one query key —
+  // see `useQueryErrorToast`'s own comment for why a plain `useEffect` here would show the same
+  // toast once per mounted instance instead of once per actual failure.
+  useQueryErrorToast(tenantOwnerProfileQueryKey, profileQuery, t("loadFailed"));
 
   const updateAvatarMutation = useMutation({
-    mutationFn: (avatarUrl: string) => TenantOwnerProfileService.updateAvatar(avatarUrl),
+    mutationFn: (file: File) => TenantOwnerProfileService.updateAvatar(file),
   });
 
   const updateAvatar = useCallback(
-    async (avatarUrl: string) => {
+    async (file: File) => {
       try {
-        const updated = await updateAvatarMutation.mutateAsync(avatarUrl);
-        queryClient.setQueryData(tenantOwnerProfileQueryKey, updated);
+        const avatarUrl = await updateAvatarMutation.mutateAsync(file);
+        // The confirm route only ever knows the avatar itself, not this tenant's full profile
+        // (see `TenantOwnerProfileService.updateAvatar`) — merge into what's already cached
+        // rather than replacing it.
+        queryClient.setQueryData<TenantOwnerProfile>(tenantOwnerProfileQueryKey, (current) =>
+          current ? { ...current, avatarUrl } : current,
+        );
         toast.success(t("avatarUpdated"));
-      } catch {
-        toast.error(t("updateFailed"));
+      } catch (error) {
+        // The provider's own refusal ("File size too large", "unsupported format") is the only
+        // thing that tells the user to pick a *different* file — collapsing it into the generic
+        // "could not save" left them retrying the same oversized photo forever.
+        toast.error(avatarUploadErrorMessage(error, t("updateFailed")));
       }
     },
     [t, updateAvatarMutation, queryClient],
@@ -130,6 +143,7 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
     profile: profileQuery.data ?? null,
     isLoading: profileQuery.isLoading,
     updateAvatar,
+    isUploadingAvatar: updateAvatarMutation.isPending,
     changePassword,
     requestSetPasswordOtp,
     setPassword,

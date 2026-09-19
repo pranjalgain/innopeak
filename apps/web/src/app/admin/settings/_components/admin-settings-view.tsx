@@ -50,8 +50,16 @@ const STATUS_BADGE_CLASSNAME: Record<PlatformAdminStatus, string> = {
 
 function ProfileSection() {
   const t = useTranslations("adminSettings.profile");
-  const { profile, isLoading, isError, refetch, updateAvatar, changePassword, isChangingPassword } =
-    usePlatformAdminProfile();
+  const {
+    profile,
+    isLoading,
+    isError,
+    refetch,
+    updateAvatar,
+    isUploadingAvatar,
+    changePassword,
+    isChangingPassword,
+  } = usePlatformAdminProfile();
 
   if (isLoading) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
   // `!profile` was folded into the loading branch, so a failed request left a grey rectangle on
@@ -73,7 +81,8 @@ function ProfileSection() {
           avatarUrl={profile.avatarUrl}
           initials={getInitials(platformAdminDisplayName(profile.email))}
           changeLabel={t("changePicture")}
-          onUpload={(avatarUrl) => void updateAvatar(avatarUrl)}
+          isUploading={isUploadingAvatar}
+          onUpload={updateAvatar}
         />
 
         <div className="border-border flex flex-col gap-1.5 border-t pt-5">

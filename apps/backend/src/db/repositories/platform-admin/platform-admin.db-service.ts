@@ -1,5 +1,6 @@
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import type { Locale } from '@common/i18n/locale';
+import { MediaDbService } from '@db/repositories/media/media.db-service';
 import { Injectable } from '@nestjs/common';
 
 import {
@@ -13,12 +14,30 @@ import {
   type SetAdminStatusOutcome,
 } from './platform-admin.repository';
 
+/** `PlatformAdminProfileRow` plus the avatar `MediaDbService` composes in — see `findById`. */
+export interface PlatformAdminProfileWithAvatar extends PlatformAdminProfileRow {
+  avatarUrl: string | null;
+}
+
 @Injectable()
 export class PlatformAdminDbService {
-  constructor(private readonly platformAdminRepository: PlatformAdminRepository) {}
+  constructor(
+    private readonly platformAdminRepository: PlatformAdminRepository,
+    private readonly mediaDbService: MediaDbService
+  ) {}
 
-  async findById(id: string): Promise<PlatformAdminProfileRow | null> {
-    return this.platformAdminRepository.findById(id);
+  /**
+   * The profile row plus its avatar, composed from two repositories rather than a join in
+   * `PlatformAdminRepository` itself — `platform_admins` has no `avatar_url` column at all
+   * anymore (see `0001_platform_admin.sql`'s own header), so "this admin's profile" is inherently
+   * two reads now, and composing them is exactly a DB Service's job.
+   */
+  async findById(id: string): Promise<PlatformAdminProfileWithAvatar | null> {
+    const row = await this.platformAdminRepository.findById(id);
+    if (!row) return null;
+
+    const avatarUrl = await this.mediaDbService.findAvatarUrl({ platformAdminId: id });
+    return { ...row, avatarUrl };
   }
 
   /** See `PlatformAdminRepository.findForLogin` — the read `PlatformAdminAuthService.login` uses. */
@@ -49,20 +68,16 @@ export class PlatformAdminDbService {
     return this.platformAdminRepository.deleteExpiredInvite(id);
   }
 
-  async updateAvatarUrl(id: string, avatarUrl: string): Promise<PlatformAdminProfileRow | null> {
-    await this.platformAdminRepository.updateAvatarUrl(id, avatarUrl);
-    return this.platformAdminRepository.findById(id);
-  }
-
   async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
     await this.platformAdminRepository.updatePasswordHash(id, passwordHash);
   }
 
-  /** See `PlatformAdminRepository.updateLocale`. Re-fetches, same reasoning as `updateAvatarUrl`
-   *  above — the caller needs the fresh row to reissue the access token's `locale` claim. */
-  async updateLocale(id: string, locale: Locale): Promise<PlatformAdminProfileRow | null> {
+  /** See `PlatformAdminRepository.updateLocale`. Re-fetches via this class's own `findById` (not
+   *  the repository's) so the fresh row still carries its avatar — the caller returns this
+   *  straight to the client as the updated profile, same as every other mutation here. */
+  async updateLocale(id: string, locale: Locale): Promise<PlatformAdminProfileWithAvatar | null> {
     await this.platformAdminRepository.updateLocale(id, locale);
-    return this.platformAdminRepository.findById(id);
+    return this.findById(id);
   }
 
   /**

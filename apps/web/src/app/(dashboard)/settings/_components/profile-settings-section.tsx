@@ -36,8 +36,15 @@ const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
 /** Only reachable while the platform's passwordLoginEnabled setting is on — there's no password to manage otherwise. */
 export function ProfileSettingsSection() {
   const t = useTranslations("settings.profile");
-  const { profile, isLoading, updateAvatar, changePassword, requestSetPasswordOtp, setPassword } =
-    useTenantOwnerProfile();
+  const {
+    profile,
+    isLoading,
+    updateAvatar,
+    isUploadingAvatar,
+    changePassword,
+    requestSetPasswordOtp,
+    setPassword,
+  } = useTenantOwnerProfile();
 
   if (isLoading || !profile) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
 
@@ -55,7 +62,8 @@ export function ProfileSettingsSection() {
           avatarUrl={profile.avatarUrl}
           initials={getInitials(profile.name)}
           changeLabel={t("changePicture")}
-          onUpload={(avatarUrl) => void updateAvatar(avatarUrl)}
+          isUploading={isUploadingAvatar}
+          onUpload={updateAvatar}
         />
 
         <div className="border-border flex flex-col gap-1.5 border-t pt-5">

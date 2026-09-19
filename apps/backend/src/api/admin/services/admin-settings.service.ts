@@ -77,15 +77,6 @@ export class AdminSettingsService {
     return AdminProfileResponseDto.from(row);
   }
 
-  async updateAvatar(actor: AuthUser, avatarUrl: string): Promise<AdminProfileResponseDto> {
-    const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const row = await this.platformAdminDbService.updateAvatarUrl(admin.id, avatarUrl);
-    if (!row) {
-      throw new NotFoundException(MESSAGES.ADMIN.USER_NOT_FOUND);
-    }
-    return AdminProfileResponseDto.from(row);
-  }
-
   /**
    * Same shape as `AuthService.changePassword`: proof of the current password, then a new hash.
    * No session to revoke afterward — a platform admin has no refresh-token concept yet (see

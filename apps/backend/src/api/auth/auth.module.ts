@@ -3,6 +3,7 @@ import { BcryptService } from '@common/hashing/bcrypt.service';
 import { HashingService } from '@common/hashing/hashing.service';
 import { isProduction } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
+import { MediaModule } from '@media/media.module';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -77,6 +78,7 @@ const googleIdentityProviderFactory = {
     }),
     QueueUIModule, // for AddingJobsToQueueManager — signup/login enqueue the verification OTP
     RedisModule, // OtpAttemptService's, GoogleOAuthStateService's, and PendingGoogleSignupService's stores
+    MediaModule, // AuthService.me/toTokenIssuanceResult read the caller's current avatarUrl
   ],
   controllers: [AuthController, PlatformAdminAuthController],
   providers: [

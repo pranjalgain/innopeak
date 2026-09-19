@@ -1,5 +1,6 @@
 import { render } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import messages from "@/../messages/en.json";
@@ -53,5 +54,24 @@ describe("useOAuthErrorToast", () => {
   it("stays silent when there is no error param", () => {
     renderWith("");
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it("shows the error only once even if the effect re-runs while the same error is still present", () => {
+    // StrictMode deliberately mounts, tears down, and remounts every component once in
+    // development specifically to surface effects that aren't safe to run twice — which this one
+    // wasn't: `history.replaceState` tidies up the *browser's* URL bar, but nothing here re-renders
+    // in response to it, so a second effect run (StrictMode's remount here; in the app, any
+    // unrelated re-render of `LoginView` before that URL change is otherwise observed) still saw
+    // the original `error` and fired a second toast for it.
+    params = new URLSearchParams("error=NO_ACCOUNT");
+    render(
+      <StrictMode>
+        <NextIntlClientProvider locale="en" messages={messages}>
+          <Probe />
+        </NextIntlClientProvider>
+      </StrictMode>,
+    );
+
+    expect(error).toHaveBeenCalledTimes(1);
   });
 });

@@ -17,6 +17,10 @@ export interface AuthenticatedUserDto {
    */
   hasPassword: boolean;
   /**
+   * This user\'s current avatar, from the `media` table — null until one is uploaded.
+   */
+  avatarUrl?: string | null;
+  /**
    * The stored `users.locale` preference, or null when the user has never set one — in which case the API falls back to negotiating the caller\'s `Accept-Language` header per request rather than defaulting silently to English.
    */
   locale?: AuthenticatedUserDtoLocaleEnum | null;

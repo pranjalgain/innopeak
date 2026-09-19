@@ -44,22 +44,29 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
   // react-query's shared cache for the rest of its 5-minute staleTime, visible to any other reader
   // of this same query key — so a failure has to roll the optimistic write back, not just go
   // unnoticed until the next remount.
+  // Callbacks live on the mutation itself, not on the individual `mutate()` call — per-call ones
+  // are dropped when a second `mutate()` supersedes the first on the same observer (approve then
+  // reject in quick succession), which lost both the first call's toast and its rollback.
   const updateMutation = useMutation({
-    mutationFn: (next: Review) => ReviewService.updateReview(next),
+    mutationFn: ({ next }: { next: Review; successMessage: string }) =>
+      ReviewService.updateReview(next),
+    onMutate: ({ next }) => {
+      const previous = queryClient.getQueryData<Review>(reviewQueryKey(reviewId));
+      queryClient.setQueryData(reviewQueryKey(reviewId), next);
+      return { previous };
+    },
+    onSuccess: (_data, { successMessage }) => toast.success(successMessage),
+    onError: (_error, _variables, context) => {
+      queryClient.setQueryData(reviewQueryKey(reviewId), context?.previous);
+      toast.error(t("saveFailed"));
+    },
   });
 
   const persist = useCallback(
-    (next: Review) => {
-      const previous = queryClient.getQueryData<Review>(reviewQueryKey(reviewId));
-      queryClient.setQueryData(reviewQueryKey(reviewId), next);
-      updateMutation.mutate(next, {
-        onError: () => {
-          queryClient.setQueryData(reviewQueryKey(reviewId), previous);
-          toast.error(t("saveFailed"));
-        },
-      });
+    (next: Review, successMessage: string) => {
+      updateMutation.mutate({ next, successMessage });
     },
-    [reviewId, queryClient, updateMutation, t],
+    [updateMutation],
   );
 
   const review = reviewQuery.data ?? null;
@@ -68,17 +75,19 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
     (draftId: string, content: string) => {
       if (!review) return;
       const decidedAt = new Date().toISOString();
-      persist({
-        ...review,
-        replyDrafts: review.replyDrafts.map((draft) => {
-          if (draft.id === draftId) return { ...draft, content, status: "approved", decidedAt };
-          // A sibling's approval decides this draft's fate too — timestamp it the same way.
-          if (draft.status === "pending_approval")
-            return { ...draft, status: "superseded", decidedAt };
-          return draft;
-        }),
-      });
-      toast.success(t("approved"));
+      persist(
+        {
+          ...review,
+          replyDrafts: review.replyDrafts.map((draft) => {
+            if (draft.id === draftId) return { ...draft, content, status: "approved", decidedAt };
+            // A sibling's approval decides this draft's fate too — timestamp it the same way.
+            if (draft.status === "pending_approval")
+              return { ...draft, status: "superseded", decidedAt };
+            return draft;
+          }),
+        },
+        t("approved"),
+      );
     },
     [review, persist, t],
   );
@@ -86,15 +95,17 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
   const rejectDraft = useCallback(
     (draftId: string) => {
       if (!review) return;
-      persist({
-        ...review,
-        replyDrafts: review.replyDrafts.map((draft) =>
-          draft.id === draftId
-            ? { ...draft, status: "rejected", decidedAt: new Date().toISOString() }
-            : draft,
-        ),
-      });
-      toast.success(t("rejected"));
+      persist(
+        {
+          ...review,
+          replyDrafts: review.replyDrafts.map((draft) =>
+            draft.id === draftId
+              ? { ...draft, status: "rejected", decidedAt: new Date().toISOString() }
+              : draft,
+          ),
+        },
+        t("rejected"),
+      );
     },
     [review, persist, t],
   );

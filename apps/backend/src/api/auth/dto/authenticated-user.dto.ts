@@ -34,6 +34,14 @@ export class AuthenticatedUserDto {
   hasPassword!: boolean;
 
   @ApiPropertyOptional({
+    example: null,
+    type: String,
+    nullable: true,
+    description: "This user's current avatar, from the `media` table — null until one is uploaded.",
+  })
+  avatarUrl!: string | null;
+
+  @ApiPropertyOptional({
     example: 'en',
     enum: SUPPORTED_LOCALES,
     nullable: true,

@@ -60,13 +60,14 @@ Class | Method | HTTP request | Description
 *AdminBusinessesApi* | [**adminBusinessesControllerUpdateStatusV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollerupdatestatusv1) | **POST** /v1/admin/businesses/{tenantId}/status | Suspend or reactivate a tenant
 *AdminOverviewApi* | [**adminOverviewControllerGetRecentActivityV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetrecentactivityv1) | **GET** /v1/admin/overview/activity | Most recent platform-admin actions
 *AdminOverviewApi* | [**adminOverviewControllerGetReviewStatsV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetreviewstatsv1) | **GET** /v1/admin/overview/review-stats | Platform-wide review throughput
+*AdminSettingsApi* | [**adminAvatarControllerAuthorizeV1**](docs/AdminSettingsApi.md#adminavatarcontrollerauthorizev1) | **POST** /v1/admin/settings/profile/avatar/authorize | Get a signed avatar upload authorization
+*AdminSettingsApi* | [**adminAvatarControllerConfirmAvatarV1**](docs/AdminSettingsApi.md#adminavatarcontrollerconfirmavatarv1) | **POST** /v1/admin/settings/profile/avatar/confirm | Confirm an uploaded avatar
 *AdminSettingsApi* | [**adminSettingsControllerChangePasswordV1**](docs/AdminSettingsApi.md#adminsettingscontrollerchangepasswordv1) | **POST** /v1/admin/settings/profile/change-password | Change the signed-in platform admin\&#39;s own password
 *AdminSettingsApi* | [**adminSettingsControllerGetProfileV1**](docs/AdminSettingsApi.md#adminsettingscontrollergetprofilev1) | **GET** /v1/admin/settings/profile | Get the signed-in platform admin\&#39;s own profile
 *AdminSettingsApi* | [**adminSettingsControllerListInvitesV1**](docs/AdminSettingsApi.md#adminsettingscontrollerlistinvitesv1) | **GET** /v1/admin/settings/invites | List every platform admin, including the seeded root
 *AdminSettingsApi* | [**adminSettingsControllerRevokeInviteV1**](docs/AdminSettingsApi.md#adminsettingscontrollerrevokeinvitev1) | **DELETE** /v1/admin/settings/invites/{inviteId} | Revoke a pending invite
 *AdminSettingsApi* | [**adminSettingsControllerSendInviteV1**](docs/AdminSettingsApi.md#adminsettingscontrollersendinvitev1) | **POST** /v1/admin/settings/invites | Invite a new platform admin
 *AdminSettingsApi* | [**adminSettingsControllerSetAdminStatusV1**](docs/AdminSettingsApi.md#adminsettingscontrollersetadminstatusv1) | **PATCH** /v1/admin/settings/admins/{adminId}/status | Disable or re-enable a platform admin
-*AdminSettingsApi* | [**adminSettingsControllerUpdateAvatarV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdateavatarv1) | **PUT** /v1/admin/settings/profile/avatar | Set the avatar URL
 *AdminSettingsApi* | [**adminSettingsControllerUpdateLocaleV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdatelocalev1) | **PATCH** /v1/admin/settings/profile/locale | Set the language responses are rendered in
 *AdminSettingsApi* | [**adminSettingsControllerUpdatePlatformSettingsV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdateplatformsettingsv1) | **PATCH** /v1/admin/settings/platform-config | Update platform-wide feature settings
 *AdminUsersApi* | [**adminUsersControllerListV1**](docs/AdminUsersApi.md#adminuserscontrollerlistv1) | **GET** /v1/admin/users | List every user across every tenant
@@ -88,6 +89,8 @@ Class | Method | HTTP request | Description
 *AuthApi* | [**authControllerUpdateLocaleV1**](docs/AuthApi.md#authcontrollerupdatelocalev1) | **POST** /v1/auth/locale | Set the language responses are rendered in
 *AuthApi* | [**authControllerValidateMemberInviteV1**](docs/AuthApi.md#authcontrollervalidatememberinvitev1) | **GET** /v1/auth/invite/{token} | Preview a tenant-member invite
 *AuthApi* | [**authControllerVerifyEmailV1**](docs/AuthApi.md#authcontrollerverifyemailv1) | **POST** /v1/auth/verify-email | Consume a signup/login verification OTP (password path only)
+*AuthApi* | [**tenantAvatarControllerAuthorizeV1**](docs/AuthApi.md#tenantavatarcontrollerauthorizev1) | **POST** /v1/auth/avatar/authorize | Get a signed avatar upload authorization
+*AuthApi* | [**tenantAvatarControllerConfirmAvatarV1**](docs/AuthApi.md#tenantavatarcontrollerconfirmavatarv1) | **POST** /v1/auth/avatar/confirm | Confirm an uploaded avatar
 *ConnectionsApi* | [**connectionsControllerAuthorizeV1**](docs/ConnectionsApi.md#connectionscontrollerauthorizev1) | **GET** /v1/connections/google/authorize | Start the Google Business Profile grant (302 to consent)
 *ConnectionsApi* | [**connectionsControllerAvailableLocationsV1**](docs/ConnectionsApi.md#connectionscontrolleravailablelocationsv1) | **GET** /v1/connections/google/available-locations | Locations the granted Google account can see (live provider call)
 *ConnectionsApi* | [**connectionsControllerCallbackV1**](docs/ConnectionsApi.md#connectionscontrollercallbackv1) | **GET** /v1/connections/google/callback | Google OAuth callback (public — Google performs this request)
@@ -129,6 +132,7 @@ Class | Method | HTTP request | Description
  - [AuthenticatedUserDto](docs/AuthenticatedUserDto.md)
  - [AvailableLocationDto](docs/AvailableLocationDto.md)
  - [AvailableLocationsResponseDto](docs/AvailableLocationsResponseDto.md)
+ - [AvatarUploadAuthorizationResponseDto](docs/AvatarUploadAuthorizationResponseDto.md)
  - [BackfillProgressResponseDto](docs/BackfillProgressResponseDto.md)
  - [BackfillSummaryDto](docs/BackfillSummaryDto.md)
  - [BlocklistTermDto](docs/BlocklistTermDto.md)
@@ -136,6 +140,8 @@ Class | Method | HTTP request | Description
  - [ChangeAdminPasswordDto](docs/ChangeAdminPasswordDto.md)
  - [ChangePasswordDto](docs/ChangePasswordDto.md)
  - [CompleteGoogleSignupDto](docs/CompleteGoogleSignupDto.md)
+ - [ConfirmAvatarDto](docs/ConfirmAvatarDto.md)
+ - [ConfirmAvatarResponseDto](docs/ConfirmAvatarResponseDto.md)
  - [ConfirmLocationDto](docs/ConfirmLocationDto.md)
  - [ConfirmLocationResponseDto](docs/ConfirmLocationResponseDto.md)
  - [ConfirmLocationsResponseDto](docs/ConfirmLocationsResponseDto.md)
@@ -184,7 +190,6 @@ Class | Method | HTTP request | Description
  - [TenantMembersControllerRevokeV1200Response](docs/TenantMembersControllerRevokeV1200Response.md)
  - [TenantSettingsResponseDto](docs/TenantSettingsResponseDto.md)
  - [TokenResponseDto](docs/TokenResponseDto.md)
- - [UpdateAdminAvatarDto](docs/UpdateAdminAvatarDto.md)
  - [UpdateAdminLocaleResponseDto](docs/UpdateAdminLocaleResponseDto.md)
  - [UpdateBusinessStatusDto](docs/UpdateBusinessStatusDto.md)
  - [UpdateLocaleDto](docs/UpdateLocaleDto.md)

@@ -55,6 +55,7 @@ The project uses maximum strictness. Key implications:
 | `0007_auth_hardening` | refresh_tokens |
 | `0008_platform_settings` | platform_settings — a single, platform-wide singleton row (`id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1)`) controlling which login methods the sign-in/sign-up screens offer and whether tenant owners can invite teammates |
 | `0009_admin_overview` | platform_activity_log — a small, purpose-built log of platform-admin actions (business suspend/reactivate, admin invite send/revoke, admin enable/disable, user activate/deactivate), written explicitly by application code rather than trigger-populated. Not a generic audit trail — it only covers those specific actions |
+| `0010_media` | media — one row per uploaded asset, owned by either a `users` or a `platform_admins` row (nullable FK pair + a CHECK that exactly one is set, mirroring `platform_activity_log`). Two partial unique indexes keep at most one current asset per owner per `kind`, which is what makes an avatar upload a replace-in-place rather than an append. `users.avatar_url`/`platform_admins.avatar_url` were dropped in the same file — this table is now the only place an avatar lives |
 
 **Schema changes are edited into the original migration file**, not added as a follow-up `ALTER`.
 Nothing is deployed, so a local database is recreated rather than upgraded. The catch: drizzle's
@@ -67,14 +68,14 @@ and changes nothing. After pulling a change to an existing migration, recreate y
 
 ```
 @common/*  @config/*  @db/*  @redis/*  @otel/*  @bg/*  @auth/*  @email/*
-@metrics/*  @health/*  @middlewares/*  @interceptors/*  @logger/*  @cron/*
-@email-queue/*  @dead-letter-queue/*
+@media/*  @metrics/*  @health/*  @middlewares/*  @interceptors/*  @logger/*
+@cron/*  @email-queue/*  @dead-letter-queue/*
 ```
 
-`@auth/*` resolves to `api/auth/*`, `@metrics/*`/`@health/*` to `api/metrics/*`/`api/health/*`.
-`tsconfig.json` and `jest.config.ts` still declare `@users/*`, `@media/*`, `@sms/*`,
-`@notifications/*` and `@notification-queue/*`, but those directories no longer exist — nothing
-imports them, don't add new imports through them.
+`@auth/*` resolves to `api/auth/*`, `@media/*` to `api/media/*`, `@metrics/*`/`@health/*` to
+`api/metrics/*`/`api/health/*`. `tsconfig.json` and `jest.config.ts` still declare `@users/*`,
+`@sms/*`, `@notifications/*` and `@notification-queue/*`, but those directories no longer exist —
+nothing imports them, don't add new imports through them.
 
 ## Architecture Patterns
 
@@ -112,6 +113,9 @@ External integrations use abstract base classes with swappable implementations:
 - Auth verification codes (`src/api/auth/providers/`): `VerifyEmailTokenProvider` ->
   RandomVerifyEmailTokenProvider / FixedVerifyEmailTokenProvider (the latter only when
   `DEV_VERIFY_EMAIL_TOKEN` is set outside production)
+- Media storage (`src/api/media/providers/`): `StorageProvider` -> CloudinaryStorageProvider /
+  NoopStorageProvider, selected by `STORAGE_PROVIDER` (defaults to `noop`, unlike Email — real
+  Cloudinary is meant to be exercised in dev too, not forced off outside production)
 - Queue transport (`src/background/providers/`) — see Queue Transport Pattern below
 
 Provider selection is done via factory in module registration, so services never branch on
@@ -177,13 +181,15 @@ repository, DTOs): `apps/backend/docs/conventions/module-structure.md`.
 ### Existing Modules
 
 This is the complete list — the boilerplate modules the branch history mentions (users, media,
-sms, notifications, webhooks, gateway, ai, common/audit, common/export) have all been **deleted**,
-along with their repositories, tables and seed data. Don't reference them; a new module of any of
-those kinds starts fresh under `src/api/<module_name>/`, per "Module Structure" above.
+sms, notifications, webhooks, gateway, ai, common/audit, common/export) had all been **deleted**,
+along with their repositories, tables and seed data. Don't reference them as they were; `media` was
+rebuilt from scratch (profile avatar upload, below) — the rest of that list starts fresh under
+`src/api/<module_name>/`, per "Module Structure" above.
 
 | Module | Path | Purpose |
 |--------|------|---------|
 | Auth | `src/api/auth/` | Tenant signup/login, OTP email verification, JWT access + rotating refresh tokens (data access in `src/db/repositories/auth/`) |
+| Media | `src/api/media/` | Profile avatar upload — direct-to-provider signed upload + server-side verified confirm (`StorageProvider`: `CloudinaryStorageProvider` / `NoopStorageProvider`, selected by `STORAGE_PROVIDER`); one current avatar per owner in the `media` table (data access in `src/db/repositories/media/`). Owns two controllers of its own (`controllers/tenant-avatar.controller.ts`, `controllers/admin-avatar.controller.ts`) mounted under the `auth`/`admin/settings` path prefixes, so a second owner type or media `kind` lands here rather than on another module's controller |
 | Email | `src/email/` | Templated emails (SMTP/SES/Noop, Handlebars) — predates the `src/api/` convention |
 | Health | `src/api/health/` | Health checks (DB, Redis, memory, HTTP) — under `src/api/`, but predates the swagger/constants/types subfolder convention |
 | Metrics | `src/api/metrics/` | Prometheus metrics |

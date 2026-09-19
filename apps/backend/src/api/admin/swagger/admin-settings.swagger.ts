@@ -8,7 +8,6 @@ import { AdminProfileResponseDto } from '../dto/admin-profile-response.dto';
 import { ChangeAdminPasswordDto } from '../dto/change-admin-password.dto';
 import { SendAdminInviteDto } from '../dto/send-admin-invite.dto';
 import { SetAdminStatusDto } from '../dto/set-admin-status.dto';
-import { UpdateAdminAvatarDto } from '../dto/update-admin-avatar.dto';
 import { UpdateAdminLocaleResponseDto } from '../dto/update-admin-locale-response.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 
@@ -31,41 +30,6 @@ export function ApiGetAdminProfile(): ReturnType<typeof applyDecorators> {
       type: AdminProfileResponseDto,
       examples: { default: { summary: 'Admin profile', value: ADMIN_PROFILE_EXAMPLE } },
     }),
-    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
-    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
-  );
-}
-
-export function ApiUpdateAdminAvatar(): ReturnType<typeof applyDecorators> {
-  return applyDecorators(
-    ApiBearerAuth(),
-    ApiOperation({
-      summary: 'Set the avatar URL',
-      description: 'Stores an already-hosted image URL — this does not accept a file upload.',
-    }),
-    ApiBody({
-      type: UpdateAdminAvatarDto,
-      examples: {
-        default: {
-          summary: 'Typical request',
-          value: { avatarUrl: 'https://cdn.innopeak.com/avatars/admin-1.png' },
-        },
-      },
-    }),
-    ApiResponse({
-      status: HttpStatus.OK,
-      type: AdminProfileResponseDto,
-      examples: {
-        default: {
-          summary: 'Avatar updated',
-          value: {
-            ...ADMIN_PROFILE_EXAMPLE,
-            avatarUrl: 'https://cdn.innopeak.com/avatars/admin-1.png',
-          },
-        },
-      },
-    }),
-    ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Validation failed' }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
   );

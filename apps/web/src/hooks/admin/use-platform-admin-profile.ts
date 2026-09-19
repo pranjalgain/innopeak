@@ -1,11 +1,13 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { toast } from "sonner";
 
 import { ApiError } from "@/app/_libs/services/api-error";
+import { avatarUploadErrorMessage } from "@/app/_libs/services/avatar-upload.service";
 import { PlatformAdminProfileService } from "@/app/_libs/services/platform-admin-profile.service";
+import { useQueryErrorToast } from "@/hooks/common/use-query-error-toast";
 import type { PlatformAdminProfile } from "@/types/domain";
 
 export const platformAdminProfileQueryKey = ["admin", "platform-admin-profile"] as const;
@@ -15,7 +17,9 @@ interface UsePlatformAdminProfileResult {
   isLoading: boolean;
   isError: boolean;
   refetch: () => void;
-  updateAvatar: (avatarUrl: string) => Promise<void>;
+  updateAvatar: (file: File) => Promise<void>;
+  /** In-flight flag for the avatar upload, so the picker can disable itself and show a spinner. */
+  isUploadingAvatar: boolean;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
   /** In-flight flag for the change-password request, so the form can block a double submit. */
   isChangingPassword: boolean;
@@ -30,23 +34,31 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
     queryFn: () => PlatformAdminProfileService.get(),
   });
 
-  useEffect(() => {
-    if (profileQuery.isError) toast.error(t("loadFailed"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileQuery.isError]);
+  // This hook is called from several simultaneously mounted components (the admin shell layout,
+  // ProfileSection, InviteSection) that all share this one query key — see `useQueryErrorToast`'s
+  // own comment for why a plain `useEffect` here would show the same toast once per mounted
+  // instance instead of once per actual failure.
+  useQueryErrorToast(platformAdminProfileQueryKey, profileQuery, t("loadFailed"));
 
   const updateAvatarMutation = useMutation({
-    mutationFn: (avatarUrl: string) => PlatformAdminProfileService.updateAvatar(avatarUrl),
+    mutationFn: (file: File) => PlatformAdminProfileService.updateAvatar(file),
   });
 
   const updateAvatar = useCallback(
-    async (avatarUrl: string) => {
+    async (file: File) => {
       try {
-        const updated = await updateAvatarMutation.mutateAsync(avatarUrl);
-        queryClient.setQueryData<PlatformAdminProfile>(platformAdminProfileQueryKey, updated);
+        const avatarUrl = await updateAvatarMutation.mutateAsync(file);
+        // The confirm route only ever knows the avatar itself, not this admin's full profile (see
+        // `PlatformAdminProfileService.updateAvatar`) — merge into what's already cached rather
+        // than replacing it.
+        queryClient.setQueryData<PlatformAdminProfile>(platformAdminProfileQueryKey, (current) =>
+          current ? { ...current, avatarUrl } : current,
+        );
         toast.success(t("avatarUpdated"));
-      } catch {
-        toast.error(t("updateFailed"));
+      } catch (error) {
+        // See the tenant hook's twin: the provider's own refusal is the only message that tells
+        // the user to pick a different file.
+        toast.error(avatarUploadErrorMessage(error, t("updateFailed")));
       }
     },
     [t, updateAvatarMutation, queryClient],
@@ -93,6 +105,7 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
     isError: profileQuery.isError,
     refetch: () => void profileQuery.refetch(),
     updateAvatar,
+    isUploadingAvatar: updateAvatarMutation.isPending,
     changePassword,
     isChangingPassword: changePasswordMutation.isPending,
   };

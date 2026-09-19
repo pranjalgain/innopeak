@@ -44,6 +44,7 @@ export const messagesEn: MessageCatalog = {
     // actually re-sent or the previous one is still live within its cooldown.
     SET_PASSWORD_OTP_ACK: 'Verification code sent. Check your email to continue.',
     LOCALE_UPDATED: 'Language preference updated.',
+    AVATAR_UPDATED: 'Avatar updated.',
     TENANT_ONLY: 'This action is only available to tenant users.',
     // Thrown by requireTenantUser() when a platform-admin token reaches a tenant-scoped route.
     // Says "not available" rather than "you are a platform admin" — the caller already knows what
@@ -59,6 +60,12 @@ export const messagesEn: MessageCatalog = {
     // expired — see the auth API reference's Security considerations (no enumeration).
     INVALID_OR_EXPIRED_INVITE: 'This invite link is invalid or has expired.',
     INVITE_ACCEPTED: "Invite accepted. You're signed in.",
+  },
+  MEDIA: {
+    UPLOAD_NOT_VERIFIED: 'Could not verify the uploaded image.',
+    UNSUPPORTED_FORMAT:
+      'This image format is not supported. Please upload a JPG, PNG, WEBP, GIF, AVIF, HEIC, or BMP file.',
+    FILE_TOO_LARGE: 'That image is too large. Please upload a file under 10 MB.',
   },
   CONNECTIONS: {
     CONNECTION_NOT_FOUND: 'No Google Business Profile connection found for this account.',

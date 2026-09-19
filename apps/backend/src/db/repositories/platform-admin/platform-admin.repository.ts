@@ -12,7 +12,6 @@ export interface PlatformAdminProfileRow {
   id: string;
   email: string;
   passwordHash: string | null;
-  avatarUrl: string | null;
   locale: Locale | null;
 }
 
@@ -76,7 +75,6 @@ const PROFILE_COLUMNS = {
   id: schema.platformAdmins.id,
   email: schema.platformAdmins.email,
   passwordHash: schema.platformAdmins.passwordHash,
-  avatarUrl: schema.platformAdmins.avatarUrl,
   locale: schema.platformAdmins.locale,
 } as const;
 
@@ -241,13 +239,6 @@ export class PlatformAdminRepository {
         { id: string; status: PlatformAdminStatus; inviteExpiresAt: string | null } | undefined) ??
       null
     );
-  }
-
-  async updateAvatarUrl(id: string, avatarUrl: string): Promise<void> {
-    await this.dbService.db
-      .update(schema.platformAdmins)
-      .set({ avatarUrl, updatedAt: sql`now()` })
-      .where(eq(schema.platformAdmins.id, id));
   }
 
   async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
