@@ -38,7 +38,7 @@ const config: Config = {
     '^@reviews/(.*)$': '<rootDir>/api/reviews/$1',
     '^@review-sync-queue/(.*)$': '<rootDir>/background/queue/review-sync/$1',
     '^@sms/(.*)$': '<rootDir>/sms/$1',
-    '^@media/(.*)$': '<rootDir>/media/$1',
+    '^@media/(.*)$': '<rootDir>/api/media/$1',
   },
 };
 

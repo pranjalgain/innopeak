@@ -29,6 +29,7 @@ export interface MessageCatalog {
     PASSWORD_SET: string;
     SET_PASSWORD_OTP_ACK: string;
     LOCALE_UPDATED: string;
+    AVATAR_UPDATED: string;
     TENANT_ONLY: string;
     GOOGLE_NOT_CONFIGURED: string;
     GOOGLE_PENDING_SIGNUP_EXPIRED: string;
@@ -40,6 +41,23 @@ export interface MessageCatalog {
     INVALID_OR_EXPIRED_INVITE: string;
     /** Shared by `PlatformAdminAuthService.acceptAdminInvite` and `AuthService.acceptMemberInvite`. */
     INVITE_ACCEPTED: string;
+  };
+  MEDIA: {
+    /** `StorageProvider.verifyUpload` returned `{ ok: false, reason: 'notFound' }` — the confirmed
+     *  asset doesn't exist, or isn't in the expected folder. Deliberately generic: the specific
+     *  reason is logged server-side, not handed to the client, since either is equally likely to
+     *  be a client bug or someone probing the confirm endpoint with a made-up id. */
+    UPLOAD_NOT_VERIFIED: string;
+    /** `StorageProvider.verifyUpload` returned `{ ok: false, reason: 'unsupportedFormat' }` — a
+     *  real, freshly-uploaded asset whose format this app just doesn't persist avatars as. Safe to
+     *  name specifically (unlike `UPLOAD_NOT_VERIFIED`): reaching this branch already requires a
+     *  real asset the caller itself just uploaded through its own signed authorization, so this
+     *  tells a legitimate user something actionable rather than helping anyone probe for valid ids. */
+    UNSUPPORTED_FORMAT: string;
+    /** `StorageProvider.verifyUpload` returned `{ ok: false, reason: 'tooLarge' }` — a real,
+     *  in-folder asset that exceeds the size cap. Safe to name specifically for the same reason as
+     *  `UNSUPPORTED_FORMAT`, and just as actionable: the fix is a smaller file. */
+    FILE_TOO_LARGE: string;
   };
   CONNECTIONS: {
     CONNECTION_NOT_FOUND: string;

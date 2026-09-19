@@ -61,7 +61,7 @@
       "@auth/*": ["api/auth/*"],
       "@prompts/*": ["api/prompts/*"],
       "@users/*": ["users/*"],
-      "@media/*": ["media/*"],
+      "@media/*": ["api/media/*"],
       "@email/*": ["email/*"],
       "@review-provider/*": ["review-provider/*"],
       "@review-pipeline/*": ["review-pipeline/*"],

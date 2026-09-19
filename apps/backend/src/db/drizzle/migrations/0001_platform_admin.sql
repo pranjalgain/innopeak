@@ -8,6 +8,10 @@
 -- Its own invited_by_platform_admin_id is a self-reference, which needs no special handling —
 -- valid within a single CREATE TABLE since Postgres only checks FK validity at row-insert
 -- time, not at table-creation time.
+--
+-- Originally carried its own `avatar_url` column here; moved to the generic `media` table
+-- (0010_media.sql) once tenant-user avatars needed the same storage and a plain string column
+-- can't be shared across two owner tables with real FK integrity. See that file's own header.
 
 -- ───────────────────────────────────────────────────────────────────────
 -- platform_admins — independent (no FK to any other table)
@@ -19,9 +23,6 @@ CREATE TABLE IF NOT EXISTS platform_admins (
     password_hash VARCHAR(255),
     invited_by_platform_admin_id UUID REFERENCES platform_admins(id) ON DELETE SET NULL,
     status platform_admin_status NOT NULL,
-    -- Nullable, no default: Settings' Profile tab shows the InnoPeak logo/an initial until an
-    -- admin uploads one, same as a tenant owner with no avatar today.
-    avatar_url VARCHAR(2048),
     -- Reuses `user_locale` (0000_foundation.sql) rather than a second identical enum — the type
     -- is a generic two-value locale domain, not something `users` owns exclusively. NULL means
     -- "never chose," same reasoning as `users.locale`'s own comment: a DEFAULT would silently pin

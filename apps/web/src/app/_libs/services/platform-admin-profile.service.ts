@@ -1,5 +1,11 @@
+import type {
+  AvatarUploadAuthorizationResponseDto,
+  ConfirmAvatarResponseDto,
+} from "@innopeak/client-sdk";
+
 import { adminSettingsApi } from "@/app/_libs/api-sdk/admin-settings-api";
 import { unwrap } from "@/app/_libs/services/api-error";
+import { uploadAvatarFile } from "@/app/_libs/services/avatar-upload.service";
 import type { PlatformAdminProfile } from "@/types/domain";
 
 /**
@@ -40,11 +46,32 @@ export class PlatformAdminProfileService {
     }
   }
 
-  static async updateAvatar(avatarUrl: string): Promise<PlatformAdminProfile> {
-    const response = await adminSettingsApi.adminSettingsControllerUpdateAvatarV1({
-      updateAdminAvatarDto: { avatarUrl },
+  /**
+   * Mints a signed authorization the browser uploads the new avatar image directly with — see
+   * `uploadAvatarFile` (`app/_libs/services/avatar-upload.service.ts`) for what happens next.
+   */
+  private static async getAvatarUploadAuthorization(): Promise<AvatarUploadAuthorizationResponseDto> {
+    const response = await adminSettingsApi.adminAvatarControllerAuthorizeV1();
+    return unwrap<AvatarUploadAuthorizationResponseDto>(response.data);
+  }
+
+  /**
+   * Direct-to-provider upload: mints an authorization, uploads straight to the provider (or skips
+   * to confirm for the offline `noop` one), then confirms what actually landed with the backend,
+   * which independently verifies it before persisting. Returns just the confirmed URL; the caller
+   * already has the rest of the profile cached and merges this into it.
+   */
+  static async updateAvatar(file: File): Promise<string | null> {
+    const authorization = await this.getAvatarUploadAuthorization();
+    const providerAssetId = await uploadAvatarFile(file, authorization);
+
+    const response = await adminSettingsApi.adminAvatarControllerConfirmAvatarV1({
+      confirmAvatarDto: { providerAssetId },
     });
-    return unwrap<PlatformAdminProfile>(response.data);
+    // `ConfirmAvatarResponseDto` types `avatarUrl` as optional (Swagger marks a nullable field
+    // that way), so normalize the absent case rather than letting `undefined` reach the cache.
+    const { avatarUrl } = unwrap<ConfirmAvatarResponseDto>(response.data);
+    return avatarUrl ?? null;
   }
 
   /**

@@ -20,21 +20,35 @@ import { type AppLocale, DEFAULT_LOCALE, isSupportedLocale, LOCALE_COOKIE_NAME }
  * app keeps this cookie. Accepted knowingly for now, not overlooked.
  *
  * Resolution order (first hit wins), matching the order documented for the backend:
+ *   0. An explicitly requested locale — `getTranslations({ locale })` and friends pass one here
+ *      (see `GetRequestConfigParams.locale`). Without honouring it, those calls silently return
+ *      the *visitor's* locale instead of the one asked for, which looks like it works right up
+ *      until the two differ — `SiteHeader` renders every locale's copy of its action labels to
+ *      reserve their width, and got the same language twice. Deliberately validated rather than
+ *      trusted: the parameter is a plain string, and an unsupported value would otherwise reach
+ *      the `import()` below as a missing-module crash.
  *   1. The `NEXT_LOCALE` cookie — set by the language switcher (`LanguageSwitcher`).
  *   2. The request's `Accept-Language` header, negotiated against `SUPPORTED_LOCALES`.
  *   3. `DEFAULT_LOCALE` ("en").
  */
-export default getRequestConfig(async () => {
-  const cookieStore = await cookies();
-  const cookieLocale = cookieStore.get(LOCALE_COOKIE_NAME)?.value;
-
-  const locale = isSupportedLocale(cookieLocale) ? cookieLocale : await negotiateFromAcceptLanguage();
+export default getRequestConfig(async ({ locale: requestedLocale }) => {
+  const locale = isSupportedLocale(requestedLocale)
+    ? requestedLocale
+    : await resolveVisitorLocale();
 
   return {
     locale,
     messages: (await import(`../../messages/${locale}.json`)).default,
   };
 });
+
+/** Steps 1-3 of the order above — what to serve a visitor who hasn't been asked about. */
+async function resolveVisitorLocale(): Promise<AppLocale> {
+  const cookieStore = await cookies();
+  const cookieLocale = cookieStore.get(LOCALE_COOKIE_NAME)?.value;
+
+  return isSupportedLocale(cookieLocale) ? cookieLocale : await negotiateFromAcceptLanguage();
+}
 
 /**
  * Accept-Language looks like `"de-DE,de;q=0.9,en;q=0.8"` — comma-separated tags, each

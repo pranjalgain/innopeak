@@ -1,5 +1,5 @@
 import { type Locale, SUPPORTED_LOCALES } from '@common/i18n/locale';
-import type { PlatformAdminProfileRow } from '@db/repositories/platform-admin/platform-admin.repository';
+import type { PlatformAdminProfileWithAvatar } from '@db/repositories/platform-admin/platform-admin.db-service';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AdminProfileResponseDto {
@@ -20,7 +20,7 @@ export class AdminProfileResponseDto {
   })
   locale!: Locale | null;
 
-  static from(row: PlatformAdminProfileRow): AdminProfileResponseDto {
+  static from(row: PlatformAdminProfileWithAvatar): AdminProfileResponseDto {
     const dto = new AdminProfileResponseDto();
     dto.email = row.email;
     dto.avatarUrl = row.avatarUrl;

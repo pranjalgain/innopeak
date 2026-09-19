@@ -10,6 +10,7 @@ import { HealthModule } from '@health/health.module';
 import { HttpLoggingInterceptor } from '@interceptors/logging.interceptor';
 import { TransformInterceptor } from '@interceptors/transform.interceptor';
 import { LoggerModule } from '@logger/logger.module';
+import { MediaModule } from '@media/media.module';
 import { MetricsModule } from '@metrics/metrics.module';
 import { MetricsMiddleware } from '@middlewares/metrics.middleware';
 import { BullModule } from '@nestjs/bullmq';
@@ -155,6 +156,12 @@ const cacheModule = CacheModule.registerAsync({
     PromptsModule,
     SettingsModule,
     AdminModule,
+    // Registered here in its own right, not left to ride along on `AuthModule`'s import of it:
+    // NestJS mounts a module's controllers wherever the module appears in the graph, so the four
+    // avatar routes were previously live only as a side effect of `AuthService` needing
+    // `MediaService` for a profile read. Dropping that one unrelated import would have silently
+    // unmounted them — no compile error, no failing unit test, just 404s.
+    MediaModule,
   ],
   providers: [
     ErrorHandlerService,

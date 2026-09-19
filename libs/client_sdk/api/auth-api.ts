@@ -34,9 +34,15 @@ import type { AcceptMemberInviteDto } from '../models';
 // @ts-ignore
 import type { AuthenticatedUserDto } from '../models';
 // @ts-ignore
+import type { AvatarUploadAuthorizationResponseDto } from '../models';
+// @ts-ignore
 import type { ChangePasswordDto } from '../models';
 // @ts-ignore
 import type { CompleteGoogleSignupDto } from '../models';
+// @ts-ignore
+import type { ConfirmAvatarDto } from '../models';
+// @ts-ignore
+import type { ConfirmAvatarResponseDto } from '../models';
 // @ts-ignore
 import type { LoginDto } from '../models';
 // @ts-ignore
@@ -923,6 +929,110 @@ export const AuthApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
+    /**
+     * Mints a short-lived, provider-signed authorization the client uploads the new avatar image directly with — the backend never sees the file itself. Call this first, upload to the provider, then confirm what actually landed via the confirm route below. Tenant-user tokens only.
+     * @summary Get a signed avatar upload authorization
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantAvatarControllerAuthorizeV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/auth/avatar/authorize`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Independently verifies the uploaded asset against the provider (never trusting the client\'s own claim) and, once verified, stores it as this user\'s current avatar — replacing any previous one. Tenant-user tokens only.
+     * @summary Confirm an uploaded avatar
+     * @param {ConfirmAvatarDto} confirmAvatarDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantAvatarControllerConfirmAvatarV1: async (
+      confirmAvatarDto: ConfirmAvatarDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'confirmAvatarDto' is not null or undefined
+      assertParamExists(
+        'tenantAvatarControllerConfirmAvatarV1',
+        'confirmAvatarDto',
+        confirmAvatarDto,
+      );
+      const localVarPath = `/v1/auth/avatar/confirm`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        confirmAvatarDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
   };
 };
 
@@ -1466,6 +1576,71 @@ export const AuthApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
+    /**
+     * Mints a short-lived, provider-signed authorization the client uploads the new avatar image directly with — the backend never sees the file itself. Call this first, upload to the provider, then confirm what actually landed via the confirm route below. Tenant-user tokens only.
+     * @summary Get a signed avatar upload authorization
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async tenantAvatarControllerAuthorizeV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<AvatarUploadAuthorizationResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.tenantAvatarControllerAuthorizeV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.tenantAvatarControllerAuthorizeV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Independently verifies the uploaded asset against the provider (never trusting the client\'s own claim) and, once verified, stores it as this user\'s current avatar — replacing any previous one. Tenant-user tokens only.
+     * @summary Confirm an uploaded avatar
+     * @param {ConfirmAvatarDto} confirmAvatarDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async tenantAvatarControllerConfirmAvatarV1(
+      confirmAvatarDto: ConfirmAvatarDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<ConfirmAvatarResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.tenantAvatarControllerConfirmAvatarV1(
+          confirmAvatarDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.tenantAvatarControllerConfirmAvatarV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
   };
 };
 
@@ -1736,6 +1911,37 @@ export const AuthApiFactory = function (
         .authControllerVerifyEmailV1(requestParameters.verifyEmailDto, options)
         .then((request) => request(axios, basePath));
     },
+    /**
+     * Mints a short-lived, provider-signed authorization the client uploads the new avatar image directly with — the backend never sees the file itself. Call this first, upload to the provider, then confirm what actually landed via the confirm route below. Tenant-user tokens only.
+     * @summary Get a signed avatar upload authorization
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantAvatarControllerAuthorizeV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<AvatarUploadAuthorizationResponseDto> {
+      return localVarFp
+        .tenantAvatarControllerAuthorizeV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Independently verifies the uploaded asset against the provider (never trusting the client\'s own claim) and, once verified, stores it as this user\'s current avatar — replacing any previous one. Tenant-user tokens only.
+     * @summary Confirm an uploaded avatar
+     * @param {AuthApiTenantAvatarControllerConfirmAvatarV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantAvatarControllerConfirmAvatarV1(
+      requestParameters: AuthApiTenantAvatarControllerConfirmAvatarV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<ConfirmAvatarResponseDto> {
+      return localVarFp
+        .tenantAvatarControllerConfirmAvatarV1(
+          requestParameters.confirmAvatarDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
   };
 };
 
@@ -1934,6 +2140,28 @@ export interface AuthApiInterface {
     requestParameters: AuthApiAuthControllerVerifyEmailV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<TokenResponseDto>;
+
+  /**
+   * Mints a short-lived, provider-signed authorization the client uploads the new avatar image directly with — the backend never sees the file itself. Call this first, upload to the provider, then confirm what actually landed via the confirm route below. Tenant-user tokens only.
+   * @summary Get a signed avatar upload authorization
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  tenantAvatarControllerAuthorizeV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<AvatarUploadAuthorizationResponseDto>;
+
+  /**
+   * Independently verifies the uploaded asset against the provider (never trusting the client\'s own claim) and, once verified, stores it as this user\'s current avatar — replacing any previous one. Tenant-user tokens only.
+   * @summary Confirm an uploaded avatar
+   * @param {AuthApiTenantAvatarControllerConfirmAvatarV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  tenantAvatarControllerConfirmAvatarV1(
+    requestParameters: AuthApiTenantAvatarControllerConfirmAvatarV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<ConfirmAvatarResponseDto>;
 }
 
 /**
@@ -2027,6 +2255,13 @@ export interface AuthApiAuthControllerValidateMemberInviteV1Request {
  */
 export interface AuthApiAuthControllerVerifyEmailV1Request {
   readonly verifyEmailDto: VerifyEmailDto;
+}
+
+/**
+ * Request parameters for tenantAvatarControllerConfirmAvatarV1 operation in AuthApi.
+ */
+export interface AuthApiTenantAvatarControllerConfirmAvatarV1Request {
+  readonly confirmAvatarDto: ConfirmAvatarDto;
 }
 
 /**
@@ -2293,6 +2528,37 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   ) {
     return AuthApiFp(this.configuration)
       .authControllerVerifyEmailV1(requestParameters.verifyEmailDto, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Mints a short-lived, provider-signed authorization the client uploads the new avatar image directly with — the backend never sees the file itself. Call this first, upload to the provider, then confirm what actually landed via the confirm route below. Tenant-user tokens only.
+   * @summary Get a signed avatar upload authorization
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public tenantAvatarControllerAuthorizeV1(options?: RawAxiosRequestConfig) {
+    return AuthApiFp(this.configuration)
+      .tenantAvatarControllerAuthorizeV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Independently verifies the uploaded asset against the provider (never trusting the client\'s own claim) and, once verified, stores it as this user\'s current avatar — replacing any previous one. Tenant-user tokens only.
+   * @summary Confirm an uploaded avatar
+   * @param {AuthApiTenantAvatarControllerConfirmAvatarV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public tenantAvatarControllerConfirmAvatarV1(
+    requestParameters: AuthApiTenantAvatarControllerConfirmAvatarV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .tenantAvatarControllerConfirmAvatarV1(
+        requestParameters.confirmAvatarDto,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 }

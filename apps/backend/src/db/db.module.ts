@@ -17,6 +17,8 @@ import { DashboardDbService } from './repositories/dashboard/dashboard.db-servic
 import { DashboardRepository } from './repositories/dashboard/dashboard.repository';
 import { DemoDataDbService } from './repositories/demo-data/demo-data.db-service';
 import { DemoDataRepository } from './repositories/demo-data/demo-data.repository';
+import { MediaDbService } from './repositories/media/media.db-service';
+import { MediaRepository } from './repositories/media/media.repository';
 import { PlatformAdminDbService } from './repositories/platform-admin/platform-admin.db-service';
 import { PlatformAdminRepository } from './repositories/platform-admin/platform-admin.repository';
 import { PlatformSettingsDbService } from './repositories/platform-settings/platform-settings.db-service';
@@ -59,6 +61,8 @@ const repositories = [
   PlatformAdminDbService,
   PlatformSettingsRepository,
   PlatformSettingsDbService,
+  MediaRepository,
+  MediaDbService,
 ];
 
 @Global()

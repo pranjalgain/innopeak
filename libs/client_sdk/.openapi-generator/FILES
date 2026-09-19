@@ -30,6 +30,7 @@ models/admin-user-response-dto.ts
 models/authenticated-user-dto.ts
 models/available-location-dto.ts
 models/available-locations-response-dto.ts
+models/avatar-upload-authorization-response-dto.ts
 models/backfill-progress-response-dto.ts
 models/backfill-summary-dto.ts
 models/blocklist-term-dto.ts
@@ -37,6 +38,8 @@ models/blocklist-term-list-response-dto.ts
 models/change-admin-password-dto.ts
 models/change-password-dto.ts
 models/complete-google-signup-dto.ts
+models/confirm-avatar-dto.ts
+models/confirm-avatar-response-dto.ts
 models/confirm-location-dto.ts
 models/confirm-location-response-dto.ts
 models/confirm-locations-response-dto.ts
@@ -86,7 +89,6 @@ models/tenant-member-response-dto.ts
 models/tenant-members-controller-revoke-v1200-response.ts
 models/tenant-settings-response-dto.ts
 models/token-response-dto.ts
-models/update-admin-avatar-dto.ts
 models/update-admin-locale-response-dto.ts
 models/update-business-status-dto.ts
 models/update-locale-dto.ts

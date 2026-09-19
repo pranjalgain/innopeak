@@ -1,4 +1,9 @@
-import type { AdminInvitePreviewDto, MemberInvitePreviewDto } from "@innopeak/client-sdk";
+import type {
+  AdminInvitePreviewDto,
+  AvatarUploadAuthorizationResponseDto,
+  ConfirmAvatarResponseDto,
+  MemberInvitePreviewDto,
+} from "@innopeak/client-sdk";
 
 import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
 import { adminAuthApi } from "@/app/_libs/api-sdk/admin-auth-api";
@@ -39,6 +44,8 @@ export interface AuthenticatedUser {
   businessName: string;
   /** `users.locale` — null when the user has never set one (falls back to `Accept-Language`). */
   locale: AppLocale | null;
+  /** This user's current avatar, from the backend's `media` table — null until one is uploaded. */
+  avatarUrl: string | null;
 }
 
 // No `refreshToken` field — the backend sets it as an httpOnly `refresh_token` cookie
@@ -126,6 +133,32 @@ export class AuthService {
     TokenService.setBusinessName(user.businessName);
 
     return user;
+  }
+
+  /**
+   * Mints a signed authorization the browser uploads the new avatar image directly with — the
+   * backend never sees the file itself. See `uploadAvatarFile`
+   * (`app/_libs/services/avatar-upload.service.ts`) for what a caller does with this next.
+   */
+  static async getAvatarUploadAuthorization(): Promise<AvatarUploadAuthorizationResponseDto> {
+    const response = await authApi.tenantAvatarControllerAuthorizeV1();
+    return unwrap<AvatarUploadAuthorizationResponseDto>(response.data);
+  }
+
+  /**
+   * The other half of the avatar upload flow: hands the uploaded asset's provider id back to the
+   * backend, which independently verifies it before persisting. Returns just the confirmed
+   * `avatarUrl` — the media route has no notion of a tenant's full profile — so the caller merges
+   * it into whatever it already has cached rather than replacing the object wholesale.
+   */
+  static async confirmAvatar(providerAssetId: string): Promise<string | null> {
+    const response = await authApi.tenantAvatarControllerConfirmAvatarV1({
+      confirmAvatarDto: { providerAssetId },
+    });
+    // `ConfirmAvatarResponseDto` types `avatarUrl` as optional (Swagger marks a nullable field
+    // that way), so normalize the absent case rather than letting `undefined` reach the cache.
+    const { avatarUrl } = unwrap<ConfirmAvatarResponseDto>(response.data);
+    return avatarUrl ?? null;
   }
 
   /**

@@ -39,6 +39,7 @@ const TOKEN_RESPONSE_EXAMPLE = {
     hasPassword: true,
     businessName: 'The Coffee House',
     locale: null,
+    avatarUrl: null,
   },
   hasConnectedBusiness: false,
 };

@@ -34,15 +34,19 @@ import type { AdminInviteResponseDto } from '../models';
 // @ts-ignore
 import type { AdminProfileResponseDto } from '../models';
 // @ts-ignore
+import type { AvatarUploadAuthorizationResponseDto } from '../models';
+// @ts-ignore
 import type { ChangeAdminPasswordDto } from '../models';
+// @ts-ignore
+import type { ConfirmAvatarDto } from '../models';
+// @ts-ignore
+import type { ConfirmAvatarResponseDto } from '../models';
 // @ts-ignore
 import type { PlatformSettingsResponseDto } from '../models';
 // @ts-ignore
 import type { SendAdminInviteDto } from '../models';
 // @ts-ignore
 import type { SetAdminStatusDto } from '../models';
-// @ts-ignore
-import type { UpdateAdminAvatarDto } from '../models';
 // @ts-ignore
 import type { UpdateAdminLocaleResponseDto } from '../models';
 // @ts-ignore
@@ -56,6 +60,110 @@ export const AdminSettingsApiAxiosParamCreator = function (
   configuration?: Configuration,
 ) {
   return {
+    /**
+     * Mints a short-lived, provider-signed authorization the client uploads the new avatar image directly with — the backend never sees the file itself. Call this first, upload to the provider, then confirm what actually landed via the confirm route below.
+     * @summary Get a signed avatar upload authorization
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminAvatarControllerAuthorizeV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/admin/settings/profile/avatar/authorize`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Independently verifies the uploaded asset against the provider (never trusting the client\'s own claim) and, once verified, stores it as this admin\'s current avatar — replacing any previous one.
+     * @summary Confirm an uploaded avatar
+     * @param {ConfirmAvatarDto} confirmAvatarDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminAvatarControllerConfirmAvatarV1: async (
+      confirmAvatarDto: ConfirmAvatarDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'confirmAvatarDto' is not null or undefined
+      assertParamExists(
+        'adminAvatarControllerConfirmAvatarV1',
+        'confirmAvatarDto',
+        confirmAvatarDto,
+      );
+      const localVarPath = `/v1/admin/settings/profile/avatar/confirm`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        confirmAvatarDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
     /**
      * No session to revoke afterward — a platform admin has no refresh-token concept yet, so there is nothing else to rotate on a successful change.
      * @summary Change the signed-in platform admin\'s own password
@@ -391,65 +499,6 @@ export const AdminSettingsApiAxiosParamCreator = function (
       };
     },
     /**
-     * Stores an already-hosted image URL — this does not accept a file upload.
-     * @summary Set the avatar URL
-     * @param {UpdateAdminAvatarDto} updateAdminAvatarDto
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    adminSettingsControllerUpdateAvatarV1: async (
-      updateAdminAvatarDto: UpdateAdminAvatarDto,
-      options: RawAxiosRequestConfig = {},
-    ): Promise<RequestArgs> => {
-      // verify required parameter 'updateAdminAvatarDto' is not null or undefined
-      assertParamExists(
-        'adminSettingsControllerUpdateAvatarV1',
-        'updateAdminAvatarDto',
-        updateAdminAvatarDto,
-      );
-      const localVarPath = `/v1/admin/settings/profile/avatar`;
-      // use dummy base URL string because the URL constructor only accepts absolute URLs.
-      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-      let baseOptions;
-      if (configuration) {
-        baseOptions = configuration.baseOptions;
-      }
-
-      const localVarRequestOptions = {
-        method: 'PUT',
-        ...baseOptions,
-        ...options,
-      };
-      const localVarHeaderParameter = {} as any;
-      const localVarQueryParameter = {} as any;
-
-      // authentication bearer required
-      // http bearer authentication required
-      await setBearerAuthToObject(localVarHeaderParameter, configuration);
-
-      localVarHeaderParameter['Content-Type'] = 'application/json';
-      localVarHeaderParameter['Accept'] = 'application/json';
-
-      setSearchParams(localVarUrlObj, localVarQueryParameter);
-      let headersFromBaseOptions =
-        baseOptions && baseOptions.headers ? baseOptions.headers : {};
-      localVarRequestOptions.headers = {
-        ...localVarHeaderParameter,
-        ...headersFromBaseOptions,
-        ...options.headers,
-      };
-      localVarRequestOptions.data = serializeDataIfNeeded(
-        updateAdminAvatarDto,
-        localVarRequestOptions,
-        configuration,
-      );
-
-      return {
-        url: toPathString(localVarUrlObj),
-        options: localVarRequestOptions,
-      };
-    },
-    /**
      * Persists `platform_admins.locale`, then re-signs the access token (no refresh token to touch — a platform admin has none) so the new value is on its `locale` claim right away rather than waiting for the next login. Platform-admin tokens only.
      * @summary Set the language responses are rendered in
      * @param {UpdateLocaleDto} updateLocaleDto
@@ -577,6 +626,71 @@ export const AdminSettingsApiFp = function (configuration?: Configuration) {
   const localVarAxiosParamCreator =
     AdminSettingsApiAxiosParamCreator(configuration);
   return {
+    /**
+     * Mints a short-lived, provider-signed authorization the client uploads the new avatar image directly with — the backend never sees the file itself. Call this first, upload to the provider, then confirm what actually landed via the confirm route below.
+     * @summary Get a signed avatar upload authorization
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async adminAvatarControllerAuthorizeV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<AvatarUploadAuthorizationResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.adminAvatarControllerAuthorizeV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminSettingsApi.adminAvatarControllerAuthorizeV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Independently verifies the uploaded asset against the provider (never trusting the client\'s own claim) and, once verified, stores it as this admin\'s current avatar — replacing any previous one.
+     * @summary Confirm an uploaded avatar
+     * @param {ConfirmAvatarDto} confirmAvatarDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async adminAvatarControllerConfirmAvatarV1(
+      confirmAvatarDto: ConfirmAvatarDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<ConfirmAvatarResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.adminAvatarControllerConfirmAvatarV1(
+          confirmAvatarDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminSettingsApi.adminAvatarControllerConfirmAvatarV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
     /**
      * No session to revoke afterward — a platform admin has no refresh-token concept yet, so there is nothing else to rotate on a successful change.
      * @summary Change the signed-in platform admin\'s own password
@@ -773,40 +887,6 @@ export const AdminSettingsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Stores an already-hosted image URL — this does not accept a file upload.
-     * @summary Set the avatar URL
-     * @param {UpdateAdminAvatarDto} updateAdminAvatarDto
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    async adminSettingsControllerUpdateAvatarV1(
-      updateAdminAvatarDto: UpdateAdminAvatarDto,
-      options?: RawAxiosRequestConfig,
-    ): Promise<
-      (
-        axios?: AxiosInstance,
-        basePath?: string,
-      ) => AxiosPromise<AdminProfileResponseDto>
-    > {
-      const localVarAxiosArgs =
-        await localVarAxiosParamCreator.adminSettingsControllerUpdateAvatarV1(
-          updateAdminAvatarDto,
-          options,
-        );
-      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-      const localVarOperationServerBasePath =
-        operationServerMap[
-          'AdminSettingsApi.adminSettingsControllerUpdateAvatarV1'
-        ]?.[localVarOperationServerIndex]?.url;
-      return (axios, basePath) =>
-        createRequestFunction(
-          localVarAxiosArgs,
-          globalAxios,
-          BASE_PATH,
-          configuration,
-        )(axios, localVarOperationServerBasePath || basePath);
-    },
-    /**
      * Persists `platform_admins.locale`, then re-signs the access token (no refresh token to touch — a platform admin has none) so the new value is on its `locale` claim right away rather than waiting for the next login. Platform-admin tokens only.
      * @summary Set the language responses are rendered in
      * @param {UpdateLocaleDto} updateLocaleDto
@@ -887,6 +967,37 @@ export const AdminSettingsApiFactory = function (
 ) {
   const localVarFp = AdminSettingsApiFp(configuration);
   return {
+    /**
+     * Mints a short-lived, provider-signed authorization the client uploads the new avatar image directly with — the backend never sees the file itself. Call this first, upload to the provider, then confirm what actually landed via the confirm route below.
+     * @summary Get a signed avatar upload authorization
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminAvatarControllerAuthorizeV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<AvatarUploadAuthorizationResponseDto> {
+      return localVarFp
+        .adminAvatarControllerAuthorizeV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Independently verifies the uploaded asset against the provider (never trusting the client\'s own claim) and, once verified, stores it as this admin\'s current avatar — replacing any previous one.
+     * @summary Confirm an uploaded avatar
+     * @param {AdminSettingsApiAdminAvatarControllerConfirmAvatarV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminAvatarControllerConfirmAvatarV1(
+      requestParameters: AdminSettingsApiAdminAvatarControllerConfirmAvatarV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<ConfirmAvatarResponseDto> {
+      return localVarFp
+        .adminAvatarControllerConfirmAvatarV1(
+          requestParameters.confirmAvatarDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
     /**
      * No session to revoke afterward — a platform admin has no refresh-token concept yet, so there is nothing else to rotate on a successful change.
      * @summary Change the signed-in platform admin\'s own password
@@ -987,24 +1098,6 @@ export const AdminSettingsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Stores an already-hosted image URL — this does not accept a file upload.
-     * @summary Set the avatar URL
-     * @param {AdminSettingsApiAdminSettingsControllerUpdateAvatarV1Request} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    adminSettingsControllerUpdateAvatarV1(
-      requestParameters: AdminSettingsApiAdminSettingsControllerUpdateAvatarV1Request,
-      options?: RawAxiosRequestConfig,
-    ): AxiosPromise<AdminProfileResponseDto> {
-      return localVarFp
-        .adminSettingsControllerUpdateAvatarV1(
-          requestParameters.updateAdminAvatarDto,
-          options,
-        )
-        .then((request) => request(axios, basePath));
-    },
-    /**
      * Persists `platform_admins.locale`, then re-signs the access token (no refresh token to touch — a platform admin has none) so the new value is on its `locale` claim right away rather than waiting for the next login. Platform-admin tokens only.
      * @summary Set the language responses are rendered in
      * @param {AdminSettingsApiAdminSettingsControllerUpdateLocaleV1Request} requestParameters Request parameters.
@@ -1047,6 +1140,28 @@ export const AdminSettingsApiFactory = function (
  * AdminSettingsApi - interface
  */
 export interface AdminSettingsApiInterface {
+  /**
+   * Mints a short-lived, provider-signed authorization the client uploads the new avatar image directly with — the backend never sees the file itself. Call this first, upload to the provider, then confirm what actually landed via the confirm route below.
+   * @summary Get a signed avatar upload authorization
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  adminAvatarControllerAuthorizeV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<AvatarUploadAuthorizationResponseDto>;
+
+  /**
+   * Independently verifies the uploaded asset against the provider (never trusting the client\'s own claim) and, once verified, stores it as this admin\'s current avatar — replacing any previous one.
+   * @summary Confirm an uploaded avatar
+   * @param {AdminSettingsApiAdminAvatarControllerConfirmAvatarV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  adminAvatarControllerConfirmAvatarV1(
+    requestParameters: AdminSettingsApiAdminAvatarControllerConfirmAvatarV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<ConfirmAvatarResponseDto>;
+
   /**
    * No session to revoke afterward — a platform admin has no refresh-token concept yet, so there is nothing else to rotate on a successful change.
    * @summary Change the signed-in platform admin\'s own password
@@ -1116,18 +1231,6 @@ export interface AdminSettingsApiInterface {
   ): AxiosPromise<AdminInviteResponseDto>;
 
   /**
-   * Stores an already-hosted image URL — this does not accept a file upload.
-   * @summary Set the avatar URL
-   * @param {AdminSettingsApiAdminSettingsControllerUpdateAvatarV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  adminSettingsControllerUpdateAvatarV1(
-    requestParameters: AdminSettingsApiAdminSettingsControllerUpdateAvatarV1Request,
-    options?: RawAxiosRequestConfig,
-  ): AxiosPromise<AdminProfileResponseDto>;
-
-  /**
    * Persists `platform_admins.locale`, then re-signs the access token (no refresh token to touch — a platform admin has none) so the new value is on its `locale` claim right away rather than waiting for the next login. Platform-admin tokens only.
    * @summary Set the language responses are rendered in
    * @param {AdminSettingsApiAdminSettingsControllerUpdateLocaleV1Request} requestParameters Request parameters.
@@ -1150,6 +1253,13 @@ export interface AdminSettingsApiInterface {
     requestParameters: AdminSettingsApiAdminSettingsControllerUpdatePlatformSettingsV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<PlatformSettingsResponseDto>;
+}
+
+/**
+ * Request parameters for adminAvatarControllerConfirmAvatarV1 operation in AdminSettingsApi.
+ */
+export interface AdminSettingsApiAdminAvatarControllerConfirmAvatarV1Request {
+  readonly confirmAvatarDto: ConfirmAvatarDto;
 }
 
 /**
@@ -1183,13 +1293,6 @@ export interface AdminSettingsApiAdminSettingsControllerSetAdminStatusV1Request 
 }
 
 /**
- * Request parameters for adminSettingsControllerUpdateAvatarV1 operation in AdminSettingsApi.
- */
-export interface AdminSettingsApiAdminSettingsControllerUpdateAvatarV1Request {
-  readonly updateAdminAvatarDto: UpdateAdminAvatarDto;
-}
-
-/**
  * Request parameters for adminSettingsControllerUpdateLocaleV1 operation in AdminSettingsApi.
  */
 export interface AdminSettingsApiAdminSettingsControllerUpdateLocaleV1Request {
@@ -1210,6 +1313,37 @@ export class AdminSettingsApi
   extends BaseAPI
   implements AdminSettingsApiInterface
 {
+  /**
+   * Mints a short-lived, provider-signed authorization the client uploads the new avatar image directly with — the backend never sees the file itself. Call this first, upload to the provider, then confirm what actually landed via the confirm route below.
+   * @summary Get a signed avatar upload authorization
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public adminAvatarControllerAuthorizeV1(options?: RawAxiosRequestConfig) {
+    return AdminSettingsApiFp(this.configuration)
+      .adminAvatarControllerAuthorizeV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Independently verifies the uploaded asset against the provider (never trusting the client\'s own claim) and, once verified, stores it as this admin\'s current avatar — replacing any previous one.
+   * @summary Confirm an uploaded avatar
+   * @param {AdminSettingsApiAdminAvatarControllerConfirmAvatarV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public adminAvatarControllerConfirmAvatarV1(
+    requestParameters: AdminSettingsApiAdminAvatarControllerConfirmAvatarV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminSettingsApiFp(this.configuration)
+      .adminAvatarControllerConfirmAvatarV1(
+        requestParameters.confirmAvatarDto,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
   /**
    * No session to revoke afterward — a platform admin has no refresh-token concept yet, so there is nothing else to rotate on a successful change.
    * @summary Change the signed-in platform admin\'s own password
@@ -1306,25 +1440,6 @@ export class AdminSettingsApi
       .adminSettingsControllerSetAdminStatusV1(
         requestParameters.adminId,
         requestParameters.setAdminStatusDto,
-        options,
-      )
-      .then((request) => request(this.axios, this.basePath));
-  }
-
-  /**
-   * Stores an already-hosted image URL — this does not accept a file upload.
-   * @summary Set the avatar URL
-   * @param {AdminSettingsApiAdminSettingsControllerUpdateAvatarV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  public adminSettingsControllerUpdateAvatarV1(
-    requestParameters: AdminSettingsApiAdminSettingsControllerUpdateAvatarV1Request,
-    options?: RawAxiosRequestConfig,
-  ) {
-    return AdminSettingsApiFp(this.configuration)
-      .adminSettingsControllerUpdateAvatarV1(
-        requestParameters.updateAdminAvatarDto,
         options,
       )
       .then((request) => request(this.axios, this.basePath));

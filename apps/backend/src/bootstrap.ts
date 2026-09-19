@@ -25,6 +25,7 @@ import { AdminModule } from './api/admin/admin.module';
 import { AuthModule } from './api/auth/auth.module';
 import { ConnectionsModule } from './api/connections/connections.module';
 import { DashboardModule } from './api/dashboard/dashboard.module';
+import { MediaModule } from './api/media/media.module';
 import { PromptsModule } from './api/prompts/prompts.module';
 import { ReviewsModule } from './api/reviews/reviews.module';
 import { SettingsModule } from './api/settings/settings.module';
@@ -120,6 +121,7 @@ export async function bootstrap(): Promise<void> {
     AuthModule,
     ConnectionsModule,
     DashboardModule,
+    MediaModule,
     PromptsModule,
     ReviewsModule,
     SettingsModule,

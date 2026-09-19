@@ -3,7 +3,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { ReactNode } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
@@ -12,7 +12,8 @@ import type { Review } from "@/types/domain";
 import messages from "../../../../messages/en.json";
 import { useReviewDetail } from "../use-review-detail";
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
+vi.mock("sonner", () => ({ toast }));
 
 function review(overrides: Partial<Review> = {}): Review {
   return {
@@ -52,6 +53,62 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe("useReviewDetail", () => {
+  beforeEach(() => {
+    toast.error.mockClear();
+    toast.success.mockClear();
+  });
+
+  /**
+   * Regression: `approveDraft`/`rejectDraft` used to call `toast.success` unconditionally, right
+   * after kicking off the background persist — so a persist that went on to fail still showed
+   * "Approved"/"Rejected" a moment before the real `saveFailed` error toast. The fix moves the
+   * success toast into the mutation's own `onSuccess`, so it only fires once the write actually
+   * confirms.
+   */
+  test("does not show a success toast when the background persist fails", async () => {
+    const original = review();
+    vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(original);
+    vi.spyOn(ReviewService, "updateReview").mockRejectedValue(new Error("network error"));
+
+    const { result } = renderHook(() => useReviewDetail("review-1"), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => {
+      result.current.approveDraft("draft-1", "Thanks so much!");
+    });
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  test("shows the success toast only once the background persist actually succeeds", async () => {
+    const original = review();
+    vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(original);
+    let resolvePersist!: (next: Review) => void;
+    vi.spyOn(ReviewService, "updateReview").mockReturnValue(
+      new Promise((resolve) => {
+        resolvePersist = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useReviewDetail("review-1"), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => {
+      result.current.rejectDraft("draft-1");
+    });
+
+    // The optimistic write already applied, but the persist hasn't settled yet.
+    expect(toast.success).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePersist({ ...original, replyDrafts: result.current.review?.replyDrafts ?? [] });
+    });
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   test("rolls the optimistic write back when the background persist fails", async () => {
     // Regression: this hook writes straight into react-query's shared `["review", id]` cache
     // (5-minute staleTime), not local component state — a failed persist that isn't rolled back

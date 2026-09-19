@@ -3,6 +3,7 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { DemoDataDbService } from '@db/repositories/demo-data/demo-data.db-service';
+import { MediaService } from '@media/media.service';
 import {
   BadRequestException,
   ConflictException,
@@ -45,6 +46,7 @@ describe('AuthService', () => {
   let queueManager: jest.Mocked<AddingJobsToQueueManager>;
   let demoDataDbService: jest.Mocked<DemoDataDbService>;
   let platformAdminAuthService: jest.Mocked<PlatformAdminAuthService>;
+  let mediaService: jest.Mocked<MediaService>;
 
   const tokenPair = { accessToken: 'access', refreshToken: 'refresh', expiresIn: 900 };
 
@@ -148,6 +150,13 @@ describe('AuthService', () => {
       consume: jest.fn(),
     } as unknown as jest.Mocked<PendingGoogleSignupService>;
 
+    // No avatar by default — AuthService only ever reads it (getAvatarUploadAuthorization/
+    // confirmUserAvatar now live behind MediaService's own actor-checked methods, called from
+    // TenantAvatarController — see media.service.spec.ts for those).
+    mediaService = {
+      getUserAvatarUrl: jest.fn().mockResolvedValue(null),
+    } as unknown as jest.Mocked<MediaService>;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -164,6 +173,7 @@ describe('AuthService', () => {
         { provide: PendingGoogleSignupService, useValue: pendingGoogleSignupService },
         { provide: DemoDataDbService, useValue: demoDataDbService },
         { provide: PlatformAdminAuthService, useValue: platformAdminAuthService },
+        { provide: MediaService, useValue: mediaService },
       ],
     }).compile();
 

@@ -33,6 +33,7 @@ export const googleConnectionStatus = pgEnum('google_connection_status', [
   'needs_reauth',
 ]);
 export const locationStatus = pgEnum('location_status', ['active', 'inactive']);
+export const mediaKind = pgEnum('media_kind', ['avatar']);
 export const notificationChannel = pgEnum('notification_channel', ['email', 'teams']);
 export const notificationChannelPref = pgEnum('notification_channel_pref', [
   'email',
@@ -121,7 +122,6 @@ export const platformAdmins = pgTable(
     passwordHash: varchar('password_hash', { length: 255 }),
     invitedByPlatformAdminId: uuid('invited_by_platform_admin_id'),
     status: platformAdminStatus().notNull(),
-    avatarUrl: varchar('avatar_url', { length: 2048 }),
     locale: userLocale(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
@@ -1150,6 +1150,60 @@ export const platformActivityLog = pgTable(
     check(
       'platform_activity_log_target_check',
       sql`((type = ANY (ARRAY['business_suspended'::platform_activity_type, 'business_reactivated'::platform_activity_type])) AND (business_name IS NOT NULL) AND (target_email IS NULL)) OR ((type = ANY (ARRAY['admin_invite_sent'::platform_activity_type, 'admin_invite_revoked'::platform_activity_type, 'admin_disabled'::platform_activity_type, 'admin_enabled'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NULL) AND (tenant_id IS NULL)) OR ((type = ANY (ARRAY['user_activated'::platform_activity_type, 'user_deactivated'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NOT NULL))`
+    ),
+  ]
+);
+
+export const media = pgTable(
+  'media',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    kind: mediaKind().notNull(),
+    userId: uuid('user_id'),
+    platformAdminId: uuid('platform_admin_id'),
+    provider: varchar({ length: 50 }).notNull(),
+    providerAssetId: varchar('provider_asset_id', { length: 255 }).notNull(),
+    url: varchar({ length: 2048 }).notNull(),
+    mimeType: varchar('mime_type', { length: 100 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_media_user_kind')
+      .using(
+        'btree',
+        table.userId.asc().nullsLast().op('uuid_ops'),
+        table.kind.asc().nullsLast().op('enum_ops')
+      )
+      .where(sql`(user_id IS NOT NULL)`),
+    uniqueIndex('idx_media_platform_admin_kind')
+      .using(
+        'btree',
+        table.platformAdminId.asc().nullsLast().op('uuid_ops'),
+        table.kind.asc().nullsLast().op('enum_ops')
+      )
+      .where(sql`(platform_admin_id IS NOT NULL)`),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: 'media_user_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.platformAdminId],
+      foreignColumns: [platformAdmins.id],
+      name: 'media_platform_admin_id_fkey',
+    }).onDelete('cascade'),
+    check(
+      'media_exactly_one_owner',
+      sql`((user_id IS NOT NULL) AND (platform_admin_id IS NULL)) OR ((user_id IS NULL) AND (platform_admin_id IS NOT NULL))`
     ),
   ]
 );

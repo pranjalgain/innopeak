@@ -8,6 +8,7 @@ import { isProduction } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
 import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
 import { DemoDataDbService } from '@db/repositories/demo-data/demo-data.db-service';
+import { MediaService } from '@media/media.service';
 import {
   BadRequestException,
   ConflictException,
@@ -125,7 +126,8 @@ export class AuthService {
     private readonly googleOAuthStateService: GoogleOAuthStateService,
     private readonly pendingGoogleSignupService: PendingGoogleSignupService,
     private readonly demoDataDbService: DemoDataDbService,
-    private readonly platformAdminAuthService: PlatformAdminAuthService
+    private readonly platformAdminAuthService: PlatformAdminAuthService,
+    private readonly mediaService: MediaService
   ) {}
 
   /**
@@ -374,8 +376,11 @@ export class AuthService {
       throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
     }
 
-    const tenant = await this.authDbService.findTenantStatus(user.tenantId);
-    return this.toAuthenticatedUserDto(user, tenant);
+    const [tenant, avatarUrl] = await Promise.all([
+      this.authDbService.findTenantStatus(user.tenantId),
+      this.mediaService.getUserAvatarUrl(user.id),
+    ]);
+    return this.toAuthenticatedUserDto(user, tenant, avatarUrl);
   }
 
   /**
@@ -494,11 +499,12 @@ export class AuthService {
 
     const updatedUser = { ...user, locale: dto.locale };
     const { accessToken, expiresIn } = this.tokenService.reissueAccessToken(updatedUser);
+    const avatarUrl = await this.mediaService.getUserAvatarUrl(user.id);
 
     const response = new UpdateLocaleResponseDto();
     response.accessToken = accessToken;
     response.expiresIn = expiresIn;
-    response.user = this.toAuthenticatedUserDto(updatedUser, tenant);
+    response.user = this.toAuthenticatedUserDto(updatedUser, tenant, avatarUrl);
     return response;
   }
 
@@ -1119,14 +1125,15 @@ export class AuthService {
     },
     prefetchedTenant?: TenantRow | null
   ): Promise<TokenIssuanceResult> {
-    const [hasConnectedBusiness, tenant] = await Promise.all([
+    const [hasConnectedBusiness, tenant, avatarUrl] = await Promise.all([
       this.authDbService.hasConnectedBusiness(user.tenantId),
       prefetchedTenant === undefined
         ? this.authDbService.findTenantStatus(user.tenantId)
         : Promise.resolve(prefetchedTenant),
+      this.mediaService.getUserAvatarUrl(user.id),
     ]);
 
-    const userDto = this.toAuthenticatedUserDto(user, tenant);
+    const userDto = this.toAuthenticatedUserDto(user, tenant, avatarUrl);
 
     const body = new TokenResponseDto();
     body.accessToken = tokens.accessToken;
@@ -1148,7 +1155,8 @@ export class AuthService {
       passwordHash: string | null;
       locale: Locale | null;
     },
-    tenant: TenantRow | null
+    tenant: TenantRow | null,
+    avatarUrl: string | null
   ): AuthenticatedUserDto {
     const userDto = new AuthenticatedUserDto();
     userDto.id = user.id;
@@ -1158,6 +1166,7 @@ export class AuthService {
     userDto.role = user.role;
     userDto.hasPassword = user.passwordHash !== null;
     userDto.locale = user.locale;
+    userDto.avatarUrl = avatarUrl;
     // `tenant` is only ever null if the row vanished mid-request (tenant deletion mid-flight) —
     // an empty string here is a display gap, not a reason to fail token issuance over it.
     userDto.businessName = tenant?.name ?? '';
