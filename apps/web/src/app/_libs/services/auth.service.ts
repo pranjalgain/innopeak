@@ -78,8 +78,7 @@ export type AdminInvitePreview = AdminInvitePreviewDto;
 export type MemberInvitePreview = MemberInvitePreviewDto;
 
 export type LoginResult =
-  | { kind: "verify_needed"; email: string }
-  | { kind: "success"; hasConnectedBusiness: boolean };
+  { kind: "verify_needed"; email: string } | { kind: "success"; hasConnectedBusiness: boolean };
 
 export interface VerifyOtpResult {
   verified: boolean;
@@ -207,27 +206,22 @@ export class AuthService {
   }
 
   /**
-   * Real Google sign-in. No business name: login never creates a tenant, so an unknown identity
-   * comes back as `?error=NO_ACCOUNT` rather than silently signing someone up.
+   * Real Google sign-in navigates to `/v1/auth/google`, a full-page OAuth redirect there is no
+   * provider or backend for this preview deploy to round-trip through. Every sign-in affordance on
+   * this branch is equally a dummy one (see `loginWithPassword`'s own mock, `mock-backend/`) — this
+   * one just signs in the demo owner immediately, the same as submitting the password form with
+   * anything typed into it, and lands on the same destination a successful real Google login would.
    */
   static startGoogleLogin(): void {
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
-    window.location.assign("/v1/auth/google?intent=login");
+    void this.loginWithPassword("", "").then(() => window.location.assign(ROUTES.DASHBOARD));
   }
 
   /**
-   * The admin sign-in screen's Google button — its own backend route, not `startGoogleLogin`'s.
-   * An admin who accepted their invite through Google has no password at all, so the form on that
-   * screen can never sign them in and this is their only way back.
-   *
-   * Deliberately not the tenant route with a different label: that one falls through to the tenant
-   * tables when no admin identity matches, which would let the admin screen hand back a *tenant*
-   * session, and sends its failures to `/login` — a page with no admin path on it. This route
-   * resolves `platform_admin_identities` only, and errors back to `/admin-login`.
+   * The admin sign-in screen's Google button — same reasoning as `startGoogleLogin` above, signing
+   * in as the seeded root admin instead.
    */
   static startAdminGoogleLogin(): void {
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
-    window.location.assign("/v1/admin/auth/google");
+    void this.loginAsAdmin("", "").then(() => window.location.assign(ROUTES.ADMIN));
   }
 
   /**
@@ -256,24 +250,14 @@ export class AuthService {
   }
 
   /**
-   * Real Google signup. A full-page navigation rather than an SDK call: the browser has to follow
-   * the redirect to Google's consent screen, and the backend sets an httpOnly binding cookie on
-   * the way out that an XHR could not carry back.
-   *
-   * No business name here any more — Google returns a person, not a business, so asking for one
-   * before the redirect meant collecting it inside the *password* signup form, which read oddly
-   * for someone who never intends to set a password. The callback now sends a genuinely new
-   * signup to `/onboarding/business-name` instead; an existing or linked account still lands
-   * straight on /dashboard, same as before.
-   *
-   * Never resolves — the page is gone.
+   * Real Google signup navigates away for an OAuth consent screen this preview deploy has no
+   * provider for (see `startGoogleLogin`'s own comment). The one part of that round trip worth
+   * keeping is the "Google returns a person, not a business" step: this still sends a genuinely
+   * new visitor to `/onboarding/business-name` with no tenant created yet — `completeGoogleSignup`
+   * below is where the mock backend actually creates one, exactly like the real callback would.
    */
   static startGoogleSignup(): void {
-    // Not a Next page: `/v1/*` is rewritten to the NestJS backend, which answers with a 302 to
-    // Google's consent screen. `router.push` would ask the Next router to resolve a route that
-    // does not exist in the app, and the browser must genuinely leave the origin for OAuth at all.
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign("/v1/auth/google?intent=signup");
+    window.location.assign(ROUTES.ONBOARDING_BUSINESS_NAME);
   }
 
   /**
@@ -509,13 +493,13 @@ export class AuthService {
   }
 
   /**
-   * The SSO alternative to `acceptAdminInvite` — a full-page navigation, same shape as
-   * `startGoogleLogin`/`startGoogleSignup`: the browser has to follow the redirect to Google's
-   * consent screen, which an XHR could not do. Never resolves — the page is gone.
+   * The SSO alternative to `acceptAdminInvite` — same OAuth-redirect reasoning as
+   * `startGoogleLogin`, so it mints the same mock admin session `acceptAdminInvite` would and
+   * lands on the console directly. `token` is unused: there is no real invite record behind it.
    */
   static startAdminInviteGoogle(token: string): void {
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign(`/v1/admin/auth/invite/${encodeURIComponent(token)}/google`);
+    void token;
+    void this.acceptAdminInvite("", "").then(() => window.location.assign(ROUTES.ADMIN));
   }
 
   /**
@@ -555,12 +539,11 @@ export class AuthService {
   }
 
   /**
-   * The SSO alternative to `acceptMemberInvite` — a full-page navigation, same shape as
-   * `startAdminInviteGoogle`: the browser has to follow the redirect to Google's consent screen,
-   * which an XHR could not do. Never resolves — the page is gone.
+   * The SSO alternative to `acceptMemberInvite` — same reasoning as `startAdminInviteGoogle`:
+   * mints the mock tenant session `acceptMemberInvite` would and lands on the dashboard directly.
    */
   static startMemberInviteGoogle(token: string): void {
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign(`/v1/auth/invite/${encodeURIComponent(token)}/google`);
+    void token;
+    void this.acceptMemberInvite("", "", "").then(() => window.location.assign(ROUTES.DASHBOARD));
   }
 }
