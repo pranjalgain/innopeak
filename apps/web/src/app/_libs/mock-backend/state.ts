@@ -203,12 +203,19 @@ export interface MockActivityEntry {
 
 export interface MockBackfill {
   locationId: string;
+  /** Minted once, when the run is created — not on every poll — so the same run keeps the same
+   *  id across the whole backfill instead of the client seeing a new "run" every 2 seconds. */
+  syncRunId: string;
   status: "running" | "ok" | "error";
   trigger: "scheduled" | "backfill";
   startedAt: string;
   completedAt: string | null;
   reviewsFetched: number | null;
   totalToImport: number | null;
+  /** How many times the poll route has been read since this run started — lets it stay
+   *  genuinely "running" for the first poll instead of finishing before the onboarding
+   *  progress screen ever gets to render an in-progress state. */
+  pollsSoFar: number;
 }
 
 export interface MockPlatformSettings {
@@ -218,7 +225,7 @@ export interface MockPlatformSettings {
   inviteMembersEnabled: boolean;
 }
 
-interface MockDb {
+export interface MockDb {
   tenants: MockTenant[];
   users: MockUser[];
   admins: MockAdmin[];
@@ -551,6 +558,68 @@ function seedNotifications(reviews: MockReview[]): MockNotification[] {
   return notifications;
 }
 
+const PROMPT_DEFAULTS: {
+  category: MockPrompt["category"];
+  name: string;
+  description: string;
+  template: string;
+}[] = [
+  {
+    category: "positive",
+    name: "Positive review reply",
+    description: "Used for 4-5 star reviews with no escalation triggers.",
+    template:
+      "Thank you so much, {{reviewerName}}! We're thrilled you enjoyed your visit to {{businessName}} and hope to see you again soon.",
+  },
+  {
+    category: "neutral",
+    name: "Neutral review reply",
+    description: "Used for 3 star reviews with no escalation triggers.",
+    template:
+      "Thanks for the feedback, {{reviewerName}} — we're always looking to improve and would love another chance to impress you.",
+  },
+  {
+    category: "escalated",
+    name: "Escalated review snippet",
+    description: "A short opener a team member edits before posting to an escalated review.",
+    template:
+      "We're sorry to hear about your experience, {{reviewerName}}. Please reach out to us directly at {{businessPhone}} so we can make this right.",
+  },
+];
+
+/**
+ * The three default prompts every real tenant starts with (see `PLAN.md`'s prompts module) —
+ * exported so a freshly signed-up tenant gets the same starting point the seed tenant does,
+ * rather than a permanently empty Settings → AI Prompts tab. `idPrefix` keeps ids unique across
+ * tenants (`prompt_1`.. for the seed tenant, `prompt_<tenantId>_1`.. for everyone else).
+ */
+export function createDefaultPrompts(
+  tenantId: string,
+  createdAt: string,
+  idPrefix = "prompt",
+): MockPrompt[] {
+  return PROMPT_DEFAULTS.map((defaults, index) => ({
+    id: `${idPrefix}_${String(index + 1)}`,
+    tenantId,
+    category: defaults.category,
+    name: defaults.name,
+    description: defaults.description,
+    tone: "friendly",
+    createdAt,
+    updatedAt: createdAt,
+    versions: [
+      {
+        id: `${idPrefix}_${String(index + 1)}_v1`,
+        version: 1,
+        template: defaults.template,
+        createdAt,
+        createdByUserId: null,
+        createdByName: null,
+      },
+    ],
+  }));
+}
+
 function buildInitialState(): MockDb {
   const reviews = seedReviews();
   const now = new Date().toISOString();
@@ -714,55 +783,7 @@ function buildInitialState(): MockDb {
     },
   ];
 
-  const promptDefaults: {
-    category: MockPrompt["category"];
-    name: string;
-    description: string;
-    template: string;
-  }[] = [
-    {
-      category: "positive",
-      name: "Positive review reply",
-      description: "Used for 4-5 star reviews with no escalation triggers.",
-      template:
-        "Thank you so much, {{reviewerName}}! We're thrilled you enjoyed your visit to {{businessName}} and hope to see you again soon.",
-    },
-    {
-      category: "neutral",
-      name: "Neutral review reply",
-      description: "Used for 3 star reviews with no escalation triggers.",
-      template:
-        "Thanks for the feedback, {{reviewerName}} — we're always looking to improve and would love another chance to impress you.",
-    },
-    {
-      category: "escalated",
-      name: "Escalated review snippet",
-      description: "A short opener a team member edits before posting to an escalated review.",
-      template:
-        "We're sorry to hear about your experience, {{reviewerName}}. Please reach out to us directly at {{businessPhone}} so we can make this right.",
-    },
-  ];
-
-  const prompts: MockPrompt[] = promptDefaults.map((defaults, index) => ({
-    id: `prompt_${String(index + 1)}`,
-    tenantId: DEMO_TENANT_ID,
-    category: defaults.category,
-    name: defaults.name,
-    description: defaults.description,
-    tone: "friendly",
-    createdAt: daysAgo(230),
-    updatedAt: daysAgo(230),
-    versions: [
-      {
-        id: `prompt_${String(index + 1)}_v1`,
-        version: 1,
-        template: defaults.template,
-        createdAt: daysAgo(230),
-        createdByUserId: null,
-        createdByName: null,
-      },
-    ],
-  }));
+  const prompts: MockPrompt[] = createDefaultPrompts(DEMO_TENANT_ID, daysAgo(230));
 
   const activity: MockActivityEntry[] = [
     {
@@ -802,12 +823,14 @@ function buildInitialState(): MockDb {
   const backfills: MockBackfill[] = [
     {
       locationId: DEMO_LOCATION_ID,
+      syncRunId: "sync_run_seed_1",
       status: "ok",
       trigger: "backfill",
       startedAt: daysAgo(230, 8),
       completedAt: daysAgo(230, 9),
       reviewsFetched: reviews.length,
       totalToImport: reviews.length,
+      pollsSoFar: 1,
     },
   ];
 
@@ -838,17 +861,57 @@ function buildInitialState(): MockDb {
   };
 }
 
-let db: MockDb = buildInitialState();
+/**
+ * Persisted to `sessionStorage`, not left as a plain in-memory singleton — a page reload is not
+ * hypothetical here, it's part of the mock OAuth flow itself: `connect-shortcut.ts` writes a new
+ * connection/location and then reloads the page to mimic the real return-from-Google navigation
+ * (see that file's own comment). A plain module-level variable would discard exactly the write
+ * that reload exists to reveal, so every "Connect Google" attempt would loop forever for any
+ * tenant except the one the seed data happens to start already connected. `sessionStorage` rather
+ * than `localStorage`: this is meant to survive a reload, not outlive the tab — a fresh visit
+ * should still start from the same seed data, not whatever an earlier visitor's browser left
+ * behind on a shared machine.
+ */
+const PERSIST_KEY = "innopeak_mock_db";
 
-/** The mock's whole "database" — a module-level singleton, reset only by a hard page reload
- *  (there is no server to persist to, and none of this is meant to survive one). */
+function loadInitialState(): MockDb {
+  if (typeof window === "undefined") return buildInitialState();
+  try {
+    const raw = window.sessionStorage.getItem(PERSIST_KEY);
+    if (!raw) return buildInitialState();
+    return JSON.parse(raw) as MockDb;
+  } catch {
+    // Malformed/missing — falls back to a fresh seed rather than crashing the whole app over a
+    // corrupted cache entry.
+    return buildInitialState();
+  }
+}
+
+let db: MockDb = loadInitialState();
+
+/** The mock's whole "database" — a module-level singleton, hydrated from and written back to
+ *  `sessionStorage` (see `persistDb`) so a reload doesn't lose whatever the visitor just did. */
 export function getDb(): MockDb {
   return db;
+}
+
+/** Called by the adapter after every mutating request — see `adapter.ts`. Failures (private
+ *  browsing, storage disabled, quota) are swallowed: the mock still works for the rest of this
+ *  page's lifetime, it just won't survive a reload, which is the same degraded-but-working state
+ *  this whole layer already falls back to when `sessionStorage` isn't available at all. */
+export function persistDb(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(PERSIST_KEY, JSON.stringify(db));
+  } catch {
+    // See above.
+  }
 }
 
 /** Rarely needed — mainly here so a future "reset demo data" affordance has somewhere to call. */
 export function resetDb(): void {
   db = buildInitialState();
+  persistDb();
 }
 
 export function nextMockId(prefix: string): string {

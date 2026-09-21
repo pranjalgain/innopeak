@@ -72,13 +72,19 @@ export const promptsRoutes = defineRoutes([
       const template = body.template?.trim();
       if (!template) return failure(400, "A template is required.");
 
+      // `mapVersion` (the real, unmodified frontend service) falls back to the "InnoPeak
+      // default" label whenever this is null — that's meant for the tenant's untouched starting
+      // templates, not for a version someone just saved. The signed-in user's own name is right
+      // there in `getDb().users`, so this stays credited correctly rather than reading as if
+      // nobody edited it.
+      const author = getDb().users.find((user) => user.id === auth.userId);
       const version = {
         id: nextMockId("prompt_version"),
         version: prompt.versions.length + 1,
         template,
         createdAt: new Date().toISOString(),
         createdByUserId: auth.userId,
-        createdByName: null,
+        createdByName: author?.name ?? null,
       };
       prompt.versions.push(version);
       prompt.updatedAt = version.createdAt;
@@ -101,7 +107,7 @@ export const promptsRoutes = defineRoutes([
     },
   },
   {
-    method: "PATCH",
+    method: "PUT",
     pattern: "/v1/prompts/:promptId/tone",
     handler: (ctx) => {
       const auth = requireOwner(ctx.auth);

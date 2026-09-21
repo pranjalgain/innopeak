@@ -3,8 +3,8 @@
  *
  * - `session` — the real app's own routing hint (`apps/web/src/proxy.ts`), `tenant` or `admin`.
  *   The edge middleware reads only this one; nothing here changes what it does with it.
- * - `mock_identity` — this mock's own marker, naming *which* seeded identity is signed in
- *   (`owner` | `member` | a real signed-up user's id | `root` | `second_admin`). Real sessions
+ * - `mock_identity` — this mock's own marker: the signed-in `MockUser`/`MockAdmin` row's own
+ *   `id` (a seeded one, or one this session created via signup/invite-accept). Real sessions
  *   answer this question from the httpOnly refresh-token cookie; since nothing here is real,
  *   `handlers/auth.ts`'s `/v1/auth/refresh` reads this plain one instead, to mint a fresh access
  *   token for the right identity without a request body to read.

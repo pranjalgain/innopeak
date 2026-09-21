@@ -210,10 +210,22 @@ export class AuthService {
    * provider or backend for this preview deploy to round-trip through. Every sign-in affordance on
    * this branch is equally a dummy one (see `loginWithPassword`'s own mock, `mock-backend/`) — this
    * one just signs in the demo owner immediately, the same as submitting the password form with
-   * anything typed into it, and lands on the same destination a successful real Google login would.
+   * anything typed into it. Routes the same way `LoginView` itself does with a real result rather
+   * than hardcoding `/dashboard`: a mock account with nothing connected (see Settings' disconnect
+   * button, which only clears the mock's own connection state, not this branching) must still land
+   * on the connect stepper, not a dashboard `ConnectionGuard` immediately bounces it out of anyway.
    */
   static startGoogleLogin(): void {
-    void this.loginWithPassword("", "").then(() => window.location.assign(ROUTES.DASHBOARD));
+    void this.loginWithPassword("", "")
+      .then((result) => {
+        const hasConnectedBusiness = result.kind === "success" && result.hasConnectedBusiness;
+        window.location.assign(hasConnectedBusiness ? ROUTES.DASHBOARD : ROUTES.ONBOARDING_CONNECT);
+      })
+      // The real Google flow never resolves at all — the caller's `isLoading` state (see
+      // `useAuth`) has never had a failure path to reset it. This mock one genuinely is async
+      // (a real round trip, if a short one), so a rejection here without this would leave that
+      // spinner spinning forever with nothing on screen to explain why.
+      .catch(() => window.location.assign(ROUTES.LOGIN));
   }
 
   /**
@@ -221,7 +233,9 @@ export class AuthService {
    * in as the seeded root admin instead.
    */
   static startAdminGoogleLogin(): void {
-    void this.loginAsAdmin("", "").then(() => window.location.assign(ROUTES.ADMIN));
+    void this.loginAsAdmin("", "")
+      .then(() => window.location.assign(ROUTES.ADMIN))
+      .catch(() => window.location.assign(ROUTES.ADMIN_LOGIN));
   }
 
   /**
@@ -499,7 +513,9 @@ export class AuthService {
    */
   static startAdminInviteGoogle(token: string): void {
     void token;
-    void this.acceptAdminInvite("", "").then(() => window.location.assign(ROUTES.ADMIN));
+    void this.acceptAdminInvite("", "")
+      .then(() => window.location.assign(ROUTES.ADMIN))
+      .catch(() => window.location.assign(ROUTES.ADMIN_LOGIN));
   }
 
   /**
@@ -539,11 +555,16 @@ export class AuthService {
   }
 
   /**
-   * The SSO alternative to `acceptMemberInvite` — same reasoning as `startAdminInviteGoogle`:
-   * mints the mock tenant session `acceptMemberInvite` would and lands on the dashboard directly.
+   * The SSO alternative to `acceptMemberInvite` — same reasoning as `startAdminInviteGoogle`,
+   * but routed the way `AcceptInviteView` itself does with a real result (see `startGoogleLogin`'s
+   * own comment on why `/dashboard` can't be hardcoded here either).
    */
   static startMemberInviteGoogle(token: string): void {
     void token;
-    void this.acceptMemberInvite("", "", "").then(() => window.location.assign(ROUTES.DASHBOARD));
+    void this.acceptMemberInvite("", "", "")
+      .then(({ hasConnectedBusiness }) =>
+        window.location.assign(hasConnectedBusiness ? ROUTES.DASHBOARD : ROUTES.ONBOARDING_CONNECT),
+      )
+      .catch(() => window.location.assign(ROUTES.LOGIN));
   }
 }

@@ -1,7 +1,11 @@
 import { requireOwner, requireTenantUser } from "../auth-context";
 import { failure, success } from "../response";
 import { defineRoutes } from "../router";
-import { getDb, type MockLocation, nextMockId } from "../state";
+import { getDb, type MockBackfill, type MockDb, type MockLocation, nextMockId } from "../state";
+
+function existingBackfillFor(db: MockDb, locationId: string): MockBackfill | undefined {
+  return db.backfills.find((b) => b.locationId === locationId);
+}
 
 interface ConfirmLocationBody {
   externalLocationIds?: string[];
@@ -78,8 +82,15 @@ export const connectionsRoutes = defineRoutes([
     method: "GET",
     pattern: "/v1/connections/google/available-locations",
     handler: (ctx) => {
-      requireOwner(ctx.auth);
-      const connected = new Set(getDb().locations.map((l) => l.externalLocationId));
+      const auth = requireOwner(ctx.auth);
+      // Scoped to this tenant, same as every other query here — an unscoped check would flag a
+      // location as already connected because some *other* tenant happens to own it, which is
+      // exactly the false "already connected" a brand-new tenant would otherwise hit here.
+      const connected = new Set(
+        getDb()
+          .locations.filter((l) => l.tenantId === auth.tenantId)
+          .map((l) => l.externalLocationId),
+      );
       const locations = getDb().availableLocations.map((location) => ({
         ...location,
         alreadyConnected: connected.has(location.externalLocationId),
@@ -137,40 +148,53 @@ export const connectionsRoutes = defineRoutes([
       const tenant = db.tenants.find((t) => t.id === auth.tenantId);
       if (tenant && !tenant.activeLocationId) tenant.activeLocationId = confirmed[0]!.id;
 
+      // One row per location, reused across repeat confirmations rather than appended to on
+      // every call — a second `POST` for a location that's already backfilling (a double-click,
+      // or re-confirming after a reload) must find the SAME run the poll route is already
+      // tracking, not a second one it can never find because the first, stale row is still ahead
+      // of it in the array.
+      const backfillByLocation = new Map(confirmed.map((location) => [location.id, existingBackfillFor(db, location.id)]));
       for (const location of confirmed) {
-        db.backfills.push({
+        if (backfillByLocation.get(location.id)) continue;
+        const created = {
           locationId: location.id,
-          status: "running",
-          trigger: "backfill",
+          syncRunId: nextMockId("sync_run"),
+          status: "running" as const,
+          trigger: "backfill" as const,
           startedAt: new Date().toISOString(),
           completedAt: null,
           reviewsFetched: 0,
           totalToImport: 12,
-        });
+          pollsSoFar: 0,
+        };
+        db.backfills.push(created);
+        backfillByLocation.set(location.id, created);
       }
 
       return success(
         {
-          locations: confirmed.map((location) => ({
-            id: location.id,
-            connectionId: location.connectionId,
-            provider: "google" as const,
-            externalLocationId: location.externalLocationId,
-            name: location.name,
-            address: location.address,
-            status: location.status,
-            lastSyncedAt: location.lastSyncedAt,
-            lastSyncStatus: location.lastSyncStatus,
-            lastSyncError: location.lastSyncError,
-            onboardingBackfillCompletedAt: location.onboardingBackfillCompletedAt,
-            createdAt: location.createdAt,
-            backfill: {
-              syncRunId: nextMockId("sync_run"),
-              status: "running",
-              startedAt: new Date().toISOString(),
-            },
-            backfillAlreadyRunning: false,
-          })),
+          locations: confirmed.map((location) => {
+            const backfill = backfillByLocation.get(location.id);
+            const backfillAlreadyRunning = backfill !== undefined && backfill.pollsSoFar > 0;
+            return {
+              id: location.id,
+              connectionId: location.connectionId,
+              provider: "google" as const,
+              externalLocationId: location.externalLocationId,
+              name: location.name,
+              address: location.address,
+              status: location.status,
+              lastSyncedAt: location.lastSyncedAt,
+              lastSyncStatus: location.lastSyncStatus,
+              lastSyncError: location.lastSyncError,
+              onboardingBackfillCompletedAt: location.onboardingBackfillCompletedAt,
+              createdAt: location.createdAt,
+              backfill: backfill
+                ? { syncRunId: backfill.syncRunId, status: backfill.status, startedAt: backfill.startedAt }
+                : null,
+              backfillAlreadyRunning,
+            };
+          }),
         },
         "Locations connected.",
         201,
@@ -214,21 +238,27 @@ export const connectionsRoutes = defineRoutes([
       if (!location) return failure(404, "No such location.");
 
       const backfill = getDb().backfills.find((b) => b.locationId === location.id);
-      // The demo backfill completes instantly on the second poll rather than staying "running"
-      // forever — this is the ONE piece of state that advances on its own between two calls,
-      // since the onboarding wizard's own progress screen has nothing to show otherwise.
+      // The demo backfill completes on the *second* poll rather than staying "running" forever
+      // (or finishing on the very first poll, which never gave the onboarding wizard's progress
+      // screen anything in-progress to render at all) — `pollsSoFar` is what lets this tell "the
+      // first read" from "a later one" apart, since nothing about the request itself does.
       if (backfill && backfill.status === "running") {
-        backfill.status = "ok";
-        backfill.completedAt = new Date().toISOString();
-        backfill.reviewsFetched = backfill.totalToImport;
-        location.onboardingBackfillCompletedAt = backfill.completedAt;
-        location.lastSyncedAt = backfill.completedAt;
-        location.lastSyncStatus = "ok";
+        if (backfill.pollsSoFar > 0) {
+          backfill.status = "ok";
+          backfill.completedAt = new Date().toISOString();
+          backfill.reviewsFetched = backfill.totalToImport;
+          location.onboardingBackfillCompletedAt = backfill.completedAt;
+          location.lastSyncedAt = backfill.completedAt;
+          location.lastSyncStatus = "ok";
+        } else {
+          backfill.pollsSoFar += 1;
+          backfill.reviewsFetched = Math.round((backfill.totalToImport ?? 0) / 2);
+        }
       }
 
       return success({
         locationId: location.id,
-        syncRunId: backfill ? nextMockId("sync_run_poll") : null,
+        syncRunId: backfill?.syncRunId ?? null,
         status: backfill?.status ?? "ok",
         reviewsFetched: backfill?.reviewsFetched ?? 0,
         totalToImport: backfill?.totalToImport ?? 0,

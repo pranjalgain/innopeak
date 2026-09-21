@@ -29,7 +29,10 @@ export const adminAuthRoutes = defineRoutes([
   {
     method: "GET",
     pattern: "/v1/admin/auth/invite/:token",
-    handler: () => success({ email: "invited-admin@example.com" }),
+    // The same seeded admin `accept` below signs in as — a real invite preview and its accept
+    // always name the same person; showing one email here and landing as a different one on
+    // accept would read as a bug, not a demo shortcut.
+    handler: () => success({ email: getDb().admins[1]!.email }),
   },
   {
     method: "POST",

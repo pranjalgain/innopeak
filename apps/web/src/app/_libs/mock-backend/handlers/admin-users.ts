@@ -27,7 +27,7 @@ export const adminUsersRoutes = defineRoutes([
     },
   },
   {
-    method: "PATCH",
+    method: "POST",
     pattern: "/v1/admin/users/:userId/toggle-active",
     handler: (ctx) => {
       requireAdmin(ctx.auth);

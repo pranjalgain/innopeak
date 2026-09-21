@@ -1,10 +1,11 @@
 import { requireTenantUser } from "../auth-context";
 import { MOCK_AVATAR_URL } from "../constants";
+import { MOCK_ACCESS_TOKEN_TTL_SECONDS } from "../jwt";
 import { issueTenantSession, mintTenantAccessToken, toAuthenticatedUserDto } from "../mappers";
 import { failure, success } from "../response";
 import { defineRoutes } from "../router";
 import { clearMockSession, getMockIdentity } from "../session-cookie";
-import { getDb, type MockUser, nextMockId } from "../state";
+import { createDefaultPrompts, getDb, type MockUser, nextMockId } from "../state";
 
 interface LoginBody {
   email?: string;
@@ -52,6 +53,34 @@ function resolveLoginUser(email: string | undefined): MockUser {
   return match ?? getDb().users[0]!;
 }
 
+/**
+ * Everything a brand-new tenant needs so its own Settings tabs aren't permanently empty —
+ * `tenantSettings`, the three default prompts every real tenant starts with, and the owner as
+ * their own notification recipient. Shared by both signup paths (password and Google) so neither
+ * one drifts from what a genuinely new account should look like.
+ */
+function provisionNewTenantWorkspace(tenantId: string, ownerId: string): void {
+  const now = new Date().toISOString();
+  const db = getDb();
+
+  db.tenantSettings.push({
+    tenantId,
+    escalationRatingThreshold: 3,
+    autoPostEnabled: false,
+    reviewDataRetentionMonths: 24,
+    aiReplyCount: 1,
+    updatedAt: now,
+  });
+  db.prompts.push(...createDefaultPrompts(tenantId, now, `prompt_${tenantId}`));
+  db.notificationRecipients.push({
+    id: nextMockId("recip"),
+    tenantId,
+    userId: ownerId,
+    channel: "both",
+    isActive: true,
+  });
+}
+
 export const authRoutes = defineRoutes([
   {
     method: "POST",
@@ -91,14 +120,7 @@ export const authRoutes = defineRoutes([
         invitedAt: new Date().toISOString(),
         lastLoginAt: null,
       });
-      getDb().tenantSettings.push({
-        tenantId,
-        escalationRatingThreshold: 3,
-        autoPostEnabled: false,
-        reviewDataRetentionMonths: 24,
-        aiReplyCount: 1,
-        updatedAt: new Date().toISOString(),
-      });
+      provisionNewTenantWorkspace(tenantId, userId);
 
       return success(
         {
@@ -209,7 +231,7 @@ export const authRoutes = defineRoutes([
       if (body.locale) user.locale = body.locale;
       return success({
         accessToken: mintTenantAccessToken(user),
-        expiresIn: 60 * 60 * 12,
+        expiresIn: MOCK_ACCESS_TOKEN_TTL_SECONDS,
         user: toAuthenticatedUserDto(user),
       });
     },
@@ -246,14 +268,7 @@ export const authRoutes = defineRoutes([
         lastLoginAt: new Date().toISOString(),
       };
       getDb().users.push(user);
-      getDb().tenantSettings.push({
-        tenantId,
-        escalationRatingThreshold: 3,
-        autoPostEnabled: false,
-        reviewDataRetentionMonths: 24,
-        aiReplyCount: 1,
-        updatedAt: new Date().toISOString(),
-      });
+      provisionNewTenantWorkspace(tenantId, userId);
 
       return success(issueTenantSession(user));
     },
@@ -287,7 +302,8 @@ export const authRoutes = defineRoutes([
   {
     method: "GET",
     pattern: "/v1/auth/invite/:token",
-    handler: () => success({ email: "invitee@example.com" }),
+    // Same seeded member `accept` below signs in as — see the admin equivalent's own comment.
+    handler: () => success({ email: getDb().users[1]!.email }),
   },
   {
     method: "POST",

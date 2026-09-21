@@ -55,9 +55,9 @@ export class MockRouter {
     this.compiled = routes.map(compile);
   }
 
-  /** Returns null when nothing matches the path at all (any method) — the adapter turns that into
-   *  a network-level failure, distinct from a matched path whose method isn't supported (405-ish,
-   *  treated as 404 here since nothing in this app's error handling distinguishes the two). */
+  /** Throws a 404 `MockApiFailure` (via `failure()`) when nothing matches — both "no route has
+   *  this path at all" and "a route has this path but not this method" collapse into the same
+   *  404, since nothing in this app's error handling distinguishes a genuine 405 from one. */
   handle(
     method: string,
     pathname: string,

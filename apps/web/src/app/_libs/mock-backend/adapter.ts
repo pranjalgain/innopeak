@@ -15,6 +15,7 @@ import { reviewsRoutes } from "./handlers/reviews";
 import { settingsRoutes } from "./handlers/settings";
 import { MockApiFailure, type MockAxiosResponse } from "./response";
 import { MockRouter } from "./router";
+import { persistDb } from "./state";
 
 const router = new MockRouter([
   ...authRoutes,
@@ -90,13 +91,20 @@ function simulatedLatency(): Promise<void> {
 export const mockAdapter: AxiosAdapter = async (config) => {
   await simulatedLatency();
 
-  const url = resolveUrl(config);
-  const query = buildQuery(url, config);
-  const body = parseBody(config.data);
-  const auth = decodeAuthHeader(headerValue(config, "Authorization"));
-
   try {
-    const envelope = router.handle(config.method ?? "get", url.pathname, query, body, auth);
+    const url = resolveUrl(config);
+    const query = buildQuery(url, config);
+    const body = parseBody(config.data);
+    const auth = decodeAuthHeader(headerValue(config, "Authorization"));
+    const method = config.method ?? "get";
+
+    const envelope = router.handle(method, url.pathname, query, body, auth);
+
+    // A GET can't have changed anything, so this skips re-serializing the whole store (reviews,
+    // notifications, everything) on every read — the common case by far, and the one place a
+    // per-request cost here would actually be felt (dashboard polling, the notification bell).
+    if (method.toUpperCase() !== "GET") persistDb();
+
     const response: MockAxiosResponse = {
       data: envelope,
       status: envelope.statusCode,

@@ -1,5 +1,6 @@
 import { requireAdmin } from "../auth-context";
 import { MOCK_AVATAR_URL } from "../constants";
+import { MOCK_ACCESS_TOKEN_TTL_SECONDS } from "../jwt";
 import { mintAdminAccessToken, toAdminInviteResponseDto, toAdminProfileDto } from "../mappers";
 import { failure, success } from "../response";
 import { defineRoutes } from "../router";
@@ -73,7 +74,7 @@ export const adminSettingsRoutes = defineRoutes([
       if (body.locale) admin.locale = body.locale;
       return success({
         accessToken: mintAdminAccessToken(admin),
-        expiresIn: 60 * 60 * 12,
+        expiresIn: MOCK_ACCESS_TOKEN_TTL_SECONDS,
         admin: toAdminProfileDto(admin),
       });
     },

@@ -1,3 +1,5 @@
+import { TokenService } from "@/app/_libs/services/token.service";
+
 import { decodeMockToken } from "./auth-context";
 import { getDb, nextMockId } from "./state";
 
@@ -8,7 +10,7 @@ import { getDb, nextMockId } from "./state";
  * finds a fresh connection already in place exactly as a real return-from-Google would.
  */
 export function mockConnectAllAvailableLocations(): void {
-  const rawToken = window.localStorage.getItem("access-token");
+  const rawToken = TokenService.getStoredAccessToken();
   const claims = rawToken ? decodeMockToken(rawToken) : null;
   const tenantId = claims?.tenantId;
   if (!tenantId) return;
@@ -28,14 +30,26 @@ export function mockConnectAllAvailableLocations(): void {
   if (!db.connections.includes(connection)) db.connections.push(connection);
 
   for (const available of db.availableLocations) {
-    const alreadyConnected = db.locations.some(
-      (location) =>
-        location.tenantId === tenantId &&
-        location.externalLocationId === available.externalLocationId,
-    );
-    if (alreadyConnected) continue;
-
     const now = new Date().toISOString();
+    const existing = db.locations.find(
+      (location) =>
+        location.tenantId === tenantId && location.externalLocationId === available.externalLocationId,
+    );
+
+    // A location that's already connected but was previously disconnected (see `DELETE
+    // /v1/connections/google`, which marks every location `inactive` rather than deleting it)
+    // needs reactivating, not skipping — otherwise "reconnect" after a disconnect silently does
+    // nothing and the tenant is left permanently unconnected.
+    if (existing) {
+      if (existing.status === "inactive") {
+        existing.status = "active";
+        existing.lastSyncedAt = now;
+        existing.lastSyncStatus = "ok";
+      }
+      tenant.activeLocationId ??= existing.id;
+      continue;
+    }
+
     const location = {
       id: nextMockId("location"),
       tenantId,
@@ -54,12 +68,14 @@ export function mockConnectAllAvailableLocations(): void {
     tenant.activeLocationId ??= location.id;
     db.backfills.push({
       locationId: location.id,
+      syncRunId: nextMockId("sync_run"),
       status: "ok",
       trigger: "backfill",
       startedAt: now,
       completedAt: now,
       reviewsFetched: 12,
       totalToImport: 12,
+      pollsSoFar: 1,
     });
   }
 }

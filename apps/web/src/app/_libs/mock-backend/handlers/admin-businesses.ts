@@ -41,7 +41,7 @@ export const adminBusinessesRoutes = defineRoutes([
     },
   },
   {
-    method: "PATCH",
+    method: "POST",
     pattern: "/v1/admin/businesses/:tenantId/status",
     handler: (ctx) => {
       requireAdmin(ctx.auth);
