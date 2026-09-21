@@ -1,9 +1,14 @@
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import * as React from "react";
+import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { TenantMemberService } from "@/app/_libs/services/tenant-member.service";
+import { authErrorMessage } from "@/hooks/auth/use-auth";
 import type { TenantMember } from "@/types/domain";
+
+export const tenantMembersQueryKey = ["tenant-members"] as const;
 
 interface UseTenantMembersResult {
   members: TenantMember[];
@@ -14,56 +19,77 @@ interface UseTenantMembersResult {
 
 export function useTenantMembers(): UseTenantMembersResult {
   const t = useTranslations("settings.members.toasts");
-  const [members, setMembers] = React.useState<TenantMember[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const queryClient = useQueryClient();
 
-  React.useEffect(() => {
-    let cancelled = false;
+  const membersQuery = useQuery({
+    queryKey: tenantMembersQueryKey,
+    queryFn: () => TenantMemberService.getMembers(),
+  });
 
-    TenantMemberService.getMembers()
-      .then((result) => {
-        if (!cancelled) setMembers(result);
-      })
-      .catch(() => {
-        if (!cancelled) toast.error(t("loadFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
+  useEffect(() => {
+    if (membersQuery.isError) toast.error(t("loadFailed"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membersQuery.isError]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
+  const inviteMemberMutation = useMutation({
+    mutationFn: (email: string) => TenantMemberService.inviteMember(email),
+  });
 
   /** Returns whether it succeeded, so the form knows to clear itself. */
-  const inviteMember = React.useCallback(
+  const inviteMember = useCallback(
     async (email: string) => {
       try {
-        const member = await TenantMemberService.inviteMember(email);
-        setMembers((prev) => [...prev, member]);
+        const member = await inviteMemberMutation.mutateAsync(email);
+        // Appended only when there is a list to append to. `[...(prev ?? []), member]` looked
+        // equivalent but silently replaced the whole cache with a one-element array whenever the
+        // roster query had failed or not yet loaded — every other member vanished from the screen
+        // until a refetch. `undefined` leaves the cache untouched and lets the invalidate below
+        // fetch the real list.
+        queryClient.setQueryData<TenantMember[]>(tenantMembersQueryKey, (prev) =>
+          prev ? [...prev, member] : undefined,
+        );
+        // Also the only path back to a fresh roster after an invitee accepts elsewhere: nothing
+        // pushes that update to the owner's open tab, so without this, the owner's list keeps
+        // reading "invited" until `staleTime` (5 min) passes and something else happens to
+        // trigger a refetch.
+        void queryClient.invalidateQueries({ queryKey: tenantMembersQueryKey });
         toast.success(t("invited", { email }));
         return true;
-      } catch {
-        toast.error(t("inviteFailed"));
+      } catch (error) {
+        // A 4xx here carries copy worth showing as-is — "This email already has a pending
+        // invite." tells the owner something actionable that the generic fallback below does not.
+        toast.error(authErrorMessage(error, t("inviteFailed")));
         return false;
       }
     },
-    [t],
+    [t, inviteMemberMutation, queryClient],
   );
 
-  const revokeInvite = React.useCallback(
+  const revokeInviteMutation = useMutation({
+    mutationFn: (id: string) => TenantMemberService.revokeInvite(id),
+  });
+
+  const revokeInvite = useCallback(
     async (id: string) => {
       try {
-        await TenantMemberService.revokeInvite(id);
-        setMembers((prev) => prev.filter((member) => member.id !== id));
+        await revokeInviteMutation.mutateAsync(id);
+        queryClient.setQueryData<TenantMember[]>(
+          tenantMembersQueryKey,
+          (prev) => prev?.filter((member) => member.id !== id) ?? prev,
+        );
+        void queryClient.invalidateQueries({ queryKey: tenantMembersQueryKey });
         toast.success(t("revoked"));
-      } catch {
-        toast.error(t("revokeFailed"));
+      } catch (error) {
+        toast.error(authErrorMessage(error, t("revokeFailed")));
       }
     },
-    [t],
+    [t, revokeInviteMutation, queryClient],
   );
 
-  return { members, isLoading, inviteMember, revokeInvite };
+  return {
+    members: membersQuery.data ?? [],
+    isLoading: membersQuery.isLoading,
+    inviteMember,
+    revokeInvite,
+  };
 }

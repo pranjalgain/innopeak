@@ -1,12 +1,12 @@
 import type { Route } from "next";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AdminBusiness } from "@/types/domain";
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
 const RECENT_COUNT = 3;
 
 interface RecentBusinessesCardProps {
@@ -15,6 +15,7 @@ interface RecentBusinessesCardProps {
 
 export function RecentBusinessesCard({ businesses }: RecentBusinessesCardProps) {
   const t = useTranslations("adminOverview.recentBusinesses");
+  const format = useFormatter();
   const recent = [...businesses]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, RECENT_COUNT);
@@ -36,7 +37,7 @@ export function RecentBusinessesCard({ businesses }: RecentBusinessesCardProps) 
                 <p className="truncate text-[13px] text-muted-foreground">{business.ownerName}</p>
               </div>
               <span className="shrink-0 text-[13px] text-muted-foreground">
-                {DATE_FORMATTER.format(new Date(business.createdAt))}
+                {format.dateTime(new Date(business.createdAt), DATE_FORMAT)}
               </span>
             </div>
           ))
@@ -44,7 +45,7 @@ export function RecentBusinessesCard({ businesses }: RecentBusinessesCardProps) 
 
         <Link
           href={ROUTES.ADMIN_BUSINESSES as Route}
-          className="mt-auto pt-3 text-sm font-medium text-primary no-underline transition-colors hover:text-primary/80"
+          className="text-primary hover:text-primary/80 mt-auto pt-3 text-sm font-medium no-underline transition-colors"
         >
           {t("viewAll")}
         </Link>

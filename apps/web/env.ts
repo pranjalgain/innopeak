@@ -30,6 +30,7 @@ export const env = createEnv({
       .string()
       .min(1, "App keywords are required")
       .default("reviews,google-business-profile,ai-replies"),
+    NEXT_PUBLIC_API_URL: z.url("API URL is required").default("http://localhost:3000"),
     // Analytics - optional for development
     NEXT_PUBLIC_GTM_KEY: z.string().optional(),
     NEXT_PUBLIC_POSTHOG_KEY: z.string().min(47, "PostHog key is required").optional(),
@@ -40,12 +41,6 @@ export const env = createEnv({
     NEXT_PUBLIC_POSTHOG_ENVIRONMENT: z
       .enum(["development", "staging", "production"])
       .default("development"),
-    // Auth method toggles - flip per-environment to test different login/signup configurations
-    NEXT_PUBLIC_AUTH_SSO_ENABLED: z.enum(["true", "false"]).default("true"),
-    NEXT_PUBLIC_AUTH_PASSWORD_ENABLED: z.enum(["true", "false"]).default("false"),
-    NEXT_PUBLIC_AUTH_SOCIAL_ENABLED: z.enum(["true", "false"]).default("false"),
-    // Tenant-facing feature toggles - flip per-environment to test optional capabilities
-    NEXT_PUBLIC_INVITE_MEMBERS_ENABLED: z.enum(["true", "false"]).default("false"),
   },
   runtimeEnv: {
     // Private
@@ -64,14 +59,11 @@ export const env = createEnv({
     NEXT_PUBLIC_APP_DESCRIPTION: process.env.NEXT_PUBLIC_APP_DESCRIPTION,
     NEXT_PUBLIC_APP_CATEGORY: process.env.NEXT_PUBLIC_APP_CATEGORY,
     NEXT_PUBLIC_APP_KEYWORDS: process.env.NEXT_PUBLIC_APP_KEYWORDS,
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
     NEXT_PUBLIC_GTM_KEY: process.env.NEXT_PUBLIC_GTM_KEY,
     NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
     NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     NEXT_PUBLIC_POSTHOG_INGEST: process.env.NEXT_PUBLIC_POSTHOG_INGEST,
     NEXT_PUBLIC_POSTHOG_ENVIRONMENT: process.env.NEXT_PUBLIC_POSTHOG_ENVIRONMENT,
-    NEXT_PUBLIC_AUTH_SSO_ENABLED: process.env.NEXT_PUBLIC_AUTH_SSO_ENABLED,
-    NEXT_PUBLIC_AUTH_PASSWORD_ENABLED: process.env.NEXT_PUBLIC_AUTH_PASSWORD_ENABLED,
-    NEXT_PUBLIC_AUTH_SOCIAL_ENABLED: process.env.NEXT_PUBLIC_AUTH_SOCIAL_ENABLED,
-    NEXT_PUBLIC_INVITE_MEMBERS_ENABLED: process.env.NEXT_PUBLIC_INVITE_MEMBERS_ENABLED,
   },
 });

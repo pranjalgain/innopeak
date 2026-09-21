@@ -1,4 +1,5 @@
 import { useTranslations } from "next-intl";
+import { LuBell } from "react-icons/lu";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,17 +23,23 @@ export function NotificationsSettingsSection({
   const t = useTranslations("settings.notifications");
 
   return (
-    <Card>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
       <CardHeader>
-        <CardTitle>{t("title")}</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LuBell className="text-primary size-4" />
+          {t("title")}
+        </CardTitle>
         <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col">
         {recipients.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("empty")}</p>
         ) : (
-          recipients.map((recipient) => (
-            <div key={recipient.id} className="flex items-center gap-4 border-b border-border py-3.5 last:border-b-0">
+          recipients.map((recipient, index) => (
+            <div
+              key={recipient.id}
+              style={{ animationDelay: `${Math.min(index, 10) * 50}ms` }}
+              className="animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards ease-fluid motion-reduce:animate-none hover:bg-accent/40 flex items-center gap-4 rounded-md border-b border-border px-2 -mx-2 py-3.5 transition-colors duration-300 last:border-b-0">
               <Avatar className="size-8 shrink-0">
                 <AvatarFallback className="bg-secondary text-xs font-semibold text-secondary-foreground">
                   {recipient.initials}

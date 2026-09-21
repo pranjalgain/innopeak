@@ -1,10 +1,11 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { LuBuilding2 } from "react-icons/lu";
 
 import { cn } from "@/app/_libs/utils/cn";
 import { ConfirmActionDialog } from "@/components/common/confirm-action-dialog";
+import { LoadErrorState } from "@/components/common/load-error-state";
 import { Pagination } from "@/components/common/pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import { useAdminBusinesses } from "@/hooks/admin/use-admin-businesses";
 import { usePagination } from "@/hooks/common/use-pagination";
 import type { AdminBusiness, BusinessStatus } from "@/types/domain";
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
 
 const STATUS_BADGE_CLASSNAME: Record<BusinessStatus, string> = {
   active: "border-transparent bg-success-soft text-success",
@@ -104,7 +105,9 @@ function BusinessActionButton({ business, onSuspend, onReactivate, className }: 
 export function AdminBusinessesView() {
   const t = useTranslations("adminBusinesses");
   const tStatus = useTranslations("adminBusinesses.status");
-  const { businesses, isLoading, suspendBusiness, reactivateBusiness } = useAdminBusinesses();
+  const format = useFormatter();
+  const { businesses, isLoading, isError, refetch, suspendBusiness, reactivateBusiness } =
+    useAdminBusinesses();
   const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(businesses, 10);
 
   const suspend = (id: string) => void suspendBusiness(id);
@@ -112,10 +115,18 @@ export function AdminBusinessesView() {
 
   return (
     <div className="flex min-h-full flex-col gap-6 p-fluid-page">
-      <p className="text-sm text-muted-foreground">{t("resultCount", { count: businesses.length })}</p>
+      {/* Hidden while loading or failed: rendering it unconditionally meant every visit flashed
+          "0 businesses" over the skeleton, and an outage claimed a confident count of zero. */}
+      {isLoading || isError ? null : (
+        <p className="text-sm text-muted-foreground">
+          {t("resultCount", { count: businesses.length })}
+        </p>
+      )}
 
       {isLoading ? (
         <AdminBusinessesSkeleton />
+      ) : isError ? (
+        <LoadErrorState onRetry={refetch} />
       ) : businesses.length === 0 ? (
         <AdminBusinessesEmptyState />
       ) : (
@@ -149,7 +160,7 @@ export function AdminBusinessesView() {
                     <TableCell className="truncate text-muted-foreground">{business.ownerName}</TableCell>
                     <TableCell>{business.userCount}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {DATE_FORMATTER.format(new Date(business.createdAt))}
+                      {format.dateTime(new Date(business.createdAt), DATE_FORMAT)}
                     </TableCell>
                     <TableCell className="text-right">
                       <BusinessActionButton business={business} onSuspend={suspend} onReactivate={reactivate} />
@@ -183,7 +194,7 @@ export function AdminBusinessesView() {
                 </div>
                 <div className="flex items-center justify-between text-[13px]">
                   <span className="text-muted-foreground">{t("columns.created")}</span>
-                  <span>{DATE_FORMATTER.format(new Date(business.createdAt))}</span>
+                  <span>{format.dateTime(new Date(business.createdAt), DATE_FORMAT)}</span>
                 </div>
 
                 <div className="mt-1 flex justify-end">

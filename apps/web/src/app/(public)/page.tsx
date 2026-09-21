@@ -10,9 +10,11 @@ import {
   LuSlidersHorizontal,
   LuSparkles,
   LuTriangleAlert,
+  LuZap,
 } from "react-icons/lu";
 
 import { ReviewReplyMockup } from "@/app/(public)/_components/review-reply-mockup";
+import { RedirectIfAuthenticated } from "@/app/_components/redirect-if-authenticated";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +25,15 @@ interface CopyItem {
   description: string;
 }
 
-const FEATURE_ICONS = [LuList, LuSparkles, LuSlidersHorizontal, LuTriangleAlert, LuChartNoAxesCombined, LuLockKeyhole];
+const FEATURE_ICONS = [
+  LuList,
+  LuSparkles,
+  LuSlidersHorizontal,
+  LuTriangleAlert,
+  LuChartNoAxesCombined,
+  LuLockKeyhole,
+  LuZap,
+];
 
 export default function LandingPage() {
   const t = useTranslations("marketing");
@@ -34,6 +44,7 @@ export default function LandingPage() {
   const features = t.raw("features.items") as CopyItem[];
 
   return (
+    <RedirectIfAuthenticated>
     <main className="overflow-hidden">
       {/* Hero */}
       <section className="relative isolate border-b border-border">
@@ -202,5 +213,6 @@ export default function LandingPage() {
         </div>
       </section>
     </main>
+    </RedirectIfAuthenticated>
   );
 }

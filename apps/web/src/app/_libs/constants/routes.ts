@@ -13,7 +13,11 @@ export const ROUTES = {
   USERS: "/users",
   LOGIN: "/login",
   LOGIN_MICROSOFT: "/login/microsoft",
+  // Deliberately not /admin/login — that path sitting textually under /admin/* could suggest
+  // it's inside the guarded admin shell when it must be public. See separate-admin-login-design.md.
+  ADMIN_LOGIN: "/admin-login",
   ONBOARDING_SIGNUP: "/onboarding/signup",
+  ONBOARDING_BUSINESS_NAME: "/onboarding/business-name",
   ONBOARDING_CONNECT: "/onboarding/connect",
   DASHBOARD: "/dashboard",
   REVIEW_QUEUE: "/review-queue",
@@ -24,6 +28,8 @@ export const ROUTES = {
   ADMIN_BUSINESSES: "/admin/businesses",
   ADMIN_USERS: "/admin/users",
   ADMIN_SETTINGS: "/admin/settings",
+  FORBIDDEN: "/forbidden",
+  UNAUTHORIZED: "/unauthorized",
 } as const;
 
 /**

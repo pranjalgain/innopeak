@@ -1,8 +1,16 @@
 "use client";
 
-import { useTranslations } from "next-intl";
-import * as React from "react";
 
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useTranslations } from "next-intl";
+import { useMemo, useState } from "react";
+import { useForm } from "react-hook-form";
+
+
+import {
+  type CreateAccountFields,
+  createAccountSchema,
+} from "@/app/(auth)/_schemas/create-account.schema";
 import { PasswordInput } from "@/components/common/password-input";
 import {
   checkPasswordRequirements,
@@ -13,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+/** The signup payload. Deliberately narrower than the form's fields — `confirmPassword` is UI-only. */
 export interface CreateAccountFormValues {
   name: string;
   businessName: string;
@@ -25,60 +34,64 @@ interface CreateAccountFormProps {
   onSubmit: (values: CreateAccountFormValues) => void;
 }
 
+const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
+
 /**
- * Signup's own account-creation form — deliberately not shared with login's
- * `PasswordAuthForm`: login never needs a name field or this much
- * validation for an account that already exists. The password checklist
- * and the confirm-password mismatch message only appear once their field
- * has been blurred at least once and has a value — not on the very first
- * keystroke — then update live as the user keeps editing, and the checklist
- * disappears again once every requirement is met.
+ * Signup's own account-creation form — deliberately not shared with login's `PasswordAuthForm`:
+ * login never needs a name field or this much validation for an account that already exists.
+ *
+ * Validation is react-hook-form + a zod resolver (`_schemas/create-account.schema.ts`), with
+ * `mode: 'onTouched'` so a message only appears once its field has been blurred at least once,
+ * then updates live as the user keeps editing.
+ *
+ * The password field shows the live checklist instead of its resolver error: the checklist names
+ * every unmet rule at once, where the error message can only name the first one zod hit.
  */
 export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProps) {
   const t = useTranslations("onboardingSignup.createAccount");
-  const [name, setName] = React.useState("");
-  const [businessName, setBusinessName] = React.useState("");
-  const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
-  const [confirmPassword, setConfirmPassword] = React.useState("");
-  const [passwordBlurred, setPasswordBlurred] = React.useState(false);
-  const [confirmBlurred, setConfirmBlurred] = React.useState(false);
+  const schema = useMemo(() => createAccountSchema(t), [t]);
 
-  const requirements = checkPasswordRequirements(password);
-  const passwordValid = passwordMeetsRequirements(requirements);
-  const hasConfirmValue = confirmPassword.length > 0;
-  const passwordsMatch = password === confirmPassword;
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isValid, touchedFields },
+  } = useForm<CreateAccountFields>({
+    resolver: zodResolver(schema),
+    mode: "onTouched",
+    defaultValues: { name: "", businessName: "", email: "", password: "", confirmPassword: "" },
+  });
 
-  const showRequirements = passwordBlurred && password.length > 0 && !passwordValid;
-  const showMismatch = confirmBlurred && hasConfirmValue && !passwordsMatch;
+  // Mirrored into local state via `register`'s onChange rather than read with `watch()`: the
+  // checklist needs the value on every keystroke, and `watch` cannot be memoized safely.
+  const [passwordValue, setPasswordValue] = useState("");
+  const requirements = checkPasswordRequirements(passwordValue);
+  // Hidden again once every rule passes — a column of green ticks is noise, not information.
+  const showRequirements =
+    Boolean(touchedFields.password) &&
+    passwordValue.length > 0 &&
+    !passwordMeetsRequirements(requirements);
 
-  const canSubmit =
-    name.trim() !== "" &&
-    businessName.trim() !== "" &&
-    email.trim() !== "" &&
-    passwordValid &&
-    passwordsMatch &&
-    hasConfirmValue &&
-    !isLoading;
+  const submit = handleSubmit((values) => {
+    onSubmit({
+      name: values.name,
+      businessName: values.businessName,
+      email: values.email,
+      password: values.password,
+    });
+  });
 
   return (
-    <form
-      className="flex flex-col gap-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (canSubmit) onSubmit({ name, businessName, email, password });
-      }}
-    >
+    <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="signup-name">{t("nameLabel")}</Label>
         <Input
           id="signup-name"
           type="text"
           placeholder={t("namePlaceholder")}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
           autoComplete="name"
+          {...register("name")}
         />
+        {errors.name ? <p className={FIELD_ERROR_CLASS}>{errors.name.message}</p> : null}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -87,10 +100,12 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
           id="signup-business-name"
           type="text"
           placeholder={t("businessNamePlaceholder")}
-          value={businessName}
-          onChange={(event) => setBusinessName(event.target.value)}
           autoComplete="organization"
+          {...register("businessName")}
         />
+        {errors.businessName ? (
+          <p className={FIELD_ERROR_CLASS}>{errors.businessName.message}</p>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -99,10 +114,10 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
           id="signup-email"
           type="email"
           placeholder={t("emailPlaceholder")}
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
           autoComplete="username"
+          {...register("email")}
         />
+        {errors.email ? <p className={FIELD_ERROR_CLASS}>{errors.email.message}</p> : null}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -110,10 +125,10 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
         <PasswordInput
           id="signup-password"
           placeholder={t("passwordLabel")}
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          onBlur={() => setPasswordBlurred(true)}
           autoComplete="new-password"
+          {...register("password", {
+            onChange: (event) => setPasswordValue(event.target.value),
+          })}
         />
         {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
       </div>
@@ -123,15 +138,15 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
         <PasswordInput
           id="signup-confirm-password"
           placeholder={t("confirmPasswordLabel")}
-          value={confirmPassword}
-          onChange={(event) => setConfirmPassword(event.target.value)}
-          onBlur={() => setConfirmBlurred(true)}
           autoComplete="new-password"
+          {...register("confirmPassword")}
         />
-        {showMismatch ? <p className="text-[12.5px] text-destructive">{t("passwordMismatch")}</p> : null}
+        {errors.confirmPassword ? (
+          <p className={FIELD_ERROR_CLASS}>{errors.confirmPassword.message}</p>
+        ) : null}
       </div>
 
-      <Button type="submit" size="block" disabled={!canSubmit}>
+      <Button type="submit" size="block" disabled={!isValid || isLoading}>
         {isLoading ? t("submitting") : t("submit")}
       </Button>
     </form>

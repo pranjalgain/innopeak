@@ -1,6 +1,6 @@
 import type { Route } from "next";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ClassificationBadge } from "@/components/common/classification-badge";
@@ -12,7 +12,7 @@ interface ReviewCardListProps {
   reviews: Review[];
 }
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+const DATE_FORMAT = { month: "short", day: "numeric" } as const;
 
 /**
  * Mobile/narrow-viewport counterpart to `ReviewTable` — the design switches
@@ -22,6 +22,7 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "
  */
 export function ReviewCardList({ reviews }: ReviewCardListProps) {
   const t = useTranslations("reviewQueue");
+  const format = useFormatter();
   const tEscalation = useTranslations("common.escalationReason");
 
   return (
@@ -55,7 +56,7 @@ export function ReviewCardList({ reviews }: ReviewCardListProps) {
           </div>
           <div className="flex items-center justify-between text-[13px]">
             <span className="text-muted-foreground">{t("columns.date")}</span>
-            <span>{DATE_FORMATTER.format(new Date(review.reviewedAt))}</span>
+            <span>{format.dateTime(new Date(review.reviewedAt), DATE_FORMAT)}</span>
           </div>
         </Link>
       ))}

@@ -1,37 +1,30 @@
-import { MOCK_TENANT_MEMBERS } from "@/app/_libs/mock-data/tenant-members";
+import { settingsApi } from "@/app/_libs/api-sdk/settings-api";
+import { unwrap } from "@/app/_libs/services/api-error";
 import type { TenantMember } from "@/types/domain";
 
 /**
- * Tenant team members — mirrors the real `users` table (`apps/backend`'s
- * `0002_tenant_auth.sql`), gated behind `FEATURE_FLAGS.inviteMembers` in the
- * UI. Mock implementation — becomes a real backend call once the auth
- * module exists. Hooks/components only ever call `useTenantMembers`, never
- * this class directly.
+ * Tenant team members — real backend calls against `/v1/settings/members`
+ * (`apps/backend`'s `TenantMembersController`), gated behind the platform's
+ * `inviteMembersEnabled` setting in the UI (and enforced server-side on invite — see
+ * `apps/documentation/docs/backend/auth/tenant-member-invite-design.md`). Hooks/components only
+ * ever call `useTenantMembers`, never this class directly.
  */
 export class TenantMemberService {
   static async getMembers(): Promise<TenantMember[]> {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    return MOCK_TENANT_MEMBERS;
+    const response = await settingsApi.tenantMembersControllerListV1();
+    return unwrap<TenantMember[]>(response.data);
   }
 
+  /** Throws `ApiError` on 403 (invites disabled platform-wide) or 409 (a live invite, or a real account, already exists for this email). */
   static async inviteMember(email: string): Promise<TenantMember> {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const member: TenantMember = {
-      id: `user_${Date.now()}`,
-      name: email.split("@")[0] ?? email,
-      email,
-      role: "member",
-      status: "invited",
-      invitedAt: new Date().toISOString(),
-    };
-    MOCK_TENANT_MEMBERS.push(member);
-    return member;
+    const response = await settingsApi.tenantMembersControllerInviteV1({
+      inviteMemberDto: { email },
+    });
+    return unwrap<TenantMember>(response.data);
   }
 
-  /** Only meaningful for a still-`invited` member — revokes their pending invite. */
+  /** Only meaningful for a still-`invited` member — revokes their pending invite. Throws `ApiError` on 404/409. */
   static async revokeInvite(id: string): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const index = MOCK_TENANT_MEMBERS.findIndex((member) => member.id === id);
-    if (index !== -1) MOCK_TENANT_MEMBERS.splice(index, 1);
+    await settingsApi.tenantMembersControllerRevokeV1({ memberId: id });
   }
 }

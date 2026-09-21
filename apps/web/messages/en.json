@@ -8,8 +8,8 @@
     },
     "hero": {
       "eyebrow": "For Google Business Profile reviews",
-      "headline": "AI drafts the reply. Your team approves every word.",
-      "subheadline": "InnoPeak watches your Google Business Profile, drafts a reply to every new review, and routes anything risky straight to the person who should see it — so nothing goes out that a human hasn't approved, and nothing slips through unanswered.",
+      "headline": "AI drafts the reply. You decide what goes out.",
+      "subheadline": "InnoPeak watches your Google Business Profile, drafts a reply to every new review, and routes anything risky straight to the person who should see it — approval is required by default, and nothing slips through unanswered.",
       "primaryCta": "Get started",
       "secondaryCta": "See how it works",
       "mockup": {
@@ -25,7 +25,7 @@
     },
     "trustBar": {
       "items": [
-        "Nothing posts without approval",
+        "Approval required by default",
         "Escalations reach a real person in minutes",
         "Works directly with your Google Business Profile"
       ]
@@ -61,7 +61,7 @@
         },
         {
           "title": "You approve, edit, or reject",
-          "description": "Nothing reaches Google without a person in your business signing off. Edit a word or two, or reject it outright."
+          "description": "By default nothing reaches Google without a person signing off — edit a word or two, or reject it outright. Once you trust the drafts, switch on auto-reply for straightforward reviews; escalated ones always wait for you."
         },
         {
           "title": "Risky reviews escalate automatically",
@@ -79,7 +79,7 @@
         },
         {
           "title": "AI reply drafts",
-          "description": "Drafted automatically for every review, in your voice — never posted without approval."
+          "description": "Drafted automatically for every review, in your voice. Nothing is posted until you approve it, unless you switch on auto-reply."
         },
         {
           "title": "Versioned prompts & tone",
@@ -96,6 +96,10 @@
         {
           "title": "Secure by design",
           "description": "Sign in with Microsoft SSO. Every business's data stays fully isolated from every other."
+        },
+        {
+          "title": "Auto-reply, when you're ready",
+          "description": "Off by default. Turn it on and straightforward reviews get answered automatically — escalated ones still wait for a person, every time."
         }
       ]
     },
@@ -125,16 +129,39 @@
   "appShell": {
     "notifications": "Notifications",
     "accountOwnerRole": "Owner",
+    "accountMemberRole": "Member",
     "superAdminRole": "Super Admin",
     "signOut": "Sign out",
     "notificationPanel": {
       "title": "Notifications",
       "markAllRead": "Mark all as read",
       "empty": "You're all caught up.",
+      "loadingMore": "Loading more…",
       "toasts": {
         "loadFailed": "Could not load notifications."
-      }
+      },
+      "loadMoreFailed": "Could not load more.",
+      "retry": "Retry"
+    },
+    "reconnectBanner": {
+      "message": "Your Google Business Profile connection has expired. New reviews aren't being imported until you reconnect.",
+      "action": "Reconnect"
+    },
+    "waitingOnOwner": {
+      "title": "Almost there",
+      "description": "Your business owner still needs to connect a Google Business Profile before you can use this. Check back once they have."
     }
+  },
+  "languageSwitcher": {
+    "syncFailed": "Could not save your language preference. Please try again.",
+    "label": "German"
+  },
+  "themeToggle": {
+    "label": "Dark mode"
+  },
+  "businessSwitcher": {
+    "label": "Switch business",
+    "switchFailed": "Could not switch your active business. Please try again."
   },
   "auth": {
     "login": {
@@ -146,14 +173,83 @@
       "google": "Google",
       "orDivider": "or",
       "noAccount": "Don't have an account?",
-      "signUp": "Sign up"
+      "signUp": "Sign up",
+      "ssoUnavailable": "Couldn't check for additional sign-in options.",
+      "ssoUnavailableRetry": "Try again",
+      "platformAdmin": "Platform admin?",
+      "adminSignIn": "Sign in here"
+    },
+    "adminLogin": {
+      "title": "Admin sign in",
+      "orDivider": "or",
+      "continueWithGoogle": "Continue with Google",
+      "notAdmin": "Not a platform admin?",
+      "tenantSignIn": "Sign in here"
+    },
+    "acceptInvite": {
+      "title": "You're invited",
+      "invitedAs": "Set a password to finish setting up {email}.",
+      "invitedAsWithGoogle": "Set a password to finish setting up {email}, or continue with Google.",
+      "passwordLabel": "Password",
+      "confirmPasswordLabel": "Confirm password",
+      "submit": "Accept invite",
+      "submitting": "Accepting…",
+      "orDivider": "or",
+      "continueWithGoogle": "Continue with Google",
+      "invalidTitle": "This invite isn't valid",
+      "invalidDescription": "This link is invalid or has expired. Ask whoever invited you to send a new one.",
+      "backToLogin": "Back to sign in",
+      "passwordMismatch": "Passwords don't match.",
+      "errors": {
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordUppercase": "Password must contain an uppercase letter.",
+        "passwordLowercase": "Password must contain a lowercase letter.",
+        "passwordNumber": "Password must contain a number.",
+        "passwordSpecial": "Password must contain a special character.",
+        "confirmPasswordRequired": "Re-enter your password to confirm it."
+      }
+    },
+    "acceptMemberInvite": {
+      "title": "You're invited",
+      "invitedAs": "Set up your account to join as {email}.",
+      "invitedAsWithGoogle": "Set up your account to join as {email}, or continue with Google.",
+      "nameLabel": "Your name",
+      "passwordLabel": "Password",
+      "confirmPasswordLabel": "Confirm password",
+      "submit": "Accept invite",
+      "submitting": "Accepting…",
+      "orDivider": "or",
+      "continueWithGoogle": "Continue with Google",
+      "invalidTitle": "This invite isn't valid",
+      "invalidDescription": "This link is invalid or has expired. Ask whoever invited you to send a new one.",
+      "unavailableTitle": "Something went wrong",
+      "unavailableDescription": "We couldn't check this invite link. Check your connection and try again.",
+      "retry": "Try again",
+      "backToLogin": "Back to sign in",
+      "passwordMismatch": "Passwords don't match.",
+      "errors": {
+        "nameRequired": "Enter your name.",
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordUppercase": "Password must contain an uppercase letter.",
+        "passwordLowercase": "Password must contain a lowercase letter.",
+        "passwordNumber": "Password must contain a number.",
+        "passwordSpecial": "Password must contain a special character.",
+        "confirmPasswordRequired": "Re-enter your password to confirm it.",
+        "validationFailed": "We couldn't check this invite link. Please try again."
+      }
     },
     "passwordMock": {
       "emailLabel": "Email",
       "emailPlaceholder": "you@company.com",
       "passwordLabel": "Password",
       "signIn": "Sign in",
-      "signingIn": "Signing in…"
+      "signingIn": "Signing in…",
+      "errors": {
+        "emailInvalid": "Enter a valid email address.",
+        "passwordRequired": "Enter your password."
+      }
     },
     "microsoftMock": {
       "title": "Sign in with Microsoft",
@@ -167,33 +263,74 @@
     },
     "toasts": {
       "signInFailed": "Something went wrong signing in. Please try again.",
+      "signUpFailed": "Something went wrong creating your account. Please try again.",
       "signOutFailed": "Something went wrong signing out. Please try again."
+    },
+    "googleErrors": {
+      "NO_ACCOUNT": "No account found for that Google address. Sign up first.",
+      "INVALID_STATE": "That sign-in link expired or was already used. Please try again.",
+      "ACCESS_DENIED": "Google sign-in was cancelled.",
+      "EMAIL_NOT_VERIFIED": "Google has not verified that address. Verify it with Google, or use email and password.",
+      "ACCOUNT_UNAVAILABLE": "This account is not available. Contact support.",
+      "PROVIDER_ERROR": "Could not reach Google. Please try again.",
+      "NOT_CONFIGURED": "Google sign-in is not available right now. Use email and password.",
+      "INVALID_OR_EXPIRED_INVITE": "This invite link is invalid or has expired.",
+      "INVITE_EMAIL_MISMATCH": "That Google account's email doesn't match the invited address. Sign in to Google with the address the invite was sent to.",
+      "GOOGLE_IDENTITY_ALREADY_LINKED": "That Google account is already linked to a different account.",
+      "fallback": "Google sign-in did not complete. Please try again."
     }
   },
   "onboardingConnect": {
     "connect": {
       "title": "Connect your Google Business Profile",
       "description": "InnoPeak needs access to your Google Business Profile to read and respond to reviews on your behalf. You'll be asked to grant permission to manage reviews for your locations.",
-      "button": "Connect Google Business Profile"
+      "button": "Connect Google Business Profile",
+      "connecting": "Redirecting to Google…"
     },
     "confirmLocation": {
       "title": "We found your business",
       "subtitle": "Confirm this is the location you'd like InnoPeak to manage.",
-      "button": "Continue"
+      "button": "Continue",
+      "buttonMultiple": "Continue with {count} locations",
+      "subtitleMultiple": "Choose the locations you'd like InnoPeak to manage.",
+      "noAddress": "No address on file"
     },
     "backfilling": {
       "title": "Importing your review history",
       "description": "This usually takes a minute. Don't close this window.",
-      "importing": "Importing historical reviews… {imported} of ~{total} imported"
+      "importing": "Importing historical reviews… {imported} of ~{total} imported",
+      "importingUnknownTotal": "Importing historical reviews… {imported} so far",
+      "takingLonger": "This is taking longer than usual. We'll keep going — you can safely close this window and come back."
     },
     "done": {
       "title": "You're all set",
       "description": "We imported {count} historical reviews and will start checking for new ones every 15 minutes.",
       "button": "Go to Dashboard"
+    },
+    "errors": {
+      "INVALID_STATE": "That connection link has expired or was already used. Please start again.",
+      "ACCESS_DENIED": "You cancelled the Google permission request. InnoPeak needs access to read your reviews.",
+      "PROVIDER_ERROR": "Google couldn't complete the connection. Please try again in a moment.",
+      "ACCOUNT_MISMATCH": "That's a different Google account from the one currently connected. To switch accounts, disconnect the current one from Settings first, then connect again.",
+      "INSUFFICIENT_SCOPE": "InnoPeak wasn't granted permission to manage reviews. Please reconnect and accept all requested permissions.",
+      "SERVER_ERROR": "Something went wrong on our end. Please try again.",
+      "UNKNOWN": "Something went wrong connecting your Google Business Profile.",
+      "loadLocationsFailed": "We couldn't load your Google locations. Please try again.",
+      "confirmFailed": "We couldn't save that location. Please try again.",
+      "needsReauth": "Your Google connection has expired. Please reconnect.",
+      "backfillFailed": "The review import didn't finish. You can retry it now."
+    },
+    "actions": {
+      "retry": "Try again",
+      "reconnect": "Reconnect Google",
+      "restart": "Start over",
+      "continue": "Continue"
     }
   },
   "onboardingSignup": {
     "subtitle": "Verify your identity, then connect your Google Business Profile.",
+    "haveAccount": "Already have an account?",
+    "signIn": "Sign in",
     "stepper": {
       "identity": "Create account",
       "otp": "Verify email",
@@ -210,7 +347,19 @@
       "confirmPasswordLabel": "Confirm password",
       "passwordMismatch": "Passwords don't match.",
       "submit": "Create account",
-      "submitting": "Creating account…"
+      "submitting": "Creating account…",
+      "errors": {
+        "nameRequired": "Enter your full name.",
+        "businessNameRequired": "Enter your company name.",
+        "emailInvalid": "Enter a valid email address.",
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordUppercase": "Password must contain an uppercase letter.",
+        "passwordLowercase": "Password must contain a lowercase letter.",
+        "passwordNumber": "Password must contain a number.",
+        "passwordSpecial": "Password must contain a special character.",
+        "confirmPasswordRequired": "Re-enter your password to confirm it."
+      }
     },
     "otp": {
       "title": "Verify your email",
@@ -223,11 +372,26 @@
       "resendIn": "Resend code in {seconds}s",
       "toasts": {
         "resent": "Code resent.",
+        "resendFailed": "Could not resend the code. Please try again in a moment.",
         "verifyFailed": "Could not verify this code. Please try again."
       }
     }
   },
+  "onboardingBusinessName": {
+    "title": "What's your business name?",
+    "subtitle": "One last thing before you connect your Google Business Profile.",
+    "label": "Business name",
+    "placeholder": "The Coffee House",
+    "submit": "Continue",
+    "submitting": "Saving…",
+    "startOver": "Something not right?",
+    "startOverLink": "Start over",
+    "errors": {
+      "required": "Enter your business name."
+    }
+  },
   "dashboard": {
+    "loadError": "Could not load dashboard data. Please try again.",
     "dateRanges": {
       "7d": "Last 7 days",
       "30d": "Last 30 days",
@@ -237,30 +401,16 @@
       "reviews": "Reviews",
       "averageRating": "Average rating",
       "pendingApproval": "Pending approval",
-      "escalatedOpen": "Escalated (open)",
-      "medianApprovalTime": "Median time to approval"
+      "escalatedOpen": "Escalated (open)"
     },
     "ratingDistribution": {
       "title": "Rating distribution",
       "subtitle": "Based on last 30 days of reviews",
       "starLabel": "{star, plural, one {# star} other {# stars}}"
     },
-    "approvalBreakdown": {
-      "title": "Approval breakdown",
-      "subtitle": "How AI-drafted replies were handled in this period",
-      "outcomes": {
-        "approved_as_is": "Approved as-is",
-        "approved_edited": "Edited, then approved",
-        "rejected": "Rejected"
-      }
-    },
-    "escalationBreakdown": {
-      "title": "Escalation reasons",
-      "subtitle": "Why reviews escalated in this period"
-    },
     "attention": {
       "title": "Needs your attention",
-      "reviewCta": "Review →"
+      "reviewCta": "Review"
     },
     "businessProfile": {
       "googleReviewCount": "({count, plural, one {# Google review} other {# Google reviews}})"
@@ -286,6 +436,11 @@
       "description": "Try clearing the status, classification, or search filters.",
       "clearFilters": "Clear filters"
     },
+    "errorState": {
+      "title": "Couldn't load reviews",
+      "description": "Something went wrong loading this page. Please try again.",
+      "retry": "Retry"
+    },
     "toasts": {
       "loadFailed": "Could not load reviews."
     }
@@ -297,7 +452,8 @@
     "toasts": {
       "loadFailed": "Could not load this review.",
       "approved": "Reply approved.",
-      "rejected": "Reply rejected."
+      "rejected": "Reply rejected.",
+      "saveFailed": "Could not save the change. Please try again."
     },
     "replies": {
       "title": "Suggested replies",
@@ -330,6 +486,7 @@
       "profile": "Profile",
       "members": "Members"
     },
+    "noSettingsForMember": "There's nothing to configure here yet. Ask your business owner if you need something changed.",
     "general": {
       "title": "General",
       "description": "Core escalation and data-handling defaults for this tenant.",
@@ -340,13 +497,22 @@
         "helper": "Reviews below this rating are escalated to your team"
       },
       "autoPost": {
-        "label": "Auto-post approved replies",
-        "helper": "Automatically publish replies once approved, without a manual posting step."
+        "label": "Auto-reply to straightforward reviews",
+        "helper": "When on, reviews classified as auto-reply candidates are answered without waiting for approval. Escalated reviews always wait for a person."
       },
       "retention": {
         "label": "Review data retention",
-        "suffix": "months, then reviewer PII is anonymized"
-      }
+        "suffix": "months, then reviewer PII is anonymized",
+        "notSet": "Not set — reviewer PII is kept indefinitely.",
+        "add": "Add retention period",
+        "remove": "Remove",
+        "errors": {
+          "min": "Enter a number of 1 or more."
+        }
+      },
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel"
     },
     "blocklist": {
       "title": "Blocklist",
@@ -372,9 +538,12 @@
       "lastSynced": "Last synced {date}",
       "statusConnected": "Connected",
       "statusDisconnected": "Disconnected",
+      "connectButton": "Connect Google Business Profile",
+      "connecting": "Redirecting to Google…",
       "disconnectButton": "Disconnect",
-      "disconnectConfirm": "Are you sure? This location will stop syncing new reviews.",
-      "cancel": "Cancel"
+      "disconnectConfirm": "Are you sure? This disconnects your entire Google Business Profile connection — every location below will stop syncing new reviews.",
+      "cancel": "Cancel",
+      "otherLocations": "Other connected locations"
     },
     "ai": {
       "title": "AI Replies",
@@ -392,20 +561,50 @@
     },
     "profile": {
       "title": "Your profile",
-      "description": "Your login email and password for this account.",
+      "nameLabel": "Name",
+      "description": "Your name, login email, and password for this account.",
       "changePicture": "Change picture",
       "emailLabel": "Email",
+      "businessNameLabel": "Business name",
       "changePasswordTitle": "Change password",
+      "changePasswordDescription": "Update the password used to sign in to this account.",
+      "changePassword": "Change password",
       "currentPasswordLabel": "Current password",
       "newPasswordLabel": "New password",
       "confirmPasswordLabel": "Confirm new password",
       "passwordMismatch": "Passwords don't match.",
       "updatePassword": "Update password",
+      "cancel": "Cancel",
+      "addPasswordTitle": "Add a password",
+      "addPasswordDescription": "You signed up with Google. Add a password to also be able to sign in with your email and password.",
+      "addPassword": "Add password",
+      "setPassword": "Set password",
+      "settingPassword": "Setting…",
+      "sendingCode": "Sending…",
+      "otpSentDescription": "We emailed you a 6-digit code. Enter it below along with your new password.",
+      "otpLabel": "Verification code",
+      "resendCode": "Resend code",
+      "resendCodeIn": "Resend code ({seconds}s)",
       "toasts": {
         "loadFailed": "Could not load your profile.",
         "updateFailed": "Could not save this change. Please try again.",
+        "currentPasswordIncorrect": "Current password is incorrect.",
         "avatarUpdated": "Profile picture updated.",
-        "passwordChanged": "Password changed."
+        "passwordChanged": "Password changed. Other sessions have been signed out.",
+        "passwordSet": "Password set. You can now also sign in with a password.",
+        "otpSent": "Verification code sent. Check your email to continue."
+      },
+      "errors": {
+        "currentPasswordRequired": "Enter your current password.",
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordUppercase": "Password must contain an uppercase letter.",
+        "passwordLowercase": "Password must contain a lowercase letter.",
+        "passwordNumber": "Password must contain a number.",
+        "passwordSpecial": "Password must contain a special character.",
+        "confirmPasswordRequired": "Re-enter your new password to confirm it.",
+        "otpRequired": "Enter the verification code.",
+        "otpInvalid": "The verification code must be exactly 6 digits."
       }
     },
     "members": {
@@ -436,17 +635,24 @@
         "inviteFailed": "Could not send this invite. Please try again.",
         "revoked": "Invite revoked.",
         "revokeFailed": "Could not revoke this invite. Please try again."
+      },
+      "errors": {
+        "emailInvalid": "Enter a valid email address to invite."
       }
     },
     "toasts": {
       "loadFailed": "Could not load settings.",
+      "saveFailed": "Could not update the blocklist.",
+      "generalSaveFailed": "Could not save general settings.",
+      "generalSaved": "Settings saved.",
       "blocklistTermAdded": "Term added to blocklist.",
       "blocklistTermRemoved": "Term removed from blocklist.",
       "notificationChannelUpdated": "Notification channel updated.",
       "notificationToggled": "Notification setting updated.",
       "disconnected": "Google Business Profile disconnected.",
-      "autoPostToggled": "Auto-post setting updated.",
-      "aiReplyCountUpdated": "AI reply count updated."
+      "disconnectFailed": "We couldn't disconnect your Google Business Profile. Please try again.",
+      "aiReplyCountUpdated": "AI reply count updated.",
+      "updateFailed": "Could not save the change. Please try again."
     }
   },
   "promptManagement": {
@@ -501,11 +707,11 @@
     "needsAttention": {
       "title": "Needs attention",
       "subtitle": "Businesses with a Google Business Profile connection issue",
-      "empty": "Nothing needs attention right now.",
       "viewAll": "View all businesses →",
       "statuses": {
         "needs_reauth": "Needs reauth",
-        "disconnected": "Disconnected"
+        "disconnected": "Disconnected",
+        "never_connected": "Never connected"
       }
     },
     "recentBusinesses": {
@@ -521,13 +727,18 @@
     },
     "activityLog": {
       "title": "Activity",
-      "subtitle": "Recent platform admin actions",
+      "subtitle": "Recent platform activity",
       "empty": "No activity yet.",
       "messages": {
+        "business_joined": "New business \"{businessName}\" signed up",
         "business_suspended": "Suspended {businessName}",
         "business_reactivated": "Reactivated {businessName}",
         "admin_invite_sent": "Invited {email} as a platform admin",
-        "admin_invite_revoked": "Revoked the invite for {email}"
+        "admin_invite_revoked": "Revoked the invite for {email}",
+        "admin_disabled": "Disabled admin {email}",
+        "admin_enabled": "Enabled admin {email}",
+        "user_activated": "Reactivated {email} at {businessName}",
+        "user_deactivated": "Deactivated {email} at {businessName}"
       }
     },
     "toasts": {
@@ -610,7 +821,8 @@
   "adminSettings": {
     "tabs": {
       "profile": "Profile",
-      "members": "Members"
+      "members": "Members",
+      "platform": "Platform"
     },
     "profile": {
       "title": "Your profile",
@@ -618,16 +830,45 @@
       "changePicture": "Change picture",
       "emailLabel": "Email",
       "changePasswordTitle": "Change password",
+      "changePasswordDescription": "Update the password used to sign in to your super admin account.",
+      "changePassword": "Change password",
       "currentPasswordLabel": "Current password",
       "newPasswordLabel": "New password",
       "confirmPasswordLabel": "Confirm new password",
       "updatePassword": "Update password",
       "passwordMismatch": "New password and confirmation don't match.",
+      "cancel": "Cancel",
+      "addPasswordTitle": "Add a password",
+      "addPasswordDescription": "You accepted your invite with Google. Add a password to also be able to sign in with your email and password.",
+      "addPassword": "Add password",
+      "setPassword": "Set password",
+      "settingPassword": "Setting…",
+      "sendingCode": "Sending…",
+      "otpSentDescription": "We emailed you a 6-digit code. Enter it below along with your new password.",
+      "otpLabel": "Verification code",
+      "resendCode": "Resend code",
+      "resendCodeIn": "Resend code ({seconds}s)",
       "toasts": {
         "loadFailed": "Could not load your profile.",
         "updateFailed": "Could not save this change. Please try again.",
+        "currentPasswordIncorrect": "Current password is incorrect.",
         "avatarUpdated": "Profile picture updated.",
-        "passwordChanged": "Password changed."
+        "passwordChanged": "Password changed.",
+        "passwordSet": "Password set. You can now also sign in with a password.",
+        "otpSent": "Verification code sent. Check your email to continue.",
+        "tooManyRequests": "Too many attempts. Please wait a minute and try again."
+      },
+      "errors": {
+        "currentPasswordRequired": "Enter your current password.",
+        "passwordTooShort": "Password must be at least 8 characters.",
+        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordUppercase": "Password must contain an uppercase letter.",
+        "passwordLowercase": "Password must contain a lowercase letter.",
+        "passwordNumber": "Password must contain a number.",
+        "passwordSpecial": "Password must contain a special character.",
+        "confirmPasswordRequired": "Re-enter your new password to confirm it.",
+        "otpRequired": "Enter the verification code.",
+        "otpInvalid": "The verification code must be exactly 6 digits."
       }
     },
     "invite": {
@@ -654,7 +895,43 @@
         "sendFailed": "Could not send this invite. Please try again.",
         "sent": "Invite sent to {email}.",
         "revokeFailed": "Could not revoke this invite. Please try again.",
-        "revoked": "Invite revoked."
+        "revoked": "Invite revoked.",
+        "adminDisabled": "Admin disabled.",
+        "adminEnabled": "Admin enabled.",
+        "updateFailed": "Could not update this admin. Please try again."
+      },
+      "errors": {
+        "emailInvalid": "Enter a valid email address to invite."
+      },
+      "disable": "Disable",
+      "enable": "Enable",
+      "confirmDisable": {
+        "title": "Disable {email}?",
+        "description": "They will lose access on their next request and cannot sign in until re-enabled."
+      }
+    },
+    "platform": {
+      "title": "Platform settings",
+      "description": "Which sign-in methods are offered, and whether tenants can invite teammates. Changes apply immediately, everywhere.",
+      "sso": {
+        "label": "Microsoft SSO",
+        "helper": "Offer \"Continue with Microsoft\" on the sign-in and sign-up screens."
+      },
+      "password": {
+        "label": "Email & password",
+        "helper": "Offer email/password for tenant sign-up and password management — existing password sign-in is always available."
+      },
+      "social": {
+        "label": "Google sign-in",
+        "helper": "Offer \"Continue with Google\" on the sign-in and sign-up screens."
+      },
+      "inviteMembers": {
+        "label": "Invite teammates",
+        "helper": "Let a tenant owner invite teammates from their own Settings > Members tab."
+      },
+      "toasts": {
+        "updated": "Platform settings updated.",
+        "updateFailed": "Could not save this change. Please try again."
       }
     }
   },
@@ -675,7 +952,9 @@
     "passwordRequirements": {
       "minLength": "At least 8 characters",
       "uppercase": "One uppercase letter",
-      "number": "One number"
+      "lowercase": "One lowercase letter",
+      "number": "One number",
+      "special": "One special character"
     },
     "pagination": {
       "previous": "Previous page",
@@ -683,7 +962,7 @@
       "pageOf": "Page {page} of {totalPages}"
     },
     "classification": {
-      "auto_reply_candidate": "Auto-reply candidate",
+      "auto_reply_candidate": "Auto Reply",
       "escalated": "Escalated",
       "unclassified": "Unclassified"
     },
@@ -692,6 +971,22 @@
       "in_review": "In Review",
       "responded": "Responded",
       "dismissed": "Dismissed"
+    },
+    "loadError": {
+      "title": "Couldn't load this",
+      "description": "Something went wrong on our side. This isn't an empty list — try again in a moment.",
+      "retry": "Try again"
+    }
+  },
+  "accessState": {
+    "returnHome": "Return home",
+    "forbidden": {
+      "title": "Forbidden",
+      "description": "Your account doesn't have access to this page. If you think that's wrong, ask an owner on your team to check your access."
+    },
+    "unauthorized": {
+      "title": "Unauthorized",
+      "description": "You need to be signed in to view this page."
     }
   }
 }

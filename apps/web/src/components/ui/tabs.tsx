@@ -46,7 +46,10 @@ function TabsContent({ className, ...props }: React.ComponentProps<typeof TabsPr
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"
-      className={cn("animate-in fade-in flex-1 outline-none duration-200 ease-fluid", className)}
+      className={cn(
+        "animate-in fade-in slide-in-from-bottom-1 flex-1 outline-none duration-300 ease-fluid motion-reduce:animate-none",
+        className,
+      )}
       {...props}
     />
   );

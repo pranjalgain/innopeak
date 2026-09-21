@@ -1,7 +1,9 @@
 "use client";
 
+
 import { useTranslations } from "next-intl";
-import * as React from "react";
+import { useState } from "react";
+
 
 import { PromptEditorDialog } from "@/app/(dashboard)/settings/prompts/_components/prompt-editor-dialog";
 import { PromptList } from "@/app/(dashboard)/settings/prompts/_components/prompt-list";
@@ -13,7 +15,7 @@ import { usePrompts } from "@/hooks/prompts/use-prompts";
 
 function PromptManagementSkeleton() {
   return (
-    <div className="flex flex-col gap-6 p-fluid-page">
+    <div className="p-fluid-page flex flex-col gap-6">
       <div>
         <Skeleton className="mb-3 h-4 w-32" />
         <Skeleton className="h-8 w-56" />
@@ -30,22 +32,27 @@ export function PromptManagementView() {
   const t = useTranslations("promptManagement");
   const { prompts, isLoading, isSaving, saveNewVersion, updateTone } = usePrompts();
   const { getStats, isLoading: isLoadingStats } = usePromptAnalytics();
-  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const editingPrompt = prompts.find((prompt) => prompt.id === editingId) ?? null;
 
   if (isLoading || isLoadingStats) return <PromptManagementSkeleton />;
 
   return (
-    <div className="flex flex-col gap-6 p-fluid-page">
+    <div className="p-fluid-page flex flex-col gap-6">
       <div>
         <BackLink href={ROUTES.SETTINGS} label={t("backToSettings")} className="mb-3" />
         <h1 className="text-fluid-title font-semibold">{t("title")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t("description")}</p>
+        <p className="text-muted-foreground mt-1 text-sm">{t("description")}</p>
       </div>
 
       <div className="max-w-3xl">
-        <PromptList prompts={prompts} onEdit={setEditingId} onToneChange={updateTone} getStats={getStats} />
+        <PromptList
+          prompts={prompts}
+          onEdit={setEditingId}
+          onToneChange={updateTone}
+          getStats={getStats}
+        />
       </div>
 
       <PromptEditorDialog

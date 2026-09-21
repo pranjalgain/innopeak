@@ -1,23 +1,37 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { LuBuilding2, LuMessageSquare, LuReply, LuUsers } from "react-icons/lu";
 
 import { ActivityLogCard } from "@/app/admin/_components/activity-log-card";
-import { NeedsAttentionPanel } from "@/app/admin/_components/needs-attention-panel";
+import {
+  hasBusinessesNeedingAttention,
+  NeedsAttentionPanel,
+} from "@/app/admin/_components/needs-attention-panel";
 import { RecentBusinessesCard } from "@/app/admin/_components/recent-businesses-card";
 import { SignupTrendCard } from "@/app/admin/_components/signup-trend-card";
+import { LoadErrorState } from "@/components/common/load-error-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAdminOverview } from "@/hooks/admin/use-admin-overview";
 import { useCountUp } from "@/hooks/common/use-count-up";
 
-const NUMBER_FORMATTER = new Intl.NumberFormat("en-US");
-
 export function AdminOverviewView() {
   const t = useTranslations("adminOverview");
-  const { businesses, businessCount, userCount, totalReviewsFetched, totalRepliesSent, recentActivity, isLoading } =
-    useAdminOverview();
+  const format = useFormatter();
+  const {
+    businesses,
+    businessCount,
+    userCount,
+    totalReviewsFetched,
+    totalRepliesSent,
+    activityFeed,
+    isLoading,
+    isError,
+    refetch,
+  } = useAdminOverview();
+
+  const showNeedsAttention = hasBusinessesNeedingAttention(businesses);
 
   // Each stat counts up from 0 on first load, once its real value arrives.
   const businessCountAnimated = useCountUp(businessCount, isLoading);
@@ -26,11 +40,22 @@ export function AdminOverviewView() {
   const repliesSentAnimated = useCountUp(totalRepliesSent, isLoading);
 
   const stats = [
-    { key: "businesses", value: NUMBER_FORMATTER.format(businessCountAnimated), icon: LuBuilding2 },
-    { key: "users", value: NUMBER_FORMATTER.format(userCountAnimated), icon: LuUsers },
-    { key: "reviewsFetched", value: NUMBER_FORMATTER.format(reviewsFetchedAnimated), icon: LuMessageSquare },
-    { key: "repliesSent", value: NUMBER_FORMATTER.format(repliesSentAnimated), icon: LuReply },
+    { key: "businesses", value: format.number(businessCountAnimated), icon: LuBuilding2 },
+    { key: "users", value: format.number(userCountAnimated), icon: LuUsers },
+    { key: "reviewsFetched", value: format.number(reviewsFetchedAnimated), icon: LuMessageSquare },
+    { key: "repliesSent", value: format.number(repliesSentAnimated), icon: LuReply },
   ] as const;
+
+  // The whole page rather than per-panel: every panel here is derived from the same four queries,
+  // so a failure would otherwise paint four separate confident zeroes — "0 Businesses", "Nothing
+  // needs attention right now", "No signups yet" — which is an outage described as good news.
+  if (isError) {
+    return (
+      <div className="p-fluid-page">
+        <LoadErrorState onRetry={refetch} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6 p-fluid-page">
@@ -64,8 +89,8 @@ export function AdminOverviewView() {
           <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <NeedsAttentionPanel businesses={businesses} />
+        <div className={`grid gap-4 ${showNeedsAttention ? "lg:grid-cols-2" : ""}`}>
+          {showNeedsAttention && <NeedsAttentionPanel businesses={businesses} />}
           <RecentBusinessesCard businesses={businesses} />
         </div>
       )}
@@ -78,7 +103,7 @@ export function AdminOverviewView() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           <SignupTrendCard businesses={businesses} />
-          <ActivityLogCard entries={recentActivity} />
+          <ActivityLogCard entries={activityFeed} />
         </div>
       )}
     </div>

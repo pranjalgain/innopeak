@@ -4,6 +4,7 @@ import { LuCheck } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
 
 interface DoneStageProps {
+  /** What was actually imported — not the planned total, which a real backend may never reach. */
   totalImported: number;
   onGoToDashboard: () => void;
 }

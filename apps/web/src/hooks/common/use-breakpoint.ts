@@ -1,4 +1,4 @@
-import * as React from "react";
+import { useEffect, useState } from "react";
 
 import type { Breakpoint } from "@/hooks/common/breakpoint.types";
 
@@ -13,9 +13,9 @@ const DESKTOP_BREAKPOINT = 1024;
  * collapse state is normally user-toggled, not viewport-driven.
  */
 export function useBreakpoint(): Breakpoint {
-  const [breakpoint, setBreakpoint] = React.useState<Breakpoint>("desktop");
+  const [breakpoint, setBreakpoint] = useState<Breakpoint>("desktop");
 
-  React.useEffect(() => {
+  useEffect(() => {
     const tabletQuery = window.matchMedia(`(max-width: ${TABLET_BREAKPOINT - 1}px)`);
     const desktopQuery = window.matchMedia(`(max-width: ${DESKTOP_BREAKPOINT - 1}px)`);
 

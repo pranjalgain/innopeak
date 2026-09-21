@@ -6,9 +6,6 @@
  * already flowing through hooks and components.
  */
 
-/** Which identity a mock login session belongs to — `super_admin` is a platform-level identity, distinct from any tenant. */
-export type SessionRole = "tenant" | "super_admin";
-
 export interface Tenant {
   id: string;
   name: string;
@@ -25,32 +22,14 @@ export type DateRange = "7d" | "30d" | "90d";
 
 export interface DashboardStats {
   range: DateRange;
-  rangeLabel: string;
   reviewCount: number;
   averageRating: number;
   pendingApproval: number;
   escalatedOpen: number;
-  /** Median minutes from review received to reply approved; null when nothing was approved in the range. */
-  medianApprovalTimeMinutes: number | null;
 }
 
 export interface RatingDistributionRow {
   star: 1 | 2 | 3 | 4 | 5;
-  count: number;
-  percentage: number;
-}
-
-/** Mirrors `review_responses.source`/`status` on the real schema: how a reply reached its final state. */
-export type ApprovalOutcome = "approved_as_is" | "approved_edited" | "rejected";
-
-export interface ApprovalBreakdownRow {
-  outcome: ApprovalOutcome;
-  count: number;
-  percentage: number;
-}
-
-export interface EscalationBreakdownRow {
-  reason: EscalationReason;
   count: number;
   percentage: number;
 }
@@ -63,7 +42,9 @@ export interface AttentionReview {
   initials: string;
   rating: number;
   snippet: string;
-  escalationReason: EscalationReason;
+  /** Null is reachable: `escalation_reason` is nullable, so a review escalated without a recorded
+   * reason renders no badge rather than a guessed one. */
+  escalationReason: EscalationReason | null;
 }
 
 export type ReviewStatus = "new" | "in_review" | "responded" | "dismissed";
@@ -134,7 +115,8 @@ export interface NotificationRecipient {
 export interface GeneralSettings {
   escalationRatingThreshold: 1 | 2 | 3 | 4 | 5;
   autoPostApprovedReplies: boolean;
-  reviewDataRetentionMonths: number;
+  /** `null` means the platform default retention window. */
+  reviewDataRetentionMonths: number | null;
   aiReplyCount: number;
 }
 
@@ -160,8 +142,15 @@ export interface SettingsData {
  * `avatarUrl` is the only field this screen lets you change directly.
  */
 export interface TenantOwnerProfile {
+  name: string;
   email: string;
   avatarUrl: string | null;
+  /** `false` for a Google/SSO-only account — Settings shows "Add password" instead of "Change password". */
+  hasPassword: boolean;
+  /** The tenant/company name set at signup (`tenants.name`) — read-only in Settings. */
+  businessName: string;
+  /** The shell's own role badge reads this — see `MemberRole` for the invited-teammate case, which `DashboardLayout` had no way to distinguish from an owner before this field existed. */
+  role: MemberRole;
 }
 
 /** Mirrors the real `user_role`/`user_status` enums on the tenant-scoped `users` table. */
@@ -236,7 +225,12 @@ export interface Notification {
 export type BusinessStatus = "active" | "suspended";
 
 /** Mirrors the real `google_connection_status` enum, flattened with a `disconnected` case for "no connection row exists yet" (see the connections module plan). */
-export type BusinessConnectionStatus = "connected" | "needs_reauth" | "disconnected";
+export type BusinessConnectionStatus =
+  | "connected"
+  | "needs_reauth"
+  | "disconnected"
+  /** Signed up but never finished onboarding — distinct from having lost a working connection. */
+  | "never_connected";
 
 /** A tenant as seen from the Super Admin area — "business" is this area's user-facing term for a tenant; distinct from `Tenant`, which models the current business from inside its own dashboard. */
 export interface AdminBusiness {
@@ -275,6 +269,9 @@ export type PlatformAdminStatus = "invited" | "active" | "disabled";
 export interface PlatformAdminProfile {
   email: string;
   avatarUrl: string | null;
+  /** `false` for a Google-only admin (accepted an invite via SSO) — Settings shows "Add
+   *  password" instead of "Change password" for those. */
+  hasPassword: boolean;
 }
 
 /** Mirrors `platform_admins` (status) joined with its own `platform_admin_invites` row. */
@@ -283,7 +280,12 @@ export interface PlatformAdminInvite {
   email: string;
   status: PlatformAdminStatus;
   invitedAt: string;
-  expiresAt: string;
+  /** When a pending invite lapses. `null` for an admin that was never invited (the seeded root) —
+   * only meaningful, and only read, while `status === "invited"`. */
+  expiresAt: string | null;
+  /** The seeded root admin — never invited, never disable-able, never revocable. The roster hides
+   * those actions for this row regardless of who's viewing it. */
+  isRoot: boolean;
 }
 
 /** Platform-wide review throughput, aggregated across every tenant — shown on the Super Admin overview. */
@@ -292,12 +294,34 @@ export interface PlatformReviewStats {
   totalRepliesSent: number;
 }
 
-/** A platform-admin action worth surfacing on the Super Admin overview's activity feed. */
+/**
+ * Platform-wide feature settings — a single row (`apps/backend`'s `platform_settings` table),
+ * not per-tenant. Which login methods the sign-in/sign-up screens offer, and whether a tenant
+ * owner's Settings > Members tab can send invites. Replaces what used to be build-time
+ * `NEXT_PUBLIC_*` env vars: a Super Admin now changes these at runtime from Admin Settings, and
+ * every visitor (including a signed-out one on the login screen) reads the current value from
+ * `GET /v1/settings/platform-config`.
+ */
+export interface PlatformSettings {
+  ssoLoginEnabled: boolean;
+  passwordLoginEnabled: boolean;
+  socialLoginEnabled: boolean;
+  inviteMembersEnabled: boolean;
+}
+
+/** A platform-admin action worth surfacing on the Super Admin overview's activity feed. Mirrors
+ *  the backend's `platform_activity_type` enum exactly — the API performs no runtime validation
+ *  of `type` on the way out (a plain cast in `AdminActivityService`), so a value missing here is a
+ *  value this union silently lies about, breaking `ActivityLogCard`'s exhaustive `Record`s render. */
 export type PlatformActivityType =
   | "business_suspended"
   | "business_reactivated"
   | "admin_invite_sent"
-  | "admin_invite_revoked";
+  | "admin_invite_revoked"
+  | "admin_disabled"
+  | "admin_enabled"
+  | "user_activated"
+  | "user_deactivated";
 
 export interface PlatformActivityEntry {
   id: string;
@@ -305,7 +329,7 @@ export interface PlatformActivityEntry {
   actorEmail: string;
   /** The business a `business_*` entry acted on. */
   businessName?: string;
-  /** The invitee email an `admin_invite_*` entry acted on. */
+  /** The email an `admin_invite_*` (invitee) or `user_*` (the tenant user) entry acted on. */
   email?: string;
   occurredAt: string;
 }

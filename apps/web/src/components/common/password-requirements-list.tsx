@@ -1,24 +1,46 @@
 import { useTranslations } from "next-intl";
 import { LuCheck, LuX } from "react-icons/lu";
 
+import {
+  PASSWORD_LOWERCASE_REGEX,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_NUMBER_REGEX,
+  PASSWORD_SPECIAL_REGEX,
+  PASSWORD_UPPERCASE_REGEX,
+} from "@/app/_libs/constants/password-rules";
 import { cn } from "@/app/_libs/utils/cn";
 
 export interface PasswordRequirements {
   minLength: boolean;
   uppercase: boolean;
+  lowercase: boolean;
   number: boolean;
+  special: boolean;
 }
 
+/**
+ * Evaluates each rule from `@/app/_libs/constants/password-rules` — the same constants the zod
+ * form schemas validate against, so the checklist can never show all-green for a password the
+ * schema (or the API behind it) will reject.
+ */
 export function checkPasswordRequirements(password: string): PasswordRequirements {
   return {
-    minLength: password.length >= 8,
-    uppercase: /[A-Z]/.test(password),
-    number: /[0-9]/.test(password),
+    minLength: password.length >= PASSWORD_MIN_LENGTH,
+    uppercase: PASSWORD_UPPERCASE_REGEX.test(password),
+    lowercase: PASSWORD_LOWERCASE_REGEX.test(password),
+    number: PASSWORD_NUMBER_REGEX.test(password),
+    special: PASSWORD_SPECIAL_REGEX.test(password),
   };
 }
 
 export function passwordMeetsRequirements(requirements: PasswordRequirements): boolean {
-  return requirements.minLength && requirements.uppercase && requirements.number;
+  return (
+    requirements.minLength &&
+    requirements.uppercase &&
+    requirements.lowercase &&
+    requirements.number &&
+    requirements.special
+  );
 }
 
 interface PasswordRequirementsListProps {
@@ -32,7 +54,9 @@ export function PasswordRequirementsList({ requirements }: PasswordRequirementsL
   const rows: { key: keyof PasswordRequirements; label: string }[] = [
     { key: "minLength", label: t("minLength") },
     { key: "uppercase", label: t("uppercase") },
+    { key: "lowercase", label: t("lowercase") },
     { key: "number", label: t("number") },
+    { key: "special", label: t("special") },
   ];
 
   return (

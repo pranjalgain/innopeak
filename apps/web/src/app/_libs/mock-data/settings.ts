@@ -7,12 +7,7 @@ export const MOCK_SETTINGS: SettingsData = {
     reviewDataRetentionMonths: 24,
     aiReplyCount: 1,
   },
-  blocklistTerms: [
-    { id: "block_1", term: "lawsuit" },
-    { id: "block_2", term: "lawyer" },
-    { id: "block_3", term: "food poisoning" },
-    { id: "block_4", term: "health inspector" },
-  ],
+  blocklistTerms: [],
   notificationRecipients: [{ id: "nrecip_1", name: "Maria Delgado", initials: "MD", channel: "both", isActive: true }],
   connection: {
     businessName: "The Coastal Table",

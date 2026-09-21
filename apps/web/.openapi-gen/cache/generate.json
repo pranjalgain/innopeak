@@ -1,5 +1,5 @@
 {
-  "baseDocumentFile": "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/.openapi-gen/cache/base-openapi-5ff8693a8ee6c0d847c75f91fc20587c8b6ef86c13ef86da5af8707a971d1f80.json",
+  "baseDocumentFile": "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/.openapi-gen/cache/base-openapi-e9753df9f327ea85940a96694edc42026e060f2ea8d2edb14e8c5c1dc74f5c47.json",
   "cacheVersion": 2,
   "configPath": "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/openapi-gen.config.mts",
   "diagnostics": [
@@ -13,103 +13,103 @@
       }
     }
   ],
-  "fingerprint": "5ff8693a8ee6c0d847c75f91fc20587c8b6ef86c13ef86da5af8707a971d1f80",
+  "fingerprint": "e9753df9f327ea85940a96694edc42026e060f2ea8d2edb14e8c5c1dc74f5c47",
   "inputCount": 11,
   "inputs": {
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/openapi-gen.config.mts": {
       "hash": "64390cde78d00bc5468ffe24054fbb0506a1561ba2b8f865bab5d2f719ea0883",
-      "mtimeMs": 1788169384645.2197,
+      "mtimeMs": 1789970716908.836,
       "size": 2391
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/package.json": {
-      "hash": "c80235300aeb61ba8c0cca0958a5353118e42f1bb004f16cab094736c482635c",
-      "mtimeMs": 1788684700356.398,
-      "size": 6188
+      "hash": "357a3376bc2b35940635b3382c1ce4752a46a09b33295fb13b42d6215635b453",
+      "mtimeMs": 1789970716909.2227,
+      "size": 6377
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/src/app/api/health/route.ts": {
       "hash": "fe10e15732d1bd2096f7c88b58d8c531c1b71ffd9b21773a304cd1a2b85b9f6a",
-      "mtimeMs": 1788169384656.038,
+      "mtimeMs": 1789970717072.3276,
       "size": 233
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/src/app/api/openapi/[id]/route.ts": {
       "hash": "e430e57a10affbcf335b5bc2a08437a0a8caee241c767598d9d3bcf611eab031",
-      "mtimeMs": 1788169384656.4082,
+      "mtimeMs": 1789970717073.0278,
       "size": 415
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/src/app/api/sentry-example-api/route.ts": {
       "hash": "b38c2f5fa327cb40f0c705b986b9a29d44442b6f4dd06fbcba69c050c14efc31",
-      "mtimeMs": 1788169384656.6538,
+      "mtimeMs": 1789970717073.5327,
       "size": 500
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/src/app/api/simple-users/route.ts": {
       "hash": "f625d177ab665061e2bfc8a840b34529655e91cda293ad7bbdaee092355bcda3",
-      "mtimeMs": 1788169384656.8855,
+      "mtimeMs": 1789970717074.1213,
       "size": 371
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/src/app/api/users/route.ts": {
       "hash": "52e06fec66931dbe2e4e8a2d81f5739382276d3e25fb55b946845a29835baec0",
-      "mtimeMs": 1788169384657.1333,
+      "mtimeMs": 1789970717074.602,
       "size": 2558
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/src/interfaces/openapi.ts": {
       "hash": "996a3cc031d4d9b0610bbccc6614ee07dd3b2d4972518678d5712ab17778d4dd",
-      "mtimeMs": 1788169384670.676,
+      "mtimeMs": 1789970717155.0735,
       "size": 298
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/tsconfig.json": {
       "hash": "084b2947072159118a669835749ed8d112339e5de3111291be2b28f19e5b09ee",
-      "mtimeMs": 1788169384672.4766,
+      "mtimeMs": 1789970717162.0383,
       "size": 1017
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/package.json": {
-      "hash": "04b509f2b9bbddcfbed49e17491a8bd23233b62129034166632a11f43a87bd6b",
-      "mtimeMs": 1788169384702.755,
-      "size": 1226
+      "hash": "3b0513b6431d68730607a1e66dfa5ff489d39e0f96b8750cd8cf4185343ef437",
+      "mtimeMs": 1789970717370.259,
+      "size": 1353
     },
     "/Users/pranjalgain/Desktop/GeekProjects/innopeak/pnpm-lock.yaml": {
-      "hash": "316dff71ce2fc1b037f4d67c56c010ad0b67adbd72a8f74d0a5b98d13bfc7375",
-      "mtimeMs": 1788684700425.0994,
-      "size": 1286248
+      "hash": "976fd056ae35710dd25007ded54844de7bf3935dc245b742a993eb97917fce81",
+      "mtimeMs": 1789970777853.6125,
+      "size": 1294893
     }
   },
   "outputFile": "/Users/pranjalgain/Desktop/GeekProjects/innopeak/apps/web/public/openapi.json",
   "performance": {
-    "prepareTemplateMs": 0.12524999999993724,
-    "loadCustomFragmentsMs": 0.0007500000000391083,
-    "prepareDocumentMs": 0.12599999999997635,
-    "scanRouteFilesMs": 0.9841249999999491,
-    "deriveRoutePathMs": 0.2335000000000491,
-    "filterRouteCandidatesMs": 0.0168340000001308,
-    "sourcePrecheckMs": 5.4606659999999465,
-    "readRouteFilesMs": 5.091125000000147,
-    "parseRouteFilesMs": 2.151290999999901,
-    "analyzeRouteFilesMs": 5.742417000000046,
-    "typescriptResponseInferenceMs": 3995.738042,
-    "processRouteFilesMs": 4003.86471,
-    "registerRouteMs": 8.407291000000328,
-    "getSchemaContentMs": 6.576791999999955,
-    "createRequestParamsMs": 0.15575000000001182,
+    "prepareTemplateMs": 0.17358400000011898,
+    "loadCustomFragmentsMs": 0.0006670000000212895,
+    "prepareDocumentMs": 0.17425100000014027,
+    "scanRouteFilesMs": 0.8217499999998381,
+    "deriveRoutePathMs": 0.29666699999984303,
+    "filterRouteCandidatesMs": 0.020999000000074375,
+    "sourcePrecheckMs": 8.871749000000136,
+    "readRouteFilesMs": 8.325751000000082,
+    "parseRouteFilesMs": 2.8252090000000862,
+    "analyzeRouteFilesMs": 6.7809579999996,
+    "typescriptResponseInferenceMs": 13380.156625,
+    "processRouteFilesMs": 13390.130749999998,
+    "registerRouteMs": 12.202916999997797,
+    "getSchemaContentMs": 9.992917000000489,
+    "createRequestParamsMs": 0.19670799999994415,
     "createRequestBodyMs": 0,
-    "processResponsesMs": 0.618291999999883,
+    "processResponsesMs": 0.7815410000005159,
     "createResponseSchemaMs": 0,
-    "buildOperationsMs": 10.393000999999572,
-    "sortAndMergePathsMs": 0.33166700000037963,
-    "buildPathsMs": 0.33166700000037963,
-    "defaultComponentsAndErrorsMs": 0.14475000000038563,
-    "mergeSchemasMs": 0.05679099999997561,
-    "zodPreScanMs": 22.930458000000044,
-    "zodPreprocessMs": 2.156916999999794,
-    "zodConvertMs": 6.300250000000233,
-    "finalizeDocumentMs": 2.4945000000006985,
-    "totalMs": 4049.1344169999998,
-    "scanRoutesMs": 4015.2418359999992
+    "buildOperationsMs": 15.316458000000011,
+    "sortAndMergePathsMs": 0.512125000001106,
+    "buildPathsMs": 0.512125000001106,
+    "defaultComponentsAndErrorsMs": 0.1964159999988624,
+    "mergeSchemasMs": 0.08704199999920093,
+    "zodPreScanMs": 34.564750000000004,
+    "zodPreprocessMs": 2.5797919999999976,
+    "zodConvertMs": 9.634791000000405,
+    "finalizeDocumentMs": 3.4372500000008586,
+    "totalMs": 13456.820167,
+    "scanRoutesMs": 13406.268957999997
   },
   "routeFragments": {
     "src/app/api/health/route.ts": {
       "cacheKey": "{\"authPresets\":{\"bearer\":\"BearerAuth\",\"basic\":\"BasicAuth\",\"apikey\":\"ApiKeyAuth\"},\"defaultResponseSet\":\"common\",\"errorConfig\":{\"template\":{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\",\"example\":\"{{ERROR_MESSAGE}}\"},\"code\":{\"type\":\"string\",\"example\":\"{{ERROR_CODE}}\"}}},\"codes\":{\"400\":{\"description\":\"Bad Request\",\"variables\":{\"ERROR_MESSAGE\":\"Invalid request parameters\",\"ERROR_CODE\":\"BAD_REQUEST\"}},\"401\":{\"description\":\"Unauthorized\",\"variables\":{\"ERROR_MESSAGE\":\"Authentication required\",\"ERROR_CODE\":\"UNAUTHORIZED\"}},\"403\":{\"description\":\"Forbidden\",\"variables\":{\"ERROR_MESSAGE\":\"Access denied\",\"ERROR_CODE\":\"FORBIDDEN\"}},\"404\":{\"description\":\"Not Found\",\"variables\":{\"ERROR_MESSAGE\":\"Resource not found\",\"ERROR_CODE\":\"NOT_FOUND\"}},\"409\":{\"description\":\"Conflict\",\"variables\":{\"ERROR_MESSAGE\":\"Resource already exists\",\"ERROR_CODE\":\"CONFLICT\"}},\"500\":{\"description\":\"Internal Server Error\",\"variables\":{\"ERROR_MESSAGE\":\"An unexpected error occurred\",\"ERROR_CODE\":\"INTERNAL_ERROR\"}}}},\"excludeSchemas\":[],\"framework\":{\"kind\":\"nextjs\",\"router\":\"app\"},\"ignoreRoutes\":[],\"includeOpenApiRoutes\":false,\"openapiVersion\":\"3.0\",\"responseSets\":{\"common\":[\"400\",\"500\"],\"auth\":[\"400\",\"401\",\"403\",\"500\"],\"public\":[\"400\",\"500\"]},\"routePath\":\"/health\",\"schemaBackends\":[\"zod\"],\"schemaFiles\":[]}",
       "diagnostics": [],
       "internalSchemas": {},
-      "mtimeMs": 1788169384656.038,
+      "mtimeMs": 1789970717072.3276,
       "paths": {
         "/health": {
           "get": {
@@ -155,7 +155,7 @@
       "cacheKey": "{\"authPresets\":{\"bearer\":\"BearerAuth\",\"basic\":\"BasicAuth\",\"apikey\":\"ApiKeyAuth\"},\"defaultResponseSet\":\"common\",\"errorConfig\":{\"template\":{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\",\"example\":\"{{ERROR_MESSAGE}}\"},\"code\":{\"type\":\"string\",\"example\":\"{{ERROR_CODE}}\"}}},\"codes\":{\"400\":{\"description\":\"Bad Request\",\"variables\":{\"ERROR_MESSAGE\":\"Invalid request parameters\",\"ERROR_CODE\":\"BAD_REQUEST\"}},\"401\":{\"description\":\"Unauthorized\",\"variables\":{\"ERROR_MESSAGE\":\"Authentication required\",\"ERROR_CODE\":\"UNAUTHORIZED\"}},\"403\":{\"description\":\"Forbidden\",\"variables\":{\"ERROR_MESSAGE\":\"Access denied\",\"ERROR_CODE\":\"FORBIDDEN\"}},\"404\":{\"description\":\"Not Found\",\"variables\":{\"ERROR_MESSAGE\":\"Resource not found\",\"ERROR_CODE\":\"NOT_FOUND\"}},\"409\":{\"description\":\"Conflict\",\"variables\":{\"ERROR_MESSAGE\":\"Resource already exists\",\"ERROR_CODE\":\"CONFLICT\"}},\"500\":{\"description\":\"Internal Server Error\",\"variables\":{\"ERROR_MESSAGE\":\"An unexpected error occurred\",\"ERROR_CODE\":\"INTERNAL_ERROR\"}}}},\"excludeSchemas\":[],\"framework\":{\"kind\":\"nextjs\",\"router\":\"app\"},\"ignoreRoutes\":[],\"includeOpenApiRoutes\":false,\"openapiVersion\":\"3.0\",\"responseSets\":{\"common\":[\"400\",\"500\"],\"auth\":[\"400\",\"401\",\"403\",\"500\"],\"public\":[\"400\",\"500\"]},\"routePath\":\"/openapi/{id}\",\"schemaBackends\":[\"zod\"],\"schemaFiles\":[]}",
       "diagnostics": [],
       "internalSchemas": {},
-      "mtimeMs": 1788169384656.4082,
+      "mtimeMs": 1789970717073.0278,
       "paths": {
         "/openapi/{id}": {
           "get": {
@@ -215,7 +215,7 @@
       "cacheKey": "{\"authPresets\":{\"bearer\":\"BearerAuth\",\"basic\":\"BasicAuth\",\"apikey\":\"ApiKeyAuth\"},\"defaultResponseSet\":\"common\",\"errorConfig\":{\"template\":{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\",\"example\":\"{{ERROR_MESSAGE}}\"},\"code\":{\"type\":\"string\",\"example\":\"{{ERROR_CODE}}\"}}},\"codes\":{\"400\":{\"description\":\"Bad Request\",\"variables\":{\"ERROR_MESSAGE\":\"Invalid request parameters\",\"ERROR_CODE\":\"BAD_REQUEST\"}},\"401\":{\"description\":\"Unauthorized\",\"variables\":{\"ERROR_MESSAGE\":\"Authentication required\",\"ERROR_CODE\":\"UNAUTHORIZED\"}},\"403\":{\"description\":\"Forbidden\",\"variables\":{\"ERROR_MESSAGE\":\"Access denied\",\"ERROR_CODE\":\"FORBIDDEN\"}},\"404\":{\"description\":\"Not Found\",\"variables\":{\"ERROR_MESSAGE\":\"Resource not found\",\"ERROR_CODE\":\"NOT_FOUND\"}},\"409\":{\"description\":\"Conflict\",\"variables\":{\"ERROR_MESSAGE\":\"Resource already exists\",\"ERROR_CODE\":\"CONFLICT\"}},\"500\":{\"description\":\"Internal Server Error\",\"variables\":{\"ERROR_MESSAGE\":\"An unexpected error occurred\",\"ERROR_CODE\":\"INTERNAL_ERROR\"}}}},\"excludeSchemas\":[],\"framework\":{\"kind\":\"nextjs\",\"router\":\"app\"},\"ignoreRoutes\":[],\"includeOpenApiRoutes\":false,\"openapiVersion\":\"3.0\",\"responseSets\":{\"common\":[\"400\",\"500\"],\"auth\":[\"400\",\"401\",\"403\",\"500\"],\"public\":[\"400\",\"500\"]},\"routePath\":\"/sentry-example-api\",\"schemaBackends\":[\"zod\"],\"schemaFiles\":[]}",
       "diagnostics": [],
       "internalSchemas": {},
-      "mtimeMs": 1788169384656.6538,
+      "mtimeMs": 1789970717073.5327,
       "paths": {
         "/sentry-example-api": {
           "get": {
@@ -261,7 +261,7 @@
       "cacheKey": "{\"authPresets\":{\"bearer\":\"BearerAuth\",\"basic\":\"BasicAuth\",\"apikey\":\"ApiKeyAuth\"},\"defaultResponseSet\":\"common\",\"errorConfig\":{\"template\":{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\",\"example\":\"{{ERROR_MESSAGE}}\"},\"code\":{\"type\":\"string\",\"example\":\"{{ERROR_CODE}}\"}}},\"codes\":{\"400\":{\"description\":\"Bad Request\",\"variables\":{\"ERROR_MESSAGE\":\"Invalid request parameters\",\"ERROR_CODE\":\"BAD_REQUEST\"}},\"401\":{\"description\":\"Unauthorized\",\"variables\":{\"ERROR_MESSAGE\":\"Authentication required\",\"ERROR_CODE\":\"UNAUTHORIZED\"}},\"403\":{\"description\":\"Forbidden\",\"variables\":{\"ERROR_MESSAGE\":\"Access denied\",\"ERROR_CODE\":\"FORBIDDEN\"}},\"404\":{\"description\":\"Not Found\",\"variables\":{\"ERROR_MESSAGE\":\"Resource not found\",\"ERROR_CODE\":\"NOT_FOUND\"}},\"409\":{\"description\":\"Conflict\",\"variables\":{\"ERROR_MESSAGE\":\"Resource already exists\",\"ERROR_CODE\":\"CONFLICT\"}},\"500\":{\"description\":\"Internal Server Error\",\"variables\":{\"ERROR_MESSAGE\":\"An unexpected error occurred\",\"ERROR_CODE\":\"INTERNAL_ERROR\"}}}},\"excludeSchemas\":[],\"framework\":{\"kind\":\"nextjs\",\"router\":\"app\"},\"ignoreRoutes\":[],\"includeOpenApiRoutes\":false,\"openapiVersion\":\"3.0\",\"responseSets\":{\"common\":[\"400\",\"500\"],\"auth\":[\"400\",\"401\",\"403\",\"500\"],\"public\":[\"400\",\"500\"]},\"routePath\":\"/simple-users\",\"schemaBackends\":[\"zod\"],\"schemaFiles\":[]}",
       "diagnostics": [],
       "internalSchemas": {},
-      "mtimeMs": 1788169384656.8855,
+      "mtimeMs": 1789970717074.1213,
       "paths": {
         "/simple-users": {
           "get": {
@@ -317,7 +317,7 @@
         }
       ],
       "internalSchemas": {},
-      "mtimeMs": 1788169384657.1333,
+      "mtimeMs": 1789970717074.602,
       "paths": {
         "/users": {
           "get": {
@@ -488,7 +488,7 @@
                                   "toJSON": {
                                     "type": "object"
                                   },
-                                  "__@toPrimitive@121": {
+                                  "__@toPrimitive@120": {
                                     "type": "object"
                                   }
                                 },
@@ -536,7 +536,7 @@
                                   "toUTCString",
                                   "toISOString",
                                   "toJSON",
-                                  "__@toPrimitive@121"
+                                  "__@toPrimitive@120"
                                 ]
                               }
                             },
@@ -786,7 +786,7 @@
                                 "toJSON": {
                                   "type": "object"
                                 },
-                                "__@toPrimitive@121": {
+                                "__@toPrimitive@120": {
                                   "type": "object"
                                 }
                               },
@@ -834,7 +834,7 @@
                                 "toUTCString",
                                 "toISOString",
                                 "toJSON",
-                                "__@toPrimitive@121"
+                                "__@toPrimitive@120"
                               ]
                             }
                           },
@@ -926,5 +926,5 @@
       "webhooks": {}
     }
   },
-  "updatedAt": "2026-09-06T09:28:15.916Z"
+  "updatedAt": "2026-09-21T06:06:43.473Z"
 }

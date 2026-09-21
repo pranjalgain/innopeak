@@ -132,7 +132,16 @@
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.546 0.245 262.881);
   --sidebar-primary-foreground: oklch(0.379 0.146 265.522);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
+  /* Was oklch(0.274 0.006 286.033) — the stock shadcn dark value, never harmonized with this
+     brand's palette. Its chroma (0.006, effectively neutral) and hue (286, violet-leaning) don't
+     match `--accent`'s 0.045/258 (blue, tracking `--primary`), unlike light mode where
+     `--sidebar-accent` deliberately mirrors `--accent` almost exactly. The result was a selected
+     nav item distinguished from the sidebar only by a +0.064 lightness step with no hue shift at
+     all — imperceptible at a glance, unlike light mode's clearly blue-tinted pill. Now mirrors
+     `--accent`'s hue/chroma, with lightness raised to 0.32 (vs `--accent`'s 0.25) since the
+     sidebar's own background (0.21) sits well above the page background (0.125) this is layered
+     on top of. */
+  --sidebar-accent: oklch(0.32 0.05 258);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.488 0.243 264.376);
@@ -141,6 +150,38 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+  /*
+   * A theme change (the `ThemeToggle`) swaps every CSS custom property `:root`/`.dark` define
+   * in one instant DOM mutation — every element reading `bg-background`, `text-foreground`,
+   * `border-border`, etc. jumps to its new color the same frame, which reads as a hard flash
+   * rather than the light/dark swap it should feel like. This is the fix: every element
+   * transitions its own color-bearing properties, so the whole page cross-fades between
+   * palettes together instead of snapping.
+   *
+   * Lives on the bare `*` selector deliberately, not spread across each surface component as a
+   * `transition-colors` utility class — that would mean re-adding it by hand to every card,
+   * button, and panel this app has and every one still to come. It stays a *default* that any
+   * element can override by declaring its own `transition-colors`/`duration-*` — a hover
+   * micro-interaction at a snappier duration, say — because it sits in `@layer base` and Tailwind
+   * v4 emits utilities into a later layer: in the cascade, layer order is decided before
+   * specificity is ever consulted, so every utility outranks this rule no matter how weak its own
+   * selector is. Keep this block inside `@layer base`. Moved out, it would become unlayered CSS,
+   * which beats *all* layered rules — silently overriding `transition-none`, `transition-transform`
+   * and every `duration-*` across the app. The universal selector's low specificity is not what is
+   * protecting anything here, so do not rely on it.
+   * Scoped to color/paint properties only, never `transform`/`opacity`/`filter` — those drive
+   * layout and interaction animations (hover lifts, the sidebar's collapse, dialogs opening)
+   * that have nothing to do with a theme swap and must keep their own, usually much shorter,
+   * timing untouched.
+   */
+  @media (prefers-reduced-motion: no-preference) {
+    * {
+      transition-property: background-color, border-color, color, fill, stroke, outline-color,
+        text-decoration-color;
+      transition-timing-function: var(--ease-fluid);
+      transition-duration: 300ms;
+    }
   }
   html {
     scroll-behavior: smooth;
@@ -224,5 +265,35 @@
       );
     background-size: 48px 48px;
     mask-image: linear-gradient(to bottom, black 5%, transparent 88%);
+  }
+}
+
+/*
+ * Indeterminate progress sweep — used by <Progress indeterminate> when a backfill has no known
+ * total to divide by. A looping traverse rather than a pulse, so it reads as "work in progress"
+ * instead of "waiting".
+ */
+@keyframes progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@layer utilities {
+  .animate-progress-sweep {
+    animation: progress-sweep 1.4s var(--ease-fluid) infinite;
+  }
+
+  /* Respects a reduced-motion preference: hold a steady partial bar rather than looping. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-progress-sweep {
+      animation: none;
+      transform: translateX(0);
+      width: 100%;
+      opacity: 0.5;
+    }
   }
 }

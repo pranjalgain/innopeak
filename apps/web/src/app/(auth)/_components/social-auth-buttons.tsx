@@ -11,7 +11,7 @@ interface SocialAuthButtonsProps {
 }
 
 /**
- * Mock social sign-in — gated behind `AUTH_METHODS.social`, off by default.
+ * Mock social sign-in — gated behind the platform's socialLoginEnabled setting, off by default.
  * No email is collected here, so a social login always resolves to a tenant
  * identity, never the super-admin mock (see `AuthService`).
  */

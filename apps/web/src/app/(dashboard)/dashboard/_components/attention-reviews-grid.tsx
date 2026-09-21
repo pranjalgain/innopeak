@@ -1,6 +1,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
+import { LuArrowRight } from "react-icons/lu";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { EscalationBadge } from "@/components/common/escalation-badge";
@@ -43,9 +44,18 @@ export function AttentionReviewsGrid({ reviews }: AttentionReviewsGridProps) {
               <p className="line-clamp-3 text-sm text-muted-foreground">{review.snippet}</p>
 
               <div className="flex min-w-0 items-center justify-between gap-2">
-                <EscalationBadge reason={review.escalationReason} short className="py-1.5" />
-                <Button asChild variant="secondary" size="sm" className="shrink-0">
-                  <Link href={ROUTES.REVIEW_DETAIL(review.id) as Route}>{t("reviewCta")}</Link>
+                {review.escalationReason ? (
+                  <EscalationBadge reason={review.escalationReason} short className="py-1.5" />
+                ) : (
+                  // Empty span, not nothing: `justify-between` needs a first child or the CTA
+                  // slides left and the card stops lining up with its neighbours.
+                  <span />
+                )}
+                <Button asChild variant="outline" size="sm" className="shrink-0">
+                  <Link href={ROUTES.REVIEW_DETAIL(review.id) as Route}>
+                    {t("reviewCta")}
+                    <LuArrowRight />
+                  </Link>
                 </Button>
               </div>
             </CardContent>

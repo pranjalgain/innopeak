@@ -1,12 +1,15 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import * as React from "react";
+import { useState } from "react";
+
 
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
+import { PasswordInput } from "@/components/common/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
 
 interface MicrosoftSsoFormProps {
   isLoading: boolean;
@@ -22,8 +25,8 @@ interface MicrosoftSsoFormProps {
  */
 export function MicrosoftSsoForm({ isLoading, onSubmit }: MicrosoftSsoFormProps) {
   const t = useTranslations("auth.microsoftMock");
-  const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   const canSubmit = email.trim() !== "" && password.trim() !== "" && !isLoading;
 
@@ -32,7 +35,7 @@ export function MicrosoftSsoForm({ isLoading, onSubmit }: MicrosoftSsoFormProps)
       <div className="mb-6 flex flex-col items-center gap-3 text-center">
         <MicrosoftLogo size={20} />
         <h1 className="text-lg font-semibold">{t("title")}</h1>
-        <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">{t("notice")}</p>
+        <p className="bg-muted text-muted-foreground rounded-md px-3 py-2 text-xs">{t("notice")}</p>
       </div>
 
       <form
@@ -40,8 +43,7 @@ export function MicrosoftSsoForm({ isLoading, onSubmit }: MicrosoftSsoFormProps)
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit(email);
-        }}
-      >
+        }}>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="mock-sso-email">{t("emailLabel")}</Label>
           <Input
@@ -56,9 +58,8 @@ export function MicrosoftSsoForm({ isLoading, onSubmit }: MicrosoftSsoFormProps)
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="mock-sso-password">{t("passwordLabel")}</Label>
-          <Input
+          <PasswordInput
             id="mock-sso-password"
-            type="password"
             placeholder="••••••••"
             value={password}
             onChange={(event) => setPassword(event.target.value)}

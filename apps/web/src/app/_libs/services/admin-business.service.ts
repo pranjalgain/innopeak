@@ -1,23 +1,24 @@
-import { MOCK_ADMIN_BUSINESSES } from "@/app/_libs/mock-data/admin-businesses";
+import { adminBusinessesApi } from "@/app/_libs/api-sdk/admin-businesses-api";
+import { unwrap } from "@/app/_libs/services/api-error";
 import type { AdminBusiness } from "@/types/domain";
 
 /**
  * Super Admin business management ("business" is this area's user-facing
- * term for a tenant). Mock implementation — becomes a real backend call
- * once a platform-admin API exists. Hooks/components only ever call
- * `useAdminBusinesses`, never this class directly.
+ * term for a tenant), against the real `GET/POST /v1/admin/businesses*`
+ * endpoints. Hooks/components only ever call `useAdminBusinesses`, never
+ * this class directly.
  */
 export class AdminBusinessService {
   static async getBusinesses(): Promise<AdminBusiness[]> {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    return MOCK_ADMIN_BUSINESSES;
+    const response = await adminBusinessesApi.adminBusinessesControllerListV1();
+    return unwrap<AdminBusiness[]>(response.data);
   }
 
   static async setStatus(id: string, status: AdminBusiness["status"]): Promise<AdminBusiness> {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const business = MOCK_ADMIN_BUSINESSES.find((b) => b.id === id);
-    if (!business) throw new Error(`Business ${id} not found`);
-    business.status = status;
-    return business;
+    const response = await adminBusinessesApi.adminBusinessesControllerUpdateStatusV1({
+      tenantId: id,
+      updateBusinessStatusDto: { status },
+    });
+    return unwrap<AdminBusiness>(response.data);
   }
 }

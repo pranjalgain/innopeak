@@ -1,8 +1,10 @@
 "use client";
 
-import { useTranslations } from "next-intl";
-import * as React from "react";
+
+import { useFormatter, useTranslations } from "next-intl";
+import { useState } from "react";
 import { LuChevronDown, LuChevronUp } from "react-icons/lu";
+
 
 import { PromptVersionStatsLine } from "@/app/(dashboard)/settings/prompts/_components/prompt-version-stats-line";
 import { cn } from "@/app/_libs/utils/cn";
@@ -17,13 +19,13 @@ interface PromptVersionHistoryProps {
   getStats: (promptId: string, version?: number) => PromptVersionStats;
 }
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+const DATE_FORMAT = {
   month: "short",
   day: "numeric",
   year: "numeric",
   hour: "numeric",
   minute: "2-digit",
-});
+} as const;
 
 /**
  * Read-only list of every prior version, oldest first (excludes the current
@@ -34,23 +36,26 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
  */
 export function PromptVersionHistory({ promptId, versions, getStats }: PromptVersionHistoryProps) {
   const t = useTranslations("promptManagement.history");
-  const [isOpen, setIsOpen] = React.useState(false);
+  const format = useFormatter();
+  const [isOpen, setIsOpen] = useState(false);
   const priorVersions = versions.slice(0, -1);
   const reversedPriorVersions = [...priorVersions].reverse();
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(reversedPriorVersions, 10);
+  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(
+    reversedPriorVersions,
+    10,
+  );
 
   if (priorVersions.length === 0) return null;
 
   return (
-    <div className="mt-2 border-t border-border pt-2">
+    <div className="border-border mt-2 border-t pt-2">
       <Button
         type="button"
         variant="ghost"
         size="sm"
         onClick={() => setIsOpen((open) => !open)}
         aria-expanded={isOpen}
-        className="h-auto gap-1 px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
-      >
+        className="text-muted-foreground hover:text-foreground h-auto gap-1 px-0 text-xs font-medium hover:bg-transparent">
         {isOpen ? <LuChevronUp className="size-3.5" /> : <LuChevronDown className="size-3.5" />}
         {t("toggle", { count: priorVersions.length })}
       </Button>
@@ -62,21 +67,20 @@ export function PromptVersionHistory({ promptId, versions, getStats }: PromptVer
        */}
       <div
         className={cn(
-          "grid transition-[grid-template-rows,margin-top] duration-300 ease-fluid",
+          "ease-fluid grid transition-[grid-template-rows,margin-top] duration-300",
           isOpen ? "mt-2 grid-rows-[1fr]" : "mt-0 grid-rows-[0fr]",
-        )}
-      >
+        )}>
         <ul className="flex flex-col gap-2 overflow-hidden">
           {pageItems.map((version) => (
-            <li key={version.version} className="rounded-md bg-muted p-2.5">
-              <p className="text-xs font-medium text-muted-foreground">
+            <li key={version.version} className="bg-muted rounded-md p-2.5">
+              <p className="text-muted-foreground text-xs font-medium">
                 {t("entryLabel", {
                   version: version.version,
-                  date: DATE_FORMATTER.format(new Date(version.updatedAt)),
+                  date: format.dateTime(new Date(version.updatedAt), DATE_FORMAT),
                   author: version.updatedByName,
                 })}
               </p>
-              <pre className="mt-1.5 max-h-24 overflow-hidden font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+              <pre className="text-muted-foreground mt-1.5 max-h-24 overflow-hidden font-mono text-xs whitespace-pre-wrap">
                 {version.template}
               </pre>
               <div className="mt-1.5">
@@ -86,7 +90,12 @@ export function PromptVersionHistory({ promptId, versions, getStats }: PromptVer
           ))}
         </ul>
         <div className="mt-2">
-          <Pagination page={page} totalPages={totalPages} onPrevious={goToPreviousPage} onNext={goToNextPage} />
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPrevious={goToPreviousPage}
+            onNext={goToNextPage}
+          />
         </div>
       </div>
     </div>

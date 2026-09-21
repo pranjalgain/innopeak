@@ -497,7 +497,7 @@
                               "toJSON": {
                                 "type": "object"
                               },
-                              "__@toPrimitive@121": {
+                              "__@toPrimitive@120": {
                                 "type": "object"
                               }
                             },
@@ -545,7 +545,7 @@
                               "toUTCString",
                               "toISOString",
                               "toJSON",
-                              "__@toPrimitive@121"
+                              "__@toPrimitive@120"
                             ]
                           }
                         },
@@ -753,7 +753,7 @@
                             "toJSON": {
                               "type": "object"
                             },
-                            "__@toPrimitive@121": {
+                            "__@toPrimitive@120": {
                               "type": "object"
                             }
                           },
@@ -801,7 +801,7 @@
                             "toUTCString",
                             "toISOString",
                             "toJSON",
-                            "__@toPrimitive@121"
+                            "__@toPrimitive@120"
                           ]
                         }
                       },

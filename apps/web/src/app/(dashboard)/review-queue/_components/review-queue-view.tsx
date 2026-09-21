@@ -1,13 +1,11 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import * as React from "react";
 
 import { ReviewFiltersBar } from "@/app/(dashboard)/review-queue/_components/review-filters-bar";
 import { ReviewResults } from "@/app/(dashboard)/review-queue/_components/review-results";
 import { Pagination } from "@/components/common/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
-import { usePagination } from "@/hooks/common/use-pagination";
 import { useReviewQueue } from "@/hooks/reviews/use-review-queue";
 
 function ReviewQueueSkeleton() {
@@ -33,13 +31,21 @@ function ReviewQueueSkeleton() {
 
 export function ReviewQueueView() {
   const t = useTranslations("reviewQueue");
-  const { filteredReviews, filters, setStatus, setClassification, setSearch, isLoading } = useReviewQueue();
-  const { page, totalPages, pageItems, setPage, goToPreviousPage, goToNextPage } = usePagination(filteredReviews, 10);
-
-  React.useEffect(() => {
-    setPage(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  const {
+    reviews,
+    filters,
+    setStatus,
+    setClassification,
+    setSearch,
+    isLoading,
+    isError,
+    retry,
+    total,
+    page,
+    totalPages,
+    goToPreviousPage,
+    goToNextPage,
+  } = useReviewQueue();
 
   const handleClearFilters = () => {
     setStatus("all");
@@ -49,7 +55,9 @@ export function ReviewQueueView() {
 
   return (
     <div className="flex min-h-full flex-col gap-6 p-fluid-page">
-      <p className="text-sm text-muted-foreground">{t("resultCount", { count: filteredReviews.length })}</p>
+      {/* `total` — the backend's full count for the current filters, not `reviews.length` (this
+          page's row count) — or every page past the first would understate how many results exist. */}
+      <p className="text-sm text-muted-foreground">{t("resultCount", { count: total })}</p>
 
       <ReviewFiltersBar
         filters={filters}
@@ -62,7 +70,12 @@ export function ReviewQueueView() {
         <ReviewQueueSkeleton />
       ) : (
         <>
-          <ReviewResults reviews={pageItems} onClearFilters={handleClearFilters} />
+          <ReviewResults
+            reviews={reviews}
+            isError={isError}
+            onRetry={retry}
+            onClearFilters={handleClearFilters}
+          />
           <div className="mt-auto">
             <Pagination page={page} totalPages={totalPages} onPrevious={goToPreviousPage} onNext={goToNextPage} />
           </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import * as React from "react";
+import { useEffect, useState } from "react";
+
 
 import { getCurrentVersion } from "@/app/_libs/utils/prompt";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+
 import type { AiPrompt } from "@/types/domain";
 
 interface PromptEditorDialogProps {
@@ -23,12 +25,17 @@ interface PromptEditorDialogProps {
   onClose: () => void;
 }
 
-export function PromptEditorDialog({ prompt, isSaving, onSaveVersion, onClose }: PromptEditorDialogProps) {
+export function PromptEditorDialog({
+  prompt,
+  isSaving,
+  onSaveVersion,
+  onClose,
+}: PromptEditorDialogProps) {
   const t = useTranslations("promptManagement.editor");
   const currentTemplate = prompt ? getCurrentVersion(prompt).template : "";
-  const [template, setTemplate] = React.useState(currentTemplate);
+  const [template, setTemplate] = useState(currentTemplate);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setTemplate(currentTemplate);
   }, [currentTemplate]);
 
@@ -61,8 +68,7 @@ export function PromptEditorDialog({ prompt, isSaving, onSaveVersion, onClose }:
               if (!prompt) return;
               await onSaveVersion(prompt.id, template);
               onClose();
-            }}
-          >
+            }}>
             {isSaving ? t("saving") : t("saveAsNewVersion", { version: nextVersion })}
           </Button>
         </DialogFooter>

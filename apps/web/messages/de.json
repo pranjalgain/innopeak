@@ -1,0 +1,992 @@
+{
+  "marketing": {
+    "nav": {
+      "features": "Funktionen",
+      "howItWorks": "So funktioniert's",
+      "signIn": "Anmelden",
+      "getStarted": "Jetzt starten"
+    },
+    "hero": {
+      "eyebrow": "Für Google Unternehmensprofil-Bewertungen",
+      "headline": "Die KI verfasst die Antwort. Sie entscheiden, was veröffentlicht wird.",
+      "subheadline": "InnoPeak überwacht Ihr Google Unternehmensprofil, entwirft eine Antwort auf jede neue Bewertung und leitet alles Riskante direkt an die richtige Person weiter — die Freigabe ist standardmäßig erforderlich, sodass nichts unbeantwortet bleibt.",
+      "primaryCta": "Jetzt starten",
+      "secondaryCta": "So funktioniert's",
+      "mockup": {
+        "reviewerName": "Marcus Yee",
+        "reviewSnippet": "40 Minuten über unsere Reservierung hinaus gewartet, ohne Entschuldigung. Das Essen war okay, aber nicht der Rede wert.",
+        "escalatedLabel": "Eskaliert · Niedrige Bewertung",
+        "draftLabel": "KI-Antwortentwurf",
+        "draftText": "Marcus, es tut mir leid wegen der Wartezeit und dass niemand sich darum gekümmert hat — das ist nicht die Erfahrung, die wir bieten möchten. Ich möchte das gerne wiedergutmachen; bitte wenden Sie sich direkt an mich.",
+        "approve": "Freigeben",
+        "edit": "Bearbeiten",
+        "reject": "Ablehnen"
+      }
+    },
+    "trustBar": {
+      "items": [
+        "Freigabe standardmäßig erforderlich",
+        "Eskalationen erreichen in Minuten eine echte Person",
+        "Funktioniert direkt mit Ihrem Google Unternehmensprofil"
+      ]
+    },
+    "problem": {
+      "heading": "Bewertungen lassen sich nicht manuell skalieren",
+      "items": [
+        {
+          "title": "Bewertungen stapeln sich",
+          "description": "Jede neue Bewertung ist eine Entscheidung: ignorieren oder alles stehen und liegen lassen, um eine Antwort zu schreiben, die nach Ihrem Unternehmen klingt und nicht nach einem Standardbrief."
+        },
+        {
+          "title": "Eine schlechte Antwort bleibt für immer öffentlich",
+          "description": "Eine überstürzte oder abwehrende Reaktion auf eine 1-Sterne-Bewertung richtet mehr Schaden an als die Bewertung selbst — und sie verschwindet nie wieder."
+        },
+        {
+          "title": "Dringende Bewertungen gehen unter",
+          "description": "Eine Bewertung, die die Aufmerksamkeit einer Führungskraft erfordert, sieht in Ihrem Posteingang genauso aus wie eine begeisterte Fünf-Sterne-Notiz — bis es zu spät ist."
+        }
+      ]
+    },
+    "howItWorks": {
+      "heading": "Von der neuen Bewertung zur veröffentlichten Antwort in vier Schritten",
+      "description": "Derselbe Ablauf jedes Mal — egal ob es sich um ein Fünf-Sterne-Dankeschön oder eine Bewertung handelt, die eine sorgfältige Antwort braucht.",
+      "steps": [
+        {
+          "title": "Google Unternehmensprofil verbinden",
+          "description": "Verbinden Sie Ihren Google Unternehmensprofil-Standort einmalig, und InnoPeak beginnt automatisch, nach neuen Bewertungen zu suchen."
+        },
+        {
+          "title": "KI entwirft eine Antwort",
+          "description": "Für jede neue Bewertung wird eine Antwort im Ton Ihres Unternehmens entworfen, die auf das eingeht, was der Bewertende tatsächlich geschrieben hat."
+        },
+        {
+          "title": "Sie geben frei, bearbeiten oder lehnen ab",
+          "description": "Standardmäßig erreicht nichts Google ohne die Zustimmung einer Person — ändern Sie ein paar Worte oder lehnen Sie die Antwort komplett ab. Sobald Sie den Entwürfen vertrauen, aktivieren Sie die automatische Antwort für unkomplizierte Bewertungen; eskalierte warten immer auf Sie."
+        },
+        {
+          "title": "Riskante Bewertungen eskalieren automatisch",
+          "description": "Eine niedrige Bewertung oder ein blockierter Begriff wird per E-Mail oder Teams direkt an ein zuständiges Teammitglied weitergeleitet — bevor daraus ein größeres Problem wird."
+        }
+      ]
+    },
+    "features": {
+      "heading": "Alles, was Sie brauchen, um Bewertungen im Blick zu behalten",
+      "description": "Aufgebaut nach einer Regel: Die KI entwirft, ein Mensch entscheidet.",
+      "items": [
+        {
+          "title": "Bewertungswarteschlange",
+          "description": "Jede neue Bewertung an einem Ort, gefiltert nach Status und Klassifizierung, damit nichts übersehen wird."
+        },
+        {
+          "title": "KI-Antwortentwürfe",
+          "description": "Automatisch für jede Bewertung erstellt, in Ihrer Stimme. Nichts wird veröffentlicht, bis Sie es freigeben — außer Sie aktivieren die automatische Antwort."
+        },
+        {
+          "title": "Versionierte Prompts & Tonalität",
+          "description": "Passen Sie an, wie die KI klingt, und verfolgen Sie, ob eine Änderung Ihre Freigabequote tatsächlich verbessert hat."
+        },
+        {
+          "title": "Eskalationswarnungen",
+          "description": "Niedrige Bewertungen und blockierte Begriffe benachrichtigen sofort die richtige Person per E-Mail oder Teams."
+        },
+        {
+          "title": "Leistungs-Dashboard",
+          "description": "Verfolgen Sie Freigabequote, Bewertungstrends und wie viele Bewertungen noch auf Sie warten."
+        },
+        {
+          "title": "Sicher konzipiert",
+          "description": "Anmeldung mit Microsoft SSO. Die Daten jedes Unternehmens bleiben vollständig von allen anderen isoliert."
+        },
+        {
+          "title": "Automatische Antwort, wenn Sie bereit sind",
+          "description": "Standardmäßig deaktiviert. Aktivieren Sie sie, und unkomplizierte Bewertungen werden automatisch beantwortet — eskalierte warten weiterhin jedes Mal auf eine Person."
+        }
+      ]
+    },
+    "cta": {
+      "heading": "Hören Sie auf, zwischen schnellen und sorgfältigen Antworten wählen zu müssen.",
+      "description": "Verbinden Sie Ihr Google Unternehmensprofil und lassen Sie InnoPeak die erste Version entwerfen — Sie haben immer das letzte Wort.",
+      "button": "Jetzt starten"
+    },
+    "footer": {
+      "tagline": "KI-unterstützte Antworten für Google Unternehmensprofil-Bewertungen — immer von einem Menschen geprüft, bevor sie veröffentlicht werden.",
+      "signIn": "Anmelden",
+      "getStarted": "Jetzt starten",
+      "copyright": "© {year} InnoPeak. Alle Rechte vorbehalten."
+    }
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "reviewQueue": "Bewertungswarteschlange",
+    "settings": "Einstellungen"
+  },
+  "adminNav": {
+    "overview": "Übersicht",
+    "businesses": "Unternehmen",
+    "users": "Benutzer",
+    "settings": "Einstellungen"
+  },
+  "appShell": {
+    "notifications": "Benachrichtigungen",
+    "accountOwnerRole": "Inhaber",
+    "accountMemberRole": "Mitglied",
+    "superAdminRole": "Super-Administrator",
+    "signOut": "Abmelden",
+    "notificationPanel": {
+      "title": "Benachrichtigungen",
+      "markAllRead": "Alle als gelesen markieren",
+      "empty": "Sie sind auf dem neuesten Stand.",
+      "loadingMore": "Weitere werden geladen…",
+      "toasts": {
+        "loadFailed": "Benachrichtigungen konnten nicht geladen werden."
+      },
+      "loadMoreFailed": "Weitere konnten nicht geladen werden.",
+      "retry": "Erneut versuchen"
+    },
+    "reconnectBanner": {
+      "message": "Ihre Google Unternehmensprofil-Verbindung ist abgelaufen. Neue Bewertungen werden nicht importiert, bis Sie die Verbindung erneuern.",
+      "action": "Erneut verbinden"
+    },
+    "waitingOnOwner": {
+      "title": "Fast geschafft",
+      "description": "Ihr Unternehmensinhaber muss noch ein Google-Unternehmensprofil verbinden, bevor Sie dies nutzen können. Schauen Sie später noch einmal vorbei."
+    }
+  },
+  "businessSwitcher": {
+    "label": "Unternehmen wechseln",
+    "switchFailed": "Ihr aktives Unternehmen konnte nicht gewechselt werden. Bitte versuchen Sie es erneut."
+  },
+  "languageSwitcher": {
+    "syncFailed": "Spracheinstellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+    "label": "Deutsch"
+  },
+  "themeToggle": {
+    "label": "Dunkles Design"
+  },
+  "auth": {
+    "login": {
+      "title": "Bei InnoPeak anmelden",
+      "subtitle": "Melden Sie sich an, um fortzufahren",
+      "continueWithMicrosoft": "Mit Microsoft fortfahren",
+      "continueWithGoogle": "Mit Google fortfahren",
+      "microsoft": "Microsoft",
+      "google": "Google",
+      "orDivider": "oder",
+      "noAccount": "Noch kein Konto?",
+      "signUp": "Registrieren",
+      "ssoUnavailable": "Weitere Anmeldeoptionen konnten nicht geprüft werden.",
+      "ssoUnavailableRetry": "Erneut versuchen",
+      "platformAdmin": "Plattform-Administrator?",
+      "adminSignIn": "Hier anmelden"
+    },
+    "adminLogin": {
+      "title": "Admin-Anmeldung",
+      "orDivider": "oder",
+      "continueWithGoogle": "Mit Google fortfahren",
+      "notAdmin": "Kein Plattform-Administrator?",
+      "tenantSignIn": "Hier anmelden"
+    },
+    "acceptInvite": {
+      "title": "Sie sind eingeladen",
+      "invitedAs": "Legen Sie ein Passwort fest, um die Einrichtung für {email} abzuschließen.",
+      "invitedAsWithGoogle": "Legen Sie ein Passwort fest, um die Einrichtung für {email} abzuschließen, oder fahren Sie mit Google fort.",
+      "passwordLabel": "Passwort",
+      "confirmPasswordLabel": "Passwort bestätigen",
+      "submit": "Einladung annehmen",
+      "submitting": "Wird angenommen…",
+      "orDivider": "oder",
+      "continueWithGoogle": "Mit Google fortfahren",
+      "invalidTitle": "Diese Einladung ist ungültig",
+      "invalidDescription": "Dieser Link ist ungültig oder abgelaufen. Bitten Sie die einladende Person um einen neuen Link.",
+      "backToLogin": "Zurück zur Anmeldung",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "errors": {
+        "passwordTooShort": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+        "passwordTooLong": "Das Passwort darf höchstens 128 Zeichen lang sein.",
+        "passwordUppercase": "Das Passwort muss einen Großbuchstaben enthalten.",
+        "passwordLowercase": "Das Passwort muss einen Kleinbuchstaben enthalten.",
+        "passwordNumber": "Das Passwort muss eine Zahl enthalten.",
+        "passwordSpecial": "Das Passwort muss ein Sonderzeichen enthalten.",
+        "confirmPasswordRequired": "Geben Sie Ihr Passwort erneut ein, um es zu bestätigen."
+      }
+    },
+    "acceptMemberInvite": {
+      "title": "Sie sind eingeladen",
+      "invitedAs": "Richten Sie Ihr Konto ein, um als {email} beizutreten.",
+      "invitedAsWithGoogle": "Richten Sie Ihr Konto ein, um als {email} beizutreten, oder fahren Sie mit Google fort.",
+      "nameLabel": "Ihr Name",
+      "passwordLabel": "Passwort",
+      "confirmPasswordLabel": "Passwort bestätigen",
+      "submit": "Einladung annehmen",
+      "submitting": "Wird angenommen…",
+      "orDivider": "oder",
+      "continueWithGoogle": "Mit Google fortfahren",
+      "invalidTitle": "Diese Einladung ist ungültig",
+      "invalidDescription": "Dieser Link ist ungültig oder abgelaufen. Bitten Sie die einladende Person um einen neuen Link.",
+      "unavailableTitle": "Etwas ist schiefgelaufen",
+      "unavailableDescription": "Wir konnten diesen Einladungslink nicht überprüfen. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+      "retry": "Erneut versuchen",
+      "backToLogin": "Zurück zur Anmeldung",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "errors": {
+        "nameRequired": "Geben Sie Ihren Namen ein.",
+        "passwordTooShort": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+        "passwordTooLong": "Das Passwort darf höchstens 128 Zeichen lang sein.",
+        "passwordUppercase": "Das Passwort muss einen Großbuchstaben enthalten.",
+        "passwordLowercase": "Das Passwort muss einen Kleinbuchstaben enthalten.",
+        "passwordNumber": "Das Passwort muss eine Zahl enthalten.",
+        "passwordSpecial": "Das Passwort muss ein Sonderzeichen enthalten.",
+        "confirmPasswordRequired": "Geben Sie Ihr Passwort erneut ein, um es zu bestätigen.",
+        "validationFailed": "Wir konnten diesen Einladungslink nicht überprüfen. Bitte versuchen Sie es erneut."
+      }
+    },
+    "passwordMock": {
+      "emailLabel": "E-Mail",
+      "emailPlaceholder": "sie@unternehmen.de",
+      "passwordLabel": "Passwort",
+      "signIn": "Anmelden",
+      "signingIn": "Anmeldung läuft…",
+      "errors": {
+        "emailInvalid": "Geben Sie eine gültige E-Mail-Adresse ein.",
+        "passwordRequired": "Geben Sie Ihr Passwort ein."
+      }
+    },
+    "microsoftMock": {
+      "title": "Mit Microsoft anmelden",
+      "notice": "Simuliertes Anmeldefenster für diesen Prototyp — geben Sie eine beliebige E-Mail-Adresse und ein beliebiges Passwort ein, um fortzufahren.",
+      "emailLabel": "E-Mail",
+      "emailPlaceholder": "sie@unternehmen.de",
+      "passwordLabel": "Passwort",
+      "signIn": "Anmelden",
+      "signingIn": "Anmeldung läuft…",
+      "backToLogin": "← Zurück zur InnoPeak-Anmeldung"
+    },
+    "toasts": {
+      "signInFailed": "Bei der Anmeldung ist etwas schiefgelaufen. Bitte versuchen Sie es erneut.",
+      "signUpFailed": "Beim Erstellen Ihres Kontos ist etwas schiefgelaufen. Bitte versuchen Sie es erneut.",
+      "signOutFailed": "Bei der Abmeldung ist etwas schiefgelaufen. Bitte versuchen Sie es erneut."
+    },
+    "googleErrors": {
+      "NO_ACCOUNT": "Für diese Google-Adresse wurde kein Konto gefunden. Bitte zuerst registrieren.",
+      "INVALID_STATE": "Dieser Anmeldelink ist abgelaufen oder wurde bereits verwendet. Bitte versuchen Sie es erneut.",
+      "ACCESS_DENIED": "Die Google-Anmeldung wurde abgebrochen.",
+      "EMAIL_NOT_VERIFIED": "Google hat diese Adresse nicht verifiziert. Verifizieren Sie sie bei Google, oder nutzen Sie E-Mail und Passwort.",
+      "ACCOUNT_UNAVAILABLE": "Dieses Konto ist nicht verfügbar. Kontaktieren Sie den Support.",
+      "PROVIDER_ERROR": "Google konnte nicht erreicht werden. Bitte versuchen Sie es erneut.",
+      "NOT_CONFIGURED": "Die Google-Anmeldung ist derzeit nicht verfügbar. Nutzen Sie E-Mail und Passwort.",
+      "INVALID_OR_EXPIRED_INVITE": "Dieser Einladungslink ist ungültig oder abgelaufen.",
+      "INVITE_EMAIL_MISMATCH": "Die E-Mail-Adresse dieses Google-Kontos stimmt nicht mit der eingeladenen Adresse überein. Melden Sie sich bei Google mit der Adresse an, an die die Einladung gesendet wurde.",
+      "GOOGLE_IDENTITY_ALREADY_LINKED": "Dieses Google-Konto ist bereits mit einem anderen Konto verknüpft.",
+      "fallback": "Die Google-Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
+    }
+  },
+  "onboardingConnect": {
+    "connect": {
+      "title": "Google Unternehmensprofil verbinden",
+      "description": "InnoPeak benötigt Zugriff auf Ihr Google Unternehmensprofil, um Bewertungen in Ihrem Namen zu lesen und zu beantworten. Sie werden gebeten, die Berechtigung zur Verwaltung von Bewertungen für Ihre Standorte zu erteilen.",
+      "button": "Google Unternehmensprofil verbinden",
+      "connecting": "Weiterleitung zu Google…"
+    },
+    "confirmLocation": {
+      "title": "Wir haben Ihr Unternehmen gefunden",
+      "subtitle": "Bestätigen Sie, dass dies der Standort ist, den InnoPeak verwalten soll.",
+      "button": "Weiter",
+      "buttonMultiple": "Weiter mit {count} Standorten",
+      "subtitleMultiple": "Wählen Sie die Standorte, die InnoPeak verwalten soll.",
+      "noAddress": "Keine Adresse hinterlegt"
+    },
+    "backfilling": {
+      "title": "Ihr Bewertungsverlauf wird importiert",
+      "description": "Dies dauert normalerweise eine Minute. Schließen Sie dieses Fenster nicht.",
+      "importing": "Verlaufsbewertungen werden importiert… {imported} von ca. {total} importiert",
+      "importingUnknownTotal": "Verlaufsbewertungen werden importiert… bisher {imported}",
+      "takingLonger": "Dies dauert länger als gewöhnlich. Wir machen weiter — Sie können dieses Fenster gefahrlos schließen und später zurückkehren."
+    },
+    "done": {
+      "title": "Alles bereit",
+      "description": "Wir haben {count} Verlaufsbewertungen importiert und prüfen ab jetzt alle 15 Minuten auf neue.",
+      "button": "Zum Dashboard"
+    },
+    "errors": {
+      "INVALID_STATE": "Dieser Verbindungslink ist abgelaufen oder wurde bereits verwendet. Bitte beginnen Sie erneut.",
+      "ACCESS_DENIED": "Sie haben die Google-Berechtigungsanfrage abgebrochen. InnoPeak benötigt Zugriff, um Ihre Bewertungen zu lesen.",
+      "PROVIDER_ERROR": "Google konnte die Verbindung nicht abschließen. Bitte versuchen Sie es in Kürze erneut.",
+      "ACCOUNT_MISMATCH": "Das ist ein anderes Google-Konto als das aktuell verbundene. Um das Konto zu wechseln, trennen Sie zunächst das aktuelle in den Einstellungen und verbinden Sie sich dann erneut.",
+      "INSUFFICIENT_SCOPE": "InnoPeak wurde keine Berechtigung zur Verwaltung von Bewertungen erteilt. Bitte erneut verbinden und alle angeforderten Berechtigungen akzeptieren.",
+      "SERVER_ERROR": "Auf unserer Seite ist etwas schiefgelaufen. Bitte versuchen Sie es erneut.",
+      "UNKNOWN": "Beim Verbinden Ihres Google Unternehmensprofils ist etwas schiefgelaufen.",
+      "loadLocationsFailed": "Ihre Google-Standorte konnten nicht geladen werden. Bitte versuchen Sie es erneut.",
+      "confirmFailed": "Dieser Standort konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+      "needsReauth": "Ihre Google-Verbindung ist abgelaufen. Bitte erneut verbinden.",
+      "backfillFailed": "Der Bewertungsimport wurde nicht abgeschlossen. Sie können ihn jetzt erneut versuchen."
+    },
+    "actions": {
+      "retry": "Erneut versuchen",
+      "reconnect": "Google erneut verbinden",
+      "restart": "Von vorn beginnen",
+      "continue": "Weiter"
+    }
+  },
+  "onboardingSignup": {
+    "subtitle": "Verifizieren Sie Ihre Identität und verbinden Sie dann Ihr Google Unternehmensprofil.",
+    "haveAccount": "Sie haben bereits ein Konto?",
+    "signIn": "Anmelden",
+    "stepper": {
+      "identity": "Konto erstellen",
+      "otp": "E-Mail verifizieren",
+      "connect": "Unternehmensprofil verbinden"
+    },
+    "createAccount": {
+      "nameLabel": "Vollständiger Name",
+      "namePlaceholder": "Jordan Lee",
+      "businessNameLabel": "Firmenname",
+      "businessNamePlaceholder": "The Coffee House",
+      "emailLabel": "E-Mail",
+      "emailPlaceholder": "sie@unternehmen.de",
+      "passwordLabel": "Passwort",
+      "confirmPasswordLabel": "Passwort bestätigen",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "submit": "Konto erstellen",
+      "submitting": "Konto wird erstellt…",
+      "errors": {
+        "nameRequired": "Geben Sie Ihren vollständigen Namen ein.",
+        "businessNameRequired": "Geben Sie Ihren Firmennamen ein.",
+        "emailInvalid": "Geben Sie eine gültige E-Mail-Adresse ein.",
+        "passwordTooShort": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+        "passwordTooLong": "Das Passwort darf höchstens 128 Zeichen lang sein.",
+        "passwordUppercase": "Das Passwort muss einen Großbuchstaben enthalten.",
+        "passwordLowercase": "Das Passwort muss einen Kleinbuchstaben enthalten.",
+        "passwordNumber": "Das Passwort muss eine Zahl enthalten.",
+        "passwordSpecial": "Das Passwort muss ein Sonderzeichen enthalten.",
+        "confirmPasswordRequired": "Geben Sie Ihr Passwort zur Bestätigung erneut ein."
+      }
+    },
+    "otp": {
+      "title": "Verifizieren Sie Ihre E-Mail",
+      "description": "Wir haben einen 6-stelligen Code an {email} gesendet",
+      "codeLabel": "Verifizierungscode",
+      "verifyButton": "Verifizieren",
+      "verifying": "Verifizierung läuft…",
+      "incompleteCode": "Geben Sie den 6-stelligen Code ein.",
+      "resend": "Code erneut senden",
+      "resendIn": "Code in {seconds}s erneut senden",
+      "toasts": {
+        "resent": "Code erneut gesendet.",
+        "resendFailed": "Der Code konnte nicht erneut gesendet werden. Bitte versuchen Sie es in Kürze erneut.",
+        "verifyFailed": "Dieser Code konnte nicht verifiziert werden. Bitte versuchen Sie es erneut."
+      }
+    }
+  },
+  "onboardingBusinessName": {
+    "title": "Wie heißt Ihr Unternehmen?",
+    "subtitle": "Noch eine letzte Sache, bevor Sie Ihr Google Unternehmensprofil verbinden.",
+    "label": "Firmenname",
+    "placeholder": "The Coffee House",
+    "submit": "Weiter",
+    "submitting": "Wird gespeichert…",
+    "startOver": "Stimmt etwas nicht?",
+    "startOverLink": "Von vorn beginnen",
+    "errors": {
+      "required": "Geben Sie Ihren Firmennamen ein."
+    }
+  },
+  "dashboard": {
+    "loadError": "Dashboard-Daten konnten nicht geladen werden. Bitte versuchen Sie es erneut.",
+    "dateRanges": {
+      "7d": "Letzte 7 Tage",
+      "30d": "Letzte 30 Tage",
+      "90d": "Letzte 90 Tage"
+    },
+    "stats": {
+      "reviews": "Bewertungen",
+      "averageRating": "Durchschnittliche Bewertung",
+      "pendingApproval": "Ausstehende Freigabe",
+      "escalatedOpen": "Eskaliert (offen)"
+    },
+    "ratingDistribution": {
+      "title": "Bewertungsverteilung",
+      "subtitle": "Basierend auf den letzten 30 Tagen",
+      "starLabel": "{star, plural, one {# Stern} other {# Sterne}}"
+    },
+    "attention": {
+      "title": "Benötigt Ihre Aufmerksamkeit",
+      "reviewCta": "Prüfen"
+    },
+    "businessProfile": {
+      "googleReviewCount": "({count, plural, one {# Google-Bewertung} other {# Google-Bewertungen}})"
+    }
+  },
+  "reviewQueue": {
+    "resultCount": "{count, plural, one {# Bewertung} other {# Bewertungen}}",
+    "filters": {
+      "allStatuses": "Alle Status",
+      "allClassifications": "Alle Klassifizierungen",
+      "searchPlaceholder": "Nach Bewertendem suchen"
+    },
+    "columns": {
+      "reviewer": "Bewertender",
+      "rating": "Bewertung",
+      "review": "Bewertung",
+      "classification": "Klassifizierung",
+      "status": "Status",
+      "date": "Datum"
+    },
+    "emptyState": {
+      "title": "Keine Bewertungen entsprechen diesen Filtern",
+      "description": "Versuchen Sie, die Filter für Status, Klassifizierung oder Suche zu löschen.",
+      "clearFilters": "Filter löschen"
+    },
+    "errorState": {
+      "title": "Bewertungen konnten nicht geladen werden",
+      "description": "Beim Laden dieser Seite ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.",
+      "retry": "Erneut versuchen"
+    },
+    "toasts": {
+      "loadFailed": "Bewertungen konnten nicht geladen werden."
+    }
+  },
+  "reviewDetail": {
+    "backToQueue": "Bewertungswarteschlange",
+    "reviewStatusLabel": "Bewertungsstatus",
+    "notFound": "Diese Bewertung konnte nicht gefunden werden.",
+    "toasts": {
+      "loadFailed": "Diese Bewertung konnte nicht geladen werden.",
+      "approved": "Antwort freigegeben.",
+      "rejected": "Antwort abgelehnt.",
+      "saveFailed": "Die Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
+    },
+    "replies": {
+      "title": "Vorgeschlagene Antworten",
+      "description": "Für diese Eskalation wurden zwei KI-Antwortentwürfe erstellt. Die Freigabe eines Entwurfs ersetzt automatisch den anderen — pro Bewertung kann immer nur eine Antwort veröffentlicht werden.",
+      "snippetLabel": "Entwurf {label}",
+      "approve": "Freigeben",
+      "edit": "Bearbeiten",
+      "cancelEdit": "Bearbeitung abbrechen",
+      "reject": "Ablehnen",
+      "status": {
+        "pending_approval": "Ausstehende Freigabe",
+        "approved": "Freigegeben",
+        "rejected": "Abgelehnt",
+        "superseded": "Ersetzt"
+      },
+      "confirmation": {
+        "approved": "Freigegeben — wird im Google Unternehmensprofil veröffentlicht.",
+        "rejected": "Abgelehnt — dieser Entwurf wird nicht verwendet.",
+        "superseded": "Ersetzt — für diese Bewertung wurde eine andere Antwort freigegeben."
+      }
+    }
+  },
+  "settings": {
+    "tabs": {
+      "general": "Allgemein",
+      "blocklist": "Sperrliste",
+      "notifications": "Benachrichtigungen",
+      "connection": "Verbindung",
+      "ai": "KI",
+      "profile": "Profil",
+      "members": "Mitglieder"
+    },
+    "noSettingsForMember": "Hier gibt es noch nichts zu konfigurieren. Wenden Sie sich an Ihren Unternehmensinhaber, wenn Sie eine Änderung benötigen.",
+    "general": {
+      "title": "Allgemein",
+      "description": "Grundlegende Standardeinstellungen für Eskalation und Datenverarbeitung für dieses Unternehmen.",
+      "escalationThreshold": {
+        "label": "Eskalations-Bewertungsschwelle",
+        "min": "1 Stern",
+        "max": "5 Sterne",
+        "helper": "Bewertungen unterhalb dieser Schwelle werden an Ihr Team eskaliert"
+      },
+      "autoPost": {
+        "label": "Automatische Antwort auf unkomplizierte Bewertungen",
+        "helper": "Wenn aktiviert, werden als automatisch beantwortbar klassifizierte Bewertungen ohne Warten auf Freigabe beantwortet. Eskalierte Bewertungen warten immer auf eine Person."
+      },
+      "retention": {
+        "label": "Aufbewahrungsdauer der Bewertungsdaten",
+        "suffix": "Monate, danach werden personenbezogene Daten des Bewertenden anonymisiert",
+        "notSet": "Nicht festgelegt — personenbezogene Daten des Bewertenden werden unbegrenzt aufbewahrt.",
+        "add": "Aufbewahrungsdauer hinzufügen",
+        "remove": "Entfernen",
+        "errors": {
+          "min": "Geben Sie eine Zahl von 1 oder mehr ein."
+        }
+      },
+      "save": "Speichern",
+      "saving": "Wird gespeichert…",
+      "cancel": "Abbrechen"
+    },
+    "blocklist": {
+      "title": "Sperrliste",
+      "description": "Bewertungen, die einen dieser Begriffe enthalten, werden unabhängig von der Bewertung eskaliert.",
+      "addPlaceholder": "Begriff zum Sperren hinzufügen…",
+      "addButton": "Hinzufügen",
+      "removeTerm": "{term} entfernen",
+      "empty": "Noch keine gesperrten Begriffe."
+    },
+    "notifications": {
+      "title": "Benachrichtigungen",
+      "description": "Wer bei einer eskalierten Bewertung benachrichtigt wird, und wie.",
+      "empty": "Noch keine Empfänger konfiguriert.",
+      "channels": {
+        "email": "E-Mail",
+        "teams": "Teams",
+        "both": "Beide"
+      }
+    },
+    "connection": {
+      "title": "Verbindung",
+      "description": "Verwalten Sie die Google Unternehmensprofil-Verbindung, die zur Synchronisierung von Bewertungen verwendet wird.",
+      "lastSynced": "Zuletzt synchronisiert am {date}",
+      "statusConnected": "Verbunden",
+      "statusDisconnected": "Getrennt",
+      "connectButton": "Google Unternehmensprofil verbinden",
+      "connecting": "Weiterleitung zu Google…",
+      "disconnectButton": "Trennen",
+      "disconnectConfirm": "Sind Sie sicher? Dadurch wird Ihre gesamte Google Unternehmensprofil-Verbindung getrennt — alle unten aufgeführten Standorte synchronisieren danach keine neuen Bewertungen mehr.",
+      "cancel": "Abbrechen",
+      "otherLocations": "Weitere verbundene Standorte"
+    },
+    "ai": {
+      "title": "KI-Antworten",
+      "description": "Steuern Sie, wie die KI Antworten auf Bewertungen entwirft.",
+      "replyCount": {
+        "label": "Anzahl der KI-generierten Antworten",
+        "option": "{count, plural, one {# Antwortentwurf} other {# Antwortentwürfe}}",
+        "helper": "Wie viele Antwortentwürfe die KI für jede Bewertung vorschlägt — das Team wählt einen zum Senden aus."
+      },
+      "prompts": {
+        "label": "Prompt-Vorlagen",
+        "helper": "Bearbeiten Sie die Prompts, die der KI beim Entwerfen einer Antwort zugeführt werden.",
+        "manageButton": "Prompts verwalten"
+      }
+    },
+    "profile": {
+      "title": "Ihr Profil",
+      "nameLabel": "Name",
+      "description": "Ihr Name, Ihre Anmelde-E-Mail und Ihr Passwort für dieses Konto.",
+      "changePicture": "Bild ändern",
+      "emailLabel": "E-Mail",
+      "businessNameLabel": "Firmenname",
+      "changePasswordTitle": "Passwort ändern",
+      "changePasswordDescription": "Aktualisieren Sie das Passwort für die Anmeldung bei diesem Konto.",
+      "changePassword": "Passwort ändern",
+      "currentPasswordLabel": "Aktuelles Passwort",
+      "newPasswordLabel": "Neues Passwort",
+      "confirmPasswordLabel": "Neues Passwort bestätigen",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "updatePassword": "Passwort aktualisieren",
+      "cancel": "Abbrechen",
+      "addPasswordTitle": "Passwort hinzufügen",
+      "addPasswordDescription": "Sie haben sich mit Google registriert. Fügen Sie ein Passwort hinzu, um sich auch mit E-Mail und Passwort anmelden zu können.",
+      "addPassword": "Passwort hinzufügen",
+      "setPassword": "Passwort festlegen",
+      "settingPassword": "Wird festgelegt…",
+      "sendingCode": "Wird gesendet…",
+      "otpSentDescription": "Wir haben Ihnen einen 6-stelligen Code per E-Mail gesendet. Geben Sie ihn unten zusammen mit Ihrem neuen Passwort ein.",
+      "otpLabel": "Bestätigungscode",
+      "resendCode": "Code erneut senden",
+      "resendCodeIn": "Code erneut senden ({seconds}s)",
+      "toasts": {
+        "loadFailed": "Ihr Profil konnte nicht geladen werden.",
+        "updateFailed": "Diese Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+        "currentPasswordIncorrect": "Das aktuelle Passwort ist falsch.",
+        "avatarUpdated": "Profilbild aktualisiert.",
+        "passwordChanged": "Passwort geändert. Andere Sitzungen wurden abgemeldet.",
+        "passwordSet": "Passwort festgelegt. Sie können sich jetzt auch mit einem Passwort anmelden.",
+        "otpSent": "Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren."
+      },
+      "errors": {
+        "currentPasswordRequired": "Geben Sie Ihr aktuelles Passwort ein.",
+        "passwordTooShort": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+        "passwordTooLong": "Das Passwort darf höchstens 128 Zeichen lang sein.",
+        "passwordUppercase": "Das Passwort muss einen Großbuchstaben enthalten.",
+        "passwordLowercase": "Das Passwort muss einen Kleinbuchstaben enthalten.",
+        "passwordNumber": "Das Passwort muss eine Zahl enthalten.",
+        "passwordSpecial": "Das Passwort muss ein Sonderzeichen enthalten.",
+        "confirmPasswordRequired": "Geben Sie Ihr neues Passwort zur Bestätigung erneut ein.",
+        "otpRequired": "Geben Sie den Bestätigungscode ein.",
+        "otpInvalid": "Der Bestätigungscode muss genau 6 Ziffern haben."
+      }
+    },
+    "members": {
+      "title": "Teammitglieder",
+      "description": "Laden Sie Teammitglieder ein, um bei der Verwaltung von Bewertungen für dieses Unternehmen zu helfen.",
+      "emailPlaceholder": "name@unternehmen.de",
+      "inviteButton": "Einladen",
+      "revoke": "Widerrufen",
+      "cancel": "Abbrechen",
+      "empty": "Noch keine Teammitglieder.",
+      "role": {
+        "owner": "Inhaber",
+        "member": "Mitglied"
+      },
+      "status": {
+        "active": "Aktiv",
+        "invited": "Eingeladen",
+        "pending_verification": "Ausstehend",
+        "disabled": "Deaktiviert"
+      },
+      "confirmRevoke": {
+        "title": "Einladung für {name} widerrufen?",
+        "description": "Dieser Einladungslink funktioniert sofort nicht mehr."
+      },
+      "toasts": {
+        "loadFailed": "Teammitglieder konnten nicht geladen werden.",
+        "invited": "Einladung an {email} gesendet.",
+        "inviteFailed": "Diese Einladung konnte nicht gesendet werden. Bitte versuchen Sie es erneut.",
+        "revoked": "Einladung widerrufen.",
+        "revokeFailed": "Diese Einladung konnte nicht widerrufen werden. Bitte versuchen Sie es erneut."
+      },
+      "errors": {
+        "emailInvalid": "Geben Sie eine gültige E-Mail-Adresse zum Einladen ein."
+      }
+    },
+    "toasts": {
+      "loadFailed": "Einstellungen konnten nicht geladen werden.",
+      "saveFailed": "Die Sperrliste konnte nicht aktualisiert werden.",
+      "generalSaveFailed": "Allgemeine Einstellungen konnten nicht gespeichert werden.",
+      "generalSaved": "Einstellungen gespeichert.",
+      "blocklistTermAdded": "Begriff zur Sperrliste hinzugefügt.",
+      "blocklistTermRemoved": "Begriff von der Sperrliste entfernt.",
+      "notificationChannelUpdated": "Benachrichtigungskanal aktualisiert.",
+      "notificationToggled": "Benachrichtigungseinstellung aktualisiert.",
+      "disconnected": "Google Unternehmensprofil getrennt.",
+      "disconnectFailed": "Ihr Google Unternehmensprofil konnte nicht getrennt werden. Bitte versuchen Sie es erneut.",
+      "aiReplyCountUpdated": "Anzahl der KI-Antworten aktualisiert.",
+      "updateFailed": "Die Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
+    }
+  },
+  "promptManagement": {
+    "backToSettings": "Zurück zu Einstellungen",
+    "title": "KI-Prompts",
+    "description": "Diese Prompts werden der KI beim Entwerfen einer Antwort auf eine Bewertung zugeführt. Verwenden Sie '{{business_name}}', '{{reviewer_name}}', '{{rating}}' und '{{review_text}}' als Platzhalter.",
+    "edit": "Bearbeiten",
+    "versionBadge": "v{version}",
+    "updatedAt": "Aktualisiert am {date} von {author}",
+    "editor": {
+      "description": "Das Bearbeiten hier speichert eine neue Version (v{version}) — die aktuelle wird nicht überschrieben. Platzhalter in doppelten geschweiften Klammern werden automatisch ausgefüllt.",
+      "cancel": "Abbrechen",
+      "saveAsNewVersion": "Als v{version} speichern",
+      "saving": "Wird gespeichert…"
+    },
+    "tone": {
+      "label": "Tonalität",
+      "options": {
+        "friendly": "Freundlich",
+        "professional": "Professionell",
+        "formal": "Formell",
+        "playful": "Verspielt",
+        "empathetic": "Einfühlsam"
+      }
+    },
+    "history": {
+      "toggle": "{count, plural, one {# frühere Version} other {# frühere Versionen}}",
+      "entryLabel": "v{version} · {date} · {author}"
+    },
+    "stats": {
+      "noneGenerated": "Mit diesem Prompt wurden noch keine Antworten generiert",
+      "totalGenerated": "{count, plural, one {# generiert} other {# generiert}}",
+      "approvalRate": "{rate}% freigegeben",
+      "editedRate": "{rate}% benötigten Bearbeitung",
+      "awaitingReview": "wartet auf Prüfung",
+      "avgDecisionTime": "~{minutes} Min. bis zur Entscheidung"
+    },
+    "toasts": {
+      "loadFailed": "Prompts konnten nicht geladen werden.",
+      "saveFailed": "Dieser Prompt konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+      "versionSaved": "Als v{version} gespeichert.",
+      "toneUpdated": "Tonalität aktualisiert."
+    }
+  },
+  "adminOverview": {
+    "stats": {
+      "businesses": "Unternehmen",
+      "users": "Benutzer",
+      "reviewsFetched": "Abgerufene Bewertungen",
+      "repliesSent": "Gesendete Antworten"
+    },
+    "needsAttention": {
+      "title": "Handlungsbedarf",
+      "subtitle": "Unternehmen mit einem Problem bei der Google-Unternehmensprofil-Verbindung",
+      "viewAll": "Alle Unternehmen anzeigen →",
+      "statuses": {
+        "needs_reauth": "Erneute Autorisierung nötig",
+        "disconnected": "Getrennt",
+        "never_connected": "Nie verbunden"
+      }
+    },
+    "recentBusinesses": {
+      "title": "Neueste Unternehmen",
+      "subtitle": "Die neuesten registrierten Unternehmen",
+      "empty": "Noch keine Unternehmen.",
+      "viewAll": "Alle Unternehmen anzeigen →"
+    },
+    "signupTrend": {
+      "title": "Registrierungen",
+      "subtitle": "Neue Unternehmen nach Monat",
+      "empty": "Noch keine Registrierungen."
+    },
+    "activityLog": {
+      "title": "Aktivität",
+      "subtitle": "Letzte Plattformaktivität",
+      "empty": "Noch keine Aktivität.",
+      "messages": {
+        "business_joined": "Neues Unternehmen \"{businessName}\" registriert",
+        "business_suspended": "{businessName} gesperrt",
+        "business_reactivated": "{businessName} reaktiviert",
+        "admin_invite_sent": "{email} als Plattform-Administrator eingeladen",
+        "admin_invite_revoked": "Einladung für {email} widerrufen",
+        "admin_disabled": "Administrator {email} deaktiviert",
+        "admin_enabled": "Administrator {email} aktiviert",
+        "user_activated": "{email} bei {businessName} reaktiviert",
+        "user_deactivated": "{email} bei {businessName} deaktiviert"
+      }
+    },
+    "toasts": {
+      "loadFailed": "Die Übersicht konnte nicht geladen werden."
+    }
+  },
+  "adminBusinesses": {
+    "resultCount": "{count, plural, one {# Unternehmen} other {# Unternehmen}}",
+    "columns": {
+      "name": "Unternehmen",
+      "status": "Status",
+      "owner": "Inhaber",
+      "users": "Benutzer",
+      "created": "Erstellt",
+      "actions": "Aktionen"
+    },
+    "status": {
+      "active": "Aktiv",
+      "suspended": "Gesperrt"
+    },
+    "suspend": "Sperren",
+    "reactivate": "Reaktivieren",
+    "cancel": "Abbrechen",
+    "confirmSuspend": {
+      "title": "{name} sperren?",
+      "description": "Der Zugriff auf das Dashboard geht sofort verloren. Sie können das Konto jederzeit reaktivieren."
+    },
+    "confirmReactivate": {
+      "title": "{name} reaktivieren?",
+      "description": "Der Zugriff auf das Dashboard wird sofort wiederhergestellt."
+    },
+    "emptyState": {
+      "title": "Noch keine Unternehmen",
+      "description": "Neue Unternehmen erscheinen hier, sobald sie sich registrieren."
+    },
+    "toasts": {
+      "loadFailed": "Unternehmen konnten nicht geladen werden.",
+      "updateFailed": "Dieses Unternehmen konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut."
+    }
+  },
+  "adminUsers": {
+    "resultCount": "{count, plural, one {# Benutzer} other {# Benutzer}}",
+    "columns": {
+      "name": "Benutzer",
+      "business": "Unternehmen",
+      "role": "Rolle",
+      "status": "Status",
+      "lastLogin": "Letzte Anmeldung",
+      "actions": "Aktionen"
+    },
+    "role": {
+      "owner": "Inhaber",
+      "member": "Mitglied"
+    },
+    "status": {
+      "active": "Aktiv",
+      "inactive": "Inaktiv"
+    },
+    "deactivate": "Deaktivieren",
+    "activate": "Aktivieren",
+    "cancel": "Abbrechen",
+    "confirmDeactivate": {
+      "title": "{name} deaktivieren?",
+      "description": "Der Zugriff auf das Konto geht sofort verloren. Sie können es jederzeit reaktivieren."
+    },
+    "confirmActivate": {
+      "title": "{name} aktivieren?",
+      "description": "Der Zugriff auf das Konto wird sofort wiederhergestellt."
+    },
+    "neverLoggedIn": "Nie",
+    "emptyState": {
+      "title": "Noch keine Benutzer",
+      "description": "Benutzer erscheinen hier, sobald Unternehmen ihr Team einladen."
+    },
+    "toasts": {
+      "loadFailed": "Benutzer konnten nicht geladen werden.",
+      "updateFailed": "Dieser Benutzer konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut."
+    }
+  },
+  "adminSettings": {
+    "tabs": {
+      "profile": "Profil",
+      "members": "Mitglieder",
+      "platform": "Plattform"
+    },
+    "profile": {
+      "title": "Ihr Profil",
+      "description": "Anmelde-E-Mail und Passwort Ihres Super-Administrator-Kontos.",
+      "changePicture": "Bild ändern",
+      "emailLabel": "E-Mail",
+      "changePasswordTitle": "Passwort ändern",
+      "changePasswordDescription": "Aktualisieren Sie das Passwort für die Anmeldung an Ihrem Super-Administrator-Konto.",
+      "changePassword": "Passwort ändern",
+      "currentPasswordLabel": "Aktuelles Passwort",
+      "newPasswordLabel": "Neues Passwort",
+      "confirmPasswordLabel": "Neues Passwort bestätigen",
+      "updatePassword": "Passwort aktualisieren",
+      "passwordMismatch": "Das neue Passwort und die Bestätigung stimmen nicht überein.",
+      "cancel": "Abbrechen",
+      "addPasswordTitle": "Passwort hinzufügen",
+      "addPasswordDescription": "Sie haben Ihre Einladung mit Google angenommen. Fügen Sie ein Passwort hinzu, um sich auch mit E-Mail und Passwort anmelden zu können.",
+      "addPassword": "Passwort hinzufügen",
+      "setPassword": "Passwort festlegen",
+      "settingPassword": "Wird festgelegt…",
+      "sendingCode": "Wird gesendet…",
+      "otpSentDescription": "Wir haben Ihnen einen 6-stelligen Code per E-Mail gesendet. Geben Sie ihn unten zusammen mit Ihrem neuen Passwort ein.",
+      "otpLabel": "Bestätigungscode",
+      "resendCode": "Code erneut senden",
+      "resendCodeIn": "Code erneut senden ({seconds}s)",
+      "toasts": {
+        "loadFailed": "Ihr Profil konnte nicht geladen werden.",
+        "updateFailed": "Diese Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+        "currentPasswordIncorrect": "Das aktuelle Passwort ist falsch.",
+        "avatarUpdated": "Profilbild aktualisiert.",
+        "passwordChanged": "Passwort geändert.",
+        "passwordSet": "Passwort festgelegt. Sie können sich jetzt auch mit einem Passwort anmelden.",
+        "otpSent": "Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren.",
+        "tooManyRequests": "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut."
+      },
+      "errors": {
+        "currentPasswordRequired": "Geben Sie Ihr aktuelles Passwort ein.",
+        "passwordTooShort": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+        "passwordTooLong": "Das Passwort darf höchstens 128 Zeichen lang sein.",
+        "passwordUppercase": "Das Passwort muss einen Großbuchstaben enthalten.",
+        "passwordLowercase": "Das Passwort muss einen Kleinbuchstaben enthalten.",
+        "passwordNumber": "Das Passwort muss eine Zahl enthalten.",
+        "passwordSpecial": "Das Passwort muss ein Sonderzeichen enthalten.",
+        "confirmPasswordRequired": "Geben Sie Ihr neues Passwort zur Bestätigung erneut ein.",
+        "otpRequired": "Geben Sie den Bestätigungscode ein.",
+        "otpInvalid": "Der Bestätigungscode muss genau 6 Ziffern haben."
+      }
+    },
+    "invite": {
+      "title": "Einen Plattform-Administrator einladen",
+      "description": "Senden Sie eine Einladung, um jemand anderem Super-Administrator-Zugriff zu gewähren.",
+      "emailPlaceholder": "name@innopeak.com",
+      "sendButton": "Einladung senden",
+      "revoke": "Widerrufen",
+      "cancel": "Abbrechen",
+      "empty": "Noch keine Einladungen gesendet.",
+      "invitedOn": "Beigetreten am {date}",
+      "expiresOn": "Läuft ab am {date}",
+      "status": {
+        "invited": "Ausstehend",
+        "active": "Aktiv",
+        "disabled": "Deaktiviert"
+      },
+      "confirmRevoke": {
+        "title": "Einladung für {email} widerrufen?",
+        "description": "Dieser Einladungslink funktioniert sofort nicht mehr."
+      },
+      "toasts": {
+        "loadFailed": "Einladungen konnten nicht geladen werden.",
+        "sendFailed": "Diese Einladung konnte nicht gesendet werden. Bitte versuchen Sie es erneut.",
+        "sent": "Einladung an {email} gesendet.",
+        "revokeFailed": "Diese Einladung konnte nicht widerrufen werden. Bitte versuchen Sie es erneut.",
+        "revoked": "Einladung widerrufen.",
+        "adminDisabled": "Administrator deaktiviert.",
+        "adminEnabled": "Administrator aktiviert.",
+        "updateFailed": "Dieser Administrator konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut."
+      },
+      "errors": {
+        "emailInvalid": "Geben Sie eine gültige E-Mail-Adresse zum Einladen ein."
+      },
+      "disable": "Deaktivieren",
+      "enable": "Aktivieren",
+      "confirmDisable": {
+        "title": "{email} deaktivieren?",
+        "description": "Der Zugriff endet bei der nächsten Anfrage; eine Anmeldung ist erst nach erneuter Aktivierung möglich."
+      }
+    },
+    "platform": {
+      "title": "Plattformeinstellungen",
+      "description": "Welche Anmeldemethoden angeboten werden und ob Mandanten Teammitglieder einladen können. Änderungen wirken sofort und überall.",
+      "sso": {
+        "label": "Microsoft SSO",
+        "helper": "„Mit Microsoft fortfahren\" auf den Anmelde- und Registrierungsbildschirmen anbieten."
+      },
+      "password": {
+        "label": "E-Mail & Passwort",
+        "helper": "E-Mail/Passwort für Registrierung und Passwortverwaltung von Mandanten anbieten – die Anmeldung mit einem vorhandenen Passwort ist immer möglich."
+      },
+      "social": {
+        "label": "Google-Anmeldung",
+        "helper": "„Mit Google fortfahren\" auf den Anmelde- und Registrierungsbildschirmen anbieten."
+      },
+      "inviteMembers": {
+        "label": "Teammitglieder einladen",
+        "helper": "Einem Mandanteninhaber erlauben, Teammitglieder über die eigenen Einstellungen > Mitglieder einzuladen."
+      },
+      "toasts": {
+        "updated": "Plattformeinstellungen aktualisiert.",
+        "updateFailed": "Diese Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
+      }
+    }
+  },
+  "common": {
+    "escalationReason": {
+      "low_rating": "Eskaliert · Niedrige Bewertung",
+      "blocklist_match": "Eskaliert · Sperrlisten-Treffer"
+    },
+    "escalationReasonShort": {
+      "low_rating": "Niedrige Bewertung",
+      "blocklist_match": "Sperrlisten-Treffer"
+    },
+    "starRatingAriaLabel": "{rating} von 5 Sternen",
+    "passwordInput": {
+      "show": "Passwort anzeigen",
+      "hide": "Passwort verbergen"
+    },
+    "passwordRequirements": {
+      "minLength": "Mindestens 8 Zeichen",
+      "uppercase": "Ein Großbuchstabe",
+      "lowercase": "Ein Kleinbuchstabe",
+      "number": "Eine Zahl",
+      "special": "Ein Sonderzeichen"
+    },
+    "pagination": {
+      "previous": "Vorherige Seite",
+      "next": "Nächste Seite",
+      "pageOf": "Seite {page} von {totalPages}"
+    },
+    "classification": {
+      "auto_reply_candidate": "Automatische Antwort",
+      "escalated": "Eskaliert",
+      "unclassified": "Nicht klassifiziert"
+    },
+    "reviewStatus": {
+      "new": "Neu",
+      "in_review": "In Prüfung",
+      "responded": "Beantwortet",
+      "dismissed": "Verworfen"
+    },
+    "loadError": {
+      "title": "Konnte nicht geladen werden",
+      "description": "Auf unserer Seite ist etwas schiefgelaufen. Dies ist keine leere Liste — bitte versuchen Sie es gleich erneut.",
+      "retry": "Erneut versuchen"
+    }
+  },
+  "accessState": {
+    "returnHome": "Zur Startseite",
+    "forbidden": {
+      "title": "Zugriff verweigert",
+      "description": "Ihr Konto hat keinen Zugriff auf diese Seite. Falls das nicht stimmt, bitten Sie eine Inhaberin oder einen Inhaber in Ihrem Team, Ihre Berechtigungen zu prüfen."
+    },
+    "unauthorized": {
+      "title": "Nicht angemeldet",
+      "description": "Sie müssen angemeldet sein, um diese Seite zu sehen."
+    }
+  }
+}
