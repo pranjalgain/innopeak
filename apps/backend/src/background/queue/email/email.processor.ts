@@ -41,6 +41,7 @@ export class EmailProcessor extends WorkerHost {
     try {
       switch (job.name) {
         case JobName.OTP_EMAIL_VERIFICATION:
+        case JobName.ADMIN_SET_PASSWORD_OTP_EMAIL:
           await this.emailQueueService.sendOtpEmail(job.data as unknown as IOtpEmailJob);
           break;
         case JobName.ADMIN_INVITE_EMAIL:

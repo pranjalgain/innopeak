@@ -1,10 +1,16 @@
-import type { UpdateTenantSettingsDto } from "@innopeak/client-sdk";
+import type { NotificationRecipientDto, UpdateTenantSettingsDto } from "@innopeak/client-sdk";
 
 import { settingsApi } from "@/app/_libs/api-sdk/settings-api";
 import { MOCK_SETTINGS } from "@/app/_libs/mock-data/settings";
 import { unwrap } from "@/app/_libs/services/api-error";
 import { ConnectionService } from "@/app/_libs/services/connection.service";
-import type { BlocklistTerm, GeneralSettings, SettingsData } from "@/types/domain";
+import type {
+  BlocklistTerm,
+  GeneralSettings,
+  NotificationChannel,
+  NotificationRecipient,
+  SettingsData,
+} from "@/types/domain";
 
 export { ApiError as SettingsApiError } from "@/app/_libs/services/api-error";
 
@@ -51,26 +57,39 @@ function mapGeneral(api: ApiTenantSettings): GeneralSettings {
   };
 }
 
+function mapNotificationRecipient(dto: NotificationRecipientDto): NotificationRecipient {
+  return {
+    id: dto.id,
+    name: dto.name,
+    initials: dto.initials,
+    channel: dto.channel as NotificationChannel,
+    isActive: dto.isActive,
+  };
+}
+
 /**
- * Notifications remain mock until that API exists.
  * Blocklist: `GET`/`POST`/`DELETE /v1/settings/blocklist-terms`.
  * General (including `aiReplyCount`): `GET`/`PUT /v1/settings`.
+ * Notification recipients: `GET`/`PATCH /v1/settings/notification-recipients` — list and
+ * per-row channel/active edits only; there is no add/remove route yet, matching the shipped UI.
  * Connection state comes from `GET /v1/connections`.
  */
 export class SettingsService {
   static async getSettings(): Promise<SettingsData> {
     // Connection state is best-effort: a failure there should not blank the whole Settings page,
-    // and the mock default stands in. The other two are not caught — an empty chip list would be
-    // indistinguishable from "you have no blocked terms", which is a different claim.
-    const [blocklist, general, state] = await Promise.all([
+    // and the mock default stands in. The others are not caught — an empty list would be
+    // indistinguishable from "you have none", which is a different claim.
+    const [blocklist, general, recipients, state] = await Promise.all([
       this.listBlocklistTerms(),
       this.getGeneralSettings(),
+      this.listNotificationRecipients(),
       ConnectionService.getState().catch(() => null),
     ]);
 
     const settings = structuredClone(MOCK_SETTINGS);
     settings.blocklistTerms = blocklist;
     settings.general = mapGeneral(general);
+    settings.notificationRecipients = recipients;
 
     // Resolved live from GET /v1/connections — the same call the dashboard guard reads, so this
     // tab can never disagree with whether the app actually let the user in. `needs_reauth` is
@@ -121,8 +140,23 @@ export class SettingsService {
     await settingsApi.blocklistTermsControllerRemoveV1({ id });
   }
 
-  static async updateSettings(settings: SettingsData): Promise<SettingsData> {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    return settings;
+  static async listNotificationRecipients(): Promise<NotificationRecipient[]> {
+    const response = await settingsApi.notificationRecipientsControllerListV1();
+    const data = unwrap<{ items: NotificationRecipientDto[] }>(response.data);
+    return data.items.map(mapNotificationRecipient);
+  }
+
+  /** Both fields optional — the caller sends only what changed (channel toggle vs. active
+   *  switch fire independently), matching the backend's own "at least one, never both required"
+   *  contract. */
+  static async updateNotificationRecipient(
+    id: string,
+    patch: { channel?: NotificationChannel; isActive?: boolean },
+  ): Promise<NotificationRecipient> {
+    const response = await settingsApi.notificationRecipientsControllerUpdateV1({
+      recipientId: id,
+      updateNotificationRecipientDto: patch,
+    });
+    return mapNotificationRecipient(unwrap<NotificationRecipientDto>(response.data));
   }
 }

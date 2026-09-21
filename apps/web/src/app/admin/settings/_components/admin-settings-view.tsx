@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useFormatter, useTranslations } from "next-intl";
-import { type FormEvent, useCallback, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 
 import { useForm } from "react-hook-form";
@@ -59,6 +59,10 @@ function ProfileSection() {
     isUploadingAvatar,
     changePassword,
     isChangingPassword,
+    requestSetPasswordOtp,
+    isSendingSetPasswordOtp,
+    setPassword,
+    isSettingPassword,
   } = usePlatformAdminProfile();
 
   if (isLoading) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
@@ -90,7 +94,16 @@ function ProfileSection() {
           <p className="text-sm">{profile.email}</p>
         </div>
 
-        <ChangePasswordForm changePassword={changePassword} isChangingPassword={isChangingPassword} />
+        {profile.hasPassword ? (
+          <ChangePasswordForm changePassword={changePassword} isChangingPassword={isChangingPassword} />
+        ) : (
+          <AddPasswordForm
+            requestSetPasswordOtp={requestSetPasswordOtp}
+            isSendingOtp={isSendingSetPasswordOtp}
+            setPassword={setPassword}
+            isSettingPassword={isSettingPassword}
+          />
+        )}
       </CardContent>
     </Card>
   );
@@ -214,6 +227,171 @@ function ChangePasswordForm({ changePassword, isChangingPassword }: ChangePasswo
             tell which one had taken effect. The invite form above already guards this way. */}
         <Button type="submit" variant="outline" disabled={!canSubmitPassword || isChangingPassword}>
           {t("updatePassword")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+interface AddPasswordFormProps {
+  requestSetPasswordOtp: () => Promise<boolean>;
+  isSendingOtp: boolean;
+  setPassword: (newPassword: string, otp: string) => Promise<boolean>;
+  isSettingPassword: boolean;
+}
+
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
+
+/**
+ * Shown instead of `ChangePasswordForm` for a Google-only admin (accepted their invite via SSO) —
+ * there is no current password to prove, so the fields (and the collapsed prompt in front of
+ * them) are deliberately different rather than a `ChangePasswordForm` with one field hidden. A
+ * step-up OTP (mailed by `requestSetPasswordOtp`) stands in for that missing current-password
+ * proof — see `AdminSettingsService.setPassword`'s doc comment on the backend. Mirrors the
+ * tenant-owner profile section's own `AddPasswordForm`, adapted to this file's plain-`useState`
+ * style rather than react-hook-form/zod.
+ */
+function AddPasswordForm({
+  requestSetPasswordOtp,
+  isSendingOtp,
+  setPassword,
+  isSettingPassword,
+}: AddPasswordFormProps) {
+  const t = useTranslations("adminSettings.profile");
+  const [otp, setOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [newPasswordBlurred, setNewPasswordBlurred] = useState(false);
+  const [confirmBlurred, setConfirmBlurred] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  const requirements = checkPasswordRequirements(newPassword);
+  const newPasswordValid = passwordMeetsRequirements(requirements);
+  const hasConfirmValue = confirmPassword.length > 0;
+  const passwordsMatch = newPassword === confirmPassword;
+
+  const showRequirements = newPasswordBlurred && newPassword.length > 0 && !newPasswordValid;
+  const showMismatch = confirmBlurred && hasConfirmValue && !passwordsMatch;
+
+  const canSubmitPassword =
+    otp.trim().length === 6 && newPasswordValid && passwordsMatch && hasConfirmValue;
+
+  // Depends on whether a countdown is running, not on its current value: keying this to
+  // `cooldown` itself tore the interval down and rebuilt it on every tick, throwing away whatever
+  // part of that second had already elapsed and making the "60s" wait run visibly long. The
+  // functional update is what lets this read the latest value without depending on it.
+  const cooldownActive = cooldown > 0;
+  useEffect(() => {
+    if (!cooldownActive) return;
+    const timer = setInterval(() => setCooldown((prev) => Math.max(prev - 1, 0)), 1000);
+    return () => clearInterval(timer);
+  }, [cooldownActive]);
+
+  const collapse = () => {
+    setOtp("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setNewPasswordBlurred(false);
+    setConfirmBlurred(false);
+    setExpanded(false);
+    setCooldown(0);
+  };
+
+  const sendOtp = async () => {
+    const sent = await requestSetPasswordOtp();
+    if (sent) {
+      setExpanded(true);
+      setCooldown(OTP_RESEND_COOLDOWN_SECONDS);
+    }
+  };
+
+  // On success `profile.hasPassword` flips to true and this component unmounts (replaced by
+  // `ChangePasswordForm`), so there's no local state left to clear.
+  const handlePasswordSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!canSubmitPassword || isSettingPassword) return;
+    await setPassword(newPassword, otp);
+  };
+
+  if (!expanded) {
+    return (
+      <div className="border-border flex flex-col gap-2.5 border-t pt-5">
+        <div>
+          <p className="text-sm font-medium">{t("addPasswordTitle")}</p>
+          <p className="text-muted-foreground mt-0.5 text-[13px]">{t("addPasswordDescription")}</p>
+        </div>
+        <div>
+          <Button type="button" variant="outline" onClick={() => void sendOtp()} disabled={isSendingOtp}>
+            {isSendingOtp ? t("sendingCode") : t("addPassword")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="border-border animate-in fade-in slide-in-from-bottom-1 ease-fluid motion-reduce:animate-none flex max-w-sm flex-col gap-4 border-t pt-5 duration-300"
+      onSubmit={(e) => void handlePasswordSubmit(e)}>
+      <div>
+        <p className="text-sm font-medium">{t("addPasswordTitle")}</p>
+        <p className="text-muted-foreground mt-0.5 text-[13px]">{t("otpSentDescription")}</p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="admin-add-otp">{t("otpLabel")}</Label>
+        <Input
+          id="admin-add-otp"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          value={otp}
+          onChange={(event) => setOtp(event.target.value)}
+        />
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto w-fit p-0"
+          disabled={cooldown > 0 || isSendingOtp}
+          onClick={() => void sendOtp()}>
+          {cooldown > 0 ? t("resendCodeIn", { seconds: cooldown }) : t("resendCode")}
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="admin-add-password">{t("newPasswordLabel")}</Label>
+        <PasswordInput
+          id="admin-add-password"
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          onBlur={() => setNewPasswordBlurred(true)}
+          autoComplete="new-password"
+        />
+        {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="admin-add-confirm-password">{t("confirmPasswordLabel")}</Label>
+        <PasswordInput
+          id="admin-add-confirm-password"
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          onBlur={() => setConfirmBlurred(true)}
+          autoComplete="new-password"
+        />
+        {showMismatch ? (
+          <p className="text-destructive text-[12.5px]">{t("passwordMismatch")}</p>
+        ) : null}
+      </div>
+
+      <div className="flex gap-2.5">
+        <Button type="button" variant="ghost" onClick={collapse} disabled={isSettingPassword}>
+          {t("cancel")}
+        </Button>
+        <Button type="submit" variant="outline" disabled={!canSubmitPassword || isSettingPassword}>
+          {isSettingPassword ? t("settingPassword") : t("setPassword")}
         </Button>
       </div>
     </form>
@@ -359,13 +537,17 @@ function InviteSection() {
                       onClick={() => void setAdminStatus(invite.id, true)}>
                       {t("enable")}
                     </Button>
-                  ) : profile && invite.email !== profile.email ? (
-                    // status === "active", and not the signed-in admin's own row. Requires
-                    // `profile` to have actually loaded — `invite.email !== profile?.email` is
-                    // `true` while `profile` is still `undefined` (loading, or its own fetch
-                    // failed), which showed Disable on the signed-in admin's own row until their
-                    // profile resolved — an action that always fails against the backend's own
-                    // self-disable guard.
+                  ) : profile && invite.email !== profile.email && !invite.isRoot ? (
+                    // status === "active", not the signed-in admin's own row, and not the seeded
+                    // root admin. Requires `profile` to have actually loaded —
+                    // `invite.email !== profile?.email` is `true` while `profile` is still
+                    // `undefined` (loading, or its own fetch failed), which showed Disable on the
+                    // signed-in admin's own row until their profile resolved — an action that
+                    // always fails against the backend's own self-disable guard. `!invite.isRoot`
+                    // is the same reasoning one row over: root has no inviter to re-enable it and
+                    // no self-service signup to replace it, so the backend rejects disabling it
+                    // outright — the control simply isn't offered here, rather than being offered
+                    // and then failing.
                     <ConfirmActionDialog
                       trigger={
                         <Button

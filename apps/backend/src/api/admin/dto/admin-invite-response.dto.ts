@@ -26,6 +26,14 @@ export class AdminInviteResponseDto {
   })
   expiresAt!: string | null;
 
+  @ApiProperty({
+    example: false,
+    description:
+      'Whether this is the seeded root admin. The one row with no invite to expire, disable, or ' +
+      'revoke — the Members UI hides those actions for it.',
+  })
+  isRoot!: boolean;
+
   static from(row: PlatformAdminInviteRow): AdminInviteResponseDto {
     const dto = new AdminInviteResponseDto();
     dto.id = row.id;
@@ -36,6 +44,7 @@ export class AdminInviteResponseDto {
     // never-invited root admin report an expiry equal to its own creation time — a date in the
     // past, indistinguishable from a genuinely lapsed invite by anything reading this field.
     dto.expiresAt = toIsoStringOrNull(row.expiresAt);
+    dto.isRoot = row.isRoot;
     return dto;
   }
 }

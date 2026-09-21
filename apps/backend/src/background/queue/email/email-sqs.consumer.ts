@@ -34,6 +34,7 @@ export class EmailSqsConsumer extends SqsQueueConsumerBase {
   protected async process(jobName: string, data: unknown): Promise<void> {
     switch (jobName as JobName) {
       case JobName.OTP_EMAIL_VERIFICATION:
+      case JobName.ADMIN_SET_PASSWORD_OTP_EMAIL:
         await this.emailQueueService.sendOtpEmail(data as IOtpEmailJob);
         break;
       case JobName.ADMIN_INVITE_EMAIL:

@@ -65,9 +65,11 @@ Class | Method | HTTP request | Description
 *AdminSettingsApi* | [**adminSettingsControllerChangePasswordV1**](docs/AdminSettingsApi.md#adminsettingscontrollerchangepasswordv1) | **POST** /v1/admin/settings/profile/change-password | Change the signed-in platform admin\&#39;s own password
 *AdminSettingsApi* | [**adminSettingsControllerGetProfileV1**](docs/AdminSettingsApi.md#adminsettingscontrollergetprofilev1) | **GET** /v1/admin/settings/profile | Get the signed-in platform admin\&#39;s own profile
 *AdminSettingsApi* | [**adminSettingsControllerListInvitesV1**](docs/AdminSettingsApi.md#adminsettingscontrollerlistinvitesv1) | **GET** /v1/admin/settings/invites | List every platform admin, including the seeded root
+*AdminSettingsApi* | [**adminSettingsControllerRequestSetPasswordOtpV1**](docs/AdminSettingsApi.md#adminsettingscontrollerrequestsetpasswordotpv1) | **POST** /v1/admin/settings/profile/set-password/request-otp | Request the OTP required to add a first password
 *AdminSettingsApi* | [**adminSettingsControllerRevokeInviteV1**](docs/AdminSettingsApi.md#adminsettingscontrollerrevokeinvitev1) | **DELETE** /v1/admin/settings/invites/{inviteId} | Revoke a pending invite
 *AdminSettingsApi* | [**adminSettingsControllerSendInviteV1**](docs/AdminSettingsApi.md#adminsettingscontrollersendinvitev1) | **POST** /v1/admin/settings/invites | Invite a new platform admin
 *AdminSettingsApi* | [**adminSettingsControllerSetAdminStatusV1**](docs/AdminSettingsApi.md#adminsettingscontrollersetadminstatusv1) | **PATCH** /v1/admin/settings/admins/{adminId}/status | Disable or re-enable a platform admin
+*AdminSettingsApi* | [**adminSettingsControllerSetPasswordV1**](docs/AdminSettingsApi.md#adminsettingscontrollersetpasswordv1) | **POST** /v1/admin/settings/profile/set-password | Set the signed-in platform admin\&#39;s first password
 *AdminSettingsApi* | [**adminSettingsControllerUpdateLocaleV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdatelocalev1) | **PATCH** /v1/admin/settings/profile/locale | Set the language responses are rendered in
 *AdminSettingsApi* | [**adminSettingsControllerUpdatePlatformSettingsV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdateplatformsettingsv1) | **PATCH** /v1/admin/settings/platform-config | Update platform-wide feature settings
 *AdminUsersApi* | [**adminUsersControllerListV1**](docs/AdminUsersApi.md#adminuserscontrollerlistv1) | **GET** /v1/admin/users | List every user across every tenant
@@ -104,6 +106,9 @@ Class | Method | HTTP request | Description
 *ConnectionsSyncApi* | [**connectionsSyncControllerListSyncRunsV1**](docs/ConnectionsSyncApi.md#connectionssynccontrollerlistsyncrunsv1) | **GET** /v1/connections/locations/{locationId}/sync-runs | Paginated sync-run history, newest first
 *DashboardApi* | [**dashboardControllerGetMetricsV1**](docs/DashboardApi.md#dashboardcontrollergetmetricsv1) | **GET** /v1/dashboard/metrics | Aggregated metrics for the dashboard stat cards
 *DashboardApi* | [**dashboardControllerGetRecentEscalatedV1**](docs/DashboardApi.md#dashboardcontrollergetrecentescalatedv1) | **GET** /v1/dashboard/recent-escalated | Most recent escalated reviews still awaiting action
+*NotificationsApi* | [**notificationsControllerListV1**](docs/NotificationsApi.md#notificationscontrollerlistv1) | **GET** /v1/notifications | List the caller’s notifications
+*NotificationsApi* | [**notificationsControllerMarkAllReadV1**](docs/NotificationsApi.md#notificationscontrollermarkallreadv1) | **PATCH** /v1/notifications/read-all | Mark the caller’s whole feed read
+*NotificationsApi* | [**notificationsControllerMarkReadV1**](docs/NotificationsApi.md#notificationscontrollermarkreadv1) | **PATCH** /v1/notifications/{notificationId}/read | Mark one notification read
 *PromptsApi* | [**promptsControllerCreateVersionV1**](docs/PromptsApi.md#promptscontrollercreateversionv1) | **POST** /v1/prompts/{promptId}/versions | Append a prompt version
 *PromptsApi* | [**promptsControllerListV1**](docs/PromptsApi.md#promptscontrollerlistv1) | **GET** /v1/prompts | List tenant prompts
 *PromptsApi* | [**promptsControllerUpdateToneV1**](docs/PromptsApi.md#promptscontrollerupdatetonev1) | **PUT** /v1/prompts/{promptId}/tone | Update prompt tone
@@ -112,6 +117,8 @@ Class | Method | HTTP request | Description
 *SettingsApi* | [**blocklistTermsControllerCreateV1**](docs/SettingsApi.md#blocklisttermscontrollercreatev1) | **POST** /v1/settings/blocklist-terms | Add a blocklist term
 *SettingsApi* | [**blocklistTermsControllerListV1**](docs/SettingsApi.md#blocklisttermscontrollerlistv1) | **GET** /v1/settings/blocklist-terms | List blocklist terms
 *SettingsApi* | [**blocklistTermsControllerRemoveV1**](docs/SettingsApi.md#blocklisttermscontrollerremovev1) | **DELETE** /v1/settings/blocklist-terms/{id} | Remove a blocklist term
+*SettingsApi* | [**notificationRecipientsControllerListV1**](docs/SettingsApi.md#notificationrecipientscontrollerlistv1) | **GET** /v1/settings/notification-recipients | List escalation notification recipients
+*SettingsApi* | [**notificationRecipientsControllerUpdateV1**](docs/SettingsApi.md#notificationrecipientscontrollerupdatev1) | **PATCH** /v1/settings/notification-recipients/{recipientId} | Update a notification recipient
 *SettingsApi* | [**platformSettingsControllerGetV1**](docs/SettingsApi.md#platformsettingscontrollergetv1) | **GET** /v1/settings/platform-config | Get platform-wide feature settings
 *SettingsApi* | [**tenantMembersControllerInviteV1**](docs/SettingsApi.md#tenantmemberscontrollerinvitev1) | **POST** /v1/settings/members | Invite a teammate
 *SettingsApi* | [**tenantMembersControllerListV1**](docs/SettingsApi.md#tenantmemberscontrollerlistv1) | **GET** /v1/settings/members | List this tenant\&#39;s team, owner included
@@ -161,6 +168,11 @@ Class | Method | HTTP request | Description
  - [LoginDto](docs/LoginDto.md)
  - [MemberInvitePreviewDto](docs/MemberInvitePreviewDto.md)
  - [MetricsDto](docs/MetricsDto.md)
+ - [NotificationDto](docs/NotificationDto.md)
+ - [NotificationListResponseDto](docs/NotificationListResponseDto.md)
+ - [NotificationReadResponseDto](docs/NotificationReadResponseDto.md)
+ - [NotificationRecipientDto](docs/NotificationRecipientDto.md)
+ - [NotificationRecipientListResponseDto](docs/NotificationRecipientListResponseDto.md)
  - [PaginationMetaDto](docs/PaginationMetaDto.md)
  - [PlatformActivityResponseDto](docs/PlatformActivityResponseDto.md)
  - [PlatformReviewStatsResponseDto](docs/PlatformReviewStatsResponseDto.md)
@@ -179,6 +191,7 @@ Class | Method | HTTP request | Description
  - [ReviewsMetaDto](docs/ReviewsMetaDto.md)
  - [SendAdminInviteDto](docs/SendAdminInviteDto.md)
  - [SetActiveLocationDto](docs/SetActiveLocationDto.md)
+ - [SetAdminPasswordDto](docs/SetAdminPasswordDto.md)
  - [SetAdminStatusDto](docs/SetAdminStatusDto.md)
  - [SetPasswordDto](docs/SetPasswordDto.md)
  - [SignupDto](docs/SignupDto.md)
@@ -194,6 +207,7 @@ Class | Method | HTTP request | Description
  - [UpdateBusinessStatusDto](docs/UpdateBusinessStatusDto.md)
  - [UpdateLocaleDto](docs/UpdateLocaleDto.md)
  - [UpdateLocaleResponseDto](docs/UpdateLocaleResponseDto.md)
+ - [UpdateNotificationRecipientDto](docs/UpdateNotificationRecipientDto.md)
  - [UpdatePlatformSettingsDto](docs/UpdatePlatformSettingsDto.md)
  - [UpdatePromptToneDto](docs/UpdatePromptToneDto.md)
  - [UpdatePromptToneResponseDto](docs/UpdatePromptToneResponseDto.md)

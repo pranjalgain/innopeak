@@ -38,6 +38,7 @@ import { RolesGuard } from './api/auth/guards/roles.guard';
 import { ConnectionsModule } from './api/connections/connections.module';
 import { DashboardModule } from './api/dashboard/dashboard.module';
 import { DevToolsModule } from './api/dev-tools/dev-tools.module';
+import { NotificationsModule } from './api/notifications/notifications.module';
 import { ReviewsModule } from './api/reviews/reviews.module';
 import { SettingsModule } from './api/settings/settings.module';
 import { TracingModule } from './api/tracing/tracing.module';
@@ -155,6 +156,7 @@ const cacheModule = CacheModule.registerAsync({
     TracingModule,
     PromptsModule,
     SettingsModule,
+    NotificationsModule,
     AdminModule,
     // Registered here in its own right, not left to ride along on `AuthModule`'s import of it:
     // NestJS mounts a module's controllers wherever the module appears in the graph, so the four

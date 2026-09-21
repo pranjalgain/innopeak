@@ -11,7 +11,12 @@
 -- below is written by POST /v1/auth/set-password/request-otp, so a stale database does not fail
 -- at migrate time; it fails at runtime with
 -- `invalid input value for enum token_purpose: "set_password"` the first time a Google-only
--- account tries to add a password. Run `pnpm backend:down && pnpm backend:up && pnpm db:migrate`.
+-- account tries to add a password. The same member added to `platform_admin_invite_purpose`
+-- (also below) fails the same way for POST /v1/admin/settings/profile/set-password/request-otp,
+-- and `idx_platform_admin_invites_platform_admin_id_purpose` (added to `0001_platform_admin.sql`
+-- in the same pass) does not exist on a stale database either, so that route's upsert fails at
+-- runtime with `there is no unique or exclusion constraint matching the ON CONFLICT specification`
+-- instead. Run `pnpm backend:down && pnpm backend:up && pnpm db:migrate`.
 --
 -- First of six migrations that together make up the full InnoPeak schema (applied in this
 -- numeric order — each later file only references tables/enums already created by an
@@ -58,7 +63,10 @@ CREATE TYPE user_status AS ENUM ('pending_verification', 'invited', 'active', 'd
 -- one-row-per-(user, purpose) upsert silently clobber whichever token was issued first.
 CREATE TYPE token_purpose AS ENUM ('verify_email', 'invite', 'reset', 'set_password');
 CREATE TYPE platform_admin_status AS ENUM ('invited', 'active', 'disabled');
-CREATE TYPE platform_admin_invite_purpose AS ENUM ('invite', 'reset');
+-- `set_password` mirrors `token_purpose`'s own value above, same reasoning: distinct from
+-- `reset` (the still-unbuilt public forgot-password flow) so the one-row-per-(admin, purpose)
+-- upsert in `platform_admin_invites` can't be clobbered by, or clobber, a token from that route.
+CREATE TYPE platform_admin_invite_purpose AS ENUM ('invite', 'reset', 'set_password');
 CREATE TYPE review_provider AS ENUM ('google');
 CREATE TYPE google_connection_status AS ENUM ('active', 'needs_reauth');
 CREATE TYPE location_status AS ENUM ('active', 'inactive');

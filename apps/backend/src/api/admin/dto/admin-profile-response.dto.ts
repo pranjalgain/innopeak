@@ -20,11 +20,20 @@ export class AdminProfileResponseDto {
   })
   locale!: Locale | null;
 
+  @ApiProperty({
+    example: true,
+    description:
+      '`false` for a Google-only admin (accepted an invite via SSO, or every admin before this ' +
+      'flow existed) — Settings shows "Add password" instead of "Change password" for those.',
+  })
+  hasPassword!: boolean;
+
   static from(row: PlatformAdminProfileWithAvatar): AdminProfileResponseDto {
     const dto = new AdminProfileResponseDto();
     dto.email = row.email;
     dto.avatarUrl = row.avatarUrl;
     dto.locale = row.locale;
+    dto.hasPassword = row.passwordHash !== null;
     return dto;
   }
 }

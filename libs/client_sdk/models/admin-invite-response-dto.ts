@@ -11,6 +11,10 @@ export interface AdminInviteResponseDto {
    * When the pending invite lapses. `null` for an admin that was never invited — the seeded root admin — since there is no invite to expire.
    */
   expiresAt?: string | null;
+  /**
+   * Whether this is the seeded root admin. The one row with no invite to expire, disable, or revoke — the Members UI hides those actions for it.
+   */
+  isRoot: boolean;
 }
 
 export const AdminInviteResponseDtoStatusEnum = {

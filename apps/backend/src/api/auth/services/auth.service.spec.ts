@@ -64,7 +64,11 @@ describe('AuthService', () => {
       putSetPasswordOtp: jest.fn(),
       consumeSetPasswordOtp: jest.fn().mockResolvedValue(true),
       insertRefreshToken: jest.fn(),
-      resolveGoogleIdentity: jest.fn(),
+      findGoogleIdentityBySub: jest.fn(),
+      // Defaults to "no tenant user holds this address" so the many tests that only care about
+      // the sub lookup don't have to stub the fallback too. The tests that exercise the linking
+      // branch itself override it.
+      linkGoogleIdentityByEmail: jest.fn().mockResolvedValue({ kind: 'unknown' }),
       completeGoogleSignup: jest.fn(),
       findMemberInviteEmailByTokenHash: jest.fn(),
       acceptMemberInviteWithPassword: jest.fn(),
@@ -925,7 +929,7 @@ describe('AuthService', () => {
       it('signs in an existing account and normalizes the email first', async () => {
         googleOAuthStateService.consume.mockResolvedValue(loginState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-        authDbService.resolveGoogleIdentity.mockResolvedValue({
+        authDbService.findGoogleIdentityBySub.mockResolvedValue({
           kind: 'known',
           user: resolvedUser,
           firstActivation: false,
@@ -943,9 +947,7 @@ describe('AuthService', () => {
         });
 
         expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
-        expect(authDbService.resolveGoogleIdentity).toHaveBeenCalledWith(
-          expect.objectContaining({ email: 'owner@example.com' })
-        );
+        expect(authDbService.findGoogleIdentityBySub).toHaveBeenCalledWith(identity.providerUserId);
       });
 
       it('consumes the state before exchanging the code, so a replay costs no round trip', async () => {
@@ -981,13 +983,13 @@ describe('AuthService', () => {
         });
 
         expect(outcome).toMatchObject({ failure: GoogleAuthFailure.EMAIL_NOT_VERIFIED });
-        expect(authDbService.resolveGoogleIdentity).not.toHaveBeenCalled();
+        expect(authDbService.findGoogleIdentityBySub).not.toHaveBeenCalled();
       });
 
       it('returns NO_ACCOUNT rather than starting a pending signup on a login', async () => {
         googleOAuthStateService.consume.mockResolvedValue(loginState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-        authDbService.resolveGoogleIdentity.mockResolvedValue({ kind: 'unknown' });
+        authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
 
         const outcome = await target.handleGoogleCallback({
           code: 'c',
@@ -1003,7 +1005,7 @@ describe('AuthService', () => {
       it('mints a pending signup rather than a tenant for a genuinely new signup', async () => {
         googleOAuthStateService.consume.mockResolvedValue(signupState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-        authDbService.resolveGoogleIdentity.mockResolvedValue({ kind: 'unknown' });
+        authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
         pendingGoogleSignupService.mint.mockResolvedValue('pending-nonce');
 
         const outcome = await target.handleGoogleCallback({
@@ -1084,7 +1086,7 @@ describe('AuthService', () => {
       it('refuses a disabled account, the same standing check password login applies', async () => {
         googleOAuthStateService.consume.mockResolvedValue(loginState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-        authDbService.resolveGoogleIdentity.mockResolvedValue({
+        authDbService.findGoogleIdentityBySub.mockResolvedValue({
           kind: 'known',
           user: { ...resolvedUser, status: UserStatus.DISABLED },
           firstActivation: false,
@@ -1109,7 +1111,7 @@ describe('AuthService', () => {
       it('refuses a suspended tenant even though the identity is valid', async () => {
         googleOAuthStateService.consume.mockResolvedValue(loginState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-        authDbService.resolveGoogleIdentity.mockResolvedValue({
+        authDbService.findGoogleIdentityBySub.mockResolvedValue({
           kind: 'known',
           user: resolvedUser,
           firstActivation: false,
@@ -1133,7 +1135,10 @@ describe('AuthService', () => {
         it('seeds demo data when the callback just promoted a pending_verification row', async () => {
           googleOAuthStateService.consume.mockResolvedValue(loginState);
           googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-          authDbService.resolveGoogleIdentity.mockResolvedValue({
+          // Promotion only ever happens in the email-linking branch — a `sub` that already has a
+          // `user_identities` row is by definition a returning user, never a first activation.
+          authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+          authDbService.linkGoogleIdentityByEmail.mockResolvedValue({
             kind: 'known',
             user: resolvedUser,
             firstActivation: true,
@@ -1161,7 +1166,7 @@ describe('AuthService', () => {
         it('does not seed for a returning user signing back in — firstActivation is false', async () => {
           googleOAuthStateService.consume.mockResolvedValue(loginState);
           googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-          authDbService.resolveGoogleIdentity.mockResolvedValue({
+          authDbService.findGoogleIdentityBySub.mockResolvedValue({
             kind: 'known',
             user: resolvedUser,
             firstActivation: false,
@@ -1456,7 +1461,7 @@ describe('AuthService', () => {
       });
       expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
       // Never falls through to tenant login/signup resolution for this intent.
-      expect(authDbService.resolveGoogleIdentity).not.toHaveBeenCalled();
+      expect(authDbService.findGoogleIdentityBySub).not.toHaveBeenCalled();
     });
 
     it('redirects to the accept page with an error for a dead token', async () => {
@@ -1649,7 +1654,7 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(authDbService.resolveGoogleIdentity).not.toHaveBeenCalled();
+      expect(authDbService.findGoogleIdentityBySub).not.toHaveBeenCalled();
       expect(outcome).toEqual({
         ok: false,
         failure: GoogleAuthFailure.NO_ACCOUNT,
@@ -1729,7 +1734,7 @@ describe('AuthService', () => {
       );
       expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
       // Never falls through to tenant resolution for this intent.
-      expect(authDbService.resolveGoogleIdentity).not.toHaveBeenCalled();
+      expect(authDbService.findGoogleIdentityBySub).not.toHaveBeenCalled();
     });
 
     it('maps a PlatformAdminAuthService failure straight through, on ADMIN_INVITE', async () => {
@@ -1790,12 +1795,13 @@ describe('AuthService', () => {
       expect(platformAdminAuthService.completeAdminInviteGoogle).not.toHaveBeenCalled();
     });
 
-    it('signs a returning Google-linked admin back in on a plain login round trip, never reaching tenant resolution', async () => {
+    it('signs a Google-linked admin in on a plain login round trip once tenant resolution comes back unknown', async () => {
       googleOAuthStateService.consume.mockResolvedValue({
         ok: true as const,
         record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+      authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
       const tokens = {
         admin: true as const,
         body: {
@@ -1817,11 +1823,54 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
+      // Tenant resolution is tried first — an admin-only account (no tenant identity) falls back
+      // to its admin session rather than failing outright, but only once the `sub` lookup has
+      // actually come back empty.
+      expect(authDbService.findGoogleIdentityBySub).toHaveBeenCalled();
       expect(platformAdminAuthService.findLinkedAdmin).toHaveBeenCalledWith('google-sub-1');
+      // And the email fallback is never reached: see the seeded-tenant regression test below.
+      expect(authDbService.linkGoogleIdentityByEmail).not.toHaveBeenCalled();
       expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
-      // The admin identity owns the request exclusively — the tenant lookup never runs, same rule
-      // password login already applies by resolving admins first.
-      expect(authDbService.resolveGoogleIdentity).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Regression, the other direction: `linkGoogleIdentityByEmail` matches on address alone and
+     * *writes* — it links the identity, activates the user and tenant and drops the password
+     * hash. Anyone can start a signup under an address they don't own (nothing proves a mailbox
+     * before the OTP), so reaching that branch with an admin's Google account would enrol the
+     * admin as owner of a tenant someone else seeded and named. The admin-identity check has to
+     * come first, and the admin session is the answer.
+     */
+    it('never adopts a tenant row seeded under an admin’s address on a login round trip', async () => {
+      googleOAuthStateService.consume.mockResolvedValue({
+        ok: true as const,
+        record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+      });
+      googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+      authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+      const tokens = {
+        admin: true as const,
+        body: {
+          accessToken: 'admin-access',
+          expiresIn: 900,
+          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com', locale: null },
+        },
+      };
+      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({
+        linked: true,
+        active: true,
+        tokens,
+      });
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(authDbService.linkGoogleIdentityByEmail).not.toHaveBeenCalled();
+      expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
     });
 
     it('refuses a disabled linked admin rather than signing them in', async () => {
@@ -1830,6 +1879,7 @@ describe('AuthService', () => {
         record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+      authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
       platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: true, active: false });
 
       const outcome = await target.handleGoogleCallback({
@@ -1845,25 +1895,68 @@ describe('AuthService', () => {
       });
     });
 
-    /** Wrong button, right answer: an admin-linked account never falls through to tenant signup. */
-    it('signs the admin in even under a signup-intent round trip', async () => {
+    /**
+     * Regression: an earlier version of this method checked `findLinkedAdmin` unconditionally and
+     * returned an admin session from it, for both `login` and `signup` — so a platform admin who
+     * accepted their invite through Google could never sign up their own separate tenant business
+     * with that same Google account. Every signup landed them back in the admin console with no
+     * tenant ever created.
+     *
+     * The admin identity *is* consulted on signup now (it has to be — see the seeded-tenant test
+     * above), but what it decides is different: a linked admin on a signup round trip gets a
+     * brand-new tenant, never an admin session and never an adopted pre-existing row. Admin
+     * status is deliberately not consulted either, so a disabled admin can still become a
+     * customer.
+     */
+    it('creates a new tenant on signup even when the Google account is a linked admin', async () => {
       googleOAuthStateService.consume.mockResolvedValue({
         ok: true as const,
         record: { intent: OAuthIntent.SIGNUP, sidHash: 'h' },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      const tokens = {
-        admin: true as const,
-        body: {
-          accessToken: 'admin-access',
-          expiresIn: 900,
-          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com', locale: null },
+      authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: true, active: false });
+      pendingGoogleSignupService.mint.mockResolvedValue('pending-signup-cookie');
+
+      const outcome = await target.handleGoogleCallback({
+        code: 'auth-code',
+        state: 'signed-state',
+        error: undefined,
+        sid: 'raw-sid',
+      });
+
+      expect(authDbService.linkGoogleIdentityByEmail).not.toHaveBeenCalled();
+      expect(pendingGoogleSignupService.mint).toHaveBeenCalled();
+      expect(outcome).toEqual({
+        ok: true,
+        kind: 'needs_business_name',
+        pendingSignupCookie: 'pending-signup-cookie',
+      });
+    });
+
+    it('signs into the existing tenant, not the admin console, when a Google account is linked to both', async () => {
+      googleOAuthStateService.consume.mockResolvedValue({
+        ok: true as const,
+        record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+      });
+      googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+      authDbService.findGoogleIdentityBySub.mockResolvedValue({
+        kind: 'known',
+        user: {
+          id: 'user-1',
+          tenantId: 'tenant-1',
+          email: 'priya.ops@innopeak.com',
+          name: 'Priya',
+          role: UserRole.OWNER,
+          passwordHash: 'hashed',
+          status: UserStatus.ACTIVE,
+          locale: null,
         },
-      };
-      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({
-        linked: true,
-        active: true,
-        tokens,
+        firstActivation: false,
+      });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'Test Tenant',
       });
 
       const outcome = await target.handleGoogleCallback({
@@ -1873,8 +1966,10 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(outcome).toMatchObject({ ok: true, kind: 'admin_signed_in' });
-      expect(pendingGoogleSignupService.mint).not.toHaveBeenCalled();
+      // The tenant identity wins without ever having to ask whether this Google account is also
+      // an admin — the admin fallback only runs once tenant resolution comes back unknown.
+      expect(platformAdminAuthService.findLinkedAdmin).not.toHaveBeenCalled();
+      expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
     });
 
     it('falls through to ordinary tenant resolution when the identity is not linked to any admin', async () => {
@@ -1884,7 +1979,7 @@ describe('AuthService', () => {
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
       platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: false });
-      authDbService.resolveGoogleIdentity.mockResolvedValue({ kind: 'unknown' });
+      authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
 
       const outcome = await target.handleGoogleCallback({
         code: 'auth-code',
@@ -1893,7 +1988,7 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(authDbService.resolveGoogleIdentity).toHaveBeenCalled();
+      expect(authDbService.findGoogleIdentityBySub).toHaveBeenCalled();
       expect(outcome).toMatchObject({ failure: GoogleAuthFailure.NO_ACCOUNT });
     });
   });

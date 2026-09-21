@@ -60,6 +60,12 @@ export const messagesDe: MessageCatalog = {
       'Dieses Bildformat wird nicht unterstützt. Bitte laden Sie eine JPG-, PNG-, WEBP-, GIF-, AVIF-, HEIC- oder BMP-Datei hoch.',
     FILE_TOO_LARGE: 'Dieses Bild ist zu groß. Bitte laden Sie eine Datei unter 10 MB hoch.',
   },
+  NOTIFICATIONS: {
+    LISTED: 'Benachrichtigungen erfolgreich abgerufen',
+    NOT_FOUND: 'Benachrichtigung nicht gefunden.',
+    MARKED_READ: 'Benachrichtigung als gelesen markiert',
+    MARKED_ALL_READ: 'Alle Benachrichtigungen als gelesen markiert',
+  },
   CONNECTIONS: {
     CONNECTION_NOT_FOUND:
       'Für dieses Konto wurde keine Google Business-Profil-Verbindung gefunden.',
@@ -121,6 +127,11 @@ export const messagesDe: MessageCatalog = {
       'Diese Einladung wurde bereits angenommen oder ist nicht mehr ausstehend.',
     MEMBER_INVITES_DISABLED:
       'Das Einladen von Teammitgliedern ist für diese Plattform deaktiviert.',
+    NOTIFICATION_RECIPIENTS_LISTED: 'Benachrichtigungsempfänger erfolgreich abgerufen',
+    NOTIFICATION_RECIPIENT_UPDATED: 'Benachrichtigungsempfänger aktualisiert',
+    NOTIFICATION_RECIPIENT_NOT_FOUND: 'Benachrichtigungsempfänger nicht gefunden',
+    NOTIFICATION_RECIPIENT_NO_FIELDS:
+      'Geben Sie einen Kanal oder einen Aktivitätsstatus zur Aktualisierung an.',
   },
   ADMIN: {
     ADMIN_ONLY: 'Nur ein Plattform-Administrator kann diese Aktion ausführen.',
@@ -149,6 +160,8 @@ export const messagesDe: MessageCatalog = {
     ADMIN_NOT_FOUND: 'Plattform-Administrator nicht gefunden.',
     CANNOT_DISABLE_SELF: 'Sie können Ihr eigenes Administratorkonto nicht deaktivieren.',
     CANNOT_DISABLE_LAST_ADMIN: 'Mindestens ein Plattform-Administrator muss aktiv bleiben.',
+    CANNOT_DISABLE_ROOT_ADMIN:
+      'Der ursprüngliche Plattform-Administrator kann nicht deaktiviert werden.',
     CANNOT_DISABLE_INVITED:
       'Dieser Administrator hat seine Einladung noch nicht angenommen — widerrufen Sie stattdessen die Einladung.',
     ADMIN_DISABLED: 'Administrator deaktiviert.',

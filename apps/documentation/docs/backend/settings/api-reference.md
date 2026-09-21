@@ -88,12 +88,15 @@ this engagement's single-owner scope, but it means the moment `member` accounts 
 must also hide the Settings nav item — otherwise a member sees the tab and gets a wall of `403`s on
 load, which reads as a bug rather than a permission boundary.
 
-One prerequisite: `RolesGuard` currently matches against `user.roles: string[]`, a shape from the
-boilerplate's `roles`/`permissions` tables that this schema does not have. Until it is replaced
-with the single `user_role` enum (see [Auth Module —
-Overview](../auth/overview.md#gap-between-current-code-and-target-design)), `@Roles('owner')` on
-these routes compiles and enforces nothing. Settings is the first module whose whole contract
-depends on that fix landing.
+> **Corrected (implementation pass).** This previously said `RolesGuard` matched against a
+> boilerplate `user.roles: string[]` shape and that `@Roles('owner')` "compiles and enforces
+> nothing" until replaced. Checked `src/api/auth/guards/roles.guard.ts` directly: it already
+> matches on the single `user.role` (the schema's actual `user_role` enum), with correct OR logic
+> and platform-admin tokens failing closed. This module's own [Gap
+> section](./overview.md#gap-between-current-code-and-target-design) already says as much for the
+> shipped blocklist routes ("`@Roles('owner')` is enforced — `RolesGuard` reads the JWT `role`");
+> this paragraph just hadn't been updated to match. No guard fix is a prerequisite for anything in
+> this document.
 
 ## Tenant profile
 
@@ -527,12 +530,26 @@ Errors: `401`, `403` (member), `404 BLOCKLIST_TERM_NOT_FOUND`, `500`.
 
 ## Notification recipients
 
-| Method | Path | Auth |
-|---|---|---|
-| `GET` | `/v1/settings/notification-recipients` | Bearer, `@Roles('owner')` |
-| `POST` | `/v1/settings/notification-recipients` | Bearer, `@Roles('owner')` |
-| `PATCH` | `/v1/settings/notification-recipients/:id` | Bearer, `@Roles('owner')` |
-| `DELETE` | `/v1/settings/notification-recipients/:id` | Bearer, `@Roles('owner')` |
+| Method | Path | Auth | Status |
+|---|---|---|---|
+| `GET` | `/v1/settings/notification-recipients` | Bearer, `@Roles('owner')` | **Building now** |
+| `PATCH` | `/v1/settings/notification-recipients/:id` | Bearer, `@Roles('owner')` | **Building now** |
+| `POST` | `/v1/settings/notification-recipients` | Bearer, `@Roles('owner')` | Deferred |
+| `DELETE` | `/v1/settings/notification-recipients/:id` | Bearer, `@Roles('owner')` | Deferred |
+
+**`GET` and `PATCH` are this pass's scope** — list recipients and edit an existing one's `channel`/
+`isActive`, matching exactly what the shipped Settings UI does today (a fixed list with per-row
+edits, no add/remove control). `POST`/`DELETE` stay deferred, per [MVP
+scope](./overview.md#mvp-scope)'s own note that no screen calls them yet.
+
+**Seeding, since nothing else does:** no code anywhere writes `notification_recipients` today (no
+signup flow, no admin action, nothing) — confirmed by grepping the backend for inserts into it.
+Without at least one row, `PATCH` has nothing to edit and the Settings tab stays permanently empty
+regardless of how correct the API is. This pass adds exactly one seed: the tenant's self-signup
+transaction (§4.3a — the same one that already creates `tenant_settings` alongside `tenants` and
+the owner's `users` row, per §8.10) also inserts one `notification_recipients` row for that new
+owner (`notification_type = 'escalation'`, `channel = 'email'`, `is_active = true`). That's the
+only way a row comes to exist until `POST` is built.
 
 This is the "responsible employee" configuration from `PLAN.md` §3's classification diagram — every
 active row for `notification_type = 'escalation'` becomes one or two `notifications` rows per
@@ -564,28 +581,29 @@ Success `200`:
       "id": "0190f3d2-6e55-7c18-a20b-8d3f1e4c9a67",
       "userId": "0190f3b2-4d90-7a55-b7e2-9f1c3a6d8e21",
       "name": "Maria Delgado",
-      "email": "maria@thecoastaltable.com",
-      "notificationType": "escalation",
+      "initials": "MD",
       "channel": "both",
-      "isActive": true,
-      "createdAt": "2026-08-11T10:12:03Z"
+      "isActive": true
     }
-  ],
-  "total": 1
+  ]
 }
 ```
 
 | Field | Type | Source |
 |---|---|---|
-| `items[].id` | string (uuid) | `notification_recipients.id` — the id every `PATCH`/`DELETE` below takes, **not** the user's id |
+| `items[].id` | string (uuid) | `notification_recipients.id` — the id the `PATCH` below takes, **not** the user's id |
 | `items[].userId` | string (uuid) | `notification_recipients.user_id` |
 | `items[].name` | string | `users.name` (joined) |
-| `items[].email` | string | `users.email` (joined) — the address an `email`/`both` recipient is actually reached at; there is no separate notification address |
-| `items[].notificationType` | enum | `notification_recipients.notification_type` (`notification_type`: `escalation` only today) |
+| `items[].initials` | string | Derived server-side from `users.name` (`initials.util.ts`) — see the note above on why the frontend consumes this rather than computing it |
 | `items[].channel` | enum | `notification_recipients.channel` (`notification_channel_pref`: `email` \| `teams` \| `both`) |
 | `items[].isActive` | boolean | `notification_recipients.is_active` — `false` means configured but not delivered to |
-| `items[].createdAt` | string (ISO 8601) | `notification_recipients.created_at` |
-| `total` | integer | Count of returned rows. Not paginated. |
+
+> **Corrected (implementation pass).** This previously documented `items[].email`,
+> `items[].notificationType`, `items[].createdAt` and a top-level `total`, and omitted the
+> `initials` the route actually returns. `NotificationRecipientDto` returns the six fields above
+> and nothing else — the settings UI renders a name, initials, a channel and a toggle, and none
+> of the other four had a consumer. `total` went with them: the list is not paginated, so it was
+> just `items.length` under another name.
 
 **A tenant with zero active recipients escalates into the void** — reviews still classify as
 `escalated` and still queue in the dashboard, but nobody is told. Nothing in the schema prevents
@@ -693,13 +711,16 @@ Success `200`:
   "id": "0190f3d2-6e55-7c18-a20b-8d3f1e4c9a67",
   "userId": "0190f3b2-4d90-7a55-b7e2-9f1c3a6d8e21",
   "name": "Maria Delgado",
-  "email": "maria@thecoastaltable.com",
-  "notificationType": "escalation",
+  "initials": "MD",
   "channel": "email",
-  "isActive": true,
-  "updatedAt": "2026-09-04T11:16:31Z"
+  "isActive": true
 }
 ```
+
+The updated recipient, in exactly the same shape as one `items[]` entry from the `GET` above —
+which is what lets the client reconcile its cache from this response instead of refetching the
+list. `notification_recipients.updated_at` **is** advanced by this write; it just isn't returned,
+because no screen shows it.
 
 Errors: `400` validation, `400 NO_FIELDS_TO_UPDATE`, `401`, `403` (member),
 `404 RECIPIENT_NOT_FOUND`, `500`.

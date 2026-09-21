@@ -48,6 +48,11 @@ export interface InsertTenantSettingsInput {
   tenantId: string;
 }
 
+export interface InsertNotificationRecipientInput {
+  tenantId: string;
+  userId: string;
+}
+
 export interface InsertVerifiedOwnerUserInput {
   tenantId: string;
   name: string;
@@ -336,6 +341,24 @@ export class AuthRepository {
       tenantId: input.tenantId,
       autoPostEnabled: false,
       reviewDataRetentionMonths: null,
+    });
+  }
+
+  /**
+   * Seeds the new owner as the tenant's one escalation recipient — `channel`/`type` left to their
+   * column defaults (`email`/`escalation`, the only values either has today). Without this, a
+   * brand-new tenant has zero `notification_recipients` rows and every future escalation would be
+   * a silent, correct-but-useless no-op forever; there is no add-recipient route yet for anyone to
+   * fix that after the fact. Same "the row must exist, not just the value" reasoning as
+   * `insertTenantSettings` above.
+   */
+  async insertNotificationRecipient(
+    tx: DrizzleTransaction,
+    input: InsertNotificationRecipientInput
+  ): Promise<void> {
+    await tx.insert(schema.notificationRecipients).values({
+      tenantId: input.tenantId,
+      userId: input.userId,
     });
   }
 

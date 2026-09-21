@@ -1,5 +1,7 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import { VerifyEmailTokenProvider } from '@auth/providers/verify-email-token.provider';
+import { OtpAttemptService } from '@auth/services/otp-attempt.service';
 import { TokenService } from '@auth/services/token.service';
 import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth-user.type';
 import { JobName } from '@bg/constants/job.constant';
@@ -37,6 +39,9 @@ describe('AdminSettingsService', () => {
     revokeInvite: jest.Mock;
     deleteExpiredInvite: jest.Mock;
     findStatusById: jest.Mock;
+    isRootAdmin: jest.Mock;
+    putSetPasswordOtp: jest.Mock;
+    consumeSetPasswordOtp: jest.Mock;
     setStatusGuardingLastActive: jest.Mock;
     countActiveGoogleOnlyAdmins: jest.Mock;
     updateLocale: jest.Mock;
@@ -44,9 +49,14 @@ describe('AdminSettingsService', () => {
   let platformSettingsDbService: { get: jest.Mock; update: jest.Mock };
   let adminOverviewDbService: { recordActivityBestEffort: jest.Mock };
   let hashingService: { hash: jest.Mock; compare: jest.Mock };
-  let queueManager: { addAdminInviteEmailJob: jest.Mock };
+  let queueManager: {
+    addAdminInviteEmailJob: jest.Mock;
+    addAdminSetPasswordOtpEmailJob: jest.Mock;
+  };
   let configService: { get: jest.Mock };
   let tokenService: { signPlatformAdminAccessToken: jest.Mock };
+  let otpAttemptService: { consumeAttempt: jest.Mock; claimResend: jest.Mock; reset: jest.Mock };
+  let verifyEmailTokenProvider: { generate: jest.Mock };
 
   const admin: PlatformAdminAuthUser = {
     type: JwtTokenType.PLATFORM_ADMIN,
@@ -82,6 +92,11 @@ describe('AdminSettingsService', () => {
       revokeInvite: jest.fn(),
       deleteExpiredInvite: jest.fn(),
       findStatusById: jest.fn(),
+      // Nobody is root by default, so the root-admin guard is inert for every test that isn't
+      // specifically about it.
+      isRootAdmin: jest.fn().mockResolvedValue(false),
+      putSetPasswordOtp: jest.fn(),
+      consumeSetPasswordOtp: jest.fn(),
       setStatusGuardingLastActive: jest.fn(),
       // No Google-only admins by default, so the social-login lockout guard is inert for every
       // test that isn't specifically about it.
@@ -91,7 +106,10 @@ describe('AdminSettingsService', () => {
     platformSettingsDbService = { get: jest.fn(), update: jest.fn() };
     adminOverviewDbService = { recordActivityBestEffort: jest.fn() };
     hashingService = { hash: jest.fn(), compare: jest.fn() };
-    queueManager = { addAdminInviteEmailJob: jest.fn().mockResolvedValue(undefined) };
+    queueManager = {
+      addAdminInviteEmailJob: jest.fn().mockResolvedValue(undefined),
+      addAdminSetPasswordOtpEmailJob: jest.fn().mockResolvedValue(undefined),
+    };
     configService = {
       get: jest.fn((key: string) => {
         return key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : undefined;
@@ -102,6 +120,14 @@ describe('AdminSettingsService', () => {
         .fn()
         .mockReturnValue({ accessToken: 'admin-access-token', expiresIn: 900 }),
     };
+    // No attempts spent, no cap hit, and a fresh resend always allowed by default — inert unless
+    // a test is specifically about the add-password OTP flow.
+    otpAttemptService = {
+      consumeAttempt: jest.fn().mockResolvedValue(true),
+      claimResend: jest.fn().mockResolvedValue(true),
+      reset: jest.fn().mockResolvedValue(undefined),
+    };
+    verifyEmailTokenProvider = { generate: jest.fn().mockReturnValue('482913') };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -113,6 +139,8 @@ describe('AdminSettingsService', () => {
         { provide: AddingJobsToQueueManager, useValue: queueManager },
         { provide: ConfigService, useValue: configService },
         { provide: TokenService, useValue: tokenService },
+        { provide: OtpAttemptService, useValue: otpAttemptService },
+        { provide: VerifyEmailTokenProvider, useValue: verifyEmailTokenProvider },
       ],
     }).compile();
 
@@ -214,6 +242,112 @@ describe('AdminSettingsService', () => {
         'admin-1',
         'new-hashed-password'
       );
+    });
+  });
+
+  describe('requestSetPasswordOtp', () => {
+    it('rejects an admin that already has a password set', async () => {
+      platformAdminDbService.findById.mockResolvedValue(profileRow);
+
+      await expect(target.requestSetPasswordOtp(admin)).rejects.toThrow(BadRequestException);
+      expect(platformAdminDbService.putSetPasswordOtp).not.toHaveBeenCalled();
+    });
+
+    it('mints and stores an OTP for a passwordless admin', async () => {
+      platformAdminDbService.findById.mockResolvedValue({ ...profileRow, passwordHash: null });
+
+      const result = await target.requestSetPasswordOtp(admin);
+
+      expect(verifyEmailTokenProvider.generate).toHaveBeenCalled();
+      expect(platformAdminDbService.putSetPasswordOtp).toHaveBeenCalledWith(
+        expect.objectContaining({ platformAdminId: 'admin-1' })
+      );
+      expect(queueManager.addAdminSetPasswordOtpEmailJob).toHaveBeenCalledWith(
+        JobName.ADMIN_SET_PASSWORD_OTP_EMAIL,
+        expect.objectContaining({ email: 'admin@innopeak.com' })
+      );
+      expect(result.message).toBe(MESSAGES.AUTH.SET_PASSWORD_OTP_ACK);
+    });
+
+    // Same "spend the resend budget, not the account" shape as the tenant flow — a cooldown that
+    // hasn't elapsed acks without minting a second code or sending a second email.
+    it('acknowledges without minting a new code when the resend cooldown is still live', async () => {
+      platformAdminDbService.findById.mockResolvedValue({ ...profileRow, passwordHash: null });
+      otpAttemptService.claimResend.mockResolvedValue(false);
+
+      const result = await target.requestSetPasswordOtp(admin);
+
+      expect(platformAdminDbService.putSetPasswordOtp).not.toHaveBeenCalled();
+      expect(queueManager.addAdminSetPasswordOtpEmailJob).not.toHaveBeenCalled();
+      expect(result.message).toBe(MESSAGES.AUTH.SET_PASSWORD_OTP_ACK);
+    });
+  });
+
+  describe('setPassword', () => {
+    const dto = { newPassword: 'NewStr0ng@Pass', otp: '482913' };
+
+    it('rejects an admin that already has a password set', async () => {
+      platformAdminDbService.findById.mockResolvedValue(profileRow);
+
+      await expect(target.setPassword(admin, dto)).rejects.toThrow(BadRequestException);
+      expect(platformAdminDbService.consumeSetPasswordOtp).not.toHaveBeenCalled();
+    });
+
+    it('rejects once the OTP attempt budget is spent, without checking the code', async () => {
+      platformAdminDbService.findById.mockResolvedValue({ ...profileRow, passwordHash: null });
+      otpAttemptService.consumeAttempt.mockResolvedValue(false);
+
+      await expect(target.setPassword(admin, dto)).rejects.toThrow(
+        MESSAGES.AUTH.TOO_MANY_OTP_ATTEMPTS
+      );
+      expect(platformAdminDbService.consumeSetPasswordOtp).not.toHaveBeenCalled();
+    });
+
+    it('rejects an invalid or expired OTP without writing a hash', async () => {
+      platformAdminDbService.findById.mockResolvedValue({ ...profileRow, passwordHash: null });
+      platformAdminDbService.consumeSetPasswordOtp.mockResolvedValue(false);
+
+      await expect(target.setPassword(admin, dto)).rejects.toThrow(
+        MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP
+      );
+      expect(platformAdminDbService.updatePasswordHash).not.toHaveBeenCalled();
+    });
+
+    it('sets the password on a valid OTP', async () => {
+      platformAdminDbService.findById.mockResolvedValue({ ...profileRow, passwordHash: null });
+      platformAdminDbService.consumeSetPasswordOtp.mockResolvedValue(true);
+      hashingService.hash.mockResolvedValue('new-hashed-password');
+
+      const result = await target.setPassword(admin, dto);
+
+      expect(platformAdminDbService.updatePasswordHash).toHaveBeenCalledWith(
+        'admin-1',
+        'new-hashed-password'
+      );
+      // Releases the attempt budget the comparison spent — without this a code accepted on the
+      // last allowed try leaves the account locked out for the rest of the window.
+      expect(otpAttemptService.reset).toHaveBeenCalledWith(admin.email);
+      // The success message is the service's to own, not the controller's.
+      expect(result).toEqual({ message: MESSAGES.AUTH.PASSWORD_SET });
+    });
+
+    /**
+     * These OTPs share `platform_admin_invites.token_hash`, which is UNIQUE across the whole
+     * table. A 6-digit code is nowhere near unique enough for that on its own — and in
+     * development `DEV_VERIFY_EMAIL_TOKEN` hands *every* admin the same code — so the digest is
+     * bound to the admin it was issued for. Two admins holding the identical code must still
+     * produce two different stored hashes, or the second write dies on a constraint that isn't
+     * its upsert target.
+     */
+    it('stores a digest bound to the admin, so an identical code from two admins cannot collide', async () => {
+      platformAdminDbService.findById.mockResolvedValue({ ...profileRow, passwordHash: null });
+      verifyEmailTokenProvider.generate.mockReturnValue('000000');
+
+      await target.requestSetPasswordOtp(admin);
+      await target.requestSetPasswordOtp({ ...admin, id: 'admin-2' });
+
+      const [first, second] = platformAdminDbService.putSetPasswordOtp.mock.calls;
+      expect(first?.[0]?.tokenHash).not.toEqual(second?.[0]?.tokenHash);
     });
   });
 
@@ -493,6 +627,41 @@ describe('AdminSettingsService', () => {
         target.setAdminStatus(admin, { targetAdminId: 'admin-2', enabled: false })
       ).rejects.toThrow(ConflictException);
       expect(platformAdminDbService.setStatusGuardingLastActive).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Regression: the root admin used to have no protection beyond the last-active-admin guard,
+     * which stops applying the moment a third admin exists — a non-root admin could disable root
+     * outright as long as some other admin stayed active. This checks the guard fires even while
+     * others remain active, not just when root would otherwise be the last one.
+     */
+    it('refuses to disable the root admin, even when other admins remain active', async () => {
+      platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.ACTIVE);
+      platformAdminDbService.isRootAdmin.mockResolvedValue(true);
+
+      await expect(
+        target.setAdminStatus(admin, { targetAdminId: 'root-admin', enabled: false })
+      ).rejects.toThrow(MESSAGES.ADMIN.CANNOT_DISABLE_ROOT_ADMIN);
+      expect(platformAdminDbService.setStatusGuardingLastActive).not.toHaveBeenCalled();
+    });
+
+    it('allows re-enabling the root admin, if it was somehow left disabled', async () => {
+      platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.DISABLED);
+      platformAdminDbService.isRootAdmin.mockResolvedValue(true);
+      platformAdminDbService.setStatusGuardingLastActive.mockResolvedValue({
+        outcome: 'updated',
+        id: 'root-admin',
+        email: 'root@innopeak.com',
+        status: PlatformAdminStatus.ACTIVE,
+      });
+
+      const result = await target.setAdminStatus(admin, {
+        targetAdminId: 'root-admin',
+        enabled: true,
+      });
+
+      expect(result.admin.isRoot).toBe(true);
+      expect(result.message).toBe(MESSAGES.ADMIN.ADMIN_ENABLED);
     });
 
     it('rejects a tenant-user token', async () => {

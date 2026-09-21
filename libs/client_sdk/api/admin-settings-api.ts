@@ -46,6 +46,8 @@ import type { PlatformSettingsResponseDto } from '../models';
 // @ts-ignore
 import type { SendAdminInviteDto } from '../models';
 // @ts-ignore
+import type { SetAdminPasswordDto } from '../models';
+// @ts-ignore
 import type { SetAdminStatusDto } from '../models';
 // @ts-ignore
 import type { UpdateAdminLocaleResponseDto } from '../models';
@@ -314,6 +316,51 @@ export const AdminSettingsApiAxiosParamCreator = function (
       };
     },
     /**
+     * Only for an admin with no password yet (accepted their invite via Google, or was seeded before this flow existed). Mailed to the account\'s own address — proof the caller still controls that mailbox, since an access token alone is not enough to grant a passwordless account a permanent credential.
+     * @summary Request the OTP required to add a first password
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminSettingsControllerRequestSetPasswordOtpV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/admin/settings/profile/set-password/request-otp`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * Deletes the invited admin\'s row outright — only while it is still `invited`. An admin who has already accepted or been disabled cannot be revoked through this route.
      * @summary Revoke a pending invite
      * @param {string} inviteId
@@ -489,6 +536,65 @@ export const AdminSettingsApiAxiosParamCreator = function (
       };
       localVarRequestOptions.data = serializeDataIfNeeded(
         setAdminStatusDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Requires the OTP from `POST .../set-password/request-otp`. No token to reissue afterward — a platform admin has no refresh token, so there is nothing else to rotate.
+     * @summary Set the signed-in platform admin\'s first password
+     * @param {SetAdminPasswordDto} setAdminPasswordDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminSettingsControllerSetPasswordV1: async (
+      setAdminPasswordDto: SetAdminPasswordDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'setAdminPasswordDto' is not null or undefined
+      assertParamExists(
+        'adminSettingsControllerSetPasswordV1',
+        'setAdminPasswordDto',
+        setAdminPasswordDto,
+      );
+      const localVarPath = `/v1/admin/settings/profile/set-password`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        setAdminPasswordDto,
         localVarRequestOptions,
         configuration,
       );
@@ -785,6 +891,34 @@ export const AdminSettingsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Only for an admin with no password yet (accepted their invite via Google, or was seeded before this flow existed). Mailed to the account\'s own address — proof the caller still controls that mailbox, since an access token alone is not enough to grant a passwordless account a permanent credential.
+     * @summary Request the OTP required to add a first password
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async adminSettingsControllerRequestSetPasswordOtpV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.adminSettingsControllerRequestSetPasswordOtpV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminSettingsApi.adminSettingsControllerRequestSetPasswordOtpV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Deletes the invited admin\'s row outright — only while it is still `invited`. An admin who has already accepted or been disabled cannot be revoked through this route.
      * @summary Revoke a pending invite
      * @param {string} inviteId
@@ -877,6 +1011,37 @@ export const AdminSettingsApiFp = function (configuration?: Configuration) {
       const localVarOperationServerBasePath =
         operationServerMap[
           'AdminSettingsApi.adminSettingsControllerSetAdminStatusV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Requires the OTP from `POST .../set-password/request-otp`. No token to reissue afterward — a platform admin has no refresh token, so there is nothing else to rotate.
+     * @summary Set the signed-in platform admin\'s first password
+     * @param {SetAdminPasswordDto} setAdminPasswordDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async adminSettingsControllerSetPasswordV1(
+      setAdminPasswordDto: SetAdminPasswordDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.adminSettingsControllerSetPasswordV1(
+          setAdminPasswordDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminSettingsApi.adminSettingsControllerSetPasswordV1'
         ]?.[localVarOperationServerIndex]?.url;
       return (axios, basePath) =>
         createRequestFunction(
@@ -1043,6 +1208,19 @@ export const AdminSettingsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Only for an admin with no password yet (accepted their invite via Google, or was seeded before this flow existed). Mailed to the account\'s own address — proof the caller still controls that mailbox, since an access token alone is not enough to grant a passwordless account a permanent credential.
+     * @summary Request the OTP required to add a first password
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminSettingsControllerRequestSetPasswordOtpV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .adminSettingsControllerRequestSetPasswordOtpV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Deletes the invited admin\'s row outright — only while it is still `invited`. An admin who has already accepted or been disabled cannot be revoked through this route.
      * @summary Revoke a pending invite
      * @param {AdminSettingsApiAdminSettingsControllerRevokeInviteV1Request} requestParameters Request parameters.
@@ -1093,6 +1271,24 @@ export const AdminSettingsApiFactory = function (
         .adminSettingsControllerSetAdminStatusV1(
           requestParameters.adminId,
           requestParameters.setAdminStatusDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Requires the OTP from `POST .../set-password/request-otp`. No token to reissue afterward — a platform admin has no refresh token, so there is nothing else to rotate.
+     * @summary Set the signed-in platform admin\'s first password
+     * @param {AdminSettingsApiAdminSettingsControllerSetPasswordV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminSettingsControllerSetPasswordV1(
+      requestParameters: AdminSettingsApiAdminSettingsControllerSetPasswordV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .adminSettingsControllerSetPasswordV1(
+          requestParameters.setAdminPasswordDto,
           options,
         )
         .then((request) => request(axios, basePath));
@@ -1195,6 +1391,16 @@ export interface AdminSettingsApiInterface {
   ): AxiosPromise<Array<AdminInviteResponseDto>>;
 
   /**
+   * Only for an admin with no password yet (accepted their invite via Google, or was seeded before this flow existed). Mailed to the account\'s own address — proof the caller still controls that mailbox, since an access token alone is not enough to grant a passwordless account a permanent credential.
+   * @summary Request the OTP required to add a first password
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  adminSettingsControllerRequestSetPasswordOtpV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
+
+  /**
    * Deletes the invited admin\'s row outright — only while it is still `invited`. An admin who has already accepted or been disabled cannot be revoked through this route.
    * @summary Revoke a pending invite
    * @param {AdminSettingsApiAdminSettingsControllerRevokeInviteV1Request} requestParameters Request parameters.
@@ -1229,6 +1435,18 @@ export interface AdminSettingsApiInterface {
     requestParameters: AdminSettingsApiAdminSettingsControllerSetAdminStatusV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<AdminInviteResponseDto>;
+
+  /**
+   * Requires the OTP from `POST .../set-password/request-otp`. No token to reissue afterward — a platform admin has no refresh token, so there is nothing else to rotate.
+   * @summary Set the signed-in platform admin\'s first password
+   * @param {AdminSettingsApiAdminSettingsControllerSetPasswordV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  adminSettingsControllerSetPasswordV1(
+    requestParameters: AdminSettingsApiAdminSettingsControllerSetPasswordV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
 
   /**
    * Persists `platform_admins.locale`, then re-signs the access token (no refresh token to touch — a platform admin has none) so the new value is on its `locale` claim right away rather than waiting for the next login. Platform-admin tokens only.
@@ -1290,6 +1508,13 @@ export interface AdminSettingsApiAdminSettingsControllerSetAdminStatusV1Request 
   readonly adminId: string;
 
   readonly setAdminStatusDto: SetAdminStatusDto;
+}
+
+/**
+ * Request parameters for adminSettingsControllerSetPasswordV1 operation in AdminSettingsApi.
+ */
+export interface AdminSettingsApiAdminSettingsControllerSetPasswordV1Request {
+  readonly setAdminPasswordDto: SetAdminPasswordDto;
 }
 
 /**
@@ -1388,6 +1613,20 @@ export class AdminSettingsApi
   }
 
   /**
+   * Only for an admin with no password yet (accepted their invite via Google, or was seeded before this flow existed). Mailed to the account\'s own address — proof the caller still controls that mailbox, since an access token alone is not enough to grant a passwordless account a permanent credential.
+   * @summary Request the OTP required to add a first password
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public adminSettingsControllerRequestSetPasswordOtpV1(
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminSettingsApiFp(this.configuration)
+      .adminSettingsControllerRequestSetPasswordOtpV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
    * Deletes the invited admin\'s row outright — only while it is still `invited`. An admin who has already accepted or been disabled cannot be revoked through this route.
    * @summary Revoke a pending invite
    * @param {AdminSettingsApiAdminSettingsControllerRevokeInviteV1Request} requestParameters Request parameters.
@@ -1440,6 +1679,25 @@ export class AdminSettingsApi
       .adminSettingsControllerSetAdminStatusV1(
         requestParameters.adminId,
         requestParameters.setAdminStatusDto,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Requires the OTP from `POST .../set-password/request-otp`. No token to reissue afterward — a platform admin has no refresh token, so there is nothing else to rotate.
+   * @summary Set the signed-in platform admin\'s first password
+   * @param {AdminSettingsApiAdminSettingsControllerSetPasswordV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public adminSettingsControllerSetPasswordV1(
+    requestParameters: AdminSettingsApiAdminSettingsControllerSetPasswordV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminSettingsApiFp(this.configuration)
+      .adminSettingsControllerSetPasswordV1(
+        requestParameters.setAdminPasswordDto,
         options,
       )
       .then((request) => request(this.axios, this.basePath));

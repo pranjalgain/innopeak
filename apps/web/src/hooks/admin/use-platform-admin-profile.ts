@@ -23,6 +23,17 @@ interface UsePlatformAdminProfileResult {
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
   /** In-flight flag for the change-password request, so the form can block a double submit. */
   isChangingPassword: boolean;
+  /** Step-up verification ahead of `setPassword` — mails a 6-digit code. Returns whether it was
+   *  acknowledged (network/unexpected failures only; the backend's own ack is always "success"
+   *  whether or not a fresh code actually went out, to avoid leaking cooldown state). */
+  requestSetPasswordOtp: () => Promise<boolean>;
+  /** In-flight flag for the request-OTP call. */
+  isSendingSetPasswordOtp: boolean;
+  /** For an admin with no password yet — flips `profile.hasPassword` to true on success, so the
+   *  form swaps to the normal change-password one without a reload. */
+  setPassword: (newPassword: string, otp: string) => Promise<boolean>;
+  /** In-flight flag for the set-password request, so the form can block a double submit. */
+  isSettingPassword: boolean;
 }
 
 export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
@@ -99,6 +110,61 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
     [t, changePasswordMutation],
   );
 
+  const requestSetPasswordOtpMutation = useMutation({
+    mutationFn: () => PlatformAdminProfileService.requestSetPasswordOtp(),
+  });
+
+  const requestSetPasswordOtp = useCallback(async () => {
+    try {
+      await requestSetPasswordOtpMutation.mutateAsync();
+      toast.success(t("otpSent"));
+      return true;
+    } catch (error) {
+      // 429 is its own case, not a server fault: both set-password routes carry a 5/minute
+      // throttle, and "Could not save this change" told an admin who had just clicked resend once
+      // too often to keep trying, which is exactly the wrong advice.
+      if (error instanceof ApiError && error.statusCode === 429) {
+        toast.error(t("tooManyRequests"));
+      } else if (error instanceof ApiError && error.statusCode === 400) {
+        toast.error(error.message);
+      } else {
+        toast.error(t("updateFailed"));
+      }
+      return false;
+    }
+  }, [t, requestSetPasswordOtpMutation]);
+
+  const setPasswordMutation = useMutation({
+    mutationFn: ({ newPassword, otp }: { newPassword: string; otp: string }) =>
+      PlatformAdminProfileService.setPassword(newPassword, otp),
+  });
+
+  const setPassword = useCallback(
+    async (newPassword: string, otp: string) => {
+      try {
+        await setPasswordMutation.mutateAsync({ newPassword, otp });
+        queryClient.setQueryData<PlatformAdminProfile>(platformAdminProfileQueryKey, (current) =>
+          current ? { ...current, hasPassword: true } : current,
+        );
+        toast.success(t("passwordSet"));
+        return true;
+      } catch (error) {
+        // Same three-way split as `requestSetPasswordOtp`: the backend answers 429 both for the
+        // route's own throttle and for a spent OTP attempt budget, and either one means "wait",
+        // not "something broke".
+        if (error instanceof ApiError && error.statusCode === 429) {
+          toast.error(t("tooManyRequests"));
+        } else if (error instanceof ApiError && error.statusCode === 400) {
+          toast.error(error.message);
+        } else {
+          toast.error(t("updateFailed"));
+        }
+        return false;
+      }
+    },
+    [t, setPasswordMutation, queryClient],
+  );
+
   return {
     profile: profileQuery.data ?? null,
     isLoading: profileQuery.isLoading,
@@ -108,5 +174,9 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
     isUploadingAvatar: updateAvatarMutation.isPending,
     changePassword,
     isChangingPassword: changePasswordMutation.isPending,
+    requestSetPasswordOtp,
+    isSendingSetPasswordOtp: requestSetPasswordOtpMutation.isPending,
+    setPassword,
+    isSettingPassword: setPasswordMutation.isPending,
   };
 }

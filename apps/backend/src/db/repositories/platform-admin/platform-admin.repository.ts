@@ -6,7 +6,7 @@ import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 
 export interface PlatformAdminProfileRow {
   id: string;
@@ -32,6 +32,8 @@ export interface PlatformAdminInviteRow {
    * at all — see `PlatformAdminDbService.listInvites`. */
   invitedAt: string;
   expiresAt: string | null;
+  /** `invited_by_platform_admin_id IS NULL` — the seeded root admin. */
+  isRoot: boolean;
 }
 
 /**
@@ -135,6 +137,23 @@ export class PlatformAdminRepository {
       .limit(1);
 
     return (rows[0]?.status as PlatformAdminStatus | undefined) ?? null;
+  }
+
+  /**
+   * Whether `id` is the seeded root admin — `invited_by_platform_admin_id IS NULL`, which
+   * `idx_platform_admins_single_root` (`0001_platform_admin.sql`) guarantees at most one row ever
+   * satisfies. `false` for a deleted/nonexistent id, same as for any genuinely-invited admin —
+   * callers that need to distinguish "not found" from "not root" already do so via
+   * `findStatusById` first, so this only has to answer one question.
+   */
+  async isRootAdmin(id: string): Promise<boolean> {
+    const rows = await this.dbService.db
+      .select({ invitedByPlatformAdminId: schema.platformAdmins.invitedByPlatformAdminId })
+      .from(schema.platformAdmins)
+      .where(eq(schema.platformAdmins.id, id))
+      .limit(1);
+
+    return rows[0]?.invitedByPlatformAdminId === null;
   }
 
   /**
@@ -272,6 +291,7 @@ export class PlatformAdminRepository {
       createdAt: string;
       inviteCreatedAt: string | null;
       inviteExpiresAt: string | null;
+      invitedByPlatformAdminId: string | null;
     }[]
   > {
     const rows = await this.dbService.db
@@ -282,6 +302,7 @@ export class PlatformAdminRepository {
         createdAt: schema.platformAdmins.createdAt,
         inviteCreatedAt: schema.platformAdminInvites.createdAt,
         inviteExpiresAt: schema.platformAdminInvites.expiresAt,
+        invitedByPlatformAdminId: schema.platformAdmins.invitedByPlatformAdminId,
       })
       .from(schema.platformAdmins)
       // `purpose = 'invite'` lives in the JOIN condition, not a WHERE clause — a WHERE here would
@@ -303,6 +324,7 @@ export class PlatformAdminRepository {
       createdAt: string;
       inviteCreatedAt: string | null;
       inviteExpiresAt: string | null;
+      invitedByPlatformAdminId: string | null;
     }[];
   }
 
@@ -338,6 +360,58 @@ export class PlatformAdminRepository {
       purpose: PlatformAdminInvitePurpose.INVITE,
       expiresAt: input.expiresAt,
     });
+  }
+
+  /**
+   * Same upsert-on-(owner, purpose) shape as `AuthRepository.putSetPasswordOtp` — a resend
+   * reissues this one live row rather than accumulating a new one per request, via
+   * `idx_platform_admin_invites_platform_admin_id_purpose`. The step-up proof
+   * `AdminSettingsService.setPassword` requires before converting a 15-minute access token into a
+   * permanent credential on a passwordless (Google-only) admin account.
+   */
+  async putSetPasswordOtp(
+    tx: DrizzleTransaction,
+    input: { platformAdminId: string; tokenHash: string; expiresAt: string }
+  ): Promise<void> {
+    await tx
+      .insert(schema.platformAdminInvites)
+      .values({
+        platformAdminId: input.platformAdminId,
+        tokenHash: input.tokenHash,
+        purpose: PlatformAdminInvitePurpose.SET_PASSWORD,
+        expiresAt: input.expiresAt,
+      })
+      .onConflictDoUpdate({
+        target: [schema.platformAdminInvites.platformAdminId, schema.platformAdminInvites.purpose],
+        set: {
+          tokenHash: input.tokenHash,
+          expiresAt: input.expiresAt,
+          usedAt: null,
+          updatedAt: sql`now()`,
+        },
+      });
+  }
+
+  /** `consumeVerifyEmailToken`'s CAS shape, scoped to the `set_password`-purpose row `putSetPasswordOtp` writes. */
+  async consumeSetPasswordOtp(
+    tx: DrizzleTransaction,
+    input: { platformAdminId: string; tokenHash: string }
+  ): Promise<boolean> {
+    const rows = await tx
+      .update(schema.platformAdminInvites)
+      .set({ usedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.platformAdminInvites.platformAdminId, input.platformAdminId),
+          eq(schema.platformAdminInvites.tokenHash, input.tokenHash),
+          eq(schema.platformAdminInvites.purpose, PlatformAdminInvitePurpose.SET_PASSWORD),
+          isNull(schema.platformAdminInvites.usedAt),
+          gt(schema.platformAdminInvites.expiresAt, sql`now()`)
+        )
+      )
+      .returning({ id: schema.platformAdminInvites.id });
+
+    return rows.length > 0;
   }
 
   /**
