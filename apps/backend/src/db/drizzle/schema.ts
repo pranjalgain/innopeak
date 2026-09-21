@@ -42,9 +42,16 @@ export const notificationChannelPref = pgEnum('notification_channel_pref', [
 ]);
 export const notificationStatus = pgEnum('notification_status', ['pending', 'sent', 'failed']);
 export const notificationType = pgEnum('notification_type', ['escalation']);
+export const inAppNotificationType = pgEnum('in_app_notification_type', [
+  'review_escalated',
+  'reply_needs_approval',
+  'reply_approved',
+  'connection_issue',
+]);
 export const platformAdminInvitePurpose = pgEnum('platform_admin_invite_purpose', [
   'invite',
   'reset',
+  'set_password',
 ]);
 export const platformAdminStatus = pgEnum('platform_admin_status', [
   'invited',
@@ -212,6 +219,11 @@ export const platformAdminInvites = pgTable(
     uniqueIndex('idx_platform_admin_invites_token_hash').using(
       'btree',
       table.tokenHash.asc().nullsLast().op('text_ops')
+    ),
+    uniqueIndex('idx_platform_admin_invites_platform_admin_id_purpose').using(
+      'btree',
+      table.platformAdminId.asc().nullsLast().op('uuid_ops'),
+      table.purpose.asc().nullsLast().op('enum_ops')
     ),
     foreignKey({
       columns: [table.platformAdminId],
@@ -882,6 +894,77 @@ export const notifications = pgTable(
       foreignColumns: [users.id],
       name: 'notifications_recipient_user_id_fkey',
     }).onDelete('restrict'),
+  ]
+);
+
+export const inAppNotifications = pgTable(
+  'in_app_notifications',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    type: inAppNotificationType().notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    description: text(),
+    reviewId: uuid('review_id'),
+    notificationId: uuid('notification_id'),
+    generationGroupId: uuid('generation_group_id'),
+    readAt: timestamp('read_at', { withTimezone: true, mode: 'string' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_in_app_notifications_dedupe').using(
+      'btree',
+      table.userId.asc().nullsLast().op('uuid_ops'),
+      table.type.asc().nullsLast().op('enum_ops'),
+      table.reviewId.asc().nullsLast().op('enum_ops'),
+      table.generationGroupId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_in_app_notifications_review_id').using(
+      'btree',
+      table.reviewId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_in_app_notifications_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_in_app_notifications_user_created').using(
+      'btree',
+      table.userId.asc().nullsLast().op('uuid_ops'),
+      table.createdAt.desc().nullsFirst().op('uuid_ops'),
+      table.id.desc().nullsFirst().op('timestamptz_ops')
+    ),
+    index('idx_in_app_notifications_user_unread')
+      .using('btree', table.userId.asc().nullsLast().op('uuid_ops'))
+      .where(sql`(read_at IS NULL)`),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'in_app_notifications_tenant_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: 'in_app_notifications_user_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.reviewId],
+      foreignColumns: [reviews.id],
+      name: 'in_app_notifications_review_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.notificationId],
+      foreignColumns: [notifications.id],
+      name: 'in_app_notifications_notification_id_fkey',
+    }).onDelete('set null'),
   ]
 );
 

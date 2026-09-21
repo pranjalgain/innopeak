@@ -3,6 +3,13 @@
 -- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
 -- Depends on: 0000_foundation.sql (enum types)
 --
+-- ⚠ RECREATE YOUR DATABASE AFTER PULLING A CHANGE TO THIS FILE — see 0000_foundation.sql's own
+-- header for why an edited-in-place migration is a silent no-op on an existing database.
+-- `idx_platform_admin_invites_platform_admin_id_purpose` (added below) is required by the new
+-- `platform_admin_invite_purpose = 'set_password'` upsert (`AdminSettingsService`'s add-password
+-- flow); without it that route 500s with "there is no unique or exclusion constraint matching
+-- the ON CONFLICT specification" rather than reissuing the OTP cleanly.
+--
 -- platform_admins is the SaaS-level support/ops hierarchy — fully separate from the
 -- tenant-scoped `users` table (PLAN.md §2), no FK to any tenant table anywhere in this file.
 -- Its own invited_by_platform_admin_id is a self-reference, which needs no special handling —
@@ -72,3 +79,10 @@ CREATE TABLE IF NOT EXISTS platform_admin_invites (
 
 CREATE INDEX idx_platform_admin_invites_platform_admin_id ON platform_admin_invites(platform_admin_id);
 CREATE UNIQUE INDEX idx_platform_admin_invites_token_hash ON platform_admin_invites(token_hash);
+-- Same upsert-on-(owner, purpose) shape as `idx_password_reset_tokens_user_id_purpose`
+-- (0002_tenant_auth.sql) — lets the add-password OTP be reissued (resend) by updating the one
+-- live `set_password`-purpose row for an admin rather than accumulating a new one per request.
+-- Not needed for `invite`/`reset` today (each admin gets at most one live row of either purpose
+-- in practice already), but scoping the constraint to all three purposes, not just
+-- `set_password`, is what actually matches the invariant this table intends to hold.
+CREATE UNIQUE INDEX idx_platform_admin_invites_platform_admin_id_purpose ON platform_admin_invites(platform_admin_id, purpose);

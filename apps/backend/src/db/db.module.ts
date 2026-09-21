@@ -19,6 +19,8 @@ import { DemoDataDbService } from './repositories/demo-data/demo-data.db-service
 import { DemoDataRepository } from './repositories/demo-data/demo-data.repository';
 import { MediaDbService } from './repositories/media/media.db-service';
 import { MediaRepository } from './repositories/media/media.repository';
+import { NotificationsDbService } from './repositories/notifications/notifications.db-service';
+import { NotificationsRepository } from './repositories/notifications/notifications.repository';
 import { PlatformAdminDbService } from './repositories/platform-admin/platform-admin.db-service';
 import { PlatformAdminRepository } from './repositories/platform-admin/platform-admin.repository';
 import { PlatformSettingsDbService } from './repositories/platform-settings/platform-settings.db-service';
@@ -30,6 +32,7 @@ import { ReviewSyncDbService } from './repositories/review-sync/review-sync.db-s
 import { ReviewSyncRepository } from './repositories/review-sync/review-sync.repository';
 import { ReviewsReadRepository } from './repositories/review-sync/reviews-read.repository';
 import { BlocklistTermsRepository } from './repositories/settings/blocklist-terms.repository';
+import { NotificationRecipientsRepository } from './repositories/settings/notification-recipients.repository';
 import { SettingsDbService } from './repositories/settings/settings.db-service';
 import { TenantSettingsRepository } from './repositories/settings/tenant-settings.repository';
 
@@ -45,6 +48,7 @@ const repositories = [
   ReviewSyncDbService,
   BlocklistTermsRepository,
   TenantSettingsRepository,
+  NotificationRecipientsRepository,
   SettingsDbService,
   DashboardRepository,
   DashboardDbService,
@@ -63,6 +67,8 @@ const repositories = [
   PlatformSettingsDbService,
   MediaRepository,
   MediaDbService,
+  NotificationsRepository,
+  NotificationsDbService,
 ];
 
 @Global()

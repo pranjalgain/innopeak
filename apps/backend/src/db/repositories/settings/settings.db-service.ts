@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { BlocklistTermsRepository } from './blocklist-terms.repository';
+import { NotificationRecipientsRepository } from './notification-recipients.repository';
 import { TenantSettingsRepository } from './tenant-settings.repository';
 
 import type {
@@ -8,6 +9,10 @@ import type {
   CreateBlocklistTermInput,
   DeleteBlocklistTermInput,
 } from '../../../api/settings/types/blocklist-term.type';
+import type {
+  NotificationRecipientRecord,
+  UpdateNotificationRecipientInput,
+} from '../../../api/settings/types/notification-recipient.type';
 import type {
   TenantSettingsRecord,
   TenantSettingsWrite,
@@ -17,7 +22,8 @@ import type {
 export class SettingsDbService {
   constructor(
     private readonly blocklistTermsRepository: BlocklistTermsRepository,
-    private readonly tenantSettingsRepository: TenantSettingsRepository
+    private readonly tenantSettingsRepository: TenantSettingsRepository,
+    private readonly notificationRecipientsRepository: NotificationRecipientsRepository
   ) {}
 
   async listBlocklistTerms(tenantId: string): Promise<BlocklistTermRecord[]> {
@@ -49,5 +55,15 @@ export class SettingsDbService {
 
   async findAutoPostEnabled(tenantId: string): Promise<boolean | null> {
     return this.tenantSettingsRepository.findAutoPostEnabled(tenantId);
+  }
+
+  async listNotificationRecipients(tenantId: string): Promise<NotificationRecipientRecord[]> {
+    return this.notificationRecipientsRepository.listByTenant(tenantId);
+  }
+
+  async updateNotificationRecipient(
+    input: UpdateNotificationRecipientInput
+  ): Promise<NotificationRecipientRecord | null> {
+    return this.notificationRecipientsRepository.updateForTenant(input);
   }
 }

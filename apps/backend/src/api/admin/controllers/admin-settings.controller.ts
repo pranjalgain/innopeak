@@ -30,6 +30,7 @@ import { AdminInviteResponseDto } from '../dto/admin-invite-response.dto';
 import { AdminProfileResponseDto } from '../dto/admin-profile-response.dto';
 import { ChangeAdminPasswordDto } from '../dto/change-admin-password.dto';
 import { SendAdminInviteDto } from '../dto/send-admin-invite.dto';
+import { SetAdminPasswordDto } from '../dto/set-admin-password.dto';
 import { SetAdminStatusDto } from '../dto/set-admin-status.dto';
 import { UpdateAdminLocaleResponseDto } from '../dto/update-admin-locale-response.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
@@ -38,8 +39,10 @@ import {
   ApiChangeAdminPassword,
   ApiGetAdminProfile,
   ApiListAdminInvites,
+  ApiRequestAdminSetPasswordOtp,
   ApiRevokeAdminInvite,
   ApiSendAdminInvite,
+  ApiSetAdminPassword,
   ApiSetAdminStatus,
   ApiUpdateAdminLocale,
   ApiUpdatePlatformSettings,
@@ -87,6 +90,30 @@ export class AdminSettingsController {
       MESSAGES.ADMIN.PASSWORD_CHANGED,
       HttpStatus.OK
     );
+  }
+
+  /** Settings → Profile, "Add password" — only for an admin with no `password_hash` yet. */
+  @Post(RouteNames.ADMIN_SETTINGS_REQUEST_SET_PASSWORD_OTP)
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiRequestAdminSetPasswordOtp()
+  async requestSetPasswordOtp(
+    @CurrentUser() user: AuthUser
+  ): Promise<ApiResponseDto<{ message: string }>> {
+    const result = await this.adminSettingsService.requestSetPasswordOtp(user);
+    return ResponseUtil.success(result, result.message, HttpStatus.OK);
+  }
+
+  @Post(RouteNames.ADMIN_SETTINGS_SET_PASSWORD)
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiSetAdminPassword()
+  async setPassword(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SetAdminPasswordDto
+  ): Promise<ApiResponseDto<{ message: string }>> {
+    const result = await this.adminSettingsService.setPassword(user, dto);
+    return ResponseUtil.success(result, result.message, HttpStatus.OK);
   }
 
   @Get(RouteNames.ADMIN_SETTINGS_INVITES)

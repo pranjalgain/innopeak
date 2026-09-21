@@ -92,4 +92,25 @@ export class PlatformAdminProfileService {
       { skipRefresh: true },
     );
   }
+
+  /**
+   * Step-up verification `setPassword` requires — mailed to the account's own address, proof the
+   * caller still controls that mailbox. Only for an admin with no password yet; the backend 400s
+   * otherwise, same as the tenant flow.
+   */
+  static async requestSetPasswordOtp(): Promise<void> {
+    await adminSettingsApi.adminSettingsControllerRequestSetPasswordOtpV1();
+  }
+
+  /**
+   * The admin-side counterpart to `AuthService.setPassword` — for an admin who has never had a
+   * password (accepted their invite via Google), so there is no current password for
+   * `changePassword` to check. No token to reissue afterward: a platform admin has no refresh
+   * token, so there is nothing else to rotate.
+   */
+  static async setPassword(newPassword: string, otp: string): Promise<void> {
+    await adminSettingsApi.adminSettingsControllerSetPasswordV1({
+      setAdminPasswordDto: { newPassword, otp },
+    });
+  }
 }

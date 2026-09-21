@@ -50,6 +50,33 @@ export class PlatformAdminDbService {
     return this.platformAdminRepository.findStatusById(id);
   }
 
+  /** See `PlatformAdminRepository.isRootAdmin`. */
+  async isRootAdmin(id: string): Promise<boolean> {
+    return this.platformAdminRepository.isRootAdmin(id);
+  }
+
+  /** Issues (or reissues) the OTP `AdminSettingsService.setPassword` requires before a
+   *  passwordless admin can adopt one — see `PlatformAdminRepository.putSetPasswordOtp`. */
+  async putSetPasswordOtp(input: {
+    platformAdminId: string;
+    tokenHash: string;
+    expiresAt: string;
+  }): Promise<void> {
+    await this.platformAdminRepository.transaction(tx =>
+      this.platformAdminRepository.putSetPasswordOtp(tx, input)
+    );
+  }
+
+  /** CAS-consumes the admin set-password OTP; true only if it matched, was unused, and hadn't expired. */
+  async consumeSetPasswordOtp(input: {
+    platformAdminId: string;
+    tokenHash: string;
+  }): Promise<boolean> {
+    return this.platformAdminRepository.transaction(tx =>
+      this.platformAdminRepository.consumeSetPasswordOtp(tx, input)
+    );
+  }
+
   /** See `PlatformAdminRepository.setStatusGuardingLastActive` — the actual last-active-admin guard lives there, atomically. */
   async setStatusGuardingLastActive(
     input: SetAdminStatusGuardInput
@@ -99,6 +126,7 @@ export class PlatformAdminDbService {
       status: row.status,
       invitedAt: row.inviteCreatedAt ?? row.createdAt,
       expiresAt: row.inviteExpiresAt,
+      isRoot: row.invitedByPlatformAdminId === null,
     }));
   }
 
@@ -129,6 +157,9 @@ export class PlatformAdminDbService {
       status: PlatformAdminStatus.INVITED,
       invitedAt: new Date().toISOString(),
       expiresAt: input.expiresAt,
+      // Always false: this path is how every non-root admin comes to exist in the first place —
+      // root is only ever seeded (`seed-platform-admin.ts`), never invited.
+      isRoot: false,
     };
   }
 

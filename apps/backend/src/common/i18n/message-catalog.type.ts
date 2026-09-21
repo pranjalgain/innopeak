@@ -59,6 +59,12 @@ export interface MessageCatalog {
      *  `UNSUPPORTED_FORMAT`, and just as actionable: the fix is a smaller file. */
     FILE_TOO_LARGE: string;
   };
+  NOTIFICATIONS: {
+    LISTED: string;
+    NOT_FOUND: string;
+    MARKED_READ: string;
+    MARKED_ALL_READ: string;
+  };
   CONNECTIONS: {
     CONNECTION_NOT_FOUND: string;
     LOCATION_NOT_FOUND: string;
@@ -113,6 +119,13 @@ export interface MessageCatalog {
     MEMBER_INVITE_NOT_REVOCABLE: string;
     /** `platform_settings.invite_members_enabled` is off. */
     MEMBER_INVITES_DISABLED: string;
+    NOTIFICATION_RECIPIENTS_LISTED: string;
+    NOTIFICATION_RECIPIENT_UPDATED: string;
+    /** The id doesn't exist, or belongs to a different tenant — same message either way, no
+     *  cross-tenant enumeration. */
+    NOTIFICATION_RECIPIENT_NOT_FOUND: string;
+    /** `channel` and `isActive` both omitted — the caller sent nothing to change. */
+    NOTIFICATION_RECIPIENT_NO_FIELDS: string;
   };
   ADMIN: {
     /** `requirePlatformAdmin`'s failure case — should never fire in practice, since every admin
@@ -138,6 +151,12 @@ export interface MessageCatalog {
     ADMIN_NOT_FOUND: string;
     CANNOT_DISABLE_SELF: string;
     CANNOT_DISABLE_LAST_ADMIN: string;
+    /** The seeded root admin (`invited_by_platform_admin_id IS NULL`) — unlike every other admin,
+     *  it has no inviter who could re-enable it if disabled, and no self-service signup exists to
+     *  create a replacement. Distinct from `CANNOT_DISABLE_LAST_ADMIN`: this fires even when other
+     *  admins are still active, since root being disabled is a problem in its own right, not only
+     *  when it happens to be the last one standing. */
+    CANNOT_DISABLE_ROOT_ADMIN: string;
     CANNOT_DISABLE_INVITED: string;
     ADMIN_DISABLED: string;
     ADMIN_ENABLED: string;

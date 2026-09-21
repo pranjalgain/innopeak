@@ -6,36 +6,43 @@ sidebar_position: 2
 
 ## How to read this document
 
-This is the **target/spec design** for the notifications module's HTTP surface. **No code exists
-for it yet** — `apps/backend/src/notifications/` is unrelated boilerplate for a different product
-(FCM push / in-app), not an earlier draft of this, and must not be retrofitted; see
-[Gap § 3](./overview.md#3-srcnotifications-is-unrelated-boilerplate). It assumes you have read
-[Notifications Module — Overview](./overview.md) for the data model, the two-faces distinction, and
-the flow narratives; this document does not repeat those, it turns them into request/response
-contracts.
+This is the **target/spec design** for the notifications module's HTTP surface, with one route —
+[`GET /v1/notifications`](#get-v1notifications) — actually being **built now**. Everything else
+here is documented for continuity but explicitly deferred; look for the "**Deferred**" banner on
+each section. It assumes you have read [Notifications Module — Overview](./overview.md) for the
+data model, the two-faces distinction, and the flow narratives; this document does not repeat
+those, it turns them into request/response contracts.
+
+> **Corrected (implementation pass).** This previously warned about `src/notifications/`, a
+> boilerplate module needing to be dropped rather than retrofitted. It's already gone — see
+> [Gap § 3](./overview.md#3-srcnotifications--already-removed-nothing-to-drop). It also claimed
+> `RouteNames.NOTIFICATIONS` already existed; it doesn't, add it fresh.
 
 This document is intentionally HTTP-contract-level only — no controller or decorator code. When
 implementing a route below, it lives under `src/api/notifications/` per
 `apps/backend/docs/conventions/module-structure.md`, split across two controllers (feed vs.
-delivery ledger) with one `swagger/` file each. The request/response JSON shown here is what that
-route's composed Swagger decorator should render as its example, and every success/error `message`
-string comes from `src/common/constants/messages.constants.ts` — which **does not exist yet** and
-is created by the first module to need it — never an inline literal.
+delivery ledger) with one `swagger/` file each — for this pass, just the feed controller. The
+request/response JSON shown here is what that route's composed Swagger decorator should render as
+its example, and every success/error `message` string comes from
+`src/common/constants/messages.constants.ts` — which exists now, under the bilingual
+`MessageCatalog` system (`messages.en.ts`/`messages.de.ts`); every string this document specifies
+needs both a `MESSAGES.NOTIFICATIONS.*` key and its German counterpart, not one literal in a single
+file as an earlier version of this doc assumed.
 
-**Some routes below depend on a follow-up migration.** The four
-[in-app notification centre](#in-app-notification-centre) routes require the
-`in_app_notifications` table specified in
-[Gap § 1](./overview.md#1-the-in-app-notification-centre-has-no-table-the-big-one); they cannot be
-built against today's schema, because the `notifications` table has no `title`, no `description`, a
-`NOT NULL review_id`, a single-value `notification_type`, one row *per channel* rather than per
-event, and a `read_at` column that means email-open telemetry rather than a user action. The two
-[delivery ledger](#delivery-ledger) routes work against today's schema, with one degradation
-(`failureReason`) noted inline. Every route is marked.
+**The one route being built now needs a follow-up migration first** — the `in_app_notifications`
+table specified in
+[Gap § 1](./overview.md#1-the-in-app-notification-centre-has-no-table-the-big-one), since today's
+`notifications` table has no `title`, no `description`, a `NOT NULL review_id`, a single-value
+`notification_type`, one row *per channel* rather than per event, and a `read_at` column that means
+email-open telemetry rather than a user action. Since nothing writes that table yet either
+(no escalation composer exists — see the overview's [Notification
+flows](./overview.md#notification-flows)), the route is real, tested infrastructure that correctly
+returns an empty page today, not a stub.
 
 ## Conventions
 
-- **Base path** — every route is `/v1/notifications/...` (`RouteNames.NOTIFICATIONS`, already
-  present in `src/common/route-names.ts`; `version: '1'` in `@Controller()`).
+- **Base path** — every route is `/v1/notifications/...` (`RouteNames.NOTIFICATIONS` — not yet in
+  `src/common/route-names.ts`, add it fresh; `version: '1'` in `@Controller()`).
 - **Auth column** — `Bearer` means `Authorization: Bearer <access_token>` or the equivalent `sid`
   cookie, which `CookieAuthMiddleware` promotes before the guards run. `Bearer + owner` adds
   `@Roles('owner')`. No route in this module is `@Public()`.
@@ -56,10 +63,13 @@ event, and a `read_at` column that means email-open telemetry rather than a user
   payload. The full envelope spec — success shape, error shape, `traceId`, and how
   `class-validator` failures collapse into one `message` — is not repeated here; see
   [Auth Module — API Reference § Conventions](../auth/api-reference.md#conventions).
-- **Pagination** — every list route returns
-  `{ data: [...], meta: { page, pageSize, total, totalPages } }`, with query params as one DTO and
-  `totalPages` computed in the service, not the controller
-  (`apps/backend/docs/conventions/api-patterns.md`).
+- **Pagination — deliberately not this app's usual `{ data, meta }` shape.**
+  `apps/backend/docs/conventions/api-patterns.md` specifies
+  `{ data: [...], meta: { page, pageSize, total, totalPages } }` for list routes generally, and an
+  earlier version of this document specced exactly that (plus a separate `unread-count` route) for
+  the feed, while claiming it was "the exact surface the already-shipped frontend expects." That
+  claim was never actually checked against the frontend code, and it's wrong — see
+  [`GET /v1/notifications`](#get-v1notifications) for the corrected, verified contract.
 - **Throttling** — all routes fall back to the global `short` tier (30/min). No route here needs a
   tighter limit; the feed's write routes are frequent, low-stakes, and self-scoped.
 
@@ -104,17 +114,20 @@ The equivalent guarantee on the in-app feed side is
 **Every route in this section requires the `in_app_notifications` follow-up migration.** They read
 and write that table only; they never touch `notifications`.
 
-These four routes are the exact surface the already-shipped frontend expects. Today
-`apps/web/src/app/_libs/services/notification.service.ts` fakes all four against
-`MOCK_NOTIFICATIONS`; replacing that mock body with real calls to these routes is the entire
-frontend change.
+| Method | Path | Auth | Migration | Status |
+|---|---|---|---|---|
+| `GET` | `/v1/notifications` | Bearer | Required | **Shipped** |
+| `PATCH` | `/v1/notifications/:id/read` | Bearer | Required | **Shipped** |
+| `PATCH` | `/v1/notifications/read-all` | Bearer | Required | **Shipped** |
 
-| Method | Path | Auth | Migration |
-|---|---|---|---|
-| `GET` | `/v1/notifications` | Bearer | Required |
-| `GET` | `/v1/notifications/unread-count` | Bearer | Required |
-| `PATCH` | `/v1/notifications/:id/read` | Bearer | Required |
-| `PATCH` | `/v1/notifications/read-all` | Bearer | Required |
+There is no `unread-count` route — see [Conventions § Pagination](#conventions) for why an earlier
+version of this document specced one and why it's gone: the frontend gets its unread total embedded
+in the list response, not from a second call.
+
+Today `apps/web/src/app/_libs/services/notification.service.ts` fakes `list`/`markAsRead`/
+`markAllAsRead` against `MOCK_NOTIFICATIONS`. Replacing `list`'s mock body with a real call to
+`GET /v1/notifications` below is this pass's entire frontend change; `markAsRead`/`markAllAsRead`
+stay mocked until the two `PATCH` routes are built.
 
 ### `GET /v1/notifications`
 
@@ -129,23 +142,32 @@ is monotonic with creation time, and two rows written in the same escalation fan
 `created_at` to the microsecond. Without it, pagination can drop or repeat a row across pages.
 Served by `idx_in_app_notifications_user_created`.
 
-Request query params:
+**Request query params — `offset`/`limit`, not `page`/`pageSize`/`unreadOnly`.**
+
+> **Corrected (implementation pass).** Verified directly against
+> `apps/web/src/app/_libs/services/notification.service.ts`
+> (`static async list(offset: number, limit: number)`) and
+> `apps/web/src/hooks/notifications/use-notifications.ts`
+> (`useInfiniteQuery` with `initialPageParam: 0`, computing the next `offset` as the running count
+> of already-loaded items). There is no `unreadOnly` filter anywhere in the hook — the panel
+> renders read and unread rows together, styled differently, and always has. Matching the shipped
+> contract means this route takes a numeric offset, not a page number.
 
 ```json
-{ "page": 1, "pageSize": 20, "unreadOnly": false }
+{ "offset": 0, "limit": 20 }
 ```
 
 | Field | Type | Rules |
 |---|---|---|
-| `page` | integer | optional, default `1`, min `1` |
-| `pageSize` | integer | optional, default `20`, min `1`, max `50`. The popover renders 20 with a scroll container; the cap exists so a client can't ask for the whole history in one call. |
-| `unreadOnly` | boolean | optional, default `false`. When `true`, filters `read_at IS NULL` — served by the partial index `idx_in_app_notifications_user_unread`. Not used by the current panel, which renders read and unread together and styles them differently. |
+| `offset` | integer | optional, default `0`, min `0`. The count of items the caller has already loaded — `use-notifications.ts` computes this as `allPages.reduce((sum, page) => sum + page.items.length, 0)`, not a page index. |
+| `limit` | integer | optional, default `20`, min `1`, max `50`. The popover renders a scroll container; the cap exists so a client can't ask for the whole history in one call. The frontend itself currently requests 3 at a time (`PAGE_SIZE` in the hook) — the endpoint's own default is independent of that and can be tuned without a frontend change. |
 
-Success `200`:
+Success `200` — flat, no `meta` wrapper, matching `NotificationPage` in
+`notification.service.ts`:
 
 ```json
 {
-  "data": [
+  "items": [
     {
       "id": "0190f3b2-8c41-7a2e-9f5d-11c0de44aa01",
       "type": "review_escalated",
@@ -165,19 +187,33 @@ Success `200`:
       "reviewId": null
     }
   ],
-  "meta": { "page": 1, "pageSize": 20, "total": 5, "totalPages": 1 }
+  "hasMore": true,
+  "unreadTotal": 5
 }
 ```
 
-`isRead` is `read_at !== null`, computed in the DB service. The raw timestamp is deliberately not
-exposed — the frontend's `Notification` type has no field for it, and shipping a timestamp nobody
-renders invites someone to start branching on it. `reviewId` is `null` rather than omitted, so the
-shape is stable across rows; the frontend's `reviewId?: string` tolerates both, and a
-consistently-present key is easier to reason about in a table.
+| Field | Type | Rules |
+|---|---|---|
+| `items` | array | This page's rows, `created_at DESC, id DESC` — the `id` tiebreaker matters because `id` is `uuidv7()` (monotonic with creation time) and two rows from the same escalation fan-out can share a `created_at` to the microsecond; without it, pagination can drop or repeat a row across pages. Served by `idx_in_app_notifications_user_created`. |
+| `hasMore` | boolean | Whether a further call with `offset + limit` would return more rows. Drives `useInfiniteQuery`'s `getNextPageParam`. |
+| `unreadTotal` | integer | Unread count across the **whole feed**, not just this page — this is what makes a separate unread-count route unnecessary. `use-notifications.ts` reads it off the most recently fetched page (`lastPage?.unreadTotal`), so it must be recomputed on every call, not just the first. |
+
+`items[].isRead` is `read_at !== null`, computed in the DB service. The raw timestamp is
+deliberately not exposed — the frontend's `Notification` type has no field for it, and shipping a
+timestamp nobody renders invites someone to start branching on it. `items[].reviewId` is `null`
+rather than omitted, so the shape is stable across rows; the frontend's `reviewId?: string`
+tolerates both, and a consistently-present key is easier to reason about in a table.
 
 Errors: `401`.
 
-### `GET /v1/notifications/unread-count`
+<!-- `unread-count` removed — see Conventions § Pagination above. -->
+### `GET /v1/notifications/unread-count` — deferred, kept for reference only
+
+**Not being built.** An earlier version of this document specced this as a separate route; it
+doesn't match the shipped frontend, which gets `unreadTotal` embedded in every list response
+above. Keeping the reasoning below in case a future caller (a push notification badge outside the
+popover, say) genuinely needs the count without a list — but that caller doesn't exist today, so
+this stays unbuilt.
 
 Powers the red dot on the bell icon. A separate endpoint rather than a field on the list's `meta`,
 for one concrete reason: the frontend currently derives the count client-side from the loaded array
@@ -273,7 +309,12 @@ Errors: `401`.
 `GET /v1/notifications/:id` is ever added, it must be registered after them — see
 [Gap § 4](./overview.md#4-module-structure-conventions-the-new-module-must-follow).
 
-## Delivery ledger
+## Delivery ledger — deferred, kept for reference only
+
+**Not being built this pass.** Nothing writes `notifications` yet — no escalation composer exists
+(see the overview's [Notification flows](./overview.md#notification-flows)) — so building this now
+would ship a route that only ever returns an empty ledger. Kept in full because the design is
+sound and buildable against today's schema the moment a producer exists.
 
 **These two routes work against today's schema**, with one degradation: `failureReason` is always
 `null` until `notifications.error_message` is added, because a failed delivery currently records
@@ -292,9 +333,13 @@ didn't?* It reads `notifications` exactly as `PLAN.md` §2 and §4.1 designed it
 Owner-only, deliberately. A delivery record names *other* users as recipients along with their
 contact channel, which is an administrative view of who-was-told-what, not a personal feed. The
 frontend's `users.role` enum has exactly two values (`owner` \| `member`), so `@Roles('owner')` is
-the whole restriction; note that `RolesGuard` needs the rework described in
-[Auth § Gap](../auth/overview.md#gap-between-current-code-and-target-design) before it can enforce
-the schema's single-`role` model at all.
+the whole restriction.
+
+> **Corrected (implementation pass).** This previously said `RolesGuard` "needs the rework
+> described in [Auth § Gap]... before it can enforce the schema's single-`role` model at all."
+> Checked `src/api/auth/guards/roles.guard.ts` directly: it already correctly implements OR-logic,
+> single-`role` enforcement, with platform-admin tokens failing closed. Current `auth/overview.md`
+> no longer lists any such gap. No rework needed here.
 
 ### `GET /v1/notifications/deliveries`
 
@@ -481,7 +526,8 @@ client branches on.
 
 | Status | Code | Route(s) | When |
 |---|---|---|---|
-| `400` | `Validation Error` | `GET /v1/notifications`, `GET /v1/notifications/deliveries` | A `class-validator` rule failed on the query DTO — `page`/`pageSize` below `1` or above the route's cap, non-boolean `unreadOnly`, malformed `reviewId` UUID. `message` is the comma-joined list of violations. |
+| `400` | `Validation Error` | `GET /v1/notifications` | A `class-validator` rule failed on the query DTO — `offset` below `0` or above `NOTIFICATIONS_OFFSET_MAX`, `limit` below `1` or above `NOTIFICATIONS_LIMIT_MAX`, either one non-integer. `message` is the comma-joined list of violations. Note this route takes `offset`/`limit`, **not** `page`/`pageSize`/`unreadOnly` — see [Conventions § Pagination](#conventions). |
+| `400` | `Validation Error` | `GET /v1/notifications/deliveries` | *(Planned route.)* A `class-validator` rule failed on the query DTO — `page`/`pageSize` below `1` or above the route's cap, non-boolean `unreadOnly`, malformed `reviewId` UUID. |
 | `400` | `Bad Request` (`INVALID_ENUM_VALUE`) | `GET /v1/notifications/deliveries` | `status`, `channel`, or `type` was not a member of `notification_status` / `notification_channel` / `notification_type`. Most commonly `channel=both`, which is a `notification_channel_pref` value and never valid on a delivery record — see [Overview § Enums](./overview.md#enums). |
 | `400` | `Bad Request` | `PATCH /v1/notifications/:id/read`, `GET /v1/notifications/deliveries/:id` | Path `id` is not a well-formed UUID (`ParseUUIDPipe`, before the handler runs). Distinguished from `404` on purpose: a malformed id is a client bug, a well-formed unknown id is not. |
 | `401` | `Unauthorized` | Every route | Missing, malformed, or expired access token. No route in this module is `@Public()`. |

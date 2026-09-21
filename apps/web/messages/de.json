@@ -838,12 +838,25 @@
       "updatePassword": "Passwort aktualisieren",
       "passwordMismatch": "Das neue Passwort und die Bestätigung stimmen nicht überein.",
       "cancel": "Abbrechen",
+      "addPasswordTitle": "Passwort hinzufügen",
+      "addPasswordDescription": "Sie haben Ihre Einladung mit Google angenommen. Fügen Sie ein Passwort hinzu, um sich auch mit E-Mail und Passwort anmelden zu können.",
+      "addPassword": "Passwort hinzufügen",
+      "setPassword": "Passwort festlegen",
+      "settingPassword": "Wird festgelegt…",
+      "sendingCode": "Wird gesendet…",
+      "otpSentDescription": "Wir haben Ihnen einen 6-stelligen Code per E-Mail gesendet. Geben Sie ihn unten zusammen mit Ihrem neuen Passwort ein.",
+      "otpLabel": "Bestätigungscode",
+      "resendCode": "Code erneut senden",
+      "resendCodeIn": "Code erneut senden ({seconds}s)",
       "toasts": {
         "loadFailed": "Ihr Profil konnte nicht geladen werden.",
         "updateFailed": "Diese Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
         "currentPasswordIncorrect": "Das aktuelle Passwort ist falsch.",
         "avatarUpdated": "Profilbild aktualisiert.",
-        "passwordChanged": "Passwort geändert."
+        "passwordChanged": "Passwort geändert.",
+        "passwordSet": "Passwort festgelegt. Sie können sich jetzt auch mit einem Passwort anmelden.",
+        "otpSent": "Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren.",
+        "tooManyRequests": "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut."
       },
       "errors": {
         "currentPasswordRequired": "Geben Sie Ihr aktuelles Passwort ein.",
@@ -853,7 +866,9 @@
         "passwordLowercase": "Das Passwort muss einen Kleinbuchstaben enthalten.",
         "passwordNumber": "Das Passwort muss eine Zahl enthalten.",
         "passwordSpecial": "Das Passwort muss ein Sonderzeichen enthalten.",
-        "confirmPasswordRequired": "Geben Sie Ihr neues Passwort zur Bestätigung erneut ein."
+        "confirmPasswordRequired": "Geben Sie Ihr neues Passwort zur Bestätigung erneut ein.",
+        "otpRequired": "Geben Sie den Bestätigungscode ein.",
+        "otpInvalid": "Der Bestätigungscode muss genau 6 Ziffern haben."
       }
     },
     "invite": {

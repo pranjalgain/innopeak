@@ -9,6 +9,16 @@ export enum RouteNames {
   PROMPTS = 'prompts',
   SETTINGS = 'settings',
   BLOCKLIST_TERMS = 'blocklist-terms',
+  NOTIFICATIONS = 'notifications',
+  // Both nested under RouteNames.NOTIFICATIONS. `read-all` is a single segment and
+  // `:notificationId/read` is two, so neither can shadow the other however they're ordered.
+  NOTIFICATION_BY_ID_READ = ':notificationId/read',
+  NOTIFICATIONS_READ_ALL = 'read-all',
+  // Nested under RouteNames.SETTINGS — settings-owned recipient configuration, read by the
+  // notifications module's fan-out but never written by it. See
+  // apps/documentation/docs/backend/settings/api-reference.md#notification-recipients.
+  NOTIFICATION_RECIPIENTS = 'notification-recipients',
+  NOTIFICATION_RECIPIENT_BY_ID = ':recipientId',
   // Public (no auth) — read-only, reused as a nested segment under RouteNames.ADMIN_SETTINGS too
   // for the platform-admin write side of the same resource.
   PLATFORM_CONFIG = 'platform-config',
@@ -84,6 +94,11 @@ export enum RouteNames {
   ADMIN_SETTINGS_AVATAR_AUTHORIZE = 'profile/avatar/authorize',
   ADMIN_SETTINGS_AVATAR_CONFIRM = 'profile/avatar/confirm',
   ADMIN_SETTINGS_CHANGE_PASSWORD = 'profile/change-password',
+  // The admin-side counterpart to AVATAR_AUTHORIZE/SET_PASSWORD's own tenant routes above — same
+  // two-step shape (request a step-up OTP, then redeem it) for a Google-only admin adopting a
+  // first password.
+  ADMIN_SETTINGS_REQUEST_SET_PASSWORD_OTP = 'profile/set-password/request-otp',
+  ADMIN_SETTINGS_SET_PASSWORD = 'profile/set-password',
   ADMIN_SETTINGS_LOCALE = 'profile/locale',
   ADMIN_SETTINGS_INVITES = 'invites',
   ADMIN_SETTINGS_INVITE_BY_ID = 'invites/:inviteId',

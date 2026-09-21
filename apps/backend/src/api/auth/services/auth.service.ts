@@ -896,54 +896,68 @@ export class AuthService {
       return { ok: true, kind: 'admin_signed_in', tokens: admin.tokens };
     }
 
-    // A Google identity already linked to a platform admin signs that admin in, and owns the
-    // request exclusively — the same rule password `login` used to apply by checking
-    // `platform_admins` first, back when tenant and admin login shared one route. Now that they're
-    // split, this is the one place tenant sign-in still has to defer to an admin identity: an
-    // email resolving to two authenticatable identities is allowed (see the dual-identity
-    // decision in `separate-admin-login-design.md`), but a *specific Google account* that's
-    // already linked to an admin should still sign in as that admin, not silently create or
-    // resolve a separate tenant identity for the same click.
-    //
-    // Checked for BOTH intents, not just `login`: the signup button reaching here with an
-    // admin-linked Google account is someone clicking the wrong button, and the right answer is
-    // their admin session.
-    //
-    // Without this lookup nothing in `src/` ever read `platform_admin_identities`, so an admin who
-    // accepted their invite through Google could sign in exactly once: no `password_hash` to log
-    // in with, no refresh token for this principal type, and no way to revoke or re-issue the
-    // invite afterwards (both paths are scoped to `status = 'invited'`).
-    const linkedAdmin = await this.platformAdminAuthService.findLinkedAdmin(
-      identity.providerUserId
-    );
-    if (linkedAdmin.linked) {
-      if (!linkedAdmin.active) {
-        return this.googleFailureRedirect(
-          GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-          consumed.record.intent
-        );
-      }
-      return { ok: true, kind: 'admin_signed_in', tokens: linkedAdmin.tokens };
-    }
-
+    // Tenant resolution happens in two steps with the admin-identity check *between* them, rather
+    // than as one call before or after it. The first step matches on Google's `sub` and reads; the
+    // second matches on email and writes (see `linkGoogleIdentityByEmail`). Which accounts may
+    // reach that second step is the security decision this ordering exists to express.
     const email = normalizeEmail(identity.email);
-    const lookup = await this.authDbService.resolveGoogleIdentity({
-      providerUserId: identity.providerUserId,
-      email,
-    });
+    let lookup = await this.authDbService.findGoogleIdentityBySub(identity.providerUserId);
 
     if (lookup.kind === 'unknown') {
-      if (consumed.record.intent === OAuthIntent.LOGIN) {
+      // This Google account owns no tenant identity of its own. A linked platform admin takes the
+      // request from here — *before* the email fallback below, which matches on address alone.
+      // An admin's address is exactly what an attacker can seed a `pending_verification` signup
+      // with (nothing proves a mailbox before the OTP), so letting that fallback run for an admin
+      // would silently enrol them as owner of a tenant they never created, named by whoever
+      // seeded it.
+      const linkedAdmin = await this.platformAdminAuthService.findLinkedAdmin(
+        identity.providerUserId
+      );
+
+      if (linkedAdmin.linked) {
+        // A platform admin signing up their own separate tenant business is legitimate and
+        // intentional — the dual-identity decision in `separate-admin-login-design.md` — so this
+        // mints a brand-new tenant instead of handing back an admin session. An earlier version
+        // of this method checked the admin identity first for *both* intents, which meant an
+        // admin could never sign up a tenant at all: the admin session always won.
+        //
+        // Admin status is deliberately not consulted here: being disabled as a platform admin is
+        // not a reason to refuse someone a customer account. A tenant signup that stalled under
+        // this same address is not adopted either — it cannot be told apart from a seeded one,
+        // and a fresh tenant the admin names themselves is the safe answer.
+        if (consumed.record.intent === OAuthIntent.SIGNUP) {
+          return this.mintPendingGoogleSignup(identity, email);
+        }
+
+        if (!linkedAdmin.active) {
+          return this.googleFailureRedirect(
+            GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+            consumed.record.intent
+          );
+        }
+
+        // Without this, an admin who accepted their invite through Google could sign in exactly
+        // once: no `password_hash` to log in with, no refresh token for that principal type, and
+        // no way to revoke or re-issue the invite afterwards (both paths are scoped to
+        // `status = 'invited'`).
+        return { ok: true, kind: 'admin_signed_in', tokens: linkedAdmin.tokens };
+      }
+
+      // Not an admin, so the email fallback is safe to run: it links this Google account to the
+      // tenant user already holding the address, finishing a signup that stalled at the OTP
+      // screen and dropping the unproven password that stall left behind.
+      lookup = await this.authDbService.linkGoogleIdentityByEmail({
+        providerUserId: identity.providerUserId,
+        email,
+      });
+
+      if (lookup.kind === 'unknown') {
+        if (consumed.record.intent === OAuthIntent.SIGNUP) {
+          return this.mintPendingGoogleSignup(identity, email);
+        }
         // Login can never create a tenant it has no name for.
         return this.googleFailureRedirect(GoogleAuthFailure.NO_ACCOUNT, consumed.record.intent);
       }
-
-      const pendingSignupCookie = await this.pendingGoogleSignupService.mint({
-        providerUserId: identity.providerUserId,
-        email,
-        name: identity.name,
-      });
-      return { ok: true, kind: 'needs_business_name', pendingSignupCookie };
     }
 
     // The same standing check password login applies (`login`, above) and refresh re-applies
@@ -973,6 +987,24 @@ export class AuthService {
 
     const tokens = await this.buildTokenIssuanceResult(lookup.user, tenant);
     return { ok: true, kind: 'signed_in', tokens };
+  }
+
+  /**
+   * Hands a verified-but-unknown Google identity back to the caller to collect the one thing
+   * Google cannot supply — a business name — which `completeGoogleSignup` then turns into a
+   * tenant. Reached from the two places a `signup` round trip can find no tenant identity to sign
+   * into: a Google account belonging to a platform admin, and one belonging to nobody yet.
+   */
+  private async mintPendingGoogleSignup(
+    identity: GoogleIdentity,
+    email: string
+  ): Promise<GoogleCallbackOutcome> {
+    const pendingSignupCookie = await this.pendingGoogleSignupService.mint({
+      providerUserId: identity.providerUserId,
+      email,
+      name: identity.name,
+    });
+    return { ok: true, kind: 'needs_business_name', pendingSignupCookie };
   }
 
   /**

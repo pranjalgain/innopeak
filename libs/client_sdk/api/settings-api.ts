@@ -40,6 +40,10 @@ import type { DeleteBlocklistTermResponseDto } from '../models';
 // @ts-ignore
 import type { InviteMemberDto } from '../models';
 // @ts-ignore
+import type { NotificationRecipientDto } from '../models';
+// @ts-ignore
+import type { NotificationRecipientListResponseDto } from '../models';
+// @ts-ignore
 import type { PlatformSettingsResponseDto } from '../models';
 // @ts-ignore
 import type { TenantMemberResponseDto } from '../models';
@@ -47,6 +51,8 @@ import type { TenantMemberResponseDto } from '../models';
 import type { TenantMembersControllerRevokeV1200Response } from '../models';
 // @ts-ignore
 import type { TenantSettingsResponseDto } from '../models';
+// @ts-ignore
+import type { UpdateNotificationRecipientDto } from '../models';
 // @ts-ignore
 import type { UpdateTenantSettingsDto } from '../models';
 /**
@@ -206,6 +212,122 @@ export const SettingsApiAxiosParamCreator = function (
         ...headersFromBaseOptions,
         ...options.headers,
       };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Owner-only. Every `notification_recipients` row for this tenant, joined to `users` for name/initials. Seeded with exactly one row (the signing-up owner) at signup — there is no add-recipient route yet, matching the shipped Settings UI, which only edits existing rows.
+     * @summary List escalation notification recipients
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    notificationRecipientsControllerListV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/settings/notification-recipients`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Changes `channel` and/or `isActive` for one recipient. Both fields optional, but at least one is required — matches the Settings UI’s channel toggle and active switch, which fire independently. `userId` is never editable here: repointing a recipient row at a different user is a remove-and-re-add, not an update.
+     * @summary Update a notification recipient
+     * @param {string} recipientId
+     * @param {UpdateNotificationRecipientDto} updateNotificationRecipientDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    notificationRecipientsControllerUpdateV1: async (
+      recipientId: string,
+      updateNotificationRecipientDto: UpdateNotificationRecipientDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'recipientId' is not null or undefined
+      assertParamExists(
+        'notificationRecipientsControllerUpdateV1',
+        'recipientId',
+        recipientId,
+      );
+      // verify required parameter 'updateNotificationRecipientDto' is not null or undefined
+      assertParamExists(
+        'notificationRecipientsControllerUpdateV1',
+        'updateNotificationRecipientDto',
+        updateNotificationRecipientDto,
+      );
+      const localVarPath =
+        `/v1/settings/notification-recipients/{recipientId}`.replace(
+          '{recipientId}',
+          encodeURIComponent(String(recipientId)),
+        );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'PATCH',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        updateNotificationRecipientDto,
+        localVarRequestOptions,
+        configuration,
+      );
 
       return {
         url: toPathString(localVarUrlObj),
@@ -624,6 +746,74 @@ export const SettingsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Owner-only. Every `notification_recipients` row for this tenant, joined to `users` for name/initials. Seeded with exactly one row (the signing-up owner) at signup — there is no add-recipient route yet, matching the shipped Settings UI, which only edits existing rows.
+     * @summary List escalation notification recipients
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async notificationRecipientsControllerListV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<NotificationRecipientListResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.notificationRecipientsControllerListV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'SettingsApi.notificationRecipientsControllerListV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Changes `channel` and/or `isActive` for one recipient. Both fields optional, but at least one is required — matches the Settings UI’s channel toggle and active switch, which fire independently. `userId` is never editable here: repointing a recipient row at a different user is a remove-and-re-add, not an update.
+     * @summary Update a notification recipient
+     * @param {string} recipientId
+     * @param {UpdateNotificationRecipientDto} updateNotificationRecipientDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async notificationRecipientsControllerUpdateV1(
+      recipientId: string,
+      updateNotificationRecipientDto: UpdateNotificationRecipientDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<NotificationRecipientDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.notificationRecipientsControllerUpdateV1(
+          recipientId,
+          updateNotificationRecipientDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'SettingsApi.notificationRecipientsControllerUpdateV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Public — no auth required. Which login methods the sign-in/sign-up screens offer, and whether a tenant Settings > Members tab can send invites. Read-only here; a Super Admin changes these from Admin Settings (PATCH /v1/admin/settings/platform-config).
      * @summary Get platform-wide feature settings
      * @param {*} [options] Override http request option.
@@ -874,6 +1064,38 @@ export const SettingsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Owner-only. Every `notification_recipients` row for this tenant, joined to `users` for name/initials. Seeded with exactly one row (the signing-up owner) at signup — there is no add-recipient route yet, matching the shipped Settings UI, which only edits existing rows.
+     * @summary List escalation notification recipients
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    notificationRecipientsControllerListV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<NotificationRecipientListResponseDto> {
+      return localVarFp
+        .notificationRecipientsControllerListV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Changes `channel` and/or `isActive` for one recipient. Both fields optional, but at least one is required — matches the Settings UI’s channel toggle and active switch, which fire independently. `userId` is never editable here: repointing a recipient row at a different user is a remove-and-re-add, not an update.
+     * @summary Update a notification recipient
+     * @param {SettingsApiNotificationRecipientsControllerUpdateV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    notificationRecipientsControllerUpdateV1(
+      requestParameters: SettingsApiNotificationRecipientsControllerUpdateV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<NotificationRecipientDto> {
+      return localVarFp
+        .notificationRecipientsControllerUpdateV1(
+          requestParameters.recipientId,
+          requestParameters.updateNotificationRecipientDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Public — no auth required. Which login methods the sign-in/sign-up screens offer, and whether a tenant Settings > Members tab can send invites. Read-only here; a Super Admin changes these from Admin Settings (PATCH /v1/admin/settings/platform-config).
      * @summary Get platform-wide feature settings
      * @param {*} [options] Override http request option.
@@ -1005,6 +1227,28 @@ export interface SettingsApiInterface {
   ): AxiosPromise<DeleteBlocklistTermResponseDto>;
 
   /**
+   * Owner-only. Every `notification_recipients` row for this tenant, joined to `users` for name/initials. Seeded with exactly one row (the signing-up owner) at signup — there is no add-recipient route yet, matching the shipped Settings UI, which only edits existing rows.
+   * @summary List escalation notification recipients
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  notificationRecipientsControllerListV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<NotificationRecipientListResponseDto>;
+
+  /**
+   * Changes `channel` and/or `isActive` for one recipient. Both fields optional, but at least one is required — matches the Settings UI’s channel toggle and active switch, which fire independently. `userId` is never editable here: repointing a recipient row at a different user is a remove-and-re-add, not an update.
+   * @summary Update a notification recipient
+   * @param {SettingsApiNotificationRecipientsControllerUpdateV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  notificationRecipientsControllerUpdateV1(
+    requestParameters: SettingsApiNotificationRecipientsControllerUpdateV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<NotificationRecipientDto>;
+
+  /**
    * Public — no auth required. Which login methods the sign-in/sign-up screens offer, and whether a tenant Settings > Members tab can send invites. Read-only here; a Super Admin changes these from Admin Settings (PATCH /v1/admin/settings/platform-config).
    * @summary Get platform-wide feature settings
    * @param {*} [options] Override http request option.
@@ -1086,6 +1330,15 @@ export interface SettingsApiBlocklistTermsControllerRemoveV1Request {
 }
 
 /**
+ * Request parameters for notificationRecipientsControllerUpdateV1 operation in SettingsApi.
+ */
+export interface SettingsApiNotificationRecipientsControllerUpdateV1Request {
+  readonly recipientId: string;
+
+  readonly updateNotificationRecipientDto: UpdateNotificationRecipientDto;
+}
+
+/**
  * Request parameters for tenantMembersControllerInviteV1 operation in SettingsApi.
  */
 export interface SettingsApiTenantMembersControllerInviteV1Request {
@@ -1157,6 +1410,40 @@ export class SettingsApi extends BaseAPI implements SettingsApiInterface {
   ) {
     return SettingsApiFp(this.configuration)
       .blocklistTermsControllerRemoveV1(requestParameters.id, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Owner-only. Every `notification_recipients` row for this tenant, joined to `users` for name/initials. Seeded with exactly one row (the signing-up owner) at signup — there is no add-recipient route yet, matching the shipped Settings UI, which only edits existing rows.
+   * @summary List escalation notification recipients
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public notificationRecipientsControllerListV1(
+    options?: RawAxiosRequestConfig,
+  ) {
+    return SettingsApiFp(this.configuration)
+      .notificationRecipientsControllerListV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Changes `channel` and/or `isActive` for one recipient. Both fields optional, but at least one is required — matches the Settings UI’s channel toggle and active switch, which fire independently. `userId` is never editable here: repointing a recipient row at a different user is a remove-and-re-add, not an update.
+   * @summary Update a notification recipient
+   * @param {SettingsApiNotificationRecipientsControllerUpdateV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public notificationRecipientsControllerUpdateV1(
+    requestParameters: SettingsApiNotificationRecipientsControllerUpdateV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return SettingsApiFp(this.configuration)
+      .notificationRecipientsControllerUpdateV1(
+        requestParameters.recipientId,
+        requestParameters.updateNotificationRecipientDto,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 

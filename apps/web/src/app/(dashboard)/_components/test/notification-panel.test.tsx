@@ -2,8 +2,10 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
-import { beforeAll, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { MOCK_NOTIFICATIONS } from "@/app/_libs/mock-data/notifications";
+import { NotificationService } from "@/app/_libs/services/notification.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
 
 import messages from "../../../../../messages/en.json";
@@ -20,6 +22,24 @@ beforeAll(() => {
   // Radix Popover needs these; jsdom implements neither.
   Element.prototype.hasPointerCapture = vi.fn(() => false);
   Element.prototype.scrollIntoView = vi.fn();
+});
+
+// `NotificationService.list` is a real backend call now — this component test is about the
+// panel's own rendering/paging, not the service, so this reproduces exactly what the service
+// used to do by itself (page through `MOCK_NOTIFICATIONS`).
+beforeEach(() => {
+  vi.spyOn(NotificationService, "list").mockImplementation(async (offset, limit) => {
+    const items = structuredClone(MOCK_NOTIFICATIONS).slice(offset, offset + limit);
+    return {
+      items,
+      hasMore: offset + limit < MOCK_NOTIFICATIONS.length,
+      unreadTotal: MOCK_NOTIFICATIONS.filter((notification) => !notification.isRead).length,
+    };
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 function renderPanel() {

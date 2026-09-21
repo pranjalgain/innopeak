@@ -45,6 +45,10 @@ export enum JobName {
   ADMIN_INVITE_EMAIL = 'admin-invite-email',
   /** Published by TenantMembersService.sendInvite — same shape as ADMIN_INVITE_EMAIL. */
   MEMBER_INVITE_EMAIL = 'member-invite-email',
+  /** Published by AdminSettingsService.requestSetPasswordOtp — same IOtpEmailJob shape/consumer
+   *  as OTP_EMAIL_VERIFICATION, just a distinct job name so the two are distinguishable in queue
+   *  metrics/logs. */
+  ADMIN_SET_PASSWORD_OTP_EMAIL = 'admin-set-password-otp-email',
   DLQ_FAILED_JOB = 'dlq_failed_job',
   /** One-time historical import, published after POST /v1/connections/locations commits. */
   REVIEW_BACKFILL = 'review-backfill',

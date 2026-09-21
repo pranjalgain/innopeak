@@ -8,7 +8,12 @@ import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { SettingsApiError, SettingsService } from "@/app/_libs/services/settings.service";
 import { connectionLocationsQueryKey } from "@/hooks/connections/use-business-switcher";
 import { useConnection } from "@/hooks/connections/use-connection";
-import type { GeneralSettings, NotificationChannel, SettingsData } from "@/types/domain";
+import type {
+  GeneralSettings,
+  NotificationChannel,
+  NotificationRecipient,
+  SettingsData,
+} from "@/types/domain";
 
 export const settingsQueryKey = ["settings"] as const;
 
@@ -25,8 +30,10 @@ interface UseSettingsResult {
 
 /**
  * Loads Settings once, then owns interactive state through react-query's cache. Blocklist
- * add/remove wait on the settings API and only update chips after success. Other tabs still
- * persist through the mock `updateSettings` PUT.
+ * add/remove wait on the settings API and only update chips after success. Notification
+ * recipients apply optimistically instead (see `updateRecipientChannel`/`toggleRecipientActive`
+ * below) — a channel toggle or active switch is a fast, low-stakes, instantly-reversible edit,
+ * unlike adding/removing a blocklist term.
  *
  * `saveGeneral` is the one path that writes `PUT /v1/settings` — the General tab stages edits
  * locally (its own Save/Cancel) and calls it once on an explicit Save click; the AI tab's reply-
@@ -60,37 +67,69 @@ export function useSettings(enabled = true): UseSettingsResult {
     [queryClient],
   );
 
-  // Optimistic-local + fire-and-forget persist, same as before: the UI applies the change and
-  // reports success immediately, independent of whether this background PUT actually succeeds.
-  // But unlike the old plain `useState`, a failed write here now sits in react-query's shared
-  // cache for the rest of its 5-minute staleTime, visible to any other reader of `["settings"]` —
-  // so a failure rolls the optimistic write back instead of leaving it there unnoticed.
-  // Callbacks live on the mutation itself, not on the individual `mutate()` call. Per-call
-  // callbacks are dropped whenever a second `mutate()` supersedes the first on the same observer,
-  // so toggling two recipients in quick succession silently lost the first one's toast *and* its
-  // rollback. `onMutate`'s returned context is what carries each call's own snapshot back to its
-  // own `onError`.
-  const backgroundPersistMutation = useMutation({
-    mutationFn: ({ next }: { next: SettingsData; successMessage: string }) =>
-      SettingsService.updateSettings(next),
-    onMutate: ({ next }) => {
-      const previous = queryClient.getQueryData<SettingsData>(settingsQueryKey);
-      setSettings(next);
-      return { previous };
+  /** Writes one recipient back into the cached list, leaving every other row untouched — the
+   *  granularity both the success reconcile and the failure rollback need. */
+  const replaceRecipient = useCallback(
+    (recipient: NotificationRecipient) => {
+      queryClient.setQueryData<SettingsData>(settingsQueryKey, (current) =>
+        current
+          ? {
+              ...current,
+              notificationRecipients: current.notificationRecipients.map((existing) =>
+                existing.id === recipient.id ? recipient : existing,
+              ),
+            }
+          : current,
+      );
     },
-    onSuccess: (_data, { successMessage }) => toast.success(successMessage),
+    [queryClient],
+  );
+
+  // Optimistic-local + fire-and-forget persist: the UI applies the change and reports success
+  // immediately, independent of whether this background `PATCH` has actually confirmed yet. A
+  // failed write rolls the optimistic edit back rather than leaving it silently wrong in the
+  // cache. Callbacks live on the mutation itself, not on the individual `mutate()` call — per-call
+  // callbacks are dropped whenever a second `mutate()` supersedes the first on the same observer,
+  // so toggling two recipients in quick succession would silently lose the first one's toast *and*
+  // its rollback. `onMutate`'s returned context is what carries each call's own snapshot back to
+  // its own `onError`.
+  const updateRecipientMutation = useMutation({
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: string;
+      patch: { channel?: NotificationChannel; isActive?: boolean };
+      successMessage: string;
+    }) => SettingsService.updateNotificationRecipient(id, patch),
+    onMutate: ({ id, patch }) => {
+      const previous = queryClient.getQueryData<SettingsData>(settingsQueryKey);
+      const restore = previous?.notificationRecipients.find((recipient) => recipient.id === id);
+      if (previous) {
+        setSettings({
+          ...previous,
+          notificationRecipients: previous.notificationRecipients.map((recipient) =>
+            recipient.id === id ? { ...recipient, ...patch } : recipient,
+          ),
+        });
+      }
+      // Only this recipient's prior state, not a snapshot of the whole settings object. Restoring
+      // the whole thing on failure would revert rows that succeeded in the meantime: toggle A
+      // (slow, then fails) and B (fast, succeeds), and A's rollback would put B's switch back too.
+      return { restore };
+    },
+    // The server's own row replaces the optimistic guess, so what's rendered is what was actually
+    // stored rather than what the client asked for. Without this the cache held the guess for the
+    // full `staleTime`, and a value the backend normalized or clamped only surfaced on a reload.
+    onSuccess: (updated, { successMessage }) => {
+      replaceRecipient(updated);
+      toast.success(successMessage);
+    },
     onError: (_error, _variables, context) => {
-      if (context?.previous) setSettings(context.previous);
+      if (context?.restore) replaceRecipient(context.restore);
       toast.error(t("updateFailed"));
     },
   });
-
-  const persist = useCallback(
-    (next: SettingsData, successMessage: string) => {
-      backgroundPersistMutation.mutate({ next, successMessage });
-    },
-    [backgroundPersistMutation],
-  );
 
   const saveGeneralMutation = useMutation({
     mutationFn: (nextGeneral: GeneralSettings) =>
@@ -166,33 +205,27 @@ export function useSettings(enabled = true): UseSettingsResult {
   const updateRecipientChannel = useCallback(
     (id: string, channel: NotificationChannel) => {
       if (!settings) return;
-      persist(
-        {
-          ...settings,
-          notificationRecipients: settings.notificationRecipients.map((recipient) =>
-            recipient.id === id ? { ...recipient, channel } : recipient,
-          ),
-        },
-        t("notificationChannelUpdated"),
-      );
+      updateRecipientMutation.mutate({
+        id,
+        patch: { channel },
+        successMessage: t("notificationChannelUpdated"),
+      });
     },
-    [settings, persist, t],
+    [settings, updateRecipientMutation, t],
   );
 
   const toggleRecipientActive = useCallback(
     (id: string) => {
       if (!settings) return;
-      persist(
-        {
-          ...settings,
-          notificationRecipients: settings.notificationRecipients.map((recipient) =>
-            recipient.id === id ? { ...recipient, isActive: !recipient.isActive } : recipient,
-          ),
-        },
-        t("notificationToggled"),
-      );
+      const current = settings.notificationRecipients.find((recipient) => recipient.id === id);
+      if (!current) return;
+      updateRecipientMutation.mutate({
+        id,
+        patch: { isActive: !current.isActive },
+        successMessage: t("notificationToggled"),
+      });
     },
-    [settings, persist, t],
+    [settings, updateRecipientMutation, t],
   );
 
   const disconnectMutation = useMutation({

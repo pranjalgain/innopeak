@@ -1,11 +1,13 @@
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import { VerifyEmailTokenProvider } from '@auth/providers/verify-email-token.provider';
+import { OtpAttemptService } from '@auth/services/otp-attempt.service';
 import { TokenService } from '@auth/services/token.service';
 import { buildAdminInviteLink } from '@auth/utils/admin-invite-link.util';
 import { remainingSessionSeconds } from '@auth/utils/remaining-session-seconds.util';
 import { requirePlatformAdmin } from '@auth/utils/require-platform-admin.util';
-import { hashToken } from '@auth/utils/token.utils';
+import { hashAdminSetPasswordOtp, hashToken } from '@auth/utils/token.utils';
 import { JobName } from '@bg/constants/job.constant';
-import type { IAdminInviteEmailJob } from '@bg/interfaces/job.interface';
+import type { IAdminInviteEmailJob, IOtpEmailJob } from '@bg/interfaces/job.interface';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
@@ -20,6 +22,8 @@ import type { PlatformSettingsPatch } from '@db/repositories/platform-settings/p
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -36,6 +40,7 @@ import { AdminInviteResponseDto } from '../dto/admin-invite-response.dto';
 import { AdminProfileResponseDto } from '../dto/admin-profile-response.dto';
 import { ChangeAdminPasswordDto } from '../dto/change-admin-password.dto';
 import { SendAdminInviteDto } from '../dto/send-admin-invite.dto';
+import { SetAdminPasswordDto } from '../dto/set-admin-password.dto';
 import { UpdateAdminLocaleResponseDto } from '../dto/update-admin-locale-response.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 
@@ -65,7 +70,9 @@ export class AdminSettingsService {
     private readonly hashingService: HashingService,
     private readonly queueManager: AddingJobsToQueueManager,
     private readonly tokenService: TokenService,
-    private readonly configService: ConfigService<EnvConfig>
+    private readonly configService: ConfigService<EnvConfig>,
+    private readonly otpAttemptService: OtpAttemptService,
+    private readonly verifyEmailTokenProvider: VerifyEmailTokenProvider
   ) {}
 
   async getProfile(actor: AuthUser): Promise<AdminProfileResponseDto> {
@@ -99,6 +106,81 @@ export class AdminSettingsService {
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
     await this.platformAdminDbService.updatePasswordHash(admin.id, newPasswordHash);
+  }
+
+  /**
+   * The admin-side counterpart to `AuthService.setPassword` — for an admin who has never had a
+   * password (accepted their invite via Google, or was seeded/created before this flow existed),
+   * so there is no current password for `changePassword` to check. Proves intent with a fresh OTP
+   * from `requestSetPasswordOtp` instead — see that method's own doc comment for why an access
+   * token alone is not proof enough. No token to reissue afterward: unlike the tenant flow, a
+   * platform admin has no refresh token, so there is nothing else to rotate — the current access
+   * token simply keeps running its own 15-minute clock.
+   */
+  async setPassword(actor: AuthUser, dto: SetAdminPasswordDto): Promise<{ message: string }> {
+    const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
+    const row = await this.platformAdminDbService.findById(admin.id);
+    if (!row) {
+      throw new NotFoundException(MESSAGES.ADMIN.USER_NOT_FOUND);
+    }
+    if (row.passwordHash) {
+      throw new BadRequestException(MESSAGES.AUTH.PASSWORD_ALREADY_SET);
+    }
+
+    // Budget spent before comparison, same shape as the tenant flow — an exhausted account can't
+    // be probed for the code at all. 429 rather than 400, matching `AuthService.setPassword`:
+    // "wait and retry" is a different answer from "that code is wrong".
+    if (!(await this.otpAttemptService.consumeAttempt(admin.email))) {
+      throw new HttpException(MESSAGES.AUTH.TOO_MANY_OTP_ATTEMPTS, HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    const otpValid = await this.platformAdminDbService.consumeSetPasswordOtp({
+      platformAdminId: admin.id,
+      tokenHash: hashAdminSetPasswordOtp(admin.id, dto.otp),
+    });
+    if (!otpValid) {
+      throw new BadRequestException(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
+    }
+    // Releases the budget the attempts above spent — without this a code accepted on the last
+    // allowed try leaves the account locked out of every OTP-gated action for the rest of the
+    // window, despite having just succeeded.
+    await this.otpAttemptService.reset(admin.email);
+
+    const newPasswordHash = await this.hashingService.hash(dto.newPassword);
+    await this.platformAdminDbService.updatePasswordHash(admin.id, newPasswordHash);
+
+    return { message: MESSAGES.AUTH.PASSWORD_SET };
+  }
+
+  /**
+   * Step-up verification `setPassword` requires before it will act — same reasoning as
+   * `AuthService.requestSetPasswordOtp`'s own doc comment: without this, `setPassword` would be
+   * reachable by anyone holding a stolen access token alone, turning a 15-minute credential into
+   * an indefinite one on any Google-only admin. Mailed via the same generic OTP queue job the
+   * tenant flow uses (`JobName.ADMIN_SET_PASSWORD_OTP_EMAIL`, same `mfa-code` template), under
+   * `platform_admin_invite_purpose`'s own `set_password` value.
+   */
+  async requestSetPasswordOtp(actor: AuthUser): Promise<{ message: string }> {
+    const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
+    const row = await this.platformAdminDbService.findById(admin.id);
+    if (!row) {
+      throw new NotFoundException(MESSAGES.ADMIN.USER_NOT_FOUND);
+    }
+    if (row.passwordHash) {
+      throw new BadRequestException(MESSAGES.AUTH.PASSWORD_ALREADY_SET);
+    }
+
+    if (await this.otpAttemptService.claimResend(admin.email)) {
+      const rawOtp = this.verifyEmailTokenProvider.generate();
+      await this.platformAdminDbService.putSetPasswordOtp({
+        platformAdminId: admin.id,
+        tokenHash: hashAdminSetPasswordOtp(admin.id, rawOtp),
+        expiresAt: this.otpExpiresAt().toISOString(),
+      });
+      this.sendSetPasswordOtpEmail({ email: admin.email, rawOtp });
+    }
+
+    return { message: MESSAGES.AUTH.SET_PASSWORD_OTP_ACK };
   }
 
   /**
@@ -250,9 +332,12 @@ export class AdminSettingsService {
    * disable takes effect on the target's very next request rather than lingering for the token's
    * 15-minute life.
    *
-   * Three guards, all to prevent locking the platform out of its own admin console:
+   * Four guards, all to prevent locking the platform out of its own admin console:
    *  - you cannot change your own status (an admin disabling themselves is only ever a mistake);
    *  - you cannot disable an `invited` admin (it has no active session to end — revoke the invite);
+   *  - you cannot disable the seeded root admin (`invited_by_platform_admin_id IS NULL`) — it has
+   *    no inviter to re-enable it and no self-service signup exists to create a replacement, so
+   *    this fires even while other admins are still active, not only when root is the last one;
    *  - you cannot disable the last remaining active admin (that would leave no one able to
    *    re-enable anyone, and there is no other creation path but the one-time root seed).
    */
@@ -275,6 +360,15 @@ export class AdminSettingsService {
       // An invited admin has no password and no session — "disabling" it is meaningless, and
       // enabling it would skip the (unbuilt) accept-invite flow. Steer to revoke instead.
       throw new ConflictException(MESSAGES.ADMIN.CANNOT_DISABLE_INVITED);
+    }
+
+    // Computed unconditionally (not just when disabling) so the same value can populate the
+    // response DTO below without a second lookup — the guard itself only fires on disable: if
+    // root were ever somehow left `disabled` (bad seed data, a manual DB fix mid-migration),
+    // re-enabling it must still work.
+    const isRootTarget = await this.platformAdminDbService.isRootAdmin(targetAdminId);
+    if (!enabled && isRootTarget) {
+      throw new BadRequestException(MESSAGES.ADMIN.CANNOT_DISABLE_ROOT_ADMIN);
     }
 
     // The last-active-admin guard itself is NOT enforced here: a plain read-then-write (count
@@ -313,6 +407,7 @@ export class AdminSettingsService {
         status: result.status,
         invitedAt: new Date().toISOString(),
         expiresAt: null,
+        isRoot: isRootTarget,
       }),
       message: enabled ? MESSAGES.ADMIN.ADMIN_ENABLED : MESSAGES.ADMIN.ADMIN_DISABLED,
     };
@@ -442,6 +537,25 @@ export class AdminSettingsService {
     };
     void this.queueManager
       .addAdminInviteEmailJob(JobName.ADMIN_INVITE_EMAIL, job)
+      .catch(() => undefined);
+  }
+
+  /** Same config key `AuthService.otpExpiresAt` reads — one shared TTL for every OTP this app
+   *  mails, tenant or admin. */
+  private otpExpiresAt(): Date {
+    const ttlMinutes = this.configService.get<number>('VERIFY_EMAIL_OTP_TTL_MINUTES') ?? 10;
+    return new Date(Date.now() + ttlMinutes * 60 * 1000);
+  }
+
+  private sendSetPasswordOtpEmail(input: { email: string; rawOtp: string }): void {
+    const ttlMinutes = this.configService.get<number>('VERIFY_EMAIL_OTP_TTL_MINUTES') ?? 10;
+    const job: IOtpEmailJob = {
+      email: input.email,
+      otp: input.rawOtp,
+      expiresIn: `${ttlMinutes} minutes`,
+    };
+    void this.queueManager
+      .addAdminSetPasswordOtpEmailJob(JobName.ADMIN_SET_PASSWORD_OTP_EMAIL, job)
       .catch(() => undefined);
   }
 }

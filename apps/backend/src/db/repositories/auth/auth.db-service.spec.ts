@@ -23,6 +23,7 @@ describe('AuthDbService', () => {
       insertTenant: jest.fn(),
       insertOwnerUser: jest.fn(),
       insertTenantSettings: jest.fn(),
+      insertNotificationRecipient: jest.fn(),
       putVerifyEmailToken: jest.fn(),
       consumeVerifyEmailToken: jest.fn(),
       activateUser: jest.fn(),
@@ -113,6 +114,10 @@ describe('AuthDbService', () => {
       });
       expect(authRepository.insertTenantSettings).toHaveBeenCalledWith(tx, {
         tenantId: 'tenant-1',
+      });
+      expect(authRepository.insertNotificationRecipient).toHaveBeenCalledWith(tx, {
+        tenantId: 'tenant-1',
+        userId: 'user-1',
       });
       expect(authRepository.putVerifyEmailToken).toHaveBeenCalledWith(tx, {
         userId: 'user-1',

@@ -67,6 +67,15 @@ export const messagesEn: MessageCatalog = {
       'This image format is not supported. Please upload a JPG, PNG, WEBP, GIF, AVIF, HEIC, or BMP file.',
     FILE_TOO_LARGE: 'That image is too large. Please upload a file under 10 MB.',
   },
+  NOTIFICATIONS: {
+    LISTED: 'Notifications retrieved successfully',
+    // Same message whether the row doesn't exist or belongs to another user — a distinct
+    // "forbidden" would confirm the id exists somewhere, the same enumeration-oracle reasoning
+    // CONNECTIONS.LOCATION_NOT_FOUND spells out below.
+    NOT_FOUND: 'Notification not found.',
+    MARKED_READ: 'Notification marked as read',
+    MARKED_ALL_READ: 'All notifications marked as read',
+  },
   CONNECTIONS: {
     CONNECTION_NOT_FOUND: 'No Google Business Profile connection found for this account.',
     // Deliberately the same message whether the location belongs to no one or to another tenant —
@@ -125,6 +134,10 @@ export const messagesEn: MessageCatalog = {
     MEMBER_NOT_FOUND: 'Team member not found.',
     MEMBER_INVITE_NOT_REVOCABLE: 'This invite has already been accepted or is no longer pending.',
     MEMBER_INVITES_DISABLED: 'Inviting team members is turned off for this platform.',
+    NOTIFICATION_RECIPIENTS_LISTED: 'Notification recipients retrieved successfully',
+    NOTIFICATION_RECIPIENT_UPDATED: 'Notification recipient updated',
+    NOTIFICATION_RECIPIENT_NOT_FOUND: 'Notification recipient not found',
+    NOTIFICATION_RECIPIENT_NO_FIELDS: 'Provide a channel or active status to update.',
   },
   ADMIN: {
     ADMIN_ONLY: 'Only a platform admin may perform this action.',
@@ -150,6 +163,7 @@ export const messagesEn: MessageCatalog = {
     ADMIN_NOT_FOUND: 'Platform admin not found.',
     CANNOT_DISABLE_SELF: 'You cannot disable your own admin account.',
     CANNOT_DISABLE_LAST_ADMIN: 'At least one platform admin must stay active.',
+    CANNOT_DISABLE_ROOT_ADMIN: 'The founding platform admin cannot be disabled.',
     CANNOT_DISABLE_INVITED:
       'This admin has not accepted their invite yet — revoke the invite instead.',
     ADMIN_DISABLED: 'Admin disabled.',

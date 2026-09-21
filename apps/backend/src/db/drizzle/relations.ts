@@ -2,6 +2,7 @@ import { relations } from 'drizzle-orm/relations';
 
 import {
   blocklistTerms,
+  inAppNotifications,
   locations,
   notificationRecipients,
   notifications,
@@ -265,5 +266,24 @@ export const reviewResponsesRelations = relations(reviewResponses, ({ one }) => 
   promptVersion: one(promptVersions, {
     fields: [reviewResponses.promptVersionId],
     references: [promptVersions.id],
+  }),
+}));
+
+export const inAppNotificationsRelations = relations(inAppNotifications, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [inAppNotifications.tenantId],
+    references: [tenants.id],
+  }),
+  user: one(users, {
+    fields: [inAppNotifications.userId],
+    references: [users.id],
+  }),
+  review: one(reviews, {
+    fields: [inAppNotifications.reviewId],
+    references: [reviews.id],
+  }),
+  notification: one(notifications, {
+    fields: [inAppNotifications.notificationId],
+    references: [notifications.id],
   }),
 }));

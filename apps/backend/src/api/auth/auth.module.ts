@@ -94,10 +94,13 @@ const googleIdentityProviderFactory = {
     PendingGoogleSignupService,
     { provide: HashingService, useClass: BcryptService },
   ],
-  // `TokenService`/`JwtModule` only — `AdminSettingsService.updateLocale` needs
+  // `TokenService`/`JwtModule` — `AdminSettingsService.updateLocale` needs
   // `signPlatformAdminAccessToken` to reissue the caller's access token with its fresh `locale`
   // claim, the same reissue-not-relogin shape `AuthService.updateLocale` already uses for a
-  // tenant user. Nothing else here is meant for use outside this module.
-  exports: [TokenService, JwtModule],
+  // tenant user. `OtpAttemptService`/`VerifyEmailTokenProvider` are the admin-side add-password
+  // flow's step-up OTP machinery (`AdminSettingsService.requestSetPasswordOtp`/`setPassword`) —
+  // the exact same generic, email-keyed services the tenant flow uses, reused rather than
+  // duplicated. Nothing else here is meant for use outside this module.
+  exports: [TokenService, JwtModule, OtpAttemptService, VerifyEmailTokenProvider],
 })
 export class AuthModule {}

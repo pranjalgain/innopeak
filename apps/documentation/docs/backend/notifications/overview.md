@@ -263,25 +263,24 @@ Notes that shape the API contract:
 
 ## API surface
 
-All routes are versioned under `/v1/notifications` (`RouteNames.NOTIFICATIONS`, already present in
-`src/common/route-names.ts`, `version: '1'`).
+All routes are versioned under `/v1/notifications` (`RouteNames.NOTIFICATIONS` — **not yet in
+`src/common/route-names.ts`**, corrected from an earlier claim that it already existed; add it
+fresh, `version: '1'`).
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| `GET` | `/v1/notifications` | Bearer | Paginated in-app feed for the current user. **Blocked on the follow-up migration.** |
-| `GET` | `/v1/notifications/unread-count` | Bearer | Unread count for the current user. **Blocked on the follow-up migration.** |
-| `PATCH` | `/v1/notifications/:id/read` | Bearer | Mark one in-app notification read. Idempotent. **Blocked on the follow-up migration.** |
-| `PATCH` | `/v1/notifications/read-all` | Bearer | Mark every unread in-app notification read for the current user. **Blocked on the follow-up migration.** |
-| `GET` | `/v1/notifications/deliveries` | Bearer, `@Roles('owner')` | Delivery ledger, paginated, filterable by `reviewId` / `status` / `channel`. Works against today's schema. |
-| `GET` | `/v1/notifications/deliveries/:id` | Bearer, `@Roles('owner')` | One delivery record, with the snippet set that went out. Works against today's schema. |
+| `GET` | `/v1/notifications` | Bearer | Paginated in-app feed for the current user. **Building now** — see [MVP scope](#mvp-scope). Needs the follow-up migration. |
+| `PATCH` | `/v1/notifications/:id/read` | Bearer | Mark one in-app notification read. Idempotent. **Deferred** — not part of this pass. |
+| `PATCH` | `/v1/notifications/read-all` | Bearer | Mark every unread in-app notification read for the current user. **Deferred.** |
+| `GET` | `/v1/notifications/deliveries` | Bearer, `@Roles('owner')` | Delivery ledger, paginated, filterable by `reviewId` / `status` / `channel`. Works against today's schema. **Deferred** — no producer writes `notifications` yet, so this would only ever return an empty page. |
+| `GET` | `/v1/notifications/deliveries/:id` | Bearer, `@Roles('owner')` | One delivery record, with the snippet set that went out. **Deferred**, same reason. |
 
-The two `deliveries` routes read `notifications` as designed and need no schema change. The four
-feed routes are the in-app centre and need the table specified in [Gap](#gap-between-current-code-and-target-design)
-first — they are documented in full anyway, because the frontend is already written against their
-shape.
+There is deliberately **no separate unread-count route** — corrected from an earlier version of
+this document that specified one. See [MVP scope](#mvp-scope) for why: the actual frontend this
+module serves gets its unread total embedded in the list response, not from a second call.
 
-Full request/response contracts, field tables, error codes, and the migration-dependency callouts
-per route: [Notifications Module — API Reference](./api-reference.md).
+Full request/response contracts, field tables, and error codes for the one route in scope now:
+[Notifications Module — API Reference](./api-reference.md).
 
 ## MVP scope
 
@@ -315,23 +314,50 @@ What the frontend exposes today, against what the backend models:
 | One feed row per event | One `notifications` row **per channel** — `channel_pref = 'both'` writes two | **Duplicates in the feed.** |
 | Per-user rows | `recipient_user_id` FK | Present, correct granularity. |
 
-The backend's **MVP target**, in build order:
+**Scoped for this implementation pass: `GET /v1/notifications` only.** Everything else this
+section originally proposed (`unread-count`, `:id/read`, `read-all`, the delivery ledger pair) is
+deferred — tracked below, not built now. The one route being built has its own, corrected
+pagination contract, because an earlier version of this document got its own stated goal wrong:
 
-1. **`GET /v1/notifications/deliveries` + `/:id`.** Buildable today, no migration. Answers the
-   operational question that has no answer at all right now: did the escalation email actually go
-   out, and to whom.
-2. **The follow-up migration**, then the four feed routes — replacing
-   `NotificationService`'s mock body with real `fetch` calls. This is the change that makes the bell
-   icon mean something.
+> **Corrected (implementation pass).** This previously specced `page`/`pageSize`/`unreadOnly` query
+> params, a `{ data, meta }` response, and a **separate** `GET /v1/notifications/unread-count`
+> route — while claiming this was "the exact surface the already-shipped frontend expects." It
+> wasn't; that claim was never checked against the actual frontend code. Reading
+> `apps/web/src/app/_libs/services/notification.service.ts` and
+> `apps/web/src/hooks/notifications/use-notifications.ts` directly: the real contract is
+> `list(offset: number, limit: number)` — a numeric offset, not a page number, no `unreadOnly`
+> parameter — returning `{ items, hasMore, unreadTotal }` in one flat response, with `unreadTotal`
+> embedded on every page rather than fetched separately. There is no unread-count call anywhere in
+> the hook. Building the originally-specced contract would have meant *also* rewriting a hook that
+> already works, for no product benefit. The corrected route matches what's actually shipped — see
+> [API Reference](./api-reference.md) for the exact request/response shapes.
+
+Since no producer writes `in_app_notifications` yet (see [Gap
+§1](#1-the-in-app-notification-centre-has-no-table-the-big-one)), this route is real, tested
+infrastructure that correctly returns an empty page today — the same "build the read side first,
+the write side populates it later" order this repo already used for Media's confirm-before-upload
+split. It only ever returns `type: 'review_escalated'` rows once something writes them; the other
+three frontend-defined types have no producer and stay undocumented-as-buildable until one exists.
+
+Deferred, in the order they'd naturally come next:
+
+1. `PATCH /:id/read` + `PATCH /read-all` — need real rows to mark read before they're worth
+   building.
+2. `GET /v1/notifications/deliveries` + `/:id` — buildable today with no migration, but nothing
+   writes `notifications` yet either, so it would only ever show an empty ledger.
 3. **Notification types beyond `escalation`** (`reply_needs_approval`, `reply_approved`,
    `connection_issue`) are frontend-invented and have no `PLAN.md` mandate — §2 says no additional
-   `notification_type` is planned. They are cheap on the in-app table (its own enum, no delivery
-   fan-out, no transport) and expensive on `notifications` (each implies an email/Teams policy
-   nobody has specified). Ship the enum values for the in-app feed; do **not** extend
-   `notification_type` or the delivery path for them without a product decision.
+   `notification_type` is planned. Cheap on the in-app table (its own enum, no delivery fan-out, no
+   transport) and expensive on `notifications` (each implies an email/Teams policy nobody has
+   specified) — ship the enum values for the in-app feed only, when their producers exist; do
+   **not** extend `notification_type` or the delivery path for them without a product decision.
 
 `notification_recipients` management — who is on the escalation list and on which channel — is
-**not** this module's API. It is settings-owned, and this module only reads it.
+**not** this module's API. It is settings-owned; see [Settings Module — API
+Reference](../settings/api-reference.md#notification-recipients) for the channel-management routes
+being built alongside this one. This module only reads that table, and doesn't do so yet either —
+nothing fans an escalation out to recipients today, so that read has no caller until the
+composer in [Notification flows](#notification-flows) is built.
 
 ## Gap between current code and target design
 
@@ -360,10 +386,21 @@ fails on four counts, in increasing severity:
 
 **Specified: a separate table.** The follow-up migration, per the project's SQL-first workflow
 (`apps/backend/docs/conventions/sql-first-workflow.md` — write the SQL, update
-`meta/_journal.json`, `pnpm db:migrate`, then `pnpm db:introspect`):
+`meta/_journal.json`, `pnpm db:migrate`, then `pnpm db:introspect`).
+
+> **Corrected (implementation pass).** Originally specified as a new `0007_in_app_notifications.sql`
+> file. `0007` was free when this was written; it is now `0007_auth_hardening.sql` (migrations run
+> through `0010_media.sql` as of this pass). More to the point, this table is squarely this
+> module's own domain — the same domain `0005_notifications.sql` already covers — so per this
+> repo's "one migration file per module" convention it belongs **edited into
+> `0005_notifications.sql` in place**, not appended as a new sequential file, the same way the
+> settings module's own docs handle `notification_recipients`' missing unique index. Editing an
+> applied migration means every local database needs recreating after pulling the change
+> (`pnpm backend:down && pnpm backend:up && pnpm db:migrate`) — call this out in the migration
+> file's own header, same as `0003_review_provider_locations.sql` does.
 
 ```sql
--- 0007_in_app_notifications.sql
+-- Added to 0005_notifications.sql
 
 CREATE TYPE in_app_notification_type AS ENUM (
     'review_escalated',
@@ -440,39 +477,20 @@ row; the endpoint's contract is written to accommodate that. Attempt counts and 
 **not** proposed here — retry policy is the pipeline's, and if it needs durable per-attempt state
 that is the pipeline's migration to specify, not this one's.
 
-### 3. `src/notifications/` is unrelated boilerplate
+### 3. `src/notifications/` — already removed, nothing to drop
 
-`apps/backend/src/notifications/` already exists and is the generic NestJS enterprise
-boilerplate's notifications module — FCM push plus in-app for a different product. Treat it the
-way [auth's gap section](../auth/overview.md#gap-between-current-code-and-target-design) treats its
-own leftovers: it compiles, its tests pass, and it models a different product.
-
-It is a genuinely awkward leftover rather than a harmless one, because it is *superficially the
-right module*. It already owns `RouteNames.NOTIFICATIONS`, and its controller already exposes
-`GET /`, `GET /unread-count`, `PATCH /:id/read`, and `PATCH /read-all` with the same
-`{ data, meta }` pagination shape this document specifies. That is convergent evolution on an
-obvious CRUD shape, not reusable code:
-
-- It reads a boilerplate `notifications` table with `user_id`, `title`, `body`, `data JSONB`,
-  `is_read`, and a free-text `type: string` (see `interfaces/notification.interface.ts`). **That is
-  not the InnoPeak `notifications` table** — the names collide, the columns don't.
-- Its channel union is `'email' | 'in-app' | 'push' | 'sms'`, none of which is
-  `notification_channel`, and `'push'`/`'sms'` have no schema or product basis here.
-- It has no `tenant_id` anywhere — no fan-out, no recipient config, no `review_id`, no
-  `generation_group_id`, no delivery `status`.
-- It carries a `device_tokens`-backed `POST /devices` FID-registration route and an
-  `FcmProvider`. There is no `device_tokens` table in any InnoPeak migration and no push
-  requirement in `PLAN.md`.
-- Its admin-only `POST /` sends an arbitrary notification to an arbitrary user. Nothing in this
-  product's design has a human authoring notifications by hand; they are pipeline output.
-
-Required: **do not retrofit.** Build the new module at `src/api/notifications/` per the convention
-below, and **drop** `src/notifications/`, its `FcmProvider`/`PushProvider` pair, and the FCM
-config it reads — or explicitly defer them with the same reasoning auth applies to
-`GithubOAuthStrategy` and `MfaService`: unused surface against tables that don't exist is dead
-code, not forward-compatibility. `RouteNames.NOTIFICATIONS` stays; the module behind it is
-replaced. `src/db/repositories/notifications/notifications.repository.ts` is likewise
-boilerplate-shaped and gets rewritten, not extended.
+> **Corrected (implementation pass).** This section originally described a boilerplate
+> `src/notifications/` module (FCM push + in-app, for a different product) that needed to be
+> dropped rather than retrofitted, and warned that `RouteNames.NOTIFICATIONS` already existed and
+> pointed at it. Verified against current code: **`src/notifications/` and
+> `src/db/repositories/notifications/` no longer exist** — removed along with the rest of the
+> boilerplate modules `apps/backend/CLAUDE.md`'s module history lists as deleted (`users`, `sms`,
+> `webhooks`, `gateway`, `ai`, `common/audit`, `common/export`). **`RouteNames.NOTIFICATIONS` does
+> not exist either** — checked `src/common/route-names.ts` directly. Both need to be added fresh,
+> exactly like any other new module's routes; there is no leftover to avoid retrofitting and no
+> existing enum member to reuse. The rest of this section (the four-layer module-structure
+> requirements below) still applies unchanged — it was never conditional on the boilerplate's
+> presence.
 
 ### 4. Module-structure conventions the new module must follow
 
@@ -499,8 +517,18 @@ Per `apps/backend/docs/conventions/module-structure.md` and `apps/backend/CLAUDE
   `apps/backend/docs/conventions/api-patterns.md`), and the 404 comes from the messages constants.
 - **Messages.** Every user-facing string — exception messages, `ResponseUtil.success` messages, and
   the `title`/`description` written onto `in_app_notifications` rows — comes from
-  `src/common/constants/messages.constants.ts`. **That file does not exist yet**; the first module
-  to need it creates it, exactly as noted in auth's gap section.
+  `src/common/constants/messages.constants.ts`.
+
+  > **Corrected (implementation pass).** This previously said the file "does not exist yet;
+  > the first module to need it creates it." It exists now, and — since the media module's own
+  > implementation — sits under a full bilingual message-catalog system:
+  > `src/common/i18n/message-catalog.type.ts` (the `MessageCatalog` interface, typed so a missing
+  > or extra German key is a compile error), `messages.en.ts`, `messages.de.ts`. This changes what
+  > "add a message" means for this module: every string this doc specifies needs a
+  > `MESSAGES.NOTIFICATIONS.*` (or similar) key added to **both** locale files, not one literal
+  > added to a single constants file. This applies to `title`/`description` composed onto
+  > `in_app_notifications` rows too — see [MVP scope](#mvp-scope) for which strings that means
+  > for the routes actually being built now.
 - **Every DTO property carries an `example`**, and every method on every layer declares an explicit
   return type — no inference, no `any`.
 - **Route-name collision ordering.** `deliveries` is a static segment under the same controller

@@ -81,6 +81,28 @@ export function useNotifications(): UseNotificationsResult {
     void query.fetchNextPage();
   }, [query]);
 
+  /**
+   * Replaces the optimistic unread guess with the count the server reported after the write. The
+   * total lives on every page's response, so every page gets it — `unreadCount` below reads the
+   * most recent one. The server is the only thing that can know this: the badge covers the whole
+   * feed, while this client holds only the pages it has fetched.
+   */
+  const applyUnreadTotal = useCallback(
+    (unreadTotal: number) => {
+      queryClient.setQueryData<NotificationsData>(notificationsQueryKey, (old) =>
+        old ? { ...old, pages: old.pages.map((page) => ({ ...page, unreadTotal })) } : old,
+      );
+    },
+    [queryClient],
+  );
+
+  /** A failed read-write leaves the cache holding an optimistic value the server never accepted.
+   *  Refetching is the honest repair, and unlike restoring a snapshot it cannot clobber a
+   *  concurrent write that did succeed. */
+  const resyncAfterFailedWrite = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+  }, [queryClient]);
+
   const markAsRead = useCallback(
     (id: string) => {
       queryClient.setQueryData<NotificationsData>(notificationsQueryKey, (old) => {
@@ -93,21 +115,23 @@ export function useNotifications(): UseNotificationsResult {
           ...page,
           items: page.items.map((item) => (item.id === id ? { ...item, isRead: true } : item)),
           // The unread total lives on every page's response; nudge only the most recent one, the
-          // one `unreadCount` below actually reads.
+          // one `unreadCount` below actually reads. Replaced by the server's own count the moment
+          // the request lands.
           unreadTotal:
             index === old.pages.length - 1 ? Math.max(0, page.unreadTotal - 1) : page.unreadTotal,
         }));
 
         return { ...old, pages };
       });
-      void NotificationService.markAsRead(id);
+
+      void NotificationService.markAsRead(id).then(applyUnreadTotal, resyncAfterFailedWrite);
     },
-    [queryClient],
+    [queryClient, applyUnreadTotal, resyncAfterFailedWrite],
   );
 
   const markAllAsRead = useCallback(() => {
-    // Marks the whole feed server-side, so the total goes to zero rather than dropping by however
-    // many rows happen to be loaded.
+    // Marks the whole feed server-side, including rows this client has never fetched, so the
+    // total goes to zero rather than dropping by however many rows happen to be loaded.
     queryClient.setQueryData<NotificationsData>(notificationsQueryKey, (old) => {
       if (!old) return old;
       return {
@@ -119,8 +143,9 @@ export function useNotifications(): UseNotificationsResult {
         })),
       };
     });
-    void NotificationService.markAllAsRead();
-  }, [queryClient]);
+
+    void NotificationService.markAllAsRead().then(applyUnreadTotal, resyncAfterFailedWrite);
+  }, [queryClient, applyUnreadTotal, resyncAfterFailedWrite]);
 
   const pages = query.data?.pages ?? [];
   const lastPage = pages[pages.length - 1];

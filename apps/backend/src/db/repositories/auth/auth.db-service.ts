@@ -145,6 +145,10 @@ export class AuthDbService {
           passwordHash: input.passwordHash,
         });
         await this.authRepository.insertTenantSettings(tx, { tenantId: tenant.id });
+        await this.authRepository.insertNotificationRecipient(tx, {
+          tenantId: tenant.id,
+          userId: user.id,
+        });
         await this.authRepository.putVerifyEmailToken(tx, {
           userId: user.id,
           tokenHash: input.tokenHash,
@@ -185,42 +189,53 @@ export class AuthDbService {
   }
 
   /**
-   * Resolves a Google identity against `user_identities`/`users` — never creates anything. Two
-   * cases sign the caller in; the third tells the caller this is a genuinely new person, and
-   * creating their tenant needs one more thing Google cannot supply.
+   * Resolves a Google identity against `user_identities`/`users` by `sub` alone — the returning
+   * user case, and the only one of the two lookups that touches nothing.
    *
-   *  1. **Known identity** — a `user_identities` row for this `sub`. Sign in.
-   *  2. **Known email, no identity** — the person signed up with a password and is now using the
-   *     Google button. Link the identity and sign in. Safe because Google has verified the
-   *     address, and the alternative is a dead end: the UI offers a button that cannot work.
-   *  3. **Neither** — `{ kind: 'unknown' }`. What this means depends on intent, which is a business
-   *     rule this DB service deliberately does not make: the caller (AuthService) turns it into
-   *     `NO_ACCOUNT` for a login round trip, or into a pending signup — see
-   *     `completeGoogleSignup` — for a signup one. This split used to live here, gated on whether
-   *     the caller happened to pass a `businessName`; that baked an intent-shaped decision into the
-   *     data layer, which is what `completeGoogleSignup` now exists to undo.
+   * Deliberately split from `linkGoogleIdentityByEmail` below rather than falling through to it,
+   * because the two differ in more than which column they match on: this one is a read, that one
+   * is a write with side effects, and *which accounts are allowed to reach the write* is a
+   * security decision the caller has to make in between. See `AuthService.handleGoogleCallback`.
+   *
+   * `{ kind: 'unknown' }` means "no tenant identity for this Google account" — what that implies
+   * depends on intent, a business rule this DB service deliberately does not make.
    */
-  async resolveGoogleIdentity(input: {
+  async findGoogleIdentityBySub(providerUserId: string): Promise<GoogleIdentityLookup> {
+    const existingIdentity = await this.authRepository.findUserIdByIdentity(
+      UserIdentityProvider.GOOGLE,
+      providerUserId
+    );
+
+    if (!existingIdentity) {
+      return { kind: 'unknown' };
+    }
+
+    const user = await this.authRepository.findUserById(existingIdentity.userId);
+    // An identity row with no matching user is unreachable in practice (nothing hard-deletes a
+    // user), so this is treated the same as never having seen this person — not worth a third
+    // branch for a case that can't occur.
+    return user === null
+      ? { kind: 'unknown' }
+      : // An existing Google-identity link is by definition a returning user, never a first
+        // activation — that only ever happens the first time an identity row is created.
+        { kind: 'known', user: this.toVerifiedUser(user), firstActivation: false };
+  }
+
+  /**
+   * The second half of Google resolution: the person signed up with a password and is now using
+   * the Google button, so link the identity to the `users` row already holding that address.
+   *
+   * **This writes.** It upserts a `user_identities` row, and for a `pending_verification` account
+   * it also activates the user and their tenant, clears the password hash and provisions the
+   * workspace. It matches on *email* — an address anyone can start a signup with, since nothing
+   * proves a mailbox before the OTP — so the caller must decide who is allowed to reach it rather
+   * than calling it as a blind fallback. `AuthService.handleGoogleCallback` withholds it from
+   * Google accounts that belong to a platform admin for exactly that reason.
+   */
+  async linkGoogleIdentityByEmail(input: {
     providerUserId: string;
     email: string;
   }): Promise<GoogleIdentityLookup> {
-    const existingIdentity = await this.authRepository.findUserIdByIdentity(
-      UserIdentityProvider.GOOGLE,
-      input.providerUserId
-    );
-
-    if (existingIdentity) {
-      const user = await this.authRepository.findUserById(existingIdentity.userId);
-      // An identity row with no matching user is unreachable in practice (nothing hard-deletes a
-      // user), so this is treated the same as never having seen this person — not worth a third
-      // branch for a case that can't occur.
-      return user === null
-        ? { kind: 'unknown' }
-        : // An existing Google-identity link is by definition a returning user, never a first
-          // activation — that only ever happens the first time an identity row is created below.
-          { kind: 'known', user: this.toVerifiedUser(user), firstActivation: false };
-    }
-
     const byEmail = await this.authRepository.findUserByEmail(input.email);
     if (byEmail) {
       // Google has verified this address, so linking also *finishes* a signup that stalled at the
@@ -308,6 +323,10 @@ export class AuthDbService {
           email: input.email,
         });
         await this.authRepository.insertTenantSettings(tx, { tenantId: tenant.id });
+        await this.authRepository.insertNotificationRecipient(tx, {
+          tenantId: tenant.id,
+          userId: user.id,
+        });
         await this.authRepository.upsertUserIdentity(tx, {
           userId: user.id,
           provider: UserIdentityProvider.GOOGLE,

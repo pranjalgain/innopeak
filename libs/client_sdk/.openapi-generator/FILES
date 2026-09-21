@@ -12,6 +12,7 @@ api/auth-api.ts
 api/connections-api.ts
 api/connections-sync-api.ts
 api/dashboard-api.ts
+api/notifications-api.ts
 api/prompts-api.ts
 api/reviews-api.ts
 api/settings-api.ts
@@ -60,6 +61,11 @@ models/location-list-response-dto.ts
 models/login-dto.ts
 models/member-invite-preview-dto.ts
 models/metrics-dto.ts
+models/notification-dto.ts
+models/notification-list-response-dto.ts
+models/notification-read-response-dto.ts
+models/notification-recipient-dto.ts
+models/notification-recipient-list-response-dto.ts
 models/pagination-meta-dto.ts
 models/platform-activity-response-dto.ts
 models/platform-review-stats-response-dto.ts
@@ -78,6 +84,7 @@ models/review-response-item-dto.ts
 models/reviews-meta-dto.ts
 models/send-admin-invite-dto.ts
 models/set-active-location-dto.ts
+models/set-admin-password-dto.ts
 models/set-admin-status-dto.ts
 models/set-password-dto.ts
 models/signup-dto.ts
@@ -93,6 +100,7 @@ models/update-admin-locale-response-dto.ts
 models/update-business-status-dto.ts
 models/update-locale-dto.ts
 models/update-locale-response-dto.ts
+models/update-notification-recipient-dto.ts
 models/update-platform-settings-dto.ts
 models/update-prompt-tone-dto.ts
 models/update-prompt-tone-response-dto.ts

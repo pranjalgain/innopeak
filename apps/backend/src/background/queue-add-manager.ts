@@ -51,4 +51,8 @@ export class AddingJobsToQueueManager {
   async addMemberInviteEmailJob(jobName: JobName, data: IMemberInviteEmailJob): Promise<void> {
     return this.addJob(QueueName.EMAIL, jobName, data);
   }
+
+  async addAdminSetPasswordOtpEmailJob(jobName: JobName, data: IOtpEmailJob): Promise<void> {
+    return this.addJob(QueueName.EMAIL, jobName, data);
+  }
 }

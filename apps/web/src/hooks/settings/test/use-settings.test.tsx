@@ -65,7 +65,9 @@ describe("useSettings", () => {
   test("does not show a success toast when the background persist fails", async () => {
     const original = settings();
     vi.spyOn(SettingsService, "getSettings").mockResolvedValue(original);
-    vi.spyOn(SettingsService, "updateSettings").mockRejectedValue(new Error("network error"));
+    vi.spyOn(SettingsService, "updateNotificationRecipient").mockRejectedValue(
+      new Error("network error"),
+    );
 
     const { result } = renderHook(() => useSettings(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -81,8 +83,8 @@ describe("useSettings", () => {
   test("shows the success toast only once the background persist actually succeeds", async () => {
     const original = settings();
     vi.spyOn(SettingsService, "getSettings").mockResolvedValue(original);
-    let resolvePersist!: (next: SettingsData) => void;
-    vi.spyOn(SettingsService, "updateSettings").mockReturnValue(
+    let resolvePersist!: (recipient: SettingsData["notificationRecipients"][number]) => void;
+    vi.spyOn(SettingsService, "updateNotificationRecipient").mockReturnValue(
       new Promise((resolve) => {
         resolvePersist = resolve;
       }),
@@ -99,7 +101,7 @@ describe("useSettings", () => {
     expect(toast.success).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolvePersist(result.current.settings ?? original);
+      resolvePersist({ ...original.notificationRecipients[0]!, isActive: false });
     });
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));

@@ -269,6 +269,9 @@ export type PlatformAdminStatus = "invited" | "active" | "disabled";
 export interface PlatformAdminProfile {
   email: string;
   avatarUrl: string | null;
+  /** `false` for a Google-only admin (accepted an invite via SSO) — Settings shows "Add
+   *  password" instead of "Change password" for those. */
+  hasPassword: boolean;
 }
 
 /** Mirrors `platform_admins` (status) joined with its own `platform_admin_invites` row. */
@@ -280,6 +283,9 @@ export interface PlatformAdminInvite {
   /** When a pending invite lapses. `null` for an admin that was never invited (the seeded root) —
    * only meaningful, and only read, while `status === "invited"`. */
   expiresAt: string | null;
+  /** The seeded root admin — never invited, never disable-able, never revocable. The roster hides
+   * those actions for this row regardless of who's viewing it. */
+  isRoot: boolean;
 }
 
 /** Platform-wide review throughput, aggregated across every tenant — shown on the Super Admin overview. */

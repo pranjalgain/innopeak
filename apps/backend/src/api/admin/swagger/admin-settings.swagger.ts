@@ -7,11 +7,17 @@ import { AdminInviteResponseDto } from '../dto/admin-invite-response.dto';
 import { AdminProfileResponseDto } from '../dto/admin-profile-response.dto';
 import { ChangeAdminPasswordDto } from '../dto/change-admin-password.dto';
 import { SendAdminInviteDto } from '../dto/send-admin-invite.dto';
+import { SetAdminPasswordDto } from '../dto/set-admin-password.dto';
 import { SetAdminStatusDto } from '../dto/set-admin-status.dto';
 import { UpdateAdminLocaleResponseDto } from '../dto/update-admin-locale-response.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 
-const ADMIN_PROFILE_EXAMPLE = { email: 'admin@innopeak.com', avatarUrl: null, locale: null };
+const ADMIN_PROFILE_EXAMPLE = {
+  email: 'admin@innopeak.com',
+  avatarUrl: null,
+  locale: null,
+  hasPassword: true,
+};
 
 const ADMIN_INVITE_EXAMPLE = {
   id: '0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f',
@@ -19,6 +25,7 @@ const ADMIN_INVITE_EXAMPLE = {
   status: 'invited',
   invitedAt: '2026-03-01T09:12:00.000Z',
   expiresAt: '2026-03-08T09:12:00.000Z',
+  isRoot: false,
 };
 
 export function ApiGetAdminProfile(): ReturnType<typeof applyDecorators> {
@@ -99,6 +106,70 @@ export function ApiChangeAdminPassword(): ReturnType<typeof applyDecorators> {
       status: HttpStatus.UNAUTHORIZED,
       description: 'Missing/invalid token, or the current password was wrong',
     }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
+  );
+}
+
+export function ApiRequestAdminSetPasswordOtp(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Request the OTP required to add a first password',
+      description:
+        'Only for an admin with no password yet (accepted their invite via Google, or was ' +
+        "seeded before this flow existed). Mailed to the account's own address — proof the " +
+        'caller still controls that mailbox, since an access token alone is not enough to grant ' +
+        'a passwordless account a permanent credential.',
+    }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Code sent (or already has a password — same generic ack either way).',
+      examples: {
+        default: {
+          summary: 'Acknowledged',
+          value: { message: 'Verification code sent. Check your email to continue.' },
+        },
+      },
+    }),
+    ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'A password is already set' }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
+  );
+}
+
+export function ApiSetAdminPassword(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: "Set the signed-in platform admin's first password",
+      description:
+        'Requires the OTP from `POST .../set-password/request-otp`. No token to reissue ' +
+        'afterward — a platform admin has no refresh token, so there is nothing else to rotate.',
+    }),
+    ApiBody({
+      type: SetAdminPasswordDto,
+      examples: {
+        default: {
+          summary: 'Typical request',
+          value: { newPassword: 'NewStr0ng@Pass', otp: '482913' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Password set.',
+      examples: {
+        default: {
+          summary: 'Password set',
+          value: { message: 'Password set. You can now sign in with a password too.' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: HttpStatus.BAD_REQUEST,
+      description: 'A password is already set, or the OTP was invalid/expired',
+    }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
   );
 }
