@@ -874,12 +874,30 @@ function buildInitialState(): MockDb {
  */
 const PERSIST_KEY = "innopeak_mock_db";
 
+/**
+ * Bumped whenever `MockDb`'s shape changes in a way an old snapshot wouldn't satisfy — a new
+ * required field, a renamed one, anything a reader downstream would treat as present rather than
+ * checking for. Without this, a tab still holding a snapshot from before such a change would hand
+ * back an object *shaped* like the old schema but typed as the new one: the field the schema
+ * change added would read as `undefined` everywhere the new code assumes a value, which routinely
+ * corrupts silently rather than throwing (`undefined + 1` is `NaN`, not an error) instead of
+ * falling back to a fresh seed the way genuinely malformed JSON already does below.
+ */
+const SCHEMA_VERSION = 1;
+
+interface PersistedDb {
+  schemaVersion: number;
+  db: MockDb;
+}
+
 function loadInitialState(): MockDb {
   if (typeof window === "undefined") return buildInitialState();
   try {
     const raw = window.sessionStorage.getItem(PERSIST_KEY);
     if (!raw) return buildInitialState();
-    return JSON.parse(raw) as MockDb;
+    const parsed = JSON.parse(raw) as Partial<PersistedDb>;
+    if (parsed.schemaVersion !== SCHEMA_VERSION || !parsed.db) return buildInitialState();
+    return parsed.db;
   } catch {
     // Malformed/missing — falls back to a fresh seed rather than crashing the whole app over a
     // corrupted cache entry.
@@ -895,14 +913,20 @@ export function getDb(): MockDb {
   return db;
 }
 
-/** Called by the adapter after every mutating request — see `adapter.ts`. Failures (private
- *  browsing, storage disabled, quota) are swallowed: the mock still works for the rest of this
- *  page's lifetime, it just won't survive a reload, which is the same degraded-but-working state
- *  this whole layer already falls back to when `sessionStorage` isn't available at all. */
+/**
+ * Persists after every request the adapter serves (`adapter.ts`), and must also be called
+ * directly by anything that mutates `db` *outside* an HTTP request — `connect-shortcut.ts` is the
+ * one such case today, and forgetting this call there is exactly what left the "Connect Google"
+ * step unable to survive the reload it depends on (see that file's own comment). Failures
+ * (private browsing, storage disabled, quota) are swallowed: the mock still works for the rest of
+ * this page's lifetime, it just won't survive a reload, the same degraded-but-working state this
+ * whole layer already falls back to when `sessionStorage` isn't available at all.
+ */
 export function persistDb(): void {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(PERSIST_KEY, JSON.stringify(db));
+    const payload: PersistedDb = { schemaVersion: SCHEMA_VERSION, db };
+    window.sessionStorage.setItem(PERSIST_KEY, JSON.stringify(payload));
   } catch {
     // See above.
   }

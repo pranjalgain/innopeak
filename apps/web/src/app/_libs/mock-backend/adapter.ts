@@ -100,10 +100,12 @@ export const mockAdapter: AxiosAdapter = async (config) => {
 
     const envelope = router.handle(method, url.pathname, query, body, auth);
 
-    // A GET can't have changed anything, so this skips re-serializing the whole store (reviews,
-    // notifications, everything) on every read — the common case by far, and the one place a
-    // per-request cost here would actually be felt (dashboard polling, the notification bell).
-    if (method.toUpperCase() !== "GET") persistDb();
+    // Every successful call persists, GET included — deliberately not narrowed to non-GET
+    // methods. The backfill poll route (`GET /v1/connections/locations/:id/backfill`) genuinely
+    // mutates on read (it's what advances the onboarding progress bar), and a "GET can't have
+    // changed anything" assumption here would just relocate that same forgotten-persist bug to
+    // whichever route breaks the assumption next, rather than actually closing it off.
+    persistDb();
 
     const response: MockAxiosResponse = {
       data: envelope,

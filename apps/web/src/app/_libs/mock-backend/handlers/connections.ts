@@ -125,6 +125,19 @@ export const connectionsRoutes = defineRoutes([
         let location = db.locations.find(
           (l) => l.tenantId === auth.tenantId && l.externalLocationId === externalLocationId,
         );
+        if (location) {
+          // Same reactivation `connect-shortcut.ts` does for the mock "Connect Google" button —
+          // this route is the picker's own confirm step, reached whenever `resume()` finds a
+          // connection but no active location, which is exactly the state a disconnect leaves
+          // behind. Without this, confirming the same location again after a disconnect would
+          // leave it `inactive` and the tenant would read as still not connected.
+          if (location.status === "inactive") {
+            location.status = "active";
+            location.lastSyncedAt = new Date().toISOString();
+            location.lastSyncStatus = "ok";
+          }
+          location.connectionId = connection.id;
+        }
         if (!location) {
           location = {
             id: nextMockId("location"),
@@ -175,7 +188,7 @@ export const connectionsRoutes = defineRoutes([
         {
           locations: confirmed.map((location) => {
             const backfill = backfillByLocation.get(location.id);
-            const backfillAlreadyRunning = backfill !== undefined && backfill.pollsSoFar > 0;
+            const backfillAlreadyRunning = backfill?.status === "running" && backfill.pollsSoFar > 0;
             return {
               id: location.id,
               connectionId: location.connectionId,
@@ -237,7 +250,7 @@ export const connectionsRoutes = defineRoutes([
       );
       if (!location) return failure(404, "No such location.");
 
-      const backfill = getDb().backfills.find((b) => b.locationId === location.id);
+      const backfill = existingBackfillFor(getDb(), location.id);
       // The demo backfill completes on the *second* poll rather than staying "running" forever
       // (or finishing on the very first poll, which never gave the onboarding wizard's progress
       // screen anything in-progress to render at all) — `pollsSoFar` is what lets this tell "the

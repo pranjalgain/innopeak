@@ -113,6 +113,22 @@ export class AuthService {
     return isSuperAdmin ? ROUTES.ADMIN : ROUTES.DASHBOARD;
   }
 
+  /**
+   * Where the mock OAuth-button methods below send a genuinely failed sign-in attempt. Real
+   * Google failures arrive as `?error=` on the destination (see `useOAuthErrorToast`'s own doc
+   * comment) because the real callback is mid-navigation and cannot answer with JSON instead; a
+   * plain redirect with nothing on the URL would leave the visitor back on a blank sign-in form
+   * with no explanation, which is a worse failure mode than the network error it's standing in
+   * for. `PROVIDER_ERROR` ("Could not reach Google. Please try again.") is the closest existing
+   * code to "the mock backend itself rejected this," and reaching this path at all is not
+   * expected — every mock login route in `handlers/auth.ts`/`handlers/admin-auth.ts` accepts any
+   * credentials unconditionally — so this only fires on something like a `sessionStorage` write
+   * failing.
+   */
+  private static loginFailureDestination(base: string): string {
+    return `${base}?error=PROVIDER_ERROR`;
+  }
+
   static async loginWithMicrosoft(email: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 600));
     window.location.assign(this.resolveLoginDestination(email));
@@ -225,7 +241,7 @@ export class AuthService {
       // `useAuth`) has never had a failure path to reset it. This mock one genuinely is async
       // (a real round trip, if a short one), so a rejection here without this would leave that
       // spinner spinning forever with nothing on screen to explain why.
-      .catch(() => window.location.assign(ROUTES.LOGIN));
+      .catch(() => window.location.assign(this.loginFailureDestination(ROUTES.LOGIN)));
   }
 
   /**
@@ -235,7 +251,7 @@ export class AuthService {
   static startAdminGoogleLogin(): void {
     void this.loginAsAdmin("", "")
       .then(() => window.location.assign(ROUTES.ADMIN))
-      .catch(() => window.location.assign(ROUTES.ADMIN_LOGIN));
+      .catch(() => window.location.assign(this.loginFailureDestination(ROUTES.ADMIN_LOGIN)));
   }
 
   /**
@@ -515,7 +531,7 @@ export class AuthService {
     void token;
     void this.acceptAdminInvite("", "")
       .then(() => window.location.assign(ROUTES.ADMIN))
-      .catch(() => window.location.assign(ROUTES.ADMIN_LOGIN));
+      .catch(() => window.location.assign(this.loginFailureDestination(ROUTES.ADMIN_LOGIN)));
   }
 
   /**
@@ -565,6 +581,6 @@ export class AuthService {
       .then(({ hasConnectedBusiness }) =>
         window.location.assign(hasConnectedBusiness ? ROUTES.DASHBOARD : ROUTES.ONBOARDING_CONNECT),
       )
-      .catch(() => window.location.assign(ROUTES.LOGIN));
+      .catch(() => window.location.assign(this.loginFailureDestination(ROUTES.LOGIN)));
   }
 }
