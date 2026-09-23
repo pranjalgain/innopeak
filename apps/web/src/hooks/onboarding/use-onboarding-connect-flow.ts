@@ -54,6 +54,10 @@ const POLL_INTERVAL_MS = 2500;
 /** How long a stale-looking backfill is tolerated before it is reported as failed. */
 const SLOW_BACKFILL_GIVE_UP_MS = 10 * 60 * 1000;
 
+/** Reserved key for the resume chain's own controller in `abortControllersRef` — distinct from
+ *  the real location ids that key every backfill poll's controller in that same map. */
+const RESUME_ABORT_KEY = "__resume__";
+
 const OAUTH_ERROR_RECOVERY: Record<string, ErrorRecovery> = {
   INVALID_STATE: "restart",
   ACCESS_DENIED: "retry",
@@ -311,12 +315,12 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
   // ── Location discovery ──────────────────────────────────────────────────
 
-  const loadLocations = useCallback(async () => {
+  const loadLocations = useCallback(async (signal?: AbortSignal) => {
     setStage("loading_locations");
 
     try {
-      const available = await ConnectionService.listAvailableLocations();
-      if (!mountedRef.current) return;
+      const available = await ConnectionService.listAvailableLocations(signal);
+      if (!mountedRef.current || signal?.aborted) return;
 
       if (available.length === 0) {
         fail("loadLocationsFailed", "reconnect");
@@ -340,7 +344,10 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
       setSelectedLocationIds(preselected.map((location) => location.externalLocationId));
       setStage("confirm_location");
     } catch (caught) {
-      if (!mountedRef.current) return;
+      // A deliberate cancellation (a newer `resume()` superseded this one — see `RESUME_ABORT_KEY`),
+      // not a real failure. Surfacing it as `loadLocationsFailed` would flash an error screen for
+      // every StrictMode dev double-invoke, which aborts the first of its two identical calls.
+      if (!mountedRef.current || signal?.aborted) return;
       if (caught instanceof ApiError && caught.errorCode === "CONNECTION_NEEDS_REAUTH") {
         fail("needsReauth", "reconnect");
         return;
@@ -352,9 +359,20 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
   // ── Mount: read the callback's query params, then resume ────────────────
 
   const resume = useCallback(async () => {
+    // React StrictMode's dev-only mount → cleanup → remount runs this effect twice, and the first
+    // call's `getState`/`listLocations`/`listAvailableLocations` chain was never cancellable —
+    // `mountedRef` alone doesn't catch it, since by the time that stale promise resolves,
+    // `mountedRef.current` is back to `true` from the second mount. Aborting any previous resume
+    // chain before starting a new one means only the latest one ever gets to set state, and closes
+    // the window where two concurrent calls doubled up on the same credential-refresh path.
+    abortControllersRef.current.get(RESUME_ABORT_KEY)?.abort();
+    const controller = new AbortController();
+    abortControllersRef.current.set(RESUME_ABORT_KEY, controller);
+    const { signal } = controller;
+
     try {
-      const state = await ConnectionService.getState();
-      if (!mountedRef.current) return;
+      const state = await ConnectionService.getState(signal);
+      if (!mountedRef.current || signal.aborted) return;
 
       // Branch on the *connection row*, not on `status`. `status` answers "is this tenant fully
       // set up" — it is `disconnected` both when the tenant has never connected AND in the state
@@ -374,13 +392,13 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
       // `GET /v1/connections` only ever reports the tenant's single currently-selected location —
       // not enough to resume correctly once several can be confirmed in one go. The persisted list
       // is the actual source of truth for "what has this tenant confirmed so far".
-      const persisted = await ConnectionService.listLocations();
-      if (!mountedRef.current) return;
+      const persisted = await ConnectionService.listLocations(signal);
+      if (!mountedRef.current || signal.aborted) return;
 
       const active = persisted.filter((location) => location.status === "active");
       if (active.length === 0) {
         // Connected, but nothing confirmed yet — exactly where the OAuth callback lands.
-        await loadLocations();
+        await loadLocations(signal);
         return;
       }
 
@@ -395,7 +413,8 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
       startBackfill(pending);
     } catch {
-      if (!mountedRef.current) return;
+      // Same reasoning as `loadLocations`'s catch: a cancelled chain is not a real failure.
+      if (!mountedRef.current || signal.aborted) return;
       // Fail to the connect stage rather than an error screen: the user can always start the flow
       // again, and an error screen for "we couldn't check" is a dead end.
       setStage("connect");

@@ -39,7 +39,7 @@ export function NotificationsSettingsSection({
             <div
               key={recipient.id}
               style={{ animationDelay: `${Math.min(index, 10) * 50}ms` }}
-              className="animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards ease-fluid motion-reduce:animate-none hover:bg-accent/40 flex items-center gap-4 rounded-md border-b border-border px-2 -mx-2 py-3.5 transition-colors duration-300 last:border-b-0">
+              className="animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards ease-fluid motion-reduce:animate-none flex items-center gap-4 border-b border-border py-3.5 last:border-b-0">
               <Avatar className="size-8 shrink-0">
                 <AvatarFallback className="bg-secondary text-xs font-semibold text-secondary-foreground">
                   {recipient.initials}
@@ -57,13 +57,31 @@ export function NotificationsSettingsSection({
                 }}
               >
                 {CHANNELS.map((channel) => (
-                  <ToggleGroupItem key={channel} value={channel} className="px-3 text-xs">
+                  <ToggleGroupItem
+                    key={channel}
+                    value={channel}
+                    // The base `Toggle`/`ToggleGroupItem` primitive's `hover:bg-accent`/
+                    // `data-[state=on]:bg-accent` reads fine in light mode, but dark mode's
+                    // `--accent` sits too close in lightness to `--card`/`--background` to read as
+                    // a visible hover/selected state. A plain white overlay for hover (tried first)
+                    // was too faint on a near-black background to register as "there's an effect
+                    // here" at all, and read as barely different from resting. Using a translucent
+                    // `primary` tint for hover instead — same hue family as the solid `primary` fill
+                    // used for the selected state, just much lower intensity — reads as "a preview
+                    // of what selecting this would look like" rather than an unrelated color, so
+                    // hover and selected stay visually connected but clearly different in strength.
+                    className="px-3 text-xs dark:data-[state=off]:hover:bg-primary/25 dark:data-[state=off]:hover:text-foreground dark:data-[state=on]:bg-primary dark:data-[state=on]:text-primary-foreground"
+                  >
                     {t(`channels.${channel}`)}
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>
 
-              <Switch checked={recipient.isActive} onCheckedChange={() => onToggleActive(recipient.id)} />
+              <Switch
+                checked={recipient.isActive}
+                onCheckedChange={() => onToggleActive(recipient.id)}
+                className="hover:ring-[3px] hover:ring-ring/30 dark:hover:ring-ring/50"
+              />
             </div>
           ))
         )}

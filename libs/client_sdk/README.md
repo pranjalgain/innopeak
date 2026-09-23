@@ -58,8 +58,11 @@ Class | Method | HTTP request | Description
 *AdminAuthApi* | [**platformAdminAuthControllerValidateAdminInviteV1**](docs/AdminAuthApi.md#platformadminauthcontrollervalidateadmininvitev1) | **GET** /v1/admin/auth/invite/{token} | Preview a platform-admin invite
 *AdminBusinessesApi* | [**adminBusinessesControllerListV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollerlistv1) | **GET** /v1/admin/businesses | List every tenant, as a Super Admin \&quot;business\&quot;
 *AdminBusinessesApi* | [**adminBusinessesControllerUpdateStatusV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollerupdatestatusv1) | **POST** /v1/admin/businesses/{tenantId}/status | Suspend or reactivate a tenant
+*AdminOverviewApi* | [**adminOverviewControllerGetNeedsAttentionV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetneedsattentionv1) | **GET** /v1/admin/overview/needs-attention | Businesses needing attention
 *AdminOverviewApi* | [**adminOverviewControllerGetRecentActivityV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetrecentactivityv1) | **GET** /v1/admin/overview/activity | Most recent platform-admin actions
-*AdminOverviewApi* | [**adminOverviewControllerGetReviewStatsV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetreviewstatsv1) | **GET** /v1/admin/overview/review-stats | Platform-wide review throughput
+*AdminOverviewApi* | [**adminOverviewControllerGetRecentBusinessesV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetrecentbusinessesv1) | **GET** /v1/admin/overview/recent-businesses | Most recently created businesses
+*AdminOverviewApi* | [**adminOverviewControllerGetSignupTrendV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetsignuptrendv1) | **GET** /v1/admin/overview/signup-trend | Tenant signups by month
+*AdminOverviewApi* | [**adminOverviewControllerGetStatsV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetstatsv1) | **GET** /v1/admin/overview/stats | Overview stat cards
 *AdminSettingsApi* | [**adminAvatarControllerAuthorizeV1**](docs/AdminSettingsApi.md#adminavatarcontrollerauthorizev1) | **POST** /v1/admin/settings/profile/avatar/authorize | Get a signed avatar upload authorization
 *AdminSettingsApi* | [**adminAvatarControllerConfirmAvatarV1**](docs/AdminSettingsApi.md#adminavatarcontrollerconfirmavatarv1) | **POST** /v1/admin/settings/profile/avatar/confirm | Confirm an uploaded avatar
 *AdminSettingsApi* | [**adminSettingsControllerChangePasswordV1**](docs/AdminSettingsApi.md#adminsettingscontrollerchangepasswordv1) | **POST** /v1/admin/settings/profile/change-password | Change the signed-in platform admin\&#39;s own password
@@ -110,6 +113,8 @@ Class | Method | HTTP request | Description
 *NotificationsApi* | [**notificationsControllerMarkAllReadV1**](docs/NotificationsApi.md#notificationscontrollermarkallreadv1) | **PATCH** /v1/notifications/read-all | Mark the caller’s whole feed read
 *NotificationsApi* | [**notificationsControllerMarkReadV1**](docs/NotificationsApi.md#notificationscontrollermarkreadv1) | **PATCH** /v1/notifications/{notificationId}/read | Mark one notification read
 *PromptsApi* | [**promptsControllerCreateVersionV1**](docs/PromptsApi.md#promptscontrollercreateversionv1) | **POST** /v1/prompts/{promptId}/versions | Append a prompt version
+*PromptsApi* | [**promptsControllerGetVersionStatsBatchV1**](docs/PromptsApi.md#promptscontrollergetversionstatsbatchv1) | **POST** /v1/prompts/stats/batch | Get prompt analytics for many (promptId, version) pairs
+*PromptsApi* | [**promptsControllerGetVersionStatsV1**](docs/PromptsApi.md#promptscontrollergetversionstatsv1) | **GET** /v1/prompts/{promptId}/stats | Get prompt analytics
 *PromptsApi* | [**promptsControllerListV1**](docs/PromptsApi.md#promptscontrollerlistv1) | **GET** /v1/prompts | List tenant prompts
 *PromptsApi* | [**promptsControllerUpdateToneV1**](docs/PromptsApi.md#promptscontrollerupdatetonev1) | **PUT** /v1/prompts/{promptId}/tone | Update prompt tone
 *ReviewsApi* | [**reviewsControllerGetReviewV1**](docs/ReviewsApi.md#reviewscontrollergetreviewv1) | **GET** /v1/reviews/{reviewId} | One review with every response attached
@@ -134,7 +139,9 @@ Class | Method | HTTP request | Description
  - [AdminBusinessResponseDto](docs/AdminBusinessResponseDto.md)
  - [AdminInvitePreviewDto](docs/AdminInvitePreviewDto.md)
  - [AdminInviteResponseDto](docs/AdminInviteResponseDto.md)
+ - [AdminOverviewStatsResponseDto](docs/AdminOverviewStatsResponseDto.md)
  - [AdminProfileResponseDto](docs/AdminProfileResponseDto.md)
+ - [AdminSignupTrendPointResponseDto](docs/AdminSignupTrendPointResponseDto.md)
  - [AdminUserResponseDto](docs/AdminUserResponseDto.md)
  - [AuthenticatedUserDto](docs/AuthenticatedUserDto.md)
  - [AvailableLocationDto](docs/AvailableLocationDto.md)
@@ -161,6 +168,7 @@ Class | Method | HTTP request | Description
  - [CurrentRunDto](docs/CurrentRunDto.md)
  - [DeleteBlocklistTermResponseDto](docs/DeleteBlocklistTermResponseDto.md)
  - [DisconnectResponseDto](docs/DisconnectResponseDto.md)
+ - [GetPromptStatsBatchDto](docs/GetPromptStatsBatchDto.md)
  - [InviteMemberDto](docs/InviteMemberDto.md)
  - [LatestResponseDto](docs/LatestResponseDto.md)
  - [LocationDto](docs/LocationDto.md)
@@ -175,13 +183,16 @@ Class | Method | HTTP request | Description
  - [NotificationRecipientListResponseDto](docs/NotificationRecipientListResponseDto.md)
  - [PaginationMetaDto](docs/PaginationMetaDto.md)
  - [PlatformActivityResponseDto](docs/PlatformActivityResponseDto.md)
- - [PlatformReviewStatsResponseDto](docs/PlatformReviewStatsResponseDto.md)
  - [PlatformSettingsResponseDto](docs/PlatformSettingsResponseDto.md)
  - [PromptCreatedByDto](docs/PromptCreatedByDto.md)
  - [PromptCurrentVersionDto](docs/PromptCurrentVersionDto.md)
  - [PromptDto](docs/PromptDto.md)
  - [PromptListResponseDto](docs/PromptListResponseDto.md)
+ - [PromptStatsBatchItemDto](docs/PromptStatsBatchItemDto.md)
+ - [PromptStatsBatchPairDto](docs/PromptStatsBatchPairDto.md)
+ - [PromptStatsBatchResponseDto](docs/PromptStatsBatchResponseDto.md)
  - [PromptVersionDto](docs/PromptVersionDto.md)
+ - [PromptVersionStatsResponseDto](docs/PromptVersionStatsResponseDto.md)
  - [RecentEscalatedDto](docs/RecentEscalatedDto.md)
  - [ResendOtpDto](docs/ResendOtpDto.md)
  - [ReviewDetailResponseDto](docs/ReviewDetailResponseDto.md)

@@ -1,5 +1,7 @@
 "use client";
 
+import { cloneElement, type ReactElement, useState } from "react";
+
 import { cn } from "@/app/_libs/utils/cn";
 import {
   AlertDialog,
@@ -10,12 +12,11 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
 interface ConfirmActionDialogProps {
-  /** The element that opens the dialog — usually the action's own `Button`. */
-  trigger: React.ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   title: string;
   description: string;
   confirmLabel: string;
@@ -27,11 +28,18 @@ interface ConfirmActionDialogProps {
 
 /**
  * A confirm-before-you-act dialog for actions that change something's state
- * (suspend/reactivate a business, activate/deactivate a user) — wraps any
- * trigger element and only calls `onConfirm` once the user confirms.
+ * (suspend/reactivate a business, activate/deactivate a user) — controlled
+ * (`open`/`onOpenChange`) rather than taking a `trigger` to wrap, and rendered
+ * as a sibling of whatever opens it (never nested inside a `DropdownMenuContent`):
+ * a dropdown menu unmounts its content after its own close animation even when
+ * `onSelect` closes it "immediately," and a `AlertDialog` root living inside that
+ * subtree gets unmounted along with it moments after opening — this looks like the
+ * confirm dialog "closing itself" for no reason. Keeping this dialog outside the
+ * menu's subtree avoids that entirely.
  */
 export function ConfirmActionDialog({
-  trigger,
+  open,
+  onOpenChange,
   title,
   description,
   confirmLabel,
@@ -40,8 +48,7 @@ export function ConfirmActionDialog({
   destructive,
 }: ConfirmActionDialogProps) {
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
@@ -58,5 +65,27 @@ export function ConfirmActionDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+interface ConfirmActionButtonProps extends Omit<ConfirmActionDialogProps, "open" | "onOpenChange"> {
+  /** A single element (usually a `Button`) cloned to open the dialog on click. */
+  trigger: ReactElement<{ onClick?: () => void }>;
+}
+
+/**
+ * Convenience wrapper for the common case: a plain, always-visible button that opens the confirm
+ * dialog. NOT for a trigger nested inside something that can unmount around it (a
+ * `DropdownMenuItem`) — see `ConfirmActionDialog`'s own doc comment for why that case needs the
+ * controlled dialog rendered as a sibling of the menu instead.
+ */
+export function ConfirmActionButton({ trigger, ...dialogProps }: ConfirmActionButtonProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      {cloneElement(trigger, { onClick: () => setOpen(true) })}
+      <ConfirmActionDialog open={open} onOpenChange={setOpen} {...dialogProps} />
+    </>
   );
 }

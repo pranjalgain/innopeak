@@ -293,11 +293,14 @@
       "button": "Continue",
       "buttonMultiple": "Continue with {count} locations",
       "subtitleMultiple": "Choose the locations you'd like InnoPeak to manage.",
-      "noAddress": "No address on file"
+      "noAddress": "No address on file",
+      "alreadyConnected": "Already connected"
     },
     "backfilling": {
       "title": "Importing your review history",
-      "description": "This usually takes a minute. Don't close this window.",
+      "phase1": "Fetching your reviews…",
+      "phase2": "Reading star ratings…",
+      "phase3": "Almost there…",
       "importing": "Importing historical reviews… {imported} of ~{total} imported",
       "importingUnknownTotal": "Importing historical reviews… {imported} so far",
       "takingLonger": "This is taking longer than usual. We'll keep going — you can safely close this window and come back."
@@ -659,11 +662,35 @@
     "backToSettings": "Back to Settings",
     "title": "AI Prompts",
     "description": "These prompts are fed to the AI when it drafts a reply to a review. Use '{{business_name}}', '{{reviewer_name}}', '{{rating}}', and '{{review_text}}' as placeholders.",
+    "summary": {
+      "prompts": "{count, plural, one {Prompt} other {Prompts}}",
+      "totalGenerated": "Replies drafted",
+      "approvalRate": "Approved overall"
+    },
     "edit": "Edit",
+    "preview": "Preview",
     "versionBadge": "v{version}",
     "updatedAt": "Updated {date} by {author}",
     "editor": {
       "description": "Editing here saves a new version (v{version}) — it doesn't overwrite the current one. Placeholders in double curly braces are filled in automatically.",
+      "insertPlaceholder": "Insert:",
+      "missingPlaceholders": "Missing: {list}",
+      "unknownPlaceholders": "Unknown placeholder: {list}",
+      "placeholders": {
+        "business_name": "Business name",
+        "reviewer_name": "Reviewer name",
+        "rating": "Rating",
+        "review_text": "Review text"
+      },
+      "characterCount": "{count}/{max}",
+      "preview": "Preview",
+      "previewEmpty": "Nothing to preview yet.",
+      "sample": {
+        "business_name": "The Coastal Table",
+        "reviewer_name": "Alex Rivera",
+        "rating": "5",
+        "review_text": "Amazing food and even better service!"
+      },
       "cancel": "Cancel",
       "saveAsNewVersion": "Save as v{version}",
       "saving": "Saving…"
@@ -680,7 +707,9 @@
     },
     "history": {
       "toggle": "{count, plural, one {# earlier version} other {# earlier versions}}",
-      "entryLabel": "v{version} · {date} · {author}"
+      "entryLabel": "v{version} · {date} · {author}",
+      "preview": "Preview",
+      "previewTitle": "Version {version}"
     },
     "stats": {
       "noneGenerated": "No replies generated with this prompt yet",
@@ -702,7 +731,8 @@
       "businesses": "Businesses",
       "users": "Users",
       "reviewsFetched": "Reviews fetched",
-      "repliesSent": "Replies sent"
+      "repliesSent": "Replies sent",
+      "trendVsLastMonth": "vs last month"
     },
     "needsAttention": {
       "title": "Needs attention",
@@ -774,6 +804,12 @@
       "title": "No businesses yet",
       "description": "New businesses will show up here once they sign up."
     },
+    "noResults": {
+      "title": "No matching businesses",
+      "description": "Try a different name or owner.",
+      "clearSearch": "Clear search"
+    },
+    "searchPlaceholder": "Search by name or owner…",
     "toasts": {
       "loadFailed": "Could not load businesses.",
       "updateFailed": "Could not update this business. Please try again."
@@ -813,6 +849,12 @@
       "title": "No users yet",
       "description": "Users will show up here once businesses invite their team."
     },
+    "noResults": {
+      "title": "No matching users",
+      "description": "Try a different name or business.",
+      "clearSearch": "Clear search"
+    },
+    "searchPlaceholder": "Search by name or business…",
     "toasts": {
       "loadFailed": "Could not load users.",
       "updateFailed": "Could not update this user. Please try again."

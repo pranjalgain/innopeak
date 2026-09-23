@@ -1,6 +1,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useFormatter, useTranslations } from "next-intl";
+import { LuBuilding2 } from "react-icons/lu";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,9 +17,9 @@ interface RecentBusinessesCardProps {
 export function RecentBusinessesCard({ businesses }: RecentBusinessesCardProps) {
   const t = useTranslations("adminOverview.recentBusinesses");
   const format = useFormatter();
-  const recent = [...businesses]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, RECENT_COUNT);
+  // `businesses` already comes newest-first from the server (`GET .../overview/recent-businesses`)
+  // — this only trims it down to what the card actually displays.
+  const recent = businesses.slice(0, RECENT_COUNT);
 
   return (
     <Card className="h-full">
@@ -31,8 +32,11 @@ export function RecentBusinessesCard({ businesses }: RecentBusinessesCardProps) 
           <p className="text-sm text-muted-foreground">{t("empty")}</p>
         ) : (
           recent.map((business) => (
-            <div key={business.id} className="flex items-center justify-between gap-3 py-1.5">
-              <div className="min-w-0">
+            <div key={business.id} className="flex items-center gap-3 py-1.5">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent text-primary">
+                <LuBuilding2 className="size-4" />
+              </span>
+              <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{business.name}</p>
                 <p className="truncate text-[13px] text-muted-foreground">{business.ownerName}</p>
               </div>

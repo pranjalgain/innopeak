@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "motion/react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -114,11 +115,20 @@ export function AppShell({
 
         <SidebarContent>
           <SidebarMenu>
-            {navItems.map((item) => (
+            {navItems.map((item) => {
+              const isActive = isNavItemActive(pathname, item.href, homeHref);
+              return (
               <SidebarMenuItem key={item.href}>
+                {isActive && (
+                  <motion.div
+                    layoutId="sidebar-active-indicator"
+                    transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                    className="absolute inset-y-0 left-0 w-[2px] bg-primary group-data-[collapsible=icon]:hidden"
+                  />
+                )}
                 <SidebarMenuButton
                   asChild
-                  isActive={isNavItemActive(pathname, item.href, homeHref)}
+                  isActive={isActive}
                   tooltip={t(item.labelKey)}
                   // `group/navitem` is a *named* group — so this element's own `data-active` can
                   // drive its own children's classes below via `group-data-[...]/navitem:`,
@@ -135,7 +145,11 @@ export function AppShell({
                   // up here as `[&>svg]:size-4.5` — a plain class directly on `<item.icon>` loses
                   // to the base `SidebarMenuButton` variant's own `[&>svg]:size-4`, which is
                   // parent-scoped and therefore higher specificity.
-                  className="group/navitem h-9 rounded-none border-l-2 border-transparent pl-[10px] text-sm data-[active=true]:border-primary [&>svg]:size-4.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:rounded-md group-data-[collapsible=icon]:border-l-0 group-data-[collapsible=icon]:[&>svg]:size-5"
+                  //
+                  // The left accent bar itself is the `motion.div` above, not a static border here
+                  // — `layoutId` lets Motion animate it sliding between rows on nav change instead
+                  // of it just popping to the new active item.
+                  className="group/navitem h-9 rounded-none pl-[10px] text-sm [&>svg]:size-4.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:rounded-md group-data-[collapsible=icon]:[&>svg]:size-5"
                 >
                   <Link href={item.href as Route}>
                     {/* `scale-*` rather than a bigger `size-*`/`text-*` on active — a transform is
@@ -165,7 +179,8 @@ export function AppShell({
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            ))}
+              );
+            })}
           </SidebarMenu>
         </SidebarContent>
 

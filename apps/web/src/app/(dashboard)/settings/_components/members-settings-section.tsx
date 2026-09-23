@@ -13,7 +13,7 @@ import {
 } from "@/app/(dashboard)/settings/_schemas/invite-member.schema";
 import { cn } from "@/app/_libs/utils/cn";
 import { getInitials } from "@/app/_libs/utils/initials";
-import { ConfirmActionDialog } from "@/components/common/confirm-action-dialog";
+import { ConfirmActionButton } from "@/components/common/confirm-action-dialog";
 import { Pagination } from "@/components/common/pagination";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -136,7 +136,7 @@ export function MembersSettingsSection() {
                     {tStatus(member.status)}
                   </Badge>
                   {member.status === "invited" ? (
-                    <ConfirmActionDialog
+                    <ConfirmActionButton
                       trigger={
                         <Button
                           type="button"

@@ -1,3 +1,4 @@
+import { refreshSession } from "@/app/_libs/api-sdk/config";
 import { connectionsApi, connectionsSyncApi } from "@/app/_libs/api-sdk/connections-api";
 import { unwrap } from "@/app/_libs/services/api-error";
 
@@ -115,19 +116,21 @@ export class ConnectionService {
   }
 
   /**
-   * Real authorization is a full browser navigation to Google's OAuth consent screen and back —
-   * there is no provider for this preview deploy to round-trip through (same reasoning as
-   * `AuthService.startGoogleLogin`). The mock connects every available demo location directly
-   * against `mock-backend/state.ts` and reloads the *same* page rather than navigating elsewhere:
-   * that's exactly what the real flow amounts to from this page's own point of view, since the
-   * genuine version also never runs any of its own return-handling JS — the return is a fresh load
-   * of wherever the backend's callback redirects to, and that's this same connect screen.
+   * A full browser navigation, not an SDK call: this is an OAuth grant, so the browser has to
+   * actually travel to Google and come back through our callback. The access token rides along in
+   * its httpOnly cookie (scoped `/`), and `/v1/*` is rewritten to the backend by `next.config.ts`,
+   * so the request is authenticated without a Bearer header and without a popup.
+   *
+   * The refresh first is best-effort but load-bearing: the access-token cookie lives 15 minutes,
+   * and a navigation that 401s lands the user on a raw JSON error page rather than a screen.
    */
-  static async startAuthorize(_returnTo: "onboarding" | "settings" = "onboarding"): Promise<void> {
-    const { mockConnectAllAvailableLocations } =
-      await import("@/app/_libs/mock-backend/connect-shortcut");
-    mockConnectAllAvailableLocations();
-    window.location.reload();
+  static async startAuthorize(returnTo: "onboarding" | "settings" = "onboarding"): Promise<void> {
+    await refreshSession().catch(() => false);
+    // Not a Next page: `/v1/*` is rewritten to the NestJS backend, which answers with a 302 to
+    // Google's consent screen. `router.push` would ask the Next router to resolve a route that
+    // does not exist in the app, and the browser must genuinely leave the origin for OAuth at all.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(`/v1/connections/google/authorize?returnTo=${returnTo}`);
   }
 
   static async listAvailableLocations(signal?: AbortSignal): Promise<AvailableLocation[]> {
@@ -152,7 +155,10 @@ export class ConnectionService {
    * `GET /v1/connections` only ever reports the tenant's single currently-selected one.
    */
   static async listLocations(signal?: AbortSignal): Promise<ConnectedLocation[]> {
-    const apiResponse = await connectionsApi.connectionsControllerListLocationsV1({}, { signal });
+    const apiResponse = await connectionsApi.connectionsControllerListLocationsV1(
+      {},
+      { signal },
+    );
     const response = unwrap<{ locations: PersistedLocationResponse[] }>(apiResponse.data);
 
     return response.locations.map(({ name, ...rest }) => ({ ...rest, businessName: name }));

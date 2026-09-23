@@ -1,7 +1,6 @@
 import { Configuration } from "@innopeak/client-sdk";
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 
-import { mockAdapter } from "@/app/_libs/mock-backend/adapter";
 import { ApiError } from "@/app/_libs/services/api-error";
 import { TokenService } from "@/app/_libs/services/token.service";
 
@@ -178,13 +177,6 @@ let installed = false;
 function installApiInterceptors(): void {
   if (installed) return;
   installed = true;
-
-  // This branch is a Vercel preview deploy with no backend behind it at all — see
-  // `mock-backend/adapter.ts`'s own doc comment. Substituting axios's transport here, rather than
-  // in each `api-sdk/*.ts` file, is what lets every `*Api` class build its request exactly as it
-  // would for real (method, URL, params, body, auth header) with nothing downstream of this line
-  // aware that no request ever actually left the browser.
-  axios.defaults.adapter = mockAdapter;
 
   axios.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     if (!config.authOptional && isOwnOrigin(config)) {

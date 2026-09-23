@@ -1,5 +1,5 @@
 import { useTranslations } from "next-intl";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { toast } from "sonner";
 
@@ -58,6 +58,19 @@ export function useAuth(): UseAuthResult {
   const t = useTranslations("auth.toasts");
   const [isLoading, setIsLoading] = useState(false);
 
+  // `startGoogleLogin`/`startGoogleSignup` below navigate away instead of awaiting anything, on
+  // the assumption that the page being replaced makes a reset unnecessary. That holds for a
+  // forward navigation, but browser-back can restore this page from bfcache instead of remounting
+  // it — the in-memory `isLoading: true` comes back with it, and with no new mount there is no
+  // other point that would ever clear it, leaving every social-auth button permanently disabled.
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setIsLoading(false);
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, []);
+
   const loginWithMicrosoft = useCallback(
     async (email: string) => {
       setIsLoading(true);
@@ -90,7 +103,9 @@ export function useAuth(): UseAuthResult {
   /**
    * Navigates away rather than awaiting anything, so there is no success path to handle and no
    * `finally` to clear the spinner — the page is being replaced. Failures come back as
-   * `?error=` on the destination, which the login and signup views read on mount.
+   * `?error=` on the destination, which the login and signup views read on mount. The `pageshow`
+   * listener above covers the one case where this page isn't actually replaced: the user hits
+   * browser-back and it's restored from bfcache instead.
    */
   const startGoogleLogin = useCallback(() => {
     setIsLoading(true);

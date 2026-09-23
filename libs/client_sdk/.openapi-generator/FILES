@@ -26,7 +26,9 @@ models/accept-member-invite-dto.ts
 models/admin-business-response-dto.ts
 models/admin-invite-preview-dto.ts
 models/admin-invite-response-dto.ts
+models/admin-overview-stats-response-dto.ts
 models/admin-profile-response-dto.ts
+models/admin-signup-trend-point-response-dto.ts
 models/admin-user-response-dto.ts
 models/authenticated-user-dto.ts
 models/available-location-dto.ts
@@ -53,6 +55,7 @@ models/create-prompt-version-response-dto.ts
 models/current-run-dto.ts
 models/delete-blocklist-term-response-dto.ts
 models/disconnect-response-dto.ts
+models/get-prompt-stats-batch-dto.ts
 models/index.ts
 models/invite-member-dto.ts
 models/latest-response-dto.ts
@@ -68,13 +71,16 @@ models/notification-recipient-dto.ts
 models/notification-recipient-list-response-dto.ts
 models/pagination-meta-dto.ts
 models/platform-activity-response-dto.ts
-models/platform-review-stats-response-dto.ts
 models/platform-settings-response-dto.ts
 models/prompt-created-by-dto.ts
 models/prompt-current-version-dto.ts
 models/prompt-dto.ts
 models/prompt-list-response-dto.ts
+models/prompt-stats-batch-item-dto.ts
+models/prompt-stats-batch-pair-dto.ts
+models/prompt-stats-batch-response-dto.ts
 models/prompt-version-dto.ts
+models/prompt-version-stats-response-dto.ts
 models/recent-escalated-dto.ts
 models/resend-otp-dto.ts
 models/review-detail-response-dto.ts

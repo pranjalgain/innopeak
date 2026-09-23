@@ -8,5 +8,16 @@
 
 export const adminBusinessesQueryKey = ["admin", "businesses"] as const;
 export const adminUsersQueryKey = ["admin", "users"] as const;
-export const adminOverviewReviewStatsQueryKey = ["admin", "overview", "review-stats"] as const;
+export const adminOverviewStatsQueryKey = ["admin", "overview", "stats"] as const;
+export const adminOverviewRecentBusinessesQueryKey = [
+  "admin",
+  "overview",
+  "recent-businesses",
+] as const;
+export const adminOverviewNeedsAttentionQueryKey = [
+  "admin",
+  "overview",
+  "needs-attention",
+] as const;
+export const adminOverviewSignupTrendQueryKey = ["admin", "overview", "signup-trend"] as const;
 export const adminOverviewActivityQueryKey = ["admin", "overview", "activity"] as const;

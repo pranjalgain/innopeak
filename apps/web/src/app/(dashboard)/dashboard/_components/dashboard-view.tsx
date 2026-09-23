@@ -11,6 +11,7 @@ import { BusinessProfileCard } from "@/app/(dashboard)/dashboard/_components/bus
 import { RatingDistributionCard } from "@/app/(dashboard)/dashboard/_components/rating-distribution-card";
 import { StatCard } from "@/app/(dashboard)/dashboard/_components/stat-card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCountUp } from "@/hooks/common/use-count-up";
 import { useDashboardStats } from "@/hooks/dashboard/use-dashboard-stats";
 import { useTenant } from "@/hooks/tenant/use-tenant";
 import type { DateRange } from "@/types/domain";
@@ -24,29 +25,38 @@ export function DashboardView() {
   const { stats, ratingDistribution, attentionReviews, isLoading, error } =
     useDashboardStats(range);
 
+  const statsLoading = isLoading || !stats;
+  // Each stat counts up from 0 once its real value arrives, matching the admin overview's stat
+  // tiles. The rating is scaled by 10 so the counter can animate to one decimal place rather than
+  // rounding it away mid-count.
+  const reviewCountAnimated = useCountUp(stats?.reviewCount ?? 0, statsLoading);
+  const averageRatingAnimated = useCountUp(Math.round((stats?.averageRating ?? 0) * 10), statsLoading);
+  const pendingApprovalAnimated = useCountUp(stats?.pendingApproval ?? 0, statsLoading);
+  const escalatedOpenAnimated = useCountUp(stats?.escalatedOpen ?? 0, statsLoading);
+
   const statCards = [
     {
       id: "reviews",
       label: t("stats.reviews"),
-      value: isLoading || !stats ? "—" : String(stats.reviewCount),
+      value: statsLoading ? "—" : String(reviewCountAnimated),
       icon: LuList,
     },
     {
       id: "averageRating",
       label: t("stats.averageRating"),
-      value: isLoading || !stats ? "—" : `${stats.averageRating.toFixed(1)} ★`,
+      value: statsLoading ? "—" : `${(averageRatingAnimated / 10).toFixed(1)} ★`,
       icon: LuStar,
     },
     {
       id: "pendingApproval",
       label: t("stats.pendingApproval"),
-      value: isLoading || !stats ? "—" : String(stats.pendingApproval),
+      value: statsLoading ? "—" : String(pendingApprovalAnimated),
       icon: LuClock,
     },
     {
       id: "escalatedOpen",
       label: t("stats.escalatedOpen"),
-      value: isLoading || !stats ? "—" : String(stats.escalatedOpen),
+      value: statsLoading ? "—" : String(escalatedOpenAnimated),
       icon: LuTriangleAlert,
       warning: true,
     },
@@ -59,7 +69,7 @@ export function DashboardView() {
       {tenant ? <BusinessProfileCard tenant={tenant} /> : null}
 
       <Tabs value={range} onValueChange={(value) => setRange(value as DateRange)}>
-        <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
+        <TabsList className="w-full justify-start overflow-x-auto scrollbar-hide px-1 sm:w-fit sm:max-w-full [&>[data-slot=tabs-trigger]]:flex-none">
           {DATE_RANGE_VALUES.map((value) => (
             <TabsTrigger key={value} value={value}>
               {t(`dateRanges.${value}`)}

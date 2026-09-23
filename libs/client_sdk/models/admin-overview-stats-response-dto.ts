@@ -2,7 +2,15 @@
 /* tslint:disable */
 /* eslint-disable */
 
-export interface PlatformReviewStatsResponseDto {
+export interface AdminOverviewStatsResponseDto {
+  /**
+   * Total tenants (businesses), across the whole platform.
+   */
+  businessCount: number;
+  /**
+   * Total non-anonymized users, across every tenant.
+   */
+  userCount: number;
   /**
    * Total reviews synced, across every tenant.
    */

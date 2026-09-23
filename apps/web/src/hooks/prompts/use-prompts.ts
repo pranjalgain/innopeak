@@ -4,8 +4,20 @@ import { useTranslations } from "next-intl";
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
-import { PromptService } from "@/app/_libs/services/prompt.service";
+import { PromptApiError, PromptService } from "@/app/_libs/services/prompt.service";
 import type { AiPrompt, PromptTone } from "@/types/domain";
+
+/** Mirrors backend's PROMPT_ERROR_CODES (apps/backend/src/api/prompts/constants/prompts.constants.ts). */
+const TEMPLATE_VALIDATION_ERROR_CODES = new Set(["UNKNOWN_PLACEHOLDER", "MISSING_PLACEHOLDER"]);
+
+/** For these codes the backend's own message already names the offending placeholder(s) and is
+ *  more useful than the generic toast. */
+function templateValidationMessage(error: unknown): string | undefined {
+  if (error instanceof PromptApiError && TEMPLATE_VALIDATION_ERROR_CODES.has(error.errorCode ?? "")) {
+    return error.message;
+  }
+  return undefined;
+}
 
 export const promptsQueryKey = ["prompts"] as const;
 
@@ -53,7 +65,7 @@ export function usePrompts(): UsePromptsResult {
       const saved = updated.versions[updated.versions.length - 1];
       toast.success(t("versionSaved", { version: saved?.version ?? updated.versions.length }));
     },
-    onError: () => toast.error(t("saveFailed")),
+    onError: (error) => toast.error(templateValidationMessage(error) ?? t("saveFailed")),
   });
 
   const updateToneMutation = useMutation({
