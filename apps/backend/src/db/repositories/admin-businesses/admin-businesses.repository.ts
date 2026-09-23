@@ -4,7 +4,7 @@ import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-co
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { desc, eq, sql } from 'drizzle-orm';
+import { count, desc, eq, inArray, sql } from 'drizzle-orm';
 
 export interface SetBusinessStatusInput {
   tenantId: string;
@@ -110,6 +110,103 @@ export class AdminBusinessesRepository {
       .select(ADMIN_BUSINESS_COLUMNS)
       .from(schema.tenants)
       .orderBy(desc(schema.tenants.createdAt));
+
+    return rows as AdminBusinessRow[];
+  }
+
+  /** Total tenant count, across the whole platform — the Overview page's "Businesses" stat card. */
+  async count(): Promise<number> {
+    const rows = await this.dbService.db.select({ value: count() }).from(schema.tenants);
+    return rows[0]?.value ?? 0;
+  }
+
+  /**
+   * The most recently created tenants, capped at `limit` — same columns and correlated subqueries
+   * as `findAll`, for the Overview page's "Recent Businesses" card, which needs a small page
+   * rather than the full list `findAll` returns for the Businesses management screen.
+   */
+  async findRecent(limit: number): Promise<AdminBusinessRow[]> {
+    const rows = await this.dbService.db
+      .select(ADMIN_BUSINESS_COLUMNS)
+      .from(schema.tenants)
+      .orderBy(desc(schema.tenants.createdAt))
+      .limit(limit);
+
+    return rows as AdminBusinessRow[];
+  }
+
+  /**
+   * The tenants the "Needs Attention" panel shows: every non-connected tenant, most urgent first
+   * (a broken connection on a live customer outranks one that never onboarded), capped at `limit`
+   * — same columns as `findAll`/`findRecent`, but filtered, ordered and limited in SQL instead of
+   * loading every tenant to filter/sort/slice in JS (the deleted `selectBusinessesNeedingAttention`
+   * did that over `findAll()`'s full result). `toConnectionStatus` (`admin-businesses.db-service.ts`)
+   * remains the one source of truth for what `BusinessConnectionStatus` a tenant has for display;
+   * the CASE below independently reproduces its "is it connected, how urgent" predicate to filter
+   * and rank in SQL, since Postgres can't call a TS function mid-query. There is no shared
+   * definition and no test asserting the two agree — if `BusinessConnectionStatus` ever gains a
+   * new state, `toConnectionStatus` can be updated without anyone noticing this CASE also needs to
+   * change, and the panel would silently mis-filter or mis-order with no compiler/test signal.
+   *
+   * Wrapped as a subquery because `latestConnectionStatus`/`latestConnectionDisconnectedAt` are
+   * themselves correlated-subquery columns — Postgres can't reference a SELECT-list alias in that
+   * same query's own WHERE/ORDER BY, only a query built on top of it can.
+   *
+   * The inner subquery only projects what's needed to filter/rank/limit (`id`, `createdAt`, and
+   * the two connection columns) rather than all of `ADMIN_BUSINESS_COLUMNS`. The other three
+   * columns (`ownerName`/`ownerEmail`/`userCount`) are each a correlated scalar subquery — if they
+   * were included here, the outer WHERE/ORDER BY/LIMIT referencing this subquery's own columns
+   * would likely stop Postgres from deferring their evaluation past the filter, so every tenant in
+   * the table (including the majority excluded for already being connected) would pay for those
+   * three subqueries just to be filtered out. Instead, the full `ADMIN_BUSINESS_COLUMNS` shape is
+   * only re-fetched for the handful of tenant ids that actually survive the filter/limit.
+   */
+  async findNeedingAttention(limit: number): Promise<AdminBusinessRow[]> {
+    const sub = this.dbService.db
+      .select({
+        id: schema.tenants.id,
+        createdAt: schema.tenants.createdAt,
+        latestConnectionStatus: ADMIN_BUSINESS_COLUMNS.latestConnectionStatus,
+        latestConnectionDisconnectedAt: ADMIN_BUSINESS_COLUMNS.latestConnectionDisconnectedAt,
+      })
+      .from(schema.tenants)
+      .as('sub');
+
+    // Lower sorts first: disconnected outranks needs-reauth outranks never-connected. `NULL` (the
+    // connected case, excluded by the WHERE below) never reaches the ORDER BY.
+    const priorityExpr = sql<number | null>`
+      CASE
+        WHEN ${sub.latestConnectionDisconnectedAt} IS NOT NULL THEN 0
+        WHEN ${sub.latestConnectionStatus} = ${ReviewProviderConnectionStatus.NEEDS_REAUTH} THEN 1
+        WHEN ${sub.latestConnectionStatus} IS NULL THEN 2
+        ELSE NULL
+      END
+    `;
+
+    const filtered = await this.dbService.db
+      .select({ id: sub.id })
+      .from(sub)
+      .where(sql`${priorityExpr} IS NOT NULL`)
+      .orderBy(priorityExpr, desc(sub.createdAt))
+      .limit(limit);
+
+    if (filtered.length === 0) {
+      return [];
+    }
+
+    const ids = filtered.map(row => row.id);
+
+    // No ORDER BY here — `IN`/`inArray` gives no ordering guarantee, so the priority/tie-break
+    // order established above is re-applied in JS from `ids`, which already carries it.
+    const decorated = await this.dbService.db
+      .select(ADMIN_BUSINESS_COLUMNS)
+      .from(schema.tenants)
+      .where(inArray(schema.tenants.id, ids));
+
+    const byId = new Map(decorated.map(row => [row.id, row]));
+    const rows = ids
+      .map(id => byId.get(id))
+      .filter((row): row is (typeof decorated)[number] => row !== undefined);
 
     return rows as AdminBusinessRow[];
   }

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { useTranslations } from "next-intl";
 import { useMemo } from "react";
+import { LuBan, LuBell, LuPlug, LuSettings2, LuSparkles, LuUser, LuUsers } from "react-icons/lu";
 
 
 import { AiSettingsSection } from "@/app/(dashboard)/settings/_components/ai-settings-section";
@@ -114,8 +115,11 @@ export function SettingsView() {
     return (
       <div className="p-fluid-page flex flex-col gap-6">
         <Tabs defaultValue="profile" className="max-w-3xl gap-5">
-          <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
-            <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger>
+          <TabsList className="w-full justify-start overflow-x-auto scrollbar-hide px-1 sm:w-fit sm:max-w-full [&>[data-slot=tabs-trigger]]:flex-none">
+            <TabsTrigger value="profile">
+              <LuUser />
+              {t("tabs.profile")}
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="profile">
             <ProfileSettingsSection />
@@ -139,18 +143,39 @@ export function SettingsView() {
           full remount whenever the *resolved* tab actually changes, which re-seeds `defaultValue`,
           while still leaving manual tab clicks free to diverge from the URL same as before. */}
       <Tabs key={initialTab} defaultValue={initialTab ?? "general"} className="max-w-3xl gap-5">
-        <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
-          <TabsTrigger value="general">{t("tabs.general")}</TabsTrigger>
+        <TabsList className="w-full justify-start overflow-x-auto scrollbar-hide px-1 sm:w-fit sm:max-w-full [&>[data-slot=tabs-trigger]]:flex-none">
+          <TabsTrigger value="general">
+            <LuSettings2 />
+            {t("tabs.general")}
+          </TabsTrigger>
           {platformSettings?.passwordLoginEnabled ? (
-            <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger>
+            <TabsTrigger value="profile">
+              <LuUser />
+              {t("tabs.profile")}
+            </TabsTrigger>
           ) : null}
           {platformSettings?.inviteMembersEnabled ? (
-            <TabsTrigger value="members">{t("tabs.members")}</TabsTrigger>
+            <TabsTrigger value="members">
+              <LuUsers />
+              {t("tabs.members")}
+            </TabsTrigger>
           ) : null}
-          <TabsTrigger value="blocklist">{t("tabs.blocklist")}</TabsTrigger>
-          <TabsTrigger value="notifications">{t("tabs.notifications")}</TabsTrigger>
-          <TabsTrigger value="connection">{t("tabs.connection")}</TabsTrigger>
-          <TabsTrigger value="ai">{t("tabs.ai")}</TabsTrigger>
+          <TabsTrigger value="blocklist">
+            <LuBan />
+            {t("tabs.blocklist")}
+          </TabsTrigger>
+          <TabsTrigger value="notifications">
+            <LuBell />
+            {t("tabs.notifications")}
+          </TabsTrigger>
+          <TabsTrigger value="connection">
+            <LuPlug />
+            {t("tabs.connection")}
+          </TabsTrigger>
+          <TabsTrigger value="ai">
+            <LuSparkles />
+            {t("tabs.ai")}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="general">

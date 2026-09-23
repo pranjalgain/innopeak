@@ -2,6 +2,7 @@ import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
+import { DrizzleTransaction } from '@db/db.service';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
 
@@ -189,46 +190,93 @@ export class ConnectionsDbService {
           activeCount += 1;
         }
 
-        const acquire = async (): Promise<SyncRunRow> =>
-          tx.transaction(nested =>
-            this.reviewSyncRepository.acquireSyncRun(nested, {
-              tenantId: input.tenantId,
-              locationId: location.id,
-              trigger: SyncTrigger.BACKFILL,
-            })
-          );
-
-        try {
-          results.push({ location, backfill: await acquire(), backfillAlreadyRunning: false });
-        } catch (error) {
-          if (!isUniqueViolation(error, SYNC_RUN_RUNNING_INDEX)) {
-            throw error;
-          }
-
-          // The savepoint rolled back, not the outer transaction — the location and
-          // user_location writes above survive. Read through `tx`, not the pool: the outer
-          // transaction still holds this tenant's advisory lock, so borrowing a second connection
-          // here is a needless way to deadlock against a saturated pool.
-          const existing = await this.reviewSyncRepository.findRunningRunForLocation(
-            location.id,
-            tx
-          );
-
-          if (existing) {
-            results.push({ location, backfill: existing, backfillAlreadyRunning: true });
-            continue;
-          }
-
-          // Nothing is running after all: the blocking run finished between the constraint
-          // violation and this read. Reporting `backfillAlreadyRunning` here would be a lie with
-          // teeth — the caller skips enqueuing on that flag, so the location would sit active,
-          // never backfilled, with `onboarding_backfill_completed_at` NULL forever, which also
-          // excludes it from `findLocationsDueForPoll`. Nothing would ever retry it and no error
-          // would surface. The index is free now, so simply take it.
-          results.push({ location, backfill: await acquire(), backfillAlreadyRunning: false });
-        }
+        results.push(await this.acquireBackfillRun(tx, input.tenantId, location));
       }
 
+      return results;
+    });
+  }
+
+  /**
+   * Acquires a fresh backfill run for `location`, or reports the one already holding the partial
+   * unique index (`UNIQUE (location_id) WHERE status = 'running'`) instead of erroring — shared by
+   * `confirmLocations` (a location the owner just selected) and `restartIncompleteBackfills` (a
+   * location reactivated by reconnect whose backfill never finished). Must run inside the caller's
+   * own transaction: `confirmLocations` holds this tenant's advisory lock for the duration, and a
+   * location-limit recheck under that lock is only meaningful if nothing here escapes it.
+   */
+  private async acquireBackfillRun(
+    tx: DrizzleTransaction,
+    tenantId: string,
+    location: LocationRow
+  ): Promise<ConfirmLocationResult> {
+    const acquire = async (): Promise<SyncRunRow> =>
+      tx.transaction(nested =>
+        this.reviewSyncRepository.acquireSyncRun(nested, {
+          tenantId,
+          locationId: location.id,
+          trigger: SyncTrigger.BACKFILL,
+        })
+      );
+
+    try {
+      return { location, backfill: await acquire(), backfillAlreadyRunning: false };
+    } catch (error) {
+      if (!isUniqueViolation(error, SYNC_RUN_RUNNING_INDEX)) {
+        throw error;
+      }
+
+      // The savepoint rolled back, not the outer transaction — any earlier writes in this same
+      // transaction survive. Read through `tx`, not the pool: a caller holding an advisory lock
+      // for the duration (`confirmLocations`) would otherwise borrow a second connection here, a
+      // needless way to deadlock against a saturated pool.
+      const existing = await this.reviewSyncRepository.findRunningRunForLocation(location.id, tx);
+
+      if (existing) {
+        return { location, backfill: existing, backfillAlreadyRunning: true };
+      }
+
+      // Nothing is running after all: the blocking run finished between the constraint violation
+      // and this read. Reporting `backfillAlreadyRunning` here would be a lie with teeth — the
+      // caller skips enqueuing on that flag, so the location would sit active, never backfilled,
+      // with `onboarding_backfill_completed_at` NULL forever, which also excludes it from
+      // `findLocationsDueForPoll`. Nothing would ever retry it and no error would surface. The
+      // index is free now, so simply take it.
+      return { location, backfill: await acquire(), backfillAlreadyRunning: false };
+    }
+  }
+
+  /**
+   * Reconnect's backfill-restart path. `disconnect()` never touches `sync_runs`, and
+   * `reactivateLocationsForConnection` deliberately never re-queues a location that already
+   * finished its backfill (see its own doc comment) — so without this, a location whose backfill
+   * was still in flight, or had failed, when the owner disconnected reactivates with no path left
+   * to ever acquire a fresh run: `confirmLocations` is the only other caller of `acquireSyncRun`,
+   * and nothing calls it for an already-active, already-confirmed location. The frontend then polls
+   * the same pre-disconnect `sync_runs` row forever — wedged in `running`, or terminally `error`
+   * with no retry path that creates a new one.
+   *
+   * Filters to incomplete locations itself so callers can pass every reactivated location without
+   * checking first. Each acquisition reuses `acquireBackfillRun`'s stale-reclaim/collision handling,
+   * so a genuinely live run (a backfill that survived the disconnect and is still importing) is
+   * correctly left alone rather than duplicated.
+   */
+  async restartIncompleteBackfills(input: {
+    tenantId: string;
+    locations: LocationRow[];
+  }): Promise<ConfirmLocationResult[]> {
+    const incomplete = input.locations.filter(
+      location => location.onboardingBackfillCompletedAt === null
+    );
+    if (incomplete.length === 0) {
+      return [];
+    }
+
+    return this.connectionsRepository.transaction(async tx => {
+      const results: ConfirmLocationResult[] = [];
+      for (const location of incomplete) {
+        results.push(await this.acquireBackfillRun(tx, input.tenantId, location));
+      }
       return results;
     });
   }
@@ -253,7 +301,7 @@ export class ConnectionsDbService {
    * only for a same-account reconnect (`ConnectionsService.handleCallback`); a brand-new
    * connection has no prior locations to reactivate.
    */
-  async reactivateLocationsForConnection(connectionId: string): Promise<string[]> {
+  async reactivateLocationsForConnection(connectionId: string): Promise<LocationRow[]> {
     return this.connectionsRepository.transaction(tx =>
       this.connectionsRepository.reactivateLocationsForConnection(tx, connectionId)
     );

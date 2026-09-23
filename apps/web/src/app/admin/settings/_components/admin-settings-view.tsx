@@ -17,7 +17,7 @@ import {
   inviteAdminSchema,
 } from "@/app/admin/settings/_schemas/invite-admin.schema";
 import { AvatarUpload } from "@/components/common/avatar-upload";
-import { ConfirmActionDialog } from "@/components/common/confirm-action-dialog";
+import { ConfirmActionButton } from "@/components/common/confirm-action-dialog";
 import { LoadErrorState } from "@/components/common/load-error-state";
 import { PasswordInput } from "@/components/common/password-input";
 import {
@@ -512,7 +512,7 @@ function InviteSection() {
                     {tStatus(invite.status)}
                   </Badge>
                   {invite.status === "invited" ? (
-                    <ConfirmActionDialog
+                    <ConfirmActionButton
                       trigger={
                         <Button
                           type="button"
@@ -548,7 +548,7 @@ function InviteSection() {
                     // no self-service signup to replace it, so the backend rejects disabling it
                     // outright — the control simply isn't offered here, rather than being offered
                     // and then failing.
-                    <ConfirmActionDialog
+                    <ConfirmActionButton
                       trigger={
                         <Button
                           type="button"
@@ -718,7 +718,7 @@ export function AdminSettingsView() {
   return (
     <div className="p-fluid-page flex flex-col gap-6">
       <Tabs value={activeTab} onValueChange={handleTabChange} className="max-w-3xl gap-5">
-        <TabsList className="w-full justify-start overflow-x-auto px-1 sm:w-fit [&>[data-slot=tabs-trigger]]:flex-none">
+        <TabsList className="w-full justify-start overflow-x-auto scrollbar-hide px-1 sm:w-fit sm:max-w-full [&>[data-slot=tabs-trigger]]:flex-none">
           <TabsTrigger value="profile">{t("tabs.profile")}</TabsTrigger>
           <TabsTrigger value="members">{t("tabs.members")}</TabsTrigger>
           <TabsTrigger value="platform">{t("tabs.platform")}</TabsTrigger>

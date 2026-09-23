@@ -75,6 +75,13 @@ export class PromptsDbService {
     }));
   }
 
+  /** Existence check scoped to the caller's tenant — used by `PromptsService.getVersionStats`
+   *  when `version` is omitted, since there is no specific version to look up via `findVersion`
+   *  in that case, only the prompt itself. */
+  async findByIdForTenant(promptId: string, tenantId: string): Promise<PromptRecord | null> {
+    return this.promptsRepository.findByIdForTenant(promptId, tenantId);
+  }
+
   async getCurrentVersion(promptId: string, tenantId: string): Promise<PromptVersionRecord | null> {
     const prompt = await this.promptsRepository.findByIdForTenant(promptId, tenantId);
     if (prompt === null) {
@@ -85,6 +92,14 @@ export class PromptsDbService {
 
   async updateTone(input: UpdatePromptToneInput): Promise<PromptRecord | null> {
     return this.promptsRepository.updateTone(input);
+  }
+
+  async findVersion(
+    promptId: string,
+    version: number,
+    tenantId: string
+  ): Promise<PromptVersionRecord | null> {
+    return this.promptsRepository.findVersion(promptId, version, tenantId);
   }
 
   async appendVersion(input: AppendPromptVersionInput): Promise<AppendedPromptVersion | null> {

@@ -1,5 +1,5 @@
 import { LoggerService } from '@logger/logger.service';
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
@@ -249,6 +249,32 @@ describe('ErrorHandlerService', () => {
       const result = target.handleBadRequest(error, 'ctx');
 
       expect(result.message).toBe('invalid payload');
+    });
+
+    /**
+     * Regression: `handleHttpException` (the non-BadRequestException path) already read a
+     * `{ message, code }`-shaped exception's `code` via `extractCode`, but this path never did —
+     * so a `new BadRequestException({ message, code: 'X' })` silently lost `code`, surfacing as
+     * a plain "Bad Request" the frontend could never branch on.
+     */
+    it('surfaces a machine-readable code from a BadRequestException({ message, code }) payload', () => {
+      const error = new BadRequestException({
+        message: 'Missing required prompt placeholder(s): review_text',
+        code: 'MISSING_PLACEHOLDER',
+      });
+
+      const result = target.handleBadRequest(error, 'ctx');
+
+      expect(result.message).toBe('Missing required prompt placeholder(s): review_text');
+      expect(result.error).toBe('MISSING_PLACEHOLDER');
+    });
+
+    it('still falls back to the generic "Bad Request" error string for a plain-string BadRequestException', () => {
+      const error = new BadRequestException('invalid payload');
+
+      const result = target.handleBadRequest(error, 'ctx');
+
+      expect(result.error).toBe('Bad Request');
     });
   });
 

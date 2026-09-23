@@ -11,16 +11,12 @@ import {
   ConnectionsDbService,
   LocationLimitExceededError,
 } from '@db/repositories/connections/connections.db-service';
-import type { ProviderConnectionRow } from '@db/repositories/connections/connections.repository';
+import type {
+  LocationRow,
+  ProviderConnectionRow,
+} from '@db/repositories/connections/connections.repository';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
-import {
-  BadGatewayException,
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GOOGLE_OAUTH } from '@review-provider/constants/review-provider.constants';
 import {
@@ -34,7 +30,6 @@ import { ReviewSyncQueue } from '@review-sync-queue/review-sync.queue';
 import { OAuthStateService } from './oauth-state.service';
 
 import {
-  CONNECTION_ERROR_CODES,
   DEFAULT_RETURN_TO,
   MAX_ACTIVE_LOCATIONS,
   OAUTH_ERROR_CODES,
@@ -51,6 +46,17 @@ import type {
 } from '../dto/connection-response.dto';
 import { ConnectionState } from '../enums/connection-state.enum';
 import { ReturnTo } from '../enums/return-to.enum';
+import {
+  BackfillEnqueueFailedException,
+  ConnectionNeedsReauthException,
+  ConnectionNotFoundException,
+  ExternalLocationNotFoundException,
+  LocationInactiveException,
+  LocationLimitReachedException,
+  LocationNotFoundException,
+  ProviderNotConfiguredException,
+  ProviderUnavailableException,
+} from '../exceptions/connections.exceptions';
 import type { AuthorizeResult, CallbackInput } from '../types/connections.type';
 import { hasRequiredOAuthScope, toLocationDto } from '../utils/connections.utils';
 
@@ -162,10 +168,7 @@ export class ConnectionsService {
       if (error instanceof ProviderNotConfiguredError) {
         // 503, not 500: the server is fine, this integration just isn't set up. Distinguishing
         // them is what tells an operator to check env vars rather than read a stack trace.
-        throw new ServiceUnavailableException({
-          message: MESSAGES.CONNECTIONS.PROVIDER_NOT_CONFIGURED,
-          code: CONNECTION_ERROR_CODES.PROVIDER_NOT_CONFIGURED,
-        });
+        throw new ProviderNotConfiguredException();
       }
       throw error;
     }
@@ -252,10 +255,18 @@ export class ConnectionsService {
       // Same-account reconnect only: a brand-new connection (`existing` was null) has no prior
       // locations to reactivate. `upsertConnection` reuses the same row (upserted on
       // `(tenant_id, provider, provider_account_id)`), so `connection.id` here is
-      // `existing.id` — this call reverses exactly what `disconnect()` flipped, without
-      // re-triggering a backfill (see `ConnectionsRepository.reactivateLocationsForConnection`).
+      // `existing.id` — this call reverses exactly what `disconnect()` flipped. A location that
+      // already finished its backfill is left alone (see `ConnectionsRepository.reactivateLocationsForConnection`);
+      // one that hadn't gets a fresh backfill restarted below.
       if (existing && sameAccount) {
-        await this.connectionsDbService.reactivateLocationsForConnection(connection.id);
+        const reactivated = await this.connectionsDbService.reactivateLocationsForConnection(
+          connection.id
+        );
+        await this.restartBackfillsForReactivatedLocations(
+          record.tenantId,
+          reactivated,
+          connection
+        );
       }
 
       return this.redirectWithSuccess(record.returnTo);
@@ -336,10 +347,7 @@ export class ConnectionsService {
     const matches = input.externalLocationIds.map(externalLocationId => {
       const match = providerLocationsById.get(externalLocationId);
       if (!match) {
-        throw new NotFoundException({
-          message: MESSAGES.CONNECTIONS.EXTERNAL_LOCATION_NOT_FOUND,
-          code: CONNECTION_ERROR_CODES.EXTERNAL_LOCATION_NOT_FOUND,
-        });
+        throw new ExternalLocationNotFoundException();
       }
       return match;
     });
@@ -367,10 +375,7 @@ export class ConnectionsService {
       // see `ConnectionsDbService.confirmLocations`. Same response either way, so the caller
       // cannot tell which one fired.
       if (error instanceof LocationLimitExceededError) {
-        throw new ConflictException({
-          message: MESSAGES.CONNECTIONS.LOCATION_LIMIT_REACHED,
-          code: CONNECTION_ERROR_CODES.LOCATION_LIMIT_REACHED,
-        });
+        throw new LocationLimitReachedException();
       }
       throw error;
     }
@@ -431,17 +436,11 @@ export class ConnectionsService {
     );
 
     if (!location) {
-      throw new NotFoundException({
-        message: MESSAGES.CONNECTIONS.LOCATION_NOT_FOUND,
-        code: CONNECTION_ERROR_CODES.LOCATION_NOT_FOUND,
-      });
+      throw new LocationNotFoundException();
     }
 
     if (location.status !== LocationStatus.ACTIVE) {
-      throw new ConflictException({
-        message: MESSAGES.CONNECTIONS.LOCATION_INACTIVE,
-        code: CONNECTION_ERROR_CODES.LOCATION_INACTIVE,
-      });
+      throw new LocationInactiveException();
     }
 
     await this.authDbService.setActiveLocationId({ tenantId, locationId: location.id });
@@ -460,10 +459,7 @@ export class ConnectionsService {
     const connection = await this.connectionsDbService.findConnectionByTenant(tenantId);
 
     if (connection?.disconnectedAt !== null) {
-      throw new NotFoundException({
-        message: MESSAGES.CONNECTIONS.CONNECTION_NOT_FOUND,
-        code: CONNECTION_ERROR_CODES.CONNECTION_NOT_FOUND,
-      });
+      throw new ConnectionNotFoundException();
     }
 
     const { deactivatedLocationIds } = await this.connectionsDbService.disconnect(connection.id);
@@ -544,10 +540,51 @@ export class ConnectionsService {
       // 503, not the raw queue error: the location and user_location writes already committed
       // (confirmLocation's transaction), so this is "try again", not "the whole request failed" —
       // and the caller must not read a raw BullMQ/Redis message as something to show an owner.
-      throw new ServiceUnavailableException({
-        message: MESSAGES.CONNECTIONS.BACKFILL_ENQUEUE_FAILED,
-        code: CONNECTION_ERROR_CODES.BACKFILL_ENQUEUE_FAILED,
+      throw new BackfillEnqueueFailedException();
+    }
+  }
+
+  /**
+   * Restarts a fresh backfill for any reactivated location that never finished one before the
+   * owner disconnected — see `ConnectionsDbService.restartIncompleteBackfills`'s own doc comment
+   * for the "stuck on the backfill page forever after reconnect" failure this closes. Failures
+   * here are logged and swallowed rather than failing the whole reconnect: the connection and
+   * location reactivation already committed by this point, and `enqueueBackfill` has already
+   * recorded any failure on the sync run itself (same per-location tolerance as `confirmLocations`
+   * below) — so the owner lands on the app and sees a normal, retryable backfill-failed state
+   * instead of being told reconnecting itself failed when it didn't.
+   */
+  private async restartBackfillsForReactivatedLocations(
+    tenantId: string,
+    reactivatedLocations: LocationRow[],
+    connection: ProviderConnectionRow
+  ): Promise<void> {
+    if (reactivatedLocations.length === 0) {
+      return;
+    }
+
+    try {
+      const restarted = await this.connectionsDbService.restartIncompleteBackfills({
+        tenantId,
+        locations: reactivatedLocations,
       });
+
+      // Every location gets its enqueue attempted, even after one fails — same reasoning as the
+      // batch loop in `confirmLocations` below, just with the failure logged instead of rethrown
+      // (this whole step is best-effort; see this method's own doc comment).
+      for (const result of restarted) {
+        try {
+          await this.enqueueBackfill(result, connection);
+        } catch (error) {
+          this.logger.error(
+            `Failed to restart backfill for location ${result.location.id} after reconnect: ${(error as Error).message}`
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to restart backfills after reconnect for tenant ${tenantId}: ${(error as Error).message}`
+      );
     }
   }
 
@@ -584,10 +621,7 @@ export class ConnectionsService {
     const newCount = externalLocationIds.filter(id => !activeExternalIds.has(id)).length;
 
     if (active.length + newCount > MAX_ACTIVE_LOCATIONS) {
-      throw new ConflictException({
-        message: MESSAGES.CONNECTIONS.LOCATION_LIMIT_REACHED,
-        code: CONNECTION_ERROR_CODES.LOCATION_LIMIT_REACHED,
-      });
+      throw new LocationLimitReachedException();
     }
   }
 
@@ -595,17 +629,11 @@ export class ConnectionsService {
     const connection = await this.connectionsDbService.findConnectionByTenant(tenantId);
 
     if (!connection) {
-      throw new NotFoundException({
-        message: MESSAGES.CONNECTIONS.CONNECTION_NOT_FOUND,
-        code: CONNECTION_ERROR_CODES.CONNECTION_NOT_FOUND,
-      });
+      throw new ConnectionNotFoundException();
     }
 
     if (connection.status === ReviewProviderConnectionStatus.NEEDS_REAUTH) {
-      throw new ConflictException({
-        message: MESSAGES.CONNECTIONS.CONNECTION_NEEDS_REAUTH,
-        code: CONNECTION_ERROR_CODES.CONNECTION_NEEDS_REAUTH,
-      });
+      throw new ConnectionNeedsReauthException();
     }
 
     return connection;
@@ -637,26 +665,17 @@ export class ConnectionsService {
     } catch (error) {
       if (error instanceof ProviderAuthError) {
         await this.connectionsDbService.markNeedsReauth(connection.id);
-        throw new ConflictException({
-          message: MESSAGES.CONNECTIONS.CONNECTION_NEEDS_REAUTH,
-          code: CONNECTION_ERROR_CODES.CONNECTION_NEEDS_REAUTH,
-        });
+        throw new ConnectionNeedsReauthException();
       }
 
       if (error instanceof ProviderNotConfiguredError) {
-        throw new ServiceUnavailableException({
-          message: MESSAGES.CONNECTIONS.PROVIDER_NOT_CONFIGURED,
-          code: CONNECTION_ERROR_CODES.PROVIDER_NOT_CONFIGURED,
-        });
+        throw new ProviderNotConfiguredException();
       }
 
       // 502, deliberately distinct from the 409 above: a Google outage should offer the owner a
       // retry, not send them through a re-consent that cannot fix anything.
       this.logger.error(`Provider call failed: ${(error as Error).message}`);
-      throw new BadGatewayException({
-        message: MESSAGES.CONNECTIONS.PROVIDER_UNAVAILABLE,
-        code: CONNECTION_ERROR_CODES.PROVIDER_UNAVAILABLE,
-      });
+      throw new ProviderUnavailableException();
     }
   }
 

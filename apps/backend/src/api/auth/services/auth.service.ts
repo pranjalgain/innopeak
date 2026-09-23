@@ -9,17 +9,7 @@ import { EnvConfig } from '@config/env.config';
 import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
 import { DemoDataDbService } from '@db/repositories/demo-data/demo-data.db-service';
 import { MediaService } from '@media/media.service';
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-  Logger,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
@@ -49,11 +39,24 @@ import { TokenResponseDto } from '../dto/token-response.dto';
 import { UpdateLocaleResponseDto } from '../dto/update-locale-response.dto';
 import { UpdateLocaleDto } from '../dto/update-locale.dto';
 import { VerifyEmailDto } from '../dto/verify-email.dto';
-import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
+import {
+  AccountDisabledException,
+  EmailAlreadyRegisteredException,
+  GooglePendingSignupExpiredException,
+  InvalidAccessTokenException,
+  InvalidCredentialsException,
+  InvalidCurrentPasswordException,
+  InvalidOrExpiredInviteException,
+  InvalidOtpException,
+  InviteNotFoundException,
+  NoPasswordSetException,
+  PasswordAlreadySetException,
+  TenantSuspendedException,
+} from '../exceptions/auth.exceptions';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
 import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
 import type { AuthUser } from '../types/auth-user.type';
@@ -61,6 +64,7 @@ import type { GoogleAuthorizeRedirect } from '../types/google-authorize-redirect
 import type { GoogleIdentity } from '../types/google-identity.type';
 import { normalizeEmail } from '../utils/email.utils';
 import { buildMemberInviteLink } from '../utils/member-invite-link.util';
+import { requireTenantUser } from '../utils/require-tenant-user.util';
 import { hashToken } from '../utils/token.utils';
 
 export type { GoogleAuthorizeRedirect };
@@ -174,7 +178,7 @@ export class AuthService {
     });
 
     if (!result) {
-      throw new ConflictException(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+      throw new EmailAlreadyRegisteredException();
     }
 
     this.sendOtpEmail({ email, customerName: result.ownerName, rawOtp });
@@ -201,7 +205,7 @@ export class AuthService {
     const user = await this.authDbService.verifyEmail({ email, tokenHash: hashToken(dto.otp) });
 
     if (!user) {
-      throw new BadRequestException(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
+      throw new InvalidOtpException();
     }
 
     await this.otpAttemptService.reset(email);
@@ -238,7 +242,7 @@ export class AuthService {
     // threshold was found.
     if (await this.loginAttemptService.isLockedOut(email, LoginAttemptScope.TENANT)) {
       await this.hashingService.compare(dto.password, await this.decoyPasswordHash());
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CREDENTIALS);
+      throw new InvalidCredentialsException();
     }
 
     const user = await this.authDbService.findUserForLogin(email);
@@ -254,7 +258,7 @@ export class AuthService {
 
     if (!user?.passwordHash || !passwordMatches) {
       await this.loginAttemptService.recordFailure(email, LoginAttemptScope.TENANT);
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CREDENTIALS);
+      throw new InvalidCredentialsException();
     }
 
     // The password is proven from here on, so the failure budget has served its purpose. Cleared
@@ -263,12 +267,12 @@ export class AuthService {
     await this.loginAttemptService.reset(email, LoginAttemptScope.TENANT);
 
     if (user.status === UserStatus.DISABLED) {
-      throw new ForbiddenException(MESSAGES.AUTH.ACCOUNT_DISABLED);
+      throw new AccountDisabledException();
     }
 
     const tenant = await this.authDbService.findTenantStatus(user.tenantId);
     if (tenant?.status === TenantStatus.SUSPENDED) {
-      throw new ForbiddenException(MESSAGES.AUTH.TENANT_SUSPENDED);
+      throw new TenantSuspendedException();
     }
 
     if (user.status === UserStatus.PENDING_VERIFICATION) {
@@ -328,17 +332,15 @@ export class AuthService {
    * POST /v1/auth/change-password in the auth API reference.
    */
   async changePassword(actor: AuthUser, dto: ChangePasswordDto): Promise<TokenIssuanceResult> {
-    if (actor.type !== JwtTokenType.TENANT_USER) {
-      throw new ForbiddenException(MESSAGES.AUTH.TENANT_ONLY);
-    }
+    const tenantUser = requireTenantUser(actor, MESSAGES.AUTH.TENANT_ONLY);
 
-    const user = await this.authDbService.findUserById(actor.id);
+    const user = await this.authDbService.findUserById(tenantUser.id);
     if (!user) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+      throw new InvalidAccessTokenException();
     }
 
     if (!user.passwordHash) {
-      throw new BadRequestException(MESSAGES.AUTH.NO_PASSWORD_SET);
+      throw new NoPasswordSetException();
     }
 
     const currentMatches = await this.hashingService.compare(
@@ -346,7 +348,7 @@ export class AuthService {
       user.passwordHash
     );
     if (!currentMatches) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CURRENT_PASSWORD);
+      throw new InvalidCurrentPasswordException();
     }
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
@@ -367,13 +369,11 @@ export class AuthService {
    * to Google-only accounts that have none. Reading it from the DB per request removes the guess.
    */
   async me(actor: AuthUser): Promise<AuthenticatedUserDto> {
-    if (actor.type !== JwtTokenType.TENANT_USER) {
-      throw new ForbiddenException(MESSAGES.AUTH.TENANT_ONLY);
-    }
+    const tenantUser = requireTenantUser(actor, MESSAGES.AUTH.TENANT_ONLY);
 
-    const user = await this.authDbService.findUserById(actor.id);
+    const user = await this.authDbService.findUserById(tenantUser.id);
     if (!user) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+      throw new InvalidAccessTokenException();
     }
 
     const [tenant, avatarUrl] = await Promise.all([
@@ -393,17 +393,15 @@ export class AuthService {
    * OTP step completes; from then on that account uses `changePassword`.
    */
   async setPassword(actor: AuthUser, dto: SetPasswordDto): Promise<TokenIssuanceResult> {
-    if (actor.type !== JwtTokenType.TENANT_USER) {
-      throw new ForbiddenException(MESSAGES.AUTH.TENANT_ONLY);
-    }
+    const tenantUser = requireTenantUser(actor, MESSAGES.AUTH.TENANT_ONLY);
 
-    const user = await this.authDbService.findUserById(actor.id);
+    const user = await this.authDbService.findUserById(tenantUser.id);
     if (!user) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+      throw new InvalidAccessTokenException();
     }
 
     if (user.passwordHash) {
-      throw new BadRequestException(MESSAGES.AUTH.PASSWORD_ALREADY_SET);
+      throw new PasswordAlreadySetException();
     }
 
     // Budget spent before comparison, same shape as `verifyEmail` — an exhausted account can't be
@@ -417,7 +415,7 @@ export class AuthService {
       tokenHash: hashToken(dto.otp),
     });
     if (!otpValid) {
-      throw new BadRequestException(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
+      throw new InvalidOtpException();
     }
     await this.otpAttemptService.reset(user.email);
 
@@ -441,17 +439,15 @@ export class AuthService {
    * right now.
    */
   async requestSetPasswordOtp(actor: AuthUser): Promise<{ message: string }> {
-    if (actor.type !== JwtTokenType.TENANT_USER) {
-      throw new ForbiddenException(MESSAGES.AUTH.TENANT_ONLY);
-    }
+    const tenantUser = requireTenantUser(actor, MESSAGES.AUTH.TENANT_ONLY);
 
-    const user = await this.authDbService.findUserById(actor.id);
+    const user = await this.authDbService.findUserById(tenantUser.id);
     if (!user) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+      throw new InvalidAccessTokenException();
     }
 
     if (user.passwordHash) {
-      throw new BadRequestException(MESSAGES.AUTH.PASSWORD_ALREADY_SET);
+      throw new PasswordAlreadySetException();
     }
 
     if (await this.otpAttemptService.claimResend(user.email)) {
@@ -483,13 +479,11 @@ export class AuthService {
    * real security boundary, not a style choice.
    */
   async updateLocale(actor: AuthUser, dto: UpdateLocaleDto): Promise<UpdateLocaleResponseDto> {
-    if (actor.type !== JwtTokenType.TENANT_USER) {
-      throw new ForbiddenException(MESSAGES.AUTH.TENANT_ONLY);
-    }
+    const tenantUser = requireTenantUser(actor, MESSAGES.AUTH.TENANT_ONLY);
 
-    const user = await this.authDbService.findUserById(actor.id);
+    const user = await this.authDbService.findUserById(tenantUser.id);
     if (!user) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+      throw new InvalidAccessTokenException();
     }
 
     const tenant = await this.authDbService.findTenantStatus(user.tenantId);
@@ -541,7 +535,7 @@ export class AuthService {
   async validateMemberInvite(rawToken: string): Promise<MemberInvitePreviewDto> {
     const invite = await this.authDbService.findMemberInviteEmailByTokenHash(hashToken(rawToken));
     if (!invite) {
-      throw new NotFoundException(MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE);
+      throw new InviteNotFoundException();
     }
     return MemberInvitePreviewDto.from(invite);
   }
@@ -569,7 +563,7 @@ export class AuthService {
     });
 
     if (result.outcome !== 'accepted') {
-      throw new BadRequestException(MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE);
+      throw new InvalidOrExpiredInviteException();
     }
 
     return this.buildTokenIssuanceResult({
@@ -758,7 +752,7 @@ export class AuthService {
 
     const tenant = await this.authDbService.findTenantStatus(invite.tenantId);
     if (tenant?.status === TenantStatus.SUSPENDED) {
-      throw new ForbiddenException(MESSAGES.AUTH.TENANT_SUSPENDED);
+      throw new TenantSuspendedException();
     }
   }
 
@@ -1068,7 +1062,7 @@ export class AuthService {
   ): Promise<TokenIssuanceResult> {
     const pending = await this.pendingGoogleSignupService.consume(pendingSignupCookie);
     if (!pending.ok) {
-      throw new BadRequestException(MESSAGES.AUTH.GOOGLE_PENDING_SIGNUP_EXPIRED);
+      throw new GooglePendingSignupExpiredException();
     }
 
     const user = await this.authDbService.completeGoogleSignup({
@@ -1081,7 +1075,7 @@ export class AuthService {
     if (user === null) {
       // Someone else registered this exact email in the window between the callback and this
       // call — a password signup, or a second Google round trip for the same address.
-      throw new ConflictException(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+      throw new EmailAlreadyRegisteredException();
     }
 
     // Unconditional here (unlike the other two hooks) — `completeGoogleSignup` only ever reaches
@@ -1108,11 +1102,11 @@ export class AuthService {
    */
   private async assertGoodStanding(status: UserStatus, tenant: TenantRow | null): Promise<void> {
     if (status === UserStatus.DISABLED) {
-      throw new ForbiddenException(MESSAGES.AUTH.ACCOUNT_DISABLED);
+      throw new AccountDisabledException();
     }
 
     if (tenant?.status === TenantStatus.SUSPENDED) {
-      throw new ForbiddenException(MESSAGES.AUTH.TENANT_SUSPENDED);
+      throw new TenantSuspendedException();
     }
 
     return Promise.resolve();

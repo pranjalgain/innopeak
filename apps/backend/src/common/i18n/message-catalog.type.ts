@@ -96,6 +96,9 @@ export interface MessageCatalog {
     UNKNOWN_VARIABLE: (names: readonly string[]) => string;
     MISSING_VARIABLE: (names: readonly string[]) => string;
     TENANT_ONLY: string;
+    STATS_RETRIEVED: string;
+    VERSION_NOT_FOUND: string;
+    STATS_BATCH_RETRIEVED: string;
   };
   SETTINGS: {
     BLOCKLIST_LISTED: string;

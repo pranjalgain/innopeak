@@ -1,22 +1,19 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
+import { PlatformAdminOnlyException, TenantOnlyException } from '@auth/exceptions/auth.exceptions';
 import type { AuthUser } from '@auth/types/auth-user.type';
-import { MESSAGES } from '@common/constants/messages.constants';
 import { MediaDbService } from '@db/repositories/media/media.db-service';
 import type { MediaOwner } from '@db/repositories/media/media.repository';
-import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import { AvatarUploadAuthorizationResponseDto } from './dto/avatar-upload-authorization-response.dto';
 import { ConfirmAvatarResponseDto } from './dto/confirm-avatar-response.dto';
+import {
+  AvatarUploadNotVerifiedException,
+  MediaFileTooLargeException,
+  UnsupportedMediaFormatException,
+} from './exceptions/media.exceptions';
 import { StorageProvider } from './providers/storage.provider';
 import { avatarFolderFor } from './utils/avatar-folder.util';
-
-/** Only `notFound` stays deliberately vague — see `VerifyUploadResult` for why the other two are
- *  safe (and useful) to name. */
-const VERIFICATION_FAILURE_MESSAGES = {
-  notFound: MESSAGES.MEDIA.UPLOAD_NOT_VERIFIED,
-  unsupportedFormat: MESSAGES.MEDIA.UNSUPPORTED_FORMAT,
-  tooLarge: MESSAGES.MEDIA.FILE_TOO_LARGE,
-} as const;
 
 /**
  * Orchestrates the direct-to-provider avatar upload: mint an authorization the client uploads
@@ -79,14 +76,14 @@ export class MediaService {
   async getAvatarUploadAuthorizationForTenant(
     actor: AuthUser
   ): Promise<AvatarUploadAuthorizationResponseDto> {
-    this.assertActorType(actor, JwtTokenType.TENANT_USER, MESSAGES.AUTH.TENANT_ONLY);
+    this.assertActorType(actor, JwtTokenType.TENANT_USER);
     return this.getAvatarUploadAuthorization({ userId: actor.id });
   }
 
   async getAvatarUploadAuthorizationForAdmin(
     actor: AuthUser
   ): Promise<AvatarUploadAuthorizationResponseDto> {
-    this.assertActorType(actor, JwtTokenType.PLATFORM_ADMIN, MESSAGES.ADMIN.ADMIN_ONLY);
+    this.assertActorType(actor, JwtTokenType.PLATFORM_ADMIN);
     return this.getAvatarUploadAuthorization({ platformAdminId: actor.id });
   }
 
@@ -94,7 +91,7 @@ export class MediaService {
     actor: AuthUser,
     providerAssetId: string
   ): Promise<ConfirmAvatarResponseDto> {
-    this.assertActorType(actor, JwtTokenType.TENANT_USER, MESSAGES.AUTH.TENANT_ONLY);
+    this.assertActorType(actor, JwtTokenType.TENANT_USER);
     return ConfirmAvatarResponseDto.from(await this.confirmUserAvatar(actor.id, providerAssetId));
   }
 
@@ -102,7 +99,7 @@ export class MediaService {
     actor: AuthUser,
     providerAssetId: string
   ): Promise<ConfirmAvatarResponseDto> {
-    this.assertActorType(actor, JwtTokenType.PLATFORM_ADMIN, MESSAGES.ADMIN.ADMIN_ONLY);
+    this.assertActorType(actor, JwtTokenType.PLATFORM_ADMIN);
     return ConfirmAvatarResponseDto.from(
       await this.confirmPlatformAdminAvatar(actor.id, providerAssetId)
     );
@@ -118,10 +115,14 @@ export class MediaService {
    * exact check, which is why it's a shared private helper rather than four copies of the same
    * `if`.
    */
-  private assertActorType(actor: AuthUser, expected: JwtTokenType, message: string): void {
-    if (actor.type !== expected) {
-      throw new ForbiddenException(message);
+  private assertActorType(actor: AuthUser, expected: JwtTokenType): void {
+    if (actor.type === expected) {
+      return;
     }
+    if (expected === JwtTokenType.TENANT_USER) {
+      throw new TenantOnlyException();
+    }
+    throw new PlatformAdminOnlyException();
   }
 
   private async confirmAvatar(owner: MediaOwner, providerAssetId: string): Promise<string> {
@@ -133,7 +134,13 @@ export class MediaService {
       avatarFolderFor(owner)
     );
     if (!verification.ok) {
-      throw new BadRequestException(VERIFICATION_FAILURE_MESSAGES[verification.reason]);
+      if (verification.reason === 'notFound') {
+        throw new AvatarUploadNotVerifiedException();
+      }
+      if (verification.reason === 'unsupportedFormat') {
+        throw new UnsupportedMediaFormatException();
+      }
+      throw new MediaFileTooLargeException();
     }
     const verified = verification.upload;
 

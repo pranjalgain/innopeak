@@ -1,4 +1,5 @@
 import { UserStatus } from '@auth/enums/user-status.enum';
+import { EmailAlreadyRegisteredException } from '@auth/exceptions/auth.exceptions';
 import { buildMemberInviteLink } from '@auth/utils/member-invite-link.util';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { hashToken } from '@auth/utils/token.utils';
@@ -11,13 +12,7 @@ import { EnvConfig } from '@config/env.config';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
-import {
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
@@ -25,6 +20,12 @@ import { randomBytes } from 'crypto';
 import type { AuthUser } from '../../auth/types/auth-user.type';
 import { InviteMemberDto } from '../dto/invite-member.dto';
 import { TenantMemberResponseDto } from '../dto/tenant-member-response.dto';
+import {
+  MemberEmailAlreadyInvitedException,
+  MemberInviteNotRevocableException,
+  MemberInvitesDisabledException,
+  MemberNotFoundException,
+} from '../exceptions/settings.exceptions';
 
 /** Matches `AdminSettingsService`'s own `INVITE_TTL_DAYS` — same product default, kept as its own
  *  module-local constant rather than shared, since the two invite flows have no other coupling. */
@@ -69,7 +70,7 @@ export class TenantMembersService {
 
     const platformSettings = await this.platformSettingsDbService.get();
     if (platformSettings?.inviteMembersEnabled !== true) {
-      throw new ForbiddenException(MESSAGES.SETTINGS.MEMBER_INVITES_DISABLED);
+      throw new MemberInvitesDisabledException();
     }
 
     // Global lookup, not tenant-scoped — `idx_users_email_active` is a global uniqueness
@@ -99,11 +100,10 @@ export class TenantMembersService {
           new Date(existing.inviteExpiresAt).getTime() <= Date.now());
 
       if (!isLapsedInvite) {
-        throw new ConflictException(
-          existing.status === UserStatus.INVITED
-            ? MESSAGES.SETTINGS.MEMBER_EMAIL_ALREADY_INVITED
-            : MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED
-        );
+        if (existing.status === UserStatus.INVITED) {
+          throw new MemberEmailAlreadyInvitedException();
+        }
+        throw new EmailAlreadyRegisteredException();
       }
 
       // Cascades to the invite token row. Safe against an accepted member: the delete is scoped to
@@ -130,7 +130,7 @@ export class TenantMembersService {
       });
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new ConflictException(MESSAGES.SETTINGS.MEMBER_EMAIL_ALREADY_INVITED);
+        throw new MemberEmailAlreadyInvitedException();
       }
       throw error;
     }
@@ -165,10 +165,10 @@ export class TenantMembersService {
     const revoked = await this.authDbService.revokeMemberInvite(owner.tenantId, memberId);
 
     if (revoked.outcome === 'not_found') {
-      throw new NotFoundException(MESSAGES.SETTINGS.MEMBER_NOT_FOUND);
+      throw new MemberNotFoundException();
     }
     if (revoked.outcome === 'not_invited') {
-      throw new ConflictException(MESSAGES.SETTINGS.MEMBER_INVITE_NOT_REVOCABLE);
+      throw new MemberInviteNotRevocableException();
     }
   }
 

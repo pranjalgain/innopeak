@@ -21,16 +21,22 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { CreatePromptVersionDto } from './dto/create-prompt-version.dto';
+import { GetPromptStatsBatchDto } from './dto/get-prompt-stats-batch.dto';
+import { GetPromptStatsQueryDto } from './dto/get-prompt-stats-query.dto';
 import { ListPromptsQueryDto } from './dto/list-prompts-query.dto';
 import {
   CreatePromptVersionResponseDto,
   PromptListResponseDto,
+  PromptStatsBatchResponseDto,
+  PromptVersionStatsResponseDto,
   UpdatePromptToneResponseDto,
 } from './dto/prompt-response.dto';
 import { UpdatePromptToneDto } from './dto/update-prompt-tone.dto';
 import { PromptsService } from './prompts.service';
 import {
   ApiCreatePromptVersion,
+  ApiGetPromptStats,
+  ApiGetPromptStatsBatch,
   ApiListPrompts,
   ApiUpdatePromptTone,
 } from './swagger/prompts.swagger';
@@ -75,5 +81,28 @@ export class PromptsController {
   ): Promise<ApiResponse<UpdatePromptToneResponseDto>> {
     const result = await this.promptsService.updateTone(promptId, dto.tone, user);
     return ResponseUtil.success(result, MESSAGES.PROMPTS.TONE_UPDATED);
+  }
+
+  @Get(RouteNames.PROMPT_STATS)
+  @ApiGetPromptStats()
+  async getVersionStats(
+    @Param('promptId', ParseUUIDPipe) promptId: string,
+    @Query() query: GetPromptStatsQueryDto,
+    @CurrentUser() user: AuthUser
+  ): Promise<ApiResponse<PromptVersionStatsResponseDto>> {
+    const result = await this.promptsService.getVersionStats(promptId, query.version, user);
+    return ResponseUtil.success(result, MESSAGES.PROMPTS.STATS_RETRIEVED);
+  }
+
+  @Post(RouteNames.PROMPT_STATS_BATCH)
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ short: { limit: 20, ttl: 60000 } })
+  @ApiGetPromptStatsBatch()
+  async getVersionStatsBatch(
+    @Body() dto: GetPromptStatsBatchDto,
+    @CurrentUser() user: AuthUser
+  ): Promise<ApiResponse<PromptStatsBatchResponseDto>> {
+    const result = await this.promptsService.getVersionStatsBatch(dto.pairs, user);
+    return ResponseUtil.success(result, MESSAGES.PROMPTS.STATS_BATCH_RETRIEVED);
   }
 }

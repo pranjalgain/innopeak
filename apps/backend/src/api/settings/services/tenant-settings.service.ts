@@ -1,11 +1,12 @@
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { SettingsDbService } from '@db/repositories/settings/settings.db-service';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import type { AuthUser } from '../../auth/types/auth-user.type';
 import { TenantSettingsResponseDto } from '../dto/tenant-settings-response.dto';
 import { UpdateTenantSettingsDto } from '../dto/update-tenant-settings.dto';
+import { TenantSettingsMissingException } from '../exceptions/settings.exceptions';
 
 @Injectable()
 export class TenantSettingsService {
@@ -15,7 +16,7 @@ export class TenantSettingsService {
     const tenantUser = requireTenantUser(user, MESSAGES.SETTINGS.TENANT_ONLY);
     const row = await this.settingsDbService.findTenantSettings(tenantUser.tenantId);
     if (row === null) {
-      throw new NotFoundException(MESSAGES.SETTINGS.TENANT_SETTINGS_MISSING);
+      throw new TenantSettingsMissingException();
     }
     return TenantSettingsResponseDto.from(row);
   }
@@ -29,7 +30,7 @@ export class TenantSettingsService {
       aiReplyCount: dto.aiReplyCount,
     });
     if (row === null) {
-      throw new NotFoundException(MESSAGES.SETTINGS.TENANT_SETTINGS_MISSING);
+      throw new TenantSettingsMissingException();
     }
     return TenantSettingsResponseDto.from(row);
   }

@@ -73,6 +73,14 @@ const sidebars = {
                 },
                 {
                   type: 'category',
+                  label: 'Admin Overview',
+                  items: [
+                    'backend/admin-overview/overview',
+                    'backend/admin-overview/api-reference',
+                  ],
+                },
+                {
+                  type: 'category',
                   label: 'Platform Admin',
                   items: [
                     'backend/platform-admin/overview',

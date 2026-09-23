@@ -94,6 +94,7 @@
     "clsx": "^2.1.1",
     "dotenv-expand": "^1000.0.0",
     "drizzle-orm": "^0.45.2",
+    "motion": "^13.4.0",
     "mysql2": "^3.24.3",
     "next": "16.3.4",
     "next-intl": "^4.14.2",

@@ -10,7 +10,13 @@ import { AdminBusinessesRepository, type AdminBusinessRow } from './admin-busine
 
 describe('AdminBusinessesDbService', () => {
   let target: AdminBusinessesDbService;
-  let adminBusinessesRepository: { findAll: jest.Mock; findById: jest.Mock; setStatus: jest.Mock };
+  let adminBusinessesRepository: {
+    findAll: jest.Mock;
+    findById: jest.Mock;
+    setStatus: jest.Mock;
+    count: jest.Mock;
+    findRecent: jest.Mock;
+  };
 
   function row(overrides: Partial<AdminBusinessRow> = {}): AdminBusinessRow {
     return {
@@ -28,7 +34,13 @@ describe('AdminBusinessesDbService', () => {
   }
 
   beforeEach(async () => {
-    adminBusinessesRepository = { findAll: jest.fn(), findById: jest.fn(), setStatus: jest.fn() };
+    adminBusinessesRepository = {
+      findAll: jest.fn(),
+      findById: jest.fn(),
+      setStatus: jest.fn(),
+      count: jest.fn(),
+      findRecent: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -128,6 +140,27 @@ describe('AdminBusinessesDbService', () => {
 
     expect(summary?.ownerName).toBe('');
     expect(summary?.ownerEmail).toBe('');
+  });
+
+  describe('count', () => {
+    it('passes the repository count straight through', async () => {
+      adminBusinessesRepository.count.mockResolvedValue(128);
+
+      await expect(target.count()).resolves.toBe(128);
+    });
+  });
+
+  describe('findRecent', () => {
+    it('maps recent rows the same way findAll does, forwarding the limit', async () => {
+      adminBusinessesRepository.findRecent.mockResolvedValue([
+        row({ status: TenantStatus.SUSPENDED }),
+      ]);
+
+      const [summary] = await target.findRecent(5);
+
+      expect(adminBusinessesRepository.findRecent).toHaveBeenCalledWith(5);
+      expect(summary?.status).toBe(BusinessStatus.SUSPENDED);
+    });
   });
 
   describe('setStatus', () => {

@@ -30,6 +30,24 @@ export class AdminBusinessesDbService {
     return rows.map(toSummary);
   }
 
+  /** Total tenant count — passed straight through, there is no row to map. */
+  async count(): Promise<number> {
+    return this.adminBusinessesRepository.count();
+  }
+
+  /** The most recently created tenants, mapped the same way `findAll` is. */
+  async findRecent(limit: number): Promise<AdminBusinessSummary[]> {
+    const rows = await this.adminBusinessesRepository.findRecent(limit);
+    return rows.map(toSummary);
+  }
+
+  /** The tenants needing attention, already filtered/ordered/capped in SQL — see
+   *  `AdminBusinessesRepository.findNeedingAttention`'s own comment. */
+  async findNeedingAttention(limit: number): Promise<AdminBusinessSummary[]> {
+    const rows = await this.adminBusinessesRepository.findNeedingAttention(limit);
+    return rows.map(toSummary);
+  }
+
   /**
    * Sets the tenant's real (3-value) status and returns the mapped summary, or `null` if no such
    * tenant exists. `reactivate` always lands on `TenantStatus.ACTIVE` regardless of whether the

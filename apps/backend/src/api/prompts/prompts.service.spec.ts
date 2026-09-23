@@ -1,10 +1,18 @@
 import { UserRole } from '@auth/enums/user-role.enum';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PromptsDbService } from '@db/repositories/prompts/prompts.db-service';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
+import { PROMPT_ERROR_CODES } from './constants/prompts.constants';
+import {
+  MissingPlaceholderException,
+  PromptNotFoundException,
+  PromptVersionConflictException,
+  PromptVersionNotFoundException,
+  UnknownPlaceholderException,
+} from './exceptions/prompts.exceptions';
 import { PromptsService } from './prompts.service';
 import type { PromptVersionRecord } from './types/prompt.type';
 
@@ -21,6 +29,10 @@ describe('PromptsService', () => {
     appendVersion: jest.Mock;
     countVersions: jest.Mock;
     updateTone: jest.Mock;
+  };
+  let reviewSyncDbService: {
+    getPromptVersionStats: jest.Mock;
+    getPromptVersionStatsBatch: jest.Mock;
   };
 
   const tenantUser: TenantAuthUser = {
@@ -51,9 +63,17 @@ describe('PromptsService', () => {
       countVersions: jest.fn(),
       updateTone: jest.fn(),
     };
+    reviewSyncDbService = {
+      getPromptVersionStats: jest.fn(),
+      getPromptVersionStatsBatch: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [PromptsService, { provide: PromptsDbService, useValue: promptsDbService }],
+      providers: [
+        PromptsService,
+        { provide: PromptsDbService, useValue: promptsDbService },
+        { provide: ReviewSyncDbService, useValue: reviewSyncDbService },
+      ],
     }).compile();
 
     target = module.get(PromptsService);
@@ -127,6 +147,36 @@ describe('PromptsService', () => {
       );
     });
 
+    /**
+     * Regression: the frontend has no way to distinguish "unknown placeholder" from "missing
+     * placeholder" (or either from an unrelated 400) without a machine-readable code — without
+     * this, `use-prompts.ts` could only ever show a generic "Could not save" toast, discarding the
+     * specific, actionable message this validation already produces.
+     */
+    it('tags the unknown-placeholder rejection with a machine-readable code', async () => {
+      try {
+        await target.createVersion(promptId, { template: 'Hi {{unknown_var}}' }, tenantUser);
+        throw new Error('expected createVersion to reject');
+      } catch (error) {
+        expect(error).toBeInstanceOf(UnknownPlaceholderException);
+        expect((error as UnknownPlaceholderException).getResponse()).toMatchObject({
+          code: PROMPT_ERROR_CODES.UNKNOWN_PLACEHOLDER,
+        });
+      }
+    });
+
+    it('tags the missing-placeholder rejection with a machine-readable code', async () => {
+      try {
+        await target.createVersion(promptId, { template: 'Hi {{business_name}}' }, tenantUser);
+        throw new Error('expected createVersion to reject');
+      } catch (error) {
+        expect(error).toBeInstanceOf(MissingPlaceholderException);
+        expect((error as MissingPlaceholderException).getResponse()).toMatchObject({
+          code: PROMPT_ERROR_CODES.MISSING_PLACEHOLDER,
+        });
+      }
+    });
+
     it('accepts spaced placeholders', async () => {
       promptsDbService.getCurrentVersion.mockResolvedValue(currentVersion);
       promptsDbService.appendVersion.mockResolvedValue({
@@ -154,7 +204,7 @@ describe('PromptsService', () => {
 
       await expect(
         target.createVersion(promptId, { template: REQUIRED_TEMPLATE }, tenantUser)
-      ).rejects.toBeInstanceOf(NotFoundException);
+      ).rejects.toBeInstanceOf(PromptNotFoundException);
     });
 
     it('rejects an unchanged template after sanitization', async () => {
@@ -206,7 +256,7 @@ describe('PromptsService', () => {
           },
           tenantUser
         )
-      ).rejects.toBeInstanceOf(ConflictException);
+      ).rejects.toBeInstanceOf(PromptVersionConflictException);
     });
   });
 
@@ -229,6 +279,193 @@ describe('PromptsService', () => {
         promptId,
         tenantId: tenantUser.tenantId,
         tone: 'friendly',
+      });
+    });
+  });
+
+  describe('getVersionStats', () => {
+    // The repository now answers "does this exist" and "what are its stats" in one call — `null`
+    // means it doesn't exist, so there is no separate existence-check mock to set up any more; see
+    // `ReviewsReadRepository.getPromptVersionStats`'s own doc comment for why one query can do both.
+    it('throws PromptVersionNotFoundException (not PromptNotFoundException) when ?version=N does not exist for this tenant', async () => {
+      reviewSyncDbService.getPromptVersionStats.mockResolvedValue(null);
+
+      await expect(target.getVersionStats(promptId, 1, tenantUser)).rejects.toBeInstanceOf(
+        PromptVersionNotFoundException
+      );
+      expect(reviewSyncDbService.getPromptVersionStats).toHaveBeenCalledWith({
+        tenantId: tenantUser.tenantId,
+        promptId,
+        version: 1,
+      });
+    });
+
+    it('returns all-zero/null stats for a version with no drafts', async () => {
+      reviewSyncDbService.getPromptVersionStats.mockResolvedValue({
+        totalGenerated: 0,
+        approvedCount: 0,
+        approvedEditedCount: 0,
+        rejectedCount: 0,
+        pendingCount: 0,
+        supersededCount: 0,
+        averageDecisionMinutes: null,
+      });
+
+      const result = await target.getVersionStats(promptId, currentVersion.version, tenantUser);
+
+      expect(result).toEqual({
+        totalGenerated: 0,
+        approvedCount: 0,
+        approvedAsIsCount: 0,
+        approvedEditedCount: 0,
+        rejectedCount: 0,
+        pendingCount: 0,
+        supersededCount: 0,
+        averageDecisionMinutes: null,
+      });
+    });
+
+    it('derives approvedAsIsCount from approvedCount and approvedEditedCount for a mix of outcomes', async () => {
+      reviewSyncDbService.getPromptVersionStats.mockResolvedValue({
+        totalGenerated: 20,
+        approvedCount: 12,
+        approvedEditedCount: 5,
+        rejectedCount: 3,
+        pendingCount: 4,
+        supersededCount: 1,
+        averageDecisionMinutes: 18.25,
+      });
+
+      const result = await target.getVersionStats(promptId, currentVersion.version, tenantUser);
+
+      expect(result).toEqual({
+        totalGenerated: 20,
+        approvedCount: 12,
+        approvedAsIsCount: 7,
+        approvedEditedCount: 5,
+        rejectedCount: 3,
+        pendingCount: 4,
+        supersededCount: 1,
+        averageDecisionMinutes: 18.25,
+      });
+      expect(reviewSyncDbService.getPromptVersionStats).toHaveBeenCalledWith({
+        tenantId: tenantUser.tenantId,
+        promptId,
+        version: currentVersion.version,
+      });
+    });
+
+    it('throws PromptNotFoundException when version is omitted and the prompt itself does not exist', async () => {
+      reviewSyncDbService.getPromptVersionStats.mockResolvedValue(null);
+
+      await expect(target.getVersionStats(promptId, undefined, tenantUser)).rejects.toBeInstanceOf(
+        PromptNotFoundException
+      );
+      expect(reviewSyncDbService.getPromptVersionStats).toHaveBeenCalledWith({
+        tenantId: tenantUser.tenantId,
+        promptId,
+      });
+    });
+
+    it('aggregates across every version when version is omitted, without passing version through', async () => {
+      reviewSyncDbService.getPromptVersionStats.mockResolvedValue({
+        totalGenerated: 50,
+        approvedCount: 30,
+        approvedEditedCount: 10,
+        rejectedCount: 8,
+        pendingCount: 10,
+        supersededCount: 2,
+        averageDecisionMinutes: 15,
+      });
+
+      const result = await target.getVersionStats(promptId, undefined, tenantUser);
+
+      expect(result.approvedAsIsCount).toBe(20);
+      expect(reviewSyncDbService.getPromptVersionStats).toHaveBeenCalledWith({
+        tenantId: tenantUser.tenantId,
+        promptId,
+      });
+      expect(reviewSyncDbService.getPromptVersionStats).not.toHaveBeenCalledWith(
+        expect.objectContaining({ version: expect.anything() })
+      );
+    });
+  });
+
+  describe('getVersionStatsBatch', () => {
+    it('makes exactly one call to the DB service for every pair given', async () => {
+      reviewSyncDbService.getPromptVersionStatsBatch.mockResolvedValue([
+        {
+          promptId,
+          version: 3,
+          stats: {
+            totalGenerated: 18,
+            approvedCount: 14,
+            approvedEditedCount: 3,
+            rejectedCount: 2,
+            pendingCount: 2,
+            supersededCount: 0,
+            averageDecisionMinutes: 12.4,
+          },
+        },
+        {
+          promptId: 'other-prompt',
+          version: 1,
+          stats: {
+            totalGenerated: 0,
+            approvedCount: 0,
+            approvedEditedCount: 0,
+            rejectedCount: 0,
+            pendingCount: 0,
+            supersededCount: 0,
+            averageDecisionMinutes: null,
+          },
+        },
+      ]);
+
+      const result = await target.getVersionStatsBatch(
+        [
+          { promptId, version: 3 },
+          { promptId: 'other-prompt', version: 1 },
+        ],
+        tenantUser
+      );
+
+      expect(reviewSyncDbService.getPromptVersionStatsBatch).toHaveBeenCalledTimes(1);
+      expect(reviewSyncDbService.getPromptVersionStatsBatch).toHaveBeenCalledWith({
+        tenantId: tenantUser.tenantId,
+        pairs: [
+          { promptId, version: 3 },
+          { promptId: 'other-prompt', version: 1 },
+        ],
+      });
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({
+        promptId,
+        version: 3,
+        stats: {
+          totalGenerated: 18,
+          approvedCount: 14,
+          approvedAsIsCount: 11,
+          approvedEditedCount: 3,
+          rejectedCount: 2,
+          pendingCount: 2,
+          supersededCount: 0,
+          averageDecisionMinutes: 12.4,
+        },
+      });
+      expect(result.results[1]).toEqual({
+        promptId: 'other-prompt',
+        version: 1,
+        stats: {
+          totalGenerated: 0,
+          approvedCount: 0,
+          approvedAsIsCount: 0,
+          approvedEditedCount: 0,
+          rejectedCount: 0,
+          pendingCount: 0,
+          supersededCount: 0,
+          averageDecisionMinutes: null,
+        },
       });
     });
   });

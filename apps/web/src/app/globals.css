@@ -251,6 +251,18 @@
     transition-timing-function: var(--ease-fluid);
   }
 
+  /* Hides the scrollbar on an `overflow-x-auto`/`overflow-y-auto` container without disabling
+     scrolling itself — for rows (like a tab bar) meant to scroll via swipe/drag/keyboard, where a
+     visible scrollbar track reads as a stray UI element rather than a deliberate control. */
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
   .surface-grid {
     background-image:
       linear-gradient(

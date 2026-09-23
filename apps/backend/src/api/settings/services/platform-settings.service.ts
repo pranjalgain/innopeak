@@ -1,8 +1,8 @@
-import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { PlatformSettingsResponseDto } from '../dto/platform-settings-response.dto';
+import { PlatformConfigMissingException } from '../exceptions/settings.exceptions';
 
 @Injectable()
 export class PlatformSettingsService {
@@ -15,7 +15,7 @@ export class PlatformSettingsService {
     if (!row) {
       // The migration seeds this row unconditionally and its id is CHECK-constrained to 1 — this
       // can only happen if the row was manually deleted out from under a running deployment.
-      throw new InternalServerErrorException(MESSAGES.SETTINGS.PLATFORM_CONFIG_MISSING);
+      throw new PlatformConfigMissingException();
     }
     return PlatformSettingsResponseDto.from(row);
   }

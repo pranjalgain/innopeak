@@ -1,7 +1,7 @@
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { SettingsDbService } from '@db/repositories/settings/settings.db-service';
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import type { AuthUser } from '../../auth/types/auth-user.type';
 import {
@@ -9,6 +9,10 @@ import {
   BlocklistTermListResponseDto,
   DeleteBlocklistTermResponseDto,
 } from '../dto/blocklist-term-response.dto';
+import {
+  BlocklistTermExistsException,
+  BlocklistTermNotFoundException,
+} from '../exceptions/settings.exceptions';
 
 @Injectable()
 export class BlocklistTermsService {
@@ -27,7 +31,7 @@ export class BlocklistTermsService {
       term,
     });
     if (row === null) {
-      throw new ConflictException(MESSAGES.SETTINGS.BLOCKLIST_TERM_EXISTS);
+      throw new BlocklistTermExistsException();
     }
     return BlocklistTermDto.from(row);
   }
@@ -39,7 +43,7 @@ export class BlocklistTermsService {
       tenantId: tenantUser.tenantId,
     });
     if (!deleted) {
-      throw new NotFoundException(MESSAGES.SETTINGS.BLOCKLIST_TERM_NOT_FOUND);
+      throw new BlocklistTermNotFoundException();
     }
     return DeleteBlocklistTermResponseDto.from(id, MESSAGES.SETTINGS.BLOCKLIST_TERM_REMOVED);
   }

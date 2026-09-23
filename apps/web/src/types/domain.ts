@@ -288,10 +288,20 @@ export interface PlatformAdminInvite {
   isRoot: boolean;
 }
 
-/** Platform-wide review throughput, aggregated across every tenant — shown on the Super Admin overview. */
-export interface PlatformReviewStats {
+/** The Super Admin overview's four stat cards — counts and throughput aggregated across every tenant. */
+export interface AdminOverviewStats {
+  businessCount: number;
+  userCount: number;
   totalReviewsFetched: number;
   totalRepliesSent: number;
+}
+
+/** One calendar month's tenant-signup count, `monthKey` as `YYYY-MM`. The window is always fully
+ *  populated by the backend — a month with no signups is still present, with `count: 0` — so the
+ *  frontend never needs to fill gaps itself. */
+export interface SignupTrendPoint {
+  monthKey: string;
+  count: number;
 }
 
 /**
