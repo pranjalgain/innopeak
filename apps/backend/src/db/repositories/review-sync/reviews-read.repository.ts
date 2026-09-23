@@ -8,7 +8,8 @@ import { ReviewStatus } from '@common/enums/review-status.enum';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, ilike, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 
 export interface ReviewRow {
   id: string;
@@ -68,6 +69,42 @@ export interface FindResponsesForReviewsInput {
   tenantId: string;
 }
 
+export interface GetPromptVersionStatsInput {
+  tenantId: string;
+  promptId: string;
+  /** Omit to aggregate across every version of the prompt; pass to scope to one version. */
+  version?: number;
+}
+
+export interface GetPromptVersionStatsBatchInput {
+  tenantId: string;
+  /** Every (promptId, version) pair to aggregate — each is always scoped to one version, unlike
+   *  the single-stats method's optional `version`, since a batch caller always knows which
+   *  version it wants per prompt (`usePromptAnalytics`'s current-version-per-prompt use case). */
+  pairs: Array<{ promptId: string; version: number }>;
+}
+
+export interface PromptVersionStatsBatchRow {
+  promptId: string;
+  version: number;
+  stats: PromptVersionStatsRow;
+}
+
+/**
+ * `approvedAsIsCount` is deliberately absent — it's `approvedCount - approvedEditedCount`, plain
+ * arithmetic on two numbers this repository already computed, not a query of its own. Computed by
+ * the caller (`PromptsService`), not here.
+ */
+export interface PromptVersionStatsRow {
+  totalGenerated: number;
+  approvedCount: number;
+  approvedEditedCount: number;
+  rejectedCount: number;
+  pendingCount: number;
+  supersededCount: number;
+  averageDecisionMinutes: number | null;
+}
+
 const REVIEW_COLUMNS = {
   id: schema.reviews.id,
   locationId: schema.reviews.locationId,
@@ -104,6 +141,39 @@ const RESPONSE_COLUMNS = {
   // `generation_metadata` is deliberately absent: it holds model name, region and token counts
   // for server-side debugging and is not user-facing.
 } as const;
+
+// `posted`/`post_failed` count as approved — a posted reply *was* approved by a human first, and
+// a post_failed one was too (the failure was Google's API, not the owner declining it). Counting
+// only literal 'approved' would drop exactly the drafts that succeeded most and silently deflate
+// every approval rate. `draft` folds into pending for the same reason: both mean "no human has
+// decided yet". Shared (rather than declared per-method) so `getPromptVersionStats` and
+// `getPromptVersionStatsBatch` can't drift into two definitions of "approved".
+const APPROVED_RESPONSE_STATUS_FILTER = sql`${schema.reviewResponses.status} in ('approved', 'posted', 'post_failed')`;
+
+// `btrim(coalesce(original_content, content))` rather than a bare `content <> original_content` —
+// `original_content` is nullable with no backfill, so a bare `<>` against NULL evaluates to NULL
+// (excluded by FILTER) and silently drops every legacy row from both sides of the edited/as-is
+// split. Coalescing treats a null original as "nothing to compare, so unedited", which keeps
+// `approvedAsIsCount + approvedEditedCount = approvedCount` — the invariant the frontend's
+// edited-rate percentage depends on.
+const CONTENT_UNCHANGED_FILTER = sql`btrim(coalesce(${schema.reviewResponses.originalContent}, ${schema.reviewResponses.content})) = btrim(${schema.reviewResponses.content})`;
+
+/** What "this pair has no drafts yet" looks like, for `getPromptVersionStatsBatch`: a
+ *  (promptId, version) pair whose `GROUP BY` produced no row at all (no matching review_responses)
+ *  is filled in with this literal shape rather than left missing. */
+const ZERO_PROMPT_VERSION_STATS: PromptVersionStatsRow = {
+  totalGenerated: 0,
+  approvedCount: 0,
+  approvedEditedCount: 0,
+  rejectedCount: 0,
+  pendingCount: 0,
+  supersededCount: 0,
+  averageDecisionMinutes: null,
+};
+
+function promptStatsBatchKey(promptId: string, version: number): string {
+  return `${promptId}:${version}`;
+}
 
 /**
  * Postgres's `LIKE`/`ILIKE` treat `%` and `_` as wildcards and `\` as the escape character itself
@@ -214,5 +284,206 @@ export class ReviewsReadRepository {
         ReviewResponseRow[]
       >
     );
+  }
+
+  /**
+   * The six per-status/decision-time aggregate expressions shared by `getPromptVersionStats` and
+   * `getPromptVersionStatsBatch` — both `GROUP BY` a `prompt_versions`/`prompts` id, one row per
+   * group — kept as one definition so the two never drift into different definitions of "approved"
+   * or "edited". Every per-status count uses a `FILTER (WHERE ...)` clause rather than
+   * N separate queries or a `CASE WHEN` sum, so the whole breakdown is one round trip.
+   * `averageDecisionMinutes` is filtered to `decided_at IS NOT NULL` for the same reason
+   * `computePromptVersionStats` (the frontend function this replaces) only averaged decided
+   * drafts — an undecided draft has no decision time to contribute, and letting it drag the
+   * average toward zero would understate how long real decisions take.
+   */
+  private statsAggregateSelection(): {
+    totalGenerated: SQL<number>;
+    approvedCount: SQL<number>;
+    approvedEditedCount: SQL<number>;
+    rejectedCount: SQL<number>;
+    pendingCount: SQL<number>;
+    supersededCount: SQL<number>;
+    averageDecisionMinutes: SQL<number | null>;
+  } {
+    return {
+      // `count(reviewResponses.id)`, not the bare `count()` (`count(*)`): `getPromptVersionStats`
+      // LEFT JOINs into this table so a version/prompt with zero reviews still produces one
+      // NULL-padded row rather than an empty result set. `count(*)` would count that phantom row
+      // as 1; counting a column that's NULL on it correctly comes out to 0. Every `FILTER`-based
+      // count below already gets this for free, since each one filters on a column that's also
+      // NULL on the padded row.
+      totalGenerated: count(schema.reviewResponses.id),
+      approvedCount: sql`count(*) filter (where ${APPROVED_RESPONSE_STATUS_FILTER})`.mapWith(
+        Number
+      ),
+      approvedEditedCount:
+        sql`count(*) filter (where ${APPROVED_RESPONSE_STATUS_FILTER} and not (${CONTENT_UNCHANGED_FILTER}))`.mapWith(
+          Number
+        ),
+      rejectedCount:
+        sql`count(*) filter (where ${schema.reviewResponses.status} = 'rejected')`.mapWith(Number),
+      pendingCount:
+        sql`count(*) filter (where ${schema.reviewResponses.status} in ('draft', 'pending_approval'))`.mapWith(
+          Number
+        ),
+      supersededCount:
+        sql`count(*) filter (where ${schema.reviewResponses.status} = 'superseded')`.mapWith(
+          Number
+        ),
+      // Rounded in SQL (2 decimal places) rather than in JS — `numeric`'s driver representation
+      // is a string either way, so the rounding has to happen before `.mapWith` converts it.
+      // `NULL` (no decided rows in the filter) maps straight through rather than becoming `NaN`.
+      // `FILTER` has to attach directly to the bare `avg(...)` call — Postgres rejects it on
+      // `round(avg(...)::numeric, 2) filter (...)`, since the expression immediately to its
+      // left has to be an aggregate function call, not a scalar function wrapping one.
+      averageDecisionMinutes:
+        sql`round((avg(extract(epoch from (${schema.reviewResponses.decidedAt} - ${schema.reviewResponses.createdAt})) / 60) filter (where ${schema.reviewResponses.decidedAt} is not null))::numeric, 2)`.mapWith(
+          (value: unknown) => (value === null ? null : Number(value))
+        ),
+    };
+  }
+
+  /**
+   * One query that answers both "does this prompt/version exist for this tenant" and "what are its
+   * stats" — `null` means it doesn't exist (the caller 404s); a row (all-zero if nothing has been
+   * generated yet) means it does.
+   *
+   * `review_responses` is `LEFT JOIN`ed, not `INNER JOIN`ed, and anchored `FROM
+   * prompt_versions`/`prompts` instead — the reverse of the obvious "start from the reviews and
+   * join up" shape. That reversal is what makes ONE query answer both questions: a bare aggregate
+   * with no `GROUP BY` always returns exactly one row even over zero matching input rows
+   * (`count(*) = 0`, `avg(...) = NULL`), so an `INNER JOIN FROM review_responses` can't tell "this
+   * version doesn't exist" apart from "it exists but has zero reviews" — both produce the same
+   * single all-zero row. Anchoring on `prompt_versions`/`prompts` instead makes the ROW COUNT
+   * itself carry existence: the tenant-scoped `WHERE` either matches the one version/prompt row
+   * (real existence) or none at all (a genuinely empty result set), and `review_responses` rows
+   * merely enrich whichever version/prompt row survives that filter. The tenant/source scoping on
+   * `review_responses` has to live in the `LEFT JOIN`'s own `ON` clause, not `WHERE` — filtering a
+   * `LEFT JOIN`'s matched columns in `WHERE` discards the very NULL-padded rows that make "exists
+   * but empty" distinguishable from "doesn't exist" in the first place, silently turning the LEFT
+   * JOIN back into an INNER JOIN.
+   */
+  async getPromptVersionStats(
+    input: GetPromptVersionStatsInput
+  ): Promise<PromptVersionStatsRow | null> {
+    // Defensive rather than strictly necessary: `imported`/`human_manual` rows never went through a
+    // prompt and leave `prompt_version_id` NULL, so the join already excludes them. Stating it
+    // explicitly means a future write path that starts stamping `prompt_version_id` onto a
+    // manually-written reply can't quietly pollute these stats.
+    const responsesJoinCondition = and(
+      eq(schema.reviewResponses.promptVersionId, schema.promptVersions.id),
+      eq(schema.reviewResponses.tenantId, input.tenantId),
+      sql`${schema.reviewResponses.source} in ('ai_generated', 'human_edited')`
+    );
+
+    if (input.version !== undefined) {
+      // A specific version: anchor on that one `prompt_versions` row (via `prompts` for the
+      // tenant-ownership check), grouped by its id so exactly one row survives if it exists.
+      const rows = await this.dbService.db
+        .select(this.statsAggregateSelection())
+        .from(schema.promptVersions)
+        .innerJoin(schema.prompts, eq(schema.promptVersions.promptId, schema.prompts.id))
+        .leftJoin(schema.reviewResponses, responsesJoinCondition)
+        .where(
+          and(
+            eq(schema.prompts.id, input.promptId),
+            eq(schema.prompts.tenantId, input.tenantId),
+            eq(schema.promptVersions.version, input.version)
+          )
+        )
+        .groupBy(schema.promptVersions.id);
+
+      return rows[0] ?? null;
+    }
+
+    // No specific version: anchor on the `prompts` row itself (aggregating across every version),
+    // so a prompt with no versions yet still exists and returns all-zero stats rather than null.
+    const rows = await this.dbService.db
+      .select(this.statsAggregateSelection())
+      .from(schema.prompts)
+      .leftJoin(schema.promptVersions, eq(schema.promptVersions.promptId, schema.prompts.id))
+      .leftJoin(schema.reviewResponses, responsesJoinCondition)
+      .where(
+        and(eq(schema.prompts.id, input.promptId), eq(schema.prompts.tenantId, input.tenantId))
+      )
+      .groupBy(schema.prompts.id);
+
+    return rows[0] ?? null;
+  }
+
+  /**
+   * The same aggregate as `getPromptVersionStats`, computed for many (promptId, version) pairs in
+   * one round trip instead of one request per pair — what `usePromptAnalytics` needs to render a
+   * prompt list's summary strip and every card's current-version stats line without firing N
+   * simultaneous requests. `GROUP BY prompt_versions.id` (rather than a separate query per pair)
+   * is what makes this one query regardless of how many pairs are asked for; grouping by the
+   * table's own primary key lets Postgres also project `prompt_id`/`version` straight out of the
+   * same row via functional dependency, no extra join or subquery needed.
+   *
+   * A pair with no matching `review_responses` rows produces no group at all (GROUP BY, unlike
+   * `getPromptVersionStats`'s bare aggregate, is a real empty result set for that pair) — filled
+   * in as `ZERO_PROMPT_VERSION_STATS` below, so a caller never has to special-case a missing key.
+   * Results come back in the same order as `input.pairs`, one entry per pair (duplicates included)
+   * rather than the deduplicated set of matched groups.
+   */
+  async getPromptVersionStatsBatch(
+    input: GetPromptVersionStatsBatchInput
+  ): Promise<PromptVersionStatsBatchRow[]> {
+    if (input.pairs.length === 0) {
+      return [];
+    }
+
+    const pairConditions = input.pairs.map(pair =>
+      and(
+        eq(schema.promptVersions.promptId, pair.promptId),
+        eq(schema.promptVersions.version, pair.version)
+      )
+    );
+
+    const rows = await this.dbService.db
+      .select({
+        promptId: schema.promptVersions.promptId,
+        version: schema.promptVersions.version,
+        ...this.statsAggregateSelection(),
+      })
+      .from(schema.reviewResponses)
+      .innerJoin(
+        schema.promptVersions,
+        eq(schema.reviewResponses.promptVersionId, schema.promptVersions.id)
+      )
+      .where(
+        and(
+          eq(schema.reviewResponses.tenantId, input.tenantId),
+          or(...pairConditions),
+          sql`${schema.reviewResponses.source} in ('ai_generated', 'human_edited')`
+        )
+      )
+      .groupBy(
+        schema.promptVersions.id,
+        schema.promptVersions.promptId,
+        schema.promptVersions.version
+      );
+
+    const statsByPair = new Map<string, PromptVersionStatsRow>();
+    for (const row of rows) {
+      statsByPair.set(promptStatsBatchKey(row.promptId, row.version), {
+        totalGenerated: row.totalGenerated,
+        approvedCount: row.approvedCount,
+        approvedEditedCount: row.approvedEditedCount,
+        rejectedCount: row.rejectedCount,
+        pendingCount: row.pendingCount,
+        supersededCount: row.supersededCount,
+        averageDecisionMinutes: row.averageDecisionMinutes,
+      });
+    }
+
+    return input.pairs.map(pair => ({
+      promptId: pair.promptId,
+      version: pair.version,
+      stats:
+        statsByPair.get(promptStatsBatchKey(pair.promptId, pair.version)) ??
+        ZERO_PROMPT_VERSION_STATS,
+    }));
   }
 }

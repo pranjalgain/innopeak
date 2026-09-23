@@ -1,8 +1,7 @@
-import { MESSAGES } from '@common/constants/messages.constants';
 import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
@@ -20,6 +19,7 @@ import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
 import { RefreshTokenSupersededException } from '../errors/refresh-token.error';
+import { InvalidRefreshTokenException } from '../exceptions/auth.exceptions';
 import {
   PlatformAdminJwtPayload,
   RefreshJwtPayload,
@@ -127,7 +127,7 @@ export class TokenService {
       // trustworthy enough to ask whether this user still holds a live session somewhere.
       throw (await this.authDbService.hasActiveRefreshToken(payload.sub))
         ? new RefreshTokenSupersededException()
-        : new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
+        : new InvalidRefreshTokenException();
     }
 
     if (existing.revokedAt !== null) {
@@ -138,13 +138,13 @@ export class TokenService {
 
     const user = await this.authDbService.findUserById(stored.userId);
     if (!user) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
+      throw new InvalidRefreshTokenException();
     }
 
     const tenant = await this.authDbService.findTenantStatus(user.tenantId);
     if (user.status === UserStatus.DISABLED || tenant?.status === TenantStatus.SUSPENDED) {
       await this.revokeAll(user.id);
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
+      throw new InvalidRefreshTokenException();
     }
 
     const subject: TokenSubject = {
@@ -209,7 +209,7 @@ export class TokenService {
       `Refresh token reuse detected for user ${userId} (spent ${Math.round(revokedAgeMs / 1000)}s ago); revoking all sessions.`
     );
     await this.revokeAll(userId);
-    throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
+    throw new InvalidRefreshTokenException();
   }
 
   async revokeAll(userId: string): Promise<void> {
@@ -339,7 +339,7 @@ export class TokenService {
         ...(options.ignoreExpiration === true ? { ignoreExpiration: true } : {}),
       });
     } catch {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
+      throw new InvalidRefreshTokenException();
     }
 
     if (
@@ -347,7 +347,7 @@ export class TokenService {
       typeof payload.sub !== 'string' ||
       typeof payload.jti !== 'string'
     ) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
+      throw new InvalidRefreshTokenException();
     }
 
     return { ...payload, sub: payload.sub, jti: payload.jti, type: JwtTokenType.REFRESH };

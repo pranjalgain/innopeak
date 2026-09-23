@@ -6,7 +6,11 @@ import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { Test } from '@nestjs/testing';
 
 import { ConnectionsDbService, LocationLimitExceededError } from './connections.db-service';
-import { ConnectionsRepository, type ProviderConnectionRow } from './connections.repository';
+import {
+  ConnectionsRepository,
+  type LocationRow,
+  type ProviderConnectionRow,
+} from './connections.repository';
 
 import { ReviewSyncRepository } from '../review-sync/review-sync.repository';
 
@@ -322,5 +326,122 @@ describe('ConnectionsDbService.confirmLocations — sync-run acquisition conflic
     expect(result?.backfillAlreadyRunning).toBe(false);
     expect(result?.backfill?.id).toBe('run-after-retry');
     expect(acquireSyncRun).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * Regression: `disconnect()` never touches `sync_runs`, and `reactivateLocationsForConnection`
+ * deliberately never re-queues a location that already finished its backfill — so a location
+ * whose backfill was still in flight (or had failed) when the owner disconnected used to
+ * reactivate with no path left to ever acquire a fresh run. The frontend then polled the same
+ * pre-disconnect `sync_runs` row forever, wedged in `running` or terminally `error`, with no
+ * retry path that created a new one — the "stuck on the backfill page" bug this closes.
+ */
+describe('ConnectionsDbService.restartIncompleteBackfills', () => {
+  let service: ConnectionsDbService;
+  const acquireSyncRun = jest.fn();
+  const findRunningRunForLocation = jest.fn();
+
+  const txMock = {
+    transaction: jest.fn(async (fn: (nested: unknown) => Promise<unknown>) => fn({})),
+  };
+
+  function completedLocation(): LocationRow {
+    return {
+      ...locationRow('locations/1'),
+      onboardingBackfillCompletedAt: '2026-01-01T00:00:00.000Z',
+    };
+  }
+
+  function incompleteLocation(externalLocationId = 'locations/2'): LocationRow {
+    return { ...locationRow(externalLocationId), onboardingBackfillCompletedAt: null };
+  }
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    acquireSyncRun.mockResolvedValue({
+      id: 'run-restarted',
+      tenantId: 'tenant-1',
+      locationId: 'location-locations/2',
+      trigger: SyncTrigger.BACKFILL,
+      startedAt: '2026-01-01T00:00:00.000Z',
+      completedAt: null,
+      status: SyncRunStatus.RUNNING,
+      reviewsFetched: null,
+      reviewsTotal: null,
+      errorMessage: null,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConnectionsDbService,
+        {
+          provide: ConnectionsRepository,
+          useValue: {
+            transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(txMock)),
+          },
+        },
+        { provide: ReviewSyncRepository, useValue: { acquireSyncRun, findRunningRunForLocation } },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ConnectionsDbService);
+  });
+
+  it('acquires a fresh backfill run only for locations that never finished one', async () => {
+    const results = await service.restartIncompleteBackfills({
+      tenantId: 'tenant-1',
+      locations: [completedLocation(), incompleteLocation()],
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.location.externalLocationId).toBe('locations/2');
+    expect(acquireSyncRun).toHaveBeenCalledTimes(1);
+    expect(acquireSyncRun).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: 'tenant-1', locationId: 'location-locations/2' })
+    );
+  });
+
+  it('does nothing, not even opening a transaction, when every reactivated location already finished', async () => {
+    const results = await service.restartIncompleteBackfills({
+      tenantId: 'tenant-1',
+      locations: [completedLocation()],
+    });
+
+    expect(results).toEqual([]);
+    expect(acquireSyncRun).not.toHaveBeenCalled();
+  });
+
+  it('leaves a genuinely still-running backfill alone instead of duplicating it', async () => {
+    const blocking = {
+      id: 'run-still-live',
+      tenantId: 'tenant-1',
+      locationId: 'location-locations/2',
+      trigger: SyncTrigger.BACKFILL,
+      startedAt: '2026-01-01T00:00:00.000Z',
+      completedAt: null,
+      status: SyncRunStatus.RUNNING,
+      reviewsFetched: 12,
+      reviewsTotal: null,
+      errorMessage: null,
+      updatedAt: '2026-01-01T00:05:00.000Z',
+    };
+    const uniqueViolation = Object.assign(
+      new Error('duplicate key value violates unique constraint'),
+      { code: '23505', constraint: 'idx_sync_runs_location_id_running' }
+    );
+    acquireSyncRun.mockRejectedValue(uniqueViolation);
+    findRunningRunForLocation.mockResolvedValue(blocking);
+
+    const [result] = await service.restartIncompleteBackfills({
+      tenantId: 'tenant-1',
+      locations: [incompleteLocation()],
+    });
+
+    expect(result?.backfillAlreadyRunning).toBe(true);
+    expect(result?.backfill?.id).toBe('run-still-live');
   });
 });

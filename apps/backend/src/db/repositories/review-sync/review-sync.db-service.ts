@@ -9,7 +9,11 @@ import { ReviewSyncRepository, type SyncRunRow } from './review-sync.repository'
 import {
   type FindResponsesForReviewsInput,
   type FindReviewByIdForTenantInput,
+  type GetPromptVersionStatsBatchInput,
+  type GetPromptVersionStatsInput,
   type ListReviewsFilter,
+  type PromptVersionStatsBatchRow,
+  type PromptVersionStatsRow,
   type ReviewResponseRow,
   type ReviewRow,
   ReviewsReadRepository,
@@ -350,6 +354,16 @@ export class ReviewSyncDbService {
 
   findResponsesForReviews(input: FindResponsesForReviewsInput): Promise<ReviewResponseRow[]> {
     return this.reviewsReadRepository.findResponsesForReviews(input);
+  }
+
+  getPromptVersionStats(input: GetPromptVersionStatsInput): Promise<PromptVersionStatsRow | null> {
+    return this.reviewsReadRepository.getPromptVersionStats(input);
+  }
+
+  getPromptVersionStatsBatch(
+    input: GetPromptVersionStatsBatchInput
+  ): Promise<PromptVersionStatsBatchRow[]> {
+    return this.reviewsReadRepository.getPromptVersionStatsBatch(input);
   }
 
   /** `PLAN.md` §6's nightly reviewer-retention purge — see `ReviewSyncRepository.purgeExpiredReviewerPii`. */

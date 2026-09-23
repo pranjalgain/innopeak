@@ -1,7 +1,7 @@
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { SettingsDbService } from '@db/repositories/settings/settings.db-service';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import type { AuthUser } from '../../auth/types/auth-user.type';
 import {
@@ -9,6 +9,10 @@ import {
   NotificationRecipientListResponseDto,
 } from '../dto/notification-recipient-response.dto';
 import type { UpdateNotificationRecipientDto } from '../dto/update-notification-recipient.dto';
+import {
+  NotificationRecipientNoFieldsException,
+  NotificationRecipientNotFoundException,
+} from '../exceptions/settings.exceptions';
 
 @Injectable()
 export class NotificationRecipientsService {
@@ -30,7 +34,7 @@ export class NotificationRecipientsService {
     // A whole-object rule, not a per-property one — see the DTO's own comment on why this isn't
     // a class-validator decorator.
     if (dto.channel === undefined && dto.isActive === undefined) {
-      throw new BadRequestException(MESSAGES.SETTINGS.NOTIFICATION_RECIPIENT_NO_FIELDS);
+      throw new NotificationRecipientNoFieldsException();
     }
 
     const row = await this.settingsDbService.updateNotificationRecipient({
@@ -41,7 +45,7 @@ export class NotificationRecipientsService {
     });
 
     if (row === null) {
-      throw new NotFoundException(MESSAGES.SETTINGS.NOTIFICATION_RECIPIENT_NOT_FOUND);
+      throw new NotificationRecipientNotFoundException();
     }
 
     return NotificationRecipientDto.from(row);

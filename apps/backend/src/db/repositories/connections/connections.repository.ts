@@ -364,11 +364,16 @@ export class ConnectionsRepository {
    * shape. `onboarding_backfill_completed_at` is left untouched, same reasoning as
    * `upsertLocation`'s `ON CONFLICT` branch: a location already backfilled should not be re-gated
    * out of live polling, or re-queued for another backfill, just because the owner reconnected.
+   *
+   * Returns full rows, not just ids: the caller (`ConnectionsDbService.restartIncompleteBackfills`)
+   * needs `onboardingBackfillCompletedAt` to tell which of these still need a fresh backfill
+   * acquired — `disconnect()` never touches `sync_runs`, so a location whose backfill was still in
+   * flight (or had failed) reactivates with no completion marker and no live job behind it.
    */
   async reactivateLocationsForConnection(
     tx: DrizzleTransaction,
     connectionId: string
-  ): Promise<string[]> {
+  ): Promise<LocationRow[]> {
     const rows = await tx
       .update(schema.locations)
       .set({ status: LocationStatus.ACTIVE, updatedAt: sql`now()` })
@@ -378,9 +383,9 @@ export class ConnectionsRepository {
           eq(schema.locations.status, LocationStatus.INACTIVE)
         )
       )
-      .returning({ id: schema.locations.id });
+      .returning(LOCATION_COLUMNS);
 
-    return rows.map(row => row.id);
+    return rows as LocationRow[];
   }
 
   /** Set by the backfill job, not the HTTP handler — this column is what un-gates live polling. */

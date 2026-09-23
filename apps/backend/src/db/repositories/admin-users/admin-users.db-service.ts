@@ -10,6 +10,11 @@ export class AdminUsersDbService {
     return this.adminUsersRepository.findAll();
   }
 
+  /** Total non-anonymized user count — passed straight through, there is no row to map. */
+  async count(): Promise<number> {
+    return this.adminUsersRepository.count();
+  }
+
   /**
    * Toggles the user's active status and returns the updated row (joined with `businessName`/
    * `lastLoginAt`), or `null` if no such user exists — the CAS in `toggleActive` and the re-read

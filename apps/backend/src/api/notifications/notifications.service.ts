@@ -1,7 +1,6 @@
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
-import { MESSAGES } from '@common/constants/messages.constants';
 import { NotificationsDbService } from '@db/repositories/notifications/notifications.db-service';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import {
   NOTIFICATIONS_LIMIT_DEFAULT,
@@ -12,6 +11,7 @@ import {
   NotificationListResponseDto,
   NotificationReadResponseDto,
 } from './dto/notification-response.dto';
+import { NotificationNotFoundException } from './exceptions/notifications.exceptions';
 
 import type { AuthUser } from '../auth/types/auth-user.type';
 
@@ -57,7 +57,7 @@ export class NotificationsService {
     });
 
     if (!result) {
-      throw new NotFoundException(MESSAGES.NOTIFICATIONS.NOT_FOUND);
+      throw new NotificationNotFoundException();
     }
 
     return NotificationReadResponseDto.from(result);

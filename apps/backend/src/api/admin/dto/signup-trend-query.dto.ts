@@ -1,0 +1,23 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, Max, Min } from 'class-validator';
+
+export const ADMIN_SIGNUP_TREND_MONTHS_DEFAULT = 6;
+export const ADMIN_SIGNUP_TREND_MONTHS_MAX = 24;
+
+export class SignupTrendQueryDto {
+  @ApiPropertyOptional({
+    example: ADMIN_SIGNUP_TREND_MONTHS_DEFAULT,
+    default: ADMIN_SIGNUP_TREND_MONTHS_DEFAULT,
+    minimum: 1,
+    maximum: ADMIN_SIGNUP_TREND_MONTHS_MAX,
+    description:
+      'How many trailing calendar months to include, counting back from the current one (inclusive).',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(ADMIN_SIGNUP_TREND_MONTHS_MAX)
+  months: number = ADMIN_SIGNUP_TREND_MONTHS_DEFAULT;
+}

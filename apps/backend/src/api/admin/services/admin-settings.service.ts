@@ -1,4 +1,10 @@
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import {
+  InvalidCurrentPasswordException,
+  InvalidOtpException,
+  NoPasswordSetException,
+  PasswordAlreadySetException,
+} from '@auth/exceptions/auth.exceptions';
 import { VerifyEmailTokenProvider } from '@auth/providers/verify-email-token.provider';
 import { OtpAttemptService } from '@auth/services/otp-attempt.service';
 import { TokenService } from '@auth/services/token.service';
@@ -19,16 +25,7 @@ import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-ov
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import type { PlatformSettingsPatch } from '@db/repositories/platform-settings/platform-settings.repository';
-import {
-  BadRequestException,
-  ConflictException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-  Logger,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
@@ -43,6 +40,20 @@ import { SendAdminInviteDto } from '../dto/send-admin-invite.dto';
 import { SetAdminPasswordDto } from '../dto/set-admin-password.dto';
 import { UpdateAdminLocaleResponseDto } from '../dto/update-admin-locale-response.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
+import {
+  AdminEmailAlreadyInvitedException,
+  AdminInviteNotFoundException,
+  AdminInviteNotRevocableException,
+  AdminUserNotFoundException,
+  CannotDisableInvitedAdminException,
+  CannotDisableLastAdminException,
+  CannotDisableRootAdminException,
+  CannotDisableSelfException,
+  PlatformAdminNotFoundException,
+  PlatformConfigNotFoundException,
+  PlatformSettingsNoMethodEnabledException,
+  SocialLoginDisallowedGoogleOnlyAdminException,
+} from '../exceptions/admin.exceptions';
 
 /** Matches the frontend mock's own window — see `PlatformAdminInviteService`. */
 const INVITE_TTL_DAYS = 7;
@@ -79,7 +90,7 @@ export class AdminSettingsService {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const row = await this.platformAdminDbService.findById(admin.id);
     if (!row) {
-      throw new NotFoundException(MESSAGES.ADMIN.USER_NOT_FOUND);
+      throw new AdminUserNotFoundException();
     }
     return AdminProfileResponseDto.from(row);
   }
@@ -93,15 +104,15 @@ export class AdminSettingsService {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const row = await this.platformAdminDbService.findById(admin.id);
     if (!row) {
-      throw new NotFoundException(MESSAGES.ADMIN.USER_NOT_FOUND);
+      throw new AdminUserNotFoundException();
     }
     if (!row.passwordHash) {
-      throw new BadRequestException(MESSAGES.AUTH.NO_PASSWORD_SET);
+      throw new NoPasswordSetException();
     }
 
     const currentMatches = await this.hashingService.compare(dto.currentPassword, row.passwordHash);
     if (!currentMatches) {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CURRENT_PASSWORD);
+      throw new InvalidCurrentPasswordException();
     }
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
@@ -121,10 +132,10 @@ export class AdminSettingsService {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const row = await this.platformAdminDbService.findById(admin.id);
     if (!row) {
-      throw new NotFoundException(MESSAGES.ADMIN.USER_NOT_FOUND);
+      throw new AdminUserNotFoundException();
     }
     if (row.passwordHash) {
-      throw new BadRequestException(MESSAGES.AUTH.PASSWORD_ALREADY_SET);
+      throw new PasswordAlreadySetException();
     }
 
     // Budget spent before comparison, same shape as the tenant flow — an exhausted account can't
@@ -139,7 +150,7 @@ export class AdminSettingsService {
       tokenHash: hashAdminSetPasswordOtp(admin.id, dto.otp),
     });
     if (!otpValid) {
-      throw new BadRequestException(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
+      throw new InvalidOtpException();
     }
     // Releases the budget the attempts above spent — without this a code accepted on the last
     // allowed try leaves the account locked out of every OTP-gated action for the rest of the
@@ -164,10 +175,10 @@ export class AdminSettingsService {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const row = await this.platformAdminDbService.findById(admin.id);
     if (!row) {
-      throw new NotFoundException(MESSAGES.ADMIN.USER_NOT_FOUND);
+      throw new AdminUserNotFoundException();
     }
     if (row.passwordHash) {
-      throw new BadRequestException(MESSAGES.AUTH.PASSWORD_ALREADY_SET);
+      throw new PasswordAlreadySetException();
     }
 
     if (await this.otpAttemptService.claimResend(admin.email)) {
@@ -203,7 +214,7 @@ export class AdminSettingsService {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const row = await this.platformAdminDbService.updateLocale(admin.id, dto.locale);
     if (!row) {
-      throw new NotFoundException(MESSAGES.ADMIN.USER_NOT_FOUND);
+      throw new AdminUserNotFoundException();
     }
 
     const { accessToken, expiresIn } = this.tokenService.signPlatformAdminAccessToken(
@@ -258,7 +269,7 @@ export class AdminSettingsService {
         new Date(existing.inviteExpiresAt).getTime() <= Date.now();
 
       if (!isLapsedInvite) {
-        throw new ConflictException(MESSAGES.ADMIN.EMAIL_ALREADY_INVITED);
+        throw new AdminEmailAlreadyInvitedException();
       }
 
       // Cascades to the invite row. Safe against an accepted admin: the delete is scoped to
@@ -284,7 +295,7 @@ export class AdminSettingsService {
       });
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new ConflictException(MESSAGES.ADMIN.EMAIL_ALREADY_INVITED);
+        throw new AdminEmailAlreadyInvitedException();
       }
       throw error;
     }
@@ -311,10 +322,10 @@ export class AdminSettingsService {
     const revoked = await this.platformAdminDbService.revokeInvite(inviteId);
 
     if (revoked.outcome === 'not_found') {
-      throw new NotFoundException(MESSAGES.ADMIN.INVITE_NOT_FOUND);
+      throw new AdminInviteNotFoundException();
     }
     if (revoked.outcome === 'not_invited') {
-      throw new ConflictException(MESSAGES.ADMIN.INVITE_NOT_REVOCABLE);
+      throw new AdminInviteNotRevocableException();
     }
 
     await this.adminOverviewDbService.recordActivityBestEffort({
@@ -349,17 +360,17 @@ export class AdminSettingsService {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
 
     if (targetAdminId === admin.id) {
-      throw new BadRequestException(MESSAGES.ADMIN.CANNOT_DISABLE_SELF);
+      throw new CannotDisableSelfException();
     }
 
     const currentStatus = await this.platformAdminDbService.findStatusById(targetAdminId);
     if (currentStatus === null) {
-      throw new NotFoundException(MESSAGES.ADMIN.ADMIN_NOT_FOUND);
+      throw new PlatformAdminNotFoundException();
     }
     if (currentStatus === PlatformAdminStatus.INVITED) {
       // An invited admin has no password and no session — "disabling" it is meaningless, and
       // enabling it would skip the (unbuilt) accept-invite flow. Steer to revoke instead.
-      throw new ConflictException(MESSAGES.ADMIN.CANNOT_DISABLE_INVITED);
+      throw new CannotDisableInvitedAdminException();
     }
 
     // Computed unconditionally (not just when disabling) so the same value can populate the
@@ -368,7 +379,7 @@ export class AdminSettingsService {
     // re-enabling it must still work.
     const isRootTarget = await this.platformAdminDbService.isRootAdmin(targetAdminId);
     if (!enabled && isRootTarget) {
-      throw new BadRequestException(MESSAGES.ADMIN.CANNOT_DISABLE_ROOT_ADMIN);
+      throw new CannotDisableRootAdminException();
     }
 
     // The last-active-admin guard itself is NOT enforced here: a plain read-then-write (count
@@ -384,10 +395,10 @@ export class AdminSettingsService {
     });
     if (result.outcome === 'not_found') {
       // Raced with a delete between the status read above and the guarded write.
-      throw new NotFoundException(MESSAGES.ADMIN.ADMIN_NOT_FOUND);
+      throw new PlatformAdminNotFoundException();
     }
     if (result.outcome === 'last_active') {
-      throw new BadRequestException(MESSAGES.ADMIN.CANNOT_DISABLE_LAST_ADMIN);
+      throw new CannotDisableLastAdminException();
     }
 
     await this.adminOverviewDbService.recordActivityBestEffort({
@@ -449,14 +460,14 @@ export class AdminSettingsService {
 
     const current = await this.platformSettingsDbService.get();
     if (!current) {
-      throw new NotFoundException(MESSAGES.SETTINGS.PLATFORM_CONFIG_MISSING);
+      throw new PlatformConfigNotFoundException();
     }
 
     const resultingSso = patch.ssoLoginEnabled ?? current.ssoLoginEnabled;
     const resultingPassword = patch.passwordLoginEnabled ?? current.passwordLoginEnabled;
     const resultingSocial = patch.socialLoginEnabled ?? current.socialLoginEnabled;
     if (!resultingSso && !resultingPassword && !resultingSocial) {
-      throw new BadRequestException(MESSAGES.ADMIN.PLATFORM_SETTINGS_NO_METHOD_ENABLED);
+      throw new PlatformSettingsNoMethodEnabledException();
     }
 
     // Third guard of the same family as the two above and `setAdminStatus`'s own: refuse a change
@@ -481,7 +492,7 @@ export class AdminSettingsService {
     if (patch.socialLoginEnabled === false && current.socialLoginEnabled) {
       const googleOnlyAdmins = await this.platformAdminDbService.countActiveGoogleOnlyAdmins();
       if (googleOnlyAdmins > 0) {
-        throw new BadRequestException(
+        throw new SocialLoginDisallowedGoogleOnlyAdminException(
           MESSAGES.ADMIN.CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN(googleOnlyAdmins)
         );
       }
@@ -496,13 +507,13 @@ export class AdminSettingsService {
       row = await this.platformSettingsDbService.update(patch, admin.id);
     } catch (error) {
       if (isCheckViolation(error, 'platform_settings_at_least_one_method_check')) {
-        throw new BadRequestException(MESSAGES.ADMIN.PLATFORM_SETTINGS_NO_METHOD_ENABLED);
+        throw new PlatformSettingsNoMethodEnabledException();
       }
       throw error;
     }
 
     if (!row) {
-      throw new NotFoundException(MESSAGES.SETTINGS.PLATFORM_CONFIG_MISSING);
+      throw new PlatformConfigNotFoundException();
     }
     return PlatformSettingsResponseDto.from(row);
   }

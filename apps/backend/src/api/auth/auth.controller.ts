@@ -59,6 +59,7 @@ import { UpdateLocaleResponseDto } from './dto/update-locale-response.dto';
 import { UpdateLocaleDto } from './dto/update-locale.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
+import { InvalidRefreshTokenException } from './exceptions/auth.exceptions';
 import { AuthService } from './services/auth.service';
 import {
   ApiAcceptMemberInvite,
@@ -180,7 +181,7 @@ export class AuthController {
 
     if (!rawRefreshToken) {
       this.clearSessionCookies(res);
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_REFRESH_TOKEN);
+      throw new InvalidRefreshTokenException();
     }
 
     try {

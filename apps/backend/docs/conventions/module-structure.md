@@ -268,7 +268,7 @@ export const MESSAGES = {
 
 ```ts
 // usage
-throw new NotFoundException(MESSAGES.PAYMENTS.NOT_FOUND);
+throw new PaymentNotFoundException();
 return ResponseUtil.success(null, MESSAGES.PAYMENTS.REFUNDED);
 ```
 
@@ -276,6 +276,37 @@ Module-local `constants/<module>.constants.ts` files are for non-user-facing val
 (defaults, internal magic strings/numbers) — a message a human ends up reading always goes in the
 shared file above, never in a module-local one, so there's exactly one place to check for wording
 consistency and one place to update for i18n later.
+
+Every thrown HTTP error is a **semantic, per-condition exception class** — never
+`@nestjs/common`'s built-ins thrown bare from a service. Instead, each module defines its own
+small subclasses in `src/api/<module>/exceptions/<module>.exceptions.ts`, one per distinct
+failure condition, named for *what went wrong* rather than its HTTP status. A semantic class
+extends the matching `@nestjs/common` built-in directly and hardcodes both its default `message`
+and its machine-readable `code` (`SCREAMING_SNAKE_CASE` derived from the class name, or an
+existing `*_ERROR_CODES` constant if one already defines that condition's code):
+
+```ts
+// src/api/payments/exceptions/payments.exceptions.ts
+import { MESSAGES } from '@common/constants/messages.constants';
+import { NotFoundException } from '@nestjs/common';
+
+export class PaymentNotFoundException extends NotFoundException {
+  constructor(message: string = MESSAGES.PAYMENTS.NOT_FOUND) {
+    super({ message, code: 'PAYMENT_NOT_FOUND' });
+  }
+}
+```
+
+`message` defaults so the common case needs no argument at the call site:
+
+```ts
+throw new PaymentNotFoundException();
+```
+
+A call site only ever passes `message` explicitly when that same condition's wording genuinely
+varies across throw sites (rare — e.g. a message built from dynamic data). One class is reused
+across every call site that represents the exact same condition; unrelated conditions never share
+a class.
 
 ## Service (business logic — orchestrates DB Service + Provider)
 
@@ -296,7 +327,7 @@ export class PaymentsService {
 
   async findById(id: string): Promise<Payment> {
     const payment = await this.paymentsDb.findById(id);
-    if (!payment) throw new NotFoundException(MESSAGES.PAYMENTS.NOT_FOUND);
+    if (!payment) throw new PaymentNotFoundException();
     return payment;
   }
 

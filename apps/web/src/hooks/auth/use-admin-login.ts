@@ -1,5 +1,5 @@
 import { useTranslations } from "next-intl";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { toast } from "sonner";
 
@@ -22,6 +22,17 @@ interface UseAdminLoginResult {
 export function useAdminLogin(): UseAdminLoginResult {
   const t = useTranslations("auth.toasts");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Same bfcache hazard as `useAuth`: `startAdminGoogleLogin` below navigates away instead of
+  // awaiting anything, so browser-back can restore this page from bfcache with `isLoading: true`
+  // still in memory — with no remount, nothing else would ever clear it.
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setIsLoading(false);
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, []);
 
   const loginAsAdmin = useCallback(
     async (email: string, password: string) => {

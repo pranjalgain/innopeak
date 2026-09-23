@@ -1,7 +1,7 @@
 import { MESSAGES } from '@common/constants/messages.constants';
-import { ForbiddenException } from '@nestjs/common';
 
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
+import { TenantOnlyException } from '../exceptions/auth.exceptions';
 import type { AuthUser, TenantAuthUser } from '../types/auth-user.type';
 
 /**
@@ -29,7 +29,7 @@ export function requireTenantUser(
   message: string = MESSAGES.AUTH.TENANT_CONTEXT_REQUIRED
 ): TenantAuthUser {
   if (user.type !== JwtTokenType.TENANT_USER) {
-    throw new ForbiddenException(message);
+    throw new TenantOnlyException(message);
   }
   return user;
 }

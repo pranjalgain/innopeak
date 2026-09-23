@@ -129,6 +129,92 @@ export class CreatePromptVersionResponseDto {
   }
 }
 
+export interface PromptVersionStatsInput {
+  totalGenerated: number;
+  approvedCount: number;
+  approvedAsIsCount: number;
+  approvedEditedCount: number;
+  rejectedCount: number;
+  pendingCount: number;
+  supersededCount: number;
+  averageDecisionMinutes: number | null;
+}
+
+export class PromptVersionStatsResponseDto {
+  @ApiProperty({ example: 42 })
+  totalGenerated!: number;
+
+  @ApiProperty({ example: 30 })
+  approvedCount!: number;
+
+  @ApiProperty({ example: 21 })
+  approvedAsIsCount!: number;
+
+  @ApiProperty({ example: 9 })
+  approvedEditedCount!: number;
+
+  @ApiProperty({ example: 4 })
+  rejectedCount!: number;
+
+  @ApiProperty({ example: 6 })
+  pendingCount!: number;
+
+  @ApiProperty({ example: 2 })
+  supersededCount!: number;
+
+  @ApiProperty({ example: 12.5, nullable: true, type: Number })
+  averageDecisionMinutes!: number | null;
+
+  static from(input: PromptVersionStatsInput): PromptVersionStatsResponseDto {
+    const dto = new PromptVersionStatsResponseDto();
+    dto.totalGenerated = input.totalGenerated;
+    dto.approvedCount = input.approvedCount;
+    dto.approvedAsIsCount = input.approvedAsIsCount;
+    dto.approvedEditedCount = input.approvedEditedCount;
+    dto.rejectedCount = input.rejectedCount;
+    dto.pendingCount = input.pendingCount;
+    dto.supersededCount = input.supersededCount;
+    dto.averageDecisionMinutes = input.averageDecisionMinutes;
+    return dto;
+  }
+}
+
+export interface PromptStatsBatchItemInput {
+  promptId: string;
+  version: number;
+  stats: PromptVersionStatsInput;
+}
+
+export class PromptStatsBatchItemDto {
+  @ApiProperty({ example: '0190f4a1-7c33-7e51-9a02-6d1b8f4c0011' })
+  promptId!: string;
+
+  @ApiProperty({ example: 3 })
+  version!: number;
+
+  @ApiProperty({ type: PromptVersionStatsResponseDto })
+  stats!: PromptVersionStatsResponseDto;
+
+  static from(input: PromptStatsBatchItemInput): PromptStatsBatchItemDto {
+    const dto = new PromptStatsBatchItemDto();
+    dto.promptId = input.promptId;
+    dto.version = input.version;
+    dto.stats = PromptVersionStatsResponseDto.from(input.stats);
+    return dto;
+  }
+}
+
+export class PromptStatsBatchResponseDto {
+  @ApiProperty({ type: [PromptStatsBatchItemDto] })
+  results!: PromptStatsBatchItemDto[];
+
+  static from(items: PromptStatsBatchItemInput[]): PromptStatsBatchResponseDto {
+    const dto = new PromptStatsBatchResponseDto();
+    dto.results = items.map(item => PromptStatsBatchItemDto.from(item));
+    return dto;
+  }
+}
+
 export class UpdatePromptToneResponseDto {
   @ApiProperty({ example: '0190f4a1-7c33-7e51-9a02-6d1b8f4c0011' })
   promptId!: string;

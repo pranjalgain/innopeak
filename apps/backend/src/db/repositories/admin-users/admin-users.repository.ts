@@ -3,7 +3,7 @@ import { UserStatus } from '@auth/enums/user-status.enum';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 
 export interface AdminUserRow {
   id: string;
@@ -66,6 +66,16 @@ export class AdminUsersRepository {
       .orderBy(desc(schema.users.createdAt));
 
     return rows as AdminUserRow[];
+  }
+
+  /** Total non-anonymized user count, across every tenant — the Overview page's "Users" stat card. Same `anonymized_at IS NULL` filter as `findAll`, for consistency. */
+  async count(): Promise<number> {
+    const rows = await this.dbService.db
+      .select({ value: count() })
+      .from(schema.users)
+      .where(isNull(schema.users.anonymizedAt));
+
+    return rows[0]?.value ?? 0;
   }
 
   async findById(userId: string): Promise<AdminUserRow | null> {

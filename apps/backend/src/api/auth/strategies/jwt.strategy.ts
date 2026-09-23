@@ -1,8 +1,7 @@
-import { MESSAGES } from '@common/constants/messages.constants';
 import { isSupportedLocale, type Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
@@ -11,6 +10,10 @@ import { JWT_SIGNING_ALGORITHM } from '../constants/auth.constants';
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { PlatformAdminStatus } from '../enums/platform-admin-status.enum';
 import { UserRole } from '../enums/user-role.enum';
+import {
+  InvalidAccessTokenException,
+  PlatformAdminAccountDisabledException,
+} from '../exceptions/auth.exceptions';
 import { AuthUser } from '../types/auth-user.type';
 import { fromAccessTokenCookie } from '../utils/jwt-cookie-extractor.util';
 
@@ -65,14 +68,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    */
   async validate(payload: UnverifiedClaims): Promise<AuthUser> {
     if (typeof payload.sub !== 'string' || typeof payload.email !== 'string') {
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+      throw new InvalidAccessTokenException();
     }
 
     if (payload.type === JwtTokenType.PLATFORM_ADMIN) {
       const status = await this.platformAdminDbService.findStatusById(payload.sub);
       // null = the admin row was deleted; disabled/invited = must not hold a live session.
       if (status !== PlatformAdminStatus.ACTIVE) {
-        throw new UnauthorizedException(MESSAGES.AUTH.ACCOUNT_DISABLED);
+        throw new PlatformAdminAccountDisabledException();
       }
       // Same fallback as the tenant branch below: a token signed before this claim existed has
       // no `locale` at all — falls through to `Accept-Language`, same as `null` (never chosen).
@@ -107,6 +110,6 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       };
     }
 
-    throw new UnauthorizedException(MESSAGES.AUTH.INVALID_ACCESS_TOKEN);
+    throw new InvalidAccessTokenException();
   }
 }

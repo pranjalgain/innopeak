@@ -1,15 +1,8 @@
-import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
 import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
@@ -26,6 +19,12 @@ import { PlatformAdminSummaryDto } from '../dto/platform-admin-summary.dto';
 import { PlatformAdminTokenResponseDto } from '../dto/platform-admin-token-response.dto';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 import { PlatformAdminStatus } from '../enums/platform-admin-status.enum';
+import {
+  AccountDisabledException,
+  InvalidCredentialsException,
+  InvalidOrExpiredInviteException,
+  InviteNotFoundException,
+} from '../exceptions/auth.exceptions';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
 import type { GoogleAuthorizeRedirect } from '../types/google-authorize-redirect.type';
 import type { GoogleIdentity } from '../types/google-identity.type';
@@ -105,7 +104,7 @@ export class PlatformAdminAuthService {
 
     if (await this.loginAttemptService.isLockedOut(email, LoginAttemptScope.ADMIN)) {
       await this.hashingService.compare(dto.password, await this.decoyPasswordHash());
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CREDENTIALS);
+      throw new InvalidCredentialsException();
     }
 
     const admin = await this.platformAdminDbService.findForLogin(email);
@@ -116,14 +115,14 @@ export class PlatformAdminAuthService {
 
     if (!admin?.passwordHash || !passwordMatches) {
       await this.loginAttemptService.recordFailure(email, LoginAttemptScope.ADMIN);
-      throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CREDENTIALS);
+      throw new InvalidCredentialsException();
     }
 
     await this.loginAttemptService.reset(email, LoginAttemptScope.ADMIN);
 
     // `invited` (no password yet) already failed the check above; only `disabled` reaches here.
     if (admin.status === PlatformAdminStatus.DISABLED) {
-      throw new ForbiddenException(MESSAGES.AUTH.ACCOUNT_DISABLED);
+      throw new AccountDisabledException();
     }
 
     return this.buildPlatformAdminLoginResult(admin);
@@ -139,7 +138,7 @@ export class PlatformAdminAuthService {
       hashToken(rawToken)
     );
     if (!invite) {
-      throw new NotFoundException(MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE);
+      throw new InviteNotFoundException();
     }
     return AdminInvitePreviewDto.from(invite);
   }
@@ -157,7 +156,7 @@ export class PlatformAdminAuthService {
     });
 
     if (result.outcome !== 'accepted') {
-      throw new BadRequestException(MESSAGES.AUTH.INVALID_OR_EXPIRED_INVITE);
+      throw new InvalidOrExpiredInviteException();
     }
 
     return this.buildPlatformAdminLoginResult(result);

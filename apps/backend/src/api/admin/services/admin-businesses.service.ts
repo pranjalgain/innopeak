@@ -5,10 +5,11 @@ import { BusinessStatus } from '@common/enums/business-status.enum';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { AdminBusinessesDbService } from '@db/repositories/admin-businesses/admin-businesses.db-service';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import type { AuthUser } from '../../auth/types/auth-user.type';
 import { AdminBusinessResponseDto } from '../dto/admin-business-response.dto';
+import { BusinessNotFoundException } from '../exceptions/admin.exceptions';
 
 export interface SetBusinessStatusParams {
   tenantId: string;
@@ -51,7 +52,7 @@ export class AdminBusinessesService {
       status: tenantStatus,
     });
     if (!summary) {
-      throw new NotFoundException(MESSAGES.ADMIN.BUSINESS_NOT_FOUND);
+      throw new BusinessNotFoundException();
     }
 
     await this.adminOverviewDbService.recordActivityBestEffort({

@@ -312,13 +312,19 @@ export class ErrorHandlerService {
     }
 
     const message = this.extractMessage(error) ?? responseMessage ?? 'Bad request.';
+    // Same `new XException({ message, code })` convention `handleHttpException` already reads for
+    // 409s (see `extractCode`'s own doc comment) — this path just never called it, so a
+    // BadRequestException built that way silently lost its code. Purely additive: a plain-string
+    // BadRequestException (the common case) still resolves to `undefined` here, same as before.
+    const code = error instanceof HttpException ? this.extractCode(error) : undefined;
 
     return this.createErrorResponse(
       HttpStatus.BAD_REQUEST,
       message,
       context,
       error,
-      responseError?.response?.data ?? null
+      responseError?.response?.data ?? null,
+      code
     );
   }
 

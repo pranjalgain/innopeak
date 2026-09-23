@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "motion/react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -38,13 +39,15 @@ export function MobileBottomNav({ navItems, navNamespace, homeHref }: MobileBott
               isActive ? "text-primary" : "text-muted-foreground",
             )}
           >
-            <span
-              className={cn(
-                "flex items-center justify-center rounded-full px-3 py-0.5 transition-colors duration-150 ease-fluid",
-                isActive && "bg-accent",
+            <span className="relative flex items-center justify-center rounded-full px-3 py-0.5">
+              {isActive && (
+                <motion.span
+                  layoutId="mobile-nav-active-pill"
+                  transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                  className="absolute inset-0 rounded-full bg-accent"
+                />
               )}
-            >
-              <Icon size={20} />
+              <Icon size={20} className="relative z-10" />
             </span>
             {t(item.labelKey)}
           </Link>

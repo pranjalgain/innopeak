@@ -1,3 +1,9 @@
+/** Machine-facing codes the frontend branches on. Distinct from MESSAGES, which is human copy. */
+export const PROMPT_ERROR_CODES = {
+  UNKNOWN_PLACEHOLDER: 'UNKNOWN_PLACEHOLDER',
+  MISSING_PLACEHOLDER: 'MISSING_PLACEHOLDER',
+} as const;
+
 export const REQUIRED_PROMPT_PLACEHOLDERS = [
   'business_name',
   'reviewer_name',

@@ -4,10 +4,11 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { AdminUsersDbService } from '@db/repositories/admin-users/admin-users.db-service';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import type { AuthUser } from '../../auth/types/auth-user.type';
 import { AdminUserResponseDto } from '../dto/admin-user-response.dto';
+import { AdminUserNotFoundException } from '../exceptions/admin.exceptions';
 
 @Injectable()
 export class AdminUsersService {
@@ -36,7 +37,7 @@ export class AdminUsersService {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const row = await this.adminUsersDbService.toggleActive(userId);
     if (!row) {
-      throw new NotFoundException(MESSAGES.ADMIN.USER_NOT_FOUND);
+      throw new AdminUserNotFoundException();
     }
 
     await this.adminOverviewDbService.recordActivityBestEffort({

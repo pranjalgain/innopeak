@@ -75,6 +75,12 @@ export enum RouteNames {
   // Reviews module
   REVIEW_BY_ID = ':reviewId',
 
+  // Prompts module — nested segments under RouteNames.PROMPTS. PROMPT_STATS_BATCH is a static
+  // segment registered as its own route rather than nested under PROMPT_STATS, since the batch
+  // endpoint takes a POST body of (promptId, version) pairs instead of a single :promptId param.
+  PROMPT_STATS = ':promptId/stats',
+  PROMPT_STATS_BATCH = 'stats/batch',
+
   // Dashboard module — nested segment under RouteNames.DASHBOARD. The `metrics` route (reusing
   // METRICS above) now also carries the rating distribution, so there is no separate segment for
   // it any more.
@@ -111,7 +117,10 @@ export enum RouteNames {
   // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
   ADMIN_SETTINGS_PLATFORM_CONFIG = 'platform-config',
   ADMIN_OVERVIEW = 'admin/overview',
-  ADMIN_OVERVIEW_REVIEW_STATS = 'review-stats',
+  ADMIN_OVERVIEW_STATS = 'stats',
+  ADMIN_OVERVIEW_RECENT_BUSINESSES = 'recent-businesses',
+  ADMIN_OVERVIEW_NEEDS_ATTENTION = 'needs-attention',
+  ADMIN_OVERVIEW_SIGNUP_TREND = 'signup-trend',
   ADMIN_OVERVIEW_ACTIVITY = 'activity',
 
   // Tenant team members — owner-authenticated (@Roles(UserRole.OWNER)), nested under

@@ -116,6 +116,32 @@ export class PromptsRepository {
     return row === undefined ? null : this.mapVersion(row.version, row.createdByName);
   }
 
+  /** Same tenant-scoping rationale as `findCurrentVersion`, but for one specific version number
+   *  rather than the latest — what `PromptsService.getVersionStats` uses to confirm the version an
+   *  analytics request names actually exists for this tenant before aggregating anything. */
+  async findVersion(
+    promptId: string,
+    version: number,
+    tenantId: string
+  ): Promise<PromptVersionRecord | null> {
+    const rows = await this.dbService.db
+      .select({ version: schema.promptVersions, createdByName: schema.users.name })
+      .from(schema.promptVersions)
+      .innerJoin(schema.prompts, eq(schema.prompts.id, schema.promptVersions.promptId))
+      .leftJoin(schema.users, eq(schema.users.id, schema.promptVersions.createdByUserId))
+      .where(
+        and(
+          eq(schema.promptVersions.promptId, promptId),
+          eq(schema.promptVersions.version, version),
+          eq(schema.prompts.tenantId, tenantId)
+        )
+      )
+      .limit(1);
+
+    const row = rows[0];
+    return row === undefined ? null : this.mapVersion(row.version, row.createdByName);
+  }
+
   /** Same tenant-scoping rationale as `findCurrentVersion`. */
   async countVersions(promptId: string, tenantId: string): Promise<number> {
     const rows = await this.dbService.db

@@ -106,6 +106,9 @@ export const messagesDe: MessageCatalog = {
     MISSING_VARIABLE: (names: readonly string[]): string =>
       `Fehlende(r) erforderliche(r) Prompt-Platzhalter: ${names.join(', ')}`,
     TENANT_ONLY: 'Prompts stehen nur Mandantenbenutzern zur Verfügung.',
+    STATS_RETRIEVED: 'Prompt-Versionsstatistik erfolgreich abgerufen',
+    VERSION_NOT_FOUND: 'Prompt-Version nicht gefunden',
+    STATS_BATCH_RETRIEVED: 'Prompt-Versionsstatistik erfolgreich abgerufen',
   },
   SETTINGS: {
     BLOCKLIST_LISTED: 'Sperrlisteneinträge erfolgreich abgerufen',

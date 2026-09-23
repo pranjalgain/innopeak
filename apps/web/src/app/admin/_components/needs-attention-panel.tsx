@@ -8,6 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { AdminBusiness, BusinessConnectionStatus } from "@/types/domain";
 
 interface NeedsAttentionPanelProps {
+  /** Already filtered to non-connected businesses, sorted most-urgent-first, and capped — by the
+   *  backend (`GET .../overview/needs-attention`). This component only renders it. */
   businesses: AdminBusiness[];
 }
 
@@ -17,40 +19,12 @@ const STATUS_BADGE_CLASSNAME: Record<Exclude<BusinessConnectionStatus, "connecte
   never_connected: "border-transparent bg-muted text-muted-foreground",
 };
 
-const MAX_ROWS = 3;
-
-/**
- * Lower sorts first. A broken connection on a live customer outranks a tenant that never
- * onboarded: the list arrives newest-first and only shows three rows, so without this the newest
- * signups — almost always never-onboarded ones — permanently filled every slot and a genuine
- * mid-life disconnection was never visible here at all.
- */
-const ATTENTION_PRIORITY: Record<Exclude<BusinessConnectionStatus, "connected">, number> = {
-  disconnected: 0,
-  needs_reauth: 1,
-  never_connected: 2,
-};
-
-/** Single source of truth for "does this panel have anything to show" — also used by the parent
- * view to decide whether to reserve layout space for it, so the two can never disagree. */
-export function hasBusinessesNeedingAttention(businesses: AdminBusiness[]): boolean {
-  return businesses.some((business) => business.connectionStatus !== "connected");
-}
-
 export function NeedsAttentionPanel({ businesses }: NeedsAttentionPanelProps) {
   const t = useTranslations("adminOverview.needsAttention");
-  const atRisk = businesses
-    .filter((business) => business.connectionStatus !== "connected")
-    .sort(
-      (a, b) =>
-        ATTENTION_PRIORITY[a.connectionStatus as Exclude<BusinessConnectionStatus, "connected">] -
-        ATTENTION_PRIORITY[b.connectionStatus as Exclude<BusinessConnectionStatus, "connected">],
-    )
-    .slice(0, MAX_ROWS);
 
   // Nothing at risk — an empty "all clear" card is just noise; the parent collapses the layout
   // to give RecentBusinessesCard the full row instead of leaving a blank column beside it.
-  if (atRisk.length === 0) return null;
+  if (businesses.length === 0) return null;
 
   return (
     <Card className="h-full">
@@ -59,7 +33,7 @@ export function NeedsAttentionPanel({ businesses }: NeedsAttentionPanelProps) {
         <CardDescription>{t("subtitle")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-1">
-        {atRisk.map((business) => (
+        {businesses.map((business) => (
           <div key={business.id} className="flex items-center justify-between gap-3 py-1.5">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{business.name}</p>

@@ -292,8 +292,10 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
   const findConnectionByTenant = jest.fn();
   const upsertConnection = jest.fn();
   const reactivateLocationsForConnection = jest.fn();
+  const restartIncompleteBackfills = jest.fn();
   const replaceCredential = jest.fn();
   const storeNewCredential = jest.fn();
+  const addBackfillJob = jest.fn();
 
   const tokens = {
     accessToken: 'access-token',
@@ -316,6 +318,11 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
     upsertConnection.mockResolvedValue(connection);
     replaceCredential.mockResolvedValue('local-redis:secret-1');
     storeNewCredential.mockResolvedValue('local-redis:secret-2');
+    // No prior locations reactivated by default — most of the tests below only care that
+    // `reactivateLocationsForConnection` was (or wasn't) called, not what it returns. The one test
+    // that cares about the restart path sets its own value.
+    reactivateLocationsForConnection.mockResolvedValue([]);
+    restartIncompleteBackfills.mockResolvedValue([]);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -324,10 +331,15 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
         { provide: ProviderCredentialService, useValue: { replaceCredential, storeNewCredential } },
         {
           provide: ConnectionsDbService,
-          useValue: { findConnectionByTenant, upsertConnection, reactivateLocationsForConnection },
+          useValue: {
+            findConnectionByTenant,
+            upsertConnection,
+            reactivateLocationsForConnection,
+            restartIncompleteBackfills,
+          },
         },
         { provide: OAuthStateService, useValue: { consume } },
-        { provide: ReviewSyncQueue, useValue: {} },
+        { provide: ReviewSyncQueue, useValue: { addBackfillJob } },
         { provide: ReviewSyncDbService, useValue: {} },
         { provide: AuthDbService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('') } },
@@ -347,6 +359,50 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
 
     expect(replaceCredential).toHaveBeenCalledWith('local-redis:secret-1', tokens);
     expect(reactivateLocationsForConnection).toHaveBeenCalledWith('connection-1');
+  });
+
+  it('restarts a fresh backfill for a reactivated location that never finished one', async () => {
+    findConnectionByTenant.mockResolvedValue({
+      ...connection,
+      disconnectedAt: '2026-01-01T00:00:00.000Z',
+    });
+    reactivateLocationsForConnection.mockResolvedValue([location]);
+    restartIncompleteBackfills.mockResolvedValue([
+      { location, backfill: backfillRun, backfillAlreadyRunning: false },
+    ]);
+
+    await service.handleCallback({ code: 'auth-code', state: 'state', sid: 'sid' });
+
+    expect(restartIncompleteBackfills).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      locations: [location],
+    });
+    expect(addBackfillJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        locationId: 'location-1',
+        syncRunId: 'run-1',
+        connectionId: 'connection-1',
+      })
+    );
+  });
+
+  it('does not fail the reconnect when restarting the backfill fails', async () => {
+    findConnectionByTenant.mockResolvedValue({
+      ...connection,
+      disconnectedAt: '2026-01-01T00:00:00.000Z',
+    });
+    reactivateLocationsForConnection.mockResolvedValue([location]);
+    restartIncompleteBackfills.mockRejectedValue(new Error('db unavailable'));
+
+    const redirect = await service.handleCallback({
+      code: 'auth-code',
+      state: 'state',
+      sid: 'sid',
+    });
+
+    // The connection and reactivation already committed by this point — a failure restarting the
+    // backfill must not turn a successful reconnect into an OAuth error redirect.
+    expect(redirect).toContain('connected=1');
   });
 
   it('does not reactivate anything on a brand-new connection (no prior row)', async () => {

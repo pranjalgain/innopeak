@@ -293,11 +293,14 @@
       "button": "Weiter",
       "buttonMultiple": "Weiter mit {count} Standorten",
       "subtitleMultiple": "Wählen Sie die Standorte, die InnoPeak verwalten soll.",
-      "noAddress": "Keine Adresse hinterlegt"
+      "noAddress": "Keine Adresse hinterlegt",
+      "alreadyConnected": "Bereits verbunden"
     },
     "backfilling": {
       "title": "Ihr Bewertungsverlauf wird importiert",
-      "description": "Dies dauert normalerweise eine Minute. Schließen Sie dieses Fenster nicht.",
+      "phase1": "Ihre Bewertungen werden abgerufen…",
+      "phase2": "Sternebewertungen werden gelesen…",
+      "phase3": "Gleich geschafft…",
       "importing": "Verlaufsbewertungen werden importiert… {imported} von ca. {total} importiert",
       "importingUnknownTotal": "Verlaufsbewertungen werden importiert… bisher {imported}",
       "takingLonger": "Dies dauert länger als gewöhnlich. Wir machen weiter — Sie können dieses Fenster gefahrlos schließen und später zurückkehren."
@@ -659,11 +662,35 @@
     "backToSettings": "Zurück zu Einstellungen",
     "title": "KI-Prompts",
     "description": "Diese Prompts werden der KI beim Entwerfen einer Antwort auf eine Bewertung zugeführt. Verwenden Sie '{{business_name}}', '{{reviewer_name}}', '{{rating}}' und '{{review_text}}' als Platzhalter.",
+    "summary": {
+      "prompts": "{count, plural, one {Prompt} other {Prompts}}",
+      "totalGenerated": "Antworten entworfen",
+      "approvalRate": "Insgesamt genehmigt"
+    },
     "edit": "Bearbeiten",
+    "preview": "Vorschau",
     "versionBadge": "v{version}",
     "updatedAt": "Aktualisiert am {date} von {author}",
     "editor": {
       "description": "Das Bearbeiten hier speichert eine neue Version (v{version}) — die aktuelle wird nicht überschrieben. Platzhalter in doppelten geschweiften Klammern werden automatisch ausgefüllt.",
+      "insertPlaceholder": "Einfügen:",
+      "missingPlaceholders": "Fehlt: {list}",
+      "unknownPlaceholders": "Unbekannter Platzhalter: {list}",
+      "placeholders": {
+        "business_name": "Firmenname",
+        "reviewer_name": "Name des Rezensenten",
+        "rating": "Bewertung",
+        "review_text": "Bewertungstext"
+      },
+      "characterCount": "{count}/{max}",
+      "preview": "Vorschau",
+      "previewEmpty": "Noch nichts zum Anzeigen.",
+      "sample": {
+        "business_name": "The Coastal Table",
+        "reviewer_name": "Alex Rivera",
+        "rating": "5",
+        "review_text": "Tolles Essen und noch besserer Service!"
+      },
       "cancel": "Abbrechen",
       "saveAsNewVersion": "Als v{version} speichern",
       "saving": "Wird gespeichert…"
@@ -680,7 +707,9 @@
     },
     "history": {
       "toggle": "{count, plural, one {# frühere Version} other {# frühere Versionen}}",
-      "entryLabel": "v{version} · {date} · {author}"
+      "entryLabel": "v{version} · {date} · {author}",
+      "preview": "Vorschau",
+      "previewTitle": "Version {version}"
     },
     "stats": {
       "noneGenerated": "Mit diesem Prompt wurden noch keine Antworten generiert",
@@ -702,7 +731,8 @@
       "businesses": "Unternehmen",
       "users": "Benutzer",
       "reviewsFetched": "Abgerufene Bewertungen",
-      "repliesSent": "Gesendete Antworten"
+      "repliesSent": "Gesendete Antworten",
+      "trendVsLastMonth": "gegenüber dem Vormonat"
     },
     "needsAttention": {
       "title": "Handlungsbedarf",
@@ -774,6 +804,12 @@
       "title": "Noch keine Unternehmen",
       "description": "Neue Unternehmen erscheinen hier, sobald sie sich registrieren."
     },
+    "noResults": {
+      "title": "Keine passenden Unternehmen",
+      "description": "Versuchen Sie einen anderen Namen oder Inhaber.",
+      "clearSearch": "Suche zurücksetzen"
+    },
+    "searchPlaceholder": "Nach Name oder Inhaber suchen…",
     "toasts": {
       "loadFailed": "Unternehmen konnten nicht geladen werden.",
       "updateFailed": "Dieses Unternehmen konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut."
@@ -813,6 +849,12 @@
       "title": "Noch keine Benutzer",
       "description": "Benutzer erscheinen hier, sobald Unternehmen ihr Team einladen."
     },
+    "noResults": {
+      "title": "Keine passenden Benutzer",
+      "description": "Versuchen Sie einen anderen Namen oder ein anderes Unternehmen.",
+      "clearSearch": "Suche zurücksetzen"
+    },
+    "searchPlaceholder": "Nach Name oder Unternehmen suchen…",
     "toasts": {
       "loadFailed": "Benutzer konnten nicht geladen werden.",
       "updateFailed": "Dieser Benutzer konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut."

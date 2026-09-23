@@ -30,6 +30,7 @@ contracts). The pipeline has no HTTP surface, so it has an overview only.
 | Media | Stored assets: direct-to-provider profile avatar upload for tenant users and platform admins | [Overview](./media/overview.md) · [API](./media/api-reference.md) |
 | Notifications | Escalation delivery records and the in-app notification centre | [Overview](./notifications/overview.md) · [API](./notifications/api-reference.md) |
 | Dashboard | Read-only aggregate metrics over reviews and responses | [Overview](./dashboard/overview.md) · [API](./dashboard/api-reference.md) |
+| Admin Overview | Super Admin landing screen: stat cards, recent/at-risk businesses, signup trend, activity log | [Overview](./admin-overview/overview.md) · [API](./admin-overview/api-reference.md) |
 | Platform Admin | Cross-tenant support and operations for GeekyAnts staff | [Overview](./platform-admin/overview.md) · [API](./platform-admin/api-reference.md) |
 | Review Pipeline | The worker side: ingestion, classification, generation, notification, posting, retention | [Overview](./review-pipeline/overview.md) |
 

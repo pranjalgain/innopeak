@@ -9,7 +9,7 @@ import type {
   ReviewResponseRow,
   ReviewRow,
 } from '@db/repositories/review-sync/reviews-read.repository';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { REVIEWS_PAGE_SIZE_DEFAULT } from './constants/reviews.constants';
 import type {
@@ -20,6 +20,7 @@ import type {
   ReviewResponseItemDto,
 } from './dto/review-response.dto';
 import { ClientResponseStatus } from './enums/client-response-status.enum';
+import { ReviewNotFoundException } from './exceptions/reviews.exceptions';
 
 /**
  * The seven-value `response_status` enum projected onto the four the shipped frontend understands.
@@ -109,10 +110,7 @@ export class ReviewsService {
     });
 
     if (!review) {
-      throw new NotFoundException({
-        message: MESSAGES.REVIEWS.REVIEW_NOT_FOUND,
-        code: 'REVIEW_NOT_FOUND',
-      });
+      throw new ReviewNotFoundException();
     }
 
     const responses = await this.reviewSyncDbService.findResponsesForReviews({

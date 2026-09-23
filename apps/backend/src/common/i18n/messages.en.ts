@@ -116,6 +116,9 @@ export const messagesEn: MessageCatalog = {
     MISSING_VARIABLE: (names: readonly string[]): string =>
       `Missing required prompt placeholder(s): ${names.join(', ')}`,
     TENANT_ONLY: 'Prompts are only available to tenant users.',
+    STATS_RETRIEVED: 'Prompt version stats retrieved successfully',
+    VERSION_NOT_FOUND: 'Prompt version not found',
+    STATS_BATCH_RETRIEVED: 'Prompt version stats retrieved successfully',
   },
   SETTINGS: {
     BLOCKLIST_LISTED: 'Blocklist terms retrieved successfully',

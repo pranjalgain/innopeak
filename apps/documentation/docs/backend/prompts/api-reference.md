@@ -402,6 +402,7 @@ Errors: `400` validation (unknown `tone` value), `401`, `403`, `404 PROMPT_NOT_F
 | Method | Path | Auth | Throttle |
 |---|---|---|---|
 | `GET` | `/v1/prompts/:promptId/stats` | Bearer, `owner` | 30 / min |
+| `POST` | `/v1/prompts/stats/batch` | Bearer, `owner` | 20 / min |
 
 ### `GET /v1/prompts/:promptId/stats`
 
@@ -460,11 +461,12 @@ Four of those mappings are decisions, not transcriptions, and each one changes t
   to render an edited-rate, and a third "unknown" bucket would make that percentage wrong rather
   than merely incomplete.
 
-The aggregate:
+The aggregate (`?version=N` case — anchored on the one `prompt_versions` row, via `prompts` for the
+tenant-ownership check):
 
 ```sql
 SELECT
-  count(*)                                                             AS total_generated,
+  count(rr.id)                                                         AS total_generated,
   count(*) FILTER (WHERE rr.status IN ('approved','posted','post_failed'))
                                                                        AS approved_count,
   count(*) FILTER (WHERE rr.status IN ('approved','posted','post_failed')
@@ -478,13 +480,38 @@ SELECT
   count(*) FILTER (WHERE rr.status = 'superseded')                     AS superseded_count,
   avg(extract(epoch FROM (rr.decided_at - rr.created_at)) / 60.0)
     FILTER (WHERE rr.decided_at IS NOT NULL)                           AS average_decision_minutes
-FROM review_responses rr
-JOIN prompt_versions pv ON pv.id = rr.prompt_version_id
-WHERE pv.prompt_id = $1
+FROM prompt_versions pv
+JOIN prompts p ON p.id = pv.prompt_id
+LEFT JOIN review_responses rr
+  ON rr.prompt_version_id = pv.id
   AND rr.tenant_id = $2
   AND rr.source IN ('ai_generated', 'human_edited')
-  AND ($3::int IS NULL OR pv.version = $3);
+WHERE p.id = $1
+  AND p.tenant_id = $2
+  AND pv.version = $3
+GROUP BY pv.id;
 ```
+
+Omitting `?version=` runs the same aggregate anchored on `prompts` instead (`FROM prompts p LEFT
+JOIN prompt_versions pv ON pv.prompt_id = p.id`, dropping the `pv.version = $3` condition, `GROUP BY
+p.id`), so a prompt with zero versions yet still exists and returns all-zero stats.
+
+**Why `LEFT JOIN` + `GROUP BY`, not the more obvious `FROM review_responses ... WHERE`.** A bare
+aggregate with no `GROUP BY` always returns exactly one row, even over zero matching input rows
+(`count(*) = 0`, `avg(...) = NULL`) — so anchoring on `review_responses` with an `INNER JOIN` can't
+tell "this version doesn't exist" apart from "it exists but has zero reviews": both produce the
+same single all-zero row, which is why the route needs a way to 404 on the former. Anchoring on
+`prompt_versions`/`prompts` instead makes the *row count itself* carry existence: the `WHERE` either
+matches the one version/prompt row (real existence — one group, all-zero if nothing has been
+generated) or none at all (zero rows back, a genuine 404). `review_responses` only enriches
+whichever anchor row survives the filter, via `LEFT JOIN` rather than `INNER JOIN` — critically,
+its tenant/source scoping has to live in the `LEFT JOIN`'s own `ON` clause, not `WHERE`: filtering a
+`LEFT JOIN`'s matched columns in `WHERE` discards the very NULL-padded row that makes "exists but
+empty" distinguishable from "doesn't exist," silently turning the `LEFT JOIN` back into an `INNER
+JOIN`. `total_generated` is `count(rr.id)`, not the bare `count(*)`, for the same reason — `count(*)`
+would count that NULL-padded row as one generated draft when there are actually zero; every other
+counter above already gets this for free, since each one filters on an `rr` column that is also
+NULL on that row.
 
 The `source IN ('ai_generated', 'human_edited')` filter is defensive rather than strictly
 necessary: `imported` and `human_manual` rows never went through a prompt and leave
@@ -546,6 +573,125 @@ client-side, over server-computed counters.
 Errors: `400` validation, `401`, `403`, `404 PROMPT_NOT_FOUND`,
 `404 PROMPT_VERSION_NOT_FOUND`, `429`, `500`.
 
+### `POST /v1/prompts/stats/batch`
+
+The batch counterpart to [`GET /v1/prompts/:promptId/stats`](#get-v1promptspromptidstats) — one
+grouped query for every `(promptId, version)` pair a caller asks for, instead of one request per
+pair. It exists to fix an N+1 the single-pair endpoint cannot avoid on its own: the frontend's
+`usePromptAnalytics` (`apps/web/src/hooks/prompts/use-prompt-analytics.ts`) is what renders the
+stats line on every prompt card and the summary strip above them, and the `useQueries`-based
+approach it replaced put one `GET .../stats` request on the network per prompt in the list — a
+20-prompt tenant fired 20 simultaneous requests just to render the list. This route lets that same
+screen fire exactly one. (Historical versions are a separate concern: `prompt-version-history.tsx`'s
+own per-version stats, fetched lazily as history pages expand via
+`usePromptVersionStatsQueries` in the same hooks file, still go through the single-pair
+endpoint one request per expanded version — this batch route is only for the always-visible
+current-version numbers.)
+
+Request:
+
+```json
+{
+  "pairs": [
+    { "promptId": "0190f4a1-7c33-7e51-9a02-6d1b8f4c0011", "version": 3 },
+    { "promptId": "0190f4a1-7c33-7e51-9a02-6d1b8f4c0022", "version": 1 }
+  ]
+}
+```
+
+| Field | Type | Rules |
+|---|---|---|
+| `pairs` | array | required, non-empty, at most `PROMPT_STATS_BATCH_MAX_PAIRS` (100) entries. The cap bounds both the request payload and the `OR` clause the repository builds from it — comfortably above any realistic prompt-list page size |
+| `pairs[].promptId` | string (uuid) | required |
+| `pairs[].version` | integer | required, min `1` |
+
+Unlike the single-pair endpoint, **there is no per-pair existence check.** `GET .../stats` 404s
+when `promptId` doesn't belong to the caller's tenant, but this route does not — a pair naming a
+prompt or version this tenant doesn't have simply comes back with all-zero/null stats, the same
+shape a real pair gets when it has generated nothing yet. That is a safe default rather than a
+hidden leak: `ReviewsReadRepository.getPromptVersionStatsBatch`'s join is `tenant_id = $1 AND (pair
+conditions)`, so a pair belonging to another tenant can never match a row in the first place —
+there is nothing left to distinguish "wrong tenant" from "no drafts yet" without an extra
+existence query per pair, which is exactly the round trip this endpoint exists to avoid.
+
+The aggregate is the same eight-counter expression `GET .../stats` runs (see its own [aggregate
+SQL](#get-v1promptspromptidstats) and the four decisions behind each mapping, both unchanged here),
+computed for every pair at once via one `GROUP BY prompt_versions.id` over an `INNER JOIN` — simpler
+than `GET .../stats`'s `LEFT JOIN`, since this route has no per-pair existence/404 to distinguish
+from "no drafts yet": both cases already come back as "no row for this pair," filled in identically
+as all-zero/null by the service layer:
+
+```sql
+SELECT
+  pv.prompt_id, pv.version,
+  count(*)                                                             AS total_generated,
+  count(*) FILTER (WHERE rr.status IN ('approved','posted','post_failed')) AS approved_count,
+  -- ...the same edited/rejected/pending/superseded/average-decision-minutes expressions as
+  -- the single-pair query, unchanged
+FROM review_responses rr
+JOIN prompt_versions pv ON pv.id = rr.prompt_version_id
+WHERE rr.tenant_id = $1
+  AND (
+    (pv.prompt_id = $2 AND pv.version = $3) OR
+    (pv.prompt_id = $4 AND pv.version = $5)
+    -- one OR arm per requested pair
+  )
+  AND rr.source IN ('ai_generated', 'human_edited')
+GROUP BY pv.id, pv.prompt_id, pv.version;
+```
+
+A pair with no matching `review_responses` rows produces no group at all — a real empty result set
+for that pair, unlike the single-pair query's bare aggregate, which always returns exactly one row
+regardless of matches. The service fills that gap with the same all-zero/`null` shape `GET
+.../stats` reports for "no drafts yet" (`ZERO_PROMPT_VERSION_STATS`), so a caller never has to
+special-case a missing key.
+
+Success `200`:
+
+```json
+{
+  "results": [
+    {
+      "promptId": "0190f4a1-7c33-7e51-9a02-6d1b8f4c0011",
+      "version": 3,
+      "stats": {
+        "totalGenerated": 42,
+        "approvedCount": 30,
+        "approvedAsIsCount": 21,
+        "approvedEditedCount": 9,
+        "rejectedCount": 4,
+        "pendingCount": 6,
+        "supersededCount": 2,
+        "averageDecisionMinutes": 12.5
+      }
+    },
+    {
+      "promptId": "0190f4a1-7c33-7e51-9a02-6d1b8f4c0022",
+      "version": 1,
+      "stats": {
+        "totalGenerated": 0,
+        "approvedCount": 0,
+        "approvedAsIsCount": 0,
+        "approvedEditedCount": 0,
+        "rejectedCount": 0,
+        "pendingCount": 0,
+        "supersededCount": 0,
+        "averageDecisionMinutes": null
+      }
+    }
+  ]
+}
+```
+
+| Field | Type | Rules |
+|---|---|---|
+| `results` | array | Same length and order as the request's `pairs` — one entry per pair, duplicates included, not the deduplicated set of matched groups |
+| `results[].promptId` / `results[].version` | string (uuid) / integer | Echo the request pair rather than anything resolved from the database, so a pair for a prompt/version this tenant doesn't have still echoes back exactly what was asked for |
+| `results[].stats` | object | The same eight counters as [`GET /v1/prompts/:promptId/stats`](#get-v1promptspromptidstats), field-for-field, including the same `approvedAsIsCount + approvedEditedCount = approvedCount` invariant |
+
+Errors: `400` validation (`pairs` empty, `pairs` over 100 entries, a malformed `promptId` or
+non-integer/`< 1` `version` inside a pair), `401`, `403`, `429`, `500`.
+
 ## Error reference
 
 Every row uses the shared error envelope
@@ -556,7 +702,7 @@ on.
 
 | Status | Code | Route(s) | When |
 |---|---|---|---|
-| `400` | `Validation Error` | Any route with a body or query param | A `class-validator` rule failed — malformed `promptId` UUID, empty `template`, `template` over 1000 chars, `tone` outside `prompt_tone`, `version`/`pageNo`/`pageSize` non-integer or out of range. `message` is the comma-joined list of violations. |
+| `400` | `Validation Error` | Any route with a body or query param | A `class-validator` rule failed — malformed `promptId` UUID, empty `template`, `template` over 1000 chars, `tone` outside `prompt_tone`, `version`/`pageNo`/`pageSize` non-integer or out of range, or (`POST /v1/prompts/stats/batch`) `pairs` empty or over `PROMPT_STATS_BATCH_MAX_PAIRS` (100) entries. `message` is the comma-joined list of violations. |
 | `400` | `Bad Request` (`UNKNOWN_VARIABLE` / `MISSING_VARIABLE`) | `POST /v1/prompts/:promptId/versions` | A `{{placeholder}}` is not on the allowlist (after trim/lowercase), or a required variable is absent. `message` names the variables. |
 | `401` | `Unauthorized` | All routes | Missing, malformed, or expired access token. |
 | `403` | `Forbidden` | All routes | Authenticated as a `member`, not an `owner`. Reply prompts are Settings-scoped (`PLAN.md` §2). Depends on `RolesGuard` being adapted to the schema's `user_role` enum first — see the auth [Gap](../auth/overview.md#gap-between-current-code-and-target-design). |

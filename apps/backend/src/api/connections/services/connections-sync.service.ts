@@ -1,6 +1,5 @@
 import type { AuthUser } from '@auth/types/auth-user.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
-import { MESSAGES } from '@common/constants/messages.constants';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import { SyncHealthStatus } from '@common/enums/sync-health-status.enum';
@@ -8,17 +7,15 @@ import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import type { LocationRow } from '@db/repositories/connections/connections.repository';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
-import {
-  CONNECTION_ERROR_CODES,
-  SYNC_RUNS_PAGE_SIZE_DEFAULT,
-} from '../constants/connections.constants';
+import { SYNC_RUNS_PAGE_SIZE_DEFAULT } from '../constants/connections.constants';
 import type {
   BackfillProgressResponseDto,
   SyncHealthResponseDto,
   SyncRunListResponseDto,
 } from '../dto/connection-response.dto';
+import { LocationNotFoundException } from '../exceptions/connections.exceptions';
 import { computeBackfillProgress, isSyncRunStale } from '../utils/connections.utils';
 
 @Injectable()
@@ -148,10 +145,7 @@ export class ConnectionsSyncService {
     );
 
     if (!location) {
-      throw new NotFoundException({
-        message: MESSAGES.CONNECTIONS.LOCATION_NOT_FOUND,
-        code: CONNECTION_ERROR_CODES.LOCATION_NOT_FOUND,
-      });
+      throw new LocationNotFoundException();
     }
 
     return location;

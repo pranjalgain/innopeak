@@ -3,11 +3,20 @@ import { ResponseStatus } from '@common/enums/response-status.enum';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { count, desc, eq } from 'drizzle-orm';
+import { count, desc, eq, gte, sql } from 'drizzle-orm';
 
 export interface PlatformReviewStats {
   totalReviewsFetched: number;
   totalRepliesSent: number;
+}
+
+/** One calendar month's tenant-signup count. Only months with at least one signup are returned —
+ * `AdminOverviewService.getSignupTrend` fills the zero-count months in the window before responding. */
+export interface SignupTrendPoint {
+  year: number;
+  /** 1-12. */
+  month: number;
+  count: number;
 }
 
 export interface PlatformActivityRow {
@@ -67,6 +76,37 @@ export class AdminOverviewRepository {
       totalReviewsFetched: reviewRows[0]?.value ?? 0,
       totalRepliesSent: replyRows[0]?.value ?? 0,
     };
+  }
+
+  /**
+   * Tenant signups aggregated by calendar month, over the trailing `monthsBack` months (the
+   * current month counts as one). UTC, matching the app's `TZ=UTC` runtime, so a tenant created at
+   * `2026-02-01T00:30:00Z` always lands in February regardless of which timezone the requesting
+   * admin is in.
+   *
+   * `EXTRACT(...)` is the accepted `sql<T>` exception here (see `admin-businesses.repository.ts`'s
+   * own comment on that convention) — the query builder has no month/year grouping primitive.
+   * Reusing the same `sql<T>` expression objects in both `select` and `groupBy` keeps the two
+   * provably identical; Postgres groups by the expression itself, not by its output alias.
+   */
+  async getSignupTrend(monthsBack: number): Promise<SignupTrendPoint[]> {
+    const now = new Date();
+    // `tenants.createdAt` is a `mode: 'string'` timestamp column — Drizzle compares it against a
+    // string, not a `Date`, so the window start is serialized before being passed to `gte`.
+    const windowStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (monthsBack - 1), 1)
+    ).toISOString();
+
+    const yearExpr = sql<number>`EXTRACT(YEAR FROM ${schema.tenants.createdAt})::int`;
+    const monthExpr = sql<number>`EXTRACT(MONTH FROM ${schema.tenants.createdAt})::int`;
+
+    const rows = await this.dbService.db
+      .select({ year: yearExpr, month: monthExpr, value: count() })
+      .from(schema.tenants)
+      .where(gte(schema.tenants.createdAt, windowStart))
+      .groupBy(yearExpr, monthExpr);
+
+    return rows.map(row => ({ year: row.year, month: row.month, count: row.value }));
   }
 
   async recordActivity(input: RecordActivityInput): Promise<void> {
