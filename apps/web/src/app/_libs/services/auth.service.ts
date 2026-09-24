@@ -207,27 +207,50 @@ export class AuthService {
   }
 
   /**
-   * Real Google sign-in. No business name: login never creates a tenant, so an unknown identity
-   * comes back as `?error=NO_ACCOUNT` rather than silently signing someone up.
+   * On a real backend this is a full-page navigation to Google's consent screen — see
+   * `startGoogleSignup`'s own comment for why that can never be an SDK call. This branch is a
+   * Vercel preview build with no backend behind it at all (see `mock-backend/adapter.ts`), so
+   * there is no `/v1/auth/google` route to redirect to; `next` would 404 the navigation outright.
+   * Stands in for "an already-linked Google identity signs in" by reusing `loginWithPassword`'s
+   * own token-setting logic against the mock's own `/v1/auth/login` (which ignores the empty
+   * credentials and resolves to the seeded demo owner — see `mock-backend/handlers/auth.ts`),
+   * then navigating exactly where a real login would.
    */
   static startGoogleLogin(): void {
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
-    window.location.assign("/v1/auth/google?intent=login");
+    void (async (): Promise<void> => {
+      try {
+        const result = await this.loginWithPassword("", "");
+        // The mock's login handler always resolves straight to a seeded, already-active user
+        // (see `resolveLoginUser`), so `verify_needed` can't actually happen here — handled
+        // anyway rather than assuming the union away.
+        window.location.href =
+          result.kind === "success"
+            ? result.hasConnectedBusiness
+              ? ROUTES.DASHBOARD
+              : ROUTES.ONBOARDING_CONNECT
+            : ROUTES.LOGIN;
+      } catch {
+        window.location.href = ROUTES.LOGIN;
+      }
+    })();
   }
 
   /**
-   * The admin sign-in screen's Google button — its own backend route, not `startGoogleLogin`'s.
-   * An admin who accepted their invite through Google has no password at all, so the form on that
-   * screen can never sign them in and this is their only way back.
-   *
-   * Deliberately not the tenant route with a different label: that one falls through to the tenant
-   * tables when no admin identity matches, which would let the admin screen hand back a *tenant*
-   * session, and sends its failures to `/login` — a page with no admin path on it. This route
-   * resolves `platform_admin_identities` only, and errors back to `/admin-login`.
+   * The admin sign-in screen's Google button — its own backend route, not `startGoogleLogin`'s, on
+   * a real backend. No `/v1/admin/auth/google` exists on this backend-free preview branch (see
+   * `startGoogleLogin`'s own comment); stands in the same way, via the mock's own
+   * `/v1/admin/auth/login` (`loginAsAdmin`, which ignores the empty credentials and resolves to
+   * the seeded root admin — see `mock-backend/handlers/admin-auth.ts`).
    */
   static startAdminGoogleLogin(): void {
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
-    window.location.assign("/v1/admin/auth/google");
+    void (async (): Promise<void> => {
+      try {
+        await this.loginAsAdmin("", "");
+        window.location.href = ROUTES.ADMIN;
+      } catch {
+        window.location.href = ROUTES.ADMIN_LOGIN;
+      }
+    })();
   }
 
   /**
@@ -256,24 +279,17 @@ export class AuthService {
   }
 
   /**
-   * Real Google signup. A full-page navigation rather than an SDK call: the browser has to follow
-   * the redirect to Google's consent screen, and the backend sets an httpOnly binding cookie on
-   * the way out that an XHR could not carry back.
-   *
-   * No business name here any more — Google returns a person, not a business, so asking for one
-   * before the redirect meant collecting it inside the *password* signup form, which read oddly
-   * for someone who never intends to set a password. The callback now sends a genuinely new
-   * signup to `/onboarding/business-name` instead; an existing or linked account still lands
-   * straight on /dashboard, same as before.
-   *
-   * Never resolves — the page is gone.
+   * On a real backend this is a full-page navigation to Google's consent screen (the browser has
+   * to actually leave for OAuth, and the backend sets an httpOnly binding cookie on the way out
+   * that an XHR could never carry back) — no `/v1/auth/google` exists on this backend-free preview
+   * branch to redirect to (see `startGoogleLogin`'s own comment), so this goes straight to the one
+   * real destination a genuinely-new Google signup always lands on: `/onboarding/business-name`.
+   * That screen's own submit (`completeGoogleSignup`) is a real mocked endpoint
+   * (`mock-backend/handlers/auth.ts`) that fabricates a plausible Google identity, exactly as the
+   * real callback would have.
    */
   static startGoogleSignup(): void {
-    // Not a Next page: `/v1/*` is rewritten to the NestJS backend, which answers with a 302 to
-    // Google's consent screen. `router.push` would ask the Next router to resolve a route that
-    // does not exist in the app, and the browser must genuinely leave the origin for OAuth at all.
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign("/v1/auth/google?intent=signup");
+    window.location.href = ROUTES.ONBOARDING_BUSINESS_NAME;
   }
 
   /**
@@ -509,13 +525,22 @@ export class AuthService {
   }
 
   /**
-   * The SSO alternative to `acceptAdminInvite` — a full-page navigation, same shape as
-   * `startGoogleLogin`/`startGoogleSignup`: the browser has to follow the redirect to Google's
-   * consent screen, which an XHR could not do. Never resolves — the page is gone.
+   * The SSO alternative to `acceptAdminInvite` — a full-page navigation on a real backend, same
+   * shape as `startGoogleLogin`/`startGoogleSignup`. No such route exists on this backend-free
+   * preview branch (see `startGoogleLogin`'s own comment); stands in by reusing `acceptAdminInvite`
+   * itself (the mock's `/v1/admin/auth/invite/accept` ignores the password and always signs in as
+   * the seeded invited admin — see `mock-backend/handlers/admin-auth.ts`) rather than duplicating
+   * its token-storage logic.
    */
   static startAdminInviteGoogle(token: string): void {
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign(`/v1/admin/auth/invite/${encodeURIComponent(token)}/google`);
+    void (async (): Promise<void> => {
+      try {
+        await this.acceptAdminInvite(token, "");
+        window.location.href = ROUTES.ADMIN;
+      } catch {
+        window.location.href = ROUTES.ADMIN_LOGIN;
+      }
+    })();
   }
 
   /**
@@ -555,12 +580,23 @@ export class AuthService {
   }
 
   /**
-   * The SSO alternative to `acceptMemberInvite` — a full-page navigation, same shape as
-   * `startAdminInviteGoogle`: the browser has to follow the redirect to Google's consent screen,
-   * which an XHR could not do. Never resolves — the page is gone.
+   * The SSO alternative to `acceptMemberInvite` — a full-page navigation on a real backend, same
+   * shape as `startAdminInviteGoogle`. No such route exists on this backend-free preview branch
+   * (see `startGoogleLogin`'s own comment); stands in by reusing `acceptMemberInvite` itself (the
+   * mock's `/v1/auth/invite/accept` ignores the name/password and always signs in as the seeded
+   * invited member — see `mock-backend/handlers/auth.ts`) rather than duplicating its
+   * token-storage logic.
    */
   static startMemberInviteGoogle(token: string): void {
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.assign(`/v1/auth/invite/${encodeURIComponent(token)}/google`);
+    void (async (): Promise<void> => {
+      try {
+        const result = await this.acceptMemberInvite(token, "New Teammate", "");
+        window.location.href = result.hasConnectedBusiness
+          ? ROUTES.DASHBOARD
+          : ROUTES.ONBOARDING_CONNECT;
+      } catch {
+        window.location.href = ROUTES.LOGIN;
+      }
+    })();
   }
 }

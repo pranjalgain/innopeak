@@ -5,10 +5,13 @@ const requestUse = vi.fn();
 
 // The module installs interceptors on the global axios at import time, so the mock has to carry
 // an `interceptors` shape as well as `post`. `requestUse` is captured so the request interceptor
-// can be invoked directly below.
+// can be invoked directly below. `defaults` is required too on this branch — see the mock adapter
+// comment in `../config`'s own `installApiInterceptors` — which assigns `axios.defaults.adapter`
+// unconditionally at import time.
 vi.mock("axios", () => {
   const instance = {
     post,
+    defaults: {} as { adapter?: unknown },
     interceptors: {
       request: { use: requestUse },
       response: { use: vi.fn() },
