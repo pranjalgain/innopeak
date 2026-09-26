@@ -107,6 +107,30 @@ describe('TransformInterceptor', () => {
     });
   });
 
+  /**
+   * Regression test: `partial.data ?? data` cannot tell "the payload already carries `data: null`"
+   * from "the payload has no `data` key at all" — `??` treats both as absent and falls back to
+   * `data` (the whole envelope), double-wrapping it. A void mutation that legitimately answers
+   * `ResponseUtil.success(null, ...)` (e.g. `POST /v1/billing/dummy/complete-checkout`) must come
+   * out with `data: null`, not the envelope nested inside itself.
+   */
+  it('preserves an explicit null data payload instead of double-wrapping the envelope', async () => {
+    const context = buildHttpContext('/v1/billing/dummy/complete-checkout');
+    const callHandler: CallHandler = {
+      handle: () =>
+        of({ status: 'Success', message: 'Checkout completed successfully', data: null }),
+    };
+
+    const result = await firstValueFrom(interceptor.intercept(context, callHandler));
+
+    expect(result).toEqual({
+      statusCode: 200,
+      status: 'Success',
+      message: 'Checkout completed successfully',
+      data: null,
+    });
+  });
+
   it('includes the error key only when present on the payload (exactOptionalPropertyTypes fix)', async () => {
     const context = buildHttpContext('/v1/users');
     const callHandler: CallHandler = {

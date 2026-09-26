@@ -1,5 +1,6 @@
 import type { AuthUser } from '@auth/types/auth-user.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
+import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
@@ -31,7 +32,6 @@ import { OAuthStateService } from './oauth-state.service';
 
 import {
   DEFAULT_RETURN_TO,
-  MAX_ACTIVE_LOCATIONS,
   OAUTH_ERROR_CODES,
   type OAuthErrorCode,
   RETURN_TO_PATHS,
@@ -73,6 +73,7 @@ export class ConnectionsService {
     private readonly reviewSyncQueue: ReviewSyncQueue,
     private readonly reviewSyncDbService: ReviewSyncDbService,
     private readonly authDbService: AuthDbService,
+    private readonly billingEntitlementsService: BillingEntitlementsService,
     configService: ConfigService<EnvConfig>
   ) {
     this.frontendUrl = (configService.get<string>('FRONTEND_URL') ?? '').replace(/\/$/, '');
@@ -357,6 +358,13 @@ export class ConnectionsService {
       matches.map(match => match.externalLocationId)
     );
 
+    // The authoritative, lock-held recheck (`ConnectionsDbService.confirmLocations`'s own doc
+    // comment) needs the tenant's real plan cap, not the old flat `MAX_ACTIVE_LOCATIONS` sanity
+    // ceiling — `null` (unlimited, Paid) becomes `Number.MAX_SAFE_INTEGER` since the recheck's
+    // `maxActiveLocations` parameter is a plain number.
+    const entitlements = await this.billingEntitlementsService.getEntitlements(tenantUser.tenantId);
+    const maxActiveLocations = entitlements.maxLocations ?? Number.MAX_SAFE_INTEGER;
+
     let results: ConfirmLocationResult[];
     try {
       results = await this.connectionsDbService.confirmLocations({
@@ -368,7 +376,7 @@ export class ConnectionsService {
           name: match.name,
           address: match.address,
         })),
-        maxActiveLocations: MAX_ACTIVE_LOCATIONS,
+        maxActiveLocations,
       });
     } catch (error) {
       // The pre-check above already rejected the common case; this is the race-safe backstop —
@@ -603,11 +611,14 @@ export class ConnectionsService {
   }
 
   /**
-   * `MAX_ACTIVE_LOCATIONS` sanity ceiling. An application rule with no database constraint behind
-   * it, so it has to be checked here — and re-confirming an *already active* location is
-   * explicitly allowed (it doesn't grow the count), since that is what a reconnect does and
-   * rejecting it would strand a tenant who lost their grant. Cheap, non-authoritative pre-check —
-   * `ConnectionsDbService.confirmLocations` rechecks under an advisory lock before writing.
+   * The tenant's plan `max_locations` cap (`BillingEntitlementsService.canAddLocation`), not the
+   * old hardcoded `MAX_ACTIVE_LOCATIONS` sanity ceiling — see `apps/backend/docs/conventions`'s
+   * billing plan for why this moved from a flat constant to a per-plan entitlement. Re-confirming
+   * an *already active* location is still explicitly allowed (it doesn't grow the count), since
+   * that is what a reconnect does and rejecting it would strand a tenant who lost their grant.
+   * Cheap, non-authoritative pre-check — `ConnectionsDbService.confirmLocations` rechecks under an
+   * advisory lock before writing (see `confirmLocations` below for how that recheck is also now
+   * plan-aware).
    */
   private async assertLocationLimit(
     tenantId: string,
@@ -620,7 +631,12 @@ export class ConnectionsService {
     const activeExternalIds = new Set(active.map(location => location.externalLocationId));
     const newCount = externalLocationIds.filter(id => !activeExternalIds.has(id)).length;
 
-    if (active.length + newCount > MAX_ACTIVE_LOCATIONS) {
+    if (newCount === 0) {
+      // Reconfirming only already-active locations never grows the count — allowed unconditionally.
+      return;
+    }
+
+    if (!(await this.billingEntitlementsService.canAddLocation(tenantId))) {
       throw new LocationLimitReachedException();
     }
   }

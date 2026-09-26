@@ -30,6 +30,7 @@ function location(id: string, businessName: string): ConnectedLocation {
     lastSyncStatus: "ok",
     lastSyncError: null,
     onboardingBackfillCompletedAt: "2026-01-01T00:00:00.000Z",
+    billingPausedAt: null,
   };
 }
 

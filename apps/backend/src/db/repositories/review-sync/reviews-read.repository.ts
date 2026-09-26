@@ -8,7 +8,7 @@ import { ReviewStatus } from '@common/enums/review-status.enum';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
 export interface ReviewRow {
@@ -196,7 +196,19 @@ export class ReviewsReadRepository {
   constructor(private readonly dbService: DBService) {}
 
   async listReviews(filter: ListReviewsFilter): Promise<{ reviews: ReviewRow[]; total: number }> {
-    const conditions = [eq(schema.reviews.tenantId, filter.tenantId)];
+    // A location this tenant has downgraded past its plan's cap is paused (`billing_paused_at`
+    // set — see `BillingEntitlementsService.enforceLocationLimitOnDowngrade`), and its reviews are
+    // excluded from both the list and the individual lookup below. Unconditional, not
+    // plan-gated: `billing_paused_at` is only ever non-null when a location is genuinely over cap
+    // (Paid clears it on every location, see `clearBillingPauseForTenant`), so this is a no-op for
+    // any tenant with nothing paused. Without it, a downgraded tenant could keep browsing full
+    // review history — including replies — for a location they no longer pay for, which defeats
+    // the location cap's entire purpose; the "choose your active location" flow's whole premise is
+    // that the excess location's data isn't part of what the current plan includes.
+    const conditions = [
+      eq(schema.reviews.tenantId, filter.tenantId),
+      isNull(schema.locations.billingPausedAt),
+    ];
 
     if (filter.status) {
       conditions.push(eq(schema.reviews.status, filter.status));
@@ -219,11 +231,15 @@ export class ReviewsReadRepository {
     }
 
     const where = and(...conditions);
+    // Every location row exists and `reviews.location_id` is `NOT NULL` (see `0004_reviews.sql`),
+    // so an inner join never drops a review that would otherwise have matched `where` on its own.
+    const locationJoin = eq(schema.reviews.locationId, schema.locations.id);
 
     const [reviews, totals] = await Promise.all([
       this.dbService.db
         .select(REVIEW_COLUMNS)
         .from(schema.reviews)
+        .innerJoin(schema.locations, locationJoin)
         // Newest reviewed first. `id` breaks ties — it is a uuidv7, so it sorts by creation time
         // rather than arbitrarily, which keeps pagination stable when several reviews share a
         // timestamp (routine after a backfill, where whole pages can land in the same second).
@@ -231,7 +247,11 @@ export class ReviewsReadRepository {
         .where(where)
         .limit(filter.pageSize)
         .offset((filter.page - 1) * filter.pageSize),
-      this.dbService.db.select({ value: count() }).from(schema.reviews).where(where),
+      this.dbService.db
+        .select({ value: count() })
+        .from(schema.reviews)
+        .innerJoin(schema.locations, locationJoin)
+        .where(where),
     ]);
 
     // Drizzle infers these pgEnum-backed columns as their own plain string-literal unions, not
@@ -240,12 +260,20 @@ export class ReviewsReadRepository {
     return { reviews: reviews as ReviewRow[], total: totals[0]?.value ?? 0 };
   }
 
+  /** Same `billing_paused_at` exclusion as `listReviews` — see that method's own comment. A review
+   *  that exists but belongs to a paused (over-cap) location resolves the same as "doesn't exist",
+   *  rather than leaking that it exists via a different error/status. */
   async findReviewByIdForTenant(input: FindReviewByIdForTenantInput): Promise<ReviewRow | null> {
     const rows = await this.dbService.db
       .select(REVIEW_COLUMNS)
       .from(schema.reviews)
+      .innerJoin(schema.locations, eq(schema.reviews.locationId, schema.locations.id))
       .where(
-        and(eq(schema.reviews.id, input.reviewId), eq(schema.reviews.tenantId, input.tenantId))
+        and(
+          eq(schema.reviews.id, input.reviewId),
+          eq(schema.reviews.tenantId, input.tenantId),
+          isNull(schema.locations.billingPausedAt)
+        )
       )
       .limit(1);
 
@@ -485,5 +513,26 @@ export class ReviewsReadRepository {
         statsByPair.get(promptStatsBatchKey(pair.promptId, pair.version)) ??
         ZERO_PROMPT_VERSION_STATS,
     }));
+  }
+
+  /**
+   * `BillingEntitlementsService.canGenerateAiDraft`'s usage counter — `review_responses` rows this
+   * tenant generated (`source = 'ai_generated'`) since the start of the current calendar month
+   * (UTC). Deliberately unwired anywhere yet: there is no AI-reply-generation pipeline in this
+   * codebase today, so nothing calls `canGenerateAiDraft` — see that method's own doc comment.
+   */
+  async countAiGeneratedResponsesThisMonth(tenantId: string, monthStart: string): Promise<number> {
+    const rows = await this.dbService.db
+      .select({ value: count() })
+      .from(schema.reviewResponses)
+      .where(
+        and(
+          eq(schema.reviewResponses.tenantId, tenantId),
+          eq(schema.reviewResponses.source, ResponseSource.AI_GENERATED),
+          gte(schema.reviewResponses.createdAt, monthStart)
+        )
+      );
+
+    return rows[0]?.value ?? 0;
   }
 }

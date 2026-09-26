@@ -13,6 +13,15 @@
 -- GET /v1/connections path, so a stale database does not fail at migrate time; it fails at
 -- runtime with `column "active_location_id" does not exist`, taking out the dashboard guard,
 -- Settings and onboarding resume together.
+--
+-- `locations.billing_paused_at` (added below for the billing module's plan location cap) is the
+-- second such column, and has a wider blast radius than the first: on a stale database the review
+-- queue (ReviewsReadRepository.listReviews / findReviewByIdForTenant), the dashboard
+-- (DashboardRepository.findActiveLocationIds), the plan-cap checks
+-- (countActiveUnpausedLocations, setLocationsBillingPaused, clearBillingPauseForTenant) and the
+-- every-15-minutes review-sync cron (findLocationsDueForPoll) all fail at runtime with
+-- `column "billing_paused_at" does not exist`. Nothing fails at migrate time, so the only signal
+-- is the app breaking after deploy.
 --   pnpm backend:down && pnpm backend:up && pnpm db:migrate
 
 -- ───────────────────────────────────────────────────────────────────────
@@ -93,6 +102,14 @@ CREATE TABLE IF NOT EXISTS locations (
     -- stop paging as soon as it reaches an already-seen review instead of re-walking full history
     -- every 15 minutes. Seeded by backfill's own completion, not left NULL for the first poll.
     last_review_synced_at TIMESTAMPTZ,
+    -- Distinct from `status = 'inactive'`, which means the owner disconnected the OAuth connection
+    -- (see `deactivateLocationsForConnection`). This is a still-live, still-owned connection that a
+    -- billing plan's `max_locations` cap has excluded from active use — set when a tenant downgrades
+    -- with more locations than their new plan allows (see `billing_plans.sql`'s own module doc),
+    -- cleared on upgrade or on choosing a different location to keep active. Kept separate from
+    -- `status` specifically so resuming it is a plain `UPDATE ... SET billing_paused_at = NULL`, not
+    -- a re-run of the OAuth confirm flow.
+    billing_paused_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -100,6 +117,7 @@ CREATE TABLE IF NOT EXISTS locations (
 CREATE INDEX idx_locations_tenant_id ON locations(tenant_id);
 CREATE INDEX idx_locations_provider_connection_id ON locations(provider_connection_id);
 CREATE UNIQUE INDEX idx_locations_provider_connection_external_location ON locations(provider_connection_id, external_location_id);
+CREATE INDEX idx_locations_billing_paused_at ON locations(billing_paused_at) WHERE billing_paused_at IS NOT NULL;
 
 -- ───────────────────────────────────────────────────────────────────────
 -- user_locations — depends on: users, locations

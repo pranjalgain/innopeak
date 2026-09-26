@@ -43,7 +43,8 @@ describe('DashboardDbService', () => {
       });
     });
 
-    it('scopes to exactly the named location without resolving active locations', async () => {
+    it('scopes to exactly the named location once validated against the active/unpaused set', async () => {
+      repository.findActiveLocationIds.mockResolvedValue(['loc-5', 'loc-6']);
       repository.getMetrics.mockResolvedValue({
         total: 0,
         avgRating: null,
@@ -54,10 +55,34 @@ describe('DashboardDbService', () => {
 
       await target.getMetrics(7, { tenantId: 'tenant-1', locationId: 'loc-5' });
 
-      expect(repository.findActiveLocationIds).not.toHaveBeenCalled();
+      expect(repository.findActiveLocationIds).toHaveBeenCalledWith('tenant-1');
       expect(repository.getMetrics).toHaveBeenCalledWith(7, {
         tenantId: 'tenant-1',
         locationIds: ['loc-5'],
+        openStatuses: expect.any(Array),
+      });
+    });
+
+    /**
+     * `findActiveLocationIds` excludes a paused (over-cap) location — see that method's own doc
+     * comment. Naming one explicitly must not bypass that: metrics for it come back all-zero
+     * (`inArray` over `[]` matches nothing), the same as if it didn't exist.
+     */
+    it('returns no results for a named location that is paused or not the tenant’s own', async () => {
+      repository.findActiveLocationIds.mockResolvedValue(['loc-1']);
+      repository.getMetrics.mockResolvedValue({
+        total: 0,
+        avgRating: null,
+        pending: 0,
+        escalated: 0,
+        ratingCounts: [],
+      });
+
+      await target.getMetrics(7, { tenantId: 'tenant-1', locationId: 'loc-paused' });
+
+      expect(repository.getMetrics).toHaveBeenCalledWith(7, {
+        tenantId: 'tenant-1',
+        locationIds: [],
         openStatuses: expect.any(Array),
       });
     });
@@ -125,12 +150,13 @@ describe('DashboardDbService', () => {
       });
     });
 
-    it('scopes to exactly the named location without resolving active locations', async () => {
+    it('scopes to exactly the named location once validated against the active/unpaused set', async () => {
+      repository.findActiveLocationIds.mockResolvedValue(['loc-9']);
       repository.getRecentEscalated.mockResolvedValue([]);
 
       await target.getRecentEscalated(5, { tenantId: 'tenant-1', locationId: 'loc-9' });
 
-      expect(repository.findActiveLocationIds).not.toHaveBeenCalled();
+      expect(repository.findActiveLocationIds).toHaveBeenCalledWith('tenant-1');
       expect(repository.getRecentEscalated).toHaveBeenCalledWith(5, {
         tenantId: 'tenant-1',
         locationIds: ['loc-9'],

@@ -1,9 +1,8 @@
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
-import { ResponseStatus } from '@common/enums/response-status.enum';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { count, desc, eq, gte, sql } from 'drizzle-orm';
+import { count, desc, gte, isNotNull, sql } from 'drizzle-orm';
 
 export interface PlatformReviewStats {
   totalReviewsFetched: number;
@@ -66,10 +65,14 @@ export class AdminOverviewRepository {
   async getReviewStats(): Promise<PlatformReviewStats> {
     const [reviewRows, replyRows] = await Promise.all([
       this.dbService.db.select({ value: count() }).from(schema.reviews),
+      // `posted_at IS NOT NULL`, not `status = 'posted'` — kept identical to
+      // `AdminStatisticsRepository.getReviewsTrend`'s own filter so the Overview headline and the
+      // Statistics trend can never disagree about what "replies sent" counts. See that method for
+      // why the mutable `status` is the wrong key (`posted -> superseded on a later edit`).
       this.dbService.db
         .select({ value: count() })
         .from(schema.reviewResponses)
-        .where(eq(schema.reviewResponses.status, ResponseStatus.POSTED)),
+        .where(isNotNull(schema.reviewResponses.postedAt)),
     ]);
 
     return {

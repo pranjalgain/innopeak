@@ -21,18 +21,18 @@ import {
 } from "@/app/_libs/services/onboarding-context.service";
 import { useOnboardingConnectFlow } from "@/hooks/onboarding/use-onboarding-connect-flow";
 
-const PASSWORD_STEPS: OnboardingStep[] = ["identity", "otp", "connect"];
-const SSO_LIKE_STEPS: OnboardingStep[] = ["identity", "connect"];
+const PASSWORD_STEPS: OnboardingStep[] = ["identity", "otp", "plan", "connect"];
+const SSO_LIKE_STEPS: OnboardingStep[] = ["identity", "plan", "connect"];
 
 /**
- * Step 3 of signup *and* the standalone reconnect screen — the same route serves both, because the
- * OAuth round trip cannot survive staying on /onboarding/signup: that path is in `proxy.ts`'s
- * REDIRECT_IF_AUTHENTICATED_PATHS, and by this point the user is authenticated, so any full
- * navigation there bounces to /dashboard. It only appeared to work before because the mocked flow
- * never navigated anywhere.
+ * The final step of signup *and* the standalone reconnect screen — the same route serves both,
+ * because the OAuth round trip cannot survive staying on /onboarding/signup: that path is in
+ * `proxy.ts`'s REDIRECT_IF_AUTHENTICATED_PATHS, and by this point the user is authenticated, so
+ * any full navigation there bounces to /dashboard. It only appeared to work before because the
+ * mocked flow never navigated anywhere.
  *
- * When the user arrived mid-wizard, the 3-step stepper is still drawn so progress reads as
- * continuous rather than as a wizard that restarted.
+ * When the user arrived mid-wizard, the stepper is still drawn so progress reads as continuous
+ * rather than as a wizard that restarted.
  */
 export function OnboardingConnectView() {
   const router = useRouter();

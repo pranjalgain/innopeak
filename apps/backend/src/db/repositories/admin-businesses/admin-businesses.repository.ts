@@ -25,6 +25,39 @@ export interface AdminBusinessRow {
   latestConnectionDisconnectedAt: string | null;
 }
 
+/**
+ * The two columns `toConnectionStatus` (`admin-businesses.db-service.ts`) reads, extracted so the
+ * full business list and the lean `findConnectionStates` projection below share one definition of
+ * "the tenant's latest connection" rather than drifting into two.
+ *
+ * These two must resolve to the SAME connection row, for the same reason the owner pair below
+ * must: `review_provider_connections` is unique on (tenant_id, provider, provider_account_id), so
+ * one tenant can hold several. Ordering by `created_at` alone left the tie unbroken — two rows
+ * written in one transaction share a timestamp — and each `LIMIT 1` could then legally pick a
+ * different one, rendering a live connection's status beside another row's `disconnected_at`.
+ * `id` is the unique tiebreaker that makes the two provably agree.
+ */
+const LATEST_CONNECTION_COLUMNS = {
+  latestConnectionStatus: sql<ReviewProviderConnectionStatus | null>`(
+    SELECT ${schema.reviewProviderConnections.status} FROM ${schema.reviewProviderConnections}
+    WHERE ${schema.reviewProviderConnections.tenantId} = tenants.id
+    ORDER BY ${schema.reviewProviderConnections.createdAt} DESC, ${schema.reviewProviderConnections.id} DESC
+    LIMIT 1
+  )`.as('latest_connection_status'),
+  latestConnectionDisconnectedAt: sql<string | null>`(
+    SELECT ${schema.reviewProviderConnections.disconnectedAt} FROM ${schema.reviewProviderConnections}
+    WHERE ${schema.reviewProviderConnections.tenantId} = tenants.id
+    ORDER BY ${schema.reviewProviderConnections.createdAt} DESC, ${schema.reviewProviderConnections.id} DESC
+    LIMIT 1
+  )`.as('latest_connection_disconnected_at'),
+} as const;
+
+/** Just the pair `toConnectionStatus` needs — see `findConnectionStates`. */
+export interface ConnectionStateRow {
+  latestConnectionStatus: ReviewProviderConnectionStatus | null;
+  latestConnectionDisconnectedAt: string | null;
+}
+
 const ADMIN_BUSINESS_COLUMNS = {
   id: schema.tenants.id,
   name: schema.tenants.name,
@@ -72,24 +105,9 @@ const ADMIN_BUSINESS_COLUMNS = {
     WHERE ${schema.users.tenantId} = tenants.id
       AND ${schema.users.anonymizedAt} IS NULL
   )`.as('user_count'),
-  // These two must resolve to the SAME connection row, for the same reason the owner pair above
-  // must: `review_provider_connections` is unique on (tenant_id, provider, provider_account_id),
-  // so one tenant can hold several. Ordering by `created_at` alone left the tie unbroken — two
-  // rows written in one transaction share a timestamp — and each `LIMIT 1` could then legally pick
-  // a different one, rendering a live connection's status beside another row's `disconnected_at`.
-  // `id` is the unique tiebreaker that makes the two provably agree.
-  latestConnectionStatus: sql<ReviewProviderConnectionStatus | null>`(
-    SELECT ${schema.reviewProviderConnections.status} FROM ${schema.reviewProviderConnections}
-    WHERE ${schema.reviewProviderConnections.tenantId} = tenants.id
-    ORDER BY ${schema.reviewProviderConnections.createdAt} DESC, ${schema.reviewProviderConnections.id} DESC
-    LIMIT 1
-  )`.as('latest_connection_status'),
-  latestConnectionDisconnectedAt: sql<string | null>`(
-    SELECT ${schema.reviewProviderConnections.disconnectedAt} FROM ${schema.reviewProviderConnections}
-    WHERE ${schema.reviewProviderConnections.tenantId} = tenants.id
-    ORDER BY ${schema.reviewProviderConnections.createdAt} DESC, ${schema.reviewProviderConnections.id} DESC
-    LIMIT 1
-  )`.as('latest_connection_disconnected_at'),
+  // The latest-connection pair — see `LATEST_CONNECTION_COLUMNS` above for why the two subqueries
+  // must be ordered identically to resolve to the same row.
+  ...LATEST_CONNECTION_COLUMNS,
 } as const;
 
 /**
@@ -112,6 +130,20 @@ export class AdminBusinessesRepository {
       .orderBy(desc(schema.tenants.createdAt));
 
     return rows as AdminBusinessRow[];
+  }
+
+  /**
+   * Every tenant's latest-connection pair and nothing else — what the admin Statistics page's
+   * connection-health tally needs. Deliberately not `findAll()`: that drags three correlated
+   * per-tenant subqueries (owner name, owner email, user count) along for columns the tally never
+   * reads, so the cost of a headline of four integers grew with both tenant count and their user
+   * counts. Still one row per tenant rather than a `GROUP BY`, because the bucketing rule lives in
+   * `toConnectionStatus` (TS) — reproducing it as a third SQL `CASE` is exactly the drift hazard
+   * `findNeedingAttention` already documents.
+   */
+  async findConnectionStates(): Promise<ConnectionStateRow[]> {
+    const rows = await this.dbService.db.select(LATEST_CONNECTION_COLUMNS).from(schema.tenants);
+    return rows;
   }
 
   /** Total tenant count, across the whole platform — the Overview page's "Businesses" stat card. */

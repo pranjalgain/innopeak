@@ -1,4 +1,5 @@
 import { QueueUIModule } from '@bg/queue-ui.module';
+import { BillingModule } from '@billing/billing.module';
 import { Module } from '@nestjs/common';
 
 import { BlocklistTermsController } from './controllers/blocklist-terms.controller';
@@ -13,7 +14,9 @@ import { TenantMembersService } from './services/tenant-members.service';
 import { TenantSettingsService } from './services/tenant-settings.service';
 
 @Module({
-  imports: [QueueUIModule], // for AddingJobsToQueueManager — TenantMembersService.sendInvite enqueues the invite email
+  // QueueUIModule for AddingJobsToQueueManager, BillingModule for BillingEntitlementsService —
+  // both consumed by TenantMembersService.sendInvite.
+  imports: [QueueUIModule, BillingModule],
   controllers: [
     BlocklistTermsController,
     TenantSettingsController,

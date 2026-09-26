@@ -1,12 +1,17 @@
+import type { EnvConfig } from '@config/env.config';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { PlatformSettingsResponseDto } from '../dto/platform-settings-response.dto';
 import { PlatformConfigMissingException } from '../exceptions/settings.exceptions';
 
 @Injectable()
 export class PlatformSettingsService {
-  constructor(private readonly platformSettingsDbService: PlatformSettingsDbService) {}
+  constructor(
+    private readonly platformSettingsDbService: PlatformSettingsDbService,
+    private readonly configService: ConfigService<EnvConfig>
+  ) {}
 
   /** Public — no `AuthUser` to check, the sign-in/sign-up screens call this before a session
    * exists. */
@@ -17,6 +22,8 @@ export class PlatformSettingsService {
       // can only happen if the row was manually deleted out from under a running deployment.
       throw new PlatformConfigMissingException();
     }
-    return PlatformSettingsResponseDto.from(row);
+    const paymentFeatureEnabled =
+      this.configService.get<string>('PAYMENT_FEATURE_ENABLED') === 'true';
+    return PlatformSettingsResponseDto.from(row, paymentFeatureEnabled);
   }
 }

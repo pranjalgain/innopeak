@@ -5,6 +5,8 @@ import { UserStatus } from '@auth/enums/user-status.enum';
 import type { TenantAuthUser } from '@auth/types/auth-user.type';
 import { JobName } from '@bg/constants/job.constant';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
+import { TeamMemberLimitReachedException } from '@billing/exceptions/billing.exceptions';
+import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
@@ -35,6 +37,7 @@ describe('TenantMembersService', () => {
     findTenantStatus: jest.Mock;
   };
   let platformSettingsDbService: { get: jest.Mock };
+  let billingEntitlementsService: { canInviteTeamMember: jest.Mock };
   let queueManager: { addMemberInviteEmailJob: jest.Mock };
   let configService: { get: jest.Mock };
 
@@ -50,6 +53,7 @@ describe('TenantMembersService', () => {
         .mockResolvedValue({ status: TenantStatus.ACTIVE, name: 'The Coffee House' }),
     };
     platformSettingsDbService = { get: jest.fn() };
+    billingEntitlementsService = { canInviteTeamMember: jest.fn().mockResolvedValue(true) };
     queueManager = { addMemberInviteEmailJob: jest.fn().mockResolvedValue(undefined) };
     configService = { get: jest.fn().mockReturnValue('https://app.innopeak.test') };
 
@@ -58,6 +62,7 @@ describe('TenantMembersService', () => {
         TenantMembersService,
         { provide: AuthDbService, useValue: authDbService },
         { provide: PlatformSettingsDbService, useValue: platformSettingsDbService },
+        { provide: BillingEntitlementsService, useValue: billingEntitlementsService },
         { provide: AddingJobsToQueueManager, useValue: queueManager },
         { provide: ConfigService, useValue: configService },
       ],
@@ -97,6 +102,16 @@ describe('TenantMembersService', () => {
       await expect(
         target.sendInvite(owner, { email: 'sam.rivera@thecoffeehouse.com' })
       ).rejects.toThrow(ForbiddenException);
+      expect(authDbService.createMemberInvite).not.toHaveBeenCalled();
+    });
+
+    it('refuses to invite when the plan has reached its team member limit, independent of the platform switch', async () => {
+      billingEntitlementsService.canInviteTeamMember.mockResolvedValue(false);
+
+      await expect(
+        target.sendInvite(owner, { email: 'sam.rivera@thecoffeehouse.com' })
+      ).rejects.toThrow(TeamMemberLimitReachedException);
+      expect(billingEntitlementsService.canInviteTeamMember).toHaveBeenCalledWith('tenant-1');
       expect(authDbService.createMemberInvite).not.toHaveBeenCalled();
     });
 

@@ -1,14 +1,25 @@
 "use client";
 
 
-import { useSearchParams } from "next/navigation";
+import type { Route } from "next";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useTranslations } from "next-intl";
-import { useMemo } from "react";
-import { LuBan, LuBell, LuPlug, LuSettings2, LuSparkles, LuUser, LuUsers } from "react-icons/lu";
+import { useCallback, useMemo } from "react";
+import {
+  LuBan,
+  LuBell,
+  LuCreditCard,
+  LuPlug,
+  LuSettings2,
+  LuSparkles,
+  LuUser,
+  LuUsers,
+} from "react-icons/lu";
 
 
 import { AiSettingsSection } from "@/app/(dashboard)/settings/_components/ai-settings-section";
+import { BillingSettingsSection } from "@/app/(dashboard)/settings/_components/billing-settings-section";
 import { BlocklistSettingsSection } from "@/app/(dashboard)/settings/_components/blocklist-settings-section";
 import { ConnectionSettingsSection } from "@/app/(dashboard)/settings/_components/connection-settings-section";
 import { GeneralSettingsSection } from "@/app/(dashboard)/settings/_components/general-settings-section";
@@ -17,6 +28,7 @@ import { NotificationsSettingsSection } from "@/app/(dashboard)/settings/_compon
 import { ProfileSettingsSection } from "@/app/(dashboard)/settings/_components/profile-settings-section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useSubscription } from "@/hooks/billing/use-subscription";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 import { useSettings } from "@/hooks/settings/use-settings";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
@@ -42,10 +54,13 @@ const TABS = [
   "notifications",
   "connection",
   "ai",
+  "billing",
 ] as const;
 
 export function SettingsView() {
   const t = useTranslations("settings");
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   // Every tab but Profile and Members reads from `GET /v1/settings`, which is
   // `@Roles(UserRole.OWNER)` on the backend — a `member` caller gets a 403 there today, the exact
@@ -70,16 +85,39 @@ export function SettingsView() {
   // own — left every tab permanently stuck on a skeleton. Treating it as "not yet known" (same as
   // still loading) and simply not offering those two tabs yet degrades far more gracefully.
   const { data: platformSettings } = usePlatformSettings();
+  // Same reasoning as `useSettings(!isMember)` above — `GET /v1/billing/subscription` is also
+  // owner-only on the backend.
+  const { data: subscription } = useSubscription(!isMember);
+  /**
+   * The Billing tab's own availability rule — deliberately broader than a bare
+   * `platformSettings.paymentFeatureEnabled` check. That flag only gates *starting a new
+   * checkout* on the backend (`BillingService.createCheckoutSession`); it was never meant to
+   * revoke an already-Paid tenant's ability to see or cancel a subscription that keeps
+   * auto-renewing regardless of this app's own flag — Stripe has no idea the flag exists. Hiding
+   * the tab outright for a tenant already on Paid would strand them: still being charged every
+   * cycle, with no in-app way to even see that, let alone stop it. A Free tenant still only sees
+   * this tab (and its "Upgrade" button, which would otherwise just 403) while the flag is on.
+   */
+  const billingTabAvailable =
+    platformSettings?.paymentFeatureEnabled === true || subscription?.planCode === "paid";
 
   /**
-   * `?tab=` selects the initial tab, because the OAuth callback redirects to
-   * `/settings?tab=connection&connected=1` after a reconnect. With a hardcoded
-   * `defaultValue="general"` that redirect silently landed on the General tab — the user came back
-   * from Google and appeared to be somewhere unrelated to what they had just done.
+   * `Tabs` is **controlled from the URL** (mirrors `AdminSettingsView`'s identical pattern) —
+   * `?tab=` is the single source of truth for which tab is showing, and clicking a tab writes it
+   * back. This also covers the OAuth callback redirecting to
+   * `/settings?tab=connection&connected=1` after a reconnect: the tenant lands wherever the URL
+   * says, not on a hardcoded default.
    *
-   * Uncontrolled (`defaultValue`, not `value`) on purpose: the query param decides where the user
-   * *lands*, and clicking another tab afterwards must not be undone by the URL still saying
-   * `connection`.
+   * An earlier, uncontrolled shape (`defaultValue={initialTab}` plus `key={initialTab}` to force a
+   * remount when the resolved tab changed) broke in two ways a controlled `Tabs` doesn't: clicking
+   * a tab was invisible to `initialTab` (which only reads the URL) until the URL sync round-tripped
+   * back through a remount, and that remount reset anything else `TabsList`/`TabsContent` carried
+   * as local state — including the tab strip's own horizontal scroll position, so scrolling right to
+   * reach a later tab and clicking it snapped the strip back to the start. `AppShell` renders an
+   * entirely different element tree per `useBreakpoint()` bucket (mobile vs. tablet/desktop — see
+   * its own file), so crossing a breakpoint while resizing the window still unmounts and remounts
+   * this whole page — but a controlled `Tabs` recovers from that for free, by simply re-reading the
+   * same URL on the fresh mount, with no `key` trick and no in-between remount on every click.
    */
   /**
    * Falls back to "general" not just for an unknown `?tab=`, but also for "profile"/"members"
@@ -89,12 +127,30 @@ export function SettingsView() {
    * carries `?tab=profile` from before a Super Admin turned password login off.
    */
   const requestedTab = searchParams.get("tab");
-  const initialTab = useMemo(() => {
+  const activeTab = useMemo(() => {
     if (!TABS.includes(requestedTab as (typeof TABS)[number])) return "general";
     if (requestedTab === "profile" && !platformSettings?.passwordLoginEnabled) return "general";
     if (requestedTab === "members" && !platformSettings?.inviteMembersEnabled) return "general";
-    return requestedTab;
-  }, [requestedTab, platformSettings?.passwordLoginEnabled, platformSettings?.inviteMembersEnabled]);
+    if (requestedTab === "billing" && !billingTabAvailable) return "general";
+    // `TABS.includes` above already confirmed membership; it just doesn't narrow `requestedTab`'s
+    // `string | null` type for TypeScript the way a custom type guard would.
+    return requestedTab!;
+  }, [
+    requestedTab,
+    platformSettings?.passwordLoginEnabled,
+    platformSettings?.inviteMembersEnabled,
+    billingTabAvailable,
+  ]);
+
+  const handleTabChange = useCallback(
+    (value: string) => {
+      // `typedRoutes` cannot see that this interpolation only ever produces `/settings?tab=` plus
+      // one of the `TABS` literals — same narrow, intentional cast `AdminSettingsView`'s own
+      // `handleTabChange` uses for the identical pattern.
+      router.replace(`${pathname}?tab=${value}` as Route, { scroll: false });
+    },
+    [router, pathname],
+  );
 
   if (isMember) {
     // Profile is the one tab this route ever offers a member — every other tab reads from
@@ -135,14 +191,7 @@ export function SettingsView() {
 
   return (
     <div className="p-fluid-page flex flex-col gap-6">
-      {/* `key={initialTab}` — `Tabs` is intentionally uncontrolled (see comment above), but that
-          means Radix only ever reads `defaultValue` on mount; a later change to `initialTab` (e.g.
-          the account-menu's "Profile" link, clicked while already on Settings on some other tab)
-          re-renders this component with a new `initialTab` that an already-mounted `Tabs` simply
-          ignores — the URL updates but the visible tab doesn't. Keying on `initialTab` forces a
-          full remount whenever the *resolved* tab actually changes, which re-seeds `defaultValue`,
-          while still leaving manual tab clicks free to diverge from the URL same as before. */}
-      <Tabs key={initialTab} defaultValue={initialTab ?? "general"} className="max-w-3xl gap-5">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="max-w-3xl gap-5">
         <TabsList className="w-full justify-start overflow-x-auto scrollbar-hide px-1 sm:w-fit sm:max-w-full [&>[data-slot=tabs-trigger]]:flex-none">
           <TabsTrigger value="general">
             <LuSettings2 />
@@ -176,6 +225,12 @@ export function SettingsView() {
             <LuSparkles />
             {t("tabs.ai")}
           </TabsTrigger>
+          {billingTabAvailable ? (
+            <TabsTrigger value="billing">
+              <LuCreditCard />
+              {t("tabs.billing")}
+            </TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="general">
@@ -218,6 +273,12 @@ export function SettingsView() {
         {platformSettings?.inviteMembersEnabled ? (
           <TabsContent value="members">
             <MembersSettingsSection />
+          </TabsContent>
+        ) : null}
+
+        {billingTabAvailable ? (
+          <TabsContent value="billing">
+            <BillingSettingsSection />
           </TabsContent>
         ) : null}
       </Tabs>

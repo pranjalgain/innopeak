@@ -19,6 +19,7 @@ import {
   UserByEmail,
 } from './auth.repository';
 
+import { TenantSubscriptionsDbService } from '../billing/tenant-subscriptions.db-service';
 import { PromptsDbService } from '../prompts/prompts.db-service';
 
 /** Index name Postgres reports as `constraint` on the 23505 a losing concurrent signup raises — see 0002_tenant_auth.sql. */
@@ -79,7 +80,7 @@ interface SetActiveLocationIdInput {
  * `firstActivation` is true only on the one branch that just promoted a `pending_verification`
  * row to `active` — the Google-linking equivalent of `verifyEmail` returning non-null. It's the
  * signal `AuthService.handleGoogleCallback` uses to know "this is the moment a brand-new tenant
- * finished signing up," same as `verifyEmail`'s own caller — see `AuthService.seedDemoDataIfDev`.
+ * finished signing up."
  */
 export type GoogleIdentityLookup =
   { kind: 'known'; user: VerifiedUser; firstActivation: boolean } | { kind: 'unknown' };
@@ -117,7 +118,8 @@ export interface VerifiedUser {
 export class AuthDbService {
   constructor(
     private readonly authRepository: AuthRepository,
-    private readonly promptsDbService: PromptsDbService
+    private readonly promptsDbService: PromptsDbService,
+    private readonly tenantSubscriptionsDbService: TenantSubscriptionsDbService
   ) {}
 
   /**
@@ -145,6 +147,13 @@ export class AuthDbService {
           passwordHash: input.passwordHash,
         });
         await this.authRepository.insertTenantSettings(tx, { tenantId: tenant.id });
+        // A tenant must never be observable without a subscription row — see
+        // `tenant_subscriptions`'s own migration comment (0011_billing.sql) and
+        // `TenantSubscriptionsDbService.insertFreeSubscription`. Same transaction as the tenant
+        // itself, not a second one, for that same reason. Both tenant-creation paths need this
+        // (password `signup` and `completeGoogleSignup` below), since either can be the first —
+        // and only — moment a brand-new tenant row is ever created.
+        await this.tenantSubscriptionsDbService.insertFreeSubscription(tx, tenant.id);
         await this.authRepository.insertNotificationRecipient(tx, {
           tenantId: tenant.id,
           userId: user.id,
@@ -323,6 +332,13 @@ export class AuthDbService {
           email: input.email,
         });
         await this.authRepository.insertTenantSettings(tx, { tenantId: tenant.id });
+        // A tenant must never be observable without a subscription row — see
+        // `tenant_subscriptions`'s own migration comment (0011_billing.sql) and
+        // `TenantSubscriptionsDbService.insertFreeSubscription`. Same transaction as the tenant
+        // itself, not a second one, for that same reason. Both tenant-creation paths need this
+        // (password `signup` and `completeGoogleSignup` below), since either can be the first —
+        // and only — moment a brand-new tenant row is ever created.
+        await this.tenantSubscriptionsDbService.insertFreeSubscription(tx, tenant.id);
         await this.authRepository.insertNotificationRecipient(tx, {
           tenantId: tenant.id,
           userId: user.id,

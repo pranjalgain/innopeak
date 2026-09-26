@@ -8,6 +8,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   AdminOverviewRepository,
   type PlatformActivityRow,
+  type PlatformReviewStats,
   type RecordActivityInput,
   type SignupTrendPoint,
 } from './admin-overview.repository';
@@ -99,6 +100,13 @@ export class AdminOverviewDbService {
 
   async getSignupTrend(monthsBack: number): Promise<SignupTrendPoint[]> {
     return this.adminOverviewRepository.getSignupTrend(monthsBack);
+  }
+
+  /** Plain passthrough — exposed so `AdminStatisticsDbService` can reuse this query (cross-domain
+   *  DB Service composition, same reasoning as `getStats()`'s own doc comment above) instead of
+   *  duplicating it. */
+  async getReviewStats(): Promise<PlatformReviewStats> {
+    return this.adminOverviewRepository.getReviewStats();
   }
 
   /**

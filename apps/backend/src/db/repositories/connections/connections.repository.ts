@@ -5,7 +5,7 @@ import { SyncHealthStatus } from '@common/enums/sync-health-status.enum';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 
 export interface ProviderConnectionRow {
   id: string;
@@ -34,6 +34,11 @@ export interface LocationRow {
   lastSyncError: string | null;
   onboardingBackfillCompletedAt: string | null;
   lastReviewSyncedAt: string | null;
+  /** `null` = not paused. Set when a tenant is over their plan's `max_locations` — see
+   *  `0011_billing.sql`'s column comment and `BillingEntitlementsService`. Deliberately distinct
+   *  from `status = 'inactive'`: a billing-paused location is still a live, valid connection, just
+   *  excluded from the poll while over the cap. */
+  billingPausedAt: string | null;
   createdAt: string;
 }
 
@@ -96,6 +101,7 @@ const LOCATION_COLUMNS = {
   lastSyncError: schema.locations.lastSyncError,
   onboardingBackfillCompletedAt: schema.locations.onboardingBackfillCompletedAt,
   lastReviewSyncedAt: schema.locations.lastReviewSyncedAt,
+  billingPausedAt: schema.locations.billingPausedAt,
   createdAt: schema.locations.createdAt,
 } as const;
 
@@ -441,11 +447,57 @@ export class ConnectionsRepository {
         and(
           eq(schema.locations.status, LocationStatus.ACTIVE),
           isNotNull(schema.locations.onboardingBackfillCompletedAt),
-          eq(schema.reviewProviderConnections.status, ReviewProviderConnectionStatus.ACTIVE)
+          eq(schema.reviewProviderConnections.status, ReviewProviderConnectionStatus.ACTIVE),
+          // Billing-paused locations (over the tenant's plan `max_locations` cap) are excluded from
+          // the poll the same way a disconnected/not-yet-backfilled one is — see
+          // `0011_billing.sql`'s column comment and `BillingEntitlementsService`.
+          isNull(schema.locations.billingPausedAt)
         )
       );
 
     return rows;
+  }
+
+  /** `status = 'active' AND billing_paused_at IS NULL` — the count `BillingEntitlementsService`
+   *  compares against a plan's `max_locations`. A billing-paused location doesn't count against
+   *  the cap: it is already excluded from active use, which is the whole point of pausing it. */
+  async countActiveUnpausedLocations(tenantId: string): Promise<number> {
+    const rows = await this.dbService.db
+      .select({ value: count() })
+      .from(schema.locations)
+      .where(
+        and(
+          eq(schema.locations.tenantId, tenantId),
+          eq(schema.locations.status, LocationStatus.ACTIVE),
+          isNull(schema.locations.billingPausedAt)
+        )
+      );
+
+    return rows[0]?.value ?? 0;
+  }
+
+  /** Flips `billing_paused_at` for a batch of locations in one statement — used both to pause the
+   *  losing side of a downgrade/manual swap and to unpause the winning side. A no-op call with an
+   *  empty array is left to the caller to skip (`IN ()` is invalid SQL). */
+  async setLocationsBillingPaused(
+    tx: DrizzleTransaction,
+    locationIds: string[],
+    paused: boolean
+  ): Promise<void> {
+    await tx
+      .update(schema.locations)
+      .set({ billingPausedAt: paused ? sql`now()` : null, updatedAt: sql`now()` })
+      .where(inArray(schema.locations.id, locationIds));
+  }
+
+  /** Upgrade back to Paid — Paid has no location cap, so nothing stays paused. */
+  async clearBillingPauseForTenant(tx: DrizzleTransaction, tenantId: string): Promise<void> {
+    await tx
+      .update(schema.locations)
+      .set({ billingPausedAt: null, updatedAt: sql`now()` })
+      .where(
+        and(eq(schema.locations.tenantId, tenantId), isNotNull(schema.locations.billingPausedAt))
+      );
   }
 
   /**

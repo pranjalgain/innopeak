@@ -21,3 +21,10 @@ export const adminOverviewNeedsAttentionQueryKey = [
 ] as const;
 export const adminOverviewSignupTrendQueryKey = ["admin", "overview", "signup-trend"] as const;
 export const adminOverviewActivityQueryKey = ["admin", "overview", "activity"] as const;
+export const adminStatisticsSummaryQueryKey = ["admin", "statistics", "summary"] as const;
+export const adminBillingSummaryQueryKey = ["admin", "billing", "summary"] as const;
+export const adminBillingHasPaidTenantsQueryKey = [
+  "admin",
+  "billing",
+  "has-paid-tenants",
+] as const;

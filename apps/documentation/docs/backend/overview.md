@@ -32,6 +32,7 @@ contracts). The pipeline has no HTTP surface, so it has an overview only.
 | Dashboard | Read-only aggregate metrics over reviews and responses | [Overview](./dashboard/overview.md) · [API](./dashboard/api-reference.md) |
 | Admin Overview | Super Admin landing screen: stat cards, recent/at-risk businesses, signup trend, activity log | [Overview](./admin-overview/overview.md) · [API](./admin-overview/api-reference.md) |
 | Platform Admin | Cross-tenant support and operations for GeekyAnts staff | [Overview](./platform-admin/overview.md) · [API](./platform-admin/api-reference.md) |
+| Billing | Free/Paid subscription plans via Stripe, entitlement enforcement, and the platform-wide `billing_enabled` kill switch | [Overview](./billing/overview.md) · [API](./billing/api-reference.md) |
 | Review Pipeline | The worker side: ingestion, classification, generation, notification, posting, retention | [Overview](./review-pipeline/overview.md) |
 
 ## Reading these docs

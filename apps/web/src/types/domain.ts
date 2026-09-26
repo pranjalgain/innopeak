@@ -304,6 +304,79 @@ export interface SignupTrendPoint {
   count: number;
 }
 
+/** One calendar month's review-volume figures, `monthKey` as `YYYY-MM` — always fully populated
+ *  by the backend (a month with none is still present, at zero), same contract as `SignupTrendPoint`. */
+export interface ReviewsTrendPoint {
+  monthKey: string;
+  reviewsFetched: number;
+  repliesSent: number;
+}
+
+export interface RatingDistributionPoint {
+  rating: number;
+  count: number;
+}
+
+export interface ClassificationBreakdownPoint {
+  classification: ReviewClassification;
+  count: number;
+}
+
+export interface ConnectionHealth {
+  connected: number;
+  needsReauth: number;
+  disconnected: number;
+  neverConnected: number;
+}
+
+/** The Super Admin Statistics page's whole first screen — `GET /v1/admin/statistics/summary`. */
+export interface AdminStatisticsSummary {
+  replyRatePercent: number;
+  avgRating: number;
+  syncSuccessRatePercent: number;
+  connectionHealth: ConnectionHealth;
+  reviewsTrend: ReviewsTrendPoint[];
+  ratingDistribution: RatingDistributionPoint[];
+  classificationBreakdown: ClassificationBreakdownPoint[];
+}
+
+/** One calendar month's Free-to-Paid upgrade count, `monthKey` as `YYYY-MM` — same
+ *  always-fully-populated contract as `SignupTrendPoint`. */
+export interface UpgradeTrendPoint {
+  monthKey: string;
+  count: number;
+}
+
+/** Mirrors `subscription_status` (`apps/backend`'s `0011_billing.sql`). */
+export type BillingSubscriptionStatus = "active" | "past_due" | "canceled" | "incomplete";
+
+export interface AtRiskSubscription {
+  tenantId: string;
+  businessName: string;
+  status: BillingSubscriptionStatus;
+  currentPeriodEnd: string | null;
+}
+
+export interface BillingWebhookEvent {
+  id: string;
+  type: string;
+  processedAt: string;
+}
+
+/** The Super Admin Billing page's whole first screen — `GET /v1/admin/billing/summary`. */
+export interface AdminBillingSummary {
+  freeCount: number;
+  paidCount: number;
+  activeCount: number;
+  pastDueCount: number;
+  canceledCount: number;
+  incompleteCount: number;
+  cancelingCount: number;
+  upgradeTrend: UpgradeTrendPoint[];
+  atRisk: AtRiskSubscription[];
+  recentWebhookEvents: BillingWebhookEvent[];
+}
+
 /**
  * Platform-wide feature settings — a single row (`apps/backend`'s `platform_settings` table),
  * not per-tenant. Which login methods the sign-in/sign-up screens offer, and whether a tenant
@@ -317,6 +390,16 @@ export interface PlatformSettings {
   passwordLoginEnabled: boolean;
   socialLoginEnabled: boolean;
   inviteMembersEnabled: boolean;
+  /**
+   * Whether billing exists in this deploy at all — a pure reflection of the backend's
+   * `PAYMENT_FEATURE_ENABLED` env var, not a runtime-toggleable setting (there is deliberately no
+   * admin UI to flip this; see that env var's own doc comment in `env.config.ts` for why one
+   * switch, not two). Gates every payment-related UI surface: the onboarding "choose your plan"
+   * step's "Upgrade to Paid" option, the tenant Settings "Billing" tab, and the admin "Billing"
+   * nav item/dashboard. Never retroactive — turning it off has no effect on a tenant already on
+   * the Paid plan.
+   */
+  paymentFeatureEnabled?: boolean;
 }
 
 /** A platform-admin action worth surfacing on the Super Admin overview's activity feed. Mirrors
@@ -342,4 +425,72 @@ export interface PlatformActivityEntry {
   /** The email an `admin_invite_*` (invitee) or `user_*` (the tenant user) entry acted on. */
   email?: string;
   occurredAt: string;
+}
+
+// ─── Billing ──────────────────────────────────────────────────────────────
+
+export type BillingPlanCode = "free" | "paid";
+
+/** One row of `GET /v1/billing/plans` — the catalog entry, not the tenant's own usage (see
+ *  `Subscription` below for that). `null` on any `max*` field means unlimited. */
+export interface BillingPlan {
+  id: string;
+  code: BillingPlanCode;
+  maxLocations: number | null;
+  maxAiDraftsPerMonth: number | null;
+  maxTeamMembers: number | null;
+  customPromptsEnabled: boolean;
+}
+
+export type SubscriptionStatus = "active" | "past_due" | "canceled" | "incomplete";
+
+/** The tenant's on-file card, as reported by the active payment provider — masked/tokenized data
+ *  only (Stripe's own `brand`/`last4`/expiry), never a raw card number. */
+export interface PaymentMethodSummary {
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+}
+
+/** `GET /v1/billing/subscription` — the tenant's current plan, Stripe subscription state (if
+ *  any), and live entitlement usage against each capped dimension. */
+export interface Subscription {
+  planCode: BillingPlanCode;
+  status: SubscriptionStatus | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  /** True while a canceled subscription is still inside its paid grace period — `planCode` stays
+   *  `"paid"` with unlimited entitlements until the period actually ends. */
+  cancelAtPeriodEnd: boolean;
+  activeLocationCount: number;
+  maxLocations: number | null;
+  teamMemberCount: number;
+  maxTeamMembers: number | null;
+  aiDraftsUsedThisMonth: number;
+  maxAiDraftsPerMonth: number | null;
+  customPromptsEnabled: boolean;
+  /** `null` for Free tenants, or a Paid tenant with no card on file yet. */
+  paymentMethod: PaymentMethodSummary | null;
+  /** The active `PAYMENT_PROVIDER` — gates in-app card/billing-profile editing to `"stripe"` only
+   *  (see the backend's `StripeOnlyFeatureException`); a Dummy-provider tenant falls back to the
+   *  simulated `/billing/dummy-portal` page instead. */
+  paymentProvider: "stripe" | "dummy";
+}
+
+/** `GET /v1/billing/profile` — the two Stripe Customer fields this app lets a tenant edit
+ *  in-app. Stripe-only, same gating as `Subscription.paymentProvider`. */
+export interface BillingProfile {
+  name: string | null;
+  email: string | null;
+}
+
+/** `GET /v1/billing/receipts` — one row per successfully paid Stripe invoice. Stripe-only: always
+ *  empty for a Dummy-provider tenant, since there is no real charge behind it to document. */
+export interface Receipt {
+  id: string;
+  amountPaid: number;
+  currency: string;
+  invoiceNumber: string | null;
+  paidAt: string;
 }

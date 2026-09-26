@@ -6,7 +6,7 @@ import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import type { SQL } from 'drizzle-orm';
-import { and, count, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
 export interface RatingCountRow {
   rating: number;
@@ -57,7 +57,15 @@ const RECENT_ESCALATED_COLUMNS = {
 export class DashboardRepository {
   constructor(private readonly dbService: DBService) {}
 
-  /** Every currently-active location id for a tenant — `DashboardDbService` calls this to resolve "no location named" into a concrete scope. */
+  /**
+   * Every currently-active, unpaused location id for a tenant — `DashboardDbService` calls this
+   * both to resolve "no location named" into a concrete scope and to validate an explicitly named
+   * one. `billing_paused_at IS NOT NULL` marks a location a downgrade pushed over the plan's cap
+   * (`BillingEntitlementsService.enforceLocationLimitOnDowngrade`); excluding it here keeps
+   * dashboard metrics/escalations in step with the same entitlement `ReviewsReadRepository`
+   * enforces for the review queue — a tenant who no longer pays for a location shouldn't see its
+   * numbers folded into (or standing in for) the dashboard either.
+   */
   async findActiveLocationIds(tenantId: string): Promise<string[]> {
     const rows = await this.dbService.db
       .select({ id: schema.locations.id })
@@ -65,7 +73,8 @@ export class DashboardRepository {
       .where(
         and(
           eq(schema.locations.tenantId, tenantId),
-          eq(schema.locations.status, LocationStatus.ACTIVE)
+          eq(schema.locations.status, LocationStatus.ACTIVE),
+          isNull(schema.locations.billingPausedAt)
         )
       );
 

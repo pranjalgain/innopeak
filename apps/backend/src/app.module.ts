@@ -35,6 +35,7 @@ import { AdminModule } from './api/admin/admin.module';
 import { AuthModule } from './api/auth/auth.module';
 import { JwtAuthGuard } from './api/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './api/auth/guards/roles.guard';
+import { BillingModule } from './api/billing/billing.module';
 import { ConnectionsModule } from './api/connections/connections.module';
 import { DashboardModule } from './api/dashboard/dashboard.module';
 import { DevToolsModule } from './api/dev-tools/dev-tools.module';
@@ -158,6 +159,7 @@ const cacheModule = CacheModule.registerAsync({
     SettingsModule,
     NotificationsModule,
     AdminModule,
+    BillingModule,
     // Registered here in its own right, not left to ride along on `AuthModule`'s import of it:
     // NestJS mounts a module's controllers wherever the module appears in the graph, so the four
     // avatar routes were previously live only as a side effect of `AuthService` needing

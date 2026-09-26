@@ -110,6 +110,38 @@ export const messagesDe: MessageCatalog = {
     VERSION_NOT_FOUND: 'Prompt-Version nicht gefunden',
     STATS_BATCH_RETRIEVED: 'Prompt-Versionsstatistik erfolgreich abgerufen',
   },
+  BILLING: {
+    PLANS_RETRIEVED: 'Tarife erfolgreich abgerufen',
+    SUBSCRIPTION_RETRIEVED: 'Abonnement erfolgreich abgerufen',
+    CHECKOUT_SESSION_CREATED: 'Checkout-Sitzung erstellt',
+    PORTAL_SESSION_CREATED: 'Abrechnungsportal-Sitzung erstellt',
+    ACTIVE_LOCATION_UPDATED: 'Aktiver Standort aktualisiert',
+    TENANT_ONLY: 'Abrechnung steht nur Mandantenbenutzern zur Verfügung.',
+    NOT_ENABLED: 'Die Abrechnung ist derzeit für neue Upgrades nicht verfügbar.',
+    PLAN_NOT_FOUND: 'Tarif nicht gefunden',
+    SUBSCRIPTION_NOT_FOUND: 'Abonnement nicht gefunden',
+    ALREADY_SUBSCRIBED: 'Sie nutzen bereits den kostenpflichtigen Tarif.',
+    LOCATION_LIMIT_REACHED:
+      'Sie haben das Standortlimit Ihres Tarifs erreicht. Führen Sie ein Upgrade durch, um weitere hinzuzufügen.',
+    TEAM_MEMBER_LIMIT_REACHED:
+      'Sie haben das Teammitgliederlimit Ihres Tarifs erreicht. Führen Sie ein Upgrade durch, um weitere einzuladen.',
+    CUSTOM_PROMPTS_NOT_ON_PLAN:
+      'Benutzerdefinierte Prompt-Vorlagen sind in Ihrem aktuellen Tarif nicht verfügbar.',
+    AI_DRAFT_LIMIT_REACHED: 'Sie haben das monatliche KI-Entwurfslimit Ihres Tarifs erreicht.',
+    STRIPE_WEBHOOK_SIGNATURE_INVALID: 'Ungültige Stripe-Webhook-Signatur',
+    LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION:
+      'Dieser Standort kann nicht aktiviert werden — er gehört möglicherweise nicht zu Ihrem Unternehmen oder ist getrennt.',
+    DUMMY_PROVIDER_NOT_ACTIVE: 'Nicht gefunden',
+    CHECKOUT_COMPLETED: 'Bezahlvorgang erfolgreich abgeschlossen',
+    SUBSCRIPTION_CANCELED: 'Abonnement wird zum Ende des aktuellen Abrechnungszeitraums gekündigt',
+    RECEIPTS_RETRIEVED: 'Belege erfolgreich abgerufen',
+    RECEIPT_NOT_FOUND: 'Beleg nicht gefunden',
+    BILLING_PROFILE_RETRIEVED: 'Abrechnungsprofil erfolgreich abgerufen',
+    BILLING_PROFILE_UPDATED: 'Abrechnungsprofil aktualisiert',
+    SETUP_INTENT_CREATED: 'Karteneinrichtung gestartet',
+    PAYMENT_METHOD_UPDATED: 'Zahlungsmethode aktualisiert',
+    STRIPE_ONLY_FEATURE: 'Dies ist in dieser Umgebung nicht verfügbar.',
+  },
   SETTINGS: {
     BLOCKLIST_LISTED: 'Sperrlisteneinträge erfolgreich abgerufen',
     BLOCKLIST_TERM_CREATED: 'Sperrlisteneintrag hinzugefügt',

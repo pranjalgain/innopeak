@@ -515,7 +515,9 @@ export class AdminSettingsService {
     if (!row) {
       throw new PlatformConfigNotFoundException();
     }
-    return PlatformSettingsResponseDto.from(row);
+    const paymentFeatureEnabled =
+      this.configService.get<string>('PAYMENT_FEATURE_ENABLED') === 'true';
+    return PlatformSettingsResponseDto.from(row, paymentFeatureEnabled);
   }
 
   /**

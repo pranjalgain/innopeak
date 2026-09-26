@@ -24,6 +24,10 @@ interface ConfirmActionDialogProps {
   onConfirm: () => void;
   /** Styles the confirm button as destructive (e.g. suspend/deactivate) instead of the default. */
   destructive?: boolean;
+  /** Disables the confirm button — pass the caller's own mutation `isPending` so a rapid
+   *  double-click (or double-Enter) can't fire the same destructive action twice while the first
+   *  call is still in flight. Cancel stays enabled either way. */
+  confirmDisabled?: boolean;
 }
 
 /**
@@ -46,6 +50,7 @@ export function ConfirmActionDialog({
   cancelLabel,
   onConfirm,
   destructive,
+  confirmDisabled,
 }: ConfirmActionDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -58,6 +63,7 @@ export function ConfirmActionDialog({
           <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
+            disabled={confirmDisabled}
             className={cn(destructive && "bg-destructive text-white hover:bg-destructive/90")}
           >
             {confirmLabel}

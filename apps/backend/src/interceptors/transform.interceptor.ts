@@ -34,7 +34,8 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
     if (context.getType() === 'http') {
       const request = context.switchToHttp().getRequest<Request>();
 
-      // Exclude specific routes (Prometheus metrics and health checks)
+      // Exclude specific routes (Prometheus metrics, health checks, and binary downloads that
+      // manage their own response via @Res() — a receipt PDF has no ApiResponse<T> shape to wrap).
       const pathname = request.url.split('?')[0] ?? '';
       const isMetricsOrHealth =
         pathname === `/${RouteNames.METRICS}` ||
@@ -43,11 +44,14 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
         pathname.startsWith(`/${RouteNames.HEALTH}/`) ||
         pathname === `/v1/${RouteNames.HEALTH}` ||
         pathname.startsWith(`/v1/${RouteNames.HEALTH}/`);
+      const isReceiptPdf =
+        pathname.includes(`/${RouteNames.BILLING}/${RouteNames.BILLING_RECEIPTS}/`) &&
+        pathname.endsWith('/pdf');
 
-      if (isMetricsOrHealth) {
-        // Health/metrics endpoints intentionally bypass response transformation, so the returned
-        // stream is genuinely not shaped like `ApiResponse<T>` — `CallHandler.handle()` itself is
-        // typed `Observable<any>` by Nest, which is what the linter is (correctly) flagging.
+      if (isMetricsOrHealth || isReceiptPdf) {
+        // These endpoints intentionally bypass response transformation, so the returned stream is
+        // genuinely not shaped like `ApiResponse<T>` — `CallHandler.handle()` itself is typed
+        // `Observable<any>` by Nest, which is what the linter is (correctly) flagging.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-return
         return next.handle();
       }
@@ -66,7 +70,13 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
           const partial =
             typeof data === 'object' && data !== null ? (data as Partial<ApiResponse<T>>) : {};
           const rawMessage = partial.message ?? MESSAGES.COMMON.REQUEST_SUCCESSFUL;
-          const resolvedData = renderNestedMessage((partial.data ?? data) as T, locale);
+          // `partial.data ?? data` was wrong for an already-wrapped payload whose own `data` is
+          // legitimately `null` (e.g. `ResponseUtil.success(null, ...)` for a void mutation): `??`
+          // can't tell "the key is present and null" from "the key is absent", so it fell through
+          // to `data` — the whole outer envelope — and double-wrapped the response. Checking for
+          // the key directly distinguishes the two.
+          const hasDataKey = Object.prototype.hasOwnProperty.call(partial, 'data');
+          const resolvedData = renderNestedMessage((hasDataKey ? partial.data : data) as T, locale);
 
           return {
             statusCode: partial.statusCode ?? response.statusCode,

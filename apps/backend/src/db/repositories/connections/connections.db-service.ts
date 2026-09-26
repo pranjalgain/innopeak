@@ -121,6 +121,77 @@ export class ConnectionsDbService {
     return this.connectionsRepository.findLocationsDueForPoll();
   }
 
+  /** See `ConnectionsRepository.countActiveUnpausedLocations` — the count
+   *  `BillingEntitlementsService.canAddLocation` compares against a plan's `max_locations`. */
+  countActiveUnpausedLocations(tenantId: string): Promise<number> {
+    return this.connectionsRepository.countActiveUnpausedLocations(tenantId);
+  }
+
+  /**
+   * Atomically pauses one set of a tenant's locations and unpauses another — the primitive behind
+   * both `BillingEntitlementsService.enforceLocationLimitOnDowngrade` (auto-pick on downgrade) and
+   * `.setActiveLocationForPlan` (the owner's manual swap). Takes the caller's own `tx` (from
+   * `withLocationSelectionLock`, below) rather than opening one itself, so both updates commit
+   * atomically with the lock-guarded read that decided them — a crash between the two updates can
+   * never leave the tenant with either zero or more-than-`max_locations` unpaused locations at
+   * once, and the whole read-decide-write span is what the lock actually protects.
+   */
+  async applyBillingLocationSelection(
+    tx: DrizzleTransaction,
+    input: { keepLocationIds: string[]; pauseLocationIds: string[] }
+  ): Promise<void> {
+    if (input.pauseLocationIds.length > 0) {
+      await this.connectionsRepository.setLocationsBillingPaused(tx, input.pauseLocationIds, true);
+    }
+    if (input.keepLocationIds.length > 0) {
+      await this.connectionsRepository.setLocationsBillingPaused(tx, input.keepLocationIds, false);
+    }
+  }
+
+  /**
+   * Read-decide-write for "which of a tenant's active locations stay unpaused", serialized per
+   * tenant under the same advisory lock `confirmLocations` uses (`acquireLocationConfirmLock`) —
+   * both mutate the same "which locations are active for this tenant" state, so they must
+   * serialize against each other too, not just against themselves. Without this lock, a downgrade
+   * webhook and a manual `setActiveLocationForPlan` call (or two of either) racing for the same
+   * tenant could each read the same pre-change location list, compute conflicting keep/pause sets,
+   * and both commit — leaving more or fewer than `max_locations` unpaused.
+   *
+   * `existingTx`, when given, is used directly instead of opening a new transaction — lets
+   * `BillingWebhooksService` fold this into the same transaction as the subscription-state write
+   * that triggered it (see that class's own doc comment on why webhook writes must commit
+   * atomically together).
+   */
+  async withLocationSelectionLock<T>(
+    tenantId: string,
+    fn: (tx: DrizzleTransaction, activeLocations: LocationRow[]) => Promise<T>,
+    existingTx?: DrizzleTransaction
+  ): Promise<T> {
+    const run = async (tx: DrizzleTransaction): Promise<T> => {
+      await this.connectionsRepository.acquireLocationConfirmLock(tx, tenantId);
+      const activeLocations = await this.connectionsRepository.findLocationsByTenant(
+        tenantId,
+        LocationStatus.ACTIVE,
+        tx
+      );
+      return fn(tx, activeLocations);
+    };
+
+    return existingTx ? run(existingTx) : this.connectionsRepository.transaction(run);
+  }
+
+  /** Upgrade back to Paid — see `ConnectionsRepository.clearBillingPauseForTenant`. `tx`, when
+   *  given, is used directly instead of opening a new transaction — see `withLocationSelectionLock`
+   *  for why (`BillingWebhooksService` folding this into its own outer transaction). */
+  async clearBillingPauseForTenant(tenantId: string, tx?: DrizzleTransaction): Promise<void> {
+    if (tx) {
+      return this.connectionsRepository.clearBillingPauseForTenant(tx, tenantId);
+    }
+    return this.connectionsRepository.transaction(t =>
+      this.connectionsRepository.clearBillingPauseForTenant(t, tenantId)
+    );
+  }
+
   /**
    * The module's one real transaction: upsert each confirmed location, attach the user, acquire
    * a backfill run per location. Three subtleties, all easy to get wrong and all expensive:

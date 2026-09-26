@@ -124,7 +124,8 @@
     "overview": "Overview",
     "businesses": "Businesses",
     "users": "Users",
-    "settings": "Settings"
+    "settings": "Settings",
+    "billing": "Billing"
   },
   "appShell": {
     "notifications": "Notifications",
@@ -337,6 +338,7 @@
     "stepper": {
       "identity": "Create account",
       "otp": "Verify email",
+      "plan": "Choose your plan",
       "connect": "Connect business profile"
     },
     "createAccount": {
@@ -391,6 +393,30 @@
     "startOverLink": "Start over",
     "errors": {
       "required": "Enter your business name."
+    }
+  },
+  "onboardingPlan": {
+    "title": "Choose your plan",
+    "subtitle": "Pick how you'd like to get started — you can change this any time from Settings.",
+    "features": {
+      "locations": "{count, plural, one {# location} other {# locations}}",
+      "locationsUnlimited": "Unlimited locations",
+      "aiDrafts": "{count} AI reply drafts a month",
+      "aiDraftsUnlimited": "Unlimited AI reply drafts",
+      "teamMembers": "{count, plural, one {# team member} other {# team members}}",
+      "teamMembersUnlimited": "Unlimited team members",
+      "customPromptsOn": "Full custom prompt editing",
+      "customPromptsOff": "Default prompt only"
+    },
+    "free": {
+      "name": "Free plan",
+      "description": "Get started with the essentials.",
+      "continue": "Continue with Free"
+    },
+    "paid": {
+      "name": "Paid plan",
+      "description": "Everything unlocked, no limits.",
+      "upgrade": "Upgrade to Paid"
     }
   },
   "dashboard": {
@@ -487,7 +513,8 @@
       "connection": "Connection",
       "ai": "AI",
       "profile": "Profile",
-      "members": "Members"
+      "members": "Members",
+      "billing": "Billing"
     },
     "noSettingsForMember": "There's nothing to configure here yet. Ask your business owner if you need something changed.",
     "general": {
@@ -656,6 +683,109 @@
       "disconnectFailed": "We couldn't disconnect your Google Business Profile. Please try again.",
       "aiReplyCountUpdated": "AI reply count updated.",
       "updateFailed": "Could not save the change. Please try again."
+    },
+    "billing": {
+      "title": "Billing",
+      "description": "Your current plan, usage against its limits, and where to upgrade or manage payment.",
+      "plan": {
+        "free": "Free plan",
+        "freeHelper": "1 location, 20 AI reply drafts a month, 1 team member, default prompt only.",
+        "paid": "Paid plan",
+        "paidHelper": "Unlimited locations, unlimited AI drafts, team invites, and full custom prompt editing."
+      },
+      "upgrade": "Upgrade to Paid",
+      "manageBilling": "Manage billing",
+      "cancelNotice": "Your plan will move to Free on {date}. You keep full Paid access until then.",
+      "usage": {
+        "locations": "Locations",
+        "teamMembers": "Team members",
+        "aiDrafts": "AI drafts this month"
+      },
+      "toasts": {
+        "checkoutFailed": "Could not start checkout. Please try again.",
+        "portalFailed": "Could not open the billing portal. Please try again.",
+        "cancelFailed": "Could not cancel the subscription. Please try again.",
+        "cancelSucceeded": "Cancellation scheduled — you'll keep access until the end of the period.",
+        "receiptDownloadFailed": "Could not download the receipt. Please try again."
+      },
+      "chooseLocation": {
+        "title": "Choose your active location",
+        "proactiveDescription": "Your plan is moving to Free, which allows {count, plural, one {# location} other {# locations}}. Choose which one should stay active — you can change this any time before then.",
+        "reactiveDescription": "Your plan allows {count, plural, one {# location} other {# locations}}. Choose which one should stay active — the rest are paused, not disconnected.",
+        "currentlyActive": "Currently active",
+        "paused": "Paused",
+        "confirm": "Set as active location",
+        "toasts": {
+          "updated": "Active location updated.",
+          "updateFailed": "Could not update the active location. Please try again."
+        }
+      },
+      "dummyCheckout": {
+        "title": "Simulated checkout",
+        "description": "This is the Dummy payment provider's confirmation page, used to exercise the upgrade flow without real Stripe keys.",
+        "reference": "Simulated subscription: {id}",
+        "backToBilling": "Back to Billing",
+        "errorTitle": "Could not complete checkout",
+        "errorDescription": "Something went wrong completing the simulated upgrade. You can try again or go back to Billing.",
+        "retry": "Try again"
+      },
+      "dummyPortal": {
+        "title": "Simulated billing portal",
+        "description": "This is the Dummy payment provider's confirmation page, used to exercise the manage/cancel flow without real Stripe keys.",
+        "reference": "Simulated customer: {id}",
+        "backToBilling": "Back to Billing",
+        "cancelSubscription": "Cancel subscription",
+        "cancelConfirm": "Cancel this simulated subscription? You'll keep full access until the end of the current period, then move to Free.",
+        "keepSubscription": "Keep subscription",
+        "cancelFailed": "Could not cancel the subscription. Please try again."
+      },
+      "cancelSubscription": "Cancel subscription",
+      "paymentMethod": {
+        "label": "Payment method",
+        "card": "{brand} ending in {last4}",
+        "expires": "Expires {month}/{year}"
+      },
+      "cancelDialog": {
+        "title": "Cancel subscription?",
+        "description": "You'll keep full Paid access until the end of your current billing period, then move to Free.",
+        "confirm": "Cancel subscription",
+        "keep": "Keep subscription"
+      },
+      "receipts": {
+        "title": "Billing history",
+        "description": "Past payments — download a PDF receipt for any of them.",
+        "download": "Download"
+      },
+      "manageDialog": {
+        "title": "Manage billing",
+        "description": "Update your billing name/email or replace the card on file.",
+        "cardUnavailable": "Card updates aren't available in this environment.",
+        "profile": {
+          "title": "Billing details",
+          "nameLabel": "Name",
+          "emailLabel": "Email",
+          "save": "Save",
+          "saving": "Saving…",
+          "saved": "Billing details updated.",
+          "saveFailed": "Could not update billing details. Please try again.",
+          "errors": {
+            "nameRequired": "Enter a name.",
+            "nameTooLong": "Keep this under 255 characters.",
+            "emailInvalid": "Enter a valid email address.",
+            "emailTooLong": "Keep this under 255 characters."
+          }
+        },
+        "card": {
+          "title": "Payment card",
+          "label": "Card details",
+          "save": "Save card",
+          "saving": "Saving…",
+          "success": "Card updated.",
+          "genericError": "Could not save the card. Please try again.",
+          "securedByStripe": "Secured by Stripe",
+          "expires": "Expires {month}/{year}"
+        }
+      }
     }
   },
   "promptManagement": {
@@ -727,6 +857,10 @@
     }
   },
   "adminOverview": {
+    "tabs": {
+      "overview": "Overview",
+      "statistics": "Statistics"
+    },
     "stats": {
       "businesses": "Businesses",
       "users": "Users",
@@ -773,6 +907,78 @@
     },
     "toasts": {
       "loadFailed": "Could not load the overview."
+    }
+  },
+  "adminStatistics": {
+    "stats": {
+      "replyRate": "Reply rate",
+      "avgRating": "Average rating",
+      "syncSuccessRate": "Sync success rate"
+    },
+    "connectionHealth": {
+      "title": "Connection health",
+      "subtitle": "Google Business Profile connection status across every tenant",
+      "connected": "Connected",
+      "needsReauth": "Needs reauth",
+      "disconnected": "Disconnected",
+      "neverConnected": "Never connected",
+      "empty": "No businesses yet."
+    },
+    "reviewsTrend": {
+      "title": "Review volume",
+      "subtitle": "Reviews fetched vs. replies sent, by month",
+      "empty": "No reviews yet.",
+      "legendFetched": "Fetched",
+      "legendReplied": "Replied"
+    },
+    "ratingDistribution": {
+      "title": "Rating distribution",
+      "subtitle": "Every review, by star rating",
+      "empty": "No reviews yet."
+    },
+    "classificationBreakdown": {
+      "title": "Classification breakdown",
+      "subtitle": "How the classifier routed every review",
+      "empty": "No reviews yet.",
+      "classifications": {
+        "auto_reply_candidate": "Auto-reply candidate",
+        "escalated": "Escalated",
+        "pending_classification": "Pending classification"
+      }
+    },
+    "toasts": {
+      "loadFailed": "Could not load statistics."
+    }
+  },
+  "adminBilling": {
+    "stats": {
+      "freeCount": "Free plan",
+      "paidCount": "Paid plan",
+      "activeCount": "Active subscriptions",
+      "pastDueCount": "Past due"
+    },
+    "cancelingNotice": "{count, plural, one {# subscription is} other {# subscriptions are}} set to drop to Free at the end of the current period.",
+    "upgradeTrend": {
+      "title": "Upgrades",
+      "subtitle": "Free-to-Paid conversions, by month",
+      "empty": "No upgrades yet."
+    },
+    "atRisk": {
+      "title": "At risk",
+      "subtitle": "Paid subscriptions with a failed payment",
+      "empty": "Nothing at risk right now.",
+      "periodEnded": "Renewal was due {date}",
+      "statuses": {
+        "past_due": "Past due"
+      }
+    },
+    "webhookEvents": {
+      "title": "Recent webhook activity",
+      "subtitle": "The latest Stripe events this app has processed",
+      "empty": "No webhook events yet."
+    },
+    "toasts": {
+      "loadFailed": "Could not load billing."
     }
   },
   "adminBusinesses": {

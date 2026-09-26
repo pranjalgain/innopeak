@@ -41,8 +41,8 @@ discarded after `hashToken(rawToken)`. Change:
   `development`/`production`, so this is exactly `NODE_ENV === 'development'`), additionally log
   the invite link directly via `Logger.log`, e.g.:
   `Admin invite for ${dto.email}: ${inviteLink} (dev only — not read from the queued email job)`.
-  This is a deliberate, explicit statement — not a debug-level payload dump — mirroring
-  `AuthService.seedDemoDataIfDev`'s gate and the `NoopEmailProvider`'s own dev-only logging.
+  This is a deliberate, explicit statement — not a debug-level payload dump — mirroring the
+  `NoopEmailProvider`'s own dev-only logging.
 - `AdminSettingsService` gains two new constructor deps: `AddingJobsToQueueManager` (needs
   `AdminModule` to import `QueueUIModule`, same as `AuthModule` already does) and
   `ConfigService<EnvConfig>`.

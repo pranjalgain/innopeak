@@ -370,4 +370,9 @@ export class ReviewSyncDbService {
   purgeExpiredReviewerPii(): Promise<number> {
     return this.reviewSyncRepository.purgeExpiredReviewerPii();
   }
+
+  /** See `ReviewsReadRepository.countAiGeneratedResponsesThisMonth`. */
+  countAiGeneratedResponsesThisMonth(tenantId: string, monthStart: string): Promise<number> {
+    return this.reviewsReadRepository.countAiGeneratedResponsesThisMonth(tenantId, monthStart);
+  }
 }

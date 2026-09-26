@@ -19,4 +19,8 @@ export interface PlatformSettingsResponseDto {
    * Whether a tenant owner\'s Settings > Members tab can send invites.
    */
   inviteMembersEnabled: boolean;
+  /**
+   * Whether billing exists in this deploy at all — new sign-ups get a Paid plan option, admins see the Billing dashboard, and Checkout/the Customer Portal are reachable. A pure reflection of the deploy-level PAYMENT_FEATURE_ENABLED env var (env.config.ts\'s own doc comment explains why there is deliberately no second, runtime-toggleable copy of this) — not stored on `platform_settings` and not writable through this API.
+   */
+  paymentFeatureEnabled: boolean;
 }

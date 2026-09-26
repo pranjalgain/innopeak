@@ -1,4 +1,6 @@
 import { UserRole } from '@auth/enums/user-role.enum';
+import { CustomPromptsNotOnPlanException } from '@billing/exceptions/billing.exceptions';
+import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PromptsDbService } from '@db/repositories/prompts/prompts.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
@@ -34,6 +36,7 @@ describe('PromptsService', () => {
     getPromptVersionStats: jest.Mock;
     getPromptVersionStatsBatch: jest.Mock;
   };
+  let billingEntitlementsService: { canEditCustomPrompt: jest.Mock };
 
   const tenantUser: TenantAuthUser = {
     type: JwtTokenType.TENANT_USER,
@@ -67,12 +70,16 @@ describe('PromptsService', () => {
       getPromptVersionStats: jest.fn(),
       getPromptVersionStatsBatch: jest.fn(),
     };
+    billingEntitlementsService = {
+      canEditCustomPrompt: jest.fn().mockResolvedValue(true),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PromptsService,
         { provide: PromptsDbService, useValue: promptsDbService },
         { provide: ReviewSyncDbService, useValue: reviewSyncDbService },
+        { provide: BillingEntitlementsService, useValue: billingEntitlementsService },
       ],
     }).compile();
 
@@ -133,6 +140,19 @@ describe('PromptsService', () => {
   });
 
   describe('createVersion', () => {
+    it('rejects with CustomPromptsNotOnPlanException before validating the template when the plan disallows custom prompts', async () => {
+      billingEntitlementsService.canEditCustomPrompt.mockResolvedValue(false);
+
+      await expect(
+        target.createVersion(promptId, { template: 'Hi {{unknown_var}}' }, tenantUser)
+      ).rejects.toThrow(CustomPromptsNotOnPlanException);
+
+      expect(billingEntitlementsService.canEditCustomPrompt).toHaveBeenCalledWith(
+        tenantUser.tenantId
+      );
+      expect(promptsDbService.getCurrentVersion).not.toHaveBeenCalled();
+    });
+
     it('rejects unknown placeholders and names them', async () => {
       await expect(
         target.createVersion(promptId, { template: 'Hi {{unknown_var}}' }, tenantUser)
@@ -280,6 +300,21 @@ describe('PromptsService', () => {
         tenantId: tenantUser.tenantId,
         tone: 'friendly',
       });
+    });
+
+    /** Tone is prompt configuration too — gating only `createVersion` left a Free tenant able to
+     *  reshape how the AI writes through the cheaper half of the same capability. */
+    it('rejects with CustomPromptsNotOnPlanException when the plan disallows custom prompts', async () => {
+      billingEntitlementsService.canEditCustomPrompt.mockResolvedValue(false);
+
+      await expect(target.updateTone(promptId, 'friendly', tenantUser)).rejects.toThrow(
+        CustomPromptsNotOnPlanException
+      );
+
+      expect(billingEntitlementsService.canEditCustomPrompt).toHaveBeenCalledWith(
+        tenantUser.tenantId
+      );
+      expect(promptsDbService.updateTone).not.toHaveBeenCalled();
     });
   });
 

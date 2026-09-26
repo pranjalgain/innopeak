@@ -154,6 +154,17 @@ export class LocationDto {
 
   @ApiProperty({ example: '2026-09-01T09:05:02.000Z' })
   createdAt!: string;
+
+  @ApiPropertyOptional({
+    example: null,
+    nullable: true,
+    description:
+      "Set when a billing plan downgrade left this location over the plan's location cap — " +
+      'still a live, owned connection, just excluded from the 15-minute poll until a plan change ' +
+      'or PUT /v1/billing/active-location clears it. Distinct from `status`: a paused location is ' +
+      'still `active`, not `inactive` (that means the owner disconnected it).',
+  })
+  billingPausedAt!: string | null;
 }
 
 export class LocationListResponseDto {

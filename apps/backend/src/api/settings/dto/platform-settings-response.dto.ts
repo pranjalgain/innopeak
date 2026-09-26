@@ -26,12 +26,27 @@ export class PlatformSettingsResponseDto {
   })
   inviteMembersEnabled!: boolean;
 
-  static from(row: PlatformSettingsRow): PlatformSettingsResponseDto {
+  @ApiProperty({
+    example: false,
+    description:
+      'Whether billing exists in this deploy at all — new sign-ups get a Paid plan option, ' +
+      'admins see the Billing dashboard, and Checkout/the Customer Portal are reachable. A pure ' +
+      "reflection of the deploy-level PAYMENT_FEATURE_ENABLED env var (env.config.ts's own doc " +
+      'comment explains why there is deliberately no second, runtime-toggleable copy of this) — ' +
+      'not stored on `platform_settings` and not writable through this API.',
+  })
+  paymentFeatureEnabled!: boolean;
+
+  static from(
+    row: PlatformSettingsRow,
+    paymentFeatureEnabled: boolean
+  ): PlatformSettingsResponseDto {
     const dto = new PlatformSettingsResponseDto();
     dto.ssoLoginEnabled = row.ssoLoginEnabled;
     dto.passwordLoginEnabled = row.passwordLoginEnabled;
     dto.socialLoginEnabled = row.socialLoginEnabled;
     dto.inviteMembersEnabled = row.inviteMembersEnabled;
+    dto.paymentFeatureEnabled = paymentFeatureEnabled;
     return dto;
   }
 }
