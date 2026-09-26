@@ -6,12 +6,14 @@ import { Test } from '@nestjs/testing';
 import { AuthDbService } from './auth.db-service';
 import { AuthRepository } from './auth.repository';
 
+import { TenantSubscriptionsDbService } from '../billing/tenant-subscriptions.db-service';
 import { PromptsDbService } from '../prompts/prompts.db-service';
 
 describe('AuthDbService', () => {
   let target: AuthDbService;
   let authRepository: jest.Mocked<AuthRepository>;
   let promptsDbService: jest.Mocked<PromptsDbService>;
+  let tenantSubscriptionsDbService: jest.Mocked<TenantSubscriptionsDbService>;
   const tx = {} as never;
 
   beforeEach(async () => {
@@ -50,11 +52,16 @@ describe('AuthDbService', () => {
       insertDefaultsForTenant: jest.fn(),
     } as unknown as jest.Mocked<PromptsDbService>;
 
+    tenantSubscriptionsDbService = {
+      insertFreeSubscription: jest.fn(),
+    } as unknown as jest.Mocked<TenantSubscriptionsDbService>;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthDbService,
         { provide: AuthRepository, useValue: authRepository },
         { provide: PromptsDbService, useValue: promptsDbService },
+        { provide: TenantSubscriptionsDbService, useValue: tenantSubscriptionsDbService },
       ],
     }).compile();
 
@@ -115,6 +122,10 @@ describe('AuthDbService', () => {
       expect(authRepository.insertTenantSettings).toHaveBeenCalledWith(tx, {
         tenantId: 'tenant-1',
       });
+      expect(tenantSubscriptionsDbService.insertFreeSubscription).toHaveBeenCalledWith(
+        tx,
+        'tenant-1'
+      );
       expect(authRepository.insertNotificationRecipient).toHaveBeenCalledWith(tx, {
         tenantId: 'tenant-1',
         userId: 'user-1',

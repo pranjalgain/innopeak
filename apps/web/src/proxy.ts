@@ -71,6 +71,7 @@ const REQUIRE_TENANT_AUTH_PATHS: string[] = [
   ROUTES.REVIEW_QUEUE,
   ROUTES.SETTINGS,
   ROUTES.SETTINGS_PROMPTS,
+  ROUTES.ONBOARDING_PLAN,
   ROUTES.ONBOARDING_CONNECT,
 ];
 
@@ -134,6 +135,7 @@ export const config = {
     "/admin-login",
     "/onboarding/signup",
     "/onboarding/business-name",
+    "/onboarding/plan",
     "/onboarding/connect",
     "/dashboard",
     "/review-queue",

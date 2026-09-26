@@ -3,20 +3,30 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 // Repositories — centralized data access layer
+import { AdminBillingDbService } from './repositories/admin-billing/admin-billing.db-service';
+import { AdminBillingRepository } from './repositories/admin-billing/admin-billing.repository';
 import { AdminBusinessesDbService } from './repositories/admin-businesses/admin-businesses.db-service';
 import { AdminBusinessesRepository } from './repositories/admin-businesses/admin-businesses.repository';
 import { AdminOverviewDbService } from './repositories/admin-overview/admin-overview.db-service';
 import { AdminOverviewRepository } from './repositories/admin-overview/admin-overview.repository';
+import { AdminStatisticsDbService } from './repositories/admin-statistics/admin-statistics.db-service';
+import { AdminStatisticsRepository } from './repositories/admin-statistics/admin-statistics.repository';
 import { AdminUsersDbService } from './repositories/admin-users/admin-users.db-service';
 import { AdminUsersRepository } from './repositories/admin-users/admin-users.repository';
 import { AuthDbService } from './repositories/auth/auth.db-service';
 import { AuthRepository } from './repositories/auth/auth.repository';
+import { BillingPlansDbService } from './repositories/billing/billing-plans.db-service';
+import { BillingPlansRepository } from './repositories/billing/billing-plans.repository';
+import { BillingReceiptsDbService } from './repositories/billing/billing-receipts.db-service';
+import { BillingReceiptsRepository } from './repositories/billing/billing-receipts.repository';
+import { StripeWebhookEventsDbService } from './repositories/billing/stripe-webhook-events.db-service';
+import { StripeWebhookEventsRepository } from './repositories/billing/stripe-webhook-events.repository';
+import { TenantSubscriptionsDbService } from './repositories/billing/tenant-subscriptions.db-service';
+import { TenantSubscriptionsRepository } from './repositories/billing/tenant-subscriptions.repository';
 import { ConnectionsDbService } from './repositories/connections/connections.db-service';
 import { ConnectionsRepository } from './repositories/connections/connections.repository';
 import { DashboardDbService } from './repositories/dashboard/dashboard.db-service';
 import { DashboardRepository } from './repositories/dashboard/dashboard.repository';
-import { DemoDataDbService } from './repositories/demo-data/demo-data.db-service';
-import { DemoDataRepository } from './repositories/demo-data/demo-data.repository';
 import { MediaDbService } from './repositories/media/media.db-service';
 import { MediaRepository } from './repositories/media/media.repository';
 import { NotificationsDbService } from './repositories/notifications/notifications.db-service';
@@ -52,8 +62,6 @@ const repositories = [
   SettingsDbService,
   DashboardRepository,
   DashboardDbService,
-  DemoDataRepository,
-  DemoDataDbService,
   ReviewPipelineDbService,
   AdminUsersRepository,
   AdminUsersDbService,
@@ -69,6 +77,18 @@ const repositories = [
   MediaDbService,
   NotificationsRepository,
   NotificationsDbService,
+  BillingPlansRepository,
+  BillingPlansDbService,
+  TenantSubscriptionsRepository,
+  TenantSubscriptionsDbService,
+  StripeWebhookEventsRepository,
+  StripeWebhookEventsDbService,
+  BillingReceiptsRepository,
+  BillingReceiptsDbService,
+  AdminStatisticsRepository,
+  AdminStatisticsDbService,
+  AdminBillingRepository,
+  AdminBillingDbService,
 ];
 
 @Global()

@@ -24,6 +24,12 @@ export interface ConnectedLocation {
   lastSyncStatus: "ok" | "error" | null;
   lastSyncError: string | null;
   onboardingBackfillCompletedAt: string | null;
+  /** Set when a billing plan downgrade left this location over the plan's cap — still a live,
+   *  owned connection (see `status`), just excluded from the 15-minute poll until a plan change or
+   *  `PUT /v1/billing/active-location` clears it. `null` means the location is active under the
+   *  current plan cap. Only ever populated on `GET /v1/connections/locations`'s rows today — see
+   *  `ConnectionStatusResponse`'s own comment. */
+  billingPausedAt: string | null;
 }
 
 export interface ConnectionState {

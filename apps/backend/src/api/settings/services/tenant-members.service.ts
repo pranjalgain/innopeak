@@ -6,6 +6,8 @@ import { hashToken } from '@auth/utils/token.utils';
 import { JobName } from '@bg/constants/job.constant';
 import type { IMemberInviteEmailJob } from '@bg/interfaces/job.interface';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
+import { TeamMemberLimitReachedException } from '@billing/exceptions/billing.exceptions';
+import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { isProduction } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
@@ -49,6 +51,7 @@ export class TenantMembersService {
   constructor(
     private readonly authDbService: AuthDbService,
     private readonly platformSettingsDbService: PlatformSettingsDbService,
+    private readonly billingEntitlementsService: BillingEntitlementsService,
     private readonly queueManager: AddingJobsToQueueManager,
     private readonly configService: ConfigService<EnvConfig>
   ) {}
@@ -71,6 +74,13 @@ export class TenantMembersService {
     const platformSettings = await this.platformSettingsDbService.get();
     if (platformSettings?.inviteMembersEnabled !== true) {
       throw new MemberInvitesDisabledException();
+    }
+
+    // Independent of the platform-off check above — a distinct exception (plan-locked, not
+    // platform-locked) since the frontend needs different upsell copy for each: "your plan caps
+    // team members at N" vs. "team invites are turned off for this platform".
+    if (!(await this.billingEntitlementsService.canInviteTeamMember(owner.tenantId))) {
+      throw new TeamMemberLimitReachedException();
     }
 
     // Global lookup, not tenant-scoped — `idx_users_email_active` is a global uniqueness

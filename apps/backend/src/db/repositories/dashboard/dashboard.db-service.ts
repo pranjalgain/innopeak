@@ -95,11 +95,18 @@ export class DashboardDbService {
    * new `location_id` while the originals linger on the deactivated row. Every un-scoped total —
    * review count, pending, escalated, the rating distribution — then read roughly double, for a
    * location the Business Switcher no longer offers and the tenant cannot get back to.
+   *
+   * `findActiveLocationIds` now also excludes a paused (over-cap) location — always fetched, even
+   * for an explicitly named `locationId`, so that name is validated against the same set rather
+   * than trusted outright: without this, a downgraded tenant could still pull full metrics for the
+   * location their plan paused just by naming it in the query string, even though the unscoped
+   * "every current location" view (and the review queue itself) already hide it.
    */
   private async resolveLocationScope(scope: DashboardScopeInput): Promise<string[]> {
+    const activeLocationIds = await this.dashboardRepository.findActiveLocationIds(scope.tenantId);
     if (scope.locationId) {
-      return [scope.locationId];
+      return activeLocationIds.includes(scope.locationId) ? [scope.locationId] : [];
     }
-    return this.dashboardRepository.findActiveLocationIds(scope.tenantId);
+    return activeLocationIds;
   }
 }

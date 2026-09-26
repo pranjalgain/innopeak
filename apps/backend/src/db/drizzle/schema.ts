@@ -12,11 +12,13 @@ import {
   smallint,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
 
+export const billingPlanCode = pgEnum('billing_plan_code', ['free', 'paid']);
 export const platformActivityType = pgEnum('platform_activity_type', [
   'business_suspended',
   'business_reactivated',
@@ -94,6 +96,12 @@ export const reviewClassification = pgEnum('review_classification', [
 export const reviewProvider = pgEnum('review_provider', ['google']);
 export const reviewSentiment = pgEnum('review_sentiment', ['positive', 'neutral', 'negative']);
 export const reviewStatus = pgEnum('review_status', ['new', 'in_review', 'responded', 'dismissed']);
+export const subscriptionStatus = pgEnum('subscription_status', [
+  'active',
+  'past_due',
+  'canceled',
+  'incomplete',
+]);
 export const syncHealthStatus = pgEnum('sync_health_status', ['ok', 'error']);
 export const syncRunStatus = pgEnum('sync_run_status', ['running', 'ok', 'error']);
 export const syncTrigger = pgEnum('sync_trigger', ['scheduled', 'backfill']);
@@ -632,6 +640,7 @@ export const locations = pgTable(
       mode: 'string',
     }),
     lastReviewSyncedAt: timestamp('last_review_synced_at', { withTimezone: true, mode: 'string' }),
+    billingPausedAt: timestamp('billing_paused_at', { withTimezone: true, mode: 'string' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -640,6 +649,9 @@ export const locations = pgTable(
       .notNull(),
   },
   table => [
+    index('idx_locations_billing_paused_at')
+      .using('btree', table.billingPausedAt.asc().nullsLast().op('timestamptz_ops'))
+      .where(sql`(billing_paused_at IS NOT NULL)`),
     uniqueIndex('idx_locations_provider_connection_external_location').using(
       'btree',
       table.providerConnectionId.asc().nullsLast().op('text_ops'),
@@ -1288,5 +1300,126 @@ export const media = pgTable(
       'media_exactly_one_owner',
       sql`((user_id IS NOT NULL) AND (platform_admin_id IS NULL)) OR ((user_id IS NULL) AND (platform_admin_id IS NOT NULL))`
     ),
+  ]
+);
+
+export const billingPlans = pgTable(
+  'billing_plans',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    code: billingPlanCode().notNull(),
+    stripeProductId: varchar('stripe_product_id', { length: 255 }),
+    stripePriceId: varchar('stripe_price_id', { length: 255 }),
+    maxLocations: smallint('max_locations'),
+    maxAiDraftsPerMonth: smallint('max_ai_drafts_per_month'),
+    maxTeamMembers: smallint('max_team_members'),
+    customPromptsEnabled: boolean('custom_prompts_enabled').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [unique('billing_plans_code_key').on(table.code)]
+);
+
+export const tenantSubscriptions = pgTable(
+  'tenant_subscriptions',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    planId: uuid('plan_id').notNull(),
+    stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
+    stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
+    status: subscriptionStatus(),
+    currentPeriodStart: timestamp('current_period_start', { withTimezone: true, mode: 'string' }),
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: true, mode: 'string' }),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_tenant_subscriptions_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_tenant_subscriptions_plan_id').using(
+      'btree',
+      table.planId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_tenant_subscriptions_status').using(
+      'btree',
+      table.status.asc().nullsLast().op('enum_ops')
+    ),
+    uniqueIndex('idx_tenant_subscriptions_stripe_customer_id')
+      .using('btree', table.stripeCustomerId.asc().nullsLast().op('text_ops'))
+      .where(sql`(stripe_customer_id IS NOT NULL)`),
+    uniqueIndex('idx_tenant_subscriptions_stripe_subscription_id')
+      .using('btree', table.stripeSubscriptionId.asc().nullsLast().op('text_ops'))
+      .where(sql`(stripe_subscription_id IS NOT NULL)`),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'tenant_subscriptions_tenant_id_fkey',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.planId],
+      foreignColumns: [billingPlans.id],
+      name: 'tenant_subscriptions_plan_id_fkey',
+    }).onDelete('restrict'),
+  ]
+);
+
+export const stripeWebhookEvents = pgTable('stripe_webhook_events', {
+  id: varchar({ length: 255 }).primaryKey().notNull(),
+  type: varchar({ length: 255 }).notNull(),
+  processedAt: timestamp('processed_at', { withTimezone: true, mode: 'string' })
+    .defaultNow()
+    .notNull(),
+});
+
+export const billingReceipts = pgTable(
+  'billing_receipts',
+  {
+    id: uuid()
+      .default(sql`uuidv7()`)
+      .primaryKey()
+      .notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    stripeInvoiceId: varchar('stripe_invoice_id', { length: 255 }).notNull(),
+    stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
+    amountPaid: integer('amount_paid').notNull(),
+    currency: varchar({ length: 3 }).notNull(),
+    invoiceNumber: varchar('invoice_number', { length: 255 }),
+    paidAt: timestamp('paid_at', { withTimezone: true, mode: 'string' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  table => [
+    uniqueIndex('idx_billing_receipts_stripe_invoice_id').using(
+      'btree',
+      table.stripeInvoiceId.asc().nullsLast().op('text_ops')
+    ),
+    index('idx_billing_receipts_tenant_id').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops')
+    ),
+    foreignKey({
+      columns: [table.tenantId],
+      foreignColumns: [tenants.id],
+      name: 'billing_receipts_tenant_id_fkey',
+    }).onDelete('cascade'),
   ]
 );

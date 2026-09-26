@@ -124,7 +124,8 @@
     "overview": "Übersicht",
     "businesses": "Unternehmen",
     "users": "Benutzer",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "billing": "Abrechnung"
   },
   "appShell": {
     "notifications": "Benachrichtigungen",
@@ -337,6 +338,7 @@
     "stepper": {
       "identity": "Konto erstellen",
       "otp": "E-Mail verifizieren",
+      "plan": "Tarif wählen",
       "connect": "Unternehmensprofil verbinden"
     },
     "createAccount": {
@@ -391,6 +393,30 @@
     "startOverLink": "Von vorn beginnen",
     "errors": {
       "required": "Geben Sie Ihren Firmennamen ein."
+    }
+  },
+  "onboardingPlan": {
+    "title": "Tarif wählen",
+    "subtitle": "Wählen Sie, wie Sie starten möchten — Sie können dies jederzeit in den Einstellungen ändern.",
+    "features": {
+      "locations": "{count, plural, one {# Standort} other {# Standorte}}",
+      "locationsUnlimited": "Unbegrenzte Standorte",
+      "aiDrafts": "{count} KI-Antwortentwürfe pro Monat",
+      "aiDraftsUnlimited": "Unbegrenzte KI-Antwortentwürfe",
+      "teamMembers": "{count, plural, one {# Teammitglied} other {# Teammitglieder}}",
+      "teamMembersUnlimited": "Unbegrenzte Teammitglieder",
+      "customPromptsOn": "Vollständige Bearbeitung eigener Vorlagen",
+      "customPromptsOff": "Nur Standardvorlage"
+    },
+    "free": {
+      "name": "Free-Tarif",
+      "description": "Starten Sie mit den Grundlagen.",
+      "continue": "Mit Free fortfahren"
+    },
+    "paid": {
+      "name": "Paid-Tarif",
+      "description": "Alles freigeschaltet, keine Limits.",
+      "upgrade": "Auf Paid upgraden"
     }
   },
   "dashboard": {
@@ -487,7 +513,8 @@
       "connection": "Verbindung",
       "ai": "KI",
       "profile": "Profil",
-      "members": "Mitglieder"
+      "members": "Mitglieder",
+      "billing": "Abrechnung"
     },
     "noSettingsForMember": "Hier gibt es noch nichts zu konfigurieren. Wenden Sie sich an Ihren Unternehmensinhaber, wenn Sie eine Änderung benötigen.",
     "general": {
@@ -656,6 +683,109 @@
       "disconnectFailed": "Ihr Google Unternehmensprofil konnte nicht getrennt werden. Bitte versuchen Sie es erneut.",
       "aiReplyCountUpdated": "Anzahl der KI-Antworten aktualisiert.",
       "updateFailed": "Die Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
+    },
+    "billing": {
+      "title": "Abrechnung",
+      "description": "Ihr aktueller Tarif, die Nutzung im Vergleich zu dessen Limits und wo Sie upgraden oder die Zahlung verwalten können.",
+      "plan": {
+        "free": "Free-Tarif",
+        "freeHelper": "1 Standort, 20 KI-Antwortentwürfe pro Monat, 1 Teammitglied, nur Standardvorlage.",
+        "paid": "Paid-Tarif",
+        "paidHelper": "Unbegrenzte Standorte, unbegrenzte KI-Entwürfe, Team-Einladungen und vollständige Bearbeitung eigener Vorlagen."
+      },
+      "upgrade": "Auf Paid upgraden",
+      "manageBilling": "Abrechnung verwalten",
+      "cancelNotice": "Ihr Tarif wechselt am {date} zu Free. Bis dahin behalten Sie vollen Paid-Zugriff.",
+      "usage": {
+        "locations": "Standorte",
+        "teamMembers": "Teammitglieder",
+        "aiDrafts": "KI-Entwürfe diesen Monat"
+      },
+      "toasts": {
+        "checkoutFailed": "Checkout konnte nicht gestartet werden. Bitte erneut versuchen.",
+        "portalFailed": "Abrechnungsportal konnte nicht geöffnet werden. Bitte erneut versuchen.",
+        "cancelFailed": "Abonnement konnte nicht gekündigt werden. Bitte erneut versuchen.",
+        "cancelSucceeded": "Kündigung geplant — Sie behalten den Zugriff bis zum Ende des Zeitraums.",
+        "receiptDownloadFailed": "Der Beleg konnte nicht heruntergeladen werden. Bitte erneut versuchen."
+      },
+      "chooseLocation": {
+        "title": "Aktiven Standort wählen",
+        "proactiveDescription": "Ihr Tarif wechselt zu Free, der {count, plural, one {# Standort} other {# Standorte}} erlaubt. Wählen Sie, welcher aktiv bleiben soll — Sie können dies jederzeit vorher ändern.",
+        "reactiveDescription": "Ihr Tarif erlaubt {count, plural, one {# Standort} other {# Standorte}}. Wählen Sie, welcher aktiv bleiben soll — die übrigen werden pausiert, nicht getrennt.",
+        "currentlyActive": "Derzeit aktiv",
+        "paused": "Pausiert",
+        "confirm": "Als aktiven Standort festlegen",
+        "toasts": {
+          "updated": "Aktiver Standort aktualisiert.",
+          "updateFailed": "Aktiver Standort konnte nicht aktualisiert werden. Bitte erneut versuchen."
+        }
+      },
+      "dummyCheckout": {
+        "title": "Simulierter Checkout",
+        "description": "Dies ist die Bestätigungsseite des Dummy-Zahlungsanbieters, mit der der Upgrade-Ablauf ohne echte Stripe-Schlüssel getestet wird.",
+        "reference": "Simuliertes Abonnement: {id}",
+        "backToBilling": "Zurück zur Abrechnung",
+        "errorTitle": "Checkout konnte nicht abgeschlossen werden",
+        "errorDescription": "Beim Abschließen des simulierten Upgrades ist ein Fehler aufgetreten. Sie können es erneut versuchen oder zur Abrechnung zurückkehren.",
+        "retry": "Erneut versuchen"
+      },
+      "dummyPortal": {
+        "title": "Simuliertes Abrechnungsportal",
+        "description": "Dies ist die Bestätigungsseite des Dummy-Zahlungsanbieters, mit der der Verwaltungs-/Kündigungsablauf ohne echte Stripe-Schlüssel getestet wird.",
+        "reference": "Simulierter Kunde: {id}",
+        "backToBilling": "Zurück zur Abrechnung",
+        "cancelSubscription": "Abonnement kündigen",
+        "cancelConfirm": "Dieses simulierte Abonnement kündigen? Sie behalten vollen Zugriff bis zum Ende des aktuellen Zeitraums, danach wechseln Sie zu Free.",
+        "keepSubscription": "Abonnement behalten",
+        "cancelFailed": "Abonnement konnte nicht gekündigt werden. Bitte erneut versuchen."
+      },
+      "cancelSubscription": "Abonnement kündigen",
+      "paymentMethod": {
+        "label": "Zahlungsmethode",
+        "card": "{brand} endet auf {last4}",
+        "expires": "Läuft ab {month}/{year}"
+      },
+      "cancelDialog": {
+        "title": "Abonnement kündigen?",
+        "description": "Sie behalten vollen Paid-Zugriff bis zum Ende Ihres aktuellen Abrechnungszeitraums, danach wechseln Sie zu Free.",
+        "confirm": "Abonnement kündigen",
+        "keep": "Abonnement behalten"
+      },
+      "receipts": {
+        "title": "Abrechnungsverlauf",
+        "description": "Vergangene Zahlungen — laden Sie für jede davon einen PDF-Beleg herunter.",
+        "download": "Herunterladen"
+      },
+      "manageDialog": {
+        "title": "Abrechnung verwalten",
+        "description": "Aktualisieren Sie Ihren Namen/E-Mail für die Abrechnung oder ersetzen Sie die hinterlegte Karte.",
+        "cardUnavailable": "Kartenaktualisierungen sind in dieser Umgebung nicht verfügbar.",
+        "profile": {
+          "title": "Abrechnungsdetails",
+          "nameLabel": "Name",
+          "emailLabel": "E-Mail",
+          "save": "Speichern",
+          "saving": "Wird gespeichert…",
+          "saved": "Abrechnungsdetails aktualisiert.",
+          "saveFailed": "Abrechnungsdetails konnten nicht aktualisiert werden. Bitte erneut versuchen.",
+          "errors": {
+            "nameRequired": "Geben Sie einen Namen ein.",
+            "nameTooLong": "Bitte unter 255 Zeichen halten.",
+            "emailInvalid": "Geben Sie eine gültige E-Mail-Adresse ein.",
+            "emailTooLong": "Bitte unter 255 Zeichen halten."
+          }
+        },
+        "card": {
+          "title": "Zahlungskarte",
+          "label": "Kartendetails",
+          "save": "Karte speichern",
+          "saving": "Wird gespeichert…",
+          "success": "Karte aktualisiert.",
+          "genericError": "Die Karte konnte nicht gespeichert werden. Bitte erneut versuchen.",
+          "securedByStripe": "Gesichert durch Stripe",
+          "expires": "Läuft ab {month}/{year}"
+        }
+      }
     }
   },
   "promptManagement": {
@@ -727,6 +857,10 @@
     }
   },
   "adminOverview": {
+    "tabs": {
+      "overview": "Übersicht",
+      "statistics": "Statistiken"
+    },
     "stats": {
       "businesses": "Unternehmen",
       "users": "Benutzer",
@@ -773,6 +907,78 @@
     },
     "toasts": {
       "loadFailed": "Die Übersicht konnte nicht geladen werden."
+    }
+  },
+  "adminStatistics": {
+    "stats": {
+      "replyRate": "Antwortquote",
+      "avgRating": "Durchschnittliche Bewertung",
+      "syncSuccessRate": "Sync-Erfolgsquote"
+    },
+    "connectionHealth": {
+      "title": "Verbindungsstatus",
+      "subtitle": "Status der Google-Unternehmensprofil-Verbindung über alle Mandanten hinweg",
+      "connected": "Verbunden",
+      "needsReauth": "Erneute Autorisierung nötig",
+      "disconnected": "Getrennt",
+      "neverConnected": "Nie verbunden",
+      "empty": "Noch keine Unternehmen."
+    },
+    "reviewsTrend": {
+      "title": "Bewertungsvolumen",
+      "subtitle": "Abgerufene Bewertungen im Vergleich zu gesendeten Antworten, nach Monat",
+      "empty": "Noch keine Bewertungen.",
+      "legendFetched": "Abgerufen",
+      "legendReplied": "Beantwortet"
+    },
+    "ratingDistribution": {
+      "title": "Bewertungsverteilung",
+      "subtitle": "Alle Bewertungen, nach Sternebewertung",
+      "empty": "Noch keine Bewertungen."
+    },
+    "classificationBreakdown": {
+      "title": "Klassifizierungsübersicht",
+      "subtitle": "Wie der Klassifikator jede Bewertung eingeordnet hat",
+      "empty": "Noch keine Bewertungen.",
+      "classifications": {
+        "auto_reply_candidate": "Automatische Antwort möglich",
+        "escalated": "Eskaliert",
+        "pending_classification": "Klassifizierung ausstehend"
+      }
+    },
+    "toasts": {
+      "loadFailed": "Die Statistiken konnten nicht geladen werden."
+    }
+  },
+  "adminBilling": {
+    "stats": {
+      "freeCount": "Kostenloser Plan",
+      "paidCount": "Kostenpflichtiger Plan",
+      "activeCount": "Aktive Abonnements",
+      "pastDueCount": "Überfällig"
+    },
+    "cancelingNotice": "{count, plural, one {# Abonnement wechselt} other {# Abonnements wechseln}} am Ende des aktuellen Zeitraums zurück zum kostenlosen Plan.",
+    "upgradeTrend": {
+      "title": "Upgrades",
+      "subtitle": "Wechsel von kostenlos zu kostenpflichtig, nach Monat",
+      "empty": "Noch keine Upgrades."
+    },
+    "atRisk": {
+      "title": "Gefährdet",
+      "subtitle": "Kostenpflichtige Abonnements mit fehlgeschlagener Zahlung",
+      "empty": "Derzeit nichts gefährdet.",
+      "periodEnded": "Verlängerung war fällig am {date}",
+      "statuses": {
+        "past_due": "Überfällig"
+      }
+    },
+    "webhookEvents": {
+      "title": "Letzte Webhook-Aktivität",
+      "subtitle": "Die neuesten von dieser App verarbeiteten Stripe-Ereignisse",
+      "empty": "Noch keine Webhook-Ereignisse."
+    },
+    "toasts": {
+      "loadFailed": "Die Abrechnung konnte nicht geladen werden."
     }
   },
   "adminBusinesses": {

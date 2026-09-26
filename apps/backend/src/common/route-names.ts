@@ -123,10 +123,74 @@ export enum RouteNames {
   ADMIN_OVERVIEW_SIGNUP_TREND = 'signup-trend',
   ADMIN_OVERVIEW_ACTIVITY = 'activity',
 
+  // Deeper platform-wide analytics than Overview's four headline stats — review volume/rating/
+  // classification/sync/connection health, all composed into one summary payload per
+  // AdminStatisticsController's own doc comment.
+  ADMIN_STATISTICS = 'admin/statistics',
+  ADMIN_STATISTICS_SUMMARY = 'summary',
+
+  // Platform-admin visibility into billing_plans/tenant_subscriptions/stripe_webhook_events —
+  // none of which had any admin-facing surface before this. One summary payload, same reasoning
+  // as ADMIN_STATISTICS_SUMMARY above.
+  ADMIN_BILLING = 'admin/billing',
+  // Deliberately the same literal as ADMIN_STATISTICS_SUMMARY above — two unrelated summary
+  // routes nested under their own distinct controller prefixes, same reasoning as
+  // ADMIN_SETTINGS_PLATFORM_CONFIG's own duplicate-value comment.
+  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
+  ADMIN_BILLING_SUMMARY = 'summary',
+  // Cheap existence check the admin frontend calls on every `/admin/*` page load to decide
+  // whether the Billing nav item stays visible while `PAYMENT_FEATURE_ENABLED` is off — see
+  // `AdminBillingService.hasPaidTenants`'s own doc comment.
+  ADMIN_BILLING_HAS_PAID_TENANTS = 'has-paid-tenants',
+
   // Tenant team members — owner-authenticated (@Roles(UserRole.OWNER)), nested under
   // RouteNames.SETTINGS. See tenant-member-invite-design.md.
   MEMBERS = 'members',
   MEMBER_BY_ID = ':memberId',
+
+  // Billing module. BillingController and BillingWebhooksController both mount at this same
+  // prefix (two controllers, one module — see module-structure.md's "more than one controller"
+  // layout), the same way TenantAvatarController/AdminAvatarController share their host
+  // controllers' prefixes from a different module.
+  BILLING = 'billing',
+  BILLING_PLANS = 'plans',
+  BILLING_SUBSCRIPTION = 'subscription',
+  BILLING_CHECKOUT = 'checkout',
+  BILLING_PORTAL = 'portal',
+  // In-app cancel — calls the payment provider directly (no hosted-portal redirect) since
+  // cancellation itself needs none of the PCI-scoped UI a card update would. Provider-agnostic:
+  // works the same whether PAYMENT_PROVIDER is stripe or dummy — see
+  // BillingService.cancelSubscription's own doc comment.
+  BILLING_CANCEL = 'cancel',
+  // Deliberately the same literal as ACTIVE_LOCATION above (connections module) — one concept,
+  // two routes with different owners, same reasoning as ADMIN_SETTINGS_PLATFORM_CONFIG's own
+  // duplicate-value comment.
+  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
+  BILLING_ACTIVE_LOCATION = 'active-location',
+  BILLING_WEBHOOKS_STRIPE = 'webhooks/stripe',
+  // Dummy-provider-only — 404 unless PAYMENT_PROVIDER=dummy. What a real Stripe webhook delivery
+  // does automatically, DummyPaymentProvider has no external caller to do for it (its own
+  // constructWebhookEvent throws) — this lets the frontend's dummy checkout confirmation page
+  // trigger the same BillingWebhooksService state transition directly, authenticated as the
+  // tenant owner instead of Stripe's signature. See BillingService.completeDummyCheckout. (The
+  // cancel-side counterpart this used to pair with, dummy/cancel-subscription, is gone —
+  // consolidated into the provider-agnostic BILLING_CANCEL above.)
+  BILLING_DUMMY_COMPLETE_CHECKOUT = 'dummy/complete-checkout',
+  // Stripe-only payment receipts (`billing_receipts`, see 0012_billing_receipts.sql) — a list for
+  // Settings → Billing's history section, and a per-receipt PDF download. Never populated for
+  // PAYMENT_PROVIDER=dummy, since there is no real charge behind a Dummy payment to document.
+  BILLING_RECEIPTS = 'receipts',
+  BILLING_RECEIPT_PDF = ':receiptId/pdf',
+  // In-app "manage billing" — replaces the old redirect-to-hosted-Customer-Portal flow. Stripe-only
+  // (see StripeOnlyFeatureException): read/write the Stripe Customer's name/email, and the
+  // SetupIntent + confirm-default-payment-method pair behind Stripe Elements card entry.
+  // Deliberately the same literal as ADMIN_SETTINGS_PROFILE above — one concept, two routes with
+  // different owners, same reasoning as ADMIN_SETTINGS_PLATFORM_CONFIG's own duplicate-value
+  // comment.
+  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
+  BILLING_PROFILE = 'profile',
+  BILLING_SETUP_INTENT = 'setup-intent',
+  BILLING_PAYMENT_METHOD = 'payment-method',
 
   TEST = 'test',
   CUSTOM = 'custom',

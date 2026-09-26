@@ -3,11 +3,14 @@
 /* eslint-disable */
 
 export * from './api/admin-auth-api';
+export * from './api/admin-billing-api';
 export * from './api/admin-businesses-api';
 export * from './api/admin-overview-api';
 export * from './api/admin-settings-api';
+export * from './api/admin-statistics-api';
 export * from './api/admin-users-api';
 export * from './api/auth-api';
+export * from './api/billing-api';
 export * from './api/connections-api';
 export * from './api/connections-sync-api';
 export * from './api/dashboard-api';

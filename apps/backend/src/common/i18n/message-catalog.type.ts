@@ -100,6 +100,48 @@ export interface MessageCatalog {
     VERSION_NOT_FOUND: string;
     STATS_BATCH_RETRIEVED: string;
   };
+  BILLING: {
+    PLANS_RETRIEVED: string;
+    SUBSCRIPTION_RETRIEVED: string;
+    CHECKOUT_SESSION_CREATED: string;
+    PORTAL_SESSION_CREATED: string;
+    ACTIVE_LOCATION_UPDATED: string;
+    TENANT_ONLY: string;
+    /** The deploy-level `PAYMENT_FEATURE_ENABLED` switch is off — gates the *entry point* only
+     *  (`POST /v1/billing/checkout`); an already-subscribed tenant's existing billing is
+     *  unaffected. See `env.config.ts`'s own doc comment on that env var. */
+    NOT_ENABLED: string;
+    PLAN_NOT_FOUND: string;
+    SUBSCRIPTION_NOT_FOUND: string;
+    /** `POST /v1/billing/checkout` called while the tenant already has a live Stripe subscription
+     *  — see `AlreadySubscribedException`. */
+    ALREADY_SUBSCRIBED: string;
+    LOCATION_LIMIT_REACHED: string;
+    TEAM_MEMBER_LIMIT_REACHED: string;
+    CUSTOM_PROMPTS_NOT_ON_PLAN: string;
+    /** `BillingEntitlementsService.canGenerateAiDraft` — currently unreachable in practice, since
+     *  nothing in this codebase calls it yet (no AI-reply-generation pipeline exists). Kept ready
+     *  for when that pipeline lands. */
+    AI_DRAFT_LIMIT_REACHED: string;
+    STRIPE_WEBHOOK_SIGNATURE_INVALID: string;
+    /** `PUT /v1/billing/active-location` named a location that isn't this tenant's own, or is
+     *  `status = 'inactive'` (disconnected). */
+    LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION: string;
+    /** `POST /v1/billing/dummy/*` called while `PAYMENT_PROVIDER=stripe`. */
+    DUMMY_PROVIDER_NOT_ACTIVE: string;
+    RECEIPTS_RETRIEVED: string;
+    /** `GET /v1/billing/receipts/:id/pdf` (or the list) named a receipt that isn't this tenant's
+     *  own, or doesn't exist. */
+    RECEIPT_NOT_FOUND: string;
+    BILLING_PROFILE_RETRIEVED: string;
+    BILLING_PROFILE_UPDATED: string;
+    SETUP_INTENT_CREATED: string;
+    PAYMENT_METHOD_UPDATED: string;
+    /** In-app card/billing-profile editing is Stripe-only — see `StripeOnlyFeatureException`. */
+    STRIPE_ONLY_FEATURE: string;
+    CHECKOUT_COMPLETED: string;
+    SUBSCRIPTION_CANCELED: string;
+  };
   SETTINGS: {
     BLOCKLIST_LISTED: string;
     BLOCKLIST_TERM_CREATED: string;

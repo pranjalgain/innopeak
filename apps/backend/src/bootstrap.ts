@@ -23,6 +23,7 @@ import * as path from 'path';
 
 import { AdminModule } from './api/admin/admin.module';
 import { AuthModule } from './api/auth/auth.module';
+import { BillingModule } from './api/billing/billing.module';
 import { ConnectionsModule } from './api/connections/connections.module';
 import { DashboardModule } from './api/dashboard/dashboard.module';
 import { MediaModule } from './api/media/media.module';
@@ -36,7 +37,7 @@ export async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     snapshot: false, // true - Enable Debugging
     bufferLogs: false, // true - Enable Debugging
-    rawBody: false, // true - Enable raw body, Required for payment webhooks
+    rawBody: true, // Required for payment webhooks — populates req.rawBody, see below.
   });
 
   const configService = app.get(ConfigService<EnvConfig>);
@@ -94,6 +95,29 @@ export async function bootstrap(): Promise<void> {
       'Content-Type, Accept, Authorization, x-forwarded-for, x-client-ip, x-real-ip, referer, user-agent, x-forwarded-host, x-forwarded-user-agent, referrer, x-forwarded-referer, x-forwarded-origin, origin, host',
   });
 
+  // Stripe's signature verification (`Stripe.webhooks.constructEvent`, called from
+  // `StripePaymentProvider.constructWebhookEvent`) is only meaningful against the *exact* raw
+  // request body bytes Stripe signed — never a re-serialized, parsed-then-stringified body. Express
+  // matches middleware in registration order, so this route-scoped `bodyParser.raw()` — registered
+  // *ahead of* the global `bodyParser.json()` below — is what keeps every other route's JSON body
+  // parsing completely untouched. The `rawBody: true` passed to `NestFactory.create` above only
+  // wires up *Nest's own* internal json/urlencoded parser instances to populate `req.rawBody` —
+  // it has no effect on a `bodyParser.raw()` called directly from the `body-parser` package here,
+  // which otherwise only sets `req.body` to the Buffer. The explicit `verify` callback below is
+  // what actually populates `req.rawBody`, exactly mirroring what Nest's own wrapper does
+  // internally. `/v1` is hardcoded rather than derived from `RouteNames`/versioning config: this
+  // line runs before `app.enableVersioning()` below, and the real client-facing path (what Express
+  // actually matches against) always carries the version prefix regardless.
+  app.use(
+    `/v1/${RouteNames.BILLING}/${RouteNames.BILLING_WEBHOOKS_STRIPE}`,
+    bodyParser.raw({
+      type: 'application/json',
+      verify: (req: Request & { rawBody?: Buffer }, _res, buf) => {
+        req.rawBody = buf;
+      },
+    })
+  );
+
   // Limit Request Size to 1MB
   app.use(bodyParser.json({ limit: '1mb' }));
   app.use(bodyParser.urlencoded({ limit: '1mb', extended: true }));
@@ -120,6 +144,7 @@ export async function bootstrap(): Promise<void> {
   const V1_MODULES = [
     AdminModule,
     AuthModule,
+    BillingModule,
     ConnectionsModule,
     DashboardModule,
     MediaModule,

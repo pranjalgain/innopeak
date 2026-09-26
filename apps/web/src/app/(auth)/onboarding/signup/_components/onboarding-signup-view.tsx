@@ -30,25 +30,27 @@ import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { useOtpVerification } from "@/hooks/auth/use-otp-verification";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 
-/** Steps 1-2 only. Step 3 ("connect") lives on its own route — see `handOffToConnect`. */
+/** Steps 1-2 only. Steps 3-4 ("plan", "connect") live on their own routes — see `handOffToPlan`. */
 type SignupStep = Extract<OnboardingStep, "identity" | "otp">;
 
-const SSO_LIKE_STEPS: OnboardingStep[] = ["identity", "connect"];
-const PASSWORD_STEPS: OnboardingStep[] = ["identity", "otp", "connect"];
+const SSO_LIKE_STEPS: OnboardingStep[] = ["identity", "plan", "connect"];
+const PASSWORD_STEPS: OnboardingStep[] = ["identity", "otp", "plan", "connect"];
 
 /**
  * Steps 1-2 of onboarding: prove who is signing up, then (password path only) verify the email.
- * Step 3 is **not** rendered here — it navigates to `/onboarding/connect`.
+ * Steps 3-4 ("plan", "connect") are **not** rendered here — this hands off to `/onboarding/plan`.
  *
- * That split is forced, not stylistic. Step 3 is a real Google OAuth grant, which means the
- * browser leaves the app entirely and comes back through the backend's callback. This route cannot
- * survive that: `/onboarding/signup` is in `proxy.ts`'s REDIRECT_IF_AUTHENTICATED_PATHS, and by
- * step 3 the user *is* authenticated, so any full navigation back here bounces to /dashboard. The
- * previous shape only worked because the mocked connect flow never navigated anywhere.
+ * That split is forced, not stylistic, for step 4 (connect): it's a real Google OAuth grant, which
+ * means the browser leaves the app entirely and comes back through the backend's callback. This
+ * route cannot survive that: `/onboarding/signup` is in `proxy.ts`'s REDIRECT_IF_AUTHENTICATED_PATHS,
+ * and by then the user *is* authenticated, so any full navigation back here bounces to /dashboard.
+ * The previous shape only worked because the mocked connect flow never navigated anywhere. Step 3
+ * (plan) has no such constraint, but lives on its own route anyway for the same reason connect
+ * does — one place, not duplicated across every view that hands off to it.
  *
  * Handing off by route rather than persisting wizard state also means there is no in-memory state
- * left to lose across the round trip, and the connect flow exists in exactly one place instead of
- * being rendered by two views that must be kept in step.
+ * left to lose across a round trip, and each downstream step exists in exactly one place instead
+ * of being rendered by multiple views that must be kept in sync.
  */
 export function OnboardingSignupView() {
   const t = useTranslations("onboardingSignup");
@@ -85,18 +87,23 @@ export function OnboardingSignupView() {
    * `replace`, not `push`: the signup screen must not be reachable with the Back button once an
    * account exists — going back would land an authenticated user on a route that immediately
    * bounces them to /dashboard, which reads as the app losing their place mid-onboarding.
+   *
+   * Hands off to `/onboarding/plan`, not straight to `/onboarding/connect` — every fresh signup
+   * (password or Microsoft SSO) sees the Free/Paid choice before ever reaching the Google
+   * Business Profile location-picker, so a Free tenant learns the 1-location cap up front instead
+   * of discovering it as a rejection after selecting several.
    */
-  const handOffToConnect = useCallback(
+  const handOffToPlan = useCallback(
     (via: "password" | "sso") => {
       OnboardingContextService.set({ from: "signup", via });
-      router.replace(ROUTES.ONBOARDING_CONNECT);
+      router.replace(ROUTES.ONBOARDING_PLAN);
     },
     [router],
   );
 
   const handleSsoSubmit = async () => {
     const succeeded = await signupWithMicrosoft();
-    if (succeeded) handOffToConnect("sso");
+    if (succeeded) handOffToPlan("sso");
   };
 
   const handlePasswordSubmit = async (values: CreateAccountFormValues) => {
@@ -113,8 +120,8 @@ export function OnboardingSignupView() {
     verifySignupOtp,
     resendSignupOtp,
     // A brand-new account never has a Google Business Profile connected yet — always straight to
-    // the connect step, unlike login's OTP branch which checks hasConnectedBusiness.
-    onVerified: () => handOffToConnect("password"),
+    // the plan step, unlike login's OTP branch which checks hasConnectedBusiness.
+    onVerified: () => handOffToPlan("password"),
   });
 
   return (

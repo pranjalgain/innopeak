@@ -48,7 +48,7 @@ describe("BusinessNameView", () => {
     expect(completeGoogleSignup).not.toHaveBeenCalled();
   });
 
-  test("submits the trimmed name, then hands off to /onboarding/connect as the SSO path", async () => {
+  test("submits the trimmed name, then hands off to /onboarding/plan as the SSO path", async () => {
     const completeGoogleSignup = vi
       .spyOn(AuthService, "completeGoogleSignup")
       .mockResolvedValueOnce({ hasConnectedBusiness: false });
@@ -59,8 +59,8 @@ describe("BusinessNameView", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(completeGoogleSignup).toHaveBeenCalledWith("The Coastal Table");
-    await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
-    // /onboarding/connect's stepper reads this — same handoff shape the Microsoft SSO path uses.
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_PLAN));
+    // /onboarding/plan's stepper reads this — same handoff shape the Microsoft SSO path uses.
     expect(OnboardingContextService.get()).toEqual({ from: "signup", via: "sso" });
   });
 

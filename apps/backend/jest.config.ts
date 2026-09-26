@@ -35,6 +35,7 @@ const config: Config = {
     '^@review-provider/(.*)$': '<rootDir>/review-provider/$1',
     '^@review-pipeline/(.*)$': '<rootDir>/review-pipeline/$1',
     '^@connections/(.*)$': '<rootDir>/api/connections/$1',
+    '^@billing/(.*)$': '<rootDir>/api/billing/$1',
     '^@reviews/(.*)$': '<rootDir>/api/reviews/$1',
     '^@review-sync-queue/(.*)$': '<rootDir>/background/queue/review-sync/$1',
     '^@sms/(.*)$': '<rootDir>/sms/$1',

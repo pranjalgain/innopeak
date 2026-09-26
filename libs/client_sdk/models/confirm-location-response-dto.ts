@@ -19,6 +19,10 @@ export interface ConfirmLocationResponseDto {
   lastSyncError?: object | null;
   onboardingBackfillCompletedAt?: object | null;
   createdAt: string;
+  /**
+   * Set when a billing plan downgrade left this location over the plan\'s location cap — still a live, owned connection, just excluded from the 15-minute poll until a plan change or PUT /v1/billing/active-location clears it. Distinct from `status`: a paused location is still `active`, not `inactive` (that means the owner disconnected it).
+   */
+  billingPausedAt?: object | null;
   backfill?: BackfillSummaryDto | null;
   /**
    * True when a backfill was already running and this call reused it. The endpoint stays 201 and idempotent rather than 409, so a double-clicking owner still gets a locationId to poll.

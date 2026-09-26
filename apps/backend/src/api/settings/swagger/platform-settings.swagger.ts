@@ -23,6 +23,7 @@ export function ApiGetPlatformSettings(): ReturnType<typeof applyDecorators> {
             passwordLoginEnabled: false,
             socialLoginEnabled: false,
             inviteMembersEnabled: false,
+            paymentFeatureEnabled: false,
           },
         },
       },

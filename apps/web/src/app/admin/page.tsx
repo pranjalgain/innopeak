@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { AdminOverviewView } from "@/app/admin/_components/admin-overview-view";
+import { AdminDashboardView } from "@/app/admin/_components/admin-dashboard-view";
 
 export const metadata: Metadata = {
   // `absolute` bypasses the root layout's title template (`%s - InnoPeak`) entirely — admin
@@ -9,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function AdminOverviewPage() {
-  return <AdminOverviewView />;
+  return <AdminDashboardView />;
 }

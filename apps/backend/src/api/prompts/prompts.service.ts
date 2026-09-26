@@ -1,4 +1,6 @@
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
+import { CustomPromptsNotOnPlanException } from '@billing/exceptions/billing.exceptions';
+import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { PromptsDbService } from '@db/repositories/prompts/prompts.db-service';
@@ -41,7 +43,8 @@ export class PromptsService {
 
   constructor(
     private readonly promptsDbService: PromptsDbService,
-    private readonly reviewSyncDbService: ReviewSyncDbService
+    private readonly reviewSyncDbService: ReviewSyncDbService,
+    private readonly billingEntitlementsService: BillingEntitlementsService
   ) {}
 
   async list(user: AuthUser, includeHistory: boolean | undefined): Promise<PromptListResponseDto> {
@@ -73,6 +76,14 @@ export class PromptsService {
     user: AuthUser
   ): Promise<CreatePromptVersionResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.PROMPTS.TENANT_ONLY);
+
+    // Plan-gated before the placeholder validation below even looks at `dto.template` — Free's
+    // "default prompt/tone only" restriction means a Free tenant may never author custom template
+    // text at all, independent of whether that text would otherwise be valid.
+    if (!(await this.billingEntitlementsService.canEditCustomPrompt(tenantUser.tenantId))) {
+      throw new CustomPromptsNotOnPlanException();
+    }
+
     const template = sanitizePromptTemplate(dto.template).trim();
     const unknown = findUnknownPromptPlaceholders(template);
     if (unknown.length > 0) {
@@ -126,12 +137,23 @@ export class PromptsService {
     return CreatePromptVersionResponseDto.from(promptId, versionDto, versionCount);
   }
 
+  /**
+   * Plan-gated on the same `customPromptsEnabled` entitlement as `createVersion` — tone is prompt
+   * configuration (`prompts.tone`), and Free's "default prompt only" restriction means a Free
+   * tenant may not reshape how the AI writes by any route. Gating only the template editor left
+   * the cheaper half of the same capability open.
+   */
   async updateTone(
     promptId: string,
     tone: PromptToneValue,
     user: AuthUser
   ): Promise<UpdatePromptToneResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.PROMPTS.TENANT_ONLY);
+
+    if (!(await this.billingEntitlementsService.canEditCustomPrompt(tenantUser.tenantId))) {
+      throw new CustomPromptsNotOnPlanException();
+    }
+
     const updated = await this.promptsDbService.updateTone({
       promptId,
       tenantId: tenantUser.tenantId,

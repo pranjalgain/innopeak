@@ -83,6 +83,8 @@
     "@scalar/api-reference-react": "^0.9.66",
     "@scalar/nextjs-api-reference": "^0.11.17",
     "@sentry/nextjs": "^10.73.0",
+    "@stripe/react-stripe-js": "^6.12.0",
+    "@stripe/stripe-js": "^9.17.0",
     "@t3-oss/env-nextjs": "^0.13.11",
     "@tanstack/react-query": "5.101.0",
     "@vercel/analytics": "^2.0.1",

@@ -87,6 +87,11 @@ const sidebars = {
                     'backend/platform-admin/api-reference',
                   ],
                 },
+                {
+                  type: 'category',
+                  label: 'Billing',
+                  items: ['backend/billing/overview', 'backend/billing/api-reference'],
+                },
                 'backend/review-pipeline/overview',
               ],
             },

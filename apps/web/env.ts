@@ -31,6 +31,9 @@ export const env = createEnv({
       .min(1, "App keywords are required")
       .default("reviews,google-business-profile,ai-replies"),
     NEXT_PUBLIC_API_URL: z.url("API URL is required").default("http://localhost:3000"),
+    // Optional — only needed for in-app card entry in Settings → Billing (PAYMENT_PROVIDER=stripe
+    // on the backend). Safe to expose to the browser, unlike the backend's STRIPE_SECRET_KEY.
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
     // Analytics - optional for development
     NEXT_PUBLIC_GTM_KEY: z.string().optional(),
     NEXT_PUBLIC_POSTHOG_KEY: z.string().min(47, "PostHog key is required").optional(),
@@ -60,6 +63,7 @@ export const env = createEnv({
     NEXT_PUBLIC_APP_CATEGORY: process.env.NEXT_PUBLIC_APP_CATEGORY,
     NEXT_PUBLIC_APP_KEYWORDS: process.env.NEXT_PUBLIC_APP_KEYWORDS,
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
     NEXT_PUBLIC_GTM_KEY: process.env.NEXT_PUBLIC_GTM_KEY,
     NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
     NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,

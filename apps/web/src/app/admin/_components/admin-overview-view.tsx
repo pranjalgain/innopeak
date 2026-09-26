@@ -76,15 +76,11 @@ export function AdminOverviewView() {
   // so a failure would otherwise paint four separate confident zeroes — "0 Businesses", "Nothing
   // needs attention right now", "No signups yet" — which is an outage described as good news.
   if (isError) {
-    return (
-      <div className="p-fluid-page">
-        <LoadErrorState onRetry={refetch} />
-      </div>
-    );
+    return <LoadErrorState onRetry={refetch} />;
   }
 
   return (
-    <div className="flex flex-col gap-6 p-fluid-page">
+    <div className="flex flex-col gap-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {isLoading
           ? [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)

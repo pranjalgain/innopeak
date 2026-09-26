@@ -58,8 +58,9 @@ describe("OnboardingSignupView", () => {
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Company name")).not.toBeInTheDocument();
 
-    // The SSO-only path (default platform settings) is a 2-step stepper — no OTP step.
+    // The SSO-only path (default platform settings) is a 3-step stepper — no OTP step.
     expect(screen.getByText("Create account")).toBeInTheDocument();
+    expect(screen.getByText("Choose your plan")).toBeInTheDocument();
     expect(screen.getByText("Connect business profile")).toBeInTheDocument();
     expect(screen.queryByText("Verify email")).not.toBeInTheDocument();
   });
@@ -70,14 +71,14 @@ describe("OnboardingSignupView", () => {
    * backend's callback, and `/onboarding/signup` is in `proxy.ts`'s REDIRECT_IF_AUTHENTICATED_PATHS
    * — by step 3 the user is authenticated, so any full navigation back here bounces to /dashboard.
    */
-  test("hands off to the connect route after continuing with Microsoft", async () => {
+  test("hands off to the plan route after continuing with Microsoft", async () => {
     const user = userEvent.setup();
     renderView();
 
     await user.click(await screen.findByRole("button", { name: "Continue with Microsoft" }));
 
     // `waitFor`, because signup itself is async — the handoff happens after it resolves.
-    await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_PLAN));
     // The stepper on the destination route needs to know this is still the signup wizard, and
     // which variant, because the backend callback redirects to a fixed path and drops query params.
     expect(OnboardingContextService.get()).toEqual({ from: "signup", via: "sso" });

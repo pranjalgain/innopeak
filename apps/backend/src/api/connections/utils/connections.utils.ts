@@ -57,6 +57,7 @@ export function toLocationDto(location: LocationRow): LocationDto {
     lastSyncError: location.lastSyncError,
     onboardingBackfillCompletedAt: location.onboardingBackfillCompletedAt,
     createdAt: location.createdAt,
+    billingPausedAt: location.billingPausedAt,
   };
 }
 

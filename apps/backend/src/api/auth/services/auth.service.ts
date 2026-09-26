@@ -4,10 +4,8 @@ import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
 import type { Locale } from '@common/i18n/locale';
-import { isProduction } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
 import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
-import { DemoDataDbService } from '@db/repositories/demo-data/demo-data.db-service';
 import { MediaService } from '@media/media.service';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -108,11 +106,6 @@ interface SendOtpEmailInput {
   rawOtp: string;
 }
 
-interface SeedDemoDataIfDevInput {
-  userId: string;
-  tenantId: string;
-}
-
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -129,7 +122,6 @@ export class AuthService {
     private readonly googleIdentityProvider: GoogleIdentityProvider,
     private readonly googleOAuthStateService: GoogleOAuthStateService,
     private readonly pendingGoogleSignupService: PendingGoogleSignupService,
-    private readonly demoDataDbService: DemoDataDbService,
     private readonly platformAdminAuthService: PlatformAdminAuthService,
     private readonly mediaService: MediaService
   ) {}
@@ -209,14 +201,6 @@ export class AuthService {
     }
 
     await this.otpAttemptService.reset(email);
-
-    // Only ever fires once per tenant — `AuthDbService.verifyEmail` only returns non-null when
-    // `activateUser`'s conditional `WHERE status = 'pending_verification'` actually flipped a row,
-    // which for a given user can happen exactly once. This is the password-signup analog of
-    // `handleGoogleCallback`'s `firstActivation` check and `completeGoogleSignup`'s unconditional
-    // call — three paths, one moment each, all meaning "a brand-new tenant just finished signing
-    // up." See `seedDemoDataIfDev`.
-    this.seedDemoDataIfDev({ userId: user.id, tenantId: user.tenantId });
 
     return this.buildTokenIssuanceResult(user);
   }
@@ -972,13 +956,6 @@ export class AuthService {
       );
     }
 
-    // The Google-linking equivalent of `verifyEmail` returning non-null — see
-    // `GoogleIdentityLookup.firstActivation`'s own comment for why this is the one reliable
-    // "a brand-new tenant just finished signing up" signal on this path.
-    if (lookup.firstActivation) {
-      this.seedDemoDataIfDev({ userId: lookup.user.id, tenantId: lookup.user.tenantId });
-    }
-
     const tokens = await this.buildTokenIssuanceResult(lookup.user, tenant);
     return { ok: true, kind: 'signed_in', tokens };
   }
@@ -1077,10 +1054,6 @@ export class AuthService {
       // call — a password signup, or a second Google round trip for the same address.
       throw new EmailAlreadyRegisteredException();
     }
-
-    // Unconditional here (unlike the other two hooks) — `completeGoogleSignup` only ever reaches
-    // this point by inserting a brand-new tenant, never by promoting an existing row.
-    this.seedDemoDataIfDev({ userId: user.id, tenantId: user.tenantId });
 
     return this.buildTokenIssuanceResult(user);
   }
@@ -1209,40 +1182,6 @@ export class AuthService {
    * failure shouldn't fail the whole request — the resend path (login, or an explicit resend
    * click) is exactly the recovery mechanism for "the email never arrived."
    */
-  /**
-   * Dev-only, best-effort, fire-and-forget — same shape as `sendOtpEmail`: called without
-   * `await`, and its own failure must never surface as a failed signup. Gated on `!isProduction()`
-   * alone (no separate opt-in flag, unlike `DEV_VERIFY_EMAIL_TOKEN`): there is no legitimate
-   * reason to want fabricated reviews in a deployed environment, so there is nothing to opt into.
-   *
-   * Shared by all three ways a tenant can finish signing up: `verifyEmail` (password + OTP),
-   * `handleGoogleCallback` (Google-linking an existing `pending_verification` row), and
-   * `completeGoogleSignup` (a brand-new Google-only tenant). Each caller has already established
-   * this is a genuine first activation before calling in — this method itself doesn't re-check
-   * that, only the environment gate.
-   */
-  private seedDemoDataIfDev(input: SeedDemoDataIfDevInput): void {
-    const { userId, tenantId } = input;
-    if (isProduction()) return;
-
-    void (async (): Promise<void> => {
-      try {
-        const tenant = await this.authDbService.findTenantStatus(tenantId);
-        if (!tenant) return;
-
-        await this.demoDataDbService.seedForTenant({
-          tenantId,
-          userId,
-          businessName: tenant.name,
-        });
-      } catch (error) {
-        this.logger.warn(
-          `Demo data seeding failed for tenant ${tenantId} (non-fatal, dev-only): ${(error as Error).message}`
-        );
-      }
-    })();
-  }
-
   private sendOtpEmail(input: SendOtpEmailInput): void {
     const ttlMinutes = this.configService.get<number>('VERIFY_EMAIL_OTP_TTL_MINUTES') ?? 10;
     const job: IOtpEmailJob = {

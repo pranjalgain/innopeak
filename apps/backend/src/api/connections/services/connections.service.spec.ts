@@ -1,6 +1,7 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import type { TenantAuthUser } from '@auth/types/auth-user.type';
+import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
@@ -95,6 +96,8 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
   const confirmLocationDb = jest.fn();
   const addBackfillJob = jest.fn();
   const completeRun = jest.fn();
+  const canAddLocation = jest.fn();
+  const getEntitlements = jest.fn();
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -113,6 +116,8 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
       },
     ]);
     completeRun.mockResolvedValue(true);
+    canAddLocation.mockResolvedValue(true);
+    getEntitlements.mockResolvedValue({ maxLocations: null });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -132,6 +137,7 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
         { provide: ReviewSyncQueue, useValue: { addBackfillJob } },
         { provide: ReviewSyncDbService, useValue: { completeRun } },
         { provide: AuthDbService, useValue: {} },
+        { provide: BillingEntitlementsService, useValue: { canAddLocation, getEntitlements } },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('') } },
       ],
     }).compile();
@@ -342,6 +348,7 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
         { provide: ReviewSyncQueue, useValue: { addBackfillJob } },
         { provide: ReviewSyncDbService, useValue: {} },
         { provide: AuthDbService, useValue: {} },
+        { provide: BillingEntitlementsService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('') } },
       ],
     }).compile();
@@ -477,6 +484,7 @@ describe('ConnectionsService.getConnectionStatus — soft-disconnected connectio
         { provide: ReviewSyncQueue, useValue: {} },
         { provide: ReviewSyncDbService, useValue: {} },
         { provide: AuthDbService, useValue: { findActiveLocationId } },
+        { provide: BillingEntitlementsService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('') } },
       ],
     }).compile();

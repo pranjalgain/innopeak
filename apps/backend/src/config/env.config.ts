@@ -1,4 +1,4 @@
-import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class EnvConfig {
   @IsNotEmpty()
@@ -414,4 +414,52 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   REVIEW_SYNC_QUEUE_URL?: string;
+
+  // ─── Billing (Stripe) ─────────────────────────────────────────────────────
+
+  /**
+   * The single switch controlling whether billing exists in this deploy at all — read by
+   * `BillingService.createCheckoutSession` (gates the upgrade entry point), the public
+   * `GET /v1/settings/platform-config` response (`paymentFeatureEnabled`, read by every
+   * tenant/admin frontend to decide whether to render anything payment-related: the onboarding
+   * Paid-plan card, the tenant Settings Billing tab, the admin Billing nav item/dashboard), and
+   * nowhere else.
+   *
+   * Deliberately the *only* switch — there used to also be an admin-toggleable
+   * `platform_settings.billing_enabled` DB column, requiring both to be on for anything to show.
+   * That second switch added a state (env on, DB off, or vice versa) nobody actually needed to
+   * distinguish: an environment either has billing wired up (real or dummy Stripe keys configured,
+   * ready to sell) or it doesn't, and that's a deploy-time fact, not something a platform admin
+   * should be flipping at runtime. Collapsing to one flag removes that whole state space along
+   * with the toggle UI, the PATCH field, and the extra DB read on every checkout attempt.
+   *
+   * Defaults to disabled (applied via `=== 'true'` at each call site, not a class-level default
+   * here).
+   */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  PAYMENT_FEATURE_ENABLED?: string;
+
+  /** Selects the `PaymentProvider` implementation — same DI-swap shape as `STORAGE_PROVIDER`.
+   *  Defaults to `'dummy'` (applied via `?? 'dummy'` at the call site, per this file's own
+   *  `ConfigService.get()` convention, not a class-level default here). */
+  @IsOptional()
+  @IsIn(['dummy', 'stripe'])
+  PAYMENT_PROVIDER?: string;
+
+  @IsOptional()
+  @IsString()
+  STRIPE_SECRET_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  STRIPE_WEBHOOK_SECRET?: string;
+
+  /** The Paid plan's real Stripe Price id — read directly by `BillingService.createCheckoutSession`
+   *  rather than hardcoded in the migration (`billing_plans.stripe_price_id` is seeded `NULL`;
+   *  this env var is the actual source of truth once real Stripe objects exist, with that column
+   *  only as a fallback for an operator who prefers to set it there instead). */
+  @IsOptional()
+  @IsString()
+  STRIPE_PRICE_ID_PAID?: string;
 }

@@ -30,6 +30,7 @@ const CONNECTED_LOCATION: ConnectionState["location"] = {
   lastSyncStatus: null,
   lastSyncError: null,
   onboardingBackfillCompletedAt: null,
+  billingPausedAt: null,
 };
 
 function persistedLocation(overrides: Partial<ConnectedLocation> = {}): ConnectedLocation {
@@ -288,6 +289,7 @@ describe("useOnboardingConnectFlow", () => {
           lastSyncStatus: null,
           lastSyncError: null,
           onboardingBackfillCompletedAt: null,
+          billingPausedAt: null,
           backfill: { syncRunId: `run-${index + 1}`, status: "running", startedAt: "2026-01-01T00:00:00.000Z" },
           backfillAlreadyRunning: false,
         })),
@@ -360,6 +362,7 @@ describe("useOnboardingConnectFlow", () => {
           lastSyncStatus: null,
           lastSyncError: null,
           onboardingBackfillCompletedAt: null,
+          billingPausedAt: null,
           backfill: { syncRunId: `run-${index + 1}`, status: "running", startedAt: "2026-01-01T00:00:00.000Z" },
           backfillAlreadyRunning: false,
         })),

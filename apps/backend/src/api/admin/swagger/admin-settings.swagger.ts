@@ -319,6 +319,7 @@ export function ApiUpdatePlatformSettings(): ReturnType<typeof applyDecorators> 
             passwordLoginEnabled: true,
             socialLoginEnabled: false,
             inviteMembersEnabled: false,
+            paymentFeatureEnabled: false,
           },
         },
       },

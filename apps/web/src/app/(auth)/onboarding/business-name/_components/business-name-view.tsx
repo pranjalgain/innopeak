@@ -18,7 +18,7 @@ import { useAuth } from "@/hooks/auth/use-auth";
 
 /**
  * The one screen a genuinely new Google signup passes through, between the OAuth callback and
- * /onboarding/connect. Google returns a person, not a business, and `tenants.name` is NOT NULL —
+ * /onboarding/plan. Google returns a person, not a business, and `tenants.name` is NOT NULL —
  * asking for it here, instead of before the redirect inside the *password* signup form, means
  * "Continue with Google" no longer requires touching a form built for a different method.
  *
@@ -48,9 +48,12 @@ export function BusinessNameView() {
     const succeeded = await completeGoogleSignup(trimmed);
     if (succeeded) {
       // Same handoff onboarding-signup-view uses for its own SSO path: the stepper (or lack of
-      // one) on /onboarding/connect reads this, not anything this route holds in memory.
+      // one) on /onboarding/plan and /onboarding/connect reads this, not anything this route
+      // holds in memory. Goes to /onboarding/plan, not straight to /onboarding/connect — see
+      // onboarding-signup-view's handOffToPlan for why every fresh signup sees the Free/Paid
+      // choice before the location-picker.
       OnboardingContextService.set({ from: "signup", via: "sso" });
-      router.replace(ROUTES.ONBOARDING_CONNECT);
+      router.replace(ROUTES.ONBOARDING_PLAN);
     }
   };
 

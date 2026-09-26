@@ -66,6 +66,7 @@
       "@review-provider/*": ["review-provider/*"],
       "@review-pipeline/*": ["review-pipeline/*"],
       "@connections/*": ["api/connections/*"],
+      "@billing/*": ["api/billing/*"],
       "@reviews/*": ["api/reviews/*"],
       "@review-sync-queue/*": ["background/queue/review-sync/*"],
       "@sms/*": ["sms/*"],

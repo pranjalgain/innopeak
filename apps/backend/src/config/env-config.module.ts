@@ -266,6 +266,36 @@ const validationSchema = Joi.object({
     then: Joi.forbidden(),
     otherwise: Joi.string().allow(null, ''),
   }),
+  PAYMENT_FEATURE_ENABLED: Joi.string().valid('true', 'false').allow(null, ''),
+  // Unlike the DEV_* flags above, this isn't only gated by PAYMENT_FEATURE_ENABLED: the Dummy
+  // provider's `/v1/billing/dummy/complete-checkout` route flips any tenant to `paid` on nothing
+  // but the caller's own say-so (`BillingService.completeDummyCheckout`), checked only against
+  // `paymentProvider.type === 'dummy'` — not against whether billing itself is "enabled". A
+  // production deploy that forgets to set this to `stripe` (it defaults to `dummy` in
+  // `BillingModule`'s own factory) would silently accept free upgrades through that route even
+  // with billing otherwise switched off. Required outright in production, not merely forbidden
+  // from being `dummy`, so a typo can't slip through as an unvalidated unknown value either.
+  PAYMENT_PROVIDER: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().valid('stripe').required(),
+    otherwise: Joi.string().valid('dummy', 'stripe').allow(null, ''),
+  }),
+  // Required whenever PAYMENT_PROVIDER=stripe, in every environment (not just production) — a
+  // stripe deploy with no secret key can't call the Stripe API at all, and one with no webhook
+  // secret has `StripePaymentProvider.constructWebhookEvent` silently defaulting to an empty
+  // string and rejecting every real webhook delivery with no boot-time signal that anything is
+  // wrong (see that provider's own constructor).
+  STRIPE_SECRET_KEY: Joi.when('PAYMENT_PROVIDER', {
+    is: 'stripe',
+    then: Joi.string().required(),
+    otherwise: Joi.string().allow(null, ''),
+  }),
+  STRIPE_WEBHOOK_SECRET: Joi.when('PAYMENT_PROVIDER', {
+    is: 'stripe',
+    then: Joi.string().required(),
+    otherwise: Joi.string().allow(null, ''),
+  }),
+  STRIPE_PRICE_ID_PAID: Joi.string().allow(null, ''),
 });
 
 @Module({

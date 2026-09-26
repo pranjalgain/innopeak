@@ -7,6 +7,7 @@ import { Injectable } from '@nestjs/common';
 import {
   AdminBusinessesRepository,
   type AdminBusinessRow,
+  type ConnectionStateRow,
   type SetBusinessStatusInput,
 } from './admin-businesses.repository';
 
@@ -24,6 +25,14 @@ export interface AdminBusinessSummary {
 @Injectable()
 export class AdminBusinessesDbService {
   constructor(private readonly adminBusinessesRepository: AdminBusinessesRepository) {}
+
+  /** Every tenant's connection status, resolved through the same `toConnectionStatus` the
+   *  Businesses list itself uses — one definition, so the Statistics page's connection-health
+   *  tally can never disagree with what the list shows for the same tenants. */
+  async listConnectionStatuses(): Promise<BusinessConnectionStatus[]> {
+    const rows = await this.adminBusinessesRepository.findConnectionStates();
+    return rows.map(toConnectionStatus);
+  }
 
   async findAll(): Promise<AdminBusinessSummary[]> {
     const rows = await this.adminBusinessesRepository.findAll();
@@ -81,7 +90,10 @@ function toSummary(row: AdminBusinessRow): AdminBusinessSummary {
   };
 }
 
-function toConnectionStatus(row: AdminBusinessRow): BusinessConnectionStatus {
+/** Takes only the latest-connection pair, not a whole `AdminBusinessRow` — `AdminBusinessRow`
+ *  structurally satisfies it, so the full-list mapping still passes its rows straight in, while
+ *  `listConnectionStatuses` can reuse this from the lean projection. */
+function toConnectionStatus(row: ConnectionStateRow): BusinessConnectionStatus {
   // No connection row has ever existed for this tenant — distinct from having lost one, see the
   // enum's own comment.
   if (row.latestConnectionStatus === null) {

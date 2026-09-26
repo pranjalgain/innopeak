@@ -56,6 +56,8 @@ Class | Method | HTTP request | Description
 *AdminAuthApi* | [**platformAdminAuthControllerInviteGoogleAuthorizeV1**](docs/AdminAuthApi.md#platformadminauthcontrollerinvitegoogleauthorizev1) | **GET** /v1/admin/auth/invite/{token}/google | Accept a platform-admin invite via Google
 *AdminAuthApi* | [**platformAdminAuthControllerLoginV1**](docs/AdminAuthApi.md#platformadminauthcontrollerloginv1) | **POST** /v1/admin/auth/login | Platform-admin password login
 *AdminAuthApi* | [**platformAdminAuthControllerValidateAdminInviteV1**](docs/AdminAuthApi.md#platformadminauthcontrollervalidateadmininvitev1) | **GET** /v1/admin/auth/invite/{token} | Preview a platform-admin invite
+*AdminBillingApi* | [**adminBillingControllerGetSummaryV1**](docs/AdminBillingApi.md#adminbillingcontrollergetsummaryv1) | **GET** /v1/admin/billing/summary | Platform-wide billing statistics
+*AdminBillingApi* | [**adminBillingControllerHasPaidTenantsV1**](docs/AdminBillingApi.md#adminbillingcontrollerhaspaidtenantsv1) | **GET** /v1/admin/billing/has-paid-tenants | Whether any tenant is currently on the Paid plan
 *AdminBusinessesApi* | [**adminBusinessesControllerListV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollerlistv1) | **GET** /v1/admin/businesses | List every tenant, as a Super Admin \&quot;business\&quot;
 *AdminBusinessesApi* | [**adminBusinessesControllerUpdateStatusV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollerupdatestatusv1) | **POST** /v1/admin/businesses/{tenantId}/status | Suspend or reactivate a tenant
 *AdminOverviewApi* | [**adminOverviewControllerGetNeedsAttentionV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetneedsattentionv1) | **GET** /v1/admin/overview/needs-attention | Businesses needing attention
@@ -75,6 +77,7 @@ Class | Method | HTTP request | Description
 *AdminSettingsApi* | [**adminSettingsControllerSetPasswordV1**](docs/AdminSettingsApi.md#adminsettingscontrollersetpasswordv1) | **POST** /v1/admin/settings/profile/set-password | Set the signed-in platform admin\&#39;s first password
 *AdminSettingsApi* | [**adminSettingsControllerUpdateLocaleV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdatelocalev1) | **PATCH** /v1/admin/settings/profile/locale | Set the language responses are rendered in
 *AdminSettingsApi* | [**adminSettingsControllerUpdatePlatformSettingsV1**](docs/AdminSettingsApi.md#adminsettingscontrollerupdateplatformsettingsv1) | **PATCH** /v1/admin/settings/platform-config | Update platform-wide feature settings
+*AdminStatisticsApi* | [**adminStatisticsControllerGetSummaryV1**](docs/AdminStatisticsApi.md#adminstatisticscontrollergetsummaryv1) | **GET** /v1/admin/statistics/summary | Platform-wide review/sync statistics
 *AdminUsersApi* | [**adminUsersControllerListV1**](docs/AdminUsersApi.md#adminuserscontrollerlistv1) | **GET** /v1/admin/users | List every user across every tenant
 *AdminUsersApi* | [**adminUsersControllerToggleActiveV1**](docs/AdminUsersApi.md#adminuserscontrollertoggleactivev1) | **POST** /v1/admin/users/{userId}/toggle-active | Toggle a user\&#39;s active status
 *AuthApi* | [**authControllerAcceptMemberInviteV1**](docs/AuthApi.md#authcontrolleracceptmemberinvitev1) | **POST** /v1/auth/invite/accept | Accept a tenant-member invite by setting a name and password
@@ -96,6 +99,19 @@ Class | Method | HTTP request | Description
 *AuthApi* | [**authControllerVerifyEmailV1**](docs/AuthApi.md#authcontrollerverifyemailv1) | **POST** /v1/auth/verify-email | Consume a signup/login verification OTP (password path only)
 *AuthApi* | [**tenantAvatarControllerAuthorizeV1**](docs/AuthApi.md#tenantavatarcontrollerauthorizev1) | **POST** /v1/auth/avatar/authorize | Get a signed avatar upload authorization
 *AuthApi* | [**tenantAvatarControllerConfirmAvatarV1**](docs/AuthApi.md#tenantavatarcontrollerconfirmavatarv1) | **POST** /v1/auth/avatar/confirm | Confirm an uploaded avatar
+*BillingApi* | [**billingControllerCancelSubscriptionV1**](docs/BillingApi.md#billingcontrollercancelsubscriptionv1) | **POST** /v1/billing/cancel | Cancel the caller tenant\&#39;s subscription at the end of the current period
+*BillingApi* | [**billingControllerCompleteDummyCheckoutV1**](docs/BillingApi.md#billingcontrollercompletedummycheckoutv1) | **POST** /v1/billing/dummy/complete-checkout | [Dev/test only] Complete a Dummy checkout session
+*BillingApi* | [**billingControllerCreateCheckoutSessionV1**](docs/BillingApi.md#billingcontrollercreatecheckoutsessionv1) | **POST** /v1/billing/checkout | Create a Checkout session to upgrade to Paid
+*BillingApi* | [**billingControllerCreatePortalSessionV1**](docs/BillingApi.md#billingcontrollercreateportalsessionv1) | **POST** /v1/billing/portal | Create a Customer Portal session to manage/cancel billing
+*BillingApi* | [**billingControllerCreateSetupIntentV1**](docs/BillingApi.md#billingcontrollercreatesetupintentv1) | **POST** /v1/billing/setup-intent | Start adding/replacing the card on file
+*BillingApi* | [**billingControllerDownloadReceiptPdfV1**](docs/BillingApi.md#billingcontrollerdownloadreceiptpdfv1) | **GET** /v1/billing/receipts/{receiptId}/pdf | Download a PDF receipt for one past payment
+*BillingApi* | [**billingControllerGetBillingProfileV1**](docs/BillingApi.md#billingcontrollergetbillingprofilev1) | **GET** /v1/billing/profile | Get the caller tenant\&#39;s Stripe billing profile
+*BillingApi* | [**billingControllerGetSubscriptionV1**](docs/BillingApi.md#billingcontrollergetsubscriptionv1) | **GET** /v1/billing/subscription | Get the caller tenant\&#39;s subscription
+*BillingApi* | [**billingControllerListPlansV1**](docs/BillingApi.md#billingcontrollerlistplansv1) | **GET** /v1/billing/plans | List billing plans
+*BillingApi* | [**billingControllerListReceiptsV1**](docs/BillingApi.md#billingcontrollerlistreceiptsv1) | **GET** /v1/billing/receipts | List the caller tenant\&#39;s payment receipts
+*BillingApi* | [**billingControllerSetActiveLocationV1**](docs/BillingApi.md#billingcontrollersetactivelocationv1) | **PUT** /v1/billing/active-location | Choose which connected location stays active under the current plan cap
+*BillingApi* | [**billingControllerSetDefaultPaymentMethodV1**](docs/BillingApi.md#billingcontrollersetdefaultpaymentmethodv1) | **PUT** /v1/billing/payment-method | Make a just-confirmed SetupIntent payment method the default card
+*BillingApi* | [**billingControllerUpdateBillingProfileV1**](docs/BillingApi.md#billingcontrollerupdatebillingprofilev1) | **PUT** /v1/billing/profile | Update the caller tenant\&#39;s Stripe billing profile
 *ConnectionsApi* | [**connectionsControllerAuthorizeV1**](docs/ConnectionsApi.md#connectionscontrollerauthorizev1) | **GET** /v1/connections/google/authorize | Start the Google Business Profile grant (302 to consent)
 *ConnectionsApi* | [**connectionsControllerAvailableLocationsV1**](docs/ConnectionsApi.md#connectionscontrolleravailablelocationsv1) | **GET** /v1/connections/google/available-locations | Locations the granted Google account can see (live provider call)
 *ConnectionsApi* | [**connectionsControllerCallbackV1**](docs/ConnectionsApi.md#connectionscontrollercallbackv1) | **GET** /v1/connections/google/callback | Google OAuth callback (public — Google performs this request)
@@ -136,29 +152,39 @@ Class | Method | HTTP request | Description
 
  - [AcceptAdminInviteDto](docs/AcceptAdminInviteDto.md)
  - [AcceptMemberInviteDto](docs/AcceptMemberInviteDto.md)
+ - [AdminBillingSummaryResponseDto](docs/AdminBillingSummaryResponseDto.md)
  - [AdminBusinessResponseDto](docs/AdminBusinessResponseDto.md)
  - [AdminInvitePreviewDto](docs/AdminInvitePreviewDto.md)
  - [AdminInviteResponseDto](docs/AdminInviteResponseDto.md)
  - [AdminOverviewStatsResponseDto](docs/AdminOverviewStatsResponseDto.md)
  - [AdminProfileResponseDto](docs/AdminProfileResponseDto.md)
  - [AdminSignupTrendPointResponseDto](docs/AdminSignupTrendPointResponseDto.md)
+ - [AdminStatisticsSummaryResponseDto](docs/AdminStatisticsSummaryResponseDto.md)
  - [AdminUserResponseDto](docs/AdminUserResponseDto.md)
+ - [AtRiskSubscriptionResponseDto](docs/AtRiskSubscriptionResponseDto.md)
  - [AuthenticatedUserDto](docs/AuthenticatedUserDto.md)
  - [AvailableLocationDto](docs/AvailableLocationDto.md)
  - [AvailableLocationsResponseDto](docs/AvailableLocationsResponseDto.md)
  - [AvatarUploadAuthorizationResponseDto](docs/AvatarUploadAuthorizationResponseDto.md)
  - [BackfillProgressResponseDto](docs/BackfillProgressResponseDto.md)
  - [BackfillSummaryDto](docs/BackfillSummaryDto.md)
+ - [BillingPlanDto](docs/BillingPlanDto.md)
+ - [BillingPlansResponseDto](docs/BillingPlansResponseDto.md)
+ - [BillingProfileResponseDto](docs/BillingProfileResponseDto.md)
+ - [BillingWebhookEventResponseDto](docs/BillingWebhookEventResponseDto.md)
  - [BlocklistTermDto](docs/BlocklistTermDto.md)
  - [BlocklistTermListResponseDto](docs/BlocklistTermListResponseDto.md)
  - [ChangeAdminPasswordDto](docs/ChangeAdminPasswordDto.md)
  - [ChangePasswordDto](docs/ChangePasswordDto.md)
+ - [ClassificationBreakdownPointResponseDto](docs/ClassificationBreakdownPointResponseDto.md)
+ - [CompleteDummyCheckoutDto](docs/CompleteDummyCheckoutDto.md)
  - [CompleteGoogleSignupDto](docs/CompleteGoogleSignupDto.md)
  - [ConfirmAvatarDto](docs/ConfirmAvatarDto.md)
  - [ConfirmAvatarResponseDto](docs/ConfirmAvatarResponseDto.md)
  - [ConfirmLocationDto](docs/ConfirmLocationDto.md)
  - [ConfirmLocationResponseDto](docs/ConfirmLocationResponseDto.md)
  - [ConfirmLocationsResponseDto](docs/ConfirmLocationsResponseDto.md)
+ - [ConnectionHealthResponseDto](docs/ConnectionHealthResponseDto.md)
  - [ConnectionLocationDto](docs/ConnectionLocationDto.md)
  - [ConnectionStatusResponseDto](docs/ConnectionStatusResponseDto.md)
  - [ConnectionSummaryDto](docs/ConnectionSummaryDto.md)
@@ -169,6 +195,7 @@ Class | Method | HTTP request | Description
  - [DeleteBlocklistTermResponseDto](docs/DeleteBlocklistTermResponseDto.md)
  - [DisconnectResponseDto](docs/DisconnectResponseDto.md)
  - [GetPromptStatsBatchDto](docs/GetPromptStatsBatchDto.md)
+ - [HasPaidTenantsResponseDto](docs/HasPaidTenantsResponseDto.md)
  - [InviteMemberDto](docs/InviteMemberDto.md)
  - [LatestResponseDto](docs/LatestResponseDto.md)
  - [LocationDto](docs/LocationDto.md)
@@ -182,6 +209,7 @@ Class | Method | HTTP request | Description
  - [NotificationRecipientDto](docs/NotificationRecipientDto.md)
  - [NotificationRecipientListResponseDto](docs/NotificationRecipientListResponseDto.md)
  - [PaginationMetaDto](docs/PaginationMetaDto.md)
+ - [PaymentMethodResponseDto](docs/PaymentMethodResponseDto.md)
  - [PlatformActivityResponseDto](docs/PlatformActivityResponseDto.md)
  - [PlatformSettingsResponseDto](docs/PlatformSettingsResponseDto.md)
  - [PromptCreatedByDto](docs/PromptCreatedByDto.md)
@@ -193,20 +221,28 @@ Class | Method | HTTP request | Description
  - [PromptStatsBatchResponseDto](docs/PromptStatsBatchResponseDto.md)
  - [PromptVersionDto](docs/PromptVersionDto.md)
  - [PromptVersionStatsResponseDto](docs/PromptVersionStatsResponseDto.md)
+ - [RatingDistributionPointResponseDto](docs/RatingDistributionPointResponseDto.md)
+ - [ReceiptDto](docs/ReceiptDto.md)
+ - [ReceiptListResponseDto](docs/ReceiptListResponseDto.md)
  - [RecentEscalatedDto](docs/RecentEscalatedDto.md)
+ - [RedirectUrlResponseDto](docs/RedirectUrlResponseDto.md)
  - [ResendOtpDto](docs/ResendOtpDto.md)
  - [ReviewDetailResponseDto](docs/ReviewDetailResponseDto.md)
  - [ReviewListItemDto](docs/ReviewListItemDto.md)
  - [ReviewListResponseDto](docs/ReviewListResponseDto.md)
  - [ReviewResponseItemDto](docs/ReviewResponseItemDto.md)
  - [ReviewsMetaDto](docs/ReviewsMetaDto.md)
+ - [ReviewsTrendPointResponseDto](docs/ReviewsTrendPointResponseDto.md)
  - [SendAdminInviteDto](docs/SendAdminInviteDto.md)
  - [SetActiveLocationDto](docs/SetActiveLocationDto.md)
  - [SetAdminPasswordDto](docs/SetAdminPasswordDto.md)
  - [SetAdminStatusDto](docs/SetAdminStatusDto.md)
+ - [SetDefaultPaymentMethodDto](docs/SetDefaultPaymentMethodDto.md)
  - [SetPasswordDto](docs/SetPasswordDto.md)
+ - [SetupIntentResponseDto](docs/SetupIntentResponseDto.md)
  - [SignupDto](docs/SignupDto.md)
  - [SignupResponseDto](docs/SignupResponseDto.md)
+ - [SubscriptionResponseDto](docs/SubscriptionResponseDto.md)
  - [SyncHealthResponseDto](docs/SyncHealthResponseDto.md)
  - [SyncRunDto](docs/SyncRunDto.md)
  - [SyncRunListResponseDto](docs/SyncRunListResponseDto.md)
@@ -215,6 +251,7 @@ Class | Method | HTTP request | Description
  - [TenantSettingsResponseDto](docs/TenantSettingsResponseDto.md)
  - [TokenResponseDto](docs/TokenResponseDto.md)
  - [UpdateAdminLocaleResponseDto](docs/UpdateAdminLocaleResponseDto.md)
+ - [UpdateBillingProfileDto](docs/UpdateBillingProfileDto.md)
  - [UpdateBusinessStatusDto](docs/UpdateBusinessStatusDto.md)
  - [UpdateLocaleDto](docs/UpdateLocaleDto.md)
  - [UpdateLocaleResponseDto](docs/UpdateLocaleResponseDto.md)
@@ -223,6 +260,7 @@ Class | Method | HTTP request | Description
  - [UpdatePromptToneDto](docs/UpdatePromptToneDto.md)
  - [UpdatePromptToneResponseDto](docs/UpdatePromptToneResponseDto.md)
  - [UpdateTenantSettingsDto](docs/UpdateTenantSettingsDto.md)
+ - [UpgradeTrendPointResponseDto](docs/UpgradeTrendPointResponseDto.md)
  - [VerifyEmailDto](docs/VerifyEmailDto.md)
 
 
