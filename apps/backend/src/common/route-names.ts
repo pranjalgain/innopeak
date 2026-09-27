@@ -7,6 +7,11 @@ export enum RouteNames {
   REVIEWS = 'reviews',
   DASHBOARD = 'dashboard',
   PROMPTS = 'prompts',
+  AI = 'ai',
+  // Nested under RouteNames.AI — exercises the AI generation pipeline against a caller-supplied
+  // mock review instead of a real one, without persisting anything to review_responses. See
+  // apps/documentation/docs/backend/ai/overview.md.
+  AI_DRY_RUN = 'dry-run',
   SETTINGS = 'settings',
   BLOCKLIST_TERMS = 'blocklist-terms',
   NOTIFICATIONS = 'notifications',

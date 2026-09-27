@@ -110,6 +110,14 @@ export const messagesDe: MessageCatalog = {
     VERSION_NOT_FOUND: 'Prompt-Version nicht gefunden',
     STATS_BATCH_RETRIEVED: 'Prompt-Versionsstatistik erfolgreich abgerufen',
   },
+  AI: {
+    TENANT_ONLY: 'Die KI-Antwortgenerierung steht nur Mandantenbenutzern zur Verfügung.',
+    DRY_RUN_GENERATED: 'KI-Antwort erfolgreich generiert',
+    PROMPT_NOT_CONFIGURED: 'Für diese Kategorie ist noch kein Prompt konfiguriert.',
+    PROVIDER_NOT_CONFIGURED:
+      'Der KI-Anbieter ist nicht konfiguriert. Setzen Sie OPENROUTER_API_KEY und OPENROUTER_MODEL.',
+    GENERATION_FAILED: 'KI-Antwort konnte nicht generiert werden. Bitte versuchen Sie es erneut.',
+  },
   BILLING: {
     PLANS_RETRIEVED: 'Tarife erfolgreich abgerufen',
     SUBSCRIPTION_RETRIEVED: 'Abonnement erfolgreich abgerufen',

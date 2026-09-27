@@ -1,3 +1,4 @@
+import { AiModule } from '@ai/ai.module';
 import { DeadLetterQueueModule } from '@dead-letter-queue/dead-letter-queue.module';
 import { Module } from '@nestjs/common';
 import { ReviewSyncQueueService } from '@review-sync-queue/review-sync-queue.service';
@@ -17,10 +18,15 @@ import { ReviewSyncProcessor } from '@review-sync-queue/review-sync.processor';
  * own, and only `@InjectQueue` (the producer) needs a registered queue.
  *
  * `ReviewProviderModule` and `DBModule` are both `@Global()`, so `ReviewSyncQueueService`'s
- * provider + repository dependencies resolve without importing them here.
+ * provider + repository dependencies resolve without importing them here. `AiModule` is not
+ * global (see its own doc comment for why), so it needs the explicit import below — without it,
+ * the worker process fails to boot with a DI resolution error the moment
+ * `ReviewSyncQueueService`'s constructor asks for `AiReplyGenerationService`, since
+ * `WorkerModule` itself never imports API modules and this is the one module in that chain that
+ * actually declares the provider needing it.
  */
 @Module({
-  imports: [DeadLetterQueueModule],
+  imports: [DeadLetterQueueModule, AiModule],
   providers: [ReviewSyncQueueService, ReviewSyncProcessor],
 })
 export class ReviewSyncQueueModule {}

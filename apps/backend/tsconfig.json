@@ -60,6 +60,7 @@
       "@health/*": ["api/health/*"],
       "@auth/*": ["api/auth/*"],
       "@prompts/*": ["api/prompts/*"],
+      "@ai/*": ["api/ai/*"],
       "@users/*": ["users/*"],
       "@media/*": ["api/media/*"],
       "@email/*": ["email/*"],

@@ -57,8 +57,10 @@ export class CustomPromptsNotOnPlanException extends ForbiddenException {
   }
 }
 
-/** `BillingEntitlementsService.canGenerateAiDraft` — currently unreachable, see that method's own
- *  doc comment. Defined now so the generation pipeline has a ready-made exception to throw. */
+/** `BillingEntitlementsService.canGenerateAiDraft` — now genuinely thrown by
+ *  `AiReplyGenerationService.generateDryRunReply` (`@ai/ai-reply-generation.service.ts`), see that
+ *  method's own doc comment for why a dry run can still hit this limit despite never persisting a
+ *  draft. */
 export class AiDraftLimitReachedException extends ForbiddenException {
   constructor(message: string = MESSAGES.BILLING.AI_DRAFT_LIMIT_REACHED) {
     super({ message, code: 'AI_DRAFT_LIMIT_REACHED' });

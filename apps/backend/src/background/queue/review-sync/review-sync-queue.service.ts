@@ -1,10 +1,14 @@
+import { AiReplyGenerationService } from '@ai/ai-reply-generation.service';
 import { IReviewBackfillJob, IReviewSyncJob } from '@bg/interfaces/job.interface';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Injectable, Logger } from '@nestjs/common';
-import { ReviewClassificationService } from '@review-pipeline/review-classification.service';
+import {
+  ClassifyPendingReviewsResult,
+  ReviewClassificationService,
+} from '@review-pipeline/review-classification.service';
 import {
   GBP_REVIEWS_PAGE_SIZE,
   RATE_LIMIT_DEFAULT_WAIT_SECONDS,
@@ -81,9 +85,15 @@ interface PollImportOutcome extends ImportOutcome {
   truncated: boolean;
 }
 
-interface ClassificationOutcome {
+interface ClassifyAndGenerateOutcome {
   classified: number;
   skipped: number;
+  /** See `AiReplyGenerationService.generateForClassifiedReviews`'s own return shape — folded in
+   *  here rather than kept as a separate outcome object, since both phases share one
+   *  `sync_runs` row and one pair of log lines. */
+  generated: number;
+  generationFailed: number;
+  quotaReached: boolean;
   error: string | null;
 }
 
@@ -103,7 +113,8 @@ export class ReviewSyncQueueService {
     private readonly credentialService: ProviderCredentialService,
     private readonly connectionsDbService: ConnectionsDbService,
     private readonly reviewSyncDbService: ReviewSyncDbService,
-    private readonly reviewClassificationService: ReviewClassificationService
+    private readonly reviewClassificationService: ReviewClassificationService,
+    private readonly aiReplyGenerationService: AiReplyGenerationService
   ) {}
 
   /**
@@ -143,31 +154,31 @@ export class ReviewSyncQueueService {
       reviewsFetched = importResult.reviewsFetched;
       maxExternalUpdatedAt = importResult.maxExternalUpdatedAt;
 
-      const classification = await this.classifyImportedReviews(job);
+      const pipelineOutcome = await this.classifyAndGenerateForImportedReviews(job);
 
       await this.reviewSyncDbService.completeRun({
         syncRunId: job.syncRunId,
         locationId: job.locationId,
-        status: classification.error === null ? SyncRunStatus.OK : SyncRunStatus.ERROR,
+        status: pipelineOutcome.error === null ? SyncRunStatus.OK : SyncRunStatus.ERROR,
         reviewsFetched,
-        errorMessage: classification.error,
+        errorMessage: pipelineOutcome.error,
         // Only a run that finished *both* halves un-gates live polling (PLAN.md §8.2). The job
         // sets it, not the HTTP handler, because until the import finishes there is nothing to
-        // poll on top of — and a run whose classification step failed left
-        // `pending_classification` rows behind, so stamping completion would report
+        // poll on top of — and a run whose pipelineOutcome step failed left
+        // `pending_pipelineOutcome` rows behind, so stamping completion would report
         // `livePollingEnabled: true` (see ConnectionsSyncService, which calls that "the only
         // correct signal for advancing the UI to 'done'") for a pipeline that is not done.
-        markBackfillComplete: classification.error === null,
-        lastReviewSyncedAt: classification.error === null ? maxExternalUpdatedAt : null,
+        markBackfillComplete: pipelineOutcome.error === null,
+        lastReviewSyncedAt: pipelineOutcome.error === null ? maxExternalUpdatedAt : null,
       });
 
-      if (classification.error === null) {
+      if (pipelineOutcome.error === null) {
         this.logger.log(
-          `Review backfill complete for location ${job.locationId}: ${reviewsFetched} reviews, ${classification.classified} classified (${classification.skipped} skipped)`
+          `Review backfill complete for location ${job.locationId}: ${reviewsFetched} reviews, ${pipelineOutcome.classified} classified (${pipelineOutcome.skipped} skipped), ${pipelineOutcome.generated} drafts generated (${pipelineOutcome.generationFailed} failed${pipelineOutcome.quotaReached ? ', AI-draft quota reached' : ''})`
         );
       } else {
         this.logger.error(
-          `Review backfill for location ${job.locationId} imported ${reviewsFetched} reviews but classification failed; live polling stays gated: ${classification.error}`
+          `Review backfill for location ${job.locationId} imported ${reviewsFetched} reviews but pipelineOutcome failed; live polling stays gated: ${pipelineOutcome.error}`
         );
       }
     } catch (error) {
@@ -250,16 +261,16 @@ export class ReviewSyncQueueService {
       reviewsFetched = importResult.reviewsFetched;
       maxExternalUpdatedAt = importResult.maxExternalUpdatedAt;
 
-      const classification = await this.classifyImportedReviews(job);
+      const pipelineOutcome = await this.classifyAndGenerateForImportedReviews(job);
 
-      // Truncation is its own failure, independent of classification: the reviews that *were*
+      // Truncation is its own failure, independent of pipelineOutcome: the reviews that *were*
       // fetched are committed and classified, but the cursor must not move (see `importNewPages`)
       // and the run must not read `ok`, or a backlog this poll silently could not drain would look
       // like a healthy sync in `last_sync_status`.
       const truncationError = importResult.truncated
         ? `hit the ${MAX_POLL_PAGES}-page cap before reaching the last-synced cursor: more than ${MAX_POLL_PAGES * GBP_REVIEWS_PAGE_SIZE} reviews are newer than it, which no real polling interval produces — the cursor was left unchanged (so nothing below the cap was skipped) and this location needs investigating rather than retrying`
         : null;
-      const errorMessage = truncationError ?? classification.error;
+      const errorMessage = truncationError ?? pipelineOutcome.error;
 
       await this.reviewSyncDbService.completeRun({
         syncRunId: run.id,
@@ -274,7 +285,7 @@ export class ReviewSyncQueueService {
 
       if (errorMessage === null) {
         this.logger.log(
-          `Review poll complete for location ${job.locationId}: ${reviewsFetched} reviews, ${classification.classified} classified (${classification.skipped} skipped)`
+          `Review poll complete for location ${job.locationId}: ${reviewsFetched} reviews, ${pipelineOutcome.classified} classified (${pipelineOutcome.skipped} skipped), ${pipelineOutcome.generated} drafts generated (${pipelineOutcome.generationFailed} failed${pipelineOutcome.quotaReached ? ', AI-draft quota reached' : ''})`
         );
       } else {
         this.logger.error(
@@ -326,19 +337,65 @@ export class ReviewSyncQueueService {
    * location and acquires a fresh run); recovery for a failed poll is simply the next 15-minute
    * tick, since the cursor was never advanced past what this run actually classified.
    */
-  private async classifyImportedReviews(job: IReviewSyncJob): Promise<ClassificationOutcome> {
+  private async classifyAndGenerateForImportedReviews(
+    job: IReviewSyncJob
+  ): Promise<ClassifyAndGenerateOutcome> {
+    let classification: ClassifyPendingReviewsResult;
     try {
-      const result = await this.reviewClassificationService.classifyPendingReviews({
+      classification = await this.reviewClassificationService.classifyPendingReviews({
         tenantId: job.tenantId,
         locationId: job.locationId,
       });
-
-      return { ...result, error: null };
     } catch (error) {
       return {
         classified: 0,
         skipped: 0,
+        generated: 0,
+        generationFailed: 0,
+        quotaReached: false,
         error: `classification failed: ${(error as Error).message}`,
+      };
+    }
+
+    // Generation is a peer step in this same job/tick, not a separate cron — see
+    // `AiReplyGenerationService`'s own module doc for why. Query-driven, like classification's own
+    // read: it picks up this run's freshly-classified reviews *and* any backlog a prior tick's
+    // generation phase failed to clear, with no list threaded through from the call above.
+    //
+    // A generation-phase failure — even a top-level one, not just one per-item failure among
+    // many — is deliberately kept out of the `error` field below, unlike a classification
+    // failure. `error` is what gates `markBackfillComplete`/the cursor advance in both callers,
+    // and that gate exists to protect `pending_classification` rows that a failed classification
+    // pass left behind (see this method's own opening doc comment) — a risk that has already
+    // passed by the time generation even starts, since classification committed above. Generation
+    // is also query-driven and self-healing (`findClassifiedNeedingGeneration` picks up anything
+    // this tick missed on the very next one), which a classification failure is not — there is no
+    // equivalent "just try again in 15 minutes" recovery for reviews still sitting unclassified.
+    try {
+      const generation = await this.aiReplyGenerationService.generateForClassifiedReviews({
+        tenantId: job.tenantId,
+        locationId: job.locationId,
+      });
+
+      return {
+        ...classification,
+        generated: generation.generated,
+        generationFailed: generation.failed,
+        quotaReached: generation.quotaReached,
+        error: null,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Generation phase failed for location ${job.locationId} (tenant ${job.tenantId}) — classification itself succeeded and is unaffected: ${
+          (error as Error).message
+        }`
+      );
+      return {
+        ...classification,
+        generated: 0,
+        generationFailed: 0,
+        quotaReached: false,
+        error: null,
       };
     }
   }

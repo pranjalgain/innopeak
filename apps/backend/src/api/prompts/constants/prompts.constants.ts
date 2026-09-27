@@ -32,11 +32,29 @@ export const PROMPT_TONES = [
   'empathetic',
 ] as const;
 
+/** Runtime companion to `PromptCategory` (`types/prompt.type.ts`) — that's a hand-written union
+ *  with nothing to validate a request body against; the `prompts` table's own Postgres enum was
+ *  the only enforcement point before this, which is fine for a column write but no help to a DTO.
+ *  Keep in sync with `PromptCategory` by hand — three fixed values, unlikely to change. */
+export const PROMPT_CATEGORIES = ['positive', 'neutral', 'escalated'] as const;
+
 export type PromptToneValue = (typeof PROMPT_TONES)[number];
 
 export const PROMPT_VERSION_APPEND_RETRY_LIMIT = 1;
 
-const PLACEHOLDER_PATTERN = /\{\{([^}]*)\}\}/g;
+/**
+ * A factory, not a shared instance: a `g`-flagged `RegExp` is stateful (`lastIndex`), and while
+ * both of this pattern's current call sites (`String.replace`/`String.matchAll`) happen to reset
+ * that state safely on their own, handing out one shared mutable instance across module
+ * boundaries is a footgun for the next call site that doesn't. `fillPromptTemplate`
+ * (`@ai/utils/prompt-template.util.ts`) is exactly that next call site — it gets its own instance
+ * from here instead of hand-authoring a second, easily-divergent copy of this pattern.
+ */
+export function createPlaceholderPattern(): RegExp {
+  return /\{\{([^}]*)\}\}/g;
+}
+
+const PLACEHOLDER_PATTERN = createPlaceholderPattern();
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g;
 const ZERO_WIDTH_AND_BIDI = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;

@@ -22,6 +22,7 @@ import helmet from 'helmet';
 import * as path from 'path';
 
 import { AdminModule } from './api/admin/admin.module';
+import { AiModule } from './api/ai/ai.module';
 import { AuthModule } from './api/auth/auth.module';
 import { BillingModule } from './api/billing/billing.module';
 import { ConnectionsModule } from './api/connections/connections.module';
@@ -143,6 +144,7 @@ export async function bootstrap(): Promise<void> {
   // loudly when one is forgotten; the endpoints simply do not appear.
   const V1_MODULES = [
     AdminModule,
+    AiModule,
     AuthModule,
     BillingModule,
     ConnectionsModule,

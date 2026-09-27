@@ -5,7 +5,12 @@ import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable, Logger } from '@nestjs/common';
 
-import { ReviewSyncRepository, type SyncRunRow } from './review-sync.repository';
+import {
+  type GenerationCandidateRow,
+  type InsertGeneratedResponseInput,
+  ReviewSyncRepository,
+  type SyncRunRow,
+} from './review-sync.repository';
 import {
   type FindResponsesForReviewsInput,
   type FindReviewByIdForTenantInput,
@@ -374,5 +379,34 @@ export class ReviewSyncDbService {
   /** See `ReviewsReadRepository.countAiGeneratedResponsesThisMonth`. */
   countAiGeneratedResponsesThisMonth(tenantId: string, monthStart: string): Promise<number> {
     return this.reviewsReadRepository.countAiGeneratedResponsesThisMonth(tenantId, monthStart);
+  }
+
+  /** See `ReviewSyncRepository.findClassifiedNeedingGeneration`. */
+  findClassifiedNeedingGeneration(
+    tenantId: string,
+    locationId: string,
+    limit: number
+  ): Promise<GenerationCandidateRow[]> {
+    return this.reviewSyncRepository.findClassifiedNeedingGeneration(tenantId, locationId, limit);
+  }
+
+  /** See `ReviewSyncRepository.claimForGeneration`. */
+  claimForGeneration(reviewId: string): Promise<boolean> {
+    return this.reviewSyncRepository.claimForGeneration(reviewId);
+  }
+
+  /** See `ReviewSyncRepository.releaseGenerationClaim`. */
+  releaseGenerationClaim(reviewId: string): Promise<void> {
+    return this.reviewSyncRepository.releaseGenerationClaim(reviewId);
+  }
+
+  /** See `ReviewSyncRepository.reclaimStaleGenerationClaims`. */
+  reclaimStaleGenerationClaims(locationId: string): Promise<number> {
+    return this.reviewSyncRepository.reclaimStaleGenerationClaims(locationId);
+  }
+
+  /** See `ReviewSyncRepository.insertGeneratedResponse`. */
+  insertGeneratedResponse(input: InsertGeneratedResponseInput): Promise<string> {
+    return this.reviewSyncRepository.insertGeneratedResponse(input);
   }
 }

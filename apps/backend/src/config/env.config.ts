@@ -462,4 +462,27 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   STRIPE_PRICE_ID_PAID?: string;
+
+  /** Selects the `AiProvider` implementation — same DI-swap shape as `PAYMENT_PROVIDER`.
+   *  `'openrouter'` is the only implementation built so far; `'azure'` is reserved for the
+   *  Azure OpenAI switch documented in `apps/documentation/docs/backend/ai/overview.md`, not
+   *  yet a real branch in `AiModule`'s factory. Defaults to `'openrouter'` (applied via
+   *  `?? 'openrouter'` at the call site, not a class-level default here). */
+  @IsOptional()
+  @IsIn(['openrouter'])
+  AI_PROVIDER?: string;
+
+  /** Read lazily by `OpenRouterAiProvider` on its first call, not at boot — this feature isn't
+   *  wired into anything load-bearing yet (dry-run testing only, see the module doc), so a missing
+   *  key must not fail app startup the way `STRIPE_SECRET_KEY` does for a live payment provider. */
+  @IsOptional()
+  @IsString()
+  OPENROUTER_API_KEY?: string;
+
+  /** No default: OpenRouter's model catalog (including which models are free) changes over time,
+   *  so a hardcoded fallback would silently go stale. Paste a model slug from
+   *  https://openrouter.ai/models directly, e.g. `nvidia/nemotron-3-super-120b-a12b:free`. */
+  @IsOptional()
+  @IsString()
+  OPENROUTER_MODEL?: string;
 }

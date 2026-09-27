@@ -296,6 +296,15 @@ const validationSchema = Joi.object({
     otherwise: Joi.string().allow(null, ''),
   }),
   STRIPE_PRICE_ID_PAID: Joi.string().allow(null, ''),
+  // Deliberately optional in every environment, unlike PAYMENT_PROVIDER above: nothing in the
+  // product calls `AiReplyGenerationService` yet (dry-run testing only — see
+  // apps/documentation/docs/backend/ai/overview.md), so there is no live path a missing/typo'd
+  // value could silently break. `OpenRouterAiProvider` validates its own required config lazily,
+  // on the first real call, rather than at boot. Revisit once generation is wired into the
+  // classification pipeline and becomes load-bearing, the same way PAYMENT_PROVIDER is.
+  AI_PROVIDER: Joi.string().valid('openrouter').allow(null, ''),
+  OPENROUTER_API_KEY: Joi.string().allow(null, ''),
+  OPENROUTER_MODEL: Joi.string().allow(null, ''),
 });
 
 @Module({

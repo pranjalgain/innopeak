@@ -1,3 +1,4 @@
+import { AiModule } from '@ai/ai.module';
 import { ACCESS_TOKEN_TTL_SECONDS } from '@auth/constants/auth.constants';
 import { DEFAULT_JOB_OPTIONS, QueuePrefix } from '@bg/constants/job.constant';
 import { QueueUIModule } from '@bg/queue-ui.module';
@@ -156,6 +157,7 @@ const cacheModule = CacheModule.registerAsync({
     DevToolsModule,
     TracingModule,
     PromptsModule,
+    AiModule,
     SettingsModule,
     NotificationsModule,
     AdminModule,

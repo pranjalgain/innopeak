@@ -518,8 +518,9 @@ export class ReviewsReadRepository {
   /**
    * `BillingEntitlementsService.canGenerateAiDraft`'s usage counter — `review_responses` rows this
    * tenant generated (`source = 'ai_generated'`) since the start of the current calendar month
-   * (UTC). Deliberately unwired anywhere yet: there is no AI-reply-generation pipeline in this
-   * codebase today, so nothing calls `canGenerateAiDraft` — see that method's own doc comment.
+   * (UTC). Live in practice: `AiReplyGenerationService.generateForClassifiedReviews` persists
+   * exactly this row shape on every successful draft, wired into `ReviewSyncQueueService`'s
+   * 15-minute poll tick — see that method's own doc comment.
    */
   async countAiGeneratedResponsesThisMonth(tenantId: string, monthStart: string): Promise<number> {
     const rows = await this.dbService.db

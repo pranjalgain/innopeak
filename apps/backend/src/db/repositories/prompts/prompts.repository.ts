@@ -76,6 +76,24 @@ export class PromptsRepository {
     return row === undefined ? null : this.mapPrompt(row);
   }
 
+  /** `idx_prompts_tenant_id_category` backs this — a tenant has at most one prompt per category.
+   *  What `AiReplyGenerationService` looks up by (tenant, category) instead of by prompt id, since
+   *  a dry-run request names "which kind of review is this" the same way the classification
+   *  pipeline eventually will (§5 of PLAN.md), not a specific `prompts.id`. */
+  async findByTenantAndCategory(
+    tenantId: string,
+    category: PromptCategory
+  ): Promise<PromptRecord | null> {
+    const rows = await this.dbService.db
+      .select()
+      .from(schema.prompts)
+      .where(and(eq(schema.prompts.tenantId, tenantId), eq(schema.prompts.category, category)))
+      .limit(1);
+
+    const row = rows[0];
+    return row === undefined ? null : this.mapPrompt(row);
+  }
+
   async findVersionsByPromptIds(promptIds: string[]): Promise<PromptVersionRecord[]> {
     if (promptIds.length === 0) {
       return [];

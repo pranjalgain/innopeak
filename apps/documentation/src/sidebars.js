@@ -55,6 +55,11 @@ const sidebars = {
                 },
                 {
                   type: 'category',
+                  label: 'AI',
+                  items: ['backend/ai/overview', 'backend/ai/api-reference'],
+                },
+                {
+                  type: 'category',
                   label: 'Settings',
                   items: ['backend/settings/overview', 'backend/settings/api-reference'],
                 },
