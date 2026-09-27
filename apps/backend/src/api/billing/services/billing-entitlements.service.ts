@@ -100,11 +100,12 @@ export class BillingEntitlementsService {
   /**
    * Built for real per the plan's explicit instruction, counting `review_responses` rows with
    * `source = 'ai_generated'` in the current calendar month against the plan's
-   * `max_ai_drafts_per_month`. **Deliberately unwired: nothing in this codebase calls this method
-   * yet.** There is no AI-reply-generation pipeline built — `PromptsService`/`prompt_versions`/
-   * `tone` let an owner author templates today, but nothing calls an LLM to actually produce a
-   * draft reply. Wiring this in is follow-up work for whoever builds that pipeline, not a stub or
-   * fake caller invented here to exercise it.
+   * `max_ai_drafts_per_month`. Called from two places now: `AiReplyGenerationService`'s dry-run
+   * path (`generateDryRunReply`, which never persists a row, so it can never move the count it
+   * checks) and its real generation path (`generateForClassifiedReviews`, wired into
+   * `ReviewSyncQueueService`'s poll tick), which does persist one on every successful draft —
+   * see `@ai/ai-reply-generation.service.ts`. The count is therefore live in practice, not merely
+   * checked against a number that never moves.
    */
   async canGenerateAiDraft(tenantId: string): Promise<boolean> {
     const entitlements = await this.getEntitlements(tenantId);

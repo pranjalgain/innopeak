@@ -12,6 +12,8 @@ import { PROMPT_VERSION_APPEND_RETRY_LIMIT } from '../../../api/prompts/constant
 import type {
   AppendedPromptVersion,
   AppendPromptVersionInput,
+  CurrentPromptForCategory,
+  PromptCategory,
   PromptRecord,
   PromptVersionRecord,
   PromptWithVersions,
@@ -88,6 +90,32 @@ export class PromptsDbService {
       return null;
     }
     return this.promptsRepository.findCurrentVersion(promptId, tenantId);
+  }
+
+  /** What `AiReplyGenerationService` reads instead of `getCurrentVersion` — that one is keyed by
+   *  a specific `prompts.id` (the Settings → Prompts editor already has it from a prior list
+   *  call); generation only ever knows "which category", not an id. `null` means this tenant has
+   *  no prompt for that category, which should never happen in practice (every tenant is seeded
+   *  with all three at signup) but is a real possibility for a hand-edited/incomplete dev
+   *  database, so the caller still has to handle it. */
+  async findCurrentForCategory(
+    tenantId: string,
+    category: PromptCategory
+  ): Promise<CurrentPromptForCategory | null> {
+    const prompt = await this.promptsRepository.findByTenantAndCategory(tenantId, category);
+    if (prompt === null) {
+      return null;
+    }
+
+    const version = await this.promptsRepository.findCurrentVersion(prompt.id, tenantId);
+    // Every prompt is seeded with a v1 in the same transaction it's created in
+    // (`insertDefaultsForTenant`), so a versionless prompt is exactly as anomalous as a missing
+    // one — treated the same way rather than throwing a different, more confusing error.
+    if (version === null) {
+      return null;
+    }
+
+    return { promptId: prompt.id, tone: prompt.tone, template: version.template };
   }
 
   async updateTone(input: UpdatePromptToneInput): Promise<PromptRecord | null> {

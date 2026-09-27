@@ -100,6 +100,18 @@ export interface MessageCatalog {
     VERSION_NOT_FOUND: string;
     STATS_BATCH_RETRIEVED: string;
   };
+  AI: {
+    TENANT_ONLY: string;
+    DRY_RUN_GENERATED: string;
+    /** Every tenant is seeded with all three prompt categories at signup
+     *  (`PromptsDbService.insertDefaultsForTenant`), so this is a data-integrity fallback, not an
+     *  expected path — see `AiReplyGenerationService.resolvePrompt`. */
+    PROMPT_NOT_CONFIGURED: string;
+    /** `OPENROUTER_API_KEY`/`OPENROUTER_MODEL` unset — checked lazily on first call, not at boot.
+     *  See `OpenRouterAiProvider`'s own doc comment for why. */
+    PROVIDER_NOT_CONFIGURED: string;
+    GENERATION_FAILED: string;
+  };
   BILLING: {
     PLANS_RETRIEVED: string;
     SUBSCRIPTION_RETRIEVED: string;
@@ -119,9 +131,10 @@ export interface MessageCatalog {
     LOCATION_LIMIT_REACHED: string;
     TEAM_MEMBER_LIMIT_REACHED: string;
     CUSTOM_PROMPTS_NOT_ON_PLAN: string;
-    /** `BillingEntitlementsService.canGenerateAiDraft` — currently unreachable in practice, since
-     *  nothing in this codebase calls it yet (no AI-reply-generation pipeline exists). Kept ready
-     *  for when that pipeline lands. */
+    /** `BillingEntitlementsService.canGenerateAiDraft` — genuinely enforced now:
+     *  `AiReplyGenerationService.generateForClassifiedReviews` (wired into the 15-minute review-sync
+     *  poll) persists an `ai_generated` draft on every success, which is exactly what this count
+     *  tracks (see that method's own doc comment). */
     AI_DRAFT_LIMIT_REACHED: string;
     STRIPE_WEBHOOK_SIGNATURE_INVALID: string;
     /** `PUT /v1/billing/active-location` named a location that isn't this tenant's own, or is

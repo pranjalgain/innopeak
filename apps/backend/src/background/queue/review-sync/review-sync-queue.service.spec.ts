@@ -1,3 +1,4 @@
+import { AiReplyGenerationService } from '@ai/ai-reply-generation.service';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
@@ -42,6 +43,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
   const completeRun = jest.fn();
   const recordProgress = jest.fn();
   const classifyPendingReviews = jest.fn();
+  const generateForClassifiedReviews = jest.fn();
 
   const job = {
     tenantId: 'tenant-1',
@@ -69,6 +71,12 @@ describe('ReviewSyncQueueService.runPoll', () => {
     });
     completeRun.mockResolvedValue(true);
     classifyPendingReviews.mockResolvedValue({ classified: 0, skipped: 0 });
+    generateForClassifiedReviews.mockResolvedValue({
+      generated: 0,
+      skipped: 0,
+      failed: 0,
+      quotaReached: false,
+    });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -84,6 +92,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
           useValue: { acquireSyncRun, importPollPage, completeRun, recordProgress },
         },
         { provide: ReviewClassificationService, useValue: { classifyPendingReviews } },
+        {
+          provide: AiReplyGenerationService,
+          useValue: { generateForClassifiedReviews },
+        },
       ],
     }).compile();
 
@@ -337,6 +349,66 @@ describe('ReviewSyncQueueService.runPoll', () => {
     expect(completion.lastReviewSyncedAt).toBeNull();
     expect(completion.errorMessage).toContain('classification failed');
   });
+
+  it('runs generation for this tenant/location right after classification succeeds', async () => {
+    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    classifyPendingReviews.mockResolvedValue({ classified: 2, skipped: 0 });
+
+    await service.runPoll(job);
+
+    expect(generateForClassifiedReviews).toHaveBeenCalledWith({
+      tenantId: job.tenantId,
+      locationId: job.locationId,
+    });
+  });
+
+  it('does NOT fail the run when generation fails, unlike a classification failure', async () => {
+    // Deliberately asymmetric with the test above: classification failing leaves
+    // pending_classification rows behind, so it must gate the cursor/completion. Generation
+    // failing does not — classification already committed, and generateForClassifiedReviews'
+    // own query-driven design picks up anything this tick missed on the very next one, so a
+    // transient failure here must never look like a failed poll.
+    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    listReviews.mockResolvedValueOnce(
+      page({ reviews: [review({ externalUpdatedAt: '2026-01-07T00:00:00.000Z' })] })
+    );
+    classifyPendingReviews.mockResolvedValue({ classified: 1, skipped: 0 });
+    generateForClassifiedReviews.mockRejectedValue(new Error('OpenRouter is down'));
+
+    await service.runPoll(job);
+
+    const completion = completeRun.mock.calls[0]?.[0] as {
+      status: SyncRunStatus;
+      lastReviewSyncedAt: string | null;
+      errorMessage: string | null;
+    };
+    expect(completion.status).toBe(SyncRunStatus.OK);
+    expect(completion.errorMessage).toBeNull();
+    expect(completion.lastReviewSyncedAt).not.toBeNull();
+  });
+
+  it('reports the quota-reached / generated / failed counts from generation on the run outcome', async () => {
+    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    listReviews.mockResolvedValueOnce(
+      page({ reviews: [review({ externalUpdatedAt: '2026-01-07T00:00:00.000Z' })] })
+    );
+    classifyPendingReviews.mockResolvedValue({ classified: 3, skipped: 0 });
+    generateForClassifiedReviews.mockResolvedValue({
+      generated: 2,
+      skipped: 0,
+      failed: 1,
+      quotaReached: false,
+    });
+
+    await service.runPoll(job);
+
+    // The outcome isn't returned to a caller outside this service, so the observable proof is
+    // that completeRun still reports success (generation's per-item failure count is tolerated,
+    // exactly like classification's own `skipped` already is) rather than flipping the run to
+    // ERROR over one failed draft among several generated ones.
+    const completion = completeRun.mock.calls[0]?.[0] as { status: SyncRunStatus };
+    expect(completion.status).toBe(SyncRunStatus.OK);
+  });
 });
 
 /**
@@ -358,6 +430,7 @@ describe('ReviewSyncQueueService.runBackfill — retry reopens the carried sync 
   const completeRun = jest.fn();
   const recordProgress = jest.fn();
   const classifyPendingReviews = jest.fn();
+  const generateForClassifiedReviews = jest.fn();
 
   const job = {
     tenantId: 'tenant-1',
@@ -386,6 +459,12 @@ describe('ReviewSyncQueueService.runBackfill — retry reopens the carried sync 
     });
     completeRun.mockResolvedValue(true);
     classifyPendingReviews.mockResolvedValue({ classified: 0, skipped: 0 });
+    generateForClassifiedReviews.mockResolvedValue({
+      generated: 0,
+      skipped: 0,
+      failed: 0,
+      quotaReached: false,
+    });
     listReviews.mockResolvedValue(
       page({ reviews: [review()], nextPageToken: null, totalCount: 1 })
     );
@@ -404,6 +483,10 @@ describe('ReviewSyncQueueService.runBackfill — retry reopens the carried sync 
           useValue: { reopenRunForRetry, importPage, completeRun, recordProgress },
         },
         { provide: ReviewClassificationService, useValue: { classifyPendingReviews } },
+        {
+          provide: AiReplyGenerationService,
+          useValue: { generateForClassifiedReviews },
+        },
       ],
     }).compile();
 
@@ -479,6 +562,7 @@ describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-
   const completeRun = jest.fn();
   const recordProgress = jest.fn();
   const classifyPendingReviews = jest.fn();
+  const generateForClassifiedReviews = jest.fn();
 
   const job = {
     tenantId: 'tenant-1',
@@ -506,6 +590,12 @@ describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-
     });
     completeRun.mockResolvedValue(true);
     classifyPendingReviews.mockResolvedValue({ classified: 0, skipped: 0 });
+    generateForClassifiedReviews.mockResolvedValue({
+      generated: 0,
+      skipped: 0,
+      failed: 0,
+      quotaReached: false,
+    });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -521,6 +611,10 @@ describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-
           useValue: { importPage, completeRun, recordProgress },
         },
         { provide: ReviewClassificationService, useValue: { classifyPendingReviews } },
+        {
+          provide: AiReplyGenerationService,
+          useValue: { generateForClassifiedReviews },
+        },
       ],
     }).compile();
 

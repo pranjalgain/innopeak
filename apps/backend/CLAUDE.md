@@ -69,13 +69,16 @@ and changes nothing. After pulling a change to an existing migration, recreate y
 ```
 @common/*  @config/*  @db/*  @redis/*  @otel/*  @bg/*  @auth/*  @email/*
 @media/*  @metrics/*  @health/*  @middlewares/*  @interceptors/*  @logger/*
-@cron/*  @email-queue/*  @dead-letter-queue/*
+@cron/*  @email-queue/*  @dead-letter-queue/*  @prompts/*  @ai/*  @review-provider/*
+@review-pipeline/*  @connections/*  @billing/*  @reviews/*  @review-sync-queue/*
 ```
 
-`@auth/*` resolves to `api/auth/*`, `@media/*` to `api/media/*`, `@metrics/*`/`@health/*` to
-`api/metrics/*`/`api/health/*`. `tsconfig.json` and `jest.config.ts` still declare `@users/*`,
-`@sms/*`, `@notifications/*` and `@notification-queue/*`, but those directories no longer exist —
-nothing imports them, don't add new imports through them.
+`@auth/*` resolves to `api/auth/*`, `@media/*` to `api/media/*`, `@prompts/*` to `api/prompts/*`,
+`@ai/*` to `api/ai/*`, `@billing/*` to `api/billing/*`, `@connections/*` to `api/connections/*`,
+`@reviews/*` to `api/reviews/*`, `@metrics/*`/`@health/*` to `api/metrics/*`/`api/health/*`.
+`tsconfig.json` and `jest.config.ts` still declare `@users/*`, `@sms/*`, `@notifications/*` and
+`@notification-queue/*`, but those directories no longer exist — nothing imports them, don't add
+new imports through them.
 
 ## Architecture Patterns
 
@@ -196,6 +199,7 @@ rebuilt from scratch (profile avatar upload, below) — the rest of that list st
 | Tracing | `src/api/tracing/` | OpenTelemetry distributed tracing |
 | Dev Tools | `src/api/dev-tools/` | Developer tools dashboard (+ SQS queue-depth panel in `aws` mode) |
 | Prompts | `src/api/prompts/` | Owner prompt templates + versions (Settings → Prompts) |
+| AI | `src/api/ai/` | Calls an LLM to draft a reply — `AiProvider` plugin pair (`OpenRouterAiProvider` built, `AzureOpenAiProvider` reserved for the GDPR/`westeurope` switch, selected by `AI_PROVIDER`). Dry-run testing only today (`POST /v1/ai/dry-run` + `pnpm ai:dry-run`) — not yet wired into `ReviewClassificationService`. See `apps/documentation/docs/backend/ai/overview.md` |
 | Settings | `src/api/settings/` | Blocklist terms (`/v1/settings/blocklist-terms`); data access in `src/db/repositories/settings/` |
 | Review pipeline | `src/review-pipeline/` | Classification rule (blocklist then rating threshold). No HTTP. |
 | Background | `src/background/` | BullMQ email, dead-letter and review-sync queues, plus cron jobs — one of which (`review-sync-poll`, every 15 min) fans out into the review-sync queue itself (SQS in `aws` mode — see Queue Transport Pattern) |

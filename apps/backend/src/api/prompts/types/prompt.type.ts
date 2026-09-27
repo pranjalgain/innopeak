@@ -58,3 +58,13 @@ export interface AppendPromptVersionInput {
   template: string;
   createdByUserId: string | null;
 }
+
+/** What `PromptsDbService.findCurrentForCategory` resolves for a (tenant, category) pair — the
+ *  live tone plus the current version's template, which is all `AiReplyGenerationService` needs.
+ *  Distinct from `PromptWithVersions`: that carries every version for the Settings → Prompts UI,
+ *  this carries only what generation actually reads. */
+export interface CurrentPromptForCategory {
+  promptId: string;
+  tone: PromptTone;
+  template: string;
+}

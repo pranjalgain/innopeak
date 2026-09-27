@@ -120,6 +120,14 @@ export const messagesEn: MessageCatalog = {
     VERSION_NOT_FOUND: 'Prompt version not found',
     STATS_BATCH_RETRIEVED: 'Prompt version stats retrieved successfully',
   },
+  AI: {
+    TENANT_ONLY: 'AI reply generation is only available to tenant users.',
+    DRY_RUN_GENERATED: 'AI reply generated successfully',
+    PROMPT_NOT_CONFIGURED: 'No prompt is configured for this category yet.',
+    PROVIDER_NOT_CONFIGURED:
+      'The AI provider is not configured. Set OPENROUTER_API_KEY and OPENROUTER_MODEL.',
+    GENERATION_FAILED: 'Failed to generate an AI reply. Please try again.',
+  },
   BILLING: {
     PLANS_RETRIEVED: 'Billing plans retrieved successfully',
     SUBSCRIPTION_RETRIEVED: 'Subscription retrieved successfully',
