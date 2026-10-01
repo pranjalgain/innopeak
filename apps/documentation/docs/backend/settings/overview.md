@@ -45,7 +45,7 @@ Reference](./api-reference.md).
 | `notification_recipients` | **Owned.** Which `users` row wants to hear about which `notification_type`, and on which channel. `user_id` is `NOT NULL` — a recipient is always an app user, never a free-text email address. `channel` is `notification_channel_pref`; `is_active` gates delivery. Indexed on `tenant_id` and `user_id`; **no unique constraint** — see [Gap](#gap-between-current-code-and-target-design). |
 | `tenants` | **Read + update only.** `name` is the one column this module writes. Tenant *creation* belongs to the auth module's signup transaction — see [Auth Module — Overview](../auth/overview.md#auth-flows). `status` (`tenant_status`) is read-only here; only a platform admin changes it. |
 | `locations` | **Read-only, foreign.** Owned by the connections module (`../connections/overview.md`) and populated by the GBP sync. Supplies the provider-derived half of the tenant profile — see [MVP scope](#mvp-scope). |
-| `users` | **Read-only, foreign.** Joined for a recipient's `name`/`email`, and its `role` column is what gates every route in this module. Owned by auth. |
+| `users` | **Read + update, foreign.** Joined for a recipient's `name`/`email`, and its `role` column is what gates every route in this module. Owned by auth (`src/db/repositories/auth/`) — this module has no member-local table of its own. The Team members surface (see below) writes `status` and `erasure_requested_at` on this same table through `AuthRepository`/`AuthDbService`, the identical primitive the platform-admin equivalent and the nightly erasure-purge cron job both use. |
 
 Two enums with near-identical names sit on either side of this module's boundary, and confusing
 them is the easiest mistake available here:
@@ -126,6 +126,32 @@ that nobody — frontend, support, or client — reads a successful `200` as "an
 re-evaluated." A new setting applies to the next review the pipeline classifies after the write
 commits, and to nothing before it.
 
+## Team members
+
+The tenant owner's own roster management — invite, revoke a pending invite, and request or cancel
+the removal of an already-accepted member. Unlike the other three settings surfaces, this one owns
+no table: it reads and writes `users` directly, through the same `AuthRepository`/`AuthDbService`
+the auth module itself uses, since a "team member" is just a `users` row scoped to the owner's own
+tenant. See [Settings Module — API Reference](./api-reference.md#team-members) for the full route
+contract.
+
+**Requesting removal revokes access immediately but defers the actual data erasure**, the same
+two-phase design the platform-admin tenant-erasure flow uses (see [Admin Management —
+Overview](../admin-management/overview.md)): the target's `status` flips to `disabled` right away,
+and `erasure_requested_at` is set, but nothing is anonymized until a separate nightly cron job
+(`CronJobName.ERASURE_PURGE`, see [Review pipeline — Retention and erasure
+jobs](../review-pipeline/overview.md#retention-and-erasure-jobs)) runs, `ERASURE_GRACE_PERIOD_DAYS`
+(default 21) after the request — and only if the owner hasn't cancelled it first. Cancelling before
+then is a clean, full undo, since nothing was touched yet.
+
+**Two guards exist specifically because a tenant with no owner is unrecoverable:** an owner can
+never remove themself through this flow (`CANNOT_REMOVE_SELF` — there is a different, unrelated
+path for an owner who wants to leave entirely, out of scope here), and the tenant's last remaining
+owner can never be removed by anyone (`CANNOT_REMOVE_LAST_OWNER`, counted under a per-tenant
+advisory lock so two concurrent requests against a tenant's last two owners can't both race past
+the count). Removing a plain `member` has no such restriction — a tenant can have zero members and
+still function.
+
 ## API surface
 
 Two base paths, because two different resources are involved: the singleton tenant profile and the
@@ -147,6 +173,11 @@ parameter.
 | `POST` | `/v1/settings/notification-recipients` | Bearer, `@Roles('owner')` | Adds a tenant user as a recipient. |
 | `PATCH` | `/v1/settings/notification-recipients/:id` | Bearer, `@Roles('owner')` | Changes `channel` and/or `is_active`. |
 | `DELETE` | `/v1/settings/notification-recipients/:id` | Bearer, `@Roles('owner')` | Hard delete. |
+| `GET` | `/v1/settings/members` | Bearer, `@Roles('owner')` | Lists the tenant's roster. |
+| `POST` | `/v1/settings/members` | Bearer, `@Roles('owner')` | Invites a teammate by email. |
+| `DELETE` | `/v1/settings/members/:memberId` | Bearer, `@Roles('owner')` | Revokes a **pending invite** only — not a general member-removal route. |
+| `POST` | `/v1/settings/members/:memberId/request-removal` | Bearer, `@Roles('owner')` | Removes an already-accepted member — revokes access now, defers anonymization to the grace period. |
+| `POST` | `/v1/settings/members/:memberId/cancel-removal` | Bearer, `@Roles('owner')` | Undoes a pending removal request. |
 
 **Deliberately not in this module**, despite sharing the Settings screen: the **Connection** tab
 (`review_provider_connections`, `locations`, disconnect/reconnect, sync status) belongs to the
@@ -254,6 +285,11 @@ entirely — there is deliberately no platform-default fallback, so writing this
 the purge on for a tenant, not just what changes the API response. `autoPostEnabled` is still
 **stored but not yet acted on**, waiting on the posting pipeline; writing it today only changes
 what the API returns.
+
+**Team members is implemented** (`controllers/tenant-members.controller.ts`,
+`services/tenant-members.service.ts`, `AuthRepository`/`AuthDbService`) — invite, revoke-invite, and
+the request/cancel-removal pair added this pass. See [Team members](#team-members) above and
+[Settings Module — API Reference](./api-reference.md#team-members) for the full contract.
 
 **Not built yet:** tenant profile (`/v1/tenant`) and notification-recipient routes.
 

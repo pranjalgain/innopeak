@@ -9,6 +9,7 @@ export interface UpdateBusinessStatusDto {
 export const UpdateBusinessStatusDtoStatusEnum = {
   Active: 'active',
   Suspended: 'suspended',
+  Erased: 'erased',
 } as const;
 
 export type UpdateBusinessStatusDtoStatusEnum =

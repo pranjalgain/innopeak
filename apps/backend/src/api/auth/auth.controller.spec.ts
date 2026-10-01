@@ -14,7 +14,7 @@ import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { UserRole } from './enums/user-role.enum';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import { AuthService } from './services/auth.service';
-import type { TenantAuthUser } from './types/auth-user.type';
+import type { TenantAuthUser } from './types/auth.type';
 
 function mockResponse(): Response {
   return {

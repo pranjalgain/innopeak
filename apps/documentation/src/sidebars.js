@@ -86,6 +86,22 @@ const sidebars = {
                 },
                 {
                   type: 'category',
+                  label: 'Admin Billing',
+                  items: [
+                    'backend/admin-billing/overview',
+                    'backend/admin-billing/api-reference',
+                  ],
+                },
+                {
+                  type: 'category',
+                  label: 'Admin Management',
+                  items: [
+                    'backend/admin-management/overview',
+                    'backend/admin-management/api-reference',
+                  ],
+                },
+                {
+                  type: 'category',
                   label: 'Platform Admin',
                   items: [
                     'backend/platform-admin/overview',
@@ -105,7 +121,7 @@ const sidebars = {
         {
           type: 'category',
           label: 'Frontend',
-          items: ['frontend/overview'],
+          items: ['frontend/overview', 'frontend/admin-console'],
         },
         {
           type: 'category',

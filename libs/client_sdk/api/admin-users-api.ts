@@ -39,12 +39,14 @@ export const AdminUsersApiAxiosParamCreator = function (
 ) {
   return {
     /**
-     * Platform-admin only. No pagination/filter params yet — the console does its own client-side paging over the full list.
+     * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive) — no pagination yet, the console still pages the (now server-filtered) result client-side.
      * @summary List every user across every tenant
+     * @param {string} [search] Case-insensitive substring match against the user name or their business name.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     adminUsersControllerListV1: async (
+      search?: string,
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       const localVarPath = `/v1/admin/users`;
@@ -66,6 +68,10 @@ export const AdminUsersApiAxiosParamCreator = function (
       // authentication bearer required
       // http bearer authentication required
       await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      if (search !== undefined) {
+        localVarQueryParameter['search'] = search;
+      }
 
       localVarHeaderParameter['Accept'] = 'application/json';
 
@@ -146,12 +152,14 @@ export const AdminUsersApiFp = function (configuration?: Configuration) {
     AdminUsersApiAxiosParamCreator(configuration);
   return {
     /**
-     * Platform-admin only. No pagination/filter params yet — the console does its own client-side paging over the full list.
+     * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive) — no pagination yet, the console still pages the (now server-filtered) result client-side.
      * @summary List every user across every tenant
+     * @param {string} [search] Case-insensitive substring match against the user name or their business name.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     async adminUsersControllerListV1(
+      search?: string,
       options?: RawAxiosRequestConfig,
     ): Promise<
       (
@@ -160,7 +168,10 @@ export const AdminUsersApiFp = function (configuration?: Configuration) {
       ) => AxiosPromise<Array<AdminUserResponseDto>>
     > {
       const localVarAxiosArgs =
-        await localVarAxiosParamCreator.adminUsersControllerListV1(options);
+        await localVarAxiosParamCreator.adminUsersControllerListV1(
+          search,
+          options,
+        );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
         operationServerMap['AdminUsersApi.adminUsersControllerListV1']?.[
@@ -222,16 +233,18 @@ export const AdminUsersApiFactory = function (
   const localVarFp = AdminUsersApiFp(configuration);
   return {
     /**
-     * Platform-admin only. No pagination/filter params yet — the console does its own client-side paging over the full list.
+     * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive) — no pagination yet, the console still pages the (now server-filtered) result client-side.
      * @summary List every user across every tenant
+     * @param {AdminUsersApiAdminUsersControllerListV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     adminUsersControllerListV1(
+      requestParameters: AdminUsersApiAdminUsersControllerListV1Request = {},
       options?: RawAxiosRequestConfig,
     ): AxiosPromise<Array<AdminUserResponseDto>> {
       return localVarFp
-        .adminUsersControllerListV1(options)
+        .adminUsersControllerListV1(requestParameters.search, options)
         .then((request) => request(axios, basePath));
     },
     /**
@@ -257,12 +270,14 @@ export const AdminUsersApiFactory = function (
  */
 export interface AdminUsersApiInterface {
   /**
-   * Platform-admin only. No pagination/filter params yet — the console does its own client-side paging over the full list.
+   * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive) — no pagination yet, the console still pages the (now server-filtered) result client-side.
    * @summary List every user across every tenant
+   * @param {AdminUsersApiAdminUsersControllerListV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    */
   adminUsersControllerListV1(
+    requestParameters?: AdminUsersApiAdminUsersControllerListV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<Array<AdminUserResponseDto>>;
 
@@ -280,6 +295,16 @@ export interface AdminUsersApiInterface {
 }
 
 /**
+ * Request parameters for adminUsersControllerListV1 operation in AdminUsersApi.
+ */
+export interface AdminUsersApiAdminUsersControllerListV1Request {
+  /**
+   * Case-insensitive substring match against the user name or their business name.
+   */
+  readonly search?: string;
+}
+
+/**
  * Request parameters for adminUsersControllerToggleActiveV1 operation in AdminUsersApi.
  */
 export interface AdminUsersApiAdminUsersControllerToggleActiveV1Request {
@@ -291,14 +316,18 @@ export interface AdminUsersApiAdminUsersControllerToggleActiveV1Request {
  */
 export class AdminUsersApi extends BaseAPI implements AdminUsersApiInterface {
   /**
-   * Platform-admin only. No pagination/filter params yet — the console does its own client-side paging over the full list.
+   * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive) — no pagination yet, the console still pages the (now server-filtered) result client-side.
    * @summary List every user across every tenant
+   * @param {AdminUsersApiAdminUsersControllerListV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    */
-  public adminUsersControllerListV1(options?: RawAxiosRequestConfig) {
+  public adminUsersControllerListV1(
+    requestParameters: AdminUsersApiAdminUsersControllerListV1Request = {},
+    options?: RawAxiosRequestConfig,
+  ) {
     return AdminUsersApiFp(this.configuration)
-      .adminUsersControllerListV1(options)
+      .adminUsersControllerListV1(requestParameters.search, options)
       .then((request) => request(this.axios, this.basePath));
   }
 

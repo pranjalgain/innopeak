@@ -2,7 +2,7 @@ import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
-import type { TenantAuthUser } from '@auth/types/auth-user.type';
+import type { TenantAuthUser } from '@auth/types/auth.type';
 import { JobName } from '@bg/constants/job.constant';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { TeamMemberLimitReachedException } from '@billing/exceptions/billing.exceptions';
@@ -10,7 +10,12 @@ import { BillingEntitlementsService } from '@billing/services/billing-entitlemen
 import { MESSAGES } from '@common/constants/messages.constants';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
@@ -35,6 +40,8 @@ describe('TenantMembersService', () => {
     createMemberInvite: jest.Mock;
     revokeMemberInvite: jest.Mock;
     findTenantStatus: jest.Mock;
+    requestMemberRemoval: jest.Mock;
+    cancelMemberRemoval: jest.Mock;
   };
   let platformSettingsDbService: { get: jest.Mock };
   let billingEntitlementsService: { canInviteTeamMember: jest.Mock };
@@ -51,11 +58,17 @@ describe('TenantMembersService', () => {
       findTenantStatus: jest
         .fn()
         .mockResolvedValue({ status: TenantStatus.ACTIVE, name: 'The Coffee House' }),
+      requestMemberRemoval: jest.fn(),
+      cancelMemberRemoval: jest.fn(),
     };
     platformSettingsDbService = { get: jest.fn() };
     billingEntitlementsService = { canInviteTeamMember: jest.fn().mockResolvedValue(true) };
     queueManager = { addMemberInviteEmailJob: jest.fn().mockResolvedValue(undefined) };
-    configService = { get: jest.fn().mockReturnValue('https://app.innopeak.test') };
+    configService = {
+      get: jest.fn((key: string) => {
+        return key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : undefined;
+      }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -332,6 +345,75 @@ describe('TenantMembersService', () => {
       await target.revokeInvite(owner, 'user-2');
 
       expect(authDbService.revokeMemberInvite).toHaveBeenCalledWith('tenant-1', 'user-2');
+    });
+  });
+
+  describe('requestRemoval', () => {
+    it('refuses self-removal before any DB round trip', async () => {
+      await expect(target.requestRemoval(owner, owner.id)).rejects.toThrow(BadRequestException);
+      expect(authDbService.requestMemberRemoval).not.toHaveBeenCalled();
+    });
+
+    it('throws 404 for no such member in this tenant', async () => {
+      authDbService.requestMemberRemoval.mockResolvedValue({ outcome: 'not_found' });
+
+      await expect(target.requestRemoval(owner, 'user-2')).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws 400 when the target is the last remaining owner', async () => {
+      authDbService.requestMemberRemoval.mockResolvedValue({ outcome: 'last_owner' });
+
+      await expect(target.requestRemoval(owner, 'owner-2')).rejects.toThrow(BadRequestException);
+    });
+
+    it("requests removal, scoped to the caller's own tenant, and reports the configured grace period", async () => {
+      authDbService.requestMemberRemoval.mockResolvedValue({
+        outcome: 'requested',
+        id: 'user-2',
+        email: 'sam.rivera@thecoffeehouse.com',
+      });
+      configService.get.mockImplementation((key: string) => {
+        return key === 'ERASURE_GRACE_PERIOD_DAYS' ? 30 : undefined;
+      });
+
+      const result = await target.requestRemoval(owner, 'user-2');
+
+      expect(authDbService.requestMemberRemoval).toHaveBeenCalledWith('tenant-1', 'user-2');
+      expect(result).toEqual({ gracePeriodDays: 30 });
+    });
+
+    it('defaults the grace period to 21 days when unset', async () => {
+      authDbService.requestMemberRemoval.mockResolvedValue({
+        outcome: 'requested',
+        id: 'user-2',
+        email: 'sam.rivera@thecoffeehouse.com',
+      });
+
+      const result = await target.requestRemoval(owner, 'user-2');
+
+      expect(result).toEqual({ gracePeriodDays: 21 });
+    });
+  });
+
+  describe('cancelRemoval', () => {
+    it('throws 404 for no such member in this tenant', async () => {
+      authDbService.cancelMemberRemoval.mockResolvedValue({ outcome: 'not_found' });
+
+      await expect(target.cancelRemoval(owner, 'user-2')).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws 409 when the member has no pending removal', async () => {
+      authDbService.cancelMemberRemoval.mockResolvedValue({ outcome: 'not_pending' });
+
+      await expect(target.cancelRemoval(owner, 'user-2')).rejects.toThrow(ConflictException);
+    });
+
+    it("cancels a pending removal, scoped to the caller's own tenant", async () => {
+      authDbService.cancelMemberRemoval.mockResolvedValue({ outcome: 'cancelled', id: 'user-2' });
+
+      await target.cancelRemoval(owner, 'user-2');
+
+      expect(authDbService.cancelMemberRemoval).toHaveBeenCalledWith('tenant-1', 'user-2');
     });
   });
 });

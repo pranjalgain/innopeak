@@ -3,7 +3,7 @@ import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import { VerifyEmailTokenProvider } from '@auth/providers/verify-email-token.provider';
 import { OtpAttemptService } from '@auth/services/otp-attempt.service';
 import { TokenService } from '@auth/services/token.service';
-import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth-user.type';
+import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth.type';
 import { JobName } from '@bg/constants/job.constant';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { MESSAGES } from '@common/constants/messages.constants';

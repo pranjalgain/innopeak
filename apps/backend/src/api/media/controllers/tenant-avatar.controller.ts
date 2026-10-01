@@ -1,5 +1,5 @@
 import { CurrentUser } from '@auth/decorators/current-user.decorator';
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';

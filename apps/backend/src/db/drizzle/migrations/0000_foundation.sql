@@ -52,7 +52,11 @@
 -- All declared up front, before any table — no table below ever forward-references a type
 -- that doesn't exist yet.
 
-CREATE TYPE tenant_status AS ENUM ('pending_activation', 'active', 'suspended');
+-- 'erased' is terminal: reached only once every user in the tenant has been anonymized by the
+-- GDPR erasure grace-period purge (see AccountAnonymizationService / CronJobName.ERASURE_PURGE) —
+-- never reactivated, unlike 'suspended', which the tenant also passes through during the grace
+-- period itself (see tenants.erasure_requested_at below).
+CREATE TYPE tenant_status AS ENUM ('pending_activation', 'active', 'suspended', 'erased');
 CREATE TYPE tenant_identity_provider AS ENUM ('entra_id', 'google_workspace');
 CREATE TYPE user_identity_provider AS ENUM ('entra_id', 'google');
 CREATE TYPE user_role AS ENUM ('owner', 'member');

@@ -1,8 +1,9 @@
 "use client";
 
 import { ThemeProvider as NextThemesProvider } from "next-themes";
+import type { ComponentProps } from "react";
 
-type ThemeProviderProps = React.ComponentProps<typeof NextThemesProvider>;
+type ThemeProviderProps = ComponentProps<typeof NextThemesProvider>;
 
 /**
  * Provides class-based light and dark themes across the App Router tree.

@@ -20,7 +20,7 @@ interface AvatarUploadProps {
   changeLabel: string;
   /** Disables the picker and swaps the icon for a spinner while a previous selection is still uploading. */
   isUploading?: boolean;
-  /** Runs the real direct-to-provider upload + confirm round trip — see `uploadAvatarFile`. */
+  /** Runs the real direct-to-provider upload + confirm round trip — see `AvatarUploadService.upload`. */
   onUpload: (file: File) => Promise<void>;
 }
 

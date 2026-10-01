@@ -69,8 +69,8 @@ export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
   const metrics = metricsQuery.data;
 
   return {
-    stats: metrics ? DashboardService.toStats(range, metrics) : null,
-    ratingDistribution: metrics ? DashboardService.toRatingDistribution(metrics) : [],
+    stats: metrics?.stats ?? null,
+    ratingDistribution: metrics?.ratingDistribution ?? [],
     attentionReviews: attentionQuery.data ?? [],
     // `!isReady` is part of this: a disabled query reports `isLoading: false` with no data, so
     // without it the screen would render its empty state for the instant before the active

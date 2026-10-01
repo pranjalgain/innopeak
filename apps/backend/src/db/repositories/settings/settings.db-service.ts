@@ -8,15 +8,11 @@ import type {
   BlocklistTermRecord,
   CreateBlocklistTermInput,
   DeleteBlocklistTermInput,
-} from '../../../api/settings/types/blocklist-term.type';
-import type {
   NotificationRecipientRecord,
-  UpdateNotificationRecipientInput,
-} from '../../../api/settings/types/notification-recipient.type';
-import type {
   TenantSettingsRecord,
   TenantSettingsWrite,
-} from '../../../api/settings/types/tenant-settings.type';
+  UpdateNotificationRecipientInput,
+} from '../../../api/settings/types/settings.type';
 
 @Injectable()
 export class SettingsDbService {

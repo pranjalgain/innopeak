@@ -339,6 +339,25 @@ describe('TokenService', () => {
       expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
     });
 
+    /** Defense-in-depth: an already-issued refresh token must be explicitly rejected once every
+     *  user in a tenant has been anonymized, not merely rely on each individual user's own row. */
+    it('revokes every refresh token and rejects when the tenant is erased', async () => {
+      jwtService.verify.mockReturnValue(validRefreshClaims);
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
+        id: 'rt-1',
+        userId: user.id,
+        revokedAt: null,
+      });
+      authDbService.findUserById.mockResolvedValue(user);
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ERASED,
+        name: 'Test Tenant',
+      });
+
+      await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
+      expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
+    });
+
     it('revokes the used token and persists the replacement in one step, then returns the fresh pair', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findRefreshTokenByHash.mockResolvedValue({

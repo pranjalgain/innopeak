@@ -60,12 +60,16 @@ export const messagesEn: MessageCatalog = {
     // expired — see the auth API reference's Security considerations (no enumeration).
     INVALID_OR_EXPIRED_INVITE: 'This invite link is invalid or has expired.',
     INVITE_ACCEPTED: "Invite accepted. You're signed in.",
+    FAILED_TO_CREATE_TENANT: 'Failed to create tenant',
+    FAILED_TO_CREATE_USER: 'Failed to create user',
+    FAILED_TO_CREATE_INVITED_MEMBER: 'Failed to create invited member',
   },
   MEDIA: {
     UPLOAD_NOT_VERIFIED: 'Could not verify the uploaded image.',
     UNSUPPORTED_FORMAT:
       'This image format is not supported. Please upload a JPG, PNG, WEBP, GIF, AVIF, HEIC, or BMP file.',
     FILE_TOO_LARGE: 'That image is too large. Please upload a file under 10 MB.',
+    FAILED_TO_PERSIST_AVATAR: 'Failed to persist avatar',
   },
   NOTIFICATIONS: {
     LISTED: 'Notifications retrieved successfully',
@@ -96,6 +100,8 @@ export const messagesEn: MessageCatalog = {
     LOCATION_CONFIRMED: 'Location connected. Importing your review history.',
     LOCATION_INACTIVE: 'This location is disconnected and cannot be selected.',
     ACTIVE_LOCATION_UPDATED: 'Active location updated.',
+    FAILED_TO_UPSERT_CONNECTION: 'Failed to upsert review provider connection',
+    FAILED_TO_UPSERT_LOCATION: 'Failed to upsert location',
   },
   DASHBOARD: {
     TENANT_ONLY: 'Dashboard analytics are only available to tenant users.',
@@ -103,6 +109,15 @@ export const messagesEn: MessageCatalog = {
   REVIEWS: {
     REVIEW_NOT_FOUND: 'Review not found.',
     TENANT_ONLY: 'Reviews are only available to tenant users.',
+    FAILED_TO_ACQUIRE_SYNC_RUN: 'Failed to acquire sync run',
+    FAILED_TO_UPSERT_REVIEW: 'Failed to upsert review',
+    GENERATED_RESPONSE_INSERT_FAILED: (reviewId: string): string =>
+      `Failed to record the generated reply for review ${reviewId}`,
+    RESPONSE_NOT_FOUND: 'Reply draft not found.',
+    RESPONSE_NOT_ACTIONABLE: 'This reply has already been decided and cannot be changed.',
+    RESPONSE_ALREADY_LIVE: 'This review already has an approved or posted reply.',
+    RESPONSE_APPROVED: 'Reply approved successfully',
+    RESPONSE_REJECTED: 'Reply rejected successfully',
   },
   PROMPTS: {
     LISTED: 'Prompts retrieved successfully',
@@ -150,6 +165,9 @@ export const messagesEn: MessageCatalog = {
     DUMMY_PROVIDER_NOT_ACTIVE: 'Not found',
     CHECKOUT_COMPLETED: 'Checkout completed successfully',
     SUBSCRIPTION_CANCELED: 'Subscription set to cancel at the end of the current billing period',
+    FAILED_TO_CREATE_SUBSCRIPTION: 'Failed to create tenant subscription',
+    FREE_PLAN_NOT_SEEDED: 'Free billing plan is not seeded',
+    PAID_PLAN_NOT_SEEDED: 'Paid billing plan is not seeded',
     RECEIPTS_RETRIEVED: 'Receipts retrieved successfully',
     RECEIPT_NOT_FOUND: 'Receipt not found',
     BILLING_PROFILE_RETRIEVED: 'Billing profile retrieved successfully',
@@ -168,6 +186,8 @@ export const messagesEn: MessageCatalog = {
     RETRIEVED: 'Settings retrieved successfully',
     UPDATED: 'Settings updated',
     TENANT_SETTINGS_MISSING: 'Tenant settings were not provisioned for this account',
+    TENANT_SETTINGS_ROW_MISSING: (tenantId: string): string =>
+      `No tenant settings row found for tenant ${tenantId}`,
     PLATFORM_CONFIG_MISSING: 'Platform settings are not configured.',
     MEMBER_INVITE_SENT: 'Invite sent.',
     MEMBER_INVITE_REVOKED: 'Invite revoked.',
@@ -175,6 +195,12 @@ export const messagesEn: MessageCatalog = {
     MEMBER_NOT_FOUND: 'Team member not found.',
     MEMBER_INVITE_NOT_REVOCABLE: 'This invite has already been accepted or is no longer pending.',
     MEMBER_INVITES_DISABLED: 'Inviting team members is turned off for this platform.',
+    MEMBER_REMOVAL_REQUESTED: (days: number): string =>
+      `Removal requested. This member loses access now, and their data is permanently erased in ${days} days unless you cancel first.`,
+    MEMBER_REMOVAL_CANCELLED: 'Removal cancelled — this member keeps their access.',
+    MEMBER_REMOVAL_NOT_PENDING: 'This member has no pending removal to cancel.',
+    CANNOT_REMOVE_LAST_OWNER: 'At least one owner must remain on this account.',
+    CANNOT_REMOVE_SELF: 'You cannot remove your own account this way.',
     NOTIFICATION_RECIPIENTS_LISTED: 'Notification recipients retrieved successfully',
     NOTIFICATION_RECIPIENT_UPDATED: 'Notification recipient updated',
     NOTIFICATION_RECIPIENT_NOT_FOUND: 'Notification recipient not found',
@@ -186,6 +212,13 @@ export const messagesEn: MessageCatalog = {
     USER_STATUS_UPDATED: 'User status updated.',
     BUSINESS_NOT_FOUND: 'Business not found.',
     BUSINESS_STATUS_UPDATED: 'Business status updated.',
+    BUSINESS_ERASURE_REQUESTED: (days: number): string =>
+      `Erasure requested. Every user in this business loses access now, and their data is permanently erased in ${days} days unless you cancel first.`,
+    BUSINESS_ERASURE_CANCELLED: 'Erasure cancelled — this business is restored to active.',
+    BUSINESS_ERASURE_PENDING:
+      'This business has a pending erasure request. Cancel it before changing status directly.',
+    USER_REMOVAL_PENDING:
+      'This user has a pending removal request. Cancel it before changing their status directly.',
     AVATAR_UPDATED: 'Avatar updated.',
     PASSWORD_CHANGED: 'Password changed.',
     INVITE_SENT: 'Invite sent.',
@@ -209,9 +242,11 @@ export const messagesEn: MessageCatalog = {
       'This admin has not accepted their invite yet — revoke the invite instead.',
     ADMIN_DISABLED: 'Admin disabled.',
     ADMIN_ENABLED: 'Admin enabled.',
+    FAILED_TO_CREATE_INVITED_PLATFORM_ADMIN: 'Failed to create invited platform admin',
   },
   COMMON: {
     SUCCESS: 'Success',
     REQUEST_SUCCESSFUL: 'Request successful',
+    INTERNAL_ERROR: 'Something went wrong. Please try again later.',
   },
 };

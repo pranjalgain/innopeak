@@ -40,7 +40,12 @@ export function usePrompts(): UsePromptsResult {
   });
 
   useEffect(() => {
-    if (promptsQuery.isError) toast.error(t("loadFailed"));
+    if (!promptsQuery.isError) return;
+    // A Member can reach this page (prompts aren't route-guarded), but the list endpoint is
+    // owner-only (`@Roles(UserRole.OWNER)`) — a 403 here isn't a transient failure a retry would
+    // fix, so "Could not load prompts, please try again" is actively misleading.
+    const isForbidden = promptsQuery.error instanceof PromptApiError && promptsQuery.error.statusCode === 403;
+    toast.error(isForbidden ? t("accessDenied") : t("loadFailed"));
     // react-query v5 dropped useQuery's onError — this is its recommended replacement, firing
     // once per isError transition rather than on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps

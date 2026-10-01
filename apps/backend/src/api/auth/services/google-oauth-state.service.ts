@@ -11,26 +11,11 @@ import {
   GOOGLE_AUTH_STATE_TTL_SECONDS,
 } from '../constants/google-auth.constants';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
-
-/** Everything the callback's write path needs. Read from Redis, never from the client's blob. */
-export interface GoogleAuthStateRecord {
-  intent: OAuthIntent;
-  /** SHA-256 of the browser-binding cookie value. The cookie itself is never stored. */
-  sidHash: string;
-  /** `OAuthIntent.ADMIN_INVITE` only — which `platform_admin_invites` row this round trip is
-   *  redeeming. Carried server-side in Redis, never round-tripped through the client beyond the
-   *  opaque signed `state`. */
-  inviteToken?: string;
-}
-
-export interface MintedGoogleState {
-  /** Goes to Google as the `state` query param. */
-  state: string;
-  /** Goes to the browser as the `google_auth_sid` cookie. */
-  sid: string;
-}
-
-export type ConsumeGoogleStateResult = { ok: false } | { ok: true; record: GoogleAuthStateRecord };
+import type {
+  ConsumeGoogleStateResult,
+  GoogleAuthStateRecord,
+  MintedGoogleState,
+} from '../types/auth.type';
 
 /**
  * Same three layers as the Business Profile flow (`connections/services/oauth-state.service.ts`),

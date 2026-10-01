@@ -1,4 +1,4 @@
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
@@ -6,7 +6,7 @@ import { SyncHealthStatus } from '@common/enums/sync-health-status.enum';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
-import type { LocationRow } from '@db/repositories/connections/connections.repository';
+import type { LocationRow } from '@db/repositories/connections/types/connections.type';
 import { Injectable } from '@nestjs/common';
 
 import { SYNC_RUNS_PAGE_SIZE_DEFAULT } from '../constants/connections.constants';

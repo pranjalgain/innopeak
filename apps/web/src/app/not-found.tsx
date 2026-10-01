@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 
 import { LuArrowLeft, LuCompass } from "react-icons/lu";
 
 import { Button } from "@/components/ui/button";
 
 export default function NotFoundPage() {
+  const t = useTranslations("notFound");
+
   return (
     <main className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-16">
       <div className="surface-grid pointer-events-none absolute inset-0 -z-20 opacity-70" />
@@ -14,16 +17,16 @@ export default function NotFoundPage() {
           <LuCompass className="text-primary size-8" aria-hidden="true" />
         </div>
         <p className="text-muted-foreground mt-7 font-mono text-xs tracking-[0.2em] uppercase">
-          Route unavailable
+          {t("eyebrow")}
         </p>
-        <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">Page not found</h1>
+        <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">{t("title")}</h1>
         <p className="text-muted-foreground mx-auto mt-5 max-w-md text-lg leading-8">
-          This route does not exist, or it may have moved while the product evolved.
+          {t("description")}
         </p>
         <Button asChild size="lg" className="mt-8">
           <Link href="/">
             <LuArrowLeft aria-hidden="true" />
-            Back to the homepage
+            {t("backToHome")}
           </Link>
         </Button>
       </div>

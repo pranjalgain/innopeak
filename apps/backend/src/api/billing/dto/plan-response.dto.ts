@@ -1,5 +1,5 @@
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
-import type { BillingPlanRow } from '@db/repositories/billing/billing-plans.repository';
+import type { BillingPlanRow } from '@db/repositories/billing/types/billing.type';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class BillingPlanDto {

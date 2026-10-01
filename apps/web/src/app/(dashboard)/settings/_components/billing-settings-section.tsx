@@ -1,43 +1,29 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useFormatter, useTranslations } from "next-intl";
 import { useRef, useState } from "react";
-import { LuArrowUpRight, LuCreditCard, LuDownload, LuMapPin, LuReceipt, LuSettings } from "react-icons/lu";
+import { LuArrowUpRight, LuCreditCard, LuSettings } from "react-icons/lu";
 import { toast } from "sonner";
 
+import { ChooseActiveLocationCard } from "@/app/(dashboard)/settings/_components/choose-active-location-card";
 import { ManageBillingDialog } from "@/app/(dashboard)/settings/_components/manage-billing-dialog";
-import { type ConnectedLocation, ConnectionService } from "@/app/_libs/services/connection.service";
+import { ReceiptsHistoryCard } from "@/app/(dashboard)/settings/_components/receipts-history-card";
+import { DATE_FORMAT } from "@/app/_libs/utils/date";
+import { formatCardExpiryMonth } from "@/app/_libs/utils/payment-method";
 import { ConfirmActionButton } from "@/components/common/confirm-action-dialog";
 import { LoadErrorState } from "@/components/common/load-error-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBillingPlans } from "@/hooks/billing/use-billing-plans";
 import { useCancelSubscription } from "@/hooks/billing/use-cancel-subscription";
 import { useCreateCheckoutSession } from "@/hooks/billing/use-create-checkout-session";
 import { useCreatePortalSession } from "@/hooks/billing/use-create-portal-session";
-import { useDownloadReceiptPdf } from "@/hooks/billing/use-download-receipt-pdf";
 import { useReceipts } from "@/hooks/billing/use-receipts";
-import { useSetActiveLocation } from "@/hooks/billing/use-set-active-location";
 import { useSubscription } from "@/hooks/billing/use-subscription";
-import { connectionLocationsQueryKey } from "@/hooks/connections/use-business-switcher";
-import { useConnection } from "@/hooks/connections/use-connection";
-import type { PaymentMethodSummary, Receipt } from "@/types/domain";
-
-const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
-
-/** `amountPaid` is Stripe's own smallest-currency-unit integer (e.g. cents) — divides by 100 to
- *  get the major unit, same simplification `renderReceiptPdf` makes on the backend (correct for
- *  every 2-decimal currency Stripe issues test prices in today). */
-function formatReceiptAmount(amountPaid: number, currency: string): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(
-    amountPaid / 100,
-  );
-}
+import { useBusinessSwitcher } from "@/hooks/connections/use-business-switcher";
+import type { PaymentMethodSummary } from "@/types/domain";
 
 interface UsageRowProps {
   label: string;
@@ -66,7 +52,7 @@ function UsageRow({ label, used, max }: UsageRowProps) {
  *  lowercase (`"visa"`). */
 function PaymentMethodRow({ paymentMethod }: { paymentMethod: PaymentMethodSummary }) {
   const t = useTranslations("settings.billing.paymentMethod");
-  const expiry = `${paymentMethod.expMonth}`.padStart(2, "0");
+  const expiry = formatCardExpiryMonth(paymentMethod.expMonth);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -80,123 +66,6 @@ function PaymentMethodRow({ paymentMethod }: { paymentMethod: PaymentMethodSumma
         </span>
       </div>
     </div>
-  );
-}
-
-/** Stripe-only payment history — always empty for a Dummy-provider tenant, since there's no real
- *  charge behind it to document. Rendered only when there's at least one receipt, so a Free or
- *  Dummy tenant never sees an empty "Billing history" card. */
-function ReceiptsHistoryCard({ receipts }: { receipts: Receipt[] }) {
-  const t = useTranslations("settings.billing.receipts");
-  const tToasts = useTranslations("settings.billing.toasts");
-  const format = useFormatter();
-  const downloadMutation = useDownloadReceiptPdf();
-
-  return (
-    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <LuReceipt className="text-primary size-4" />
-          {t("title")}
-        </CardTitle>
-        <CardDescription>{t("description")}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {receipts.map((receipt) => (
-          <div
-            key={receipt.id}
-            className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3 last:border-b-0 last:pb-0">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium">
-                {formatReceiptAmount(receipt.amountPaid, receipt.currency)}
-              </span>
-              <span className="text-muted-foreground text-[12.5px]">
-                {format.dateTime(new Date(receipt.paidAt), DATE_FORMAT)}
-                {receipt.invoiceNumber ? ` · ${receipt.invoiceNumber}` : ""}
-              </span>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={downloadMutation.isPending && downloadMutation.variables === receipt.id}
-              onClick={() => {
-                downloadMutation.mutate(receipt.id, {
-                  onError: () => toast.error(tToasts("receiptDownloadFailed")),
-                });
-              }}>
-              <LuDownload />
-              {t("download")}
-            </Button>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
-
-interface ChooseActiveLocationCardProps {
-  locations: ConnectedLocation[];
-  /** True while showing this ahead of an actual downgrade (`cancelAtPeriodEnd`) — same section,
-   *  different copy, per the plan's §3a "proactive vs reactive" framing. */
-  proactive: boolean;
-  maxLocations: number;
-}
-
-function ChooseActiveLocationCard({ locations, proactive, maxLocations }: ChooseActiveLocationCardProps) {
-  const t = useTranslations("settings.billing.chooseLocation");
-  const { setActiveLocation, isUpdating } = useSetActiveLocation();
-
-  const connectedLocations = locations.filter((location) => location.status === "active");
-  // `billingPausedAt === null` is the actual billing-pause bookkeeping
-  // (`locations.billing_paused_at`), not an approximation — see `ConnectedLocation`'s own comment.
-  const currentlyActiveId =
-    connectedLocations.find((location) => location.billingPausedAt === null)?.id ?? null;
-  const [selected, setSelected] = useState<string | null>(currentlyActiveId);
-
-  return (
-    <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <LuMapPin className="text-primary size-4" />
-          {t("title")}
-        </CardTitle>
-        <CardDescription>
-          {t(proactive ? "proactiveDescription" : "reactiveDescription", { count: maxLocations })}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <RadioGroup value={selected ?? undefined} onValueChange={setSelected}>
-          {connectedLocations.map((location) => (
-            <div key={location.id} className="flex items-start gap-2.5">
-              <RadioGroupItem value={location.id} id={`billing-location-${location.id}`} className="mt-0.5" />
-              <Label
-                htmlFor={`billing-location-${location.id}`}
-                className="flex flex-col items-start gap-0.5 font-normal">
-                <span className="text-sm font-medium">{location.businessName}</span>
-                {location.address ? (
-                  <span className="text-muted-foreground text-[12.5px]">{location.address}</span>
-                ) : null}
-                {location.billingPausedAt === null ? (
-                  <span className="text-success text-[12px] font-medium">{t("currentlyActive")}</span>
-                ) : (
-                  <span className="text-muted-foreground text-[12px] font-medium">{t("paused")}</span>
-                )}
-              </Label>
-            </div>
-          ))}
-        </RadioGroup>
-        <Button
-          type="button"
-          className="w-fit"
-          disabled={!selected || isUpdating}
-          onClick={() => {
-            if (selected) void setActiveLocation(selected);
-          }}>
-          {t("confirm")}
-        </Button>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -220,12 +89,10 @@ export function BillingSettingsSection() {
   const { data: subscription, isLoading, isError, refetch } = useSubscription();
   const { data: plansResult } = useBillingPlans();
   const { data: receipts } = useReceipts();
-  const { state: connectionState } = useConnection();
-  const locationsQuery = useQuery({
-    queryKey: connectionLocationsQueryKey,
-    queryFn: ({ signal }) => ConnectionService.listLocations(signal),
-    enabled: connectionState?.connectionId != null,
-  });
+  // Same active-location pool the Business Switcher dropdown reads — reused rather than a second
+  // `useQuery` against the same `connectionLocationsQueryKey` (already filtered to `status ===
+  // "active"`, which is what every use of it below assumed anyway).
+  const { locations: connectedLocations } = useBusinessSwitcher();
   const checkoutMutation = useCreateCheckoutSession();
   const portalMutation = useCreatePortalSession();
   const cancelMutation = useCancelSubscription();
@@ -249,10 +116,7 @@ export function BillingSettingsSection() {
 
   const isPaid = subscription.planCode === "paid";
   const freePlan = plansResult?.plans.find((plan) => plan.code === "free");
-  const connectedLocations = locationsQuery.data ?? [];
-  const connectedLocationCount = connectedLocations.filter(
-    (location) => location.status === "active",
-  ).length;
+  const connectedLocationCount = connectedLocations.length;
 
   // Reactive: already back on a capped plan and holding more connections than it allows (some are
   // silently `billing_paused_at`-paused server-side already — see this component's top note).

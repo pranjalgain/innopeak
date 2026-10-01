@@ -29,7 +29,18 @@ export type DrizzleTransaction = Parameters<Parameters<DrizzleDB['transaction']>
 @Injectable()
 export class DBService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DBService.name);
-  private readonly pool: Pool;
+  /**
+   * Exposed (not `private`) for the one case `db`/`db.transaction()` can't cover: a session-level
+   * advisory lock (`pg_advisory_lock`/`pg_advisory_unlock`, not `_xact_lock`) held across several
+   * independent transactions. Every other `db.execute()`/`db.transaction()` call checks out an
+   * arbitrary connection from this pool per call — fine for a single statement or one bounded
+   * transaction, but a session lock's acquire and release must run on the exact same physical
+   * connection, or the unlock can silently no-op on a different session while the lock stays held
+   * on the first one until that pooled connection eventually closes. A caller needing this checks
+   * out its own client via `pool.connect()`, keeps it for the lock's whole lifetime, and releases
+   * it back when done — see `AuthRepository.runWithErasurePurgeLock`.
+   */
+  readonly pool: Pool;
   private _db!: DrizzleDB;
 
   constructor(config: ConfigService<EnvConfig>) {

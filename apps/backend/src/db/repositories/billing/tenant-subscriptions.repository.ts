@@ -1,29 +1,14 @@
-import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
+import { MESSAGES } from '@common/constants/messages.constants';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
-export interface TenantSubscriptionRow {
-  id: string;
-  tenantId: string;
-  planId: string;
-  stripeCustomerId: string | null;
-  stripeSubscriptionId: string | null;
-  status: SubscriptionStatus | null;
-  currentPeriodStart: string | null;
-  currentPeriodEnd: string | null;
-  cancelAtPeriodEnd: boolean;
-}
-
-export interface InsertSubscriptionInput {
-  tenantId: string;
-  planId: string;
-}
-
-/** Every field optional — callers (`TenantSubscriptionsDbService`) build a patch shaped for one
- *  webhook event at a time, never the whole row. */
-export type TenantSubscriptionPatch = Partial<Omit<TenantSubscriptionRow, 'id' | 'tenantId'>>;
+import type {
+  InsertSubscriptionInput,
+  TenantSubscriptionPatch,
+  TenantSubscriptionRow,
+} from './types/billing.type';
 
 const SUBSCRIPTION_COLUMNS = {
   id: schema.tenantSubscriptions.id,
@@ -80,7 +65,7 @@ export class TenantSubscriptionsRepository {
 
     const row = rows[0];
     if (!row) {
-      throw new Error('Failed to create tenant subscription');
+      throw new Error(MESSAGES.BILLING.FAILED_TO_CREATE_SUBSCRIPTION);
     }
     return row as TenantSubscriptionRow;
   }

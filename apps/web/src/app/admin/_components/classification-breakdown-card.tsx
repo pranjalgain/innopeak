@@ -1,5 +1,6 @@
 import { useFormatter, useTranslations } from "next-intl";
 
+import { cn } from "@/app/_libs/utils/cn";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ClassificationBreakdownPoint, ReviewClassification } from "@/types/domain";
 
@@ -42,7 +43,10 @@ export function ClassificationBreakdownCard({ breakdown }: ClassificationBreakdo
               <div key={point.classification} className="flex items-center justify-between gap-3 py-1">
                 <span className="flex min-w-0 items-center gap-2 text-sm">
                   <span
-                    className={`size-2 shrink-0 rounded-full ${DOT_CLASSNAME[point.classification] ?? DEFAULT_DOT_CLASSNAME}`}
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      DOT_CLASSNAME[point.classification] ?? DEFAULT_DOT_CLASSNAME,
+                    )}
                   />
                   <span className="truncate">{t(`classifications.${point.classification}`)}</span>
                 </span>

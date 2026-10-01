@@ -32,6 +32,8 @@ import {
 // @ts-ignore
 import type { AdminBillingSummaryResponseDto } from '../models';
 // @ts-ignore
+import type { BillingWebhookEventListResponseDto } from '../models';
+// @ts-ignore
 import type { HasPaidTenantsResponseDto } from '../models';
 /**
  * AdminBillingApi - axios parameter creator
@@ -41,7 +43,7 @@ export const AdminBillingApiAxiosParamCreator = function (
 ) {
   return {
     /**
-     * Plan split, subscription status breakdown, Free-to-Paid upgrade trend, at-risk (past-due) subscriptions and recent Stripe webhook activity — the one place any of billing_plans/tenant_subscriptions/stripe_webhook_events gets an admin-facing read.
+     * Plan split, subscription status breakdown, Free-to-Paid upgrade trend, and at-risk (past-due) subscriptions — the one place any of billing_plans/tenant_subscriptions gets an admin-facing read. Webhook activity is a separate, paginated endpoint — see ApiListBillingWebhookEvents.
      * @summary Platform-wide billing statistics
      * @param {number} [months] How many trailing calendar months the &#x60;upgradeTrend&#x60; series covers, counting back from the current one (inclusive). The other summary figures are all-time, not windowed by this.
      * @param {*} [options] Override http request option.
@@ -136,6 +138,69 @@ export const AdminBillingApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
+    /**
+     * The Stripe webhook deliveries (`stripe_webhook_events`) `BillingWebhooksService` actually acts on, newest first, resolved to the tenant its Stripe customer id belongs to where possible (null for an orphan delivery). Every other Stripe event type this app receives and ignores is out of scope for this endpoint entirely — a platform admin has no use for that raw traffic; debugging it is an engineering concern for Stripe\'s own Dashboard event log or backend logs instead. `type` narrows to one exact handled event type, by StripeWebhookEventType\'s own key name rather than the raw Stripe wire string.
+     * @summary Paginated, filterable Stripe webhook activity
+     * @param {number} [page]
+     * @param {number} [pageSize]
+     * @param {AdminBillingControllerListWebhookEventsV1TypeEnum} [type] One of StripeWebhookEventType\&#39;s own key names, not Stripe\&#39;s raw dotted wire format — this app\&#39;s own filter vocabulary never leaks Stripe\&#39;s internal naming into a URL. Mapped to the matching raw type internally before it reaches the repository.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminBillingControllerListWebhookEventsV1: async (
+      page?: number,
+      pageSize?: number,
+      type?: AdminBillingControllerListWebhookEventsV1TypeEnum,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/admin/billing/webhook-events`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      if (page !== undefined) {
+        localVarQueryParameter['page'] = page;
+      }
+
+      if (pageSize !== undefined) {
+        localVarQueryParameter['pageSize'] = pageSize;
+      }
+
+      if (type !== undefined) {
+        localVarQueryParameter['type'] = type;
+      }
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
   };
 };
 
@@ -147,7 +212,7 @@ export const AdminBillingApiFp = function (configuration?: Configuration) {
     AdminBillingApiAxiosParamCreator(configuration);
   return {
     /**
-     * Plan split, subscription status breakdown, Free-to-Paid upgrade trend, at-risk (past-due) subscriptions and recent Stripe webhook activity — the one place any of billing_plans/tenant_subscriptions/stripe_webhook_events gets an admin-facing read.
+     * Plan split, subscription status breakdown, Free-to-Paid upgrade trend, and at-risk (past-due) subscriptions — the one place any of billing_plans/tenant_subscriptions gets an admin-facing read. Webhook activity is a separate, paginated endpoint — see ApiListBillingWebhookEvents.
      * @summary Platform-wide billing statistics
      * @param {number} [months] How many trailing calendar months the &#x60;upgradeTrend&#x60; series covers, counting back from the current one (inclusive). The other summary figures are all-time, not windowed by this.
      * @param {*} [options] Override http request option.
@@ -211,6 +276,46 @@ export const AdminBillingApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
+    /**
+     * The Stripe webhook deliveries (`stripe_webhook_events`) `BillingWebhooksService` actually acts on, newest first, resolved to the tenant its Stripe customer id belongs to where possible (null for an orphan delivery). Every other Stripe event type this app receives and ignores is out of scope for this endpoint entirely — a platform admin has no use for that raw traffic; debugging it is an engineering concern for Stripe\'s own Dashboard event log or backend logs instead. `type` narrows to one exact handled event type, by StripeWebhookEventType\'s own key name rather than the raw Stripe wire string.
+     * @summary Paginated, filterable Stripe webhook activity
+     * @param {number} [page]
+     * @param {number} [pageSize]
+     * @param {AdminBillingControllerListWebhookEventsV1TypeEnum} [type] One of StripeWebhookEventType\&#39;s own key names, not Stripe\&#39;s raw dotted wire format — this app\&#39;s own filter vocabulary never leaks Stripe\&#39;s internal naming into a URL. Mapped to the matching raw type internally before it reaches the repository.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async adminBillingControllerListWebhookEventsV1(
+      page?: number,
+      pageSize?: number,
+      type?: AdminBillingControllerListWebhookEventsV1TypeEnum,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<BillingWebhookEventListResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.adminBillingControllerListWebhookEventsV1(
+          page,
+          pageSize,
+          type,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminBillingApi.adminBillingControllerListWebhookEventsV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
   };
 };
 
@@ -225,7 +330,7 @@ export const AdminBillingApiFactory = function (
   const localVarFp = AdminBillingApiFp(configuration);
   return {
     /**
-     * Plan split, subscription status breakdown, Free-to-Paid upgrade trend, at-risk (past-due) subscriptions and recent Stripe webhook activity — the one place any of billing_plans/tenant_subscriptions/stripe_webhook_events gets an admin-facing read.
+     * Plan split, subscription status breakdown, Free-to-Paid upgrade trend, and at-risk (past-due) subscriptions — the one place any of billing_plans/tenant_subscriptions gets an admin-facing read. Webhook activity is a separate, paginated endpoint — see ApiListBillingWebhookEvents.
      * @summary Platform-wide billing statistics
      * @param {AdminBillingApiAdminBillingControllerGetSummaryV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -252,6 +357,26 @@ export const AdminBillingApiFactory = function (
         .adminBillingControllerHasPaidTenantsV1(options)
         .then((request) => request(axios, basePath));
     },
+    /**
+     * The Stripe webhook deliveries (`stripe_webhook_events`) `BillingWebhooksService` actually acts on, newest first, resolved to the tenant its Stripe customer id belongs to where possible (null for an orphan delivery). Every other Stripe event type this app receives and ignores is out of scope for this endpoint entirely — a platform admin has no use for that raw traffic; debugging it is an engineering concern for Stripe\'s own Dashboard event log or backend logs instead. `type` narrows to one exact handled event type, by StripeWebhookEventType\'s own key name rather than the raw Stripe wire string.
+     * @summary Paginated, filterable Stripe webhook activity
+     * @param {AdminBillingApiAdminBillingControllerListWebhookEventsV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminBillingControllerListWebhookEventsV1(
+      requestParameters: AdminBillingApiAdminBillingControllerListWebhookEventsV1Request = {},
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<BillingWebhookEventListResponseDto> {
+      return localVarFp
+        .adminBillingControllerListWebhookEventsV1(
+          requestParameters.page,
+          requestParameters.pageSize,
+          requestParameters.type,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
   };
 };
 
@@ -260,7 +385,7 @@ export const AdminBillingApiFactory = function (
  */
 export interface AdminBillingApiInterface {
   /**
-   * Plan split, subscription status breakdown, Free-to-Paid upgrade trend, at-risk (past-due) subscriptions and recent Stripe webhook activity — the one place any of billing_plans/tenant_subscriptions/stripe_webhook_events gets an admin-facing read.
+   * Plan split, subscription status breakdown, Free-to-Paid upgrade trend, and at-risk (past-due) subscriptions — the one place any of billing_plans/tenant_subscriptions gets an admin-facing read. Webhook activity is a separate, paginated endpoint — see ApiListBillingWebhookEvents.
    * @summary Platform-wide billing statistics
    * @param {AdminBillingApiAdminBillingControllerGetSummaryV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -280,6 +405,18 @@ export interface AdminBillingApiInterface {
   adminBillingControllerHasPaidTenantsV1(
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<HasPaidTenantsResponseDto>;
+
+  /**
+   * The Stripe webhook deliveries (`stripe_webhook_events`) `BillingWebhooksService` actually acts on, newest first, resolved to the tenant its Stripe customer id belongs to where possible (null for an orphan delivery). Every other Stripe event type this app receives and ignores is out of scope for this endpoint entirely — a platform admin has no use for that raw traffic; debugging it is an engineering concern for Stripe\'s own Dashboard event log or backend logs instead. `type` narrows to one exact handled event type, by StripeWebhookEventType\'s own key name rather than the raw Stripe wire string.
+   * @summary Paginated, filterable Stripe webhook activity
+   * @param {AdminBillingApiAdminBillingControllerListWebhookEventsV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  adminBillingControllerListWebhookEventsV1(
+    requestParameters?: AdminBillingApiAdminBillingControllerListWebhookEventsV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<BillingWebhookEventListResponseDto>;
 }
 
 /**
@@ -293,6 +430,20 @@ export interface AdminBillingApiAdminBillingControllerGetSummaryV1Request {
 }
 
 /**
+ * Request parameters for adminBillingControllerListWebhookEventsV1 operation in AdminBillingApi.
+ */
+export interface AdminBillingApiAdminBillingControllerListWebhookEventsV1Request {
+  readonly page?: number;
+
+  readonly pageSize?: number;
+
+  /**
+   * One of StripeWebhookEventType\&#39;s own key names, not Stripe\&#39;s raw dotted wire format — this app\&#39;s own filter vocabulary never leaks Stripe\&#39;s internal naming into a URL. Mapped to the matching raw type internally before it reaches the repository.
+   */
+  readonly type?: AdminBillingControllerListWebhookEventsV1TypeEnum;
+}
+
+/**
  * AdminBillingApi - object-oriented interface
  */
 export class AdminBillingApi
@@ -300,7 +451,7 @@ export class AdminBillingApi
   implements AdminBillingApiInterface
 {
   /**
-   * Plan split, subscription status breakdown, Free-to-Paid upgrade trend, at-risk (past-due) subscriptions and recent Stripe webhook activity — the one place any of billing_plans/tenant_subscriptions/stripe_webhook_events gets an admin-facing read.
+   * Plan split, subscription status breakdown, Free-to-Paid upgrade trend, and at-risk (past-due) subscriptions — the one place any of billing_plans/tenant_subscriptions gets an admin-facing read. Webhook activity is a separate, paginated endpoint — see ApiListBillingWebhookEvents.
    * @summary Platform-wide billing statistics
    * @param {AdminBillingApiAdminBillingControllerGetSummaryV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -328,4 +479,35 @@ export class AdminBillingApi
       .adminBillingControllerHasPaidTenantsV1(options)
       .then((request) => request(this.axios, this.basePath));
   }
+
+  /**
+   * The Stripe webhook deliveries (`stripe_webhook_events`) `BillingWebhooksService` actually acts on, newest first, resolved to the tenant its Stripe customer id belongs to where possible (null for an orphan delivery). Every other Stripe event type this app receives and ignores is out of scope for this endpoint entirely — a platform admin has no use for that raw traffic; debugging it is an engineering concern for Stripe\'s own Dashboard event log or backend logs instead. `type` narrows to one exact handled event type, by StripeWebhookEventType\'s own key name rather than the raw Stripe wire string.
+   * @summary Paginated, filterable Stripe webhook activity
+   * @param {AdminBillingApiAdminBillingControllerListWebhookEventsV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public adminBillingControllerListWebhookEventsV1(
+    requestParameters: AdminBillingApiAdminBillingControllerListWebhookEventsV1Request = {},
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminBillingApiFp(this.configuration)
+      .adminBillingControllerListWebhookEventsV1(
+        requestParameters.page,
+        requestParameters.pageSize,
+        requestParameters.type,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
 }
+
+export const AdminBillingControllerListWebhookEventsV1TypeEnum = {
+  CheckoutSessionCompleted: 'CHECKOUT_SESSION_COMPLETED',
+  SubscriptionUpdated: 'SUBSCRIPTION_UPDATED',
+  SubscriptionDeleted: 'SUBSCRIPTION_DELETED',
+  InvoicePaymentFailed: 'INVOICE_PAYMENT_FAILED',
+  InvoicePaymentSucceeded: 'INVOICE_PAYMENT_SUCCEEDED',
+} as const;
+export type AdminBillingControllerListWebhookEventsV1TypeEnum =
+  (typeof AdminBillingControllerListWebhookEventsV1TypeEnum)[keyof typeof AdminBillingControllerListWebhookEventsV1TypeEnum];

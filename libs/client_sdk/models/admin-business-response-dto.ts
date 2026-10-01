@@ -14,11 +14,16 @@ export interface AdminBusinessResponseDto {
   ownerEmail: string;
   userCount: number;
   createdAt: string;
+  /**
+   * Set once erasure has been requested for this tenant — null means no erasure is pending. Combine with `ERASURE_GRACE_PERIOD_DAYS` to show when it takes effect.
+   */
+  erasureRequestedAt?: object | null;
 }
 
 export const AdminBusinessResponseDtoStatusEnum = {
   Active: 'active',
   Suspended: 'suspended',
+  Erased: 'erased',
 } as const;
 
 export type AdminBusinessResponseDtoStatusEnum =

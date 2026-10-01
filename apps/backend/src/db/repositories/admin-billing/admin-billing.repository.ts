@@ -1,46 +1,18 @@
+import { HANDLED_STRIPE_EVENT_TYPES, StripeWebhookEventType } from '@billing/types/billing.type';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, count, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 
-export interface PlanSplitCounts {
-  freeCount: number;
-  paidCount: number;
-}
-
-export interface SubscriptionStatusCounts {
-  activeCount: number;
-  pastDueCount: number;
-  canceledCount: number;
-  incompleteCount: number;
-}
-
-/** One calendar month's Free→Paid conversions — counted from `stripe_webhook_events` rows of type
- *  `checkout.session.completed` (the one event this app's webhook handler ever upgrades a tenant
- *  on), same "only non-zero months returned" contract as `SignupTrendPoint`. */
-export interface UpgradeTrendPoint {
-  year: number;
-  /** 1-12. */
-  month: number;
-  count: number;
-}
-
-export interface AtRiskSubscriptionRow {
-  tenantId: string;
-  businessName: string;
-  status: SubscriptionStatus;
-  currentPeriodEnd: string | null;
-}
-
-export interface WebhookEventRow {
-  id: string;
-  type: string;
-  processedAt: string;
-}
-
-const CHECKOUT_COMPLETED_EVENT_TYPE = 'checkout.session.completed';
+import type {
+  AtRiskSubscriptionRow,
+  PlanSplitCounts,
+  SubscriptionStatusCounts,
+  UpgradeTrendPoint,
+  WebhookEventRow,
+} from './types/admin-billing.type';
 
 /**
  * `billing_plans`/`tenant_subscriptions`/`stripe_webhook_events` aggregated platform-wide for the
@@ -149,7 +121,7 @@ export class AdminBillingRepository {
       .from(schema.stripeWebhookEvents)
       .where(
         and(
-          eq(schema.stripeWebhookEvents.type, CHECKOUT_COMPLETED_EVENT_TYPE),
+          eq(schema.stripeWebhookEvents.type, StripeWebhookEventType.CHECKOUT_SESSION_COMPLETED),
           gte(schema.stripeWebhookEvents.processedAt, windowStart)
         )
       )
@@ -175,17 +147,61 @@ export class AdminBillingRepository {
     return rows as AtRiskSubscriptionRow[];
   }
 
-  async getRecentWebhookEvents(limit: number): Promise<WebhookEventRow[]> {
-    const rows = await this.dbService.db
-      .select({
-        id: schema.stripeWebhookEvents.id,
-        type: schema.stripeWebhookEvents.type,
-        processedAt: schema.stripeWebhookEvents.processedAt,
-      })
-      .from(schema.stripeWebhookEvents)
-      .orderBy(desc(schema.stripeWebhookEvents.processedAt))
-      .limit(limit);
+  /**
+   * `stripe_customer_id` is only ever set for a delivery this app could attribute to a real
+   * customer id (see `BillingWebhooksService.handleEvent`) — left joins throughout, so an orphan
+   * event (no matching `tenant_subscriptions` row) or an event predating this column still comes
+   * back as its own row with `tenantId`/`businessName` both `null`, rather than being dropped.
+   *
+   * Always scoped to `HANDLED_STRIPE_EVENT_TYPES` — the raw Stripe events this app receives and
+   * ignores are never surfaced on this admin view at all (an engineering debugging concern for
+   * Stripe's own Dashboard event log or backend logs, not something a platform admin needs).
+   * Filtered via `IN` rather than a stored column — that list is small and changes only when
+   * `BillingWebhooksService` itself grows a new branch, so a derived filter stays correct by
+   * construction instead of needing a migration/backfill every time it does.
+   */
+  async listWebhookEvents(input: {
+    page: number;
+    pageSize: number;
+    type?: string | undefined;
+  }): Promise<{ events: WebhookEventRow[]; total: number }> {
+    const conditions = [inArray(schema.stripeWebhookEvents.type, [...HANDLED_STRIPE_EVENT_TYPES])];
+    if (input.type) {
+      conditions.push(eq(schema.stripeWebhookEvents.type, input.type));
+    }
+    const where = and(...conditions);
 
-    return rows;
+    const [rows, totals] = await Promise.all([
+      this.dbService.db
+        .select({
+          id: schema.stripeWebhookEvents.id,
+          type: schema.stripeWebhookEvents.type,
+          processedAt: schema.stripeWebhookEvents.processedAt,
+          tenantId: schema.tenants.id,
+          businessName: schema.tenants.name,
+        })
+        .from(schema.stripeWebhookEvents)
+        .leftJoin(
+          schema.tenantSubscriptions,
+          eq(
+            schema.stripeWebhookEvents.stripeCustomerId,
+            schema.tenantSubscriptions.stripeCustomerId
+          )
+        )
+        .leftJoin(schema.tenants, eq(schema.tenantSubscriptions.tenantId, schema.tenants.id))
+        .where(where)
+        .orderBy(desc(schema.stripeWebhookEvents.processedAt))
+        .limit(input.pageSize)
+        .offset((input.page - 1) * input.pageSize),
+      this.dbService.db.select({ value: count() }).from(schema.stripeWebhookEvents).where(where),
+    ]);
+
+    const events = rows.map(row => ({
+      ...row,
+      tenantId: row.tenantId ?? null,
+      businessName: row.businessName ?? null,
+    }));
+
+    return { events, total: totals[0]?.value ?? 0 };
   }
 }

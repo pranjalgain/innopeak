@@ -6,7 +6,8 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
 import { AdminBusinessesDbService } from './admin-businesses.db-service';
-import { AdminBusinessesRepository, type AdminBusinessRow } from './admin-businesses.repository';
+import { AdminBusinessesRepository } from './admin-businesses.repository';
+import type { AdminBusinessRow } from './types/admin-businesses.type';
 
 describe('AdminBusinessesDbService', () => {
   let target: AdminBusinessesDbService;
@@ -16,6 +17,8 @@ describe('AdminBusinessesDbService', () => {
     setStatus: jest.Mock;
     count: jest.Mock;
     findRecent: jest.Mock;
+    requestErasure: jest.Mock;
+    cancelErasure: jest.Mock;
   };
 
   function row(overrides: Partial<AdminBusinessRow> = {}): AdminBusinessRow {
@@ -29,6 +32,7 @@ describe('AdminBusinessesDbService', () => {
       createdAt: '2025-11-02T09:00:00.000Z',
       latestConnectionStatus: ReviewProviderConnectionStatus.ACTIVE,
       latestConnectionDisconnectedAt: null,
+      erasureRequestedAt: null,
       ...overrides,
     };
   }
@@ -40,6 +44,8 @@ describe('AdminBusinessesDbService', () => {
       setStatus: jest.fn(),
       count: jest.fn(),
       findRecent: jest.fn(),
+      requestErasure: jest.fn(),
+      cancelErasure: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -71,6 +77,14 @@ describe('AdminBusinessesDbService', () => {
       const [summary] = await target.findAll();
 
       expect(summary?.status).toBe(BusinessStatus.ACTIVE);
+    });
+
+    it('maps TenantStatus.ERASED to BusinessStatus.ERASED', async () => {
+      adminBusinessesRepository.findAll.mockResolvedValue([row({ status: TenantStatus.ERASED })]);
+
+      const [summary] = await target.findAll();
+
+      expect(summary?.status).toBe(BusinessStatus.ERASED);
     });
   });
 
@@ -131,6 +145,14 @@ describe('AdminBusinessesDbService', () => {
     });
   });
 
+  it('forwards the search term to the repository', async () => {
+    adminBusinessesRepository.findAll.mockResolvedValue([row()]);
+
+    await target.findAll('coastal');
+
+    expect(adminBusinessesRepository.findAll).toHaveBeenCalledWith('coastal');
+  });
+
   it('falls back owner name/email to empty strings rather than null', async () => {
     adminBusinessesRepository.findAll.mockResolvedValue([
       row({ ownerName: null, ownerEmail: null }),
@@ -164,20 +186,32 @@ describe('AdminBusinessesDbService', () => {
   });
 
   describe('setStatus', () => {
-    it('returns null without re-reading when no tenant matched', async () => {
-      adminBusinessesRepository.setStatus.mockResolvedValue(false);
+    it('returns not_found without re-reading when no tenant matched', async () => {
+      adminBusinessesRepository.setStatus.mockResolvedValue({ outcome: 'not_found' });
 
       const result = await target.setStatus({
         tenantId: 'missing',
         status: TenantStatus.SUSPENDED,
       });
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ outcome: 'not_found' });
+      expect(adminBusinessesRepository.findById).not.toHaveBeenCalled();
+    });
+
+    it('returns erasure_pending without re-reading when the tenant has a pending erasure request', async () => {
+      adminBusinessesRepository.setStatus.mockResolvedValue({ outcome: 'erasure_pending' });
+
+      const result = await target.setStatus({
+        tenantId: 'tenant-1',
+        status: TenantStatus.SUSPENDED,
+      });
+
+      expect(result).toEqual({ outcome: 'erasure_pending' });
       expect(adminBusinessesRepository.findById).not.toHaveBeenCalled();
     });
 
     it('re-reads and maps the row after a successful update', async () => {
-      adminBusinessesRepository.setStatus.mockResolvedValue(true);
+      adminBusinessesRepository.setStatus.mockResolvedValue({ outcome: 'updated' });
       adminBusinessesRepository.findById.mockResolvedValue(row({ status: TenantStatus.SUSPENDED }));
 
       const result = await target.setStatus({
@@ -185,7 +219,56 @@ describe('AdminBusinessesDbService', () => {
         status: TenantStatus.SUSPENDED,
       });
 
+      expect(result).toEqual({
+        outcome: 'updated',
+        summary: expect.objectContaining({ status: BusinessStatus.SUSPENDED }),
+      });
+    });
+  });
+
+  describe('requestErasure', () => {
+    it('returns null without re-reading when no tenant matched', async () => {
+      adminBusinessesRepository.requestErasure.mockResolvedValue(false);
+
+      const result = await target.requestErasure('missing');
+
+      expect(result).toBeNull();
+      expect(adminBusinessesRepository.findById).not.toHaveBeenCalled();
+    });
+
+    it('re-reads and maps the row after a successful request', async () => {
+      adminBusinessesRepository.requestErasure.mockResolvedValue(true);
+      adminBusinessesRepository.findById.mockResolvedValue(
+        row({ status: TenantStatus.SUSPENDED, erasureRequestedAt: '2026-03-05T09:12:00.000Z' })
+      );
+
+      const result = await target.requestErasure('tenant-1');
+
       expect(result?.status).toBe(BusinessStatus.SUSPENDED);
+      expect(result?.erasureRequestedAt).toBe('2026-03-05T09:12:00.000Z');
+    });
+  });
+
+  describe('cancelErasure', () => {
+    it('returns null without re-reading when no tenant matched', async () => {
+      adminBusinessesRepository.cancelErasure.mockResolvedValue(false);
+
+      const result = await target.cancelErasure('missing');
+
+      expect(result).toBeNull();
+      expect(adminBusinessesRepository.findById).not.toHaveBeenCalled();
+    });
+
+    it('re-reads and maps the row after a successful cancel', async () => {
+      adminBusinessesRepository.cancelErasure.mockResolvedValue(true);
+      adminBusinessesRepository.findById.mockResolvedValue(
+        row({ status: TenantStatus.ACTIVE, erasureRequestedAt: null })
+      );
+
+      const result = await target.cancelErasure('tenant-1');
+
+      expect(result?.status).toBe(BusinessStatus.ACTIVE);
+      expect(result?.erasureRequestedAt).toBeNull();
     });
   });
 });

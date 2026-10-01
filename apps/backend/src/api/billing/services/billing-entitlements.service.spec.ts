@@ -5,7 +5,7 @@ import type { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import type { BillingPlansDbService } from '@db/repositories/billing/billing-plans.db-service';
 import type { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
 import type { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
-import type { LocationRow } from '@db/repositories/connections/connections.repository';
+import type { LocationRow } from '@db/repositories/connections/types/connections.type';
 import type { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 
 /** Opaque stand-in for the real Drizzle transaction handle `withLocationSelectionLock` threads

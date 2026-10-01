@@ -4,9 +4,9 @@ import { useTranslations } from "next-intl";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
-import { ApiError } from "@/app/_libs/services/api-error";
-import { avatarUploadErrorMessage } from "@/app/_libs/services/avatar-upload.service";
+import { AvatarUploadService } from "@/app/_libs/services/avatar-upload.service";
 import { TenantOwnerProfileService } from "@/app/_libs/services/tenant-owner-profile.service";
+import { toastApiError } from "@/hooks/common/toast-api-error";
 import { useQueryErrorToast } from "@/hooks/common/use-query-error-toast";
 import type { TenantOwnerProfile } from "@/types/domain";
 
@@ -62,7 +62,7 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
         // The provider's own refusal ("File size too large", "unsupported format") is the only
         // thing that tells the user to pick a *different* file — collapsing it into the generic
         // "could not save" left them retrying the same oversized photo forever.
-        toast.error(avatarUploadErrorMessage(error, t("updateFailed")));
+        toast.error(AvatarUploadService.errorMessage(error, t("updateFailed")));
       }
     },
     [t, updateAvatarMutation, queryClient],
@@ -81,13 +81,7 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
         toast.success(t("passwordChanged"));
         return true;
       } catch (error) {
-        if (error instanceof ApiError && error.statusCode === 401) {
-          toast.error(t("currentPasswordIncorrect"));
-        } else if (error instanceof ApiError && error.statusCode === 400) {
-          toast.error(error.message);
-        } else {
-          toast.error(t("updateFailed"));
-        }
+        toastApiError(error, { 401: t("currentPasswordIncorrect"), 400: null }, t("updateFailed"));
         return false;
       }
     },
@@ -104,11 +98,11 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
       toast.success(t("otpSent"));
       return true;
     } catch (error) {
-      if (error instanceof ApiError && error.statusCode === 400) {
-        toast.error(error.message);
-      } else {
-        toast.error(t("updateFailed"));
-      }
+      // 429 is its own case, not a server fault: both set-password routes carry a 5/minute
+      // throttle (see the admin twin, `usePlatformAdminProfile`), and "Could not save this change"
+      // told an owner who had just clicked resend once too often to keep trying, which is exactly
+      // the wrong advice.
+      toastApiError(error, { 429: t("tooManyRequests"), 400: null }, t("updateFailed"));
       return false;
     }
   }, [t, requestSetPasswordOtpMutation]);
@@ -128,11 +122,10 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
         toast.success(t("passwordSet"));
         return true;
       } catch (error) {
-        if (error instanceof ApiError && error.statusCode === 400) {
-          toast.error(error.message);
-        } else {
-          toast.error(t("updateFailed"));
-        }
+        // Same three-way split as `requestSetPasswordOtp`: the backend answers 429 both for the
+        // route's own throttle and for a spent OTP attempt budget, and either one means "wait",
+        // not "something broke".
+        toastApiError(error, { 429: t("tooManyRequests"), 400: null }, t("updateFailed"));
         return false;
       }
     },

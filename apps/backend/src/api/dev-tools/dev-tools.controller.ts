@@ -7,12 +7,7 @@ import { ApiExcludeController, ApiExcludeEndpoint, ApiTags } from '@nestjs/swagg
 import { Response } from 'express';
 
 import { SqsQueueStatusService } from './services/sqs-queue-status.service';
-
-interface DevTool {
-  name: string;
-  url: string;
-  icon: string;
-}
+import type { DevTool } from './types/dev-tools.type';
 
 @Controller({ path: RouteNames.DEV_TOOLS, version: VERSION_NEUTRAL })
 @ApiTags('Dev Tools')

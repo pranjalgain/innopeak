@@ -48,4 +48,12 @@ export class CronScheduler implements OnModuleInit {
     this.logger.debug('Scheduling reviewer retention purge job');
     await this.cronQueue.addReviewerRetentionPurgeJob();
   }
+
+  /** GDPR erasure grace-period sweep — its own slot, off every other daily job, same reasoning as
+   *  `scheduleAuthTokenCleanup`/`scheduleReviewerRetentionPurge`. */
+  @Cron(CronExpression.EVERY_DAY_AT_4AM)
+  async scheduleErasurePurge(): Promise<void> {
+    this.logger.debug('Scheduling erasure purge job');
+    await this.cronQueue.addErasurePurgeJob();
+  }
 }

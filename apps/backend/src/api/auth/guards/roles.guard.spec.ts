@@ -6,7 +6,7 @@ import { RolesGuard } from './roles.guard';
 import type { RoleRequirement } from '../decorators/roles.decorator';
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { UserRole } from '../enums/user-role.enum';
-import type { AuthUser } from '../types/auth-user.type';
+import type { AuthUser } from '../types/auth.type';
 
 function contextWithUser(user: AuthUser | undefined, requiredRoles?: RoleRequirement[]) {
   const reflector = {

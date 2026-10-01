@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useFormatter, useTranslations } from "next-intl";
 import { LuBuilding2, LuSearch } from "react-icons/lu";
 
+import { ERASURE_GRACE_PERIOD_DAYS } from "@/app/_libs/constants/erasure";
 import { cn } from "@/app/_libs/utils/cn";
 import { EmptyState } from "@/components/common/empty-state";
 import { LoadErrorState } from "@/components/common/load-error-state";
@@ -15,16 +16,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAdminBusinesses } from "@/hooks/admin/use-admin-businesses";
 import { usePagination } from "@/hooks/common/use-pagination";
-import { useSearchFilter } from "@/hooks/common/use-search-filter";
 import type { AdminBusiness, BusinessStatus } from "@/types/domain";
 
 const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
 
-const BUSINESS_SEARCH_FIELDS = ["name", "ownerName"] as const satisfies readonly (keyof AdminBusiness)[];
-
 const STATUS_BADGE_CLASSNAME: Record<BusinessStatus, string> = {
   active: "border-transparent bg-success-soft text-success",
   suspended: "border-transparent bg-destructive-soft text-destructive",
+  erased: "border-transparent bg-muted text-muted-foreground",
 };
 
 function AdminBusinessesSkeleton() {
@@ -65,16 +64,62 @@ function AdminBusinessesNoResults({ onClearSearch }: { onClearSearch: () => void
   );
 }
 
+/** A plain, static countdown date — `erasureRequestedAt + ERASURE_GRACE_PERIOD_DAYS`, formatted
+ *  the same way every other timestamp on this screen already is. No live ticking timer, no
+ *  polling — same convention as `members-settings-section.tsx`'s own pending-removal note. */
+function ErasurePendingNote({ erasureRequestedAt }: { erasureRequestedAt: string }) {
+  const t = useTranslations("adminBusinesses");
+  const format = useFormatter();
+  const takesEffectOn = new Date(
+    new Date(erasureRequestedAt).getTime() + ERASURE_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000,
+  );
+
+  return (
+    <p className="text-[12.5px] text-muted-foreground">
+      {t("erasurePending", { date: format.dateTime(takesEffectOn, DATE_FORMAT) })}
+    </p>
+  );
+}
+
 interface BusinessActionsMenuProps {
   business: AdminBusiness;
   onSuspend: (id: string) => void;
   onReactivate: (id: string) => void;
+  onRequestErasure: (id: string) => void;
+  onCancelErasure: (id: string) => void;
 }
 
 // See `RowActionsMenu`'s own comment for why the confirm dialog is a sibling of `DropdownMenu`
 // rather than nested inside `DropdownMenuContent`.
-function BusinessActionsMenu({ business, onSuspend, onReactivate }: BusinessActionsMenuProps) {
+function BusinessActionsMenu({
+  business,
+  onSuspend,
+  onReactivate,
+  onRequestErasure,
+  onCancelErasure,
+}: BusinessActionsMenuProps) {
   const t = useTranslations("adminBusinesses");
+
+  // Erased is terminal — nothing left to do with this row.
+  if (business.status === "erased") return null;
+
+  // A pending erasure supersedes the ordinary suspend/reactivate action entirely: the only thing
+  // left to do with this row is cancel it, same mutual-exclusivity the tenant Settings > Members
+  // screen already uses for a pending member removal.
+  if (business.erasureRequestedAt) {
+    return (
+      <RowActionsMenu
+        ariaLabel={t("columns.actions")}
+        actionLabel={t("cancelErasure")}
+        confirmTitle={t("confirmCancelErasure.title", { name: business.name })}
+        confirmDescription={t("confirmCancelErasure.description")}
+        confirmLabel={t("cancelErasure")}
+        cancelLabel={t("cancel")}
+        onConfirm={() => onCancelErasure(business.id)}
+      />
+    );
+  }
+
   const isActive = business.status === "active";
 
   return (
@@ -92,6 +137,15 @@ function BusinessActionsMenu({ business, onSuspend, onReactivate }: BusinessActi
       cancelLabel={t("cancel")}
       destructive={isActive}
       onConfirm={() => (isActive ? onSuspend(business.id) : onReactivate(business.id))}
+      secondaryAction={{
+        label: t("requestErasure"),
+        variant: "destructive",
+        confirmTitle: t("confirmRequestErasure.title", { name: business.name }),
+        confirmDescription: t("confirmRequestErasure.description"),
+        confirmLabel: t("requestErasure"),
+        destructive: true,
+        onConfirm: () => onRequestErasure(business.id),
+      }}
     />
   );
 }
@@ -100,21 +154,33 @@ export function AdminBusinessesView() {
   const t = useTranslations("adminBusinesses");
   const tStatus = useTranslations("adminBusinesses.status");
   const format = useFormatter();
-  const { businesses, isLoading, isError, refetch, suspendBusiness, reactivateBusiness } =
-    useAdminBusinesses();
-  const { search, setSearch, filtered } = useSearchFilter(businesses, BUSINESS_SEARCH_FIELDS);
+  const {
+    businesses,
+    search,
+    setSearch,
+    isSearching,
+    isLoading,
+    isError,
+    refetch,
+    suspendBusiness,
+    reactivateBusiness,
+    requestErasure,
+    cancelErasure,
+  } = useAdminBusinesses();
 
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(filtered, 10);
+  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(businesses, 10);
 
   const suspend = (id: string) => void suspendBusiness(id);
   const reactivate = (id: string) => void reactivateBusiness(id);
+  const requestErasureFor = (id: string) => void requestErasure(id);
+  const cancelErasureFor = (id: string) => void cancelErasure(id);
 
   return (
     <div className="flex min-h-full flex-col gap-6 p-fluid-page">
-      {isLoading || isError || businesses.length === 0 ? null : (
+      {isLoading || isError || (businesses.length === 0 && !isSearching) ? null : (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            {t("resultCount", { count: filtered.length })}
+            {t("resultCount", { count: businesses.length })}
           </p>
           <div className="relative w-full sm:max-w-[280px]">
             <LuSearch className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -134,9 +200,11 @@ export function AdminBusinessesView() {
       ) : isError ? (
         <LoadErrorState onRetry={refetch} />
       ) : businesses.length === 0 ? (
-        <AdminBusinessesEmptyState />
-      ) : filtered.length === 0 ? (
-        <AdminBusinessesNoResults onClearSearch={() => setSearch("")} />
+        isSearching ? (
+          <AdminBusinessesNoResults onClearSearch={() => setSearch("")} />
+        ) : (
+          <AdminBusinessesEmptyState />
+        )
       ) : (
         <>
           {/* Desktop layout, `table-fixed` at `min-w-[820px]`. Held back to `xl:` (not `lg:`): at
@@ -175,6 +243,9 @@ export function AdminBusinessesView() {
                         <Badge variant="outline" className={STATUS_BADGE_CLASSNAME[business.status]}>
                           {tStatus(business.status)}
                         </Badge>
+                        {business.erasureRequestedAt && business.status !== "erased" ? (
+                          <ErasurePendingNote erasureRequestedAt={business.erasureRequestedAt} />
+                        ) : null}
                       </TableCell>
                       <TableCell className="truncate text-muted-foreground">{business.ownerName}</TableCell>
                       <TableCell>{business.userCount}</TableCell>
@@ -182,7 +253,13 @@ export function AdminBusinessesView() {
                         {format.dateTime(new Date(business.createdAt), DATE_FORMAT)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <BusinessActionsMenu business={business} onSuspend={suspend} onReactivate={reactivate} />
+                        <BusinessActionsMenu
+                          business={business}
+                          onSuspend={suspend}
+                          onReactivate={reactivate}
+                          onRequestErasure={requestErasureFor}
+                          onCancelErasure={cancelErasureFor}
+                        />
                       </TableCell>
                     </motion.tr>
                   ))}
@@ -210,6 +287,9 @@ export function AdminBusinessesView() {
                       {tStatus(business.status)}
                     </Badge>
                   </div>
+                  {business.erasureRequestedAt && business.status !== "erased" ? (
+                    <ErasurePendingNote erasureRequestedAt={business.erasureRequestedAt} />
+                  ) : null}
 
                   <p className="text-[13px] text-muted-foreground">{business.ownerName}</p>
 
@@ -223,7 +303,13 @@ export function AdminBusinessesView() {
                   </div>
 
                   <div className="mt-1 flex justify-end">
-                    <BusinessActionsMenu business={business} onSuspend={suspend} onReactivate={reactivate} />
+                    <BusinessActionsMenu
+                      business={business}
+                      onSuspend={suspend}
+                      onReactivate={reactivate}
+                      onRequestErasure={requestErasureFor}
+                      onCancelErasure={cancelErasureFor}
+                    />
                   </div>
                 </motion.div>
               ))}

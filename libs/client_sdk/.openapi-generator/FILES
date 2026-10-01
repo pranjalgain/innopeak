@@ -10,6 +10,7 @@ api/admin-overview-api.ts
 api/admin-settings-api.ts
 api/admin-statistics-api.ts
 api/admin-users-api.ts
+api/aiapi.ts
 api/auth-api.ts
 api/billing-api.ts
 api/connections-api.ts
@@ -35,6 +36,7 @@ models/admin-profile-response-dto.ts
 models/admin-signup-trend-point-response-dto.ts
 models/admin-statistics-summary-response-dto.ts
 models/admin-user-response-dto.ts
+models/approve-reply-dto.ts
 models/at-risk-subscription-response-dto.ts
 models/authenticated-user-dto.ts
 models/available-location-dto.ts
@@ -45,6 +47,7 @@ models/backfill-summary-dto.ts
 models/billing-plan-dto.ts
 models/billing-plans-response-dto.ts
 models/billing-profile-response-dto.ts
+models/billing-webhook-event-list-response-dto.ts
 models/billing-webhook-event-response-dto.ts
 models/blocklist-term-dto.ts
 models/blocklist-term-list-response-dto.ts
@@ -68,6 +71,8 @@ models/create-prompt-version-response-dto.ts
 models/current-run-dto.ts
 models/delete-blocklist-term-response-dto.ts
 models/disconnect-response-dto.ts
+models/generate-reply-dry-run-dto.ts
+models/generate-reply-dry-run-response-dto.ts
 models/get-prompt-stats-batch-dto.ts
 models/has-paid-tenants-response-dto.ts
 models/index.ts
@@ -78,6 +83,7 @@ models/location-list-response-dto.ts
 models/login-dto.ts
 models/member-invite-preview-dto.ts
 models/metrics-dto.ts
+models/mock-review-dto.ts
 models/notification-dto.ts
 models/notification-list-response-dto.ts
 models/notification-read-response-dto.ts
@@ -85,6 +91,7 @@ models/notification-recipient-dto.ts
 models/notification-recipient-list-response-dto.ts
 models/pagination-meta-dto.ts
 models/payment-method-response-dto.ts
+models/platform-activity-list-response-dto.ts
 models/platform-activity-response-dto.ts
 models/platform-settings-response-dto.ts
 models/prompt-created-by-dto.ts

@@ -18,7 +18,7 @@ import {
   ApiMarkNotificationRead,
 } from './swagger/notifications.swagger';
 
-import type { AuthUser } from '../auth/types/auth-user.type';
+import type { AuthUser } from '../auth/types/auth.type';
 
 /**
  * No `@Roles()` gate — every authenticated tenant user reads their own feed, owner or member

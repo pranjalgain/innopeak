@@ -5,24 +5,28 @@ import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable, Logger } from '@nestjs/common';
 
-import {
-  type GenerationCandidateRow,
-  type InsertGeneratedResponseInput,
-  ReviewSyncRepository,
-  type SyncRunRow,
-} from './review-sync.repository';
-import {
-  type FindResponsesForReviewsInput,
-  type FindReviewByIdForTenantInput,
-  type GetPromptVersionStatsBatchInput,
-  type GetPromptVersionStatsInput,
-  type ListReviewsFilter,
-  type PromptVersionStatsBatchRow,
-  type PromptVersionStatsRow,
-  type ReviewResponseRow,
-  type ReviewRow,
-  ReviewsReadRepository,
-} from './reviews-read.repository';
+import { ReviewSyncRepository } from './review-sync.repository';
+import { ReviewsReadRepository } from './reviews-read.repository';
+import type {
+  ApproveResponseInput,
+  FindResponseForTenantInput,
+  FindResponsesForReviewsInput,
+  FindReviewByIdForTenantInput,
+  GenerationCandidateRow,
+  GetPromptVersionStatsBatchInput,
+  GetPromptVersionStatsInput,
+  ImportPageInput,
+  ImportPageResult,
+  ImportReviewInput,
+  InsertGeneratedResponseInput,
+  ListReviewsFilter,
+  PromptVersionStatsBatchRow,
+  PromptVersionStatsRow,
+  RejectResponseInput,
+  ReviewResponseRow,
+  ReviewRow,
+  SyncRunRow,
+} from './types/review-sync.type';
 
 import { ConnectionsRepository } from '../connections/connections.repository';
 
@@ -53,31 +57,6 @@ const RUN_STATUS_TO_HEALTH: Record<SyncRunStatus.ERROR | SyncRunStatus.OK, SyncH
   [SyncRunStatus.OK]: SyncHealthStatus.OK,
   [SyncRunStatus.ERROR]: SyncHealthStatus.ERROR,
 };
-
-export interface ImportReviewInput {
-  externalReviewId: string;
-  externalReviewerId: string | null;
-  reviewerName: string | null;
-  rating: number;
-  text: string | null;
-  reviewedAt: string;
-  externalUpdatedAt: string;
-  reply: { comment: string; updatedAt: string } | null;
-}
-
-export interface ImportPageInput {
-  tenantId: string;
-  locationId: string;
-  reviews: ImportReviewInput[];
-}
-
-export interface ImportPageResult {
-  reviewsWritten: number;
-  reviewsInserted: number;
-  repliesImported: number;
-  /** Reviews whose reply lost a race against the *live-reply* index. Counted, never silent. */
-  repliesSkippedConflict: number;
-}
 
 @Injectable()
 export class ReviewSyncDbService {
@@ -359,6 +338,38 @@ export class ReviewSyncDbService {
 
   findResponsesForReviews(input: FindResponsesForReviewsInput): Promise<ReviewResponseRow[]> {
     return this.reviewsReadRepository.findResponsesForReviews(input);
+  }
+
+  findResponseForTenant(input: FindResponseForTenantInput): Promise<ReviewResponseRow | null> {
+    return this.reviewsReadRepository.findResponseForTenant(input);
+  }
+
+  /**
+   * Approves a pending draft and, on success, supersedes every other still-pending sibling on the
+   * same review — one transaction, so a crash between the two never leaves a review with both a
+   * decided approval and a stale pending sibling. `isUniqueViolation` on the live-reply index is
+   * deliberately left to propagate uncaught: `ReviewsService.approveReply` is where it's turned
+   * into `ReviewResponseAlreadyLiveException`, the same service-not-DB-service split
+   * `PromptsService.createVersion` already established for the equivalent prompt-version conflict.
+   */
+  async approveResponse(input: ApproveResponseInput): Promise<ReviewResponseRow | null> {
+    return this.reviewSyncRepository.transaction(async tx => {
+      const approved = await this.reviewSyncRepository.approveResponse(tx, input);
+      if (!approved) return null;
+
+      await this.reviewSyncRepository.supersedeSiblingDrafts(tx, {
+        reviewId: input.reviewId,
+        excludeResponseId: input.responseId,
+      });
+
+      return approved;
+    });
+  }
+
+  rejectResponse(input: RejectResponseInput): Promise<ReviewResponseRow | null> {
+    return this.reviewSyncRepository.transaction(tx =>
+      this.reviewSyncRepository.rejectResponse(tx, input)
+    );
   }
 
   getPromptVersionStats(input: GetPromptVersionStatsInput): Promise<PromptVersionStatsRow | null> {

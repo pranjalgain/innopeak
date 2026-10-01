@@ -8,7 +8,7 @@ import { RouteNames } from '@common/route-names';
 import { Body, Controller, Get, Put } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import type { AuthUser } from '../../auth/types/auth-user.type';
+import type { AuthUser } from '../../auth/types/auth.type';
 import { TenantSettingsResponseDto } from '../dto/tenant-settings-response.dto';
 import { UpdateTenantSettingsDto } from '../dto/update-tenant-settings.dto';
 import { TenantSettingsService } from '../services/tenant-settings.service';

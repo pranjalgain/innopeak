@@ -19,7 +19,7 @@ import { PromptsService } from './prompts.service';
 import type { PromptVersionRecord } from './types/prompt.type';
 
 import { JwtTokenType } from '../auth/enums/jwt-token-type.enum';
-import type { TenantAuthUser } from '../auth/types/auth-user.type';
+import type { TenantAuthUser } from '../auth/types/auth.type';
 
 const REQUIRED_TEMPLATE = 'Hello {{business_name}} {{reviewer_name}} {{rating}} {{review_text}}';
 

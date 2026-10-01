@@ -485,4 +485,17 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   OPENROUTER_MODEL?: string;
+
+  // ─── GDPR erasure (team-member removal / tenant erasure) ─────────────────
+
+  /**
+   * Days between a removal/erasure request and the nightly `ERASURE_PURGE` cron job actually
+   * anonymizing the affected user(s) — read by `TenantMembersService`/`AdminBusinessesService` (for
+   * the "takes effect in N days" message) and by `CronService` (for the purge query itself), so all
+   * three share one default rather than duplicating it. Access is revoked the moment the request is
+   * made; only the irreversible anonymization step waits out this window.
+   */
+  @IsOptional()
+  @IsNumber()
+  ERASURE_GRACE_PERIOD_DAYS?: number;
 }

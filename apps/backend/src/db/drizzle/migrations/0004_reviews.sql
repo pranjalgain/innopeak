@@ -88,6 +88,9 @@ CREATE TABLE IF NOT EXISTS review_responses (
     status response_status NOT NULL DEFAULT 'draft',
     created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     approved_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    -- Same SET NULL, never CASCADE, as approved_by_user_id — a rejection is a decision on the
+    -- record, and the accountability trail must survive the deciding user's own removal.
+    rejected_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     posted_at TIMESTAMPTZ,
     error_message TEXT,
     generation_metadata JSONB,
@@ -101,6 +104,7 @@ CREATE INDEX idx_review_responses_generation_group_id ON review_responses(genera
 CREATE INDEX idx_review_responses_status ON review_responses(status);
 CREATE INDEX idx_review_responses_created_by_user_id ON review_responses(created_by_user_id);
 CREATE INDEX idx_review_responses_approved_by_user_id ON review_responses(approved_by_user_id);
+CREATE INDEX idx_review_responses_rejected_by_user_id ON review_responses(rejected_by_user_id);
 
 -- Google (and any provider) only ever has one live reply per review — posting overwrites,
 -- it doesn't version. Covering 'approved' as well as 'posted' closes the sibling-snippet

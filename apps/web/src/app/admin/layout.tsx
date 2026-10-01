@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import type { ReactNode } from "react";
 
 import { AppShell } from "@/app/(dashboard)/_components/app-shell";
 import { ROUTES } from "@/app/_libs/constants/routes";
@@ -13,7 +14,7 @@ import { usePlatformAdminProfile } from "@/hooks/admin/use-platform-admin-profil
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 
 interface AdminLayoutProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 /**

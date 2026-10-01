@@ -10,6 +10,7 @@ import {
 } from "@/app/_libs/services/connection.service";
 import { DashboardService } from "@/app/_libs/services/dashboard.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
+import type { DashboardMetrics } from "@/types/domain";
 
 import { useDashboardStats } from "../use-dashboard-stats";
 
@@ -41,6 +42,20 @@ function connectionState(overrides: Partial<ConnectionState> = {}): ConnectionSt
   };
 }
 
+function metrics(overrides: Partial<DashboardMetrics> = {}): DashboardMetrics {
+  return {
+    stats: {
+      range: "30d",
+      reviewCount: 0,
+      averageRating: 0,
+      pendingApproval: 0,
+      escalatedOpen: 0,
+    },
+    ratingDistribution: [],
+    ...overrides,
+  };
+}
+
 function renderWithClient() {
   const queryClient = createQueryClient();
   function wrapper({ children }: { children: ReactNode }) {
@@ -68,13 +83,7 @@ describe("useDashboardStats — location scoping", () => {
         resolveConnection = resolve;
       }),
     );
-    const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue({
-      total: 0,
-      avgRating: null,
-      pending: 0,
-      escalated: 0,
-      ratingDistribution: {},
-    });
+    const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue(metrics());
     const getAttentionReviews = vi
       .spyOn(DashboardService, "getAttentionReviews")
       .mockResolvedValue([]);
@@ -98,13 +107,7 @@ describe("useDashboardStats — location scoping", () => {
     vi.spyOn(ConnectionService, "getState").mockResolvedValue(
       connectionState({ location: location({ id: "loc-1" }) }),
     );
-    const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue({
-      total: 0,
-      avgRating: null,
-      pending: 0,
-      escalated: 0,
-      ratingDistribution: {},
-    });
+    const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue(metrics());
     const getAttentionReviews = vi
       .spyOn(DashboardService, "getAttentionReviews")
       .mockResolvedValue([]);
@@ -120,13 +123,7 @@ describe("useDashboardStats — location scoping", () => {
     vi.spyOn(ConnectionService, "getState").mockResolvedValue(
       connectionState({ location: null }),
     );
-    const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue({
-      total: 0,
-      avgRating: null,
-      pending: 0,
-      escalated: 0,
-      ratingDistribution: {},
-    });
+    const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue(metrics());
 
     const { wrapper } = renderWithClient();
     renderHook(() => useDashboardStats("7d"), { wrapper });
@@ -138,13 +135,7 @@ describe("useDashboardStats — location scoping", () => {
     // Regression: without `locationId` in the query key, switching business would either show the
     // previous business's already-cached numbers or require a manual invalidation this hook never
     // performs — the key itself has to change for react-query to treat it as a different query.
-    const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue({
-      total: 0,
-      avgRating: null,
-      pending: 0,
-      escalated: 0,
-      ratingDistribution: {},
-    });
+    const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue(metrics());
     vi.spyOn(DashboardService, "getAttentionReviews").mockResolvedValue([]);
     const getState = vi
       .spyOn(ConnectionService, "getState")

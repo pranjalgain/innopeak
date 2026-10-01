@@ -4,9 +4,9 @@ import { useTranslations } from "next-intl";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
-import { ApiError } from "@/app/_libs/services/api-error";
-import { avatarUploadErrorMessage } from "@/app/_libs/services/avatar-upload.service";
+import { AvatarUploadService } from "@/app/_libs/services/avatar-upload.service";
 import { PlatformAdminProfileService } from "@/app/_libs/services/platform-admin-profile.service";
+import { toastApiError } from "@/hooks/common/toast-api-error";
 import { useQueryErrorToast } from "@/hooks/common/use-query-error-toast";
 import type { PlatformAdminProfile } from "@/types/domain";
 
@@ -69,7 +69,7 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
       } catch (error) {
         // See the tenant hook's twin: the provider's own refusal is the only message that tells
         // the user to pick a different file.
-        toast.error(avatarUploadErrorMessage(error, t("updateFailed")));
+        toast.error(AvatarUploadService.errorMessage(error, t("updateFailed")));
       }
     },
     [t, updateAvatarMutation, queryClient],
@@ -97,13 +97,7 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
         // current password, not a dead session — the service sends `skipRefresh` precisely so it
         // still reaches us as an error instead of signing the admin out. Collapsing all three onto
         // "Could not save this change" left the one recoverable case looking like a server fault.
-        if (error instanceof ApiError && error.statusCode === 401) {
-          toast.error(t("currentPasswordIncorrect"));
-        } else if (error instanceof ApiError && error.statusCode === 400) {
-          toast.error(error.message);
-        } else {
-          toast.error(t("updateFailed"));
-        }
+        toastApiError(error, { 401: t("currentPasswordIncorrect"), 400: null }, t("updateFailed"));
         return false;
       }
     },
@@ -123,13 +117,7 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
       // 429 is its own case, not a server fault: both set-password routes carry a 5/minute
       // throttle, and "Could not save this change" told an admin who had just clicked resend once
       // too often to keep trying, which is exactly the wrong advice.
-      if (error instanceof ApiError && error.statusCode === 429) {
-        toast.error(t("tooManyRequests"));
-      } else if (error instanceof ApiError && error.statusCode === 400) {
-        toast.error(error.message);
-      } else {
-        toast.error(t("updateFailed"));
-      }
+      toastApiError(error, { 429: t("tooManyRequests"), 400: null }, t("updateFailed"));
       return false;
     }
   }, [t, requestSetPasswordOtpMutation]);
@@ -152,13 +140,7 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
         // Same three-way split as `requestSetPasswordOtp`: the backend answers 429 both for the
         // route's own throttle and for a spent OTP attempt budget, and either one means "wait",
         // not "something broke".
-        if (error instanceof ApiError && error.statusCode === 429) {
-          toast.error(t("tooManyRequests"));
-        } else if (error instanceof ApiError && error.statusCode === 400) {
-          toast.error(error.message);
-        } else {
-          toast.error(t("updateFailed"));
-        }
+        toastApiError(error, { 429: t("tooManyRequests"), 400: null }, t("updateFailed"));
         return false;
       }
     },

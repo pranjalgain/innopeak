@@ -1,7 +1,7 @@
 import { CurrentUser } from '@auth/decorators/current-user.decorator';
 import { Roles } from '@auth/decorators/roles.decorator';
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { setAdminSessionCookies } from '@auth/utils/admin-session-cookies.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';

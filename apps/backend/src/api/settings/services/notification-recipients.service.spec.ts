@@ -9,7 +9,7 @@ import { Test } from '@nestjs/testing';
 import { NotificationRecipientsService } from './notification-recipients.service';
 
 import { JwtTokenType } from '../../auth/enums/jwt-token-type.enum';
-import type { TenantAuthUser } from '../../auth/types/auth-user.type';
+import type { TenantAuthUser } from '../../auth/types/auth.type';
 
 describe('NotificationRecipientsService', () => {
   let target: NotificationRecipientsService;

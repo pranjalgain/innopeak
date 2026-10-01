@@ -1,5 +1,5 @@
 import { AuthService } from "@/app/_libs/services/auth.service";
-import { uploadAvatarFile } from "@/app/_libs/services/avatar-upload.service";
+import { AvatarUploadService } from "@/app/_libs/services/avatar-upload.service";
 import { TokenService } from "@/app/_libs/services/token.service";
 import type { TenantOwnerProfile } from "@/types/domain";
 
@@ -42,12 +42,12 @@ export class TenantOwnerProfileService {
   /**
    * Direct-to-provider upload: mints an authorization, uploads straight to the provider (or skips
    * to confirm for the offline `noop` one), then confirms what actually landed — see
-   * `uploadAvatarFile` and `AuthService.confirmAvatar`. Returns just the confirmed URL; the caller
-   * already has the rest of the profile cached and merges this into it.
+   * `AvatarUploadService.upload` and `AuthService.confirmAvatar`. Returns just the confirmed URL;
+   * the caller already has the rest of the profile cached and merges this into it.
    */
   static async updateAvatar(file: File): Promise<string | null> {
     const authorization = await AuthService.getAvatarUploadAuthorization();
-    const providerAssetId = await uploadAvatarFile(file, authorization);
+    const providerAssetId = await AvatarUploadService.upload(file, authorization);
     return AuthService.confirmAvatar(providerAssetId);
   }
 
@@ -67,10 +67,11 @@ export class TenantOwnerProfileService {
 }
 
 /**
- * The shell's optimistic name/avatar source, still read from storage: it paints on first render,
- * before any request resolves, and a wrong-but-brief name there is a worse trade than a blank one.
- * Falls back to the email claim rather than mock data for exactly that reason.
+ * The shell's optimistic name source, still read from storage: it paints on first render, before
+ * any request resolves, and a wrong-but-brief name there is a worse trade than a blank one. Blank
+ * (not mock data) when nothing is cached yet — the real profile from `GET /v1/auth/me` replaces
+ * this within one render pass regardless.
  */
 export function storedDisplayName(): string {
-  return TokenService.getName() ?? TokenService.getEmail() ?? "";
+  return TokenService.getName() ?? "";
 }

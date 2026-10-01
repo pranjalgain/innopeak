@@ -1,7 +1,7 @@
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
 import { toIsoString } from '@common/helpers/date.utils';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export interface TenantMemberRow {
   id: string;
@@ -10,6 +10,7 @@ export interface TenantMemberRow {
   role: UserRole;
   status: UserStatus;
   invitedAt: string;
+  erasureRequestedAt: string | null;
 }
 
 export class TenantMemberResponseDto {
@@ -40,6 +41,15 @@ export class TenantMemberResponseDto {
   })
   invitedAt!: string;
 
+  @ApiPropertyOptional({
+    example: '2026-03-05T09:12:00.000Z',
+    nullable: true,
+    description:
+      'Set once removal has been requested for this member — null means no removal is pending. ' +
+      'Combine with `ERASURE_GRACE_PERIOD_DAYS` to show when it takes effect.',
+  })
+  erasureRequestedAt!: string | null;
+
   static from(row: TenantMemberRow): TenantMemberResponseDto {
     const dto = new TenantMemberResponseDto();
     dto.id = row.id;
@@ -48,6 +58,7 @@ export class TenantMemberResponseDto {
     dto.role = row.role;
     dto.status = row.status;
     dto.invitedAt = toIsoString(row.invitedAt);
+    dto.erasureRequestedAt = row.erasureRequestedAt ? toIsoString(row.erasureRequestedAt) : null;
     return dto;
   }
 }

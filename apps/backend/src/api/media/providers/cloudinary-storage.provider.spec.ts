@@ -1,7 +1,10 @@
 import type { EnvConfig } from '@config/env.config';
 import type { ConfigService } from '@nestjs/config';
+import { v2 as cloudinary } from 'cloudinary';
 
 import { CloudinaryStorageProvider } from './cloudinary-storage.provider';
+
+import { StorageAssetNotFoundError } from '../types/storage-provider.type';
 
 const mockResource = jest.fn<Promise<unknown>, [string, Record<string, unknown>]>();
 
@@ -99,6 +102,34 @@ describe('CloudinaryStorageProvider', () => {
       const result = await target.verifyUpload('avatars/does-not-exist', 'avatars');
 
       expect(result).toEqual({ ok: false, reason: 'notFound' });
+    });
+  });
+
+  describe('delete', () => {
+    it('resolves on a confirmed deletion', async () => {
+      (cloudinary.uploader.destroy as jest.Mock).mockResolvedValue({ result: 'ok' });
+
+      await expect(target.delete('avatars/asset-1')).resolves.toBeUndefined();
+    });
+
+    /**
+     * `uploader.destroy` *resolves* with `{result: 'not found'}` rather than rejecting — this
+     * must surface as the typed `StorageAssetNotFoundError`, not a generic `Error`, since
+     * `MediaService.deleteAvatarIfPresent` treats "already gone" differently from every other
+     * delete failure.
+     */
+    it('throws StorageAssetNotFoundError when the asset no longer exists', async () => {
+      (cloudinary.uploader.destroy as jest.Mock).mockResolvedValue({ result: 'not found' });
+
+      await expect(target.delete('avatars/asset-1')).rejects.toThrow(StorageAssetNotFoundError);
+    });
+
+    it('throws a plain Error for any other non-"ok" result', async () => {
+      (cloudinary.uploader.destroy as jest.Mock).mockResolvedValue({ result: 'error' });
+
+      const rejection = target.delete('avatars/asset-1');
+      await expect(rejection).rejects.toThrow(Error);
+      await expect(rejection).rejects.not.toThrow(StorageAssetNotFoundError);
     });
   });
 });

@@ -1,3 +1,4 @@
+import { MESSAGES } from '@common/constants/messages.constants';
 import { EscalationReason } from '@common/enums/escalation-reason.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { Test } from '@nestjs/testing';
@@ -54,7 +55,7 @@ describe('ReviewPipelineDbService', () => {
       findEscalationRatingThreshold.mockResolvedValue(null);
 
       await expect(service.loadClassificationContext('tenant-1')).rejects.toThrow(
-        'No tenant_settings row found for tenant tenant-1'
+        MESSAGES.SETTINGS.TENANT_SETTINGS_ROW_MISSING('tenant-1')
       );
     });
   });

@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
-import type * as React from "react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ApiError } from "@/app/_libs/services/api-error";
@@ -18,7 +18,7 @@ vi.mock("sonner", () => ({
   },
 }));
 
-function wrapper({ children }: { children: React.ReactNode }) {
+function wrapper({ children }: { children: ReactNode }) {
   return (
     <NextIntlClientProvider locale="en" messages={messages}>
       {children}

@@ -1,11 +1,8 @@
 import { DrizzleTransaction } from '@db/db.service';
 import { Injectable } from '@nestjs/common';
 
-import {
-  BillingReceiptRow,
-  BillingReceiptsRepository,
-  InsertBillingReceiptInput,
-} from './billing-receipts.repository';
+import { BillingReceiptsRepository } from './billing-receipts.repository';
+import type { BillingReceiptRow, InsertBillingReceiptInput } from './types/billing.type';
 
 @Injectable()
 export class BillingReceiptsDbService {

@@ -1,5 +1,7 @@
+import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse } from '@common/dto/api-response';
 import { renderMessage } from '@common/i18n/message-registry';
+import { isProduction } from '@config/deployment-target.util';
 import { LoggerService } from '@logger/logger.service';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 
@@ -135,7 +137,14 @@ export class ErrorHandlerService {
   private handlePgError(error: PostgresError, context: string): ApiResponse<null> {
     const mapped = PG_ERROR_MAP[error.code];
 
+    // Postgres's own `detail`/`table`/`column` can name real schema internals (and `detail`
+    // sometimes echoes literal row values) — never sent to a client in production. The full
+    // detail is still available to on-call: `HttpExceptionFilter.catch` logs `exception.message`
+    // and the stack unconditionally, before this method ever runs.
     if (mapped) {
+      if (isProduction()) {
+        return this.createErrorResponse(mapped.status, mapped.message, context, error);
+      }
       const detail = error.detail ? ` ${error.detail}` : '';
       const table = error.table ? ` (table: ${error.table})` : '';
       const column = error.column ? ` (column: ${error.column})` : '';
@@ -143,6 +152,14 @@ export class ErrorHandlerService {
       return this.createErrorResponse(mapped.status, message, context, error);
     }
 
+    if (isProduction()) {
+      return this.createErrorResponse(
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        MESSAGES.COMMON.INTERNAL_ERROR,
+        context,
+        error
+      );
+    }
     const message = error.detail ?? error.message;
     return this.createErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, message, context, error);
   }
@@ -184,17 +201,25 @@ export class ErrorHandlerService {
   }
 
   private handleSocialAuthError(error: ResponseCarryingError, context: string): ApiResponse<null> {
+    // The raw message here is an upstream OAuth/social-auth provider's own wording — never vetted
+    // as client-safe, and never sent to a client in production. Full detail (including the
+    // upstream response body, logged just below) stays available to on-call regardless.
     if (error.response) {
       this.logger.error(
         `Social auth API error in ${context}: ${JSON.stringify(error.response.data)}`,
         error.stack
       );
-      return this.createErrorResponse(HttpStatus.BAD_REQUEST, error.message, context, error);
+      return this.createErrorResponse(
+        HttpStatus.BAD_REQUEST,
+        isProduction() ? MESSAGES.COMMON.INTERNAL_ERROR : error.message,
+        context,
+        error
+      );
     }
     this.logger.error(`Unhandled social auth error in ${context}: ${error.message}`, error.stack);
     return this.createErrorResponse(
       HttpStatus.INTERNAL_SERVER_ERROR,
-      error.message,
+      isProduction() ? MESSAGES.COMMON.INTERNAL_ERROR : error.message,
       context,
       error
     );
@@ -202,14 +227,29 @@ export class ErrorHandlerService {
 
   private handleUnhandledError(error: unknown, context: string): ApiResponse<null> {
     const message = this.extractMessage(error);
+    // Logged in English regardless of the request's locale, same reasoning as
+    // `handleHttpException` above — `message` may now be a tagged `MESSAGES.*` key rather than
+    // literal English, since DB Services/Repositories throw through the message catalog like
+    // everywhere else in this codebase, and an unrendered tag in the log is useless to on-call.
     this.logger.error(
-      `Unhandled error in ${context}: ${message ?? 'Unknown error'}`,
+      `Unhandled error in ${context}: ${message ? renderMessage(message, 'en') : 'Unknown error'}`,
       this.extractStack(error)
     );
     if (message?.includes('Failed to send SMS')) {
       return this.createErrorResponse(
         HttpStatus.FORBIDDEN,
         'SMS service is restricted for trial accounts. Please verify the recipient number or upgrade your Twilio account.',
+        context,
+        error
+      );
+    }
+    if (isProduction()) {
+      // A raw Error's message here is internal detail — a DB invariant, a stack-trace fragment,
+      // a third-party library's own wording — never vetted as safe to show a real client. It's
+      // already logged in full above for whoever's on call; production never echoes it back.
+      return this.createErrorResponse(
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        MESSAGES.COMMON.INTERNAL_ERROR,
         context,
         error
       );

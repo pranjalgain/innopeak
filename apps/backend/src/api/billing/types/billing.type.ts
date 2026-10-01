@@ -132,3 +132,30 @@ export type PaymentWebhookEvent =
       invoiceNumber: string | null;
       paidAt: string;
     };
+
+/**
+ * The 5 Stripe event types `BillingWebhooksService.handleEvent` actually acts on — every other
+ * type Stripe can deliver arrives as `PaymentWebhookEvent`'s `'unhandled'` variant instead. Kept
+ * as a real runtime value (not just `PaymentWebhookEvent`'s own type-level union) so the admin
+ * Billing page's webhook-activity view can tell "this event changed state" apart from "Stripe
+ * sent this, but nothing here acts on it" without hand-copying the literal list a second time.
+ * Update this alongside `PaymentWebhookEvent` if a new event type is ever handled.
+ */
+export const StripeWebhookEventType = {
+  CHECKOUT_SESSION_COMPLETED: 'checkout.session.completed',
+  SUBSCRIPTION_UPDATED: 'customer.subscription.updated',
+  SUBSCRIPTION_DELETED: 'customer.subscription.deleted',
+  INVOICE_PAYMENT_FAILED: 'invoice.payment_failed',
+  INVOICE_PAYMENT_SUCCEEDED: 'invoice.payment_succeeded',
+} as const;
+
+export type HandledStripeWebhookEventType =
+  (typeof StripeWebhookEventType)[keyof typeof StripeWebhookEventType];
+
+/** `StripeWebhookEventType`'s own key names (`'CHECKOUT_SESSION_COMPLETED'`, etc.) — the public
+ *  filter vocabulary `ListBillingWebhookEventsQueryDto.type` accepts, kept distinct from Stripe's
+ *  own dotted wire format so that format never has to appear in a URL. */
+export type StripeWebhookEventTypeKey = keyof typeof StripeWebhookEventType;
+
+export const HANDLED_STRIPE_EVENT_TYPES: readonly HandledStripeWebhookEventType[] =
+  Object.values(StripeWebhookEventType);

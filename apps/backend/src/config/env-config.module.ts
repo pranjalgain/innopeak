@@ -1,4 +1,5 @@
 import { JWT_SECRET_MIN_LENGTH } from '@auth/constants/auth.constants';
+import { DEFAULT_ERASURE_GRACE_PERIOD_DAYS } from '@common/constants/erasure.constants';
 import { EnvConfig } from '@config/env.config';
 import { Module } from '@nestjs/common';
 import { ConfigModule, registerAs } from '@nestjs/config';
@@ -78,6 +79,10 @@ const envConfig = registerAs(
       CREDENTIAL_ENCRYPTION_KEY: process.env['CREDENTIAL_ENCRYPTION_KEY'],
       DEV_GBP_MOCK: process.env['DEV_GBP_MOCK'],
       DEV_GBP_MOCK_ACCOUNT_ID: process.env['DEV_GBP_MOCK_ACCOUNT_ID'],
+      ERASURE_GRACE_PERIOD_DAYS: parseInt(
+        process.env['ERASURE_GRACE_PERIOD_DAYS'] ?? String(DEFAULT_ERASURE_GRACE_PERIOD_DAYS),
+        10
+      ),
     }) as EnvConfig
 );
 
@@ -161,6 +166,17 @@ if (
 // signing. Only enforced in production because local dev has a documented fallback.
 if (process.env['NODE_ENV'] === 'production' && !process.env['GBP_STATE_SECRET']) {
   throw new Error('GBP_STATE_SECRET must be set in production.');
+}
+
+// Same shape again, for the Google sign-in/sign-up OAuth state (GoogleOAuthStateService, distinct
+// from GBP_STATE_SECRET's Business Profile connection flow above). Without this check, a missing
+// env var doesn't fail — it silently signs with JWT_SECRET instead (a different secret meant for a
+// different job), and nothing today would ever surface that a production deploy is doing so. Not
+// required to differ from JWT_SECRET the way JWT_REFRESH_SECRET is: this secret only signs an
+// anti-replay nonce, never a JWT with a `type` claim, so sharing it doesn't enable the
+// token-forgery escalation that rule exists to prevent.
+if (process.env['NODE_ENV'] === 'production' && !process.env['GOOGLE_AUTH_STATE_SECRET']) {
+  throw new Error('GOOGLE_AUTH_STATE_SECRET must be set in production.');
 }
 
 const validationSchema = Joi.object({
@@ -305,6 +321,10 @@ const validationSchema = Joi.object({
   AI_PROVIDER: Joi.string().valid('openrouter').allow(null, ''),
   OPENROUTER_API_KEY: Joi.string().allow(null, ''),
   OPENROUTER_MODEL: Joi.string().allow(null, ''),
+  ERASURE_GRACE_PERIOD_DAYS: Joi.number()
+    .integer()
+    .positive()
+    .default(DEFAULT_ERASURE_GRACE_PERIOD_DAYS),
 });
 
 @Module({

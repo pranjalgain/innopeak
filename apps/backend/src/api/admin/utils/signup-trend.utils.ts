@@ -1,4 +1,4 @@
-import type { SignupTrendPoint } from '@db/repositories/admin-overview/admin-overview.repository';
+import type { SignupTrendPoint } from '@db/repositories/admin-overview/types/admin-overview.type';
 
 /**
  * Fills every month in the trailing `monthsBack`-month window (counting back from the current UTC

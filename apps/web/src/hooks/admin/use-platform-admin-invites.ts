@@ -4,9 +4,12 @@ import { useTranslations } from "next-intl";
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
-import { ApiError } from "@/app/_libs/services/api-error";
 import { PlatformAdminInviteService } from "@/app/_libs/services/platform-admin-invite.service";
-import { adminOverviewActivityQueryKey } from "@/hooks/admin/admin-query-keys";
+import {
+  adminOverviewActivityLogQueryKey,
+  adminOverviewActivityQueryKey,
+} from "@/hooks/admin/admin-query-keys";
+import { toastApiError } from "@/hooks/common/toast-api-error";
 import type { PlatformAdminInvite } from "@/types/domain";
 
 export const platformAdminInvitesQueryKey = ["admin", "platform-admin-invites"] as const;
@@ -56,10 +59,13 @@ export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
         );
         void queryClient.invalidateQueries({ queryKey: platformAdminInvitesQueryKey });
         void queryClient.invalidateQueries({ queryKey: adminOverviewActivityQueryKey });
+        void queryClient.invalidateQueries({ queryKey: adminOverviewActivityLogQueryKey });
         toast.success(t("sent", { email }));
         return true;
-      } catch {
-        toast.error(t("sendFailed"));
+      } catch (error) {
+        // A 409 (already invited) carries a specific reason worth showing — same as
+        // `setAdminStatus`'s own 400/409 branch below.
+        toastApiError(error, { 400: null, 409: null }, t("sendFailed"));
         return false;
       }
     },
@@ -79,9 +85,12 @@ export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
           (prev) => prev?.filter((invite) => invite.id !== id) ?? prev,
         );
         void queryClient.invalidateQueries({ queryKey: adminOverviewActivityQueryKey });
+        void queryClient.invalidateQueries({ queryKey: adminOverviewActivityLogQueryKey });
         toast.success(t("revoked"));
-      } catch {
-        toast.error(t("revokeFailed"));
+      } catch (error) {
+        // A 409 (already accepted, no longer revocable) carries a specific reason worth showing —
+        // same as `setAdminStatus`'s own 400/409 branch below.
+        toastApiError(error, { 400: null, 409: null }, t("revokeFailed"));
       }
     },
     [t, revokeInviteMutation, queryClient],
@@ -99,16 +108,14 @@ export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
         queryClient.setQueryData<PlatformAdminInvite[]>(platformAdminInvitesQueryKey, (prev) =>
           prev?.map((invite) => (invite.id === id ? { ...invite, status: updated.status } : invite)),
         );
-        // The disable/enable is server-recorded to the activity feed, and the Overview reads that.
+        // The disable/enable is server-recorded to the activity feed, and both the Overview glance
+        // card and the dedicated Activity page read that.
         void queryClient.invalidateQueries({ queryKey: adminOverviewActivityQueryKey });
+        void queryClient.invalidateQueries({ queryKey: adminOverviewActivityLogQueryKey });
         toast.success(enabled ? t("adminEnabled") : t("adminDisabled"));
       } catch (error) {
         // A 400 (last-active / self) or 409 (invited) carries a specific reason worth showing.
-        if (error instanceof ApiError && (error.statusCode === 400 || error.statusCode === 409)) {
-          toast.error(error.message);
-        } else {
-          toast.error(t("updateFailed"));
-        }
+        toastApiError(error, { 400: null, 409: null }, t("updateFailed"));
       }
     },
     [t, setAdminStatusMutation, queryClient],

@@ -1,37 +1,11 @@
+import { MESSAGES } from '@common/constants/messages.constants';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import type { SQL } from 'drizzle-orm';
 import { and, eq, sql } from 'drizzle-orm';
 
-/** Exactly one of `userId`/`platformAdminId` — mirrors the table's own `media_exactly_one_owner`
- *  CHECK constraint at the type level, so a caller can't accidentally pass both or neither. */
-export type MediaOwner =
-  { userId: string; platformAdminId?: never } | { userId?: never; platformAdminId: string };
-
-export interface MediaRow {
-  id: string;
-  kind: 'avatar';
-  provider: string;
-  providerAssetId: string;
-  url: string;
-  mimeType: string;
-  sizeBytes: number;
-}
-
-export interface UploadedAssetInput {
-  provider: string;
-  providerAssetId: string;
-  url: string;
-  mimeType: string;
-  sizeBytes: number;
-}
-
-/** Just enough of a displaced row to reach the asset again at the provider it was stored in. */
-export interface ReplacedAsset {
-  provider: string;
-  providerAssetId: string;
-}
+import type { MediaOwner, MediaRow, ReplacedAsset, UploadedAssetInput } from './types/media.type';
 
 const MEDIA_COLUMNS = {
   id: schema.media.id,
@@ -120,7 +94,7 @@ export class MediaRepository {
 
       const row = rows[0];
       if (!row) {
-        throw new Error('Failed to persist avatar');
+        throw new Error(MESSAGES.MEDIA.FAILED_TO_PERSIST_AVATAR);
       }
 
       return {
@@ -130,5 +104,20 @@ export class MediaRepository {
           : null,
       };
     });
+  }
+
+  /** Deletes this owner's avatar row outright (GDPR anonymization — there is no successor asset to
+   *  point at), returning what was deleted so the caller can clean up the storage side. `null` when
+   *  there was no avatar to begin with, which is the common case, not an error. */
+  async deleteAvatar(owner: MediaOwner): Promise<ReplacedAsset | null> {
+    const rows = await this.dbService.db
+      .delete(schema.media)
+      .where(and(ownerCondition(owner), eq(schema.media.kind, 'avatar')))
+      .returning(MEDIA_COLUMNS);
+
+    const deleted = rows[0];
+    return deleted
+      ? { provider: deleted.provider, providerAssetId: deleted.providerAssetId }
+      : null;
   }
 }

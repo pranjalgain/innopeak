@@ -1,0 +1,58 @@
+import { StripeWebhookEventType } from '@billing/types/billing.type';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+
+import {
+  WEBHOOK_EVENTS_PAGE_SIZE_DEFAULT,
+  WEBHOOK_EVENTS_PAGE_SIZE_MAX,
+} from '../constants/admin-billing.constants';
+
+const STRIPE_WEBHOOK_EVENT_TYPE_KEYS = Object.keys(StripeWebhookEventType);
+const STRIPE_WEBHOOK_EVENT_TYPE_VALUES: string[] = Object.values(StripeWebhookEventType);
+
+export class ListBillingWebhookEventsQueryDto {
+  @ApiPropertyOptional({ example: 1, minimum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({
+    example: WEBHOOK_EVENTS_PAGE_SIZE_DEFAULT,
+    minimum: 1,
+    maximum: WEBHOOK_EVENTS_PAGE_SIZE_MAX,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(WEBHOOK_EVENTS_PAGE_SIZE_MAX)
+  pageSize?: number;
+
+  @ApiPropertyOptional({
+    example: 'CHECKOUT_SESSION_COMPLETED',
+    enum: STRIPE_WEBHOOK_EVENT_TYPE_KEYS,
+    description:
+      "One of StripeWebhookEventType's own key names, not Stripe's raw dotted wire format — this " +
+      "app's own filter vocabulary never leaks Stripe's internal naming into a URL. Mapped to the " +
+      'matching raw type internally before it reaches the repository.',
+  })
+  @IsOptional()
+  // Maps a valid key ("CHECKOUT_SESSION_COMPLETED") to its raw Stripe value
+  // ("checkout.session.completed") before validation, so everything downstream of this DTO keeps
+  // working with the raw type strings it already expects — only this one boundary knows about
+  // the key/value split. Anything that isn't a recognized key (including an already-raw value,
+  // harmlessly) passes through unchanged for `@IsIn` below to accept or reject on its own terms.
+  @Transform(({ value }: { value: unknown }) => {
+    if (typeof value === 'string' && value in StripeWebhookEventType) {
+      return StripeWebhookEventType[value as keyof typeof StripeWebhookEventType];
+    }
+    return value;
+  })
+  @IsIn(STRIPE_WEBHOOK_EVENT_TYPE_VALUES, {
+    message: `type must be one of: ${STRIPE_WEBHOOK_EVENT_TYPE_KEYS.join(', ')}`,
+  })
+  type?: string;
+}

@@ -3,7 +3,7 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { SettingsDbService } from '@db/repositories/settings/settings.db-service';
 import { Injectable } from '@nestjs/common';
 
-import type { AuthUser } from '../../auth/types/auth-user.type';
+import type { AuthUser } from '../../auth/types/auth.type';
 import { TenantSettingsResponseDto } from '../dto/tenant-settings-response.dto';
 import { UpdateTenantSettingsDto } from '../dto/update-tenant-settings.dto';
 import { TenantSettingsMissingException } from '../exceptions/settings.exceptions';

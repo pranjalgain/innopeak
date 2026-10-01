@@ -833,6 +833,70 @@ synthetic `error_message` while doing it, or the row stays ambiguous about *why*
 > a reviewer photo URL "if later added"; no such column exists on `reviews` today, so there is
 > nothing to null — still true, and still not a blocker.
 
+**GDPR erasure grace-period purge (nightly cron) — built.** `CronScheduler.scheduleErasurePurge`
+(`@Cron(CronExpression.EVERY_DAY_AT_4AM)` — its own slot, off both the retention purge's 2am and
+the auth-token cleanup's, same "three daily jobs sharing one worker tick would be needless
+contention" reasoning those two already use) enqueues `CronJobName.ERASURE_PURGE` via
+`CronQueue.addErasurePurgeJob`, dispatched to `CronService.purgeErasureRequests`, backed by
+`AuthDbService`/`AuthRepository`. This is §6.2's staff-erasure mechanism — the "Required follow-up
+migration" above only concerned the `NOT NULL` columns that UPDATE has to clear, not whether the
+job existed; the job itself is now built and driving that same anonymize-in-place UPDATE through
+`AuthRepository.anonymizeUser`.
+
+The whole method runs inside one GLOBAL, session-level Postgres advisory lock —
+`AuthRepository.runWithErasurePurgeLock`, keyed `hashtext('gdpr:erasure-purge'), 0` — held for the
+method's entire duration, not just around one query. It is acquired via `pg_advisory_lock` on a raw
+`pg.PoolClient` checked out directly from `dbService.pool` (bypassing the ORM's normal per-call
+connection), and released via `pg_advisory_unlock` in a nested try/finally so the unlock always
+runs and the client is always handed back to the pool, even if the unlock query itself throws.
+Session-level rather than the transaction-scoped `pg_advisory_xact_lock` the reviewer-retention job
+above uses is deliberate, not an inconsistency between the two: `purgeErasureRequests` calls out to
+`AccountAnonymizationService.anonymizeUser` per user, which does a Cloudinary avatar delete plus its
+own independent database transaction — not one transaction for the whole job. A `_xact_lock` would
+release the instant the first user's transaction committed, letting a second concurrent replica
+start double-processing every user and tenant after that.
+
+Due tenants come from `AuthRepository.findTenantsDueForErasurePurge(gracePeriodDays)` — still
+`status = 'suspended'` with `erasure_requested_at` set and past the grace-period cutoff (not yet
+flipped to the terminal `erased`). For each one, the job takes a *second*, per-tenant session-level
+advisory lock, `AuthRepository.runWithTenantErasureLock(tenantId, fn)`, keyed
+`hashtext('gdpr:tenant-erasure'), hashtext(tenantId)` — the identical key
+`AdminBusinessesRepository.cancelErasure` takes as a *transaction-scoped* `pg_advisory_xact_lock`
+when a platform admin cancels that tenant's erasure. In Postgres a session-level and a
+transaction-level advisory lock on the same key still conflict with and block each other; only
+their release timing differs (session: explicit unlock or connection close; transaction:
+commit/rollback). That shared key is what makes the two mutually exclusive — the cron's per-tenant
+processing and an admin's concurrent cancel-erasure call for the same tenant can never both be
+inside their critical section at once.
+
+Immediately after acquiring that per-tenant lock, and before touching any of the tenant's users,
+the job re-checks the tenant via a new method, `AuthRepository.isTenantStillDueForErasure(tenantId,
+gracePeriodDays)` — the same due-check as `findTenantsDueForErasurePurge`, re-run under the lock.
+This closes a TOCTOU race: the initial due-tenant read happens *before* the per-tenant lock is
+acquired, so between that read and the lock actually being held, an admin could have already
+cancelled the tenant's erasure (or, in principle, an overlapping run could have already erased it).
+Trusting the stale earlier read instead of re-checking would anonymize a tenant's users even though
+it had just been legitimately un-erased in the meantime. If `isTenantStillDueForErasure` now returns
+`false`, the tenant is skipped with no further work — no user is touched, no activity log entry is
+written.
+
+Only when still due: every non-anonymized user in the tenant
+(`AuthRepository.findNonAnonymizedUserIdsForTenant`) is anonymized one at a time via
+`AccountAnonymizationService.anonymizeUser`, then `AuthRepository.markTenantErased` flips
+`tenants.status` to the terminal `erased` value — a state only reachable once every user in the
+tenant has already been anonymized — and a `BUSINESS_ERASED` platform-activity-log entry is
+recorded. Reviews, replies, locations, connections, and billing records are never touched by this
+job; once every user is anonymized there is nothing left for it to do to them.
+
+Separately, after the whole per-tenant loop, the job anonymizes standalone due member removals via
+`AuthRepository.findUsersDueForErasurePurge(gracePeriodDays)` — users whose own individual grace
+period elapsed independent of any tenant-wide erasure (the "remove a team member" flow, documented
+elsewhere). That query's own `anonymized_at IS NULL` guard is what keeps it from re-processing a
+user the tenant-wide sweep above already anonymized in the same tick — no separate exclusion join
+is needed, idempotency already covers it. The grace period itself, `ERASURE_GRACE_PERIOD_DAYS`
+(default 21 days), is read through one shared helper, `getErasureGracePeriodDays(configService)` in
+`src/common/constants/erasure.constants.ts` — the single source of that default for every reader.
+
 ## Scheduling and transport
 
 Everything above runs on machinery that already exists in `apps/backend/src/background/`. This
@@ -945,9 +1009,11 @@ partial unique indexes §8 asks for already applied.
 
 **To build, in the background layer:**
 
-- ~~Two cron entries~~ — **both built.** `CronScheduler.scheduleReviewSyncPoll` (the 15-minute
-  fan-out) and `scheduleReviewerRetentionPurge` (the reviewer-anonymization half of the nightly
-  retention purge) both exist. Staff erasure (§6.2) and §8.1's stale-`sync_runs` sweep remain
+- ~~Two cron entries~~ — **all three built.** `CronScheduler.scheduleReviewSyncPoll` (the
+  15-minute fan-out), `scheduleReviewerRetentionPurge` (the reviewer-anonymization half of the
+  nightly retention purge), and `scheduleErasurePurge` (§6.2's staff-erasure mechanism, plus the
+  standalone member-removal sweep — see [Retention and erasure
+  jobs](#retention-and-erasure-jobs)) all exist. Only §8.1's stale-`sync_runs` sweep remains
   unbuilt.
 - **`review-sync` exists** as a real queue, carrying both backfill and poll. Classification does
   **not** have its own queue — `ReviewClassificationService` is called in-process from

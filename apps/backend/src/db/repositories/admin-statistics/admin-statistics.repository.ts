@@ -5,30 +5,12 @@ import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { count, gte, ne, sql } from 'drizzle-orm';
 
-/** One calendar month's review-volume figures — same "only non-zero months returned" contract as
- *  `SignupTrendPoint` (`admin-overview.repository.ts`); `AdminStatisticsDbService` zero-fills. */
-export interface ReviewsTrendPoint {
-  year: number;
-  /** 1-12. */
-  month: number;
-  reviewsFetched: number;
-  repliesSent: number;
-}
-
-export interface RatingDistributionRow {
-  rating: number;
-  count: number;
-}
-
-export interface ClassificationBreakdownRow {
-  classification: ReviewClassification;
-  count: number;
-}
-
-export interface SyncHealthCounts {
-  ok: number;
-  error: number;
-}
+import type {
+  ClassificationBreakdownRow,
+  RatingDistributionRow,
+  ReviewsTrendPoint,
+  SyncHealthCounts,
+} from './types/admin-statistics.type';
 
 /**
  * Platform-wide review/sync analytics for the admin Statistics page — `reviews`/`review_responses`/

@@ -1,112 +1,41 @@
-import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
-import type { Locale } from '@common/i18n/locale';
 import { type DrizzleTransaction } from '@db/db.service';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
 
-import {
+import { AuthRepository } from './auth.repository';
+import type {
   AcceptMemberInviteOutcome,
-  AuthRepository,
+  AcquireErasureLock,
+  CancelMemberRemovalOutcome,
+  GoogleIdentityLookup,
   InsertRefreshTokenInput,
   MemberInviteStatusRow,
+  PurgeStaleTokensResult,
   PutVerifyEmailTokenInput,
   RefreshTokenRow,
+  RequestMemberRemovalOutcome,
   RevokeMemberInviteOutcome,
+  SetActiveLocationIdInput,
+  SignupInput,
+  SignupResult,
   TenantMemberRow,
+  TenantRow,
+  UpdateLocaleInput,
+  UpdatePasswordInput,
   UserByEmail,
-} from './auth.repository';
+  UserTokenHashInput,
+  VerifiedUser,
+  VerifyEmailInput,
+} from './types/auth.type';
 
 import { TenantSubscriptionsDbService } from '../billing/tenant-subscriptions.db-service';
 import { PromptsDbService } from '../prompts/prompts.db-service';
 
 /** Index name Postgres reports as `constraint` on the 23505 a losing concurrent signup raises — see 0002_tenant_auth.sql. */
 const USERS_EMAIL_ACTIVE_INDEX = 'idx_users_email_active';
-
-export interface PurgeStaleTokensResult {
-  /** Spent/expired `password_reset_tokens` rows across every purpose this codebase mints — see `AuthRepository.deleteStaleOtpTokens`. */
-  otpTokens: number;
-  refreshTokens: number;
-}
-
-export interface SignupResult {
-  tenantId: string;
-  userId: string;
-  status: UserStatus.PENDING_VERIFICATION;
-  ownerName: string;
-}
-
-export interface SignupInput {
-  businessName: string;
-  ownerName: string;
-  email: string; // already normalized (trimmed, lowercased) by the caller
-  passwordHash: string;
-  tokenHash: string;
-  tokenExpiresAt: Date;
-}
-
-interface UserTokenHashInput {
-  userId: string;
-  tokenHash: string;
-}
-
-interface VerifyEmailInput {
-  email: string;
-  tokenHash: string;
-}
-
-interface UpdatePasswordInput {
-  userId: string;
-  passwordHash: string;
-}
-
-interface UpdateLocaleInput {
-  userId: string;
-  locale: Locale;
-}
-
-interface SetActiveLocationIdInput {
-  tenantId: string;
-  locationId: string | null;
-}
-
-/**
- * `'unknown'` deliberately carries no user and no reason — what it means is an AuthService-level
- * decision (NO_ACCOUNT for a login round trip, a pending signup for a signup one), not this DB
- * service's to make. See `resolveGoogleIdentity`.
- *
- * `firstActivation` is true only on the one branch that just promoted a `pending_verification`
- * row to `active` — the Google-linking equivalent of `verifyEmail` returning non-null. It's the
- * signal `AuthService.handleGoogleCallback` uses to know "this is the moment a brand-new tenant
- * finished signing up."
- */
-export type GoogleIdentityLookup =
-  { kind: 'known'; user: VerifiedUser; firstActivation: boolean } | { kind: 'unknown' };
-
-/** The `tenants` columns every sign-in path needs: `status` to refuse a suspended one, `name` for the token response. */
-export interface TenantRow {
-  status: TenantStatus;
-  name: string;
-}
-
-export interface VerifiedUser {
-  id: string;
-  tenantId: string;
-  email: string;
-  name: string;
-  role: UserRole;
-  passwordHash: string | null;
-  /**
-   * Carried so callers can apply the same standing checks password login does. It used to be
-   * dropped here, which is how the Google callback ended up with no way to refuse a `disabled`
-   * account — see AuthService.handleGoogleCallback.
-   */
-  status: UserStatus;
-  /** Null means "never chose" — see the `locale` column comment in 0002_tenant_auth.sql. */
-  locale: Locale | null;
-}
 
 /**
  * Owns every auth transaction — AuthService/TokenService never touch AuthRepository or run a
@@ -605,6 +534,7 @@ export class AuthDbService {
       email: input.email,
       role: UserRole.MEMBER,
       status: UserStatus.INVITED,
+      erasureRequestedAt: null,
       invitedAt: new Date().toISOString(),
     };
   }
@@ -617,6 +547,66 @@ export class AuthDbService {
   /** See `AuthRepository.listTenantMembers` — the Team Members list, owner and members alike. */
   async listTenantMembers(tenantId: string): Promise<TenantMemberRow[]> {
     return this.authRepository.listTenantMembers(tenantId);
+  }
+
+  /** See `AuthRepository.requestMemberRemoval` — the last-owner-guarded, grace-period start. */
+  async requestMemberRemoval(
+    tenantId: string,
+    memberId: string
+  ): Promise<RequestMemberRemovalOutcome> {
+    return this.authRepository.requestMemberRemoval(tenantId, memberId);
+  }
+
+  /** See `AuthRepository.cancelMemberRemoval`. */
+  async cancelMemberRemoval(
+    tenantId: string,
+    memberId: string
+  ): Promise<CancelMemberRemovalOutcome> {
+    return this.authRepository.cancelMemberRemoval(tenantId, memberId);
+  }
+
+  /** See `AuthRepository.anonymizeUser`. */
+  async anonymizeUser(userId: string): Promise<{ outcome: 'already_anonymized' | 'anonymized' }> {
+    return this.authRepository.anonymizeUser(userId);
+  }
+
+  /** See `AuthRepository.findTenantsDueForErasurePurge`. */
+  async findTenantsDueForErasurePurge(
+    gracePeriodDays: number
+  ): Promise<{ id: string; name: string }[]> {
+    return this.authRepository.findTenantsDueForErasurePurge(gracePeriodDays);
+  }
+
+  /** See `AuthRepository.findNonAnonymizedUserIdsForTenant`. */
+  async findNonAnonymizedUserIdsForTenant(tenantId: string): Promise<string[]> {
+    return this.authRepository.findNonAnonymizedUserIdsForTenant(tenantId);
+  }
+
+  /** See `AuthRepository.markTenantErased`. */
+  async markTenantErased(tenantId: string): Promise<{ name: string } | null> {
+    return this.authRepository.markTenantErased(tenantId);
+  }
+
+  /** See `AuthRepository.findUsersDueForErasurePurge`. */
+  async findUsersDueForErasurePurge(gracePeriodDays: number): Promise<string[]> {
+    return this.authRepository.findUsersDueForErasurePurge(gracePeriodDays);
+  }
+
+  /** See `AuthRepository.runWithErasurePurgeLock`. */
+  async runWithErasurePurgeLock<T>(
+    fn: (acquireLock: AcquireErasureLock) => Promise<T>
+  ): Promise<T> {
+    return this.authRepository.runWithErasurePurgeLock(fn);
+  }
+
+  /** See `AuthRepository.isTenantStillDueForErasure`. */
+  async isTenantStillDueForErasure(tenantId: string, gracePeriodDays: number): Promise<boolean> {
+    return this.authRepository.isTenantStillDueForErasure(tenantId, gracePeriodDays);
+  }
+
+  /** See `AuthRepository.isUserStillDueForErasure`. */
+  async isUserStillDueForErasure(userId: string, gracePeriodDays: number): Promise<boolean> {
+    return this.authRepository.isUserStillDueForErasure(userId, gracePeriodDays);
   }
 
   /**

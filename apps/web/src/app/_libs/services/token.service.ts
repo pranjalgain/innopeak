@@ -1,102 +1,89 @@
-const ACCESS_TOKEN_KEY = "access-token";
 /**
- * The signed-in user's display name — set alongside the access token whenever a response carries
- * one (login, signup, refresh, Google completion), never decoded from the JWT: the access token
- * carries no `name` claim, only `email`/`exp`, so this is the one piece of profile data that has
- * to be stored explicitly rather than read back out of the token itself.
+ * The signed-in user's display name — the one piece of profile data still cached client-side, for
+ * the shell's optimistic pre-paint (`storedDisplayName()` in `tenant-owner-profile.service.ts`).
+ * Not a credential, so `localStorage` is fine for it. Everything that used to live alongside it
+ * here (`hasPassword`, `businessName`, and the access token itself) either had no reader outside
+ * this file or is answered by the `session` cookie instead — see `SESSION_HINT_*` below.
  */
 const NAME_KEY = "access-token-name";
 
 /**
- * Whether the signed-in user has a password set — same rationale as `NAME_KEY`: the access token
- * carries no such claim, so it's stored explicitly from whatever auth response last carried it
- * (login, signup, refresh, change/set-password, Google completion) rather than decoded.
+ * `localStorage` keys this module used to write, before this refactor, and no longer does —
+ * `ACCESS_TOKEN_KEY` held the actual JWT. Nothing in this file ever writes them again, but nothing
+ * ever removed them from a browser that already had them either: a visitor signed in before this
+ * shipped keeps carrying that JWT around in JS-readable storage indefinitely, which is exactly the
+ * exposure this refactor exists to close. Swept on module load (see `pruneLegacyStorage` below)
+ * rather than only on logout, since a long-lived session might otherwise never call `clear()` again
+ * before the next server round-trip that could have caught it.
  */
-const HAS_PASSWORD_KEY = "access-token-has-password";
+const LEGACY_STORAGE_KEYS = [
+  "access-token",
+  "access-token-has-password",
+  "access-token-business-name",
+];
 
-/** The tenant/company name set at signup (`tenants.name`) — same rationale as `NAME_KEY`. Read-only in Settings. */
-const BUSINESS_NAME_KEY = "access-token-business-name";
+function pruneLegacyStorage(): void {
+  if (typeof window === "undefined") return;
+  for (const key of LEGACY_STORAGE_KEYS) {
+    window.localStorage.removeItem(key);
+  }
+}
 
-/** Treat a token as expired slightly early, so one that would die mid-flight is refreshed first. */
-const EXPIRY_SKEW_SECONDS = 30;
+pruneLegacyStorage();
 
-/** Mirrors the backend's `JwtTokenType` enum (`apps/backend/src/api/auth/enums/jwt-token-type.enum.ts`) — the two values an access token can carry. `"refresh"` is a distinct third `type` on that enum but never appears on an *access* token, so it's not part of this union. */
+/**
+ * Mirrors the backend's `SESSION_HINT_COOKIE_NAME`/`SESSION_HINT_TENANT_VALUE`/
+ * `SESSION_HINT_ADMIN_VALUE` (`apps/backend/src/api/auth/constants/auth.constants.ts`) — same
+ * convention `proxy.ts` already follows for its own edge-side copy of these constants, since the
+ * two apps don't share source.
+ *
+ * This cookie carries no credential — its value is just which kind of principal is signed in — and
+ * is deliberately not `httpOnly` (`buildSessionHintCookieOptions` on the backend) specifically so
+ * this file can read it directly instead of keeping a second, JS-readable copy of the actual access
+ * token in `localStorage` the way this module used to. Reading it is never an authorization
+ * decision, only a routing one: the backend enforces the real check on every request regardless of
+ * what this cookie says.
+ */
+const SESSION_HINT_COOKIE_NAME = "session";
+const SESSION_HINT_TENANT_VALUE = "tenant";
+const SESSION_HINT_ADMIN_VALUE = "admin";
+/** MIGRATION SHIM — see `proxy.ts`'s own copy of this constant for why it has to keep meaning "tenant". */
+const SESSION_HINT_LEGACY_TENANT_VALUE = "1";
+
 export type TokenType = "tenant_user" | "platform_admin";
 
-interface AccessTokenClaims {
-  exp?: number;
-  email?: string;
-  type?: TokenType;
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie
+    .split("; ")
+    .find((entry) => entry.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
 }
 
 /**
- * Holds the access token in localStorage. The refresh token is NOT stored here (and couldn't be
- * read even if we tried): it travels only as an httpOnly `refresh_token` cookie the backend sets
- * directly, invisible to this or any other client-side JS.
- *
- * Everything here checks *expiry*, never mere presence. A stored-but-expired token is worse than
- * no token at all: the route guards would read it as "signed in" while the backend and the edge
- * middleware both read the same session as signed out, and the two disagreeing is what produced
- * an infinite /login <-> /dashboard redirect loop for anyone idle past the 15-minute access TTL.
+ * Reads the non-credential `session` cookie the backend already sets on every sign-in — the same
+ * signal `proxy.ts` uses at the edge, now also readable here. No network call and no JWT decoding:
+ * the cookie already lives exactly as long as the session it describes (the refresh token's
+ * lifetime for a tenant, the access token's own for a platform admin — see the backend's
+ * `setSessionCookies`/`setAdminSessionCookies`), so there is nothing left to reconstruct from a
+ * token payload.
  */
 export class TokenService {
-  /** The raw stored string, expired or not — only for callers that are about to refresh it. */
-  static getStoredAccessToken(): string | null {
-    if (typeof window === "undefined") return null;
-    return window.localStorage.getItem(ACCESS_TOKEN_KEY);
-  }
-
-  /** The token to actually authenticate with: null when absent OR expired. */
-  static getAccessToken(): string | null {
-    const token = this.getStoredAccessToken();
-    if (!token || this.isExpired(token)) return null;
-    return token;
-  }
-
-  static setAccessToken(accessToken: string): void {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-  }
-
-  static clear(): void {
-    if (typeof window === "undefined") return;
-    window.localStorage.removeItem(ACCESS_TOKEN_KEY);
-    window.localStorage.removeItem(NAME_KEY);
-    window.localStorage.removeItem(HAS_PASSWORD_KEY);
-    window.localStorage.removeItem(BUSINESS_NAME_KEY);
-  }
-
-  /** Email claim from the stored access token — display only, never used as authorization. */
-  static getEmail(): string | null {
-    const token = this.getStoredAccessToken();
-    if (!token) return null;
-    const email = this.decode(token)?.email;
-    return typeof email === "string" && email.length > 0 ? email : null;
-  }
-
-  /**
-   * Unlike every other claim reader here, this one IS used for authorization — of a routing
-   * decision, not an API call. Route guards (`RequireAuth`, `AdminGuard`, `RedirectIfAuthenticated`)
-   * need to tell a tenant-user token from a platform-admin one to know which pages a valid,
-   * unexpired token is actually good for; without it, any guard that only checked "is there a
-   * token" treated the two as interchangeable, and a platform admin manually navigating to a
-   * tenant-only route (or the reverse) had no way to be routed anywhere but back into the very
-   * page that had just rejected them. This is still not a security boundary — the payload is
-   * read, not verified, and the backend independently enforces the real check on every request —
-   * it only ever decides which client-side page to show, never whether a request succeeds.
-   *
-   * Uses the raw stored token (expired or not), same as `getEmail` — a token past its TTL still
-   * carries a real `type` claim, and a guard mid-refresh needs to know which principal it's
-   * refreshing before deciding whether the attempt even makes sense.
-   */
+  /** Which principal (if any) is currently signed in — `null` means signed out. */
   static getTokenType(): TokenType | null {
-    const token = this.getStoredAccessToken();
-    if (!token) return null;
-    const type = this.decode(token)?.type;
-    return type === "tenant_user" || type === "platform_admin" ? type : null;
+    const value = readCookie(SESSION_HINT_COOKIE_NAME);
+    if (value === SESSION_HINT_ADMIN_VALUE) return "platform_admin";
+    if (value === SESSION_HINT_TENANT_VALUE || value === SESSION_HINT_LEGACY_TENANT_VALUE) {
+      return "tenant_user";
+    }
+    return null;
   }
 
-  /** Display only, same as `getEmail` — never used as authorization. */
+  static hasSession(): boolean {
+    return this.getTokenType() !== null;
+  }
+
+  /** Display only, never used as authorization. */
   static getName(): string | null {
     if (typeof window === "undefined") return null;
     const name = window.localStorage.getItem(NAME_KEY);
@@ -108,50 +95,13 @@ export class TokenService {
     window.localStorage.setItem(NAME_KEY, name);
   }
 
-  /** Null means "unknown" (nothing stored yet) — callers fall back rather than assume either way. */
-  static getHasPassword(): boolean | null {
-    if (typeof window === "undefined") return null;
-    const value = window.localStorage.getItem(HAS_PASSWORD_KEY);
-    return value === null ? null : value === "true";
-  }
-
-  static setHasPassword(hasPassword: boolean): void {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(HAS_PASSWORD_KEY, String(hasPassword));
-  }
-
-  static getBusinessName(): string | null {
-    if (typeof window === "undefined") return null;
-    const name = window.localStorage.getItem(BUSINESS_NAME_KEY);
-    return name && name.length > 0 ? name : null;
-  }
-
-  static setBusinessName(businessName: string): void {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(BUSINESS_NAME_KEY, businessName);
-  }
-
   /**
-   * Reads `exp` out of the JWT payload. This is a client-side *scheduling* hint only — it decides
-   * when to refresh, never whether to trust the token; the signature is verified by the backend on
-   * every request. A malformed or unparseable token counts as expired so the caller refreshes or
-   * signs out rather than sending garbage.
+   * Only the locally-cached display name — the `session` cookie itself is cleared by the backend
+   * as part of `POST /v1/auth/logout` (see `AuthService.logout`), not by client-side JS.
    */
-  static isExpired(token: string): boolean {
-    const claims = this.decode(token);
-    if (typeof claims?.exp !== "number") return true;
-    return claims.exp * 1000 <= Date.now() + EXPIRY_SKEW_SECONDS * 1000;
-  }
-
-  private static decode(token: string): AccessTokenClaims | null {
-    const payload = token.split(".")[1];
-    if (!payload) return null;
-
-    try {
-      const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-      return JSON.parse(atob(base64)) as AccessTokenClaims;
-    } catch {
-      return null;
-    }
+  static clear(): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(NAME_KEY);
+    pruneLegacyStorage();
   }
 }

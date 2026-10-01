@@ -1,6 +1,6 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
-import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth-user.type';
+import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth.type';
 import { BusinessConnectionStatus } from '@common/enums/business-connection-status.enum';
 import { BusinessStatus } from '@common/enums/business-status.enum';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
@@ -19,6 +19,7 @@ describe('AdminOverviewService', () => {
     getBusinessesNeedingAttention: jest.Mock;
     getSignupTrend: jest.Mock;
     getRecentActivity: jest.Mock;
+    listActivity: jest.Mock;
   };
 
   const admin: PlatformAdminAuthUser = {
@@ -44,6 +45,7 @@ describe('AdminOverviewService', () => {
       getBusinessesNeedingAttention: jest.fn(),
       getSignupTrend: jest.fn(),
       getRecentActivity: jest.fn(),
+      listActivity: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -178,7 +180,7 @@ describe('AdminOverviewService', () => {
       expect(adminOverviewDbService.getRecentActivity).not.toHaveBeenCalled();
     });
 
-    it('maps rows into response DTOs, forwarding the limit', async () => {
+    it('merges real activity rows with synthesized business_joined entries, newest first', async () => {
       adminOverviewDbService.getRecentActivity.mockResolvedValue([
         {
           id: 'activity-1',
@@ -186,16 +188,84 @@ describe('AdminOverviewService', () => {
           actorEmail: 'admin@innopeak.com',
           businessName: 'Oak & Iron Hardware',
           targetEmail: null,
-          occurredAt: '2026-09-11T09:00:00.000Z',
+          occurredAt: '2026-09-10T09:00:00.000Z',
+        },
+      ]);
+      adminOverviewDbService.getRecentBusinesses.mockResolvedValue([
+        {
+          id: 'tenant-1',
+          name: 'The Coastal Table',
+          status: BusinessStatus.ACTIVE,
+          connectionStatus: BusinessConnectionStatus.CONNECTED,
+          ownerName: 'Maria Delgado',
+          ownerEmail: 'maria@coastaltable.com',
+          userCount: 4,
+          createdAt: '2026-09-11T09:00:00.000Z',
         },
       ]);
 
       const result = await target.getRecentActivity(admin, 5);
 
       expect(adminOverviewDbService.getRecentActivity).toHaveBeenCalledWith(5);
-      expect(result).toHaveLength(1);
-      expect(result[0]?.businessName).toBe('Oak & Iron Hardware');
-      expect(result[0]?.email).toBeNull();
+      expect(adminOverviewDbService.getRecentBusinesses).toHaveBeenCalledWith(5);
+      expect(result).toHaveLength(2);
+      // Newer business_joined entry (Sep 11) sorts ahead of the older activity row (Sep 10).
+      expect(result[0]?.type).toBe('business_joined');
+      expect(result[0]?.businessName).toBe('The Coastal Table');
+      expect(result[0]?.actorEmail).toBeNull();
+      expect(result[1]?.businessName).toBe('Oak & Iron Hardware');
+      expect(result[1]?.email).toBeNull();
+    });
+  });
+
+  describe('listActivity', () => {
+    it('rejects a tenant-user token', async () => {
+      await expect(target.listActivity(tenantUser, {})).rejects.toThrow(ForbiddenException);
+      expect(adminOverviewDbService.listActivity).not.toHaveBeenCalled();
+    });
+
+    it('defaults page/pageSize and maps rows + pagination meta', async () => {
+      adminOverviewDbService.listActivity.mockResolvedValue({
+        activities: [
+          {
+            id: 'activity-1',
+            type: PlatformActivityType.BUSINESS_SUSPENDED,
+            actorEmail: 'admin@innopeak.com',
+            businessName: 'Oak & Iron Hardware',
+            targetEmail: null,
+            occurredAt: '2026-09-11T09:00:00.000Z',
+          },
+        ],
+        total: 1,
+      });
+
+      const result = await target.listActivity(admin, {});
+
+      expect(adminOverviewDbService.listActivity).toHaveBeenCalledWith({
+        page: 1,
+        pageSize: 20,
+        type: undefined,
+      });
+      expect(result.activities).toHaveLength(1);
+      expect(result.activities[0]?.businessName).toBe('Oak & Iron Hardware');
+      expect(result.meta).toEqual({ page: 1, pageSize: 20, total: 1, totalPages: 1 });
+    });
+
+    it('forwards page/pageSize/type and computes totalPages', async () => {
+      adminOverviewDbService.listActivity.mockResolvedValue({ activities: [], total: 45 });
+
+      const result = await target.listActivity(admin, {
+        page: 2,
+        pageSize: 20,
+        type: PlatformActivityType.USER_DEACTIVATED,
+      });
+
+      expect(adminOverviewDbService.listActivity).toHaveBeenCalledWith({
+        page: 2,
+        pageSize: 20,
+        type: PlatformActivityType.USER_DEACTIVATED,
+      });
+      expect(result.meta).toEqual({ page: 2, pageSize: 20, total: 45, totalPages: 3 });
     });
   });
 });

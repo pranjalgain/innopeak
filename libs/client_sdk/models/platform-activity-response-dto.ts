@@ -5,9 +5,12 @@
 export interface PlatformActivityResponseDto {
   id: string;
   type: PlatformActivityResponseDtoTypeEnum;
-  actorEmail: string;
   /**
-   * Set for business_suspended/business_reactivated entries only.
+   * Null for a synthesized business_joined entry — see its own comment.
+   */
+  actorEmail?: string | null;
+  /**
+   * Set for business_suspended/business_reactivated/business_joined entries only.
    */
   businessName?: string | null;
   /**
@@ -20,12 +23,16 @@ export interface PlatformActivityResponseDto {
 export const PlatformActivityResponseDtoTypeEnum = {
   BusinessSuspended: 'business_suspended',
   BusinessReactivated: 'business_reactivated',
+  BusinessErasureRequested: 'business_erasure_requested',
+  BusinessErasureCancelled: 'business_erasure_cancelled',
+  BusinessErased: 'business_erased',
   AdminInviteSent: 'admin_invite_sent',
   AdminInviteRevoked: 'admin_invite_revoked',
   UserActivated: 'user_activated',
   UserDeactivated: 'user_deactivated',
   AdminDisabled: 'admin_disabled',
   AdminEnabled: 'admin_enabled',
+  BusinessJoined: 'business_joined',
 } as const;
 
 export type PlatformActivityResponseDtoTypeEnum =

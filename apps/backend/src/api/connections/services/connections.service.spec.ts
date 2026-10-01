@@ -1,6 +1,6 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
-import type { TenantAuthUser } from '@auth/types/auth-user.type';
+import type { TenantAuthUser } from '@auth/types/auth.type';
 import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { LocationStatus } from '@common/enums/location-status.enum';

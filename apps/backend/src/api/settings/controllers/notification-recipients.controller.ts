@@ -8,7 +8,7 @@ import { RouteNames } from '@common/route-names';
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import type { AuthUser } from '../../auth/types/auth-user.type';
+import type { AuthUser } from '../../auth/types/auth.type';
 import {
   NotificationRecipientDto,
   NotificationRecipientListResponseDto,

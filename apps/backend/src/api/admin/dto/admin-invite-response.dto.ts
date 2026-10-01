@@ -1,6 +1,6 @@
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import { toIsoString, toIsoStringOrNull } from '@common/helpers/date.utils';
-import type { PlatformAdminInviteRow } from '@db/repositories/platform-admin/platform-admin.repository';
+import type { PlatformAdminInviteRow } from '@db/repositories/platform-admin/types/platform-admin.type';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AdminInviteResponseDto {

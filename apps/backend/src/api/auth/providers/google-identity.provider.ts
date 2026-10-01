@@ -1,4 +1,4 @@
-import type { GoogleIdentity } from '../types/google-identity.type';
+import type { GoogleIdentity } from '../types/auth.type';
 
 /**
  * Abstract so the callback can be exercised without Google credentials — same shape as

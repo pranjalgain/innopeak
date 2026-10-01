@@ -5,7 +5,8 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
 import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
-import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
+import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import type { TenantRow } from '@db/repositories/auth/types/auth.type';
 import { MediaService } from '@media/media.service';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -16,10 +17,7 @@ import { GoogleOAuthStateService } from './google-oauth-state.service';
 import { LoginAttemptScope, LoginAttemptService } from './login-attempt.service';
 import { OtpAttemptService } from './otp-attempt.service';
 import { PendingGoogleSignupService } from './pending-google-signup.service';
-import {
-  PlatformAdminAuthService,
-  type PlatformAdminLoginResult,
-} from './platform-admin-auth.service';
+import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { TokenService } from './token.service';
 
 import { GOOGLE_AUTH_REDIRECT, GoogleAuthFailure } from '../constants/google-auth.constants';
@@ -38,7 +36,6 @@ import { UpdateLocaleResponseDto } from '../dto/update-locale-response.dto';
 import { UpdateLocaleDto } from '../dto/update-locale.dto';
 import { VerifyEmailDto } from '../dto/verify-email.dto';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
-import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
 import {
@@ -57,54 +54,21 @@ import {
 } from '../exceptions/auth.exceptions';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
 import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
-import type { AuthUser } from '../types/auth-user.type';
-import type { GoogleAuthorizeRedirect } from '../types/google-authorize-redirect.type';
-import type { GoogleIdentity } from '../types/google-identity.type';
+import type {
+  AuthUser,
+  GoogleAuthorizeInput,
+  GoogleAuthorizeRedirect,
+  GoogleCallbackOutcome,
+  GoogleIdentity,
+  IssueOtpInput,
+  SendOtpEmailInput,
+  TokenIssuanceResult,
+} from '../types/auth.type';
 import { normalizeEmail } from '../utils/email.utils';
 import { buildMemberInviteLink } from '../utils/member-invite-link.util';
 import { requireTenantUser } from '../utils/require-tenant-user.util';
+import { isTenantLoginBlocked } from '../utils/tenant-status.util';
 import { hashToken } from '../utils/token.utils';
-
-export type { GoogleAuthorizeRedirect };
-
-export interface GoogleAuthorizeInput {
-  intent: OAuthIntent;
-}
-
-/**
- * What a successful verify-email/login/refresh actually produces: the JSON body (no refresh
- * token in it) plus the raw refresh token separately, so `AuthController` can set it as an
- * httpOnly cookie instead of serializing it into the response — a script on the page should
- * never be able to read it.
- */
-export type GoogleCallbackOutcome =
-  /** `redirectUrl` is already the full `<page>?error=<failure>` target — computed here, from
-   *  `intent`, rather than by `AuthController.googleCallback`. */
-  | { ok: false; failure: GoogleAuthFailure; redirectUrl: string }
-  /** `OAuthIntent.ADMIN_INVITE` completed, or a returning Google-linked admin signed back in on
-   *  an ordinary login/signup round trip — see `PlatformAdminAuthService.completeAdminInviteGoogle`
-   *  / `findLinkedAdmin`. */
-  | { ok: true; kind: 'admin_signed_in'; tokens: PlatformAdminLoginResult }
-  /** A genuinely new person — the caller sets `pendingSignupCookie` and redirects to collect a business name. */
-  | { ok: true; kind: 'needs_business_name'; pendingSignupCookie: string }
-  | { ok: true; kind: 'signed_in'; tokens: TokenIssuanceResult };
-
-export interface TokenIssuanceResult {
-  body: TokenResponseDto;
-  refreshToken: string;
-}
-
-interface IssueOtpInput {
-  userId: string;
-  email: string;
-  name: string;
-}
-
-interface SendOtpEmailInput {
-  email: string;
-  customerName: string;
-  rawOtp: string;
-}
 
 @Injectable()
 export class AuthService {
@@ -255,7 +219,7 @@ export class AuthService {
     }
 
     const tenant = await this.authDbService.findTenantStatus(user.tenantId);
-    if (tenant?.status === TenantStatus.SUSPENDED) {
+    if (isTenantLoginBlocked(tenant)) {
       throw new TenantSuspendedException();
     }
 
@@ -662,7 +626,7 @@ export class AuthService {
     // as a document instead of returning the invitee to the accept screen with a readable error.
     // Checked before redemption so a refused join does not also burn the invite.
     const tenant = await this.authDbService.findTenantStatus(invite.tenantId);
-    if (tenant?.status === TenantStatus.SUSPENDED) {
+    if (isTenantLoginBlocked(tenant)) {
       return {
         ok: false,
         failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
@@ -735,7 +699,7 @@ export class AuthService {
     }
 
     const tenant = await this.authDbService.findTenantStatus(invite.tenantId);
-    if (tenant?.status === TenantStatus.SUSPENDED) {
+    if (isTenantLoginBlocked(tenant)) {
       throw new TenantSuspendedException();
     }
   }
@@ -949,7 +913,7 @@ export class AuthService {
     }
 
     const tenant = await this.authDbService.findTenantStatus(lookup.user.tenantId);
-    if (tenant?.status === TenantStatus.SUSPENDED) {
+    if (isTenantLoginBlocked(tenant)) {
       return this.googleFailureRedirect(
         GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
         consumed.record.intent
@@ -1078,7 +1042,7 @@ export class AuthService {
       throw new AccountDisabledException();
     }
 
-    if (tenant?.status === TenantStatus.SUSPENDED) {
+    if (isTenantLoginBlocked(tenant)) {
       throw new TenantSuspendedException();
     }
 

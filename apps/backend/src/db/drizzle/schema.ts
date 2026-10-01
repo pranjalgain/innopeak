@@ -28,6 +28,9 @@ export const platformActivityType = pgEnum('platform_activity_type', [
   'user_deactivated',
   'admin_disabled',
   'admin_enabled',
+  'business_erasure_requested',
+  'business_erasure_cancelled',
+  'business_erased',
 ]);
 export const escalationReason = pgEnum('escalation_reason', ['low_rating', 'blocklist_match']);
 export const googleConnectionStatus = pgEnum('google_connection_status', [
@@ -109,7 +112,12 @@ export const tenantIdentityProvider = pgEnum('tenant_identity_provider', [
   'entra_id',
   'google_workspace',
 ]);
-export const tenantStatus = pgEnum('tenant_status', ['pending_activation', 'active', 'suspended']);
+export const tenantStatus = pgEnum('tenant_status', [
+  'pending_activation',
+  'active',
+  'suspended',
+  'erased',
+]);
 export const tokenPurpose = pgEnum('token_purpose', [
   'verify_email',
   'invite',
@@ -251,6 +259,7 @@ export const tenants = pgTable(
     name: varchar({ length: 255 }).notNull(),
     createdByPlatformAdminId: uuid('created_by_platform_admin_id'),
     status: tenantStatus().default('pending_activation').notNull(),
+    erasureRequestedAt: timestamp('erasure_requested_at', { withTimezone: true, mode: 'string' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -279,6 +288,9 @@ export const tenants = pgTable(
       table.createdByPlatformAdminId.asc().nullsLast().op('uuid_ops')
     ),
     index('idx_tenants_status').using('btree', table.status.asc().nullsLast().op('enum_ops')),
+    index('idx_tenants_erasure_requested_at')
+      .using('btree', table.erasureRequestedAt.asc().nullsLast().op('timestamptz_ops'))
+      .where(sql`(erasure_requested_at IS NOT NULL)`),
     foreignKey({
       columns: [table.createdByPlatformAdminId],
       foreignColumns: [platformAdmins.id],
@@ -331,14 +343,17 @@ export const users = pgTable(
       .primaryKey()
       .notNull(),
     tenantId: uuid('tenant_id').notNull(),
-    name: varchar({ length: 255 }).notNull(),
-    email: varchar({ length: 255 }).notNull(),
+    // Nullable, not NOT NULL — GDPR anonymize-in-place nulls this rather than deleting the row,
+    // so review_responses.approved_by_user_id/created_by_user_id keep a valid FK target.
+    name: varchar({ length: 255 }),
+    email: varchar({ length: 255 }),
     passwordHash: varchar('password_hash', { length: 255 }),
     emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true, mode: 'string' }),
     invitedByUserId: uuid('invited_by_user_id'),
     role: userRole().notNull(),
     status: userStatus().notNull(),
     anonymizedAt: timestamp('anonymized_at', { withTimezone: true, mode: 'string' }),
+    erasureRequestedAt: timestamp('erasure_requested_at', { withTimezone: true, mode: 'string' }),
     locale: userLocale(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
@@ -357,6 +372,9 @@ export const users = pgTable(
     ),
     index('idx_users_role').using('btree', table.role.asc().nullsLast().op('enum_ops')),
     index('idx_users_status').using('btree', table.status.asc().nullsLast().op('enum_ops')),
+    index('idx_users_erasure_requested_at')
+      .using('btree', table.erasureRequestedAt.asc().nullsLast().op('timestamptz_ops'))
+      .where(sql`(erasure_requested_at IS NOT NULL)`),
     index('idx_users_tenant_id').using('btree', table.tenantId.asc().nullsLast().op('uuid_ops')),
     uniqueIndex('idx_users_tenant_id_email').using(
       'btree',
@@ -1064,6 +1082,7 @@ export const reviewResponses = pgTable(
     status: responseStatus().default('draft').notNull(),
     createdByUserId: uuid('created_by_user_id'),
     approvedByUserId: uuid('approved_by_user_id'),
+    rejectedByUserId: uuid('rejected_by_user_id'),
     postedAt: timestamp('posted_at', { withTimezone: true, mode: 'string' }),
     errorMessage: text('error_message'),
     generationMetadata: jsonb('generation_metadata'),
@@ -1081,6 +1100,10 @@ export const reviewResponses = pgTable(
     index('idx_review_responses_approved_by_user_id').using(
       'btree',
       table.approvedByUserId.asc().nullsLast().op('uuid_ops')
+    ),
+    index('idx_review_responses_rejected_by_user_id').using(
+      'btree',
+      table.rejectedByUserId.asc().nullsLast().op('uuid_ops')
     ),
     index('idx_review_responses_created_by_user_id').using(
       'btree',
@@ -1131,6 +1154,11 @@ export const reviewResponses = pgTable(
       columns: [table.approvedByUserId],
       foreignColumns: [users.id],
       name: 'review_responses_approved_by_user_id_fkey',
+    }).onDelete('set null'),
+    foreignKey({
+      columns: [table.rejectedByUserId],
+      foreignColumns: [users.id],
+      name: 'review_responses_rejected_by_user_id_fkey',
     }).onDelete('set null'),
     foreignKey({
       columns: [table.promptVersionId],
@@ -1244,7 +1272,7 @@ export const platformActivityLog = pgTable(
     }).onDelete('set null'),
     check(
       'platform_activity_log_target_check',
-      sql`((type = ANY (ARRAY['business_suspended'::platform_activity_type, 'business_reactivated'::platform_activity_type])) AND (business_name IS NOT NULL) AND (target_email IS NULL)) OR ((type = ANY (ARRAY['admin_invite_sent'::platform_activity_type, 'admin_invite_revoked'::platform_activity_type, 'admin_disabled'::platform_activity_type, 'admin_enabled'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NULL) AND (tenant_id IS NULL)) OR ((type = ANY (ARRAY['user_activated'::platform_activity_type, 'user_deactivated'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NOT NULL))`
+      sql`((type = ANY (ARRAY['business_suspended'::platform_activity_type, 'business_reactivated'::platform_activity_type, 'business_erasure_requested'::platform_activity_type, 'business_erasure_cancelled'::platform_activity_type, 'business_erased'::platform_activity_type])) AND (business_name IS NOT NULL) AND (target_email IS NULL)) OR ((type = ANY (ARRAY['admin_invite_sent'::platform_activity_type, 'admin_invite_revoked'::platform_activity_type, 'admin_disabled'::platform_activity_type, 'admin_enabled'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NULL) AND (tenant_id IS NULL)) OR ((type = ANY (ARRAY['user_activated'::platform_activity_type, 'user_deactivated'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NOT NULL))`
     ),
   ]
 );
@@ -1387,6 +1415,7 @@ export const stripeWebhookEvents = pgTable('stripe_webhook_events', {
   processedAt: timestamp('processed_at', { withTimezone: true, mode: 'string' })
     .defaultNow()
     .notNull(),
+  stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
 });
 
 export const billingReceipts = pgTable(

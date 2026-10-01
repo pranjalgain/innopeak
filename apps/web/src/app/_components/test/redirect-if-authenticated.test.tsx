@@ -1,18 +1,18 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-
-import { TokenService } from "@/app/_libs/services/token.service";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { RedirectIfAuthenticated } from "../redirect-if-authenticated";
 
-vi.mock("@/app/_libs/api-sdk/config", () => ({
-  refreshSession: vi.fn().mockResolvedValue(false),
-  apiConfig: {},
-}));
-
-function storeLiveAccessToken(type: "tenant_user" | "platform_admin"): void {
-  const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, type }));
-  TokenService.setAccessToken(`header.${payload}.signature`);
+/**
+ * `RedirectIfAuthenticated`/`useAuthToken` read the non-credential `session` cookie the backend
+ * sets on every sign-in (see `TokenService.getTokenType`'s own doc comment) — seeding it directly
+ * here is the jsdom equivalent of the backend's `res.cookie("session", ...)`.
+ */
+function setSessionCookie(value: "tenant" | "admin" | null): void {
+  document.cookie =
+    value === null
+      ? "session=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/"
+      : `session=${value}; path=/`;
 }
 
 function renderLoginPage() {
@@ -27,6 +27,7 @@ describe("RedirectIfAuthenticated", () => {
   let originalLocation: Location;
 
   beforeEach(() => {
+    setSessionCookie(null);
     originalLocation = window.location;
     Object.defineProperty(window, "location", {
       configurable: true,
@@ -35,7 +36,7 @@ describe("RedirectIfAuthenticated", () => {
   });
 
   afterEach(() => {
-    window.localStorage.clear();
+    setSessionCookie(null);
     Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
   });
 
@@ -47,7 +48,7 @@ describe("RedirectIfAuthenticated", () => {
   });
 
   test("redirects an already-signed-in tenant user to /dashboard", async () => {
-    storeLiveAccessToken("tenant_user");
+    setSessionCookie("tenant");
 
     renderLoginPage();
 
@@ -57,7 +58,7 @@ describe("RedirectIfAuthenticated", () => {
   /**
    * Regression: this used to redirect ANY authenticated visitor to /dashboard unconditionally.
    * For a platform admin, that sent them straight into the tenant-only check `RequireAuth`
-   * applies to /dashboard, which redirects a wrong-type token to /forbidden — a login page that
+   * applies to /dashboard, which redirects a wrong-type session to /forbidden — a login page that
    * "helpfully" forwards a signed-in admin into a page that immediately rejects them is not
    * actually helpful, and combined with the OLD proxy.ts behavior (before the session-hint cookie
    * carried which principal, an admin bouncing off /dashboard had no hint at all and landed back
@@ -65,7 +66,7 @@ describe("RedirectIfAuthenticated", () => {
    * bug report described. The redirect target has to depend on which kind of session it is.
    */
   test("redirects an already-signed-in platform admin to /admin, not /dashboard", async () => {
-    storeLiveAccessToken("platform_admin");
+    setSessionCookie("admin");
 
     renderLoginPage();
 

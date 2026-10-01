@@ -146,6 +146,9 @@ export class ReviewResponseItemDto {
   @ApiPropertyOptional({ example: null, nullable: true })
   approvedByUserId!: string | null;
 
+  @ApiPropertyOptional({ example: null, nullable: true })
+  rejectedByUserId!: string | null;
+
   @ApiProperty({ example: '2026-03-12T09:01:11.402Z' })
   createdAt!: string;
 

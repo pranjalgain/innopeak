@@ -131,11 +131,12 @@ database level, before any API call is made (`PLAN.md` §2 `review_responses`, �
 makes the historical backfill job idempotent and safely re-runnable (`PLAN.md` §7).
 
 Neither table has a generic row-level change history behind it — there is no audit trail anywhere
-in this codebase that would otherwise cover this gap. That matters here because several actions
-this module performs have no dedicated attribution column of their own: a rejection
-(`review_responses.status` → `rejected`) and a dismissal (`reviews.status` → `dismissed`) record
-no user at all, so today there is no way to reconstruct who rejected a response or dismissed a
-review; see [Gap](#gap-between-current-code-and-target-design).
+in this codebase that would otherwise cover this gap. That used to be true of a rejection as well
+as a dismissal, but `review_responses.rejected_by_user_id` (`0004_reviews.sql`) closed the gap for
+rejections specifically — see
+[Persisting approve / reject decisions](#persisting-approve--reject-decisions) below. A dismissal
+(`reviews.status` → `dismissed`) still records no user at all, so "who dismissed this review?" is
+still unanswerable today; see [Gap](#gap-between-current-code-and-target-design).
 
 There is **no `set_updated_at` trigger anywhere in the migrations** — `updated_at` on both tables
 defaults to `NOW()` on insert and is not maintained afterwards by the database. Every `UPDATE`
@@ -290,6 +291,99 @@ clients acting at once:
   before any Google API call happens (`PLAN.md` §8.5). Handling that violation as a clean
   409-style conflict — rather than letting it surface as a 500 — is part of the endpoint
   contract.
+
+### Persisting approve / reject decisions
+
+**Implemented**, unlike most of the surface described below — `ReviewsService.approveReply` /
+`rejectReply` (`src/api/reviews/reviews.service.ts`), backed by
+`ReviewSyncDbService.approveResponse` / `rejectResponse` and
+`ReviewSyncRepository.approveResponse` / `rejectResponse` / `supersedeSiblingDrafts`
+(`src/db/repositories/review-sync/`), behind
+`POST /v1/reviews/:reviewId/responses/:responseId/approve` and `.../reject` — see
+[the API reference](./api-reference.md#response-approval) for the request/response contract. This
+section explains the *why* behind the shape of that write; the mechanics of "one reply per review"
+above are the invariant it exists to uphold.
+
+**Why a guarded compare-and-swap, not a plain `UPDATE`.** Both actions are CAS'd on
+`status = 'pending_approval'`:
+`UPDATE review_responses SET status = 'approved', ... WHERE id = ? AND review_id = ? AND
+tenant_id = ? AND status = 'pending_approval'` (reject is the same shape, targeting `'rejected'`).
+A review's detail page can sit open in two tabs — two staff members reviewing the same escalation
+queue, or one person with the page open twice — and a plain write would let whichever request
+lands second silently overwrite a decision the first one already made: reversing an approval back
+to some other state, or re-deciding a response that was already rejected. The CAS makes that
+impossible by construction rather than by convention — zero rows affected *is* the signal that the
+row moved out from under the caller, and the service turns that into
+`ReviewResponseNotApprovableException`, a `409`, rather than either a silent no-op or a raw
+"0 rows updated" surprise. Both an already-decided response (approved, rejected, or superseded by a
+sibling) and a request against a response ID that was never `pending_approval` in the first place
+hit the same guard and the same exception — there is no `expectedStatus` field on the request for
+a client to get wrong, because `pending_approval` is the only legal source state either transition
+accepts.
+
+**Why approving supersedes every other pending sibling on the same review, not just the same
+generation group.** This is the same invariant [One reply per review](#one-reply-per-review)
+above describes, now backed by real code:
+`ReviewSyncDbService.approveResponse` wraps `ReviewSyncRepository.approveResponse` and
+`supersedeSiblingDrafts` in one transaction, and the sweep is scoped by `review_id`, matching
+`ne(schema.reviewResponses.id, excludeResponseId)` — deliberately **not** scoped by
+`generation_group_id`. `generation_group_id` is a UI grouping construct (it is what lets the
+frontend render "Snippet A" / "Snippet B" as siblings), but the actual constraint
+`idx_review_responses_review_id_live_reply` enforces is per **review**: a review can accumulate a
+stale `pending_approval` draft from an earlier generation batch alongside a fresh one from a later
+batch, and both are equally wrong to leave live once any one candidate is approved. Running the
+supersede sweep in the same transaction as the approval — not a follow-up call — closes the window
+where a second reader could otherwise see two simultaneously-live candidates for a review that can
+only ever have one reply.
+
+**Why editing the content on approval can flip `source` to `human_edited`.** `approveReply` compares
+the submitted `content` (or, if omitted, the existing `content`) against a baseline — the
+response's `originalContent` if it has one, falling back to its own `content` if it does not — and
+only sets `source = ResponseSource.HUMAN_EDITED` when the two differ; otherwise `source` is left
+exactly as it was. The fallback baseline matters: `originalContent` is `null` for `human_manual`
+and `imported` rows, which never had an AI draft to diverge from in the first place, and comparing
+those against their own `content` makes "edited" correctly unreachable for them rather than
+comparing against a fabricated original that would flag every human-authored or imported reply as
+"edited" the moment anyone approved it unchanged.
+
+**Why a second, distinct `409` exists for the unique-index race.** The CAS above closes the
+ordinary double-decision race, but two staff members approving *different* sibling drafts on the
+same review at genuinely the same instant can each pass their own row's CAS check before either
+transaction commits — the CAS only guards the single row it targets, not the review as a whole.
+`idx_review_responses_review_id_live_reply` (`UNIQUE (review_id) WHERE status IN ('approved',
+'posted')`) is the database-level backstop: the second transaction to commit raises a
+unique-violation, which `ReviewsService.approveReply` catches (`isUniqueViolation`, matched against
+the index name, not the raw Postgres error text) and re-throws as
+`ReviewResponseAlreadyLiveException` — a `409` distinct from
+`ReviewResponseNotApprovableException`, because the two causes call for different client copy:
+"someone already decided this specific draft" versus "someone else's draft already won for this
+review, and yours is stale even though it was still `pending_approval` a moment ago."
+
+**The accountability-preserving column shape.** `approved_by_user_id` and `rejected_by_user_id`
+are both `UUID REFERENCES users(id) ON DELETE SET NULL` — `SET NULL`, deliberately never
+`CASCADE`, on both. A tenant deleting or GDPR-anonymizing a user must never be blocked by that
+user's own history of approving or rejecting replies, and the foreign key would block exactly that
+under `CASCADE` (or worse, cascade-delete the response rows themselves). `SET NULL` lets the user
+row go while the response row survives with its decision intact — only the *identity* of who
+decided is lost, not the fact that a decision happened, when, or what it was. There is no free-text
+rejection reason field; a rejection records only who rejected it and when, mirroring approval's own
+shape exactly. "When" is `decided_at` for both — a single, status-agnostic timestamp column
+(`0006_prompts.sql`) set on every terminal transition (approved, rejected, or superseded), not a
+pair of `approved_at`/`rejected_at` columns. That is adequate for "when was this decided," which is
+all either endpoint or `prompt-analytics.ts`'s time-to-decision figure needs; it only becomes
+inadequate if a future feature needs to distinguish "time to approval" from "time to rejection" on
+the same row, which nothing today does.
+
+**Explicitly out of scope: this does not post anything to Google.** Approving a draft lands the
+response at `status = 'approved'` and nowhere else — `approved_by_user_id`, `decided_at`, and
+(if edited) `content`/`source` are written, and the transaction commits. It does **not** call
+Google Business Profile's reply API, and it does not set `status = 'posted'`. Actually publishing
+the approved reply is a distinct, separately-planned future step, blocked on GBP write-API access
+that has not been built yet — the `approved → posted` arrow in the [state
+machine](#review_responses-state-machine) above is real in the enum, but nothing in this codebase
+drives it today. A reader of the API response should not infer that an `approved` reply is live on
+Google; see the [approve endpoint's](./api-reference.md#post-v1reviewsreviewidresponsesresponseidapprove)
+own note on this.
 
 ### Posting, and the freshness check before it
 

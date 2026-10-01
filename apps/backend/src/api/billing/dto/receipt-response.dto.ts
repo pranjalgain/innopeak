@@ -1,4 +1,4 @@
-import type { BillingReceiptRow } from '@db/repositories/billing/billing-receipts.repository';
+import type { BillingReceiptRow } from '@db/repositories/billing/types/billing.type';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ReceiptDto {

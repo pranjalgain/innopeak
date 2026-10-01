@@ -15,6 +15,10 @@ export interface TenantMemberResponseDto {
    * The owner\'s own row (created at signup, never invited) uses its own `createdAt`.
    */
   invitedAt: string;
+  /**
+   * Set once removal has been requested for this member — null means no removal is pending. Combine with `ERASURE_GRACE_PERIOD_DAYS` to show when it takes effect.
+   */
+  erasureRequestedAt?: object | null;
 }
 
 export const TenantMemberResponseDtoRoleEnum = {

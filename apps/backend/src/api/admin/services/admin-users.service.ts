@@ -6,9 +6,13 @@ import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-ov
 import { AdminUsersDbService } from '@db/repositories/admin-users/admin-users.db-service';
 import { Injectable } from '@nestjs/common';
 
-import type { AuthUser } from '../../auth/types/auth-user.type';
+import type { AuthUser } from '../../auth/types/auth.type';
 import { AdminUserResponseDto } from '../dto/admin-user-response.dto';
-import { AdminUserNotFoundException } from '../exceptions/admin.exceptions';
+import type { ListAdminUsersQueryDto } from '../dto/list-admin-users-query.dto';
+import {
+  AdminUserNotFoundException,
+  UserRemovalPendingException,
+} from '../exceptions/admin.exceptions';
 
 @Injectable()
 export class AdminUsersService {
@@ -17,9 +21,9 @@ export class AdminUsersService {
     private readonly adminOverviewDbService: AdminOverviewDbService
   ) {}
 
-  async list(actor: AuthUser): Promise<AdminUserResponseDto[]> {
+  async list(actor: AuthUser, query: ListAdminUsersQueryDto): Promise<AdminUserResponseDto[]> {
     requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const rows = await this.adminUsersDbService.findAll();
+    const rows = await this.adminUsersDbService.findAll(query.search);
     return rows.map(row => AdminUserResponseDto.from(row));
   }
 
@@ -35,10 +39,14 @@ export class AdminUsersService {
    */
   async toggleActive(actor: AuthUser, userId: string): Promise<AdminUserResponseDto> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const row = await this.adminUsersDbService.toggleActive(userId);
-    if (!row) {
+    const result = await this.adminUsersDbService.toggleActive(userId);
+    if (result.outcome === 'not_found') {
       throw new AdminUserNotFoundException();
     }
+    if (result.outcome === 'removal_pending') {
+      throw new UserRemovalPendingException();
+    }
+    const { row } = result;
 
     await this.adminOverviewDbService.recordActivityBestEffort({
       type:

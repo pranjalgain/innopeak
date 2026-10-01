@@ -29,6 +29,12 @@ export interface ConnectFlowError {
   /** A translation key under `onboardingConnect.errors`. */
   code: string;
   recovery: ErrorRecovery;
+  /** Verbatim backend message to show instead of the `code`-based translation, for a failure
+   *  whose reason varies (e.g. a plan's location limit) and where the backend's own text is
+   *  already the useful, specific one — same straight-through convention as
+   *  `avatar-upload.service.ts`'s `AvatarUploadService.errorMessage`, rather than re-translating
+   *  it client-side under a generic bucket. */
+  message?: string;
 }
 
 interface UseOnboardingConnectFlowResult {
@@ -146,9 +152,9 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     timersRef.current = new Map();
   }, []);
 
-  const fail = useCallback((code: string, recovery: ErrorRecovery) => {
+  const fail = useCallback((code: string, recovery: ErrorRecovery, message?: string) => {
     if (!mountedRef.current) return;
-    setError({ code, recovery });
+    setError(message !== undefined ? { code, recovery, message } : { code, recovery });
     setStage("error");
   }, []);
 
@@ -475,6 +481,13 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
         if (!mountedRef.current) return;
         if (caught instanceof ApiError && caught.errorCode === "CONNECTION_NEEDS_REAUTH") {
           fail("needsReauth", "reconnect");
+          return;
+        }
+        // The backend's own message already names the actual reason (e.g. "Too many locations
+        // for this account.") — more useful here than the generic bucket below, which would
+        // otherwise discard it and just say "try again" for a plan limit no retry can fix.
+        if (caught instanceof ApiError && caught.errorCode === "LOCATION_LIMIT_REACHED") {
+          fail("confirmFailed", "retry", caught.message);
           return;
         }
         fail("confirmFailed", "retry");

@@ -1,19 +1,12 @@
 import { Injectable } from '@nestjs/common';
 
-import {
-  type MediaOwner,
-  MediaRepository,
-  type MediaRow,
-  type UploadedAssetInput,
-} from './media.repository';
-
-export interface UpsertAvatarResult {
-  row: MediaRow;
-  /** The asset this row has *stopped* pointing at, which the caller is then free to delete —
-   *  `null` whenever nothing was orphaned, i.e. a first-ever upload, or a re-confirm that landed
-   *  on the asset the row already held. See `upsertAvatar` for why that second case matters. */
-  previousAsset: { provider: string; providerAssetId: string } | null;
-}
+import { MediaRepository } from './media.repository';
+import type {
+  MediaOwner,
+  ReplacedAsset,
+  UploadedAssetInput,
+  UpsertAvatarResult,
+} from './types/media.type';
 
 /**
  * `media` — composes `MediaRepository`'s reads/writes into the one operation `MediaService`
@@ -29,6 +22,14 @@ export class MediaDbService {
   async findAvatarUrl(owner: MediaOwner): Promise<string | null> {
     const row = await this.mediaRepository.findAvatar(owner);
     return row?.url ?? null;
+  }
+
+  /** Non-destructive read of this owner's current avatar asset, if any — see
+   *  `MediaService.deleteAvatarIfPresent` for why the storage delete must be attempted before the
+   *  DB row is touched, which rules out reusing the destructive `deleteAvatar` for that check. */
+  async findAvatarAsset(owner: MediaOwner): Promise<ReplacedAsset | null> {
+    const row = await this.mediaRepository.findAvatar(owner);
+    return row ? { provider: row.provider, providerAssetId: row.providerAssetId } : null;
   }
 
   /**
@@ -49,5 +50,10 @@ export class MediaDbService {
       (replaced.providerAssetId !== asset.providerAssetId || replaced.provider !== asset.provider);
 
     return { row, previousAsset: orphaned ? replaced : null };
+  }
+
+  /** See `MediaRepository.deleteAvatar`. */
+  async deleteAvatar(owner: MediaOwner): Promise<ReplacedAsset | null> {
+    return this.mediaRepository.deleteAvatar(owner);
   }
 }

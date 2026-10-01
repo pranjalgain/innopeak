@@ -9,27 +9,9 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { OAUTH_STATE_TTL_SECONDS } from '../constants/connections.constants';
 import { OAuthStateFailureReason } from '../enums/oauth-state-failure-reason.enum';
 import { ReturnTo } from '../enums/return-to.enum';
+import type { ConsumeResult, MintedState, OAuthStateRecord } from '../types/connections.type';
 
 const STATE_KEY_PREFIX = 'connections:oauth-state:';
-
-/** Everything the callback's write path needs. Read from Redis, never from the client's blob. */
-export interface OAuthStateRecord {
-  tenantId: string;
-  userId: string;
-  returnTo: ReturnTo;
-  /** SHA-256 of the browser-binding cookie value. The cookie itself is never stored. */
-  sidHash: string;
-}
-
-export interface MintedState {
-  /** Goes to Google as the `state` query param. */
-  state: string;
-  /** Goes to the browser as the `gbp_oauth_sid` cookie. */
-  sid: string;
-}
-
-export type ConsumeResult =
-  { ok: false; reason: OAuthStateFailureReason } | { ok: true; record: OAuthStateRecord };
 
 /**
  * Three layers, because signing alone does not close the attack this route has.

@@ -1,6 +1,6 @@
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { PlatformAdminOnlyException } from '../exceptions/auth.exceptions';
-import type { AuthUser, PlatformAdminAuthUser } from '../types/auth-user.type';
+import type { AuthUser, PlatformAdminAuthUser } from '../types/auth.type';
 
 /**
  * Narrows `@CurrentUser()`'s `AuthUser` to a `PlatformAdminAuthUser` — the platform-admin

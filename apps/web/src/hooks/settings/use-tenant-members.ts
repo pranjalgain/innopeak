@@ -15,6 +15,8 @@ interface UseTenantMembersResult {
   isLoading: boolean;
   inviteMember: (email: string) => Promise<boolean>;
   revokeInvite: (id: string) => Promise<void>;
+  requestRemoval: (id: string) => Promise<void>;
+  cancelRemoval: (id: string) => Promise<void>;
 }
 
 export function useTenantMembers(): UseTenantMembersResult {
@@ -86,10 +88,48 @@ export function useTenantMembers(): UseTenantMembersResult {
     [t, revokeInviteMutation, queryClient],
   );
 
+  const requestRemovalMutation = useMutation({
+    mutationFn: (id: string) => TenantMemberService.requestRemoval(id),
+  });
+
+  /** The success toast uses the server's own message — it interpolates the actual configured
+   *  grace-period day count, which this hook has no other way to know. */
+  const requestRemoval = useCallback(
+    async (id: string) => {
+      try {
+        const message = await requestRemovalMutation.mutateAsync(id);
+        void queryClient.invalidateQueries({ queryKey: tenantMembersQueryKey });
+        toast.success(message);
+      } catch (error) {
+        toast.error(authErrorMessage(error, t("requestRemovalFailed")));
+      }
+    },
+    [t, requestRemovalMutation, queryClient],
+  );
+
+  const cancelRemovalMutation = useMutation({
+    mutationFn: (id: string) => TenantMemberService.cancelRemoval(id),
+  });
+
+  const cancelRemoval = useCallback(
+    async (id: string) => {
+      try {
+        await cancelRemovalMutation.mutateAsync(id);
+        void queryClient.invalidateQueries({ queryKey: tenantMembersQueryKey });
+        toast.success(t("removalCancelled"));
+      } catch (error) {
+        toast.error(authErrorMessage(error, t("cancelRemovalFailed")));
+      }
+    },
+    [t, cancelRemovalMutation, queryClient],
+  );
+
   return {
     members: membersQuery.data ?? [],
     isLoading: membersQuery.isLoading,
     inviteMember,
     revokeInvite,
+    requestRemoval,
+    cancelRemoval,
   };
 }

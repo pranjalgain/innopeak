@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { useFormatter, useTranslations } from "next-intl";
 
+import { cn } from "@/app/_libs/utils/cn";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { SignupTrendPoint } from "@/types/domain";
 
@@ -58,9 +59,10 @@ export function SignupTrendCard({ trend }: SignupTrendCardProps) {
                 <span className="text-xs font-medium tabular-nums">{month.count}</span>
                 <div className="flex w-full flex-1 items-end">
                   <motion.div
-                    className={`w-full rounded-t-md ${
-                      index === months.length - 1 ? "bg-primary" : "bg-primary/35"
-                    }`}
+                    className={cn(
+                      "w-full rounded-t-md",
+                      index === months.length - 1 ? "bg-primary" : "bg-primary/35",
+                    )}
                     initial={{ height: "0%" }}
                     animate={{ height: `${(month.count / maxCount) * 100}%` }}
                     transition={{ duration: 0.6, delay: index * 0.05, ease: "easeOut" }}

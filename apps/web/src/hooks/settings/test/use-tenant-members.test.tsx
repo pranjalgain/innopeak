@@ -31,6 +31,7 @@ function member(overrides: Partial<TenantMember> = {}): TenantMember {
     role: "member",
     status: "invited",
     invitedAt: "2026-03-01T00:00:00Z",
+    erasureRequestedAt: null,
     ...overrides,
   };
 }
@@ -134,5 +135,48 @@ describe("useTenantMembers", () => {
 
     expect(result.current.members).toEqual([]);
     expect(result.current.isLoading).toBe(true);
+  });
+
+  test("invalidates the roster query after a successful removal request, so the pending state shows up", async () => {
+    const target = member({ status: "active", erasureRequestedAt: null });
+    const getMembers = vi.spyOn(TenantMemberService, "getMembers").mockResolvedValue([target]);
+    vi.spyOn(TenantMemberService, "requestRemoval").mockResolvedValue("Removal requested.");
+
+    const { result } = renderHook(() => useTenantMembers(), { wrapper });
+    await waitFor(() => expect(result.current.members).toEqual([target]));
+    getMembers.mockClear();
+    getMembers.mockResolvedValue([
+      { ...target, status: "disabled", erasureRequestedAt: "2026-03-01T00:00:00Z" },
+    ]);
+
+    await act(async () => {
+      await result.current.requestRemoval(target.id);
+    });
+
+    await waitFor(() =>
+      expect(result.current.members[0]?.erasureRequestedAt).toBe("2026-03-01T00:00:00Z"),
+    );
+    expect(getMembers).toHaveBeenCalled();
+  });
+
+  test("invalidates the roster query after a successful removal cancel", async () => {
+    const target = member({
+      status: "disabled",
+      erasureRequestedAt: "2026-03-01T00:00:00Z",
+    });
+    const getMembers = vi.spyOn(TenantMemberService, "getMembers").mockResolvedValue([target]);
+    vi.spyOn(TenantMemberService, "cancelRemoval").mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useTenantMembers(), { wrapper });
+    await waitFor(() => expect(result.current.members).toEqual([target]));
+    getMembers.mockClear();
+    getMembers.mockResolvedValue([{ ...target, status: "active", erasureRequestedAt: null }]);
+
+    await act(async () => {
+      await result.current.cancelRemoval(target.id);
+    });
+
+    await waitFor(() => expect(result.current.members[0]?.erasureRequestedAt).toBeNull());
+    expect(getMembers).toHaveBeenCalled();
   });
 });

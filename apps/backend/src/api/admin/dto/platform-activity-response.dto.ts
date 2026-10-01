@@ -1,23 +1,41 @@
+import { PaginationMetaDto } from '@common/dto/pagination-meta.dto';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { toIsoString } from '@common/helpers/date.utils';
-import type { PlatformActivityRow } from '@db/repositories/admin-overview/admin-overview.repository';
+import type { AdminBusinessSummary } from '@db/repositories/admin-businesses/types/admin-businesses.type';
+import type { PlatformActivityRow } from '@db/repositories/admin-overview/types/admin-overview.type';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+/** Not a real `platform_activity_type` — a business signing up has no platform-admin actor at all
+ *  (`POST /v1/auth/signup` is the tenant's own action), which is exactly why it was never added to
+ *  that enum (scoped to actions a platform admin takes on someone else). Synthesized from
+ *  `AdminBusinessSummary.createdAt`, a column that already exists, and merged into the same feed
+ *  `ApiGetRecentActivity` returns — see `buildActivityFeed`'s own comment for why that merge lives
+ *  here now rather than as a second client-side fetch. */
+export const BUSINESS_JOINED_TYPE = 'business_joined';
 
 export class PlatformActivityResponseDto {
   @ApiProperty({ example: '0190f3b4-1a88-70c5-8d19-6b2e4f7a9c33' })
   id!: string;
 
-  @ApiProperty({ example: PlatformActivityType.BUSINESS_SUSPENDED, enum: PlatformActivityType })
-  type!: PlatformActivityType;
+  @ApiProperty({
+    example: PlatformActivityType.BUSINESS_SUSPENDED,
+    enum: [...Object.values(PlatformActivityType), BUSINESS_JOINED_TYPE],
+  })
+  type!: PlatformActivityType | typeof BUSINESS_JOINED_TYPE;
 
-  @ApiProperty({ example: 'admin@innopeak.com' })
-  actorEmail!: string;
+  @ApiPropertyOptional({
+    example: 'admin@innopeak.com',
+    type: String,
+    nullable: true,
+    description: 'Null for a synthesized business_joined entry — see its own comment.',
+  })
+  actorEmail!: string | null;
 
   @ApiPropertyOptional({
     example: 'Oak & Iron Hardware',
     type: String,
     nullable: true,
-    description: 'Set for business_suspended/business_reactivated entries only.',
+    description: 'Set for business_suspended/business_reactivated/business_joined entries only.',
   })
   businessName!: string | null;
 
@@ -42,4 +60,23 @@ export class PlatformActivityResponseDto {
     dto.occurredAt = toIsoString(row.occurredAt);
     return dto;
   }
+
+  static fromBusinessJoined(business: AdminBusinessSummary): PlatformActivityResponseDto {
+    const dto = new PlatformActivityResponseDto();
+    dto.id = `business-joined-${business.id}`;
+    dto.type = BUSINESS_JOINED_TYPE;
+    dto.actorEmail = null;
+    dto.businessName = business.name;
+    dto.email = null;
+    dto.occurredAt = business.createdAt;
+    return dto;
+  }
+}
+
+export class PlatformActivityListResponseDto {
+  @ApiProperty({ type: [PlatformActivityResponseDto], description: 'Newest first.' })
+  activities!: PlatformActivityResponseDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta!: PaginationMetaDto;
 }

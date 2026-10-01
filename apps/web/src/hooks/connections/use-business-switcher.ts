@@ -3,6 +3,7 @@ import { useTranslations } from "next-intl";
 import { useCallback, useRef } from "react";
 import { toast } from "sonner";
 
+import { ApiError } from "@/app/_libs/services/api-error";
 import {
   type ConnectedLocation,
   ConnectionService,
@@ -71,9 +72,16 @@ export function useBusinessSwitcher(): UseBusinessSwitcherResult {
         queryClient.setQueryData<ConnectionState>(connectionQueryKey, (current) =>
           current ? { ...current, location: updated } : current,
         );
-      } catch {
+      } catch (error) {
         if (requestId !== latestSwitchRef.current) return;
-        toast.error(t("switchFailed"));
+        // See this hook's own doc comment: a member's attempt 403s server-side, since the switch
+        // is tenant-wide and owner-only — the generic "please try again" told a member to keep
+        // retrying an action the backend will never let them do.
+        if (error instanceof ApiError && error.statusCode === 403) {
+          toast.error(t("switchForbidden"));
+        } else {
+          toast.error(t("switchFailed"));
+        }
       }
     },
     [switchMutation, queryClient, t],

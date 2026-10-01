@@ -1,7 +1,7 @@
 import { NotificationChannelPref } from '@common/enums/notification-channel-pref.enum';
 import { ApiProperty } from '@nestjs/swagger';
 
-import type { NotificationRecipientRecord } from '../types/notification-recipient.type';
+import type { NotificationRecipientRecord } from '../types/settings.type';
 import { getInitials } from '../utils/initials.util';
 
 export class NotificationRecipientDto {

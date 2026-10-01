@@ -1,11 +1,11 @@
 "use client";
 
 import * as ProgressPrimitive from "@radix-ui/react-progress";
-import * as React from "react";
+import { type ComponentProps } from "react";
 
 import { cn } from "@/app/_libs/utils/cn";
 
-interface ProgressProps extends React.ComponentProps<typeof ProgressPrimitive.Root> {
+interface ProgressProps extends ComponentProps<typeof ProgressPrimitive.Root> {
   /**
    * Renders a looping sweep instead of a filled bar, for work whose total is genuinely unknown.
    *

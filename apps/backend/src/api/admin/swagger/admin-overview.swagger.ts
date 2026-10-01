@@ -1,10 +1,14 @@
+import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { applyDecorators, HttpStatus } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
 import { AdminBusinessResponseDto } from '../dto/admin-business-response.dto';
 import { AdminOverviewStatsResponseDto } from '../dto/admin-overview-stats-response.dto';
 import { AdminSignupTrendPointResponseDto } from '../dto/admin-signup-trend-point-response.dto';
-import { PlatformActivityResponseDto } from '../dto/platform-activity-response.dto';
+import {
+  PlatformActivityListResponseDto,
+  PlatformActivityResponseDto,
+} from '../dto/platform-activity-response.dto';
 
 export function ApiGetOverviewStats(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
@@ -144,10 +148,14 @@ export function ApiGetRecentActivity(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
     ApiBearerAuth(),
     ApiOperation({
-      summary: 'Most recent platform-admin actions',
+      summary: 'Recent platform activity — the Overview page’s glance feed',
       description:
-        'A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin ' +
-        'invite send/revoke, newest first, with the real actor who performed each one.',
+        'The purpose-built admin-action log (`platform_activity_log`: business suspend/' +
+        'reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized ' +
+        '`business_joined` entries (a signup has no platform-admin actor, so it was never added ' +
+        'to that log) into one time-sorted, capped feed. Previously two endpoints stitched ' +
+        'together client-side; this is the one response the Overview activity panel now needs. ' +
+        'See `ApiListPlatformActivity` for the paginated, real-log-only view instead.',
     }),
     ApiResponse({
       status: HttpStatus.OK,
@@ -164,11 +172,59 @@ export function ApiGetRecentActivity(): ReturnType<typeof applyDecorators> {
               email: null,
               occurredAt: '2026-09-11T09:12:00.000Z',
             },
+            {
+              id: 'business-joined-0190f3c1-2a88-70c5-8d19-6b2e4f7a9c33',
+              type: 'business_joined',
+              actorEmail: null,
+              businessName: 'The Coastal Table',
+              email: null,
+              occurredAt: '2026-09-10T14:03:00.000Z',
+            },
           ],
         },
       },
     }),
     ApiResponse({ status: HttpStatus.BAD_REQUEST, description: '`limit` outside 1-50' }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
+  );
+}
+
+export function ApiListPlatformActivity(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Paginated, filterable platform-admin action history',
+      description:
+        'The same `platform_activity_log` rows `ApiGetRecentActivity` reads, but paginated and ' +
+        'filterable by type rather than a bounded top-N read — backs a dedicated Activity view ' +
+        "rather than the Overview page's small glance card.",
+    }),
+    ApiQuery({ name: 'page', required: false, example: 1 }),
+    ApiQuery({ name: 'pageSize', required: false, example: 20 }),
+    ApiQuery({ name: 'type', required: false, enum: PlatformActivityType }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      type: PlatformActivityListResponseDto,
+      examples: {
+        default: {
+          summary: 'One page of platform activity',
+          value: {
+            activities: [
+              {
+                id: '0190f3b4-1a88-70c5-8d19-6b2e4f7a9c33',
+                type: 'business_suspended',
+                actorEmail: 'admin@innopeak.com',
+                businessName: 'Oak & Iron Hardware',
+                email: null,
+                occurredAt: '2026-09-11T09:12:00.000Z',
+              },
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+          },
+        },
+      },
+    }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
   );

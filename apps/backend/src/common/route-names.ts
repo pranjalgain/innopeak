@@ -79,6 +79,8 @@ export enum RouteNames {
 
   // Reviews module
   REVIEW_BY_ID = ':reviewId',
+  REVIEW_RESPONSE_APPROVE = ':reviewId/responses/:responseId/approve',
+  REVIEW_RESPONSE_REJECT = ':reviewId/responses/:responseId/reject',
 
   // Prompts module — nested segments under RouteNames.PROMPTS. PROMPT_STATS_BATCH is a static
   // segment registered as its own route rather than nested under PROMPT_STATS, since the batch
@@ -97,6 +99,8 @@ export enum RouteNames {
   ADMIN_USER_TOGGLE_ACTIVE = ':userId/toggle-active',
   ADMIN_BUSINESSES = 'admin/businesses',
   ADMIN_BUSINESS_STATUS = ':tenantId/status',
+  ADMIN_BUSINESS_REQUEST_ERASURE = ':tenantId/request-erasure',
+  ADMIN_BUSINESS_CANCEL_ERASURE = ':tenantId/cancel-erasure',
   ADMIN_SETTINGS = 'admin/settings',
   ADMIN_SETTINGS_PROFILE = 'profile',
   // Direct-to-provider avatar upload: mint a signed authorization, then confirm what the client
@@ -127,6 +131,9 @@ export enum RouteNames {
   ADMIN_OVERVIEW_NEEDS_ATTENTION = 'needs-attention',
   ADMIN_OVERVIEW_SIGNUP_TREND = 'signup-trend',
   ADMIN_OVERVIEW_ACTIVITY = 'activity',
+  // Paginated, filterable platform-activity-log history — distinct from ADMIN_OVERVIEW_ACTIVITY
+  // above (a bounded "top N" read for the Overview glance card, no offset/total/type filter).
+  ADMIN_OVERVIEW_ACTIVITY_LOG = 'activity-log',
 
   // Deeper platform-wide analytics than Overview's four headline stats — review volume/rating/
   // classification/sync/connection health, all composed into one summary payload per
@@ -147,11 +154,16 @@ export enum RouteNames {
   // whether the Billing nav item stays visible while `PAYMENT_FEATURE_ENABLED` is off — see
   // `AdminBillingService.hasPaidTenants`'s own doc comment.
   ADMIN_BILLING_HAS_PAID_TENANTS = 'has-paid-tenants',
+  // Paginated, filterable Stripe webhook activity — its own route rather than folded into
+  // ADMIN_BILLING_SUMMARY, since it's a log an admin pages/filters through, not a one-shot figure.
+  ADMIN_BILLING_WEBHOOK_EVENTS = 'webhook-events',
 
   // Tenant team members — owner-authenticated (@Roles(UserRole.OWNER)), nested under
   // RouteNames.SETTINGS. See tenant-member-invite-design.md.
   MEMBERS = 'members',
   MEMBER_BY_ID = ':memberId',
+  MEMBER_REQUEST_REMOVAL = ':memberId/request-removal',
+  MEMBER_CANCEL_REMOVAL = ':memberId/cancel-removal',
 
   // Billing module. BillingController and BillingWebhooksController both mount at this same
   // prefix (two controllers, one module — see module-structure.md's "more than one controller"

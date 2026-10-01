@@ -33,7 +33,7 @@ Backend endpoints + web accept page, both in this branch.
 `sendInvite` already mints `rawToken` before hashing it into `tokenHash`. Today `rawToken` is
 discarded after `hashToken(rawToken)`. Change:
 
-- Build `inviteLink = `${frontendUrl}/invite/${rawToken}`` using `FRONTEND_URL` (same config key
+- Build ``inviteLink = `${frontendUrl}/invite/${rawToken}` `` using `FRONTEND_URL` (same config key
   `ConnectionsService` already reads, same `.replace(/\/$/, '')` trim).
 - Enqueue a new job (see §2) carrying `inviteLink`, fire-and-forget, same shape as
   `AuthService.sendOtpEmail` (`void this.queueManager....catch(() => undefined)`).

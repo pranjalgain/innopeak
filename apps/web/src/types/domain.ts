@@ -34,6 +34,13 @@ export interface RatingDistributionRow {
   percentage: number;
 }
 
+/** `DashboardService.getMetrics`'s domain-shaped return — both views the dashboard needs derived
+ *  from the one underlying fetch, so the raw generated-SDK response never has to cross into a hook. */
+export interface DashboardMetrics {
+  stats: DashboardStats;
+  ratingDistribution: RatingDistributionRow[];
+}
+
 export type EscalationReason = "low_rating" | "blocklist_match";
 
 export interface AttentionReview {
@@ -164,6 +171,8 @@ export interface TenantMember {
   role: MemberRole;
   status: MemberStatus;
   invitedAt: string;
+  /** Set once removal has been requested for this member — null means no removal is pending. */
+  erasureRequestedAt: string | null;
 }
 
 export type PromptTone = "friendly" | "professional" | "formal" | "playful" | "empathetic";
@@ -205,6 +214,13 @@ export interface PromptVersionStats {
   averageDecisionMinutes: number | null;
 }
 
+/** One (promptId, version) pair's stats — `PromptService.getVersionStatsBatch`'s per-item shape. */
+export interface PromptVersionStatsBatchItem {
+  promptId: string;
+  version: number;
+  stats: PromptVersionStats;
+}
+
 export type NotificationType =
   | "review_escalated"
   | "reply_needs_approval"
@@ -222,7 +238,7 @@ export interface Notification {
   reviewId?: string;
 }
 
-export type BusinessStatus = "active" | "suspended";
+export type BusinessStatus = "active" | "suspended" | "erased";
 
 /** Mirrors the real `google_connection_status` enum, flattened with a `disconnected` case for "no connection row exists yet" (see the connections module plan). */
 export type BusinessConnectionStatus =
@@ -242,6 +258,8 @@ export interface AdminBusiness {
   ownerEmail: string;
   userCount: number;
   createdAt: string;
+  /** Set once erasure has been requested for this business — null means no erasure is pending. */
+  erasureRequestedAt: string | null;
 }
 
 /** A user as seen across all businesses from the Super Admin area. */
@@ -361,9 +379,35 @@ export interface BillingWebhookEvent {
   id: string;
   type: string;
   processedAt: string;
+  /** `null` for an orphan delivery — no tenant's Stripe customer id matches this event's. */
+  tenantId: string | null;
+  businessName: string | null;
 }
 
-/** The Super Admin Billing page's whole first screen — `GET /v1/admin/billing/summary`. */
+/** Mirrors `StripeWebhookEventType` (`apps/backend`'s `billing.type.ts`) — the 5 event types
+ *  `BillingWebhooksService` actually acts on, and the only ones `GET /v1/admin/billing/webhook-events`
+ *  ever returns — every other Stripe event type this app receives and ignores never reaches this
+ *  admin view at all. Key names, not the raw Stripe wire strings, are this app's own filter
+ *  vocabulary — see `ListBillingWebhookEventsQueryDto.type`'s own comment for why the raw format
+ *  never appears in a URL. */
+export const StripeWebhookEventType = {
+  CHECKOUT_SESSION_COMPLETED: "checkout.session.completed",
+  SUBSCRIPTION_UPDATED: "customer.subscription.updated",
+  SUBSCRIPTION_DELETED: "customer.subscription.deleted",
+  INVOICE_PAYMENT_FAILED: "invoice.payment_failed",
+  INVOICE_PAYMENT_SUCCEEDED: "invoice.payment_succeeded",
+} as const;
+
+export type StripeWebhookEventTypeKey = keyof typeof StripeWebhookEventType;
+export type HandledStripeWebhookEventType =
+  (typeof StripeWebhookEventType)[StripeWebhookEventTypeKey];
+export const HANDLED_STRIPE_WEBHOOK_EVENT_TYPES = Object.values(
+  StripeWebhookEventType,
+) as HandledStripeWebhookEventType[];
+
+/** The Super Admin Billing page's whole first screen — `GET /v1/admin/billing/summary`. Webhook
+ *  activity is a separate, paginated concern (`BillingWebhookEventList` below), not part of this
+ *  one-shot summary. */
 export interface AdminBillingSummary {
   freeCount: number;
   paidCount: number;
@@ -374,7 +418,21 @@ export interface AdminBillingSummary {
   cancelingCount: number;
   upgradeTrend: UpgradeTrendPoint[];
   atRisk: AtRiskSubscription[];
-  recentWebhookEvents: BillingWebhookEvent[];
+}
+
+/** Shared page/pageSize/total/totalPages envelope for a paginated list — mirrors the backend's
+ *  `PaginationMetaDto`. */
+export interface PaginationMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+/** `GET /v1/admin/billing/webhook-events` — paginated, filterable Stripe webhook activity. */
+export interface BillingWebhookEventList {
+  events: BillingWebhookEvent[];
+  meta: PaginationMeta;
 }
 
 /**
@@ -402,13 +460,18 @@ export interface PlatformSettings {
   paymentFeatureEnabled?: boolean;
 }
 
-/** A platform-admin action worth surfacing on the Super Admin overview's activity feed. Mirrors
- *  the backend's `platform_activity_type` enum exactly — the API performs no runtime validation
- *  of `type` on the way out (a plain cast in `AdminActivityService`), so a value missing here is a
- *  value this union silently lies about, breaking `ActivityLogCard`'s exhaustive `Record`s render. */
+/** A real platform-admin action from `platform_activity_log`. Mirrors the backend's
+ *  `platform_activity_type` enum exactly — the API performs no runtime validation of `type` on
+ *  the way out (a plain cast in `AdminActivityService`), so a value missing here is a value this
+ *  union silently lies about, breaking `ActivityLogCard`'s exhaustive `Record`s render. Used as
+ *  the paginated Activity tab's own filter vocabulary (`PlatformActivityFilter`) — that view never
+ *  includes `business_joined` (see `PlatformActivityEntry`'s own comment for why). */
 export type PlatformActivityType =
   | "business_suspended"
   | "business_reactivated"
+  | "business_erasure_requested"
+  | "business_erasure_cancelled"
+  | "business_erased"
   | "admin_invite_sent"
   | "admin_invite_revoked"
   | "admin_disabled"
@@ -416,15 +479,34 @@ export type PlatformActivityType =
   | "user_activated"
   | "user_deactivated";
 
+/** One entry in the Overview page's activity feed. `"business_joined"` isn't a real
+ *  `platform_activity_type` — a signup has no platform-admin actor at all, so the backend
+ *  synthesizes it from `AdminBusinessSummary.createdAt` and merges it into
+ *  `GET /v1/admin/overview/activity`'s response server-side (`actorEmail` is `null` for those
+ *  entries) rather than the frontend fetching a second endpoint and merging it client-side. The
+ *  paginated Activity tab (`GET /v1/admin/overview/activity-log`) never returns this variant. */
 export interface PlatformActivityEntry {
   id: string;
-  type: PlatformActivityType;
-  actorEmail: string;
-  /** The business a `business_*` entry acted on. */
+  type: PlatformActivityType | "business_joined";
+  /** `null`, not omitted, for a synthesized `business_joined` entry — a signup has no
+   *  platform-admin actor at all. Matches the backend DTO's own `string | null` exactly, unlike
+   *  `businessName`/`email` below (which the service layer does coalesce to `undefined`, since
+   *  those two are genuinely absent-vs-present depending on `type`, not always-present-but-null). */
+  actorEmail: string | null;
+  /** The business a `business_*`/`business_joined` entry acted on. */
   businessName?: string;
   /** The email an `admin_invite_*` (invitee) or `user_*` (the tenant user) entry acted on. */
   email?: string;
   occurredAt: string;
+}
+
+/** `GET /v1/admin/overview/activity-log` — paginated, filterable platform-admin action history.
+ *  Real `platform_activity_log` rows only — distinct from the Overview glance card's merged feed
+ *  (`GET /v1/admin/overview/activity`, `business_joined` entries included), which has no
+ *  server-side pagination of its own. */
+export interface PlatformActivityList {
+  activities: PlatformActivityEntry[];
+  meta: PaginationMeta;
 }
 
 // ─── Billing ──────────────────────────────────────────────────────────────

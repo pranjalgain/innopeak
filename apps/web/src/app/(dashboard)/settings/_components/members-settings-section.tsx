@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
 import { useForm } from "react-hook-form";
@@ -11,6 +11,7 @@ import {
   type InviteMemberFields,
   inviteMemberSchema,
 } from "@/app/(dashboard)/settings/_schemas/invite-member.schema";
+import { ERASURE_GRACE_PERIOD_DAYS } from "@/app/_libs/constants/erasure";
 import { cn } from "@/app/_libs/utils/cn";
 import { getInitials } from "@/app/_libs/utils/initials";
 import { ConfirmActionButton } from "@/components/common/confirm-action-dialog";
@@ -33,14 +34,24 @@ const STATUS_BADGE_CLASSNAME: Record<MemberStatus, string> = {
   disabled: "border-transparent bg-muted text-muted-foreground",
 };
 
+const REMOVAL_DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
+
 /** Only reachable while the platform's inviteMembersEnabled setting is on. */
 export function MembersSettingsSection() {
   const t = useTranslations("settings.members");
   const tRole = useTranslations("settings.members.role");
   const tStatus = useTranslations("settings.members.status");
-  const { members, isLoading, inviteMember, revokeInvite } = useTenantMembers();
+  const format = useFormatter();
+  const { members, isLoading, inviteMember, revokeInvite, requestRemoval, cancelRemoval } =
+    useTenantMembers();
   const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(members, 10);
   const schema = useMemo(() => inviteMemberSchema(t), [t]);
+  // Hides the Remove button for the sole remaining owner — a UX affordance only; the real
+  // enforcement is the backend's last-owner guard.
+  const ownerCount = useMemo(
+    () => members.filter((member) => member.role === "owner" && !member.erasureRequestedAt).length,
+    [members],
+  );
 
   const {
     register,
@@ -152,6 +163,52 @@ export function MembersSettingsSection() {
                       cancelLabel={t("cancel")}
                       destructive
                       onConfirm={() => void revokeInvite(member.id)}
+                    />
+                  ) : null}
+                  {member.erasureRequestedAt ? (
+                    <>
+                      <span className="text-muted-foreground text-[12.5px]">
+                        {t("removalPending", {
+                          date: format.dateTime(
+                            new Date(
+                              new Date(member.erasureRequestedAt).getTime() +
+                                ERASURE_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000,
+                            ),
+                            REMOVAL_DATE_FORMAT,
+                          ),
+                        })}
+                      </span>
+                      <ConfirmActionButton
+                        trigger={
+                          <Button type="button" variant="outline" size="sm">
+                            {t("cancelRemoval")}
+                          </Button>
+                        }
+                        title={t("confirmCancelRemoval.title", { name: member.name })}
+                        description={t("confirmCancelRemoval.description")}
+                        confirmLabel={t("cancelRemoval")}
+                        cancelLabel={t("cancel")}
+                        onConfirm={() => void cancelRemoval(member.id)}
+                      />
+                    </>
+                  ) : member.status === "active" &&
+                    (member.role !== "owner" || ownerCount > 1) ? (
+                    <ConfirmActionButton
+                      trigger={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="border-destructive text-destructive hover:bg-destructive/10">
+                          {t("remove")}
+                        </Button>
+                      }
+                      title={t("confirmRemove.title", { name: member.name })}
+                      description={t("confirmRemove.description")}
+                      confirmLabel={t("remove")}
+                      cancelLabel={t("cancel")}
+                      destructive
+                      onConfirm={() => void requestRemoval(member.id)}
                     />
                   ) : null}
                 </div>

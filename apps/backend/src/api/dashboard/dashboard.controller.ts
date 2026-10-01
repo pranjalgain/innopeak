@@ -1,5 +1,5 @@
 import { CurrentUser } from '@auth/decorators/current-user.decorator';
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';

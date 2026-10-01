@@ -2,44 +2,14 @@ import { PlatformActivityType } from '@common/enums/platform-activity-type.enum'
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { count, desc, gte, isNotNull, sql } from 'drizzle-orm';
+import { count, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
 
-export interface PlatformReviewStats {
-  totalReviewsFetched: number;
-  totalRepliesSent: number;
-}
-
-/** One calendar month's tenant-signup count. Only months with at least one signup are returned —
- * `AdminOverviewService.getSignupTrend` fills the zero-count months in the window before responding. */
-export interface SignupTrendPoint {
-  year: number;
-  /** 1-12. */
-  month: number;
-  count: number;
-}
-
-export interface PlatformActivityRow {
-  id: string;
-  type: PlatformActivityType;
-  actorEmail: string;
-  businessName: string | null;
-  targetEmail: string | null;
-  occurredAt: string;
-}
-
-export interface RecordActivityInput {
-  type: PlatformActivityType;
-  actorPlatformAdminId: string;
-  /** What the entry renders as its actor, snapshotted for the same reason `businessName` is — the
-   * admin row it points at can be deleted, and "who did this" is the one field a log of admin
-   * actions cannot afford to lose. Comes straight off the request's `AuthUser`. */
-  actorEmail: string;
-  tenantId?: string;
-  /** Required for `business_*` types (the table's CHECK enforces it) — this is what the entry
-   * renders, snapshotted so it survives the tenant being deleted or renamed. */
-  businessName?: string;
-  targetEmail?: string;
-}
+import type {
+  PlatformActivityRow,
+  PlatformReviewStats,
+  RecordActivityInput,
+  SignupTrendPoint,
+} from './types/admin-overview.type';
 
 const ACTIVITY_COLUMNS = {
   id: schema.platformActivityLog.id,
@@ -134,5 +104,34 @@ export class AdminOverviewRepository {
       .limit(limit);
 
     return rows as PlatformActivityRow[];
+  }
+
+  /**
+   * Paginated, filterable history — distinct from `getRecentActivity` above (a bounded "top N"
+   * read for the Overview glance card, no offset/total/type filter). Real `platform_activity_log`
+   * rows only: the Overview card's synthesized `business_joined` entries (see
+   * `buildActivityFeed` on the frontend) aren't a real row here and aren't part of this table, so
+   * they're deliberately out of scope for this method — see this session's own research into why
+   * paginating a UNION of two independently-queried sources isn't attempted here.
+   */
+  async listActivity(input: {
+    page: number;
+    pageSize: number;
+    type?: PlatformActivityType | undefined;
+  }): Promise<{ activities: PlatformActivityRow[]; total: number }> {
+    const where = input.type ? eq(schema.platformActivityLog.type, input.type) : undefined;
+
+    const [rows, totals] = await Promise.all([
+      this.dbService.db
+        .select(ACTIVITY_COLUMNS)
+        .from(schema.platformActivityLog)
+        .where(where)
+        .orderBy(desc(schema.platformActivityLog.occurredAt), desc(schema.platformActivityLog.id))
+        .limit(input.pageSize)
+        .offset((input.page - 1) * input.pageSize),
+      this.dbService.db.select({ value: count() }).from(schema.platformActivityLog).where(where),
+    ]);
+
+    return { activities: rows as PlatformActivityRow[], total: totals[0]?.value ?? 0 };
   }
 }

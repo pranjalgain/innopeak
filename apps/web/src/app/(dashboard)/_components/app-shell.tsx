@@ -5,6 +5,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
+import type { ReactNode } from "react";
 import { LuChevronDown } from "react-icons/lu";
 
 import { AppHeader } from "@/app/(dashboard)/_components/app-header";
@@ -47,7 +48,7 @@ function Logo({ homeHref }: { homeHref: string }) {
 }
 
 interface AppShellProps {
-  children: React.ReactNode;
+  children: ReactNode;
   /** Shared between the desktop/tablet sidebar and the mobile bottom nav, so the two can never drift. */
   navItems: readonly ShellNavItem[];
   /** i18n namespace each `navItems[].labelKey` resolves against. */

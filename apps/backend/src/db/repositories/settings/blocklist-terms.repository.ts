@@ -3,17 +3,13 @@ import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 
+import type { InsertedBlocklistTermRow } from './types/settings.type';
+
 import type {
   BlocklistTermRecord,
   CreateBlocklistTermInput,
   DeleteBlocklistTermInput,
-} from '../../../api/settings/types/blocklist-term.type';
-
-interface InsertedRow {
-  id: string;
-  term: string;
-  created_at: Date | string;
-}
+} from '../../../api/settings/types/settings.type';
 
 @Injectable()
 export class BlocklistTermsRepository {
@@ -49,7 +45,7 @@ export class BlocklistTermsRepository {
       RETURNING id, term, created_at
     `);
 
-    const row = result.rows[0] as InsertedRow | undefined;
+    const row = result.rows[0] as InsertedBlocklistTermRow | undefined;
     if (row === undefined) {
       return null;
     }

@@ -10,26 +10,20 @@ import { AdminOverviewStatsService } from "@/app/_libs/services/admin-overview-s
 import { AdminRecentBusinessesService } from "@/app/_libs/services/admin-recent-businesses.service";
 import { AdminSignupTrendService } from "@/app/_libs/services/admin-signup-trend.service";
 import {
-  type AdminActivityFeedEntry,
-  buildActivityFeed,
-} from "@/app/_libs/utils/admin-activity-feed";
-import {
   adminOverviewActivityQueryKey,
   adminOverviewNeedsAttentionQueryKey,
   adminOverviewRecentBusinessesQueryKey,
   adminOverviewSignupTrendQueryKey,
   adminOverviewStatsQueryKey,
 } from "@/hooks/admin/admin-query-keys";
-import type { AdminBusiness, SignupTrendPoint } from "@/types/domain";
+import type { AdminBusiness, PlatformActivityEntry, SignupTrendPoint } from "@/types/domain";
 
 /** How many months `SignupTrendCard` shows, counting back from the current one. */
 const SIGNUP_TREND_MONTHS = 6;
 
-/** How many businesses to fetch for "Recent Businesses" — above `RecentBusinessesCard`'s own
- *  display count (3) and at least `buildActivityFeed`'s `FEED_LIMIT` (8), since that merge needs
- *  every business in this list to be a real candidate for the feed's final 8 slots, not just the
- *  three the card itself shows. */
-const RECENT_BUSINESSES_LIMIT = 8;
+/** Matches `RecentBusinessesCard`'s own display count — the merge with the activity feed now
+ *  happens server-side, so this list no longer needs headroom beyond what the card itself shows. */
+const RECENT_BUSINESSES_LIMIT = 3;
 
 /** How many rows `NeedsAttentionPanel` shows — matches the backend's own default. */
 const NEEDS_ATTENTION_LIMIT = 3;
@@ -39,8 +33,7 @@ interface UseAdminOverviewResult {
   userCount: number;
   totalReviewsFetched: number;
   totalRepliesSent: number;
-  /** The newest businesses, newest first — feeds both `RecentBusinessesCard` and, merged with
-   *  `activityQuery`, the activity feed's synthesized "business joined" entries. */
+  /** The newest businesses, newest first — feeds `RecentBusinessesCard`. */
   recentBusinesses: AdminBusiness[];
   /** Non-connected businesses, most urgent first, already capped — an empty array means nothing
    *  needs attention right now, which is also what the parent view uses to decide whether to
@@ -49,9 +42,10 @@ interface UseAdminOverviewResult {
   /** Tenant signups bucketed by month over the trailing `SIGNUP_TREND_MONTHS` months — already
    *  zero-filled by the backend, so `SignupTrendCard` only has to render it. */
   signupTrend: SignupTrendPoint[];
-  /** The admin-action log merged with synthesized "business joined" entries — see
-   *  `buildActivityFeed`'s own doc comment for why the merge, rather than either source alone. */
-  activityFeed: AdminActivityFeedEntry[];
+  /** The admin-action log merged with synthesized "business joined" entries — the merge now
+   *  happens server-side (`AdminOverviewService.getRecentActivity`), so this is exactly what
+   *  `AdminActivityService.getRecentActivity()` returns, no client-side merge needed. */
+  activityFeed: PlatformActivityEntry[];
   isLoading: boolean;
   /** Distinct from "loaded, but empty" — every panel needs to tell an outage from a quiet platform. */
   isError: boolean;
@@ -116,7 +110,7 @@ export function useAdminOverview(): UseAdminOverviewResult {
     recentBusinesses: recentBusinessesQuery.data ?? [],
     needsAttention: needsAttentionQuery.data ?? [],
     signupTrend: signupTrendQuery.data ?? [],
-    activityFeed: buildActivityFeed(recentBusinessesQuery.data ?? [], activityQuery.data ?? []),
+    activityFeed: activityQuery.data ?? [],
     isLoading,
     isError: isAnyError,
     refetch: () => {

@@ -19,6 +19,7 @@ import { GoogleOidcProvider } from './providers/google-oidc.provider';
 import { MockGoogleIdentityProvider } from './providers/mock-google-identity.provider';
 import { RandomVerifyEmailTokenProvider } from './providers/random-verify-email-token.provider';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
+import { AccountAnonymizationService } from './services/account-anonymization.service';
 import { AuthService } from './services/auth.service';
 import { GoogleOAuthStateService } from './services/google-oauth-state.service';
 import { LoginAttemptService } from './services/login-attempt.service';
@@ -92,6 +93,7 @@ const googleIdentityProviderFactory = {
     googleIdentityProviderFactory,
     GoogleOAuthStateService,
     PendingGoogleSignupService,
+    AccountAnonymizationService,
     { provide: HashingService, useClass: BcryptService },
   ],
   // `TokenService`/`JwtModule` — `AdminSettingsService.updateLocale` needs
@@ -100,7 +102,14 @@ const googleIdentityProviderFactory = {
   // tenant user. `OtpAttemptService`/`VerifyEmailTokenProvider` are the admin-side add-password
   // flow's step-up OTP machinery (`AdminSettingsService.requestSetPasswordOtp`/`setPassword`) —
   // the exact same generic, email-keyed services the tenant flow uses, reused rather than
-  // duplicated. Nothing else here is meant for use outside this module.
-  exports: [TokenService, JwtModule, OtpAttemptService, VerifyEmailTokenProvider],
+  // duplicated. `AccountAnonymizationService` is exported for `CronModule`'s nightly erasure-purge
+  // job. Nothing else here is meant for use outside this module.
+  exports: [
+    TokenService,
+    JwtModule,
+    OtpAttemptService,
+    VerifyEmailTokenProvider,
+    AccountAnonymizationService,
+  ],
 })
 export class AuthModule {}

@@ -2,7 +2,7 @@ import type { ExecutionContext } from '@nestjs/common';
 import { createParamDecorator } from '@nestjs/common';
 import type { Request } from 'express';
 
-import type { AuthUser } from '../types/auth-user.type';
+import type { AuthUser } from '../types/auth.type';
 
 /**
  * Parameter decorator that extracts the authenticated user from the request.

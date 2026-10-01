@@ -88,7 +88,7 @@ export class SettingsService {
 
     const settings = structuredClone(MOCK_SETTINGS);
     settings.blocklistTerms = blocklist;
-    settings.general = mapGeneral(general);
+    settings.general = general;
     settings.notificationRecipients = recipients;
 
     // Resolved live from GET /v1/connections — the same call the dashboard guard reads, so this
@@ -107,19 +107,19 @@ export class SettingsService {
     return settings;
   }
 
-  static async getGeneralSettings(): Promise<ApiTenantSettings> {
+  static async getGeneralSettings(): Promise<GeneralSettings> {
     const response = await settingsApi.tenantSettingsControllerGetV1();
-    return unwrap<ApiTenantSettings>(response.data);
+    return mapGeneral(unwrap<ApiTenantSettings>(response.data));
   }
 
-  static async updateGeneralSettings(write: TenantSettingsWrite): Promise<ApiTenantSettings> {
+  static async updateGeneralSettings(write: TenantSettingsWrite): Promise<GeneralSettings> {
     const response = await settingsApi.tenantSettingsControllerReplaceV1({
       // The backend's `@ApiPropertyOptional` for this field has no explicit `type`, so the
       // generator falls back to `object | null` for `reviewDataRetentionMonths` — a documentation
       // gap, not a real contract change; the field is a plain nullable number on the wire.
       updateTenantSettingsDto: write as unknown as UpdateTenantSettingsDto,
     });
-    return unwrap<ApiTenantSettings>(response.data);
+    return mapGeneral(unwrap<ApiTenantSettings>(response.data));
   }
 
   static async listBlocklistTerms(): Promise<BlocklistTerm[]> {

@@ -9,4 +9,9 @@ export interface BillingWebhookEventResponseDto {
   id: string;
   type: string;
   processedAt: string;
+  /**
+   * Null when this event is an orphan delivery — its Stripe customer id matches no tenant.
+   */
+  tenantId: string | null;
+  businessName: string | null;
 }

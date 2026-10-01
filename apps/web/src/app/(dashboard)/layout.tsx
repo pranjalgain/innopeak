@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import type { ReactNode } from "react";
 
 import { AppShell } from "@/app/(dashboard)/_components/app-shell";
 import { ConnectionGuard } from "@/app/(dashboard)/_components/connection-guard";
@@ -13,7 +14,7 @@ import { getInitials } from "@/app/_libs/utils/initials";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
 
 interface DashboardLayoutProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 /**

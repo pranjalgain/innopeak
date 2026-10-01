@@ -1,4 +1,4 @@
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';

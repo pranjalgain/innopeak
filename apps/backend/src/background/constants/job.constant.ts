@@ -64,4 +64,7 @@ export enum CronJobName {
   REVIEW_SYNC_POLL = 'review-sync-poll',
   /** PLAN.md §6's nightly reviewer-retention purge — see CronService.purgeExpiredReviewerPii. */
   REVIEWER_RETENTION_PURGE = 'reviewer-retention-purge',
+  /** GDPR erasure grace-period sweep (team-member removal + tenant erasure) — see
+   *  CronService.purgeErasureRequests. */
+  ERASURE_PURGE = 'erasure-purge',
 }

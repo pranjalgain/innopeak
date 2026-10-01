@@ -6,11 +6,8 @@ import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { Test } from '@nestjs/testing';
 
 import { ConnectionsDbService, LocationLimitExceededError } from './connections.db-service';
-import {
-  ConnectionsRepository,
-  type LocationRow,
-  type ProviderConnectionRow,
-} from './connections.repository';
+import { ConnectionsRepository } from './connections.repository';
+import type { LocationRow, ProviderConnectionRow } from './types/connections.type';
 
 import { ReviewSyncRepository } from '../review-sync/review-sync.repository';
 

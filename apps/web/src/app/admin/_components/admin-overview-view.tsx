@@ -1,8 +1,11 @@
 "use client";
 
+import type { Route } from "next";
 import { useFormatter, useTranslations } from "next-intl";
 import { LuBuilding2, LuMessageSquare, LuReply, LuUsers } from "react-icons/lu";
 
+import { ROUTES } from "@/app/_libs/constants/routes";
+import { cn } from "@/app/_libs/utils/cn";
 import { ActivityLogCard } from "@/app/admin/_components/activity-log-card";
 import { NeedsAttentionPanel } from "@/app/admin/_components/needs-attention-panel";
 import { RecentBusinessesCard } from "@/app/admin/_components/recent-businesses-card";
@@ -120,7 +123,7 @@ export function AdminOverviewView() {
           <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       ) : (
-        <div className={`grid gap-4 ${showNeedsAttention ? "lg:grid-cols-2" : ""}`}>
+        <div className={cn("grid gap-4", showNeedsAttention && "lg:grid-cols-2")}>
           {showNeedsAttention && <NeedsAttentionPanel businesses={needsAttention} />}
           <RecentBusinessesCard businesses={recentBusinesses} />
         </div>
@@ -134,7 +137,10 @@ export function AdminOverviewView() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           <SignupTrendCard trend={signupTrend} />
-          <ActivityLogCard entries={activityFeed} />
+          <ActivityLogCard
+            entries={activityFeed}
+            viewAllHref={`${ROUTES.ADMIN_ACTIVITY}?tab=platformActivity` as Route}
+          />
         </div>
       )}
     </div>

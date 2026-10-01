@@ -5,10 +5,11 @@
 import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import posthog from "posthog-js";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { LuHouse, LuRefreshCw, LuTriangleAlert } from "react-icons/lu";
 
 import { Button } from "@/components/ui/button";
+import { type AppLocale, DEFAULT_LOCALE, isSupportedLocale, LOCALE_COOKIE_NAME } from "@/i18n/locales";
 import { env } from "env";
 
 interface GlobalErrorProps {
@@ -16,7 +17,60 @@ interface GlobalErrorProps {
   reset: () => void;
 }
 
+/**
+ * This file replaces the root layout entirely when the root layout itself throws (Next's own
+ * `global-error.tsx` contract — it must render its own `<html>`/`<body>`), so it renders with no
+ * `NextIntlClientProvider` ancestor and `useTranslations` would throw here. A tiny, self-contained
+ * dictionary — read directly from the `NEXT_LOCALE` cookie client-side, since there is no server
+ * render pass to read it from — is deliberately simpler than pulling in the full i18n stack for a
+ * boundary that exists precisely because something upstream already broke.
+ */
+const COPY: Record<AppLocale, {
+  eyebrow: string;
+  title: string;
+  description: string;
+  reference: (digest: string) => string;
+  retry: string;
+  returnHome: string;
+}> = {
+  en: {
+    eyebrow: "Captured by Sentry + PostHog",
+    title: "Something went wrong.",
+    description:
+      "The exception has been recorded with diagnostic context. You can retry the request or return to a safe page.",
+    reference: (digest) => `Reference: ${digest}`,
+    retry: "Try again",
+    returnHome: "Return home",
+  },
+  de: {
+    eyebrow: "Erfasst von Sentry + PostHog",
+    title: "Etwas ist schiefgelaufen.",
+    description:
+      "Der Fehler wurde mit Diagnoseinformationen erfasst. Sie können die Anfrage wiederholen oder zu einer sicheren Seite zurückkehren.",
+    reference: (digest) => `Referenz: ${digest}`,
+    retry: "Erneut versuchen",
+    returnHome: "Zur Startseite",
+  },
+};
+
+function readLocaleCookie(): AppLocale {
+  if (typeof document === "undefined") return DEFAULT_LOCALE;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${LOCALE_COOKIE_NAME}=([^;]*)`));
+  const value = match?.[1] ? decodeURIComponent(match[1]) : undefined;
+  return isSupportedLocale(value) ? value : DEFAULT_LOCALE;
+}
+
 export default function GlobalError({ error, reset }: GlobalErrorProps) {
+  // Starts at the default and corrects after mount — reading `document.cookie` during render
+  // would mismatch the server-rendered HTML (there is none here, but this component still runs
+  // through the same client render path) and trip a hydration warning for no benefit.
+  const [locale, setLocale] = useState<AppLocale>(DEFAULT_LOCALE);
+  const t = COPY[locale];
+
+  useEffect(() => {
+    setLocale(readLocaleCookie());
+  }, []);
+
   useEffect(() => {
     console.error("global-error", error);
     Sentry.captureException(error);
@@ -26,7 +80,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
   }, [error]);
 
   return (
-    <html lang="en">
+    <html lang={locale}>
       <body className="bg-background text-foreground font-sans antialiased">
         <main className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-16">
           <div className="surface-grid pointer-events-none absolute inset-0 -z-20 opacity-70" />
@@ -36,29 +90,28 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
               <LuTriangleAlert className="text-destructive size-8" aria-hidden="true" />
             </div>
             <p className="text-muted-foreground mt-7 font-mono text-xs tracking-[0.2em] uppercase">
-              Captured by Sentry + PostHog
+              {t.eyebrow}
             </p>
             <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
-              Something went wrong.
+              {t.title}
             </h1>
             <p className="text-muted-foreground mx-auto mt-5 max-w-md text-lg leading-8">
-              The exception has been recorded with diagnostic context. You can retry the request or
-              return to a safe page.
+              {t.description}
             </p>
             {error.digest && (
               <p className="bg-muted mt-5 inline-flex rounded-md px-2.5 py-1 font-mono text-xs">
-                Reference: {error.digest}
+                {t.reference(error.digest)}
               </p>
             )}
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
               <Button type="button" size="lg" onClick={reset}>
                 <LuRefreshCw aria-hidden="true" />
-                Try again
+                {t.retry}
               </Button>
               <Button asChild variant="outline" size="lg">
                 <Link href="/">
                   <LuHouse aria-hidden="true" />
-                  Return home
+                  {t.returnHome}
                 </Link>
               </Button>
             </div>

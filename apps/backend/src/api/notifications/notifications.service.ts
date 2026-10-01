@@ -13,7 +13,7 @@ import {
 } from './dto/notification-response.dto';
 import { NotificationNotFoundException } from './exceptions/notifications.exceptions';
 
-import type { AuthUser } from '../auth/types/auth-user.type';
+import type { AuthUser } from '../auth/types/auth.type';
 
 @Injectable()
 export class NotificationsService {

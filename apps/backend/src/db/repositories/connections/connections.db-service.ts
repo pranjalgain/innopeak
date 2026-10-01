@@ -6,49 +6,22 @@ import { DrizzleTransaction } from '@db/db.service';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
 
-import {
-  ConnectionsRepository,
-  type LocationRow,
-  type PollableLocationRow,
-  type ProviderConnectionRow,
-} from './connections.repository';
+import { ConnectionsRepository } from './connections.repository';
+import type {
+  ConfirmLocationResult,
+  ConfirmLocationsInput,
+  DisconnectResult,
+  LocationRow,
+  PollableLocationRow,
+  ProviderConnectionRow,
+  UpsertConnectionInput,
+} from './types/connections.type';
 
-import { ReviewSyncRepository, type SyncRunRow } from '../review-sync/review-sync.repository';
+import { ReviewSyncRepository } from '../review-sync/review-sync.repository';
+import type { SyncRunRow } from '../review-sync/types/review-sync.type';
 
 /** The index Postgres names on the 23505 a concurrent second backfill raises — 0004_reviews.sql. */
 const SYNC_RUN_RUNNING_INDEX = 'idx_sync_runs_location_id_running';
-
-export interface UpsertConnectionInput {
-  tenantId: string;
-  connectedByUserId: string;
-  providerAccountId: string;
-  credentialReference: string;
-  tokenExpiresAt: Date | null;
-}
-
-export interface ConfirmLocationMatch {
-  externalLocationId: string;
-  name: string;
-  address: string | null;
-}
-
-export interface ConfirmLocationsInput {
-  tenantId: string;
-  userId: string;
-  connection: ProviderConnectionRow;
-  locations: ConfirmLocationMatch[];
-  /** MVP's location-count ceiling (`MAX_ACTIVE_LOCATIONS`) — passed in rather than imported so
-   *  this data-layer transaction stays the one place that authoritatively enforces it, without
-   *  owning the business constant itself. See `acquireLocationConfirmLock`. */
-  maxActiveLocations: number;
-}
-
-export interface ConfirmLocationResult {
-  location: LocationRow;
-  backfill: SyncRunRow | null;
-  /** True when a live backfill already held the lock — the caller returns 200, not 409. */
-  backfillAlreadyRunning: boolean;
-}
 
 /**
  * Thrown from inside `confirmLocation`'s transaction when the authoritative, lock-held recheck
@@ -59,10 +32,6 @@ export interface ConfirmLocationResult {
  * `ConflictException` the pre-check throws.
  */
 export class LocationLimitExceededError extends Error {}
-
-export interface DisconnectResult {
-  deactivatedLocationIds: string[];
-}
 
 /**
  * Owns every connections transaction. Composes two repositories from *different domains* —

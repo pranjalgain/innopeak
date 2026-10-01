@@ -1,11 +1,11 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
-import type { PlatformAdminAuthUser } from '@auth/types/auth-user.type';
+import type { PlatformAdminAuthUser } from '@auth/types/auth.type';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { AdminUsersDbService } from '@db/repositories/admin-users/admin-users.db-service';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
@@ -53,8 +53,9 @@ describe('AdminUsersService', () => {
     it('maps status to a boolean isActive', async () => {
       adminUsersDbService.findAll.mockResolvedValue([row, { ...row, status: UserStatus.DISABLED }]);
 
-      const result = await target.list(admin);
+      const result = await target.list(admin, {});
 
+      expect(adminUsersDbService.findAll).toHaveBeenCalledWith(undefined);
       expect(result[0]?.isActive).toBe(true);
       expect(result[1]?.isActive).toBe(false);
     });
@@ -64,15 +65,26 @@ describe('AdminUsersService', () => {
         { ...row, status: UserStatus.PENDING_VERIFICATION },
       ]);
 
-      const result = await target.list(admin);
+      const result = await target.list(admin, {});
 
       expect(result[0]?.isActive).toBe(false);
+    });
+
+    it('forwards the search term to the db service', async () => {
+      adminUsersDbService.findAll.mockResolvedValue([row]);
+
+      await target.list(admin, { search: 'jane' });
+
+      expect(adminUsersDbService.findAll).toHaveBeenCalledWith('jane');
     });
   });
 
   describe('toggleActive', () => {
     it('returns the updated row on success', async () => {
-      adminUsersDbService.toggleActive.mockResolvedValue({ ...row, status: UserStatus.DISABLED });
+      adminUsersDbService.toggleActive.mockResolvedValue({
+        outcome: 'toggled',
+        row: { ...row, status: UserStatus.DISABLED },
+      });
 
       const result = await target.toggleActive(admin, 'user-1');
 
@@ -81,9 +93,16 @@ describe('AdminUsersService', () => {
     });
 
     it('throws 404 when no such user exists, without logging any activity', async () => {
-      adminUsersDbService.toggleActive.mockResolvedValue(null);
+      adminUsersDbService.toggleActive.mockResolvedValue({ outcome: 'not_found' });
 
       await expect(target.toggleActive(admin, 'missing')).rejects.toThrow(NotFoundException);
+      expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
+    });
+
+    it('throws 409 when the user has a pending removal request, without logging any activity', async () => {
+      adminUsersDbService.toggleActive.mockResolvedValue({ outcome: 'removal_pending' });
+
+      await expect(target.toggleActive(admin, 'user-1')).rejects.toThrow(ConflictException);
       expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
     });
 
@@ -93,7 +112,10 @@ describe('AdminUsersService', () => {
      * type to record.
      */
     it('records a user_deactivated entry naming both the person and their business', async () => {
-      adminUsersDbService.toggleActive.mockResolvedValue({ ...row, status: UserStatus.DISABLED });
+      adminUsersDbService.toggleActive.mockResolvedValue({
+        outcome: 'toggled',
+        row: { ...row, status: UserStatus.DISABLED },
+      });
 
       await target.toggleActive(admin, 'user-1');
 
@@ -108,7 +130,10 @@ describe('AdminUsersService', () => {
     });
 
     it('records user_activated when the toggle re-enables the account', async () => {
-      adminUsersDbService.toggleActive.mockResolvedValue({ ...row, status: UserStatus.ACTIVE });
+      adminUsersDbService.toggleActive.mockResolvedValue({
+        outcome: 'toggled',
+        row: { ...row, status: UserStatus.ACTIVE },
+      });
 
       await target.toggleActive(admin, 'user-1');
 
@@ -129,7 +154,7 @@ describe('AdminUsersService', () => {
       } as const;
 
       await expect(target.toggleActive(tenantActor, 'user-1')).rejects.toThrow(ForbiddenException);
-      await expect(target.list(tenantActor)).rejects.toThrow(ForbiddenException);
+      await expect(target.list(tenantActor, {})).rejects.toThrow(ForbiddenException);
       expect(adminUsersDbService.toggleActive).not.toHaveBeenCalled();
     });
   });

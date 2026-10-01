@@ -1,4 +1,4 @@
-import { EscalationReason } from '@common/enums/escalation-reason.enum';
+import { MESSAGES } from '@common/constants/messages.constants';
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
@@ -9,78 +9,20 @@ import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, count, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 
-export interface SyncRunRow {
-  id: string;
-  tenantId: string;
-  locationId: string;
-  trigger: SyncTrigger;
-  startedAt: string;
-  completedAt: string | null;
-  status: SyncRunStatus;
-  reviewsFetched: number | null;
-  reviewsTotal: number | null;
-  errorMessage: string | null;
-  /** Bumped on every progress write — the heartbeat both the reclaim predicate and `isStale` read. */
-  updatedAt: string;
-}
-
-export interface UpsertReviewInput {
-  tenantId: string;
-  locationId: string;
-  externalReviewId: string;
-  externalReviewerId: string | null;
-  rating: number;
-  reviewText: string | null;
-  reviewerName: string | null;
-  reviewedAt: string;
-  externalUpdatedAt: string;
-  status: ReviewStatus;
-}
-
-export interface InsertImportedReplyInput {
-  tenantId: string;
-  reviewId: string;
-  content: string;
-  postedAt: string;
-}
-
-export interface PendingClassificationRow {
-  id: string;
-  rating: number;
-  reviewText: string | null;
-}
-
-export interface ClaimClassificationInput {
-  classification: ReviewClassification.AUTO_REPLY_CANDIDATE | ReviewClassification.ESCALATED;
-  escalationReason: EscalationReason | null;
-  matchedKeywords: string[] | null;
-}
-
-/** What `findClassifiedNeedingGeneration` reads — everything `AiReplyGenerationService` needs to
- *  draft a reply, and nothing else. `classification` is narrowed the same way
- *  `ClaimClassificationInput`'s is: this row only ever exists because `claimClassification`
- *  already wrote one of these two values, `pending_classification` is not a real possibility. */
-export interface GenerationCandidateRow {
-  id: string;
-  rating: number;
-  reviewText: string | null;
-  reviewerName: string | null;
-  classification: ReviewClassification.AUTO_REPLY_CANDIDATE | ReviewClassification.ESCALATED;
-}
-
-export interface InsertGeneratedResponseInput {
-  tenantId: string;
-  reviewId: string;
-  responseType: ResponseType.AUTO_REPLY_SUGGESTION | ResponseType.ESCALATION_SNIPPET;
-  content: string;
-  /** Non-null only for `ESCALATION_SNIPPET` rows — see that constant's own doc comment in
-   *  `ai-reply-generation.service.ts` for why an escalated review still gets a group id even
-   *  while only one snippet is generated per review today. */
-  generationGroupId: string | null;
-  generationMetadata: Record<string, unknown>;
-}
+import type {
+  ApproveResponseInput,
+  ClaimClassificationInput,
+  GenerationCandidateRow,
+  InsertGeneratedResponseInput,
+  InsertImportedReplyInput,
+  PendingClassificationRow,
+  RejectResponseInput,
+  ReviewResponseRow,
+  SyncRunRow,
+  UpsertReviewInput,
+} from './types/review-sync.type';
 
 const SYNC_RUN_COLUMNS = {
   id: schema.syncRuns.id,
@@ -178,7 +120,7 @@ export class ReviewSyncRepository {
 
     const row = rows[0];
     if (!row) {
-      throw new Error('Failed to acquire sync run');
+      throw new Error(MESSAGES.REVIEWS.FAILED_TO_ACQUIRE_SYNC_RUN);
     }
     return row as SyncRunRow;
   }
@@ -412,7 +354,7 @@ export class ReviewSyncRepository {
 
     const row = rows[0];
     if (!row) {
-      throw new Error('Failed to upsert review');
+      throw new Error(MESSAGES.REVIEWS.FAILED_TO_UPSERT_REVIEW);
     }
     return row;
   }
@@ -735,9 +677,118 @@ export class ReviewSyncRepository {
       // do for a plain (non-conflict-guarded) INSERT. Kept as a loud failure rather than a
       // swallowed one specifically because the caller (`AiReplyGenerationService`) needs to know
       // whether to release the generation claim it just took.
-      throw new Error(`insertGeneratedResponse affected no rows for review ${input.reviewId}`);
+      throw new Error(MESSAGES.REVIEWS.GENERATED_RESPONSE_INSERT_FAILED(input.reviewId));
     }
     return inserted.id;
+  }
+
+  /** Every column `ReviewResponseRow` needs, for the `.returning()` clauses below — same set
+   *  `ReviewsReadRepository`'s own `RESPONSE_COLUMNS` selects, kept local to this file since a
+   *  `.returning()` and a `.select()` take the same shape but not the same builder call. */
+  private static readonly RETURNING_COLUMNS = {
+    id: schema.reviewResponses.id,
+    reviewId: schema.reviewResponses.reviewId,
+    generationGroupId: schema.reviewResponses.generationGroupId,
+    responseType: schema.reviewResponses.responseType,
+    content: schema.reviewResponses.content,
+    originalContent: schema.reviewResponses.originalContent,
+    source: schema.reviewResponses.source,
+    status: schema.reviewResponses.status,
+    createdByUserId: schema.reviewResponses.createdByUserId,
+    approvedByUserId: schema.reviewResponses.approvedByUserId,
+    rejectedByUserId: schema.reviewResponses.rejectedByUserId,
+    createdAt: schema.reviewResponses.createdAt,
+    decidedAt: schema.reviewResponses.decidedAt,
+    postedAt: schema.reviewResponses.postedAt,
+    errorMessage: schema.reviewResponses.errorMessage,
+  } as const;
+
+  /**
+   * Approves a pending draft, optionally with edited content. CAS'd on `status = 'pending_approval'`
+   * — same shape as `claimForGeneration` — so a response that was already decided (by this same
+   * request racing itself, or a sibling's approval superseding it first) returns `null` rather than
+   * silently overwriting a settled decision; the caller (`ReviewSyncDbService.approveResponse`)
+   * turns that into a clean 409, not a raw affected-zero-rows surprise.
+   *
+   * Can raise a 23505 on `idx_review_responses_review_id_live_reply` if a sibling won the same race
+   * a moment earlier and is now `approved`/`posted` — deliberately left to propagate to the DB
+   * service, which is where every other writer of that index (`writeReviewPage`) already catches it.
+   */
+  async approveResponse(
+    tx: DrizzleTransaction,
+    input: ApproveResponseInput
+  ): Promise<ReviewResponseRow | null> {
+    const rows = await tx
+      .update(schema.reviewResponses)
+      .set({
+        status: ResponseStatus.APPROVED,
+        content: input.content,
+        source: input.source,
+        approvedByUserId: input.approvedByUserId,
+        decidedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(schema.reviewResponses.id, input.responseId),
+          eq(schema.reviewResponses.reviewId, input.reviewId),
+          eq(schema.reviewResponses.tenantId, input.tenantId),
+          eq(schema.reviewResponses.status, ResponseStatus.PENDING_APPROVAL)
+        )
+      )
+      .returning(ReviewSyncRepository.RETURNING_COLUMNS);
+
+    return (rows[0] as ReviewResponseRow | undefined) ?? null;
+  }
+
+  /** Same CAS shape as `approveResponse` — no live-reply index to guard, `rejected` never
+   *  participates in that partial unique index. */
+  async rejectResponse(
+    tx: DrizzleTransaction,
+    input: RejectResponseInput
+  ): Promise<ReviewResponseRow | null> {
+    const rows = await tx
+      .update(schema.reviewResponses)
+      .set({
+        status: ResponseStatus.REJECTED,
+        rejectedByUserId: input.rejectedByUserId,
+        decidedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(schema.reviewResponses.id, input.responseId),
+          eq(schema.reviewResponses.reviewId, input.reviewId),
+          eq(schema.reviewResponses.tenantId, input.tenantId),
+          eq(schema.reviewResponses.status, ResponseStatus.PENDING_APPROVAL)
+        )
+      )
+      .returning(ReviewSyncRepository.RETURNING_COLUMNS);
+
+    return (rows[0] as ReviewResponseRow | undefined) ?? null;
+  }
+
+  /**
+   * Marks every other still-`pending_approval` response on the same review as `superseded` —
+   * scoped to the whole review, not just `excludeResponseId`'s own `generationGroupId`: a review
+   * only ever has one live reply regardless of grouping (`idx_review_responses_review_id_live_reply`
+   * covers the whole review), so a sibling from a *different* group left `pending_approval` would
+   * be stale in exactly the same way a same-group one is.
+   */
+  async supersedeSiblingDrafts(
+    tx: DrizzleTransaction,
+    input: { reviewId: string; excludeResponseId: string }
+  ): Promise<void> {
+    await tx
+      .update(schema.reviewResponses)
+      .set({ status: ResponseStatus.SUPERSEDED, decidedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.reviewResponses.reviewId, input.reviewId),
+          ne(schema.reviewResponses.id, input.excludeResponseId),
+          eq(schema.reviewResponses.status, ResponseStatus.PENDING_APPROVAL)
+        )
+      );
   }
 
   /**

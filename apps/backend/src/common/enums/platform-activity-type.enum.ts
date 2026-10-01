@@ -2,6 +2,9 @@
 export enum PlatformActivityType {
   BUSINESS_SUSPENDED = 'business_suspended',
   BUSINESS_REACTIVATED = 'business_reactivated',
+  BUSINESS_ERASURE_REQUESTED = 'business_erasure_requested',
+  BUSINESS_ERASURE_CANCELLED = 'business_erasure_cancelled',
+  BUSINESS_ERASED = 'business_erased',
   ADMIN_INVITE_SENT = 'admin_invite_sent',
   ADMIN_INVITE_REVOKED = 'admin_invite_revoked',
   USER_ACTIVATED = 'user_activated',

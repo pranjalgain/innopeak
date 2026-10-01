@@ -64,13 +64,6 @@ interface PlatformAdminTokenResponse {
   admin: { id: string; email: string; locale: AppLocale | null };
 }
 
-/** `PATCH /v1/admin/settings/profile/locale`'s response — see `UpdateAdminLocaleResponseDto`. */
-interface AdminUpdateLocaleResponse {
-  accessToken: string;
-  expiresIn: number;
-  admin: { email: string; avatarUrl: string | null; locale: AppLocale | null };
-}
-
 /** `GET /v1/admin/auth/invite/:token`'s response — a real generated model, unlike `PlatformAdminTokenResponse` above. */
 export type AdminInvitePreview = AdminInvitePreviewDto;
 
@@ -121,23 +114,21 @@ export class AuthService {
 
   /**
    * The authoritative "who am I" for screens that must not guess — Settings' Profile tab. Also
-   * refreshes the locally stored copies, so the shell's optimistic first paint stays in step with
-   * what the server just said.
+   * refreshes the locally cached display name, so the shell's optimistic first paint stays in step
+   * with what the server just said.
    */
   static async me(): Promise<AuthenticatedUser> {
     const response = await authApi.authControllerMeV1();
     const user = unwrap<AuthenticatedUser>(response.data);
 
     TokenService.setName(user.name);
-    TokenService.setHasPassword(user.hasPassword);
-    TokenService.setBusinessName(user.businessName);
 
     return user;
   }
 
   /**
    * Mints a signed authorization the browser uploads the new avatar image directly with — the
-   * backend never sees the file itself. See `uploadAvatarFile`
+   * backend never sees the file itself. See `AvatarUploadService.upload`
    * (`app/_libs/services/avatar-upload.service.ts`) for what a caller does with this next.
    */
   static async getAvatarUploadAuthorization(): Promise<AvatarUploadAuthorizationResponseDto> {
@@ -180,10 +171,7 @@ export class AuthService {
       return { kind: "verify_needed", email: data.email };
     }
 
-    TokenService.setAccessToken(data.accessToken);
     TokenService.setName(data.user.name);
-    TokenService.setHasPassword(data.user.hasPassword);
-    TokenService.setBusinessName(data.user.businessName);
     restoreStoredLocale(data.user.locale);
     return { kind: "success", hasConnectedBusiness: data.hasConnectedBusiness };
   }
@@ -202,7 +190,6 @@ export class AuthService {
     // `type:` the generator could turn into a model, so `PlatformAdminTokenResponse` is hand-typed
     // and asserted onto the actual envelope.
     const data = unwrap<PlatformAdminTokenResponse>(response.data);
-    TokenService.setAccessToken(data.accessToken);
     restoreStoredLocale(data.admin.locale);
   }
 
@@ -293,17 +280,14 @@ export class AuthService {
       { authOptional: true },
     );
     const data = unwrap<TokenResponse>(response.data);
-    TokenService.setAccessToken(data.accessToken);
     TokenService.setName(data.user.name);
-    TokenService.setHasPassword(data.user.hasPassword);
-    TokenService.setBusinessName(data.user.businessName);
     return { hasConnectedBusiness: data.hasConnectedBusiness };
   }
 
   /**
    * Verifies the OTP sent after a password signup (or a login-triggered resend) — mirrors the
    * real `users.email_verified_at` column (`apps/backend`'s `0002_tenant_auth.sql`), set once
-   * verification succeeds. On success, stores the issued tokens the same way login does.
+   * verification succeeds.
    */
   static async verifySignupOtp(email: string, code: string): Promise<VerifyOtpResult> {
     try {
@@ -312,10 +296,7 @@ export class AuthService {
         { authOptional: true },
       );
       const data = unwrap<TokenResponse>(response.data);
-      TokenService.setAccessToken(data.accessToken);
       TokenService.setName(data.user.name);
-      TokenService.setHasPassword(data.user.hasPassword);
-      TokenService.setBusinessName(data.user.businessName);
       return { verified: true, hasConnectedBusiness: data.hasConnectedBusiness };
     } catch (error) {
       // Only a 400 actually means "that code is wrong" — the backend returns it for
@@ -369,30 +350,37 @@ export class AuthService {
   }
 
   /**
-   * Rotates the password and the session. Stores the new access token the same way login does;
-   * the refresh cookie is replaced by the backend. Throws `ApiError` on 4xx/5xx.
+   * Ensures the access-token cookie is fresh right before a `skipRefresh` call — unconditional,
+   * since without a JS-readable copy of the token there is no local way to tell "still valid" from
+   * "expired" ahead of time. Change/set-password below need this guarantee specifically because a
+   * wrong current password is also a 401, and treating that as "access token expired" would rotate
+   * or end the session before the form ever sees the real error. One extra request on these rare,
+   * deliberate actions is the trade for never storing the token itself.
+   */
+  private static async ensureFreshSession(): Promise<void> {
+    const revived = await this.refreshAccessToken();
+    if (!revived) {
+      throw new ApiError(401, "Invalid or expired access token.");
+    }
+  }
+
+  /**
+   * Rotates the password and the session; the refresh cookie is replaced by the backend. Throws
+   * `ApiError` on 4xx/5xx.
    *
    * `skipRefresh` is load-bearing: a wrong current password is also a 401, and treating that as
    * "access token expired" would rotate the session (or sign the user out) before the form ever
-   * sees the error. If the access token has actually lapsed, revive it first, then submit.
+   * sees the error — see `ensureFreshSession`.
    */
   static async changePassword(currentPassword: string, newPassword: string): Promise<void> {
-    if (!TokenService.getAccessToken()) {
-      const revived = await this.refreshAccessToken();
-      if (!revived) {
-        throw new ApiError(401, "Invalid or expired access token.");
-      }
-    }
+    await this.ensureFreshSession();
 
     const response = await authApi.authControllerChangePasswordV1(
       { changePasswordDto: { currentPassword, newPassword } },
       { skipRefresh: true },
     );
     const data = unwrap<TokenResponse>(response.data);
-    TokenService.setAccessToken(data.accessToken);
     TokenService.setName(data.user.name);
-    TokenService.setHasPassword(data.user.hasPassword);
-    TokenService.setBusinessName(data.user.businessName);
   }
 
   /**
@@ -401,13 +389,7 @@ export class AuthService {
    * (Google-only) account its first password; see `setPassword`'s doc comment.
    */
   static async requestSetPasswordOtp(): Promise<void> {
-    if (!TokenService.getAccessToken()) {
-      const revived = await this.refreshAccessToken();
-      if (!revived) {
-        throw new ApiError(401, "Invalid or expired access token.");
-      }
-    }
-
+    await this.ensureFreshSession();
     await authApi.authControllerRequestSetPasswordOtpV1({ skipRefresh: true });
   }
 
@@ -415,26 +397,17 @@ export class AuthService {
    * The other half of `changePassword` — for an account that has never had one (Google/SSO-only).
    * No `currentPassword` to send: there is nothing to prove yet. Takes `otp` from
    * `requestSetPasswordOtp` instead, since without some proof of live mailbox control an access
-   * token alone (stolen or otherwise) would be enough to grant a permanent credential. Same
-   * token-storage shape as `changePassword` on success.
+   * token alone (stolen or otherwise) would be enough to grant a permanent credential.
    */
   static async setPassword(newPassword: string, otp: string): Promise<void> {
-    if (!TokenService.getAccessToken()) {
-      const revived = await this.refreshAccessToken();
-      if (!revived) {
-        throw new ApiError(401, "Invalid or expired access token.");
-      }
-    }
+    await this.ensureFreshSession();
 
     const response = await authApi.authControllerSetPasswordV1(
       { setPasswordDto: { newPassword, otp } },
       { skipRefresh: true },
     );
     const data = unwrap<TokenResponse>(response.data);
-    TokenService.setAccessToken(data.accessToken);
     TokenService.setName(data.user.name);
-    TokenService.setHasPassword(data.user.hasPassword);
-    TokenService.setBusinessName(data.user.businessName);
   }
 
   /**
@@ -457,24 +430,19 @@ export class AuthService {
    * backend-originated message still arriving in the old one.
    */
   static async updateLocale(locale: AppLocale): Promise<void> {
-    if (!TokenService.getStoredAccessToken()) {
+    const tokenType = TokenService.getTokenType();
+    if (tokenType === null) {
       return;
     }
 
-    if (TokenService.getTokenType() === "platform_admin") {
-      const response = await adminSettingsApi.adminSettingsControllerUpdateLocaleV1({
+    if (tokenType === "platform_admin") {
+      await adminSettingsApi.adminSettingsControllerUpdateLocaleV1({
         updateLocaleDto: { locale },
       });
-      const data = unwrap<AdminUpdateLocaleResponse>(response.data);
-      TokenService.setAccessToken(data.accessToken);
       return;
     }
 
-    const response = await authApi.authControllerUpdateLocaleV1({
-      updateLocaleDto: { locale },
-    });
-    const data = unwrap<TokenResponse>(response.data);
-    TokenService.setAccessToken(data.accessToken);
+    await authApi.authControllerUpdateLocaleV1({ updateLocaleDto: { locale } });
   }
 
   /**
@@ -504,7 +472,6 @@ export class AuthService {
       { authOptional: true },
     );
     const data = unwrap<PlatformAdminTokenResponse>(response.data);
-    TokenService.setAccessToken(data.accessToken);
     restoreStoredLocale(data.admin.locale);
   }
 
@@ -547,10 +514,7 @@ export class AuthService {
       { authOptional: true },
     );
     const data = unwrap<TokenResponse>(response.data);
-    TokenService.setAccessToken(data.accessToken);
     TokenService.setName(data.user.name);
-    TokenService.setHasPassword(data.user.hasPassword);
-    TokenService.setBusinessName(data.user.businessName);
     return { hasConnectedBusiness: data.hasConnectedBusiness };
   }
 

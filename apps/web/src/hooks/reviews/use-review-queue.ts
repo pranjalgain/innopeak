@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
+import { useDebouncedValue } from "@/hooks/common/use-debounced-value";
 import { useConnection } from "@/hooks/connections/use-connection";
 import type { Review, ReviewQueueFilters } from "@/types/domain";
 
@@ -74,14 +75,9 @@ export function useReviewQueue(): UseReviewQueueResult {
   const locationId = state?.location?.id ?? null;
   const [page, setPageState] = useState(1);
   const [filters, setFilters] = useState<ReviewQueueFilters>(INITIAL_FILTERS);
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-
   // Only `search` is debounced. The two dropdowns are discrete choices a user makes once, so
   // delaying them would just feel unresponsive.
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(filters.search), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [filters.search]);
+  const debouncedSearch = useDebouncedValue(filters.search, SEARCH_DEBOUNCE_MS);
 
   // A filter change invalidates the current page — page 3 of "escalated" may not exist once the
   // status filter narrows the result set, and the same is true of switching business: page 3 of
@@ -129,6 +125,23 @@ export function useReviewQueue(): UseReviewQueueResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewsQuery.isError]);
 
+  // Tracks which business's rows are actually safe to show. `keepPreviousData` keeps the PREVIOUS
+  // business's rows on screen (as placeholder data) with `reviewsQuery.isLoading` false throughout
+  // a business switch's in-flight refetch — and `switchTo` (`useBusinessSwitcher`) writes the new
+  // location straight into `["connection"]`'s cache via `setQueryData`, never a real fetch, so
+  // `isResolvingLocation` never catches it either. Without this, switching businesses could show
+  // one business's reviews under another's active context with zero loading indicator. This only
+  // updates once the query actually settles (success or error) for the CURRENT `locationId`, so it
+  // stays out of step with `locationId` for exactly as long as that business's fetch is in flight —
+  // never during a same-business search/filter/page change, where `locationId` itself never moves.
+  const [committedLocationId, setCommittedLocationId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!reviewsQuery.isFetching) {
+      setCommittedLocationId(locationId);
+    }
+  }, [reviewsQuery.isFetching, locationId]);
+  const isSwitchingBusiness = locationId !== committedLocationId;
+
   const total = reviewsQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -143,13 +156,20 @@ export function useReviewQueue(): UseReviewQueueResult {
     setStatus: (status) => setFilters((prev) => ({ ...prev, status })),
     setClassification: (classification) => setFilters((prev) => ({ ...prev, classification })),
     setSearch: (search) => setFilters((prev) => ({ ...prev, search })),
-    // `isFetching`, not `isLoading`: the original set its loading flag around every fetch,
-    // including a page/filter change once data already exists, not just the very first load
-    // (which is all `isLoading` alone would cover once `placeholderData` keeps `data` defined).
-    // `!isResolvingLocation` included for the same reason the `enabled` gate exists: a disabled
-    // query is not fetching, so without it the queue would flash its empty state while the active
-    // location is still being resolved.
-    isLoading: isResolvingLocation || reviewsQuery.isFetching,
+    // The genuine first load only (no cached data yet) — `reviewsQuery.isFetching` also flips true
+    // on every page/filter change once data already exists, and the view swaps its *entire*
+    // content area (rows AND the pagination footer) to a full skeleton whenever this is true.
+    // `placeholderData: keepPreviousData` already keeps the previous page's rows (and `total`, so
+    // `totalPages` doesn't dip either) on screen while the next page/filter's fetch is in flight,
+    // so a background refetch needs no loading state of its own here. `isResolvingLocation` still
+    // counts as loading — the query is `enabled: false` until then, so it would never report
+    // `isLoading` on its own, and the queue would otherwise flash its empty state while the active
+    // location is still being resolved. `isSwitchingBusiness && reviewsQuery.isFetching` covers the
+    // one case `reviewsQuery.isLoading` alone misses — see `committedLocationId`'s own comment.
+    isLoading:
+      isResolvingLocation ||
+      reviewsQuery.isLoading ||
+      (isSwitchingBusiness && reviewsQuery.isFetching),
     // `keepPreviousData` only holds the prior page's rows while this one is still *pending* — once
     // the fetch actually settles as an error, `data` (and so `reviews` above) reverts to empty,
     // indistinguishable from a genuinely empty result set unless the caller also checks this.

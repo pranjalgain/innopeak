@@ -31,3 +31,17 @@ export interface ClassifiableReview {
   rating: number;
   reviewText: string | null;
 }
+
+// ─── ReviewClassificationService ──────────────────────────────────────────────
+
+export interface ClassifyPendingReviewsInput {
+  tenantId: string;
+  locationId: string;
+}
+
+export interface ClassifyPendingReviewsResult {
+  classified: number;
+  /** Lost the claim CAS — another worker classified the review first, or it stopped being `new`
+   *  between the queue read and the write. See `ReviewSyncRepository.claimClassification`. */
+  skipped: number;
+}
