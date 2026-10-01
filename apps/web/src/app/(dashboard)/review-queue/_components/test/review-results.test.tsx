@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
+import type { ComponentProps } from "react";
 import { describe, expect, test, vi } from "vitest";
 
 import type { Review } from "@/types/domain";
@@ -26,7 +27,7 @@ function review(overrides: Partial<Review> = {}): Review {
   };
 }
 
-function renderResults(props: Partial<React.ComponentProps<typeof ReviewResults>> = {}) {
+function renderResults(props: Partial<ComponentProps<typeof ReviewResults>> = {}) {
   return render(
     <NextIntlClientProvider locale="en" messages={messages}>
       <ReviewResults

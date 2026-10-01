@@ -562,3 +562,144 @@ describe('ReviewSyncDbService.findResponsesForReviews', () => {
     });
   });
 });
+
+describe('ReviewSyncDbService.findResponseForTenant', () => {
+  let service: ReviewSyncDbService;
+  const findResponseForTenant = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: {} },
+        { provide: ReviewsReadRepository, useValue: { findResponseForTenant } },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('passes the responseId/reviewId/tenantId triple through as a single named input', async () => {
+    findResponseForTenant.mockResolvedValue(null);
+
+    await service.findResponseForTenant({
+      responseId: 'response-1',
+      reviewId: 'review-1',
+      tenantId: 'tenant-1',
+    });
+
+    expect(findResponseForTenant).toHaveBeenCalledWith({
+      responseId: 'response-1',
+      reviewId: 'review-1',
+      tenantId: 'tenant-1',
+    });
+  });
+});
+
+describe('ReviewSyncDbService.approveResponse', () => {
+  let service: ReviewSyncDbService;
+  const approveResponse = jest.fn();
+  const supersedeSiblingDrafts = jest.fn();
+  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn({}));
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        {
+          provide: ReviewSyncRepository,
+          useValue: { transaction, approveResponse, supersedeSiblingDrafts },
+        },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  const input = {
+    responseId: 'response-1',
+    reviewId: 'review-1',
+    tenantId: 'tenant-1',
+    approvedByUserId: 'user-1',
+    content: 'Thanks!',
+    source: 'ai_generated',
+  } as Parameters<typeof service.approveResponse>[0];
+
+  it('supersedes every other pending sibling in the same transaction after a successful approval', async () => {
+    const approved = { id: 'response-1', generationGroupId: 'group-1' };
+    approveResponse.mockResolvedValue(approved);
+
+    const result = await service.approveResponse(input);
+
+    expect(supersedeSiblingDrafts).toHaveBeenCalledWith(expect.anything(), {
+      reviewId: 'review-1',
+      excludeResponseId: 'response-1',
+    });
+    expect(result).toBe(approved);
+  });
+
+  it('does not supersede anything and returns null when the CAS finds nothing pending', async () => {
+    approveResponse.mockResolvedValue(null);
+
+    const result = await service.approveResponse(input);
+
+    expect(supersedeSiblingDrafts).not.toHaveBeenCalled();
+    expect(result).toBeNull();
+  });
+
+  it('propagates a unique-violation error uncaught, for the service layer to translate', async () => {
+    const conflict = { code: '23505', constraint: 'idx_review_responses_review_id_live_reply' };
+    approveResponse.mockRejectedValue(conflict);
+
+    await expect(service.approveResponse(input)).rejects.toBe(conflict);
+    expect(supersedeSiblingDrafts).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReviewSyncDbService.rejectResponse', () => {
+  let service: ReviewSyncDbService;
+  const rejectResponse = jest.fn();
+  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn({}));
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: { transaction, rejectResponse } },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('passes the input straight through inside a transaction', async () => {
+    const rejected = { id: 'response-1' };
+    rejectResponse.mockResolvedValue(rejected);
+
+    const result = await service.rejectResponse({
+      responseId: 'response-1',
+      reviewId: 'review-1',
+      tenantId: 'tenant-1',
+      rejectedByUserId: 'user-1',
+    });
+
+    expect(rejectResponse).toHaveBeenCalledWith(expect.anything(), {
+      responseId: 'response-1',
+      reviewId: 'review-1',
+      tenantId: 'tenant-1',
+      rejectedByUserId: 'user-1',
+    });
+    expect(result).toBe(rejected);
+  });
+});

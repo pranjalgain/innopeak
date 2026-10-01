@@ -6,8 +6,8 @@ import { useEffect } from "react";
 import { LuBan, LuCircleAlert, LuCircleCheck, LuUsers } from "react-icons/lu";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
+import { cn } from "@/app/_libs/utils/cn";
 import { AtRiskSubscriptionsPanel } from "@/app/admin/billing/_components/at-risk-subscriptions-panel";
-import { BillingWebhookEventsCard } from "@/app/admin/billing/_components/billing-webhook-events-card";
 import { UpgradeTrendCard } from "@/app/admin/billing/_components/upgrade-trend-card";
 import { LoadErrorState } from "@/components/common/load-error-state";
 import { Card, CardContent } from "@/components/ui/card";
@@ -46,7 +46,6 @@ export function AdminBillingView() {
     cancelingCount,
     upgradeTrend,
     atRisk,
-    recentWebhookEvents,
     isLoading,
     isError,
     refetch,
@@ -122,16 +121,10 @@ export function AdminBillingView() {
           <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       ) : (
-        <div className={`grid gap-4 ${showAtRisk ? "lg:grid-cols-2" : ""}`}>
+        <div className={cn("grid gap-4", showAtRisk && "lg:grid-cols-2")}>
           {showAtRisk && <AtRiskSubscriptionsPanel subscriptions={atRisk} />}
           <UpgradeTrendCard trend={upgradeTrend} />
         </div>
-      )}
-
-      {isLoading ? (
-        <Skeleton className="h-64 w-full rounded-xl" />
-      ) : (
-        <BillingWebhookEventsCard events={recentWebhookEvents} />
       )}
     </div>
   );

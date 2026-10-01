@@ -3,21 +3,16 @@ import type { Locale } from '@common/i18n/locale';
 import { MediaDbService } from '@db/repositories/media/media.db-service';
 import { Injectable } from '@nestjs/common';
 
-import {
-  type AcceptInviteOutcome,
-  type PlatformAdminInviteRow,
-  type PlatformAdminLoginRow,
-  type PlatformAdminProfileRow,
-  PlatformAdminRepository,
-  type RevokeInviteOutcome,
-  type SetAdminStatusGuardInput,
-  type SetAdminStatusOutcome,
-} from './platform-admin.repository';
-
-/** `PlatformAdminProfileRow` plus the avatar `MediaDbService` composes in — see `findById`. */
-export interface PlatformAdminProfileWithAvatar extends PlatformAdminProfileRow {
-  avatarUrl: string | null;
-}
+import { PlatformAdminRepository } from './platform-admin.repository';
+import type {
+  AcceptInviteOutcome,
+  PlatformAdminInviteRow,
+  PlatformAdminLoginRow,
+  PlatformAdminProfileWithAvatar,
+  RevokeInviteOutcome,
+  SetAdminStatusGuardInput,
+  SetAdminStatusOutcome,
+} from './types/platform-admin.type';
 
 @Injectable()
 export class PlatformAdminDbService {

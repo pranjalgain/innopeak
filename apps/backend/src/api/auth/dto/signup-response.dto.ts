@@ -1,4 +1,4 @@
-import { SignupResult } from '@db/repositories/auth/auth.db-service';
+import type { SignupResult } from '@db/repositories/auth/types/auth.type';
 import { ApiProperty } from '@nestjs/swagger';
 
 import { UserStatus } from '../enums/user-status.enum';

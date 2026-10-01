@@ -1,26 +1,17 @@
-import {
-  AdminBusinessesDbService,
-  type AdminBusinessSummary,
-} from '@db/repositories/admin-businesses/admin-businesses.db-service';
+import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
+import { AdminBusinessesDbService } from '@db/repositories/admin-businesses/admin-businesses.db-service';
+import type { AdminBusinessSummary } from '@db/repositories/admin-businesses/types/admin-businesses.type';
 import { AdminUsersDbService } from '@db/repositories/admin-users/admin-users.db-service';
 import { Injectable, Logger } from '@nestjs/common';
 
-import {
-  AdminOverviewRepository,
-  type PlatformActivityRow,
-  type PlatformReviewStats,
-  type RecordActivityInput,
-  type SignupTrendPoint,
-} from './admin-overview.repository';
-
-/** The Overview page's four stat cards, composed from three otherwise-unrelated sources — none of
- * which has its own reason to expose this particular grouping. */
-export interface AdminOverviewStats {
-  businessCount: number;
-  userCount: number;
-  totalReviewsFetched: number;
-  totalRepliesSent: number;
-}
+import { AdminOverviewRepository } from './admin-overview.repository';
+import type {
+  AdminOverviewStats,
+  PlatformActivityRow,
+  PlatformReviewStats,
+  RecordActivityInput,
+  SignupTrendPoint,
+} from './types/admin-overview.type';
 
 @Injectable()
 export class AdminOverviewDbService {
@@ -133,5 +124,13 @@ export class AdminOverviewDbService {
 
   async getRecentActivity(limit: number): Promise<PlatformActivityRow[]> {
     return this.adminOverviewRepository.getRecentActivity(limit);
+  }
+
+  listActivity(input: {
+    page: number;
+    pageSize: number;
+    type?: PlatformActivityType | undefined;
+  }): Promise<{ activities: PlatformActivityRow[]; total: number }> {
+    return this.adminOverviewRepository.listActivity(input);
   }
 }

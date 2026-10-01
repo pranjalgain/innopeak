@@ -19,13 +19,15 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
-import type { AuthUser } from '../../auth/types/auth-user.type';
+import type { AuthUser } from '../../auth/types/auth.type';
 import { InviteMemberDto } from '../dto/invite-member.dto';
 import { TenantMemberResponseDto } from '../dto/tenant-member-response.dto';
 import { TenantMembersService } from '../services/tenant-members.service';
 import {
+  ApiCancelMemberRemoval,
   ApiInviteMember,
   ApiListTenantMembers,
+  ApiRequestMemberRemoval,
   ApiRevokeMemberInvite,
 } from '../swagger/tenant-members.swagger';
 
@@ -66,6 +68,35 @@ export class TenantMembersController {
     return ResponseUtil.success(
       { message: MESSAGES.SETTINGS.MEMBER_INVITE_REVOKED },
       MESSAGES.SETTINGS.MEMBER_INVITE_REVOKED,
+      HttpStatus.OK
+    );
+  }
+
+  @Post(RouteNames.MEMBER_REQUEST_REMOVAL)
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiRequestMemberRemoval()
+  async requestRemoval(
+    @CurrentUser() user: AuthUser,
+    @Param('memberId', ParseUUIDPipe) memberId: string
+  ): Promise<ApiResponse<{ message: string }>> {
+    const { gracePeriodDays } = await this.tenantMembersService.requestRemoval(user, memberId);
+    const message = MESSAGES.SETTINGS.MEMBER_REMOVAL_REQUESTED(gracePeriodDays);
+    return ResponseUtil.success({ message }, message, HttpStatus.OK);
+  }
+
+  @Post(RouteNames.MEMBER_CANCEL_REMOVAL)
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiCancelMemberRemoval()
+  async cancelRemoval(
+    @CurrentUser() user: AuthUser,
+    @Param('memberId', ParseUUIDPipe) memberId: string
+  ): Promise<ApiResponse<{ message: string }>> {
+    await this.tenantMembersService.cancelRemoval(user, memberId);
+    return ResponseUtil.success(
+      { message: MESSAGES.SETTINGS.MEMBER_REMOVAL_CANCELLED },
+      MESSAGES.SETTINGS.MEMBER_REMOVAL_CANCELLED,
       HttpStatus.OK
     );
   }

@@ -1,15 +1,10 @@
 "use client";
 
 import * as SwitchPrimitive from "@radix-ui/react-switch";
-import { useRouter } from "next/navigation";
-import { useLocale, useTranslations } from "next-intl";
-import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 
-import { AuthService } from "@/app/_libs/services/auth.service";
 import { cn } from "@/app/_libs/utils/cn";
-import { setLocaleCookie } from "@/app/_libs/utils/locale";
-import { type AppLocale } from "@/i18n/locales";
+import { useLanguageSwitcher } from "@/hooks/common/use-language-switcher";
 
 /**
  * Standalone, always-visible language toggle — same "always in chrome, never nested inside a
@@ -21,11 +16,8 @@ import { type AppLocale } from "@/i18n/locales";
  * one grows/fades in, so the swap reads as one continuous motion. `prefers-reduced-motion` still
  * gets a plain, instant swap via `motion-reduce:transition-none` on every animated piece.
  *
- * `checked` is driven by `useLocale()`, not by local state that flips optimistically — the sync
- * call below (`AuthService.updateLocale`) can fail, and on failure this returns before the
- * cookie/locale actually change. Because the underlying `locale` value never moved, the switch
- * — a controlled component — simply never animates in the first place, the same "don't move
- * until it's real" guarantee the old dropdown's `syncFailed` toast plus no-op already gave.
+ * `checked` is driven by `useLanguageSwitcher`'s `locale` (itself `useLocale()`), not by local
+ * state that flips optimistically — see that hook's own comment for why.
  *
  * `compact`: the marketing header (`SiteHeader`) has no width to spare — its own comment already
  * measured this row as fitting the *previous* icon-only trigger with only a few pixels left at
@@ -34,42 +26,15 @@ import { type AppLocale } from "@/i18n/locales";
  * which would make it feel like a different, smaller control on the pages that have room.
  */
 export function LanguageSwitcher({ compact = false }: { compact?: boolean } = {}) {
-  const locale = useLocale() as AppLocale;
-  const router = useRouter();
   const t = useTranslations("languageSwitcher");
-  const [isSyncing, setIsSyncing] = useState(false);
-  // `router.refresh()` is what actually moves `useLocale()`, and therefore the switch. Marking it
-  // as a transition gives us `isPending` for exactly that stretch, which the `disabled` below
-  // needs: clearing `isSyncing` on its own would re-enable the control while it still displays the
-  // outgoing locale, and a click in that gap re-sends the locale already in flight instead of
-  // reversing it.
-  const [isPending, startTransition] = useTransition();
-
-  async function selectLocale(next: AppLocale): Promise<void> {
-    setIsSyncing(true);
-    try {
-      await AuthService.updateLocale(next);
-    } catch {
-      setIsSyncing(false);
-      toast.error(t("syncFailed"));
-      return;
-    }
-
-    setLocaleCookie(next);
-    // Ordered so the control is never momentarily enabled: `startTransition` raises `isPending`
-    // before `isSyncing` drops, and the two are read together by `disabled`. A `finally` clearing
-    // `isSyncing` ahead of this would leave that gap open to whatever React chose to batch.
-    startTransition(() => router.refresh());
-    setIsSyncing(false);
-  }
-
+  const { locale, isDisabled, selectLocale } = useLanguageSwitcher();
   const isGerman = locale === "de";
 
   return (
     <SwitchPrimitive.Root
       checked={isGerman}
-      disabled={isSyncing || isPending}
-      onCheckedChange={(checked) => void selectLocale(checked ? "de" : "en")}
+      disabled={isDisabled}
+      onCheckedChange={(checked) => selectLocale(checked ? "de" : "en")}
       // Names what the switch controls, not the action it would perform. Radix emits
       // `role="switch"` plus `aria-checked`, so "Switch to English" while German is active would
       // be announced as "switch to English, switch, on" — stating that English is on when it is

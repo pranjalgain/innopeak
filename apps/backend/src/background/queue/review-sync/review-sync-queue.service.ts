@@ -1,14 +1,17 @@
 import { AiReplyGenerationService } from '@ai/ai-reply-generation.service';
 import { IReviewBackfillJob, IReviewSyncJob } from '@bg/interfaces/job.interface';
+import type {
+  ClassifyAndGenerateOutcome,
+  ImportOutcome,
+  PollImportOutcome,
+} from '@bg/types/background.type';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  ClassifyPendingReviewsResult,
-  ReviewClassificationService,
-} from '@review-pipeline/review-classification.service';
+import { ReviewClassificationService } from '@review-pipeline/review-classification.service';
+import type { ClassifyPendingReviewsResult } from '@review-pipeline/types/classification-result.type';
 import {
   GBP_REVIEWS_PAGE_SIZE,
   RATE_LIMIT_DEFAULT_WAIT_SECONDS,
@@ -69,33 +72,6 @@ const MAX_POLL_PAGES = 200;
  * another page fetch by itself.
  */
 const POLL_CURSOR_OVERLAP_MS = 5 * 60 * 1000;
-
-interface ImportOutcome {
-  reviewsFetched: number;
-  /** The max `external_updated_at` seen this run. `null` when nothing was fetched — `completeRun`
-   *  treats that as "leave the location's cursor where it was," not "reset it." */
-  maxExternalUpdatedAt: string | null;
-}
-
-interface PollImportOutcome extends ImportOutcome {
-  /**
-   * The page cap was hit *before* reaching the location's cursor, meaning this run could not see
-   * the whole backlog. Load-bearing, not informational — see `runPoll`, which fails the run on it.
-   */
-  truncated: boolean;
-}
-
-interface ClassifyAndGenerateOutcome {
-  classified: number;
-  skipped: number;
-  /** See `AiReplyGenerationService.generateForClassifiedReviews`'s own return shape — folded in
-   *  here rather than kept as a separate outcome object, since both phases share one
-   *  `sync_runs` row and one pair of log lines. */
-  generated: number;
-  generationFailed: number;
-  quotaReached: boolean;
-  error: string | null;
-}
 
 /**
  * Both review ingestion paths: the one-time historical backfill (`runBackfill`) and the 15-minute

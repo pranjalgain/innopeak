@@ -1,6 +1,6 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { MediaDbService } from '@db/repositories/media/media.db-service';
 import { ForbiddenException } from '@nestjs/common';
@@ -9,6 +9,7 @@ import { Test } from '@nestjs/testing';
 
 import { MediaService } from './media.service';
 import { StorageProvider } from './providers/storage.provider';
+import { StorageAssetNotFoundError } from './types/storage-provider.type';
 
 describe('MediaService', () => {
   let target: MediaService;
@@ -41,7 +42,9 @@ describe('MediaService', () => {
 
     mediaDbService = {
       findAvatarUrl: jest.fn(),
+      findAvatarAsset: jest.fn(),
       upsertAvatar: jest.fn(),
+      deleteAvatar: jest.fn(),
     } as unknown as jest.Mocked<MediaDbService>;
 
     const module: TestingModule = await Test.createTestingModule({
@@ -279,6 +282,65 @@ describe('MediaService', () => {
         'avatars/platform-admins/admin-1'
       );
       expect(mediaDbService.upsertAvatar).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteAvatarIfPresent', () => {
+    it('is a no-op when the owner never had an avatar', async () => {
+      mediaDbService.findAvatarAsset.mockResolvedValue(null);
+
+      await target.deleteAvatarIfPresent({ userId: 'user-1' });
+
+      expect(storageProvider.delete).not.toHaveBeenCalled();
+      expect(mediaDbService.deleteAvatar).not.toHaveBeenCalled();
+    });
+
+    it("deletes the owner's avatar from the storage provider before the DB row", async () => {
+      mediaDbService.findAvatarAsset.mockResolvedValue({
+        provider: 'cloudinary',
+        providerAssetId: 'avatars/users/user-1/asset-1',
+      });
+      storageProvider.delete.mockResolvedValue(undefined);
+
+      await target.deleteAvatarIfPresent({ userId: 'user-1' });
+
+      expect(storageProvider.delete).toHaveBeenCalledWith('avatars/users/user-1/asset-1');
+      expect(mediaDbService.deleteAvatar).toHaveBeenCalledWith({ userId: 'user-1' });
+    });
+
+    /**
+     * A Cloudinary hiccup must never block the anonymization itself, but must also never delete
+     * the `media` row for an asset that's still live in storage — leaving the row intact is what
+     * makes a future retry possible instead of leaking the asset silently.
+     */
+    it('swallows a storage-provider deletion failure and leaves the DB row untouched', async () => {
+      mediaDbService.findAvatarAsset.mockResolvedValue({
+        provider: 'cloudinary',
+        providerAssetId: 'avatars/users/user-1/asset-1',
+      });
+      storageProvider.delete.mockRejectedValue(new Error('Cloudinary is down'));
+
+      await expect(target.deleteAvatarIfPresent({ userId: 'user-1' })).resolves.toBeUndefined();
+      expect(mediaDbService.deleteAvatar).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Closes the gap a plain "swallow every failure" catch would leave: if a previous run's
+     * storage delete already succeeded but crashed before the DB delete, this run's storage delete
+     * finds nothing and throws `StorageAssetNotFoundError` — every retry would fail identically
+     * forever unless this one case still proceeds to clean up the stale row.
+     */
+    it('still deletes the stale DB row when the asset is already gone from storage', async () => {
+      mediaDbService.findAvatarAsset.mockResolvedValue({
+        provider: 'cloudinary',
+        providerAssetId: 'avatars/users/user-1/asset-1',
+      });
+      storageProvider.delete.mockRejectedValue(
+        new StorageAssetNotFoundError('Cloudinary asset does not exist.')
+      );
+
+      await expect(target.deleteAvatarIfPresent({ userId: 'user-1' })).resolves.toBeUndefined();
+      expect(mediaDbService.deleteAvatar).toHaveBeenCalledWith({ userId: 'user-1' });
     });
   });
 });

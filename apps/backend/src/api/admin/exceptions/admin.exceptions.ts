@@ -84,3 +84,22 @@ export class BusinessNotFoundException extends NotFoundException {
     super({ message, code: 'BUSINESS_NOT_FOUND' });
   }
 }
+
+/** `AdminBusinessesRepository.setStatus` refuses to run while a tenant has a pending erasure
+ *  request — plain suspend/reactivate and the erasure request/cancel flow must never both touch
+ *  `tenants.status` at once, or a later unrelated suspend/reactivate leaves `erasure_requested_at`
+ *  stale and the next nightly purge treats it as a still-pending, now-overdue erasure. */
+export class BusinessErasurePendingException extends ConflictException {
+  constructor(message: string = MESSAGES.ADMIN.BUSINESS_ERASURE_PENDING) {
+    super({ message, code: 'BUSINESS_ERASURE_PENDING' });
+  }
+}
+
+/** `AdminUsersRepository.toggleActive` refuses to run while a user has a pending team-member
+ *  removal request — same reasoning as `BusinessErasurePendingException`, at the user level: an
+ *  unrelated reactivation must never leave `erasure_requested_at` stale on a now-"active" user. */
+export class UserRemovalPendingException extends ConflictException {
+  constructor(message: string = MESSAGES.ADMIN.USER_REMOVAL_PENDING) {
+    super({ message, code: 'USER_REMOVAL_PENDING' });
+  }
+}

@@ -1,3 +1,5 @@
+import { MESSAGES } from '@common/constants/messages.constants';
+import { renderMessage } from '@common/i18n/message-registry';
 import { LoggerService } from '@logger/logger.service';
 import { BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
@@ -123,6 +125,49 @@ describe('ErrorHandlerService', () => {
 
       expect(result.message).toBe('pg failure');
     });
+
+    describe('in production', () => {
+      const originalNodeEnv = process.env['NODE_ENV'];
+
+      beforeEach(() => {
+        process.env['NODE_ENV'] = 'production';
+      });
+
+      afterEach(() => {
+        if (originalNodeEnv === undefined) {
+          delete process.env['NODE_ENV'];
+        } else {
+          process.env['NODE_ENV'] = originalNodeEnv;
+        }
+      });
+
+      it('drops table/column/detail from a mapped error but keeps the generic classification', () => {
+        const error = makePgError({
+          code: '23505',
+          table: 'users',
+          column: 'email',
+          detail: 'Key (email)=(jane@example.com) already exists.',
+        });
+
+        const result = target.handleError(error, 'ctx');
+
+        expect(result.statusCode).toBe(HttpStatus.CONFLICT);
+        expect(result.message).toBe('Unique constraint violation');
+        expect(result.message).not.toContain('users');
+        expect(result.message).not.toContain('email');
+        expect(result.message).not.toContain('jane@example.com');
+      });
+
+      it('redacts an unmapped code to a generic, catalog-backed fallback', () => {
+        const error = makePgError({ code: '99999', detail: 'weird detail' });
+
+        const result = target.handleError(error, 'ctx');
+
+        expect(result.statusCode).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+        expect(result.message).toBe(MESSAGES.COMMON.INTERNAL_ERROR);
+        expect(result.message).not.toContain('weird detail');
+      });
+    });
   });
 
   describe('social auth error mapping (via handleError)', () => {
@@ -134,6 +179,45 @@ describe('ErrorHandlerService', () => {
       expect(result.statusCode).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
       expect(result.message).toBe('social auth failed');
       expect(logger.error).toHaveBeenCalled();
+    });
+
+    describe('in production', () => {
+      const originalNodeEnv = process.env['NODE_ENV'];
+
+      beforeEach(() => {
+        process.env['NODE_ENV'] = 'production';
+      });
+
+      afterEach(() => {
+        if (originalNodeEnv === undefined) {
+          delete process.env['NODE_ENV'];
+        } else {
+          process.env['NODE_ENV'] = originalNodeEnv;
+        }
+      });
+
+      it('redacts the client-facing message when an upstream response payload is present', () => {
+        const error = makeSocialAuthError({ status: 400, data: { reason: 'bad token' } });
+
+        const result = target.handleError(error, 'ctx');
+
+        expect(result.statusCode).toBe(HttpStatus.BAD_REQUEST);
+        expect(result.message).toBe(MESSAGES.COMMON.INTERNAL_ERROR);
+        expect(logger.error).toHaveBeenCalledWith(
+          expect.stringContaining('bad token'),
+          expect.anything()
+        );
+      });
+
+      it('redacts the client-facing message when there is no response payload', () => {
+        const error = makeSocialAuthError(undefined);
+
+        const result = target.handleError(error, 'ctx');
+
+        expect(result.statusCode).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+        expect(result.message).toBe(MESSAGES.COMMON.INTERNAL_ERROR);
+        expect(result.message).not.toBe('social auth failed');
+      });
     });
   });
 
@@ -159,6 +243,72 @@ describe('ErrorHandlerService', () => {
 
       expect(result.statusCode).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
       expect(result.message).toBe('a string error');
+    });
+
+    /**
+     * `MESSAGES.SETTINGS.TENANT_SETTINGS_ROW_MISSING` stands in for any DB Service/Repository
+     * should-never-happen guard that now throws through the message catalog — a tagged key, not
+     * literal English. This must never leak into the log unrendered.
+     */
+    it('renders a tagged MESSAGES key into English before logging it', () => {
+      const error = new Error(MESSAGES.SETTINGS.TENANT_SETTINGS_ROW_MISSING('tenant-1'));
+
+      target.handleError(error, 'ReviewPipelineDbService.loadClassificationContext');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining(
+          renderMessage(MESSAGES.SETTINGS.TENANT_SETTINGS_ROW_MISSING('tenant-1'), 'en')
+        ),
+        expect.anything()
+      );
+    });
+
+    describe('in production', () => {
+      const originalNodeEnv = process.env['NODE_ENV'];
+
+      beforeEach(() => {
+        process.env['NODE_ENV'] = 'production';
+      });
+
+      afterEach(() => {
+        if (originalNodeEnv === undefined) {
+          delete process.env['NODE_ENV'];
+        } else {
+          process.env['NODE_ENV'] = originalNodeEnv;
+        }
+      });
+
+      it('redacts the client-facing message to a generic, catalog-backed fallback', () => {
+        const error = new Error(MESSAGES.SETTINGS.TENANT_SETTINGS_ROW_MISSING('tenant-1'));
+
+        const result = target.handleError(error, 'ctx');
+
+        expect(result.statusCode).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+        expect(result.message).toBe(MESSAGES.COMMON.INTERNAL_ERROR);
+        expect(result.message).not.toContain('tenant-1');
+      });
+
+      it('still logs the full raw message and stack server-side', () => {
+        const error = new Error(MESSAGES.SETTINGS.TENANT_SETTINGS_ROW_MISSING('tenant-1'));
+
+        target.handleError(error, 'ctx');
+
+        expect(logger.error).toHaveBeenCalledWith(
+          expect.stringContaining(
+            renderMessage(MESSAGES.SETTINGS.TENANT_SETTINGS_ROW_MISSING('tenant-1'), 'en')
+          ),
+          expect.anything()
+        );
+      });
+
+      it('does not redact the SMS-provider friendly-message branch', () => {
+        const error = new Error('Failed to send SMS: trial account restriction');
+
+        const result = target.handleError(error, 'SmsService.send');
+
+        expect(result.statusCode).toBe(HttpStatus.FORBIDDEN);
+        expect(result.message).toContain('SMS service is restricted for trial accounts');
+      });
     });
   });
 

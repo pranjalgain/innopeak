@@ -1,5 +1,5 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse } from '@common/dto/api-response';
 import type { Locale } from '@common/i18n/locale';

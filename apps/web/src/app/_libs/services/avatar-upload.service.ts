@@ -62,43 +62,52 @@ async function uploadToProvider(
 }
 
 /**
- * The direct-to-provider half of the avatar upload flow. Returns the id the caller then hands to
- * the backend's confirm route — which re-verifies it against the provider rather than trusting it,
- * so a wrong id here fails there rather than persisting something bogus.
- *
- * An empty `uploadUrl` means the offline `noop` provider: there is nothing to upload to, so the
- * sentinel id it already handed us is what gets confirmed.
+ * The direct-to-provider half of the avatar upload flow, and the one thing this file's other
+ * exports don't fit as static methods of: `AvatarUploadError` is its own error class (same
+ * separate-from-the-service-class shape as `ApiError`/`SettingsApiError`), and neither method here
+ * goes through the generated SDK/`unwrap()` the way every other `*Service` does — this talks
+ * straight to the provider (Cloudinary), never the backend.
  */
-export async function uploadAvatarFile(
-  file: File,
-  authorization: AvatarUploadAuthorizationResponseDto,
-): Promise<string> {
-  // Checked here purely so an oversized file fails instantly instead of after a slow upload the
-  // backend would reject anyway — the authoritative cap is the one `verifyUpload` enforces, since
-  // nothing client-side is trustworthy.
-  if (file.size > MAX_AVATAR_BYTES) {
-    throw new AvatarUploadError("That image is too large. Please choose a file under 10 MB.");
-  }
-
-  if (!authorization.uploadUrl) {
-    if (!authorization.providerAssetId) {
-      throw new AvatarUploadError("The image service is not configured.");
+export class AvatarUploadService {
+  /**
+   * Returns the id the caller then hands to the backend's confirm route — which re-verifies it
+   * against the provider rather than trusting it, so a wrong id here fails there rather than
+   * persisting something bogus.
+   *
+   * An empty `uploadUrl` means the offline `noop` provider: there is nothing to upload to, so the
+   * sentinel id it already handed us is what gets confirmed.
+   */
+  static async upload(
+    file: File,
+    authorization: AvatarUploadAuthorizationResponseDto,
+  ): Promise<string> {
+    // Checked here purely so an oversized file fails instantly instead of after a slow upload the
+    // backend would reject anyway — the authoritative cap is the one `verifyUpload` enforces,
+    // since nothing client-side is trustworthy.
+    if (file.size > MAX_AVATAR_BYTES) {
+      throw new AvatarUploadError("That image is too large. Please choose a file under 10 MB.");
     }
-    return authorization.providerAssetId;
+
+    if (!authorization.uploadUrl) {
+      if (!authorization.providerAssetId) {
+        throw new AvatarUploadError("The image service is not configured.");
+      }
+      return authorization.providerAssetId;
+    }
+
+    return uploadToProvider(file, authorization);
   }
 
-  return uploadToProvider(file, authorization);
-}
-
-/**
- * What to actually show the user when an avatar upload fails. Both failure sources carry a message
- * worth repeating verbatim — the provider's ("File size too large") tells them to pick a different
- * file, and the backend's 400 from confirm is already localized ("This image format is not
- * supported…"). Everything else is a server or transport fault the user can do nothing about, so
- * it falls back to the caller's generic copy.
- */
-export function avatarUploadErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof AvatarUploadError) return error.message;
-  if (error instanceof ApiError && error.statusCode === 400) return error.message;
-  return fallback;
+  /**
+   * What to actually show the user when an avatar upload fails. Both failure sources carry a
+   * message worth repeating verbatim — the provider's ("File size too large") tells them to pick a
+   * different file, and the backend's 400 from confirm is already localized ("This image format is
+   * not supported…"). Everything else is a server or transport fault the user can do nothing
+   * about, so it falls back to the caller's generic copy.
+   */
+  static errorMessage(error: unknown, fallback: string): string {
+    if (error instanceof AvatarUploadError) return error.message;
+    if (error instanceof ApiError && error.statusCode === 400) return error.message;
+    return fallback;
+  }
 }

@@ -1,8 +1,8 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { PlatformAdminOnlyException, TenantOnlyException } from '@auth/exceptions/auth.exceptions';
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { MediaDbService } from '@db/repositories/media/media.db-service';
-import type { MediaOwner } from '@db/repositories/media/media.repository';
+import type { MediaOwner } from '@db/repositories/media/types/media.type';
 import { Injectable, Logger } from '@nestjs/common';
 
 import { AvatarUploadAuthorizationResponseDto } from './dto/avatar-upload-authorization-response.dto';
@@ -13,6 +13,7 @@ import {
   UnsupportedMediaFormatException,
 } from './exceptions/media.exceptions';
 import { StorageProvider } from './providers/storage.provider';
+import { StorageAssetNotFoundError } from './types/storage-provider.type';
 import { avatarFolderFor } from './utils/avatar-folder.util';
 
 /**
@@ -46,6 +47,53 @@ export class MediaService {
 
   async getUserAvatarUrl(userId: string): Promise<string | null> {
     return this.mediaDbService.findAvatarUrl({ userId });
+  }
+
+  /**
+   * GDPR anonymization's one hook into this module — `AccountAnonymizationService` depends on
+   * `MediaService`, never `MediaDbService` directly, per this module's own "nothing outside
+   * `MediaService` talks to a storage provider" convention. A no-op (not an error) when the owner
+   * never had an avatar.
+   *
+   * Deletes from storage *before* the `media` row — the previous order deleted the row first, so a
+   * Cloudinary failure (swallowed, since it must never block anonymization) left the row gone but
+   * the asset still live in storage with nothing left in the DB to ever retry or reconcile it
+   * against. Deleting storage first means a failure here simply leaves the row in place: the asset
+   * is still reachable, and a future retry of this same method (or of the whole anonymization) sees
+   * it again and tries again, instead of the leak being silent and permanent.
+   *
+   * That retry story only works as long as a storage failure genuinely means "still there, try
+   * again" — which is why a `StorageAssetNotFoundError` is handled separately from every other
+   * failure. If the process crashed (or the DB delete below threw) on a *previous* run, right after
+   * that run's storage delete had already succeeded, this run's `storageProvider.delete` call finds
+   * nothing left to delete and throws exactly that error — treating it the same as a real failure
+   * would leave the row stuck forever, since every future retry fails identically. The asset being
+   * gone IS the state a delete is trying to reach, so this case still proceeds to the DB delete.
+   */
+  async deleteAvatarIfPresent(owner: MediaOwner): Promise<void> {
+    const existing = await this.mediaDbService.findAvatarAsset(owner);
+    if (!existing) {
+      return;
+    }
+
+    try {
+      await this.storageProvider.delete(existing.providerAssetId);
+    } catch (error) {
+      if (!(error instanceof StorageAssetNotFoundError)) {
+        this.logger.warn(
+          `Could not delete avatar asset "${existing.providerAssetId}" during anonymization: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        return;
+      }
+      this.logger.warn(
+        `Avatar asset "${existing.providerAssetId}" was already gone from storage during ` +
+          `anonymization — removing the stale media row left over from an earlier, interrupted run.`
+      );
+    }
+
+    await this.mediaDbService.deleteAvatar(owner);
   }
 
   async getPlatformAdminAvatarUrl(platformAdminId: string): Promise<string | null> {

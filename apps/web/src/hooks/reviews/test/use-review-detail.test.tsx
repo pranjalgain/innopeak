@@ -7,13 +7,28 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
-import type { Review } from "@/types/domain";
+import type { Review, ReviewReplyDraft } from "@/types/domain";
 
 import messages from "../../../../messages/en.json";
 import { useReviewDetail } from "../use-review-detail";
 
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
+
+function draft(overrides: Partial<ReviewReplyDraft> = {}): ReviewReplyDraft {
+  return {
+    id: "draft-1",
+    label: "Warm thanks",
+    content: "Thanks so much!",
+    originalContent: "Thanks so much!",
+    status: "pending_approval",
+    promptId: "prompt-1",
+    promptVersion: 1,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    decidedAt: null,
+    ...overrides,
+  };
+}
 
 function review(overrides: Partial<Review> = {}): Review {
   return {
@@ -25,19 +40,7 @@ function review(overrides: Partial<Review> = {}): Review {
     classification: null,
     escalationReason: null,
     status: "new",
-    replyDrafts: [
-      {
-        id: "draft-1",
-        label: "Warm thanks",
-        content: "Thanks so much!",
-        originalContent: "Thanks so much!",
-        status: "pending_approval",
-        promptId: "prompt-1",
-        promptVersion: 1,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        decidedAt: null,
-      },
-    ],
+    replyDrafts: [draft()],
     ...overrides,
   };
 }
@@ -68,7 +71,7 @@ describe("useReviewDetail", () => {
   test("does not show a success toast when the background persist fails", async () => {
     const original = review();
     vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(original);
-    vi.spyOn(ReviewService, "updateReview").mockRejectedValue(new Error("network error"));
+    vi.spyOn(ReviewService, "approveReply").mockRejectedValue(new Error("network error"));
 
     const { result } = renderHook(() => useReviewDetail("review-1"), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -84,8 +87,8 @@ describe("useReviewDetail", () => {
   test("shows the success toast only once the background persist actually succeeds", async () => {
     const original = review();
     vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(original);
-    let resolvePersist!: (next: Review) => void;
-    vi.spyOn(ReviewService, "updateReview").mockReturnValue(
+    let resolvePersist!: (updated: ReviewReplyDraft) => void;
+    vi.spyOn(ReviewService, "rejectReply").mockReturnValue(
       new Promise((resolve) => {
         resolvePersist = resolve;
       }),
@@ -102,7 +105,7 @@ describe("useReviewDetail", () => {
     expect(toast.success).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolvePersist({ ...original, replyDrafts: result.current.review?.replyDrafts ?? [] });
+      resolvePersist(draft({ status: "rejected", decidedAt: "2026-01-02T00:00:00.000Z" }));
     });
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
@@ -117,7 +120,7 @@ describe("useReviewDetail", () => {
     const original = review();
     vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(original);
     let rejectPersist!: (error: Error) => void;
-    vi.spyOn(ReviewService, "updateReview").mockReturnValue(
+    vi.spyOn(ReviewService, "approveReply").mockReturnValue(
       new Promise((_resolve, reject) => {
         rejectPersist = reject;
       }),
@@ -145,7 +148,9 @@ describe("useReviewDetail", () => {
   test("keeps the optimistic write when the background persist succeeds", async () => {
     const original = review();
     vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(original);
-    vi.spyOn(ReviewService, "updateReview").mockImplementation((next) => Promise.resolve(next));
+    vi.spyOn(ReviewService, "rejectReply").mockImplementation((_reviewId, _responseId) =>
+      Promise.resolve(draft({ status: "rejected", decidedAt: "2026-01-02T00:00:00.000Z" })),
+    );
 
     const { result } = renderHook(() => useReviewDetail("review-1"), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -164,7 +169,7 @@ describe("useReviewDetail", () => {
   test("a rollback restores the exact previous cache entry, not a guess", async () => {
     const original = review({ status: "in_review" });
     vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(original);
-    vi.spyOn(ReviewService, "updateReview").mockRejectedValue(new Error("network error"));
+    vi.spyOn(ReviewService, "approveReply").mockRejectedValue(new Error("network error"));
 
     const { result } = renderHook(() => useReviewDetail("review-1"), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));

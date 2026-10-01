@@ -1,5 +1,5 @@
 import { type Locale, SUPPORTED_LOCALES } from '@common/i18n/locale';
-import type { PlatformAdminProfileWithAvatar } from '@db/repositories/platform-admin/platform-admin.db-service';
+import type { PlatformAdminProfileWithAvatar } from '@db/repositories/platform-admin/types/platform-admin.type';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AdminProfileResponseDto {

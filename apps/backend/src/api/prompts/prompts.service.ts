@@ -35,7 +35,7 @@ import {
 import type { AppendedPromptVersion } from './types/prompt.type';
 import { toPromptDto } from './utils/prompt-response.util';
 
-import type { AuthUser } from '../auth/types/auth-user.type';
+import type { AuthUser } from '../auth/types/auth.type';
 
 @Injectable()
 export class PromptsService {

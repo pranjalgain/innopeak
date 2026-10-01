@@ -1,4 +1,4 @@
-import type { Route } from "next";
+import type { Metadata, Route } from "next";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import {
@@ -34,6 +34,12 @@ const FEATURE_ICONS = [
   LuLockKeyhole,
   LuZap,
 ];
+
+export const metadata: Metadata = {
+  title: "AI drafts the reply. You decide what goes out.",
+  description:
+    "InnoPeak watches your Google Business Profile, drafts a reply to every new review, and routes anything risky straight to the person who should see it — approval is required by default, and nothing slips through unanswered.",
+};
 
 export default function LandingPage() {
   const t = useTranslations("marketing");

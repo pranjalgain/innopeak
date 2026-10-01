@@ -41,6 +41,14 @@ export interface MessageCatalog {
     INVALID_OR_EXPIRED_INVITE: string;
     /** Shared by `PlatformAdminAuthService.acceptAdminInvite` and `AuthService.acceptMemberInvite`. */
     INVITE_ACCEPTED: string;
+    /** `AuthRepository.createTenant` — the insert affected no rows. Should never happen (no
+     *  conflicting unique constraint on this path); a should-never-happen invariant guard. */
+    FAILED_TO_CREATE_TENANT: string;
+    /** `AuthRepository.createUser`/`createUserWithGoogleIdentity` — the insert affected no rows.
+     *  Same should-never-happen shape as `FAILED_TO_CREATE_TENANT`. */
+    FAILED_TO_CREATE_USER: string;
+    /** `AuthRepository.createInvitedMember` — the insert affected no rows. */
+    FAILED_TO_CREATE_INVITED_MEMBER: string;
   };
   MEDIA: {
     /** `StorageProvider.verifyUpload` returned `{ ok: false, reason: 'notFound' }` — the confirmed
@@ -58,6 +66,8 @@ export interface MessageCatalog {
      *  in-folder asset that exceeds the size cap. Safe to name specifically for the same reason as
      *  `UNSUPPORTED_FORMAT`, and just as actionable: the fix is a smaller file. */
     FILE_TOO_LARGE: string;
+    /** `MediaRepository.persistAvatar` — the upsert affected no rows. */
+    FAILED_TO_PERSIST_AVATAR: string;
   };
   NOTIFICATIONS: {
     LISTED: string;
@@ -78,6 +88,10 @@ export interface MessageCatalog {
     LOCATION_CONFIRMED: string;
     LOCATION_INACTIVE: string;
     ACTIVE_LOCATION_UPDATED: string;
+    /** `ConnectionsRepository.upsertConnection` — the upsert affected no rows. */
+    FAILED_TO_UPSERT_CONNECTION: string;
+    /** `ConnectionsRepository.upsertLocation` — the upsert affected no rows. */
+    FAILED_TO_UPSERT_LOCATION: string;
   };
   DASHBOARD: {
     TENANT_ONLY: string;
@@ -85,6 +99,26 @@ export interface MessageCatalog {
   REVIEWS: {
     REVIEW_NOT_FOUND: string;
     TENANT_ONLY: string;
+    /** `ReviewSyncRepository.acquireSyncRun` — the insert affected no rows. */
+    FAILED_TO_ACQUIRE_SYNC_RUN: string;
+    /** `ReviewSyncRepository.upsertReview` — the upsert affected no rows. */
+    FAILED_TO_UPSERT_REVIEW: string;
+    /** `ReviewSyncRepository.insertGeneratedResponse` — the insert affected no rows for the given
+     *  review. Kept as an interpolating entry (unlike the other should-never-happen guards in this
+     *  batch) so the specific review id survives into the English-rendered server log even though
+     *  the client-facing copy is generic in production — see `ErrorHandlerService`. */
+    GENERATED_RESPONSE_INSERT_FAILED: (reviewId: string) => string;
+    /** `ReviewsService.approveReply`/`rejectReply` — the response id/reviewId/tenantId combination
+     *  doesn't resolve to a real row. */
+    RESPONSE_NOT_FOUND: string;
+    /** The response exists but isn't `pending_approval` (already decided, or raced away by a
+     *  sibling's approval) — a 409, not a 404, since the row is plainly still there. */
+    RESPONSE_NOT_ACTIONABLE: string;
+    /** `idx_review_responses_review_id_live_reply` — this review already has an `approved`/`posted`
+     *  response; a sibling won the same race a moment earlier. */
+    RESPONSE_ALREADY_LIVE: string;
+    RESPONSE_APPROVED: string;
+    RESPONSE_REJECTED: string;
   };
   PROMPTS: {
     LISTED: string;
@@ -154,6 +188,13 @@ export interface MessageCatalog {
     STRIPE_ONLY_FEATURE: string;
     CHECKOUT_COMPLETED: string;
     SUBSCRIPTION_CANCELED: string;
+    /** `TenantSubscriptionsRepository.createSubscription` — the insert affected no rows. */
+    FAILED_TO_CREATE_SUBSCRIPTION: string;
+    /** `TenantSubscriptionsDbService` — the `free` billing plan row is missing from
+     *  `billing_plans`. Should never happen: that row is seeded by migration. */
+    FREE_PLAN_NOT_SEEDED: string;
+    /** Same should-never-happen shape as `FREE_PLAN_NOT_SEEDED`, for the `paid` plan row. */
+    PAID_PLAN_NOT_SEEDED: string;
   };
   SETTINGS: {
     BLOCKLIST_LISTED: string;
@@ -165,6 +206,13 @@ export interface MessageCatalog {
     RETRIEVED: string;
     UPDATED: string;
     TENANT_SETTINGS_MISSING: string;
+    /** `ReviewPipelineDbService` — no `tenant_settings` row for the given tenant. Distinct from
+     *  `TENANT_SETTINGS_MISSING` (that one is `TenantSettingsMissingException`'s public 404
+     *  wording for a settings-read call): this is an internal should-never-happen invariant, kept
+     *  as an interpolating entry so the specific tenant id survives into the English-rendered
+     *  server log even though the client-facing copy is generic in production — see
+     *  `ErrorHandlerService`. */
+    TENANT_SETTINGS_ROW_MISSING: (tenantId: string) => string;
     /** Should never fire in practice — the migration seeds `platform_settings` unconditionally
      *  and its id is CHECK-constrained to exactly 1 row. */
     PLATFORM_CONFIG_MISSING: string;
@@ -177,6 +225,16 @@ export interface MessageCatalog {
     MEMBER_INVITE_NOT_REVOCABLE: string;
     /** `platform_settings.invite_members_enabled` is off. */
     MEMBER_INVITES_DISABLED: string;
+    /** Interpolates the grace-period day count (`ERASURE_GRACE_PERIOD_DAYS`) so the owner knows
+     *  exactly when the member's data is actually anonymized. */
+    MEMBER_REMOVAL_REQUESTED: (days: number) => string;
+    MEMBER_REMOVAL_CANCELLED: string;
+    /** The id exists but has no removal pending (never requested, or already past the grace
+     *  period and anonymized) — 409, not 404, for the same reason `MEMBER_INVITE_NOT_REVOCABLE` is. */
+    MEMBER_REMOVAL_NOT_PENDING: string;
+    CANNOT_REMOVE_LAST_OWNER: string;
+    /** Self-removal isn't this flow — an owner steps down or deletes their own account elsewhere. */
+    CANNOT_REMOVE_SELF: string;
     NOTIFICATION_RECIPIENTS_LISTED: string;
     NOTIFICATION_RECIPIENT_UPDATED: string;
     /** The id doesn't exist, or belongs to a different tenant — same message either way, no
@@ -193,6 +251,15 @@ export interface MessageCatalog {
     USER_STATUS_UPDATED: string;
     BUSINESS_NOT_FOUND: string;
     BUSINESS_STATUS_UPDATED: string;
+    /** Interpolates the grace-period day count (`ERASURE_GRACE_PERIOD_DAYS`). */
+    BUSINESS_ERASURE_REQUESTED: (days: number) => string;
+    BUSINESS_ERASURE_CANCELLED: string;
+    /** `AdminBusinessesRepository.setStatus` refused — this tenant has a pending erasure request;
+     *  cancel it first before changing status directly. */
+    BUSINESS_ERASURE_PENDING: string;
+    /** `AdminUsersRepository.toggleActive` refused — this user has a pending team-member removal
+     *  request; cancel it first before changing their status directly. */
+    USER_REMOVAL_PENDING: string;
     AVATAR_UPDATED: string;
     PASSWORD_CHANGED: string;
     INVITE_SENT: string;
@@ -218,6 +285,8 @@ export interface MessageCatalog {
     CANNOT_DISABLE_INVITED: string;
     ADMIN_DISABLED: string;
     ADMIN_ENABLED: string;
+    /** `PlatformAdminRepository.createInvitedPlatformAdmin` — the insert affected no rows. */
+    FAILED_TO_CREATE_INVITED_PLATFORM_ADMIN: string;
   };
   COMMON: {
     /** `ResponseUtil.success`'s default message when a controller passes none. */
@@ -225,6 +294,11 @@ export interface MessageCatalog {
     /** `TransformInterceptor`'s fallback when a response reaches it with no `message` key at
      *  all (bypassing `ResponseUtil` entirely) — a defensive backstop, not the common path. */
     REQUEST_SUCCESSFUL: string;
+    /** `ErrorHandlerService.handleUnhandledError`'s client-facing message in production — replaces
+     *  the raw internal `Error.message` (a DB invariant, a stack-trace fragment, third-party
+     *  wording) so it's never echoed to a real client. The full raw message is still logged
+     *  server-side, in both environments. */
+    INTERNAL_ERROR: string;
   };
 }
 

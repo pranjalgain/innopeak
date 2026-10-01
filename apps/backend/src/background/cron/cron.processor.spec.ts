@@ -32,6 +32,7 @@ describe('CronProcessor', () => {
       purgeStaleAuthTokens: jest.fn().mockResolvedValue(undefined),
       pollDueLocations: jest.fn().mockResolvedValue(undefined),
       purgeExpiredReviewerPii: jest.fn().mockResolvedValue(undefined),
+      purgeErasureRequests: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CronService>;
     dlqService = {
       addFailedJobToDLQ: jest.fn().mockResolvedValue(undefined),
@@ -87,6 +88,18 @@ describe('CronProcessor', () => {
       await processor.process(job);
 
       expect(cronService.purgeExpiredReviewerPii).toHaveBeenCalledTimes(1);
+      expect(cronService.sendDailyMail).not.toHaveBeenCalled();
+    });
+
+    it('dispatches ERASURE_PURGE jobs to CronService.purgeErasureRequests and awaits it', async () => {
+      const job = buildJob({
+        name: CronJobName.ERASURE_PURGE,
+        data: { jobType: CronJobName.ERASURE_PURGE },
+      });
+
+      await processor.process(job);
+
+      expect(cronService.purgeErasureRequests).toHaveBeenCalledTimes(1);
       expect(cronService.sendDailyMail).not.toHaveBeenCalled();
     });
 

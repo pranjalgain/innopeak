@@ -1,7 +1,7 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
-import type { TenantAuthUser } from '@auth/types/auth-user.type';
+import type { TenantAuthUser } from '@auth/types/auth.type';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import type { EnvConfig } from '@config/env.config';
@@ -10,7 +10,7 @@ import type { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import type { BillingPlansDbService } from '@db/repositories/billing/billing-plans.db-service';
 import type { BillingReceiptsDbService } from '@db/repositories/billing/billing-receipts.db-service';
 import type { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
-import type { TenantSubscriptionRow } from '@db/repositories/billing/tenant-subscriptions.repository';
+import type { TenantSubscriptionRow } from '@db/repositories/billing/types/billing.type';
 import type { ConfigService } from '@nestjs/config';
 
 import type { BillingEntitlementsService } from './billing-entitlements.service';

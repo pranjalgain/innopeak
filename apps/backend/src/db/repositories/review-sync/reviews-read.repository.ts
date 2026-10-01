@@ -1,109 +1,23 @@
-import { EscalationReason } from '@common/enums/escalation-reason.enum';
 import { ResponseSource } from '@common/enums/response-source.enum';
-import { ResponseStatus } from '@common/enums/response-status.enum';
-import { ResponseType } from '@common/enums/response-type.enum';
-import { ReviewClassification } from '@common/enums/review-classification.enum';
-import { ReviewSentiment } from '@common/enums/review-sentiment.enum';
-import { ReviewStatus } from '@common/enums/review-status.enum';
+import { escapeLikePattern } from '@common/helpers/like-pattern.utils';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
-export interface ReviewRow {
-  id: string;
-  locationId: string;
-  externalReviewId: string;
-  reviewerName: string | null;
-  rating: number;
-  reviewText: string | null;
-  reviewedAt: string | null;
-  externalUpdatedAt: string | null;
-  sentiment: ReviewSentiment | null;
-  classification: ReviewClassification;
-  escalationReason: EscalationReason | null;
-  // Drizzle infers a bare `jsonb` column as `unknown`; narrowed here to what every writer
-  // actually stores (`ReviewSyncRepository.claimClassification`'s `ClaimClassificationInput`),
-  // the same boundary-bridging this repository already does for enum columns.
-  matchedKeywords: string[] | null;
-  status: ReviewStatus;
-  anonymizedAt: string | null;
-  removedUpstreamAt: string | null;
-}
-
-export interface ReviewResponseRow {
-  id: string;
-  reviewId: string;
-  generationGroupId: string | null;
-  responseType: ResponseType;
-  content: string;
-  originalContent: string | null;
-  source: ResponseSource;
-  status: ResponseStatus;
-  createdByUserId: string | null;
-  approvedByUserId: string | null;
-  createdAt: string;
-  decidedAt: string | null;
-  postedAt: string | null;
-  errorMessage: string | null;
-}
-
-export interface ListReviewsFilter {
-  tenantId: string;
-  page: number;
-  pageSize: number;
-  status?: ReviewStatus | undefined;
-  classification?: ReviewClassification | undefined;
-  locationId?: string | undefined;
-  search?: string | undefined;
-}
-
-export interface FindReviewByIdForTenantInput {
-  reviewId: string;
-  tenantId: string;
-}
-
-export interface FindResponsesForReviewsInput {
-  reviewIds: string[];
-  tenantId: string;
-}
-
-export interface GetPromptVersionStatsInput {
-  tenantId: string;
-  promptId: string;
-  /** Omit to aggregate across every version of the prompt; pass to scope to one version. */
-  version?: number;
-}
-
-export interface GetPromptVersionStatsBatchInput {
-  tenantId: string;
-  /** Every (promptId, version) pair to aggregate — each is always scoped to one version, unlike
-   *  the single-stats method's optional `version`, since a batch caller always knows which
-   *  version it wants per prompt (`usePromptAnalytics`'s current-version-per-prompt use case). */
-  pairs: Array<{ promptId: string; version: number }>;
-}
-
-export interface PromptVersionStatsBatchRow {
-  promptId: string;
-  version: number;
-  stats: PromptVersionStatsRow;
-}
-
-/**
- * `approvedAsIsCount` is deliberately absent — it's `approvedCount - approvedEditedCount`, plain
- * arithmetic on two numbers this repository already computed, not a query of its own. Computed by
- * the caller (`PromptsService`), not here.
- */
-export interface PromptVersionStatsRow {
-  totalGenerated: number;
-  approvedCount: number;
-  approvedEditedCount: number;
-  rejectedCount: number;
-  pendingCount: number;
-  supersededCount: number;
-  averageDecisionMinutes: number | null;
-}
+import type {
+  FindResponseForTenantInput,
+  FindResponsesForReviewsInput,
+  FindReviewByIdForTenantInput,
+  GetPromptVersionStatsBatchInput,
+  GetPromptVersionStatsInput,
+  ListReviewsFilter,
+  PromptVersionStatsBatchRow,
+  PromptVersionStatsRow,
+  ReviewResponseRow,
+  ReviewRow,
+} from './types/review-sync.type';
 
 const REVIEW_COLUMNS = {
   id: schema.reviews.id,
@@ -134,6 +48,7 @@ const RESPONSE_COLUMNS = {
   status: schema.reviewResponses.status,
   createdByUserId: schema.reviewResponses.createdByUserId,
   approvedByUserId: schema.reviewResponses.approvedByUserId,
+  rejectedByUserId: schema.reviewResponses.rejectedByUserId,
   createdAt: schema.reviewResponses.createdAt,
   decidedAt: schema.reviewResponses.decidedAt,
   postedAt: schema.reviewResponses.postedAt,
@@ -173,16 +88,6 @@ const ZERO_PROMPT_VERSION_STATS: PromptVersionStatsRow = {
 
 function promptStatsBatchKey(promptId: string, version: number): string {
   return `${promptId}:${version}`;
-}
-
-/**
- * Postgres's `LIKE`/`ILIKE` treat `%` and `_` as wildcards and `\` as the escape character itself
- * — none of which a reviewer-name search term should be interpreted as. Without this, searching
- * for a reviewer literally named "50% Off Dave" or "J_ne" matches an unrelated, much broader (or
- * narrower) set of rows than the literal substring the owner typed.
- */
-function escapeLikePattern(value: string): string {
-  return value.replace(/[\\%_]/g, char => `\\${char}`);
 }
 
 /**
@@ -312,6 +217,27 @@ export class ReviewsReadRepository {
         ReviewResponseRow[]
       >
     );
+  }
+
+  /** One response, scoped to both the review and the tenant it belongs to — the pre-check
+   *  `ReviewsService.approveReply`/`rejectReply` use to tell "doesn't exist" (404) apart from
+   *  "exists but isn't in a decidable state" (409), which the CAS update alone can't distinguish. */
+  async findResponseForTenant(
+    input: FindResponseForTenantInput
+  ): Promise<ReviewResponseRow | null> {
+    const rows = await this.dbService.db
+      .select(RESPONSE_COLUMNS)
+      .from(schema.reviewResponses)
+      .where(
+        and(
+          eq(schema.reviewResponses.id, input.responseId),
+          eq(schema.reviewResponses.reviewId, input.reviewId),
+          eq(schema.reviewResponses.tenantId, input.tenantId)
+        )
+      )
+      .limit(1);
+
+    return (rows[0] as ReviewResponseRow | undefined) ?? null;
   }
 
   /**

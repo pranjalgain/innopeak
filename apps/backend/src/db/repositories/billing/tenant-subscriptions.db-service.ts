@@ -1,24 +1,16 @@
+import { MESSAGES } from '@common/constants/messages.constants';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import { DrizzleTransaction } from '@db/db.service';
 import { Injectable } from '@nestjs/common';
 
 import { BillingPlansRepository } from './billing-plans.repository';
-import {
+import { TenantSubscriptionsRepository } from './tenant-subscriptions.repository';
+import type {
+  SetToPaidInput,
+  SyncSubscriptionFieldsInput,
   TenantSubscriptionRow,
-  TenantSubscriptionsRepository,
-} from './tenant-subscriptions.repository';
-
-export interface SyncSubscriptionFieldsInput {
-  status: SubscriptionStatus;
-  currentPeriodStart: string | null;
-  currentPeriodEnd: string | null;
-  cancelAtPeriodEnd: boolean;
-}
-
-export interface SetToPaidInput extends SyncSubscriptionFieldsInput {
-  stripeSubscriptionId: string;
-}
+} from './types/billing.type';
 
 /**
  * Composes `TenantSubscriptionsRepository` with `BillingPlansRepository` — every write here that
@@ -85,7 +77,7 @@ export class TenantSubscriptionsDbService {
     if (!freePlan) {
       // Never expected outside a broken/partial migration — 0011_billing.sql seeds both plans
       // unconditionally before this code path can ever run.
-      throw new Error('Free billing plan is not seeded');
+      throw new Error(MESSAGES.BILLING.FREE_PLAN_NOT_SEEDED);
     }
     return this.tenantSubscriptionsRepository.insert(tx, { tenantId, planId: freePlan.id });
   }
@@ -124,7 +116,7 @@ export class TenantSubscriptionsDbService {
   ): Promise<TenantSubscriptionRow | null> {
     const paidPlan = await this.billingPlansRepository.findByCode(BillingPlanCode.PAID, tx);
     if (!paidPlan) {
-      throw new Error('Paid billing plan is not seeded');
+      throw new Error(MESSAGES.BILLING.PAID_PLAN_NOT_SEEDED);
     }
     return this.tenantSubscriptionsRepository.updateByTenantId(
       tenantId,
@@ -174,7 +166,7 @@ export class TenantSubscriptionsDbService {
   ): Promise<TenantSubscriptionRow | null> {
     const freePlan = await this.billingPlansRepository.findByCode(BillingPlanCode.FREE, tx);
     if (!freePlan) {
-      throw new Error('Free billing plan is not seeded');
+      throw new Error(MESSAGES.BILLING.FREE_PLAN_NOT_SEEDED);
     }
     return this.tenantSubscriptionsRepository.updateByTenantId(
       tenantId,

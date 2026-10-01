@@ -3,26 +3,7 @@ import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq } from 'drizzle-orm';
 
-export interface BillingReceiptRow {
-  id: string;
-  tenantId: string;
-  stripeInvoiceId: string;
-  stripeSubscriptionId: string | null;
-  amountPaid: number;
-  currency: string;
-  invoiceNumber: string | null;
-  paidAt: string;
-}
-
-export interface InsertBillingReceiptInput {
-  tenantId: string;
-  stripeInvoiceId: string;
-  stripeSubscriptionId: string | null;
-  amountPaid: number;
-  currency: string;
-  invoiceNumber: string | null;
-  paidAt: string;
-}
+import type { BillingReceiptRow, InsertBillingReceiptInput } from './types/billing.type';
 
 const RECEIPT_COLUMNS = {
   id: schema.billingReceipts.id,

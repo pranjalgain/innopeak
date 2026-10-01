@@ -1,7 +1,7 @@
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { isProduction } from '@config/deployment-target.util';
-import type { LocationRow } from '@db/repositories/connections/connections.repository';
-import type { SyncRunRow } from '@db/repositories/review-sync/review-sync.repository';
+import type { LocationRow } from '@db/repositories/connections/types/connections.type';
+import type { SyncRunRow } from '@db/repositories/review-sync/types/review-sync.type';
 import { GOOGLE_OAUTH } from '@review-provider/constants/review-provider.constants';
 import type { CookieOptions } from 'express';
 

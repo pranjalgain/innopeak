@@ -13,12 +13,18 @@ CREATE TABLE IF NOT EXISTS tenants (
     name VARCHAR(255) NOT NULL,
     created_by_platform_admin_id UUID REFERENCES platform_admins(id) ON DELETE SET NULL,
     status tenant_status NOT NULL DEFAULT 'pending_activation',
+    -- Set when a platform admin requests GDPR erasure of this tenant (AdminBusinessesService
+    -- .requestErasure); the tenant is suspended immediately but not yet anonymized. Cleared by
+    -- cancelErasure, or by the nightly purge once it actually anonymizes every user and flips
+    -- status to 'erased'. NULL means "no erasure pending."
+    erasure_requested_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_tenants_created_by_platform_admin_id ON tenants(created_by_platform_admin_id);
 CREATE INDEX idx_tenants_status ON tenants(status);
+CREATE INDEX idx_tenants_erasure_requested_at ON tenants(erasure_requested_at) WHERE erasure_requested_at IS NOT NULL;
 
 -- ───────────────────────────────────────────────────────────────────────
 -- tenant_identity_providers — depends on: tenants
@@ -49,14 +55,22 @@ CREATE UNIQUE INDEX idx_tenant_identity_providers_provider_tenant_id ON tenant_i
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) NOT NULL,
+    -- Nullable, not NOT NULL: GDPR anonymize-in-place (AccountAnonymizationService) nulls this
+    -- rather than deleting the row, so review_responses.approved_by_user_id/created_by_user_id
+    -- keep a valid FK target and the "who approved this reply" accountability trail survives.
+    name VARCHAR(255),
+    email VARCHAR(255),
     password_hash VARCHAR(255),
     email_verified_at TIMESTAMPTZ,
     invited_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     role user_role NOT NULL,
     status user_status NOT NULL,
     anonymized_at TIMESTAMPTZ,
+    -- Set when an owner requests removal of this member (TenantMembersService.requestRemoval) or
+    -- when this user belongs to a tenant a platform admin requested erasure of; access is revoked
+    -- immediately (status: disabled) but anonymization waits for the grace period. Cleared on
+    -- cancel, or by the nightly purge once it actually anonymizes the row. NULL means "not pending."
+    erasure_requested_at TIMESTAMPTZ,
     -- NULL means "never chose" — that's what makes Accept-Language negotiation legitimate for
     -- this user. A DEFAULT 'en' would silently pin every existing/self-registered user to English
     -- instead of letting the request's own header decide.
@@ -70,6 +84,7 @@ CREATE UNIQUE INDEX idx_users_tenant_id_email ON users(tenant_id, email);
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_status ON users(status);
 CREATE INDEX idx_users_invited_by_user_id ON users(invited_by_user_id);
+CREATE INDEX idx_users_erasure_requested_at ON users(erasure_requested_at) WHERE erasure_requested_at IS NOT NULL;
 
 -- ───────────────────────────────────────────────────────────────────────
 -- tenant_settings — depends on: tenants

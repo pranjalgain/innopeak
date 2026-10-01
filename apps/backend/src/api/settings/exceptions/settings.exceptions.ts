@@ -31,6 +31,24 @@ export class MemberInviteNotRevocableException extends ConflictException {
   }
 }
 
+export class CannotRemoveLastOwnerException extends BadRequestException {
+  constructor(message: string = MESSAGES.SETTINGS.CANNOT_REMOVE_LAST_OWNER) {
+    super({ message, code: 'CANNOT_REMOVE_LAST_OWNER' });
+  }
+}
+
+export class CannotRemoveSelfException extends BadRequestException {
+  constructor(message: string = MESSAGES.SETTINGS.CANNOT_REMOVE_SELF) {
+    super({ message, code: 'CANNOT_REMOVE_SELF' });
+  }
+}
+
+export class MemberRemovalNotPendingException extends ConflictException {
+  constructor(message: string = MESSAGES.SETTINGS.MEMBER_REMOVAL_NOT_PENDING) {
+    super({ message, code: 'MEMBER_REMOVAL_NOT_PENDING' });
+  }
+}
+
 export class BlocklistTermExistsException extends ConflictException {
   constructor(message: string = MESSAGES.SETTINGS.BLOCKLIST_TERM_EXISTS) {
     super({ message, code: 'BLOCKLIST_TERM_EXISTS' });

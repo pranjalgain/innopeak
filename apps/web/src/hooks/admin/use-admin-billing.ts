@@ -5,7 +5,7 @@ import { toast } from "sonner";
 
 import { AdminBillingService } from "@/app/_libs/services/admin-billing.service";
 import { adminBillingSummaryQueryKey } from "@/hooks/admin/admin-query-keys";
-import type { AtRiskSubscription, BillingWebhookEvent, UpgradeTrendPoint } from "@/types/domain";
+import type { AtRiskSubscription, UpgradeTrendPoint } from "@/types/domain";
 
 /** How many months the upgrade-trend chart shows, counting back from the current one. */
 const TREND_MONTHS = 6;
@@ -20,7 +20,6 @@ interface UseAdminBillingResult {
   cancelingCount: number;
   upgradeTrend: UpgradeTrendPoint[];
   atRisk: AtRiskSubscription[];
-  recentWebhookEvents: BillingWebhookEvent[];
   isLoading: boolean;
   isError: boolean;
   refetch: () => void;
@@ -52,7 +51,6 @@ export function useAdminBilling(): UseAdminBillingResult {
     cancelingCount: summaryQuery.data?.cancelingCount ?? 0,
     upgradeTrend: summaryQuery.data?.upgradeTrend ?? [],
     atRisk: summaryQuery.data?.atRisk ?? [],
-    recentWebhookEvents: summaryQuery.data?.recentWebhookEvents ?? [],
     isLoading: summaryQuery.isLoading,
     isError: summaryQuery.isError,
     refetch: () => void summaryQuery.refetch(),

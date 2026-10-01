@@ -23,6 +23,10 @@ export class CronQueue {
     await this.addCronJob(CronJobName.REVIEWER_RETENTION_PURGE);
   }
 
+  async addErasurePurgeJob(): Promise<void> {
+    await this.addCronJob(CronJobName.ERASURE_PURGE);
+  }
+
   private async addCronJob(jobName: CronJobName, data?: Record<string, unknown>): Promise<void> {
     await this.queuePublisher.publish(QueueName.CRON, jobName, { jobType: jobName, data });
     this.logger.debug(`Added ${jobName} job`);

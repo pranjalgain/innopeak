@@ -42,7 +42,7 @@ export function ConnectErrorStage({ error, onRetry }: ConnectErrorStageProps) {
         <Icon className="size-6" />
       </div>
       <p className="text-sm leading-relaxed text-muted-foreground">
-        {t(`errors.${error.code}` as "errors.UNKNOWN")}
+        {error.message ?? t(`errors.${error.code}` as "errors.UNKNOWN")}
       </p>
       <Button type="button" size="block" onClick={onRetry}>
         {t(`actions.${error.recovery}` as "actions.retry")}

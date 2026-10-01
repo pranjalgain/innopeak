@@ -20,7 +20,13 @@ CREATE TYPE platform_activity_type AS ENUM (
     -- Disabling/re-enabling a fellow platform admin — a rare but high-trust action. Same column
     -- shape as the invite events (renders from `target_email`), so it joins their CHECK arm below.
     'admin_disabled',
-    'admin_enabled'
+    'admin_enabled',
+    -- GDPR tenant erasure (AdminBusinessesService.requestErasure/cancelErasure, and the nightly
+    -- purge job for the terminal 'business_erased' entry once every user is actually anonymized).
+    -- Same column shape as business_suspended/business_reactivated — renders from business_name.
+    'business_erasure_requested',
+    'business_erasure_cancelled',
+    'business_erased'
 );
 
 CREATE TABLE IF NOT EXISTS platform_activity_log (
@@ -55,7 +61,7 @@ CREATE TABLE IF NOT EXISTS platform_activity_log (
     -- One arm per event family, and each arm pins every render column to NOT NULL or NULL so a
     -- new type cannot be added later without deciding what it actually displays.
     CONSTRAINT platform_activity_log_target_check CHECK (
-        (type IN ('business_suspended', 'business_reactivated') AND business_name IS NOT NULL AND target_email IS NULL) OR
+        (type IN ('business_suspended', 'business_reactivated', 'business_erasure_requested', 'business_erasure_cancelled', 'business_erased') AND business_name IS NOT NULL AND target_email IS NULL) OR
         (type IN ('admin_invite_sent', 'admin_invite_revoked', 'admin_disabled', 'admin_enabled') AND target_email IS NOT NULL AND business_name IS NULL AND tenant_id IS NULL) OR
         -- A user event needs both: which person, and which business they belong to. "Deactivated
         -- jane@example.com" is ambiguous across tenants on a platform-wide feed.

@@ -1,3 +1,4 @@
+import { MESSAGES } from '@common/constants/messages.constants';
 import { Injectable } from '@nestjs/common';
 import type {
   ClassifiableReview,
@@ -5,10 +6,8 @@ import type {
   ClassificationResult,
 } from '@review-pipeline/types/classification-result.type';
 
-import {
-  type ClaimClassificationInput,
-  ReviewSyncRepository,
-} from '../review-sync/review-sync.repository';
+import { ReviewSyncRepository } from '../review-sync/review-sync.repository';
+import type { ClaimClassificationInput } from '../review-sync/types/review-sync.type';
 import { BlocklistTermsRepository } from '../settings/blocklist-terms.repository';
 import { TenantSettingsRepository } from '../settings/tenant-settings.repository';
 
@@ -37,7 +36,7 @@ export class ReviewPipelineDbService {
     ]);
 
     if (escalationRatingThreshold === null) {
-      throw new Error(`No tenant_settings row found for tenant ${tenantId}`);
+      throw new Error(MESSAGES.SETTINGS.TENANT_SETTINGS_ROW_MISSING(tenantId));
     }
 
     return {

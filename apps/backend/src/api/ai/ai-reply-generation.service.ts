@@ -5,7 +5,7 @@ import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { PromptsDbService } from '@db/repositories/prompts/prompts.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
-import type { GenerationCandidateRow } from '@db/repositories/review-sync/review-sync.repository';
+import type { GenerationCandidateRow } from '@db/repositories/review-sync/types/review-sync.type';
 import { Injectable, Logger } from '@nestjs/common';
 import { DEFAULT_PROMPT_TONE } from '@prompts/constants/default-prompts.constant';
 import { sanitizePromptTemplate } from '@prompts/constants/prompts.constants';

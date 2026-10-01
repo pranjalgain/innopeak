@@ -9,12 +9,24 @@ function envelope<T>(data: T) {
   return { data: { status: "Success", data } };
 }
 
+/**
+ * `TokenService.getTokenType()` reads the non-credential `session` cookie the backend sets on
+ * every sign-in — seeding it directly here is the jsdom equivalent of the backend's
+ * `res.cookie("session", ...)`.
+ */
+function setSessionCookie(value: "tenant" | "admin" | null): void {
+  document.cookie =
+    value === null
+      ? "session=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/"
+      : `session=${value}; path=/`;
+}
+
 describe("AuthService.loginWithPassword", () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it("recognizes a tenant response and stores its access token", async () => {
+  it("recognizes a tenant response and caches the display name", async () => {
     vi.spyOn(authApi, "authControllerLoginV1").mockResolvedValue(
       envelope({
         accessToken: "tenant-access-token",
@@ -36,10 +48,10 @@ describe("AuthService.loginWithPassword", () => {
     const result = await AuthService.loginWithPassword("jane@thecoffeehouse.com", "StrongP@ss1");
 
     expect(result).toEqual({ kind: "success", hasConnectedBusiness: true });
-    expect(TokenService.getStoredAccessToken()).toBe("tenant-access-token");
+    expect(TokenService.getName()).toBe("Jane Doe");
   });
 
-  it("recognizes a pending_verification response without touching session state", async () => {
+  it("recognizes a pending_verification response without touching the cached name", async () => {
     vi.spyOn(authApi, "authControllerLoginV1").mockResolvedValue(
       envelope({
         status: "pending_verification",
@@ -51,25 +63,23 @@ describe("AuthService.loginWithPassword", () => {
     const result = await AuthService.loginWithPassword("jane@thecoffeehouse.com", "StrongP@ss1");
 
     expect(result).toEqual({ kind: "verify_needed", email: "jane@thecoffeehouse.com" });
-    expect(TokenService.getStoredAccessToken()).toBeNull();
+    expect(TokenService.getName()).toBeNull();
   });
 });
 
 describe("AuthService.loginAsAdmin", () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
   /**
    * Platform-admin login has its own route (`POST /v1/admin/auth/login`) and its own method, no
-   * longer a branch inside `loginWithPassword` — see `separate-admin-login-design.md`.
+   * longer a branch inside `loginWithPassword` — see `separate-admin-login-design.md`. The
+   * session itself lives entirely in the httpOnly cookies the backend sets on this response; there
+   * is nothing left for this method to store client-side.
    */
-  it("stores the admin's access token on success", async () => {
+  it("calls the admin login route with the given credentials", async () => {
     vi.spyOn(adminAuthApi, "platformAdminAuthControllerLoginV1").mockResolvedValue(
       envelope({
         accessToken: "admin-access-token",
         expiresIn: 900,
-        admin: { id: "admin-1", email: "admin@innopeak.com" },
+        admin: { id: "admin-1", email: "admin@innopeak.com", locale: null },
       }) as never,
     );
 
@@ -79,7 +89,6 @@ describe("AuthService.loginAsAdmin", () => {
       { loginDto: { email: "admin@innopeak.com", password: "Admin@123456" } },
       { authOptional: true },
     );
-    expect(TokenService.getStoredAccessToken()).toBe("admin-access-token");
   });
 });
 
@@ -92,7 +101,7 @@ describe("AuthService.logout", () => {
   const assign = vi.fn();
 
   beforeEach(() => {
-    localStorage.clear();
+    setSessionCookie(null);
     assign.mockClear();
     Object.defineProperty(window, "location", {
       configurable: true,
@@ -101,14 +110,8 @@ describe("AuthService.logout", () => {
     vi.spyOn(authApi, "authControllerLogoutV1").mockResolvedValue({ data: {} } as never);
   });
 
-  /** A real platform-admin JWT: only the `type` claim matters, and it is read before the clear. */
-  function signedInAs(type: "tenant_user" | "platform_admin"): void {
-    const claims = btoa(JSON.stringify({ type, exp: Math.floor(Date.now() / 1000) + 900 }));
-    TokenService.setAccessToken(`header.${claims}.signature`);
-  }
-
   it("returns a platform admin to the admin sign-in page", async () => {
-    signedInAs("platform_admin");
+    setSessionCookie("admin");
 
     await AuthService.logout();
 
@@ -116,14 +119,14 @@ describe("AuthService.logout", () => {
   });
 
   it("returns a tenant user to the tenant login page", async () => {
-    signedInAs("tenant_user");
+    setSessionCookie("tenant");
 
     await AuthService.logout();
 
     expect(assign).toHaveBeenCalledWith("/login");
   });
 
-  it("falls back to the tenant login page when there is no readable token type", async () => {
+  it("falls back to the tenant login page when there is no session at all", async () => {
     await AuthService.logout();
 
     expect(assign).toHaveBeenCalledWith("/login");

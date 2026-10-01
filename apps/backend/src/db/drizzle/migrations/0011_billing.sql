@@ -104,5 +104,10 @@ CREATE UNIQUE INDEX idx_tenant_subscriptions_stripe_subscription_id ON tenant_su
 CREATE TABLE IF NOT EXISTS stripe_webhook_events (
     id VARCHAR(255) PRIMARY KEY,
     type VARCHAR(255) NOT NULL,
+    -- NULL for a 'unhandled' event (see `PaymentWebhookEvent`) — those carry no `customerId` at
+    -- all. Lets the admin-facing webhook-activity view resolve which tenant an event was for by
+    -- joining against `tenant_subscriptions.stripe_customer_id`, without this table needing its
+    -- own FK to `tenants` (a webhook can arrive for a customer id this app never resolves).
+    stripe_customer_id VARCHAR(255),
     processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

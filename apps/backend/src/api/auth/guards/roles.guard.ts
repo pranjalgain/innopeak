@@ -4,7 +4,7 @@ import { Request } from 'express';
 
 import { RoleRequirement, ROLES_KEY } from '../decorators/roles.decorator';
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
-import { AuthUser } from '../types/auth-user.type';
+import { AuthUser } from '../types/auth.type';
 
 /**
  * Guard that enforces role-based access control with OR logic.

@@ -1,8 +1,8 @@
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
-import type { DashboardMetrics } from '@db/repositories/dashboard/dashboard.db-service';
 import { DashboardDbService } from '@db/repositories/dashboard/dashboard.db-service';
+import type { DashboardMetrics } from '@db/repositories/dashboard/types/dashboard.type';
 import { Injectable } from '@nestjs/common';
 
 import type { DashboardWindowQueryDto, RecentEscalatedQueryDto } from './dto/dashboard-request.dto';

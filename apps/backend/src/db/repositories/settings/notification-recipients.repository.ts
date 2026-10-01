@@ -7,7 +7,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type {
   NotificationRecipientRecord,
   UpdateNotificationRecipientInput,
-} from '../../../api/settings/types/notification-recipient.type';
+} from '../../../api/settings/types/settings.type';
 
 @Injectable()
 export class NotificationRecipientsRepository {
@@ -27,7 +27,17 @@ export class NotificationRecipientsRepository {
       .where(eq(schema.notificationRecipients.tenantId, tenantId))
       .orderBy(schema.users.name);
 
-    return rows.map(row => ({ ...row, channel: row.channel as NotificationChannelPref }));
+    return rows.map(row => ({
+      ...row,
+      // `users.name` is nullable at the column level (GDPR anonymize-in-place) — a recipient whose
+      // user has since been removed (Feature A's anonymize-in-place, not a hard delete, so this
+      // row survives) would otherwise surface `name: null` here for the first time. The rest of
+      // this stack (DTO, frontend) has always assumed a real display name; a fallback label at the
+      // one point the nullability is actually introduced is simpler than threading `| null`
+      // through every consumer for a case that's cosmetic, not load-bearing.
+      name: row.name ?? 'Removed team member',
+      channel: row.channel as NotificationChannelPref,
+    }));
   }
 
   /**
@@ -70,6 +80,11 @@ export class NotificationRecipientsRepository {
     const updated = rows[0];
     return updated === undefined
       ? null
-      : { ...updated, channel: updated.channel as NotificationChannelPref };
+      : {
+          ...updated,
+          // Same fallback as `listByTenant` — see its own comment.
+          name: updated.name ?? 'Removed team member',
+          channel: updated.channel as NotificationChannelPref,
+        };
   }
 }

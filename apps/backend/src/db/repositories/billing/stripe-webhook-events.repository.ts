@@ -22,11 +22,20 @@ export class StripeWebhookEventsRepository {
    * handler rolls this insert back too, and Stripe's retry (which sees no ledger row) actually
    * re-attempts the whole thing instead of silently no-op'ing forever against a ledger entry that
    * recorded "processed" before the work was actually done.
+   *
+   * `customerId` is `null` for a `'unhandled'` event (see `PaymentWebhookEvent`), which carries no
+   * Stripe customer id at all — stored so the admin-facing webhook-activity view can resolve which
+   * tenant (if any) this event was for, without this table needing its own FK to `tenants`.
    */
-  async insertIfNew(id: string, type: string, tx?: DrizzleTransaction): Promise<boolean> {
+  async insertIfNew(
+    id: string,
+    type: string,
+    customerId: string | null,
+    tx?: DrizzleTransaction
+  ): Promise<boolean> {
     const rows = await (tx ?? this.dbService.db)
       .insert(schema.stripeWebhookEvents)
-      .values({ id, type })
+      .values({ id, type, stripeCustomerId: customerId })
       .onConflictDoNothing()
       .returning({ id: schema.stripeWebhookEvents.id });
 

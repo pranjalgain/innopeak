@@ -80,9 +80,9 @@ import {
   ApiValidateMemberInvite,
   ApiVerifyEmail,
 } from './swagger/auth.swagger';
-import type { AuthUser } from './types/auth-user.type';
+import type { AuthUser } from './types/auth.type';
 import { setAdminSessionCookies } from './utils/admin-session-cookies.util';
-import { buildCookieOptions } from './utils/cookie-options.util';
+import { buildCookieOptions, buildSessionHintCookieOptions } from './utils/cookie-options.util';
 
 @Controller({ path: RouteNames.AUTH, version: '1' })
 @ApiTags('Auth')
@@ -480,11 +480,13 @@ export class AuthController {
    * - `refresh_token` — the long-lived credential. Never in a JSON body, and scoped to `/v1/auth`
    *   so a browser only ever sends it to the two routes that need it (refresh, logout).
    * - `access_token` — scoped to `/` because every authenticated route needs it. The same token
-   *   is *also* returned in the JSON body so the frontend can keep its own copy for the `Bearer`
-   *   header (it can't read an httpOnly cookie), and `JwtStrategy` accepts either.
-   * - `session` — no credential at all, just a flag. It exists so the frontend's edge middleware
-   *   can tell "signed in" from "signed out" before any JS runs, without being misled by the
-   *   access cookie's 15-minute expiry into bouncing a still-refreshable visitor to /login.
+   *   is *also* returned in the JSON body for non-browser (e.g. future mobile) clients that can't
+   *   rely on this cookie at all; the web frontend relies solely on the cookie, never the body copy.
+   * - `session` — no credential at all, just a flag. Not `httpOnly` (see
+   *   `buildSessionHintCookieOptions`): it exists so both the frontend's edge middleware AND its
+   *   client-side route guards can tell "signed in" from "signed out", and as which principal,
+   *   without being misled by the access cookie's 15-minute expiry into bouncing a
+   *   still-refreshable visitor to /login.
    */
   private setSessionCookies(res: Response, refreshToken: string, accessToken: string): void {
     res.cookie(
@@ -500,7 +502,7 @@ export class AuthController {
     res.cookie(
       SESSION_HINT_COOKIE_NAME,
       SESSION_HINT_TENANT_VALUE,
-      buildCookieOptions(SESSION_HINT_COOKIE_PATH, REFRESH_TOKEN_TTL_SECONDS)
+      buildSessionHintCookieOptions(SESSION_HINT_COOKIE_PATH, REFRESH_TOKEN_TTL_SECONDS)
     );
   }
 
@@ -530,6 +532,9 @@ export class AuthController {
     res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, buildCookieOptions(REFRESH_TOKEN_COOKIE_PATH));
     res.clearCookie(ACCESS_TOKEN_COOKIE_NAME, buildCookieOptions(ACCESS_TOKEN_COOKIE_PATH));
     res.clearCookie(ADMIN_ACCESS_TOKEN_COOKIE_NAME, buildCookieOptions(ACCESS_TOKEN_COOKIE_PATH));
-    res.clearCookie(SESSION_HINT_COOKIE_NAME, buildCookieOptions(SESSION_HINT_COOKIE_PATH));
+    res.clearCookie(
+      SESSION_HINT_COOKIE_NAME,
+      buildSessionHintCookieOptions(SESSION_HINT_COOKIE_PATH)
+    );
   }
 }

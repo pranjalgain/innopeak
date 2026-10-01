@@ -11,9 +11,9 @@ import { LuTriangleAlert } from "react-icons/lu";
 import { ShellSkeleton } from "@/app/_components/shell-skeleton";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError } from "@/app/_libs/services/api-error";
-import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { Button } from "@/components/ui/button";
 import { useConnection } from "@/hooks/connections/use-connection";
+import { useConnectionAuthorize } from "@/hooks/connections/use-connection-authorize";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
 
 interface ConnectionGuardProps {
@@ -107,6 +107,7 @@ function WaitingOnOwnerScreen() {
 
 function ReconnectBanner() {
   const t = useTranslations("appShell.reconnectBanner");
+  const { isRedirecting, startAuthorize } = useConnectionAuthorize();
 
   return (
     <div className="border-warning/30 bg-warning-soft flex flex-wrap items-center gap-3 border-b px-4 py-2.5 text-[13px]">
@@ -116,7 +117,8 @@ function ReconnectBanner() {
         type="button"
         size="sm"
         variant="outline"
-        onClick={() => void ConnectionService.startAuthorize("settings")}>
+        disabled={isRedirecting}
+        onClick={() => startAuthorize("settings")}>
         {t("action")}
       </Button>
     </div>

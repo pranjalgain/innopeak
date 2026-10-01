@@ -1,14 +1,16 @@
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
+import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { ReviewStatus } from '@common/enums/review-status.enum';
+import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import type {
   ReviewResponseRow,
   ReviewRow,
-} from '@db/repositories/review-sync/reviews-read.repository';
+} from '@db/repositories/review-sync/types/review-sync.type';
 import { Injectable } from '@nestjs/common';
 
 import { REVIEWS_PAGE_SIZE_DEFAULT } from './constants/reviews.constants';
@@ -20,7 +22,18 @@ import type {
   ReviewResponseItemDto,
 } from './dto/review-response.dto';
 import { ClientResponseStatus } from './enums/client-response-status.enum';
-import { ReviewNotFoundException } from './exceptions/reviews.exceptions';
+import {
+  ReviewNotFoundException,
+  ReviewResponseAlreadyLiveException,
+  ReviewResponseNotApprovableException,
+  ReviewResponseNotFoundException,
+} from './exceptions/reviews.exceptions';
+
+/** `idx_review_responses_review_id_live_reply` — Postgres reports the index name as `constraint`
+ *  for a unique-index (not a named-constraint) violation. Matches the constant `ReviewSyncDbService`
+ *  itself guards this index against, kept local here since `isUniqueViolation` is checked at this
+ *  layer, not the DB service (see `approveReply`'s own comment for why). */
+const LIVE_REPLY_INDEX = 'idx_review_responses_review_id_live_reply';
 
 /**
  * The seven-value `response_status` enum projected onto the four the shipped frontend understands.
@@ -189,23 +202,118 @@ export class ReviewsService {
       const index = positionInGroup.get(groupKey) ?? 0;
       positionInGroup.set(groupKey, index + 1);
 
-      return {
-        id: response.id,
-        generationGroupId: response.generationGroupId,
-        label: String.fromCharCode(65 + index),
-        responseType: response.responseType,
-        content: response.content,
-        originalContent: response.originalContent,
-        source: response.source,
-        status: RESPONSE_STATUS_PROJECTION[response.status],
-        createdByUserId: response.createdByUserId,
-        approvedByUserId: response.approvedByUserId,
-        createdAt: response.createdAt,
-        decidedAt: response.decidedAt,
-        postedAt: response.postedAt,
-        errorMessage: response.errorMessage,
-      };
+      return this.toResponseItem(response, String.fromCharCode(65 + index));
     });
+  }
+
+  /** The per-item half of `toResponseItems`, pulled out so `approveReply`/`rejectReply` can map a
+   *  single decided row without re-deriving every sibling's label — a decision response's own
+   *  label never changes, so `'A'` here is a placeholder the client will overwrite on its next
+   *  `getReview` refetch, not something a caller should rely on being correct in isolation. */
+  private toResponseItem(response: ReviewResponseRow, label = 'A'): ReviewResponseItemDto {
+    return {
+      id: response.id,
+      generationGroupId: response.generationGroupId,
+      label,
+      responseType: response.responseType,
+      content: response.content,
+      originalContent: response.originalContent,
+      source: response.source,
+      status: RESPONSE_STATUS_PROJECTION[response.status],
+      createdByUserId: response.createdByUserId,
+      approvedByUserId: response.approvedByUserId,
+      rejectedByUserId: response.rejectedByUserId,
+      createdAt: response.createdAt,
+      decidedAt: response.decidedAt,
+      postedAt: response.postedAt,
+      errorMessage: response.errorMessage,
+    };
+  }
+
+  /**
+   * Approves a pending draft, optionally with edited content — landing it at `status = 'approved'`,
+   * never `'posted'`: actually publishing the reply to Google Business Profile is a distinct,
+   * not-yet-built step (blocked on GBP write-API access), not something approving a draft does here.
+   *
+   * `isUniqueViolation` is caught at this layer, not `ReviewSyncDbService`'s — the same
+   * service-not-DB-service split `PromptsService.createVersion` already established for its own
+   * equivalent conflict, keeping NestJS HTTP exception classes out of the data layer.
+   */
+  async approveReply(input: {
+    user: AuthUser;
+    reviewId: string;
+    responseId: string;
+    content?: string | undefined;
+  }): Promise<ReviewResponseItemDto> {
+    const tenantUser = requireTenantUser(input.user, MESSAGES.REVIEWS.TENANT_ONLY);
+
+    const existing = await this.reviewSyncDbService.findResponseForTenant({
+      responseId: input.responseId,
+      reviewId: input.reviewId,
+      tenantId: tenantUser.tenantId,
+    });
+    if (!existing) {
+      throw new ReviewResponseNotFoundException();
+    }
+
+    const finalContent = input.content ?? existing.content;
+    // `originalContent` is null for human_manual/imported rows, which never had an AI draft to
+    // diverge from — comparing against `existing.content` in that case makes "edited" correctly
+    // unreachable for them, rather than comparing against a fabricated original.
+    const baseline = existing.originalContent ?? existing.content;
+    const source = finalContent !== baseline ? ResponseSource.HUMAN_EDITED : existing.source;
+
+    let approved: ReviewResponseRow | null;
+    try {
+      approved = await this.reviewSyncDbService.approveResponse({
+        responseId: input.responseId,
+        reviewId: input.reviewId,
+        tenantId: tenantUser.tenantId,
+        approvedByUserId: tenantUser.id,
+        content: finalContent,
+        source,
+      });
+    } catch (error) {
+      if (isUniqueViolation(error, LIVE_REPLY_INDEX)) {
+        throw new ReviewResponseAlreadyLiveException();
+      }
+      throw error;
+    }
+
+    if (!approved) {
+      throw new ReviewResponseNotApprovableException();
+    }
+    return this.toResponseItem(approved);
+  }
+
+  /** No free-text rejection reason — only who rejected it and when (`rejectedByUserId`/`decidedAt`),
+   *  mirroring `approvedByUserId`'s own tracking shape. */
+  async rejectReply(input: {
+    user: AuthUser;
+    reviewId: string;
+    responseId: string;
+  }): Promise<ReviewResponseItemDto> {
+    const tenantUser = requireTenantUser(input.user, MESSAGES.REVIEWS.TENANT_ONLY);
+
+    const existing = await this.reviewSyncDbService.findResponseForTenant({
+      responseId: input.responseId,
+      reviewId: input.reviewId,
+      tenantId: tenantUser.tenantId,
+    });
+    if (!existing) {
+      throw new ReviewResponseNotFoundException();
+    }
+
+    const rejected = await this.reviewSyncDbService.rejectResponse({
+      responseId: input.responseId,
+      reviewId: input.reviewId,
+      tenantId: tenantUser.tenantId,
+      rejectedByUserId: tenantUser.id,
+    });
+    if (!rejected) {
+      throw new ReviewResponseNotApprovableException();
+    }
+    return this.toResponseItem(rejected);
   }
 
   private groupByReview(responses: ReviewResponseRow[]): Map<string, ReviewResponseRow[]> {

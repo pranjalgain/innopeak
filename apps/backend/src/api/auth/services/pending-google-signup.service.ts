@@ -8,16 +8,10 @@ import {
   GOOGLE_PENDING_SIGNUP_KEY_PREFIX,
   GOOGLE_PENDING_SIGNUP_TTL_SECONDS,
 } from '../constants/google-auth.constants';
-
-/** A Google identity Google has verified, but that has no tenant yet — see the class doc below. */
-export interface PendingGoogleSignupIdentity {
-  providerUserId: string;
-  email: string;
-  name: string | null;
-}
-
-export type ConsumePendingGoogleSignupResult =
-  { ok: false } | { ok: true; identity: PendingGoogleSignupIdentity };
+import type {
+  ConsumePendingGoogleSignupResult,
+  PendingGoogleSignupIdentity,
+} from '../types/auth.type';
 
 /**
  * Bridges the gap between "the Google callback resolved a genuinely new person" and "we know what

@@ -4,19 +4,7 @@ import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 
-export interface BillingPlanRow {
-  id: string;
-  code: BillingPlanCode;
-  stripeProductId: string | null;
-  stripePriceId: string | null;
-  /** `null` = unlimited. */
-  maxLocations: number | null;
-  /** `null` = unlimited. */
-  maxAiDraftsPerMonth: number | null;
-  /** `null` = unlimited. */
-  maxTeamMembers: number | null;
-  customPromptsEnabled: boolean;
-}
+import type { BillingPlanRow } from './types/billing.type';
 
 const PLAN_COLUMNS = {
   id: schema.billingPlans.id,

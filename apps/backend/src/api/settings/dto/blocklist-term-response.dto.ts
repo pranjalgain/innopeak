@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import type { BlocklistTermRecord } from '../types/blocklist-term.type';
+import type { BlocklistTermRecord } from '../types/settings.type';
 
 export class BlocklistTermDto {
   @ApiProperty({ example: '0190f3c1-0a12-7b40-9e63-11c4a7f0b2d8' })

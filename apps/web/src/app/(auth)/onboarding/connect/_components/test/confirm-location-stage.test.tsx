@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
+import type { ComponentProps } from "react";
 import { describe, expect, test, vi } from "vitest";
 
 import type { AvailableLocation } from "@/app/_libs/services/connection.service";
@@ -22,7 +23,7 @@ const UPTOWN: AvailableLocation = {
 };
 
 function renderStage(
-  overrides: Partial<React.ComponentProps<typeof ConfirmLocationStage>> = {},
+  overrides: Partial<ComponentProps<typeof ConfirmLocationStage>> = {},
 ) {
   const onToggle = vi.fn();
   const onContinue = vi.fn();

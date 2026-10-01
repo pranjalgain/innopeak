@@ -3,7 +3,7 @@ import { DBService, DrizzleTransaction } from '@db/db.service';
 import { BillingReceiptsDbService } from '@db/repositories/billing/billing-receipts.db-service';
 import { StripeWebhookEventsDbService } from '@db/repositories/billing/stripe-webhook-events.db-service';
 import { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
-import type { TenantSubscriptionRow } from '@db/repositories/billing/tenant-subscriptions.repository';
+import type { TenantSubscriptionRow } from '@db/repositories/billing/types/billing.type';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { Injectable, Logger } from '@nestjs/common';
 
@@ -54,12 +54,18 @@ export class BillingWebhooksService {
 
   async handleEvent(event: PaymentWebhookEvent): Promise<void> {
     const rawType = event.type === 'unhandled' ? event.rawType : event.type;
+    const customerId = event.type === 'unhandled' ? null : event.customerId;
 
     await this.dbService.db.transaction(async tx => {
       // Insert-first, ON CONFLICT DO NOTHING — 0 rows returned means this event id was already
       // processed (a duplicate delivery, Stripe's own retry behavior), and it must be skipped. Runs
       // inside this same transaction — see this class's own doc comment for why.
-      const isNew = await this.stripeWebhookEventsDbService.recordIfNew(event.id, rawType, tx);
+      const isNew = await this.stripeWebhookEventsDbService.recordIfNew(
+        event.id,
+        rawType,
+        customerId,
+        tx
+      );
       if (!isNew) {
         this.logger.debug(`Skipping duplicate Stripe webhook event ${event.id} (${rawType})`);
         return;

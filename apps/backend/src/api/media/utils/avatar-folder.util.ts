@@ -1,4 +1,4 @@
-import type { MediaOwner } from '@db/repositories/media/media.repository';
+import type { MediaOwner } from '@db/repositories/media/types/media.type';
 
 import { AVATAR_FOLDER } from '../constants/media.constants';
 

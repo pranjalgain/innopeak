@@ -41,12 +41,71 @@ export const AdminBusinessesApiAxiosParamCreator = function (
 ) {
   return {
     /**
-     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection.
+     * Restores the tenant to active and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
+     * @summary Cancel a pending tenant erasure
+     * @param {string} tenantId The tenant to restore
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminBusinessesControllerCancelErasureV1: async (
+      tenantId: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'tenantId' is not null or undefined
+      assertParamExists(
+        'adminBusinessesControllerCancelErasureV1',
+        'tenantId',
+        tenantId,
+      );
+      const localVarPath =
+        `/v1/admin/businesses/{tenantId}/cancel-erasure`.replace(
+          '{tenantId}',
+          encodeURIComponent(String(tenantId)),
+        );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, the Businesses screen still pages the (now server-filtered) result client-side.
      * @summary List every tenant, as a Super Admin \"business\"
+     * @param {string} [search] Case-insensitive substring match against the tenant name or its owner name.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     adminBusinessesControllerListV1: async (
+      search?: string,
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       const localVarPath = `/v1/admin/businesses`;
@@ -59,6 +118,67 @@ export const AdminBusinessesApiAxiosParamCreator = function (
 
       const localVarRequestOptions = {
         method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      if (search !== undefined) {
+        localVarQueryParameter['search'] = search;
+      }
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
+     * @summary Request erasure of a whole tenant
+     * @param {string} tenantId The tenant to erase
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminBusinessesControllerRequestErasureV1: async (
+      tenantId: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'tenantId' is not null or undefined
+      assertParamExists(
+        'adminBusinessesControllerRequestErasureV1',
+        'tenantId',
+        tenantId,
+      );
+      const localVarPath =
+        `/v1/admin/businesses/{tenantId}/request-erasure`.replace(
+          '{tenantId}',
+          encodeURIComponent(String(tenantId)),
+        );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
         ...baseOptions,
         ...options,
       };
@@ -166,12 +286,48 @@ export const AdminBusinessesApiFp = function (configuration?: Configuration) {
     AdminBusinessesApiAxiosParamCreator(configuration);
   return {
     /**
-     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection.
+     * Restores the tenant to active and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
+     * @summary Cancel a pending tenant erasure
+     * @param {string} tenantId The tenant to restore
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async adminBusinessesControllerCancelErasureV1(
+      tenantId: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<AdminBusinessResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.adminBusinessesControllerCancelErasureV1(
+          tenantId,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminBusinessesApi.adminBusinessesControllerCancelErasureV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, the Businesses screen still pages the (now server-filtered) result client-side.
      * @summary List every tenant, as a Super Admin \"business\"
+     * @param {string} [search] Case-insensitive substring match against the tenant name or its owner name.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     async adminBusinessesControllerListV1(
+      search?: string,
       options?: RawAxiosRequestConfig,
     ): Promise<
       (
@@ -181,12 +337,47 @@ export const AdminBusinessesApiFp = function (configuration?: Configuration) {
     > {
       const localVarAxiosArgs =
         await localVarAxiosParamCreator.adminBusinessesControllerListV1(
+          search,
           options,
         );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
         operationServerMap[
           'AdminBusinessesApi.adminBusinessesControllerListV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
+     * @summary Request erasure of a whole tenant
+     * @param {string} tenantId The tenant to erase
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async adminBusinessesControllerRequestErasureV1(
+      tenantId: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<AdminBusinessResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.adminBusinessesControllerRequestErasureV1(
+          tenantId,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminBusinessesApi.adminBusinessesControllerRequestErasureV1'
         ]?.[localVarOperationServerIndex]?.url;
       return (axios, basePath) =>
         createRequestFunction(
@@ -247,16 +438,54 @@ export const AdminBusinessesApiFactory = function (
   const localVarFp = AdminBusinessesApiFp(configuration);
   return {
     /**
-     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection.
+     * Restores the tenant to active and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
+     * @summary Cancel a pending tenant erasure
+     * @param {AdminBusinessesApiAdminBusinessesControllerCancelErasureV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminBusinessesControllerCancelErasureV1(
+      requestParameters: AdminBusinessesApiAdminBusinessesControllerCancelErasureV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<AdminBusinessResponseDto> {
+      return localVarFp
+        .adminBusinessesControllerCancelErasureV1(
+          requestParameters.tenantId,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, the Businesses screen still pages the (now server-filtered) result client-side.
      * @summary List every tenant, as a Super Admin \"business\"
+     * @param {AdminBusinessesApiAdminBusinessesControllerListV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     adminBusinessesControllerListV1(
+      requestParameters: AdminBusinessesApiAdminBusinessesControllerListV1Request = {},
       options?: RawAxiosRequestConfig,
     ): AxiosPromise<Array<AdminBusinessResponseDto>> {
       return localVarFp
-        .adminBusinessesControllerListV1(options)
+        .adminBusinessesControllerListV1(requestParameters.search, options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
+     * @summary Request erasure of a whole tenant
+     * @param {AdminBusinessesApiAdminBusinessesControllerRequestErasureV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminBusinessesControllerRequestErasureV1(
+      requestParameters: AdminBusinessesApiAdminBusinessesControllerRequestErasureV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<AdminBusinessResponseDto> {
+      return localVarFp
+        .adminBusinessesControllerRequestErasureV1(
+          requestParameters.tenantId,
+          options,
+        )
         .then((request) => request(axios, basePath));
     },
     /**
@@ -286,14 +515,40 @@ export const AdminBusinessesApiFactory = function (
  */
 export interface AdminBusinessesApiInterface {
   /**
-   * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection.
+   * Restores the tenant to active and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
+   * @summary Cancel a pending tenant erasure
+   * @param {AdminBusinessesApiAdminBusinessesControllerCancelErasureV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  adminBusinessesControllerCancelErasureV1(
+    requestParameters: AdminBusinessesApiAdminBusinessesControllerCancelErasureV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<AdminBusinessResponseDto>;
+
+  /**
+   * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, the Businesses screen still pages the (now server-filtered) result client-side.
    * @summary List every tenant, as a Super Admin \"business\"
+   * @param {AdminBusinessesApiAdminBusinessesControllerListV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    */
   adminBusinessesControllerListV1(
+    requestParameters?: AdminBusinessesApiAdminBusinessesControllerListV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<Array<AdminBusinessResponseDto>>;
+
+  /**
+   * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
+   * @summary Request erasure of a whole tenant
+   * @param {AdminBusinessesApiAdminBusinessesControllerRequestErasureV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  adminBusinessesControllerRequestErasureV1(
+    requestParameters: AdminBusinessesApiAdminBusinessesControllerRequestErasureV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<AdminBusinessResponseDto>;
 
   /**
    * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`.
@@ -306,6 +561,36 @@ export interface AdminBusinessesApiInterface {
     requestParameters: AdminBusinessesApiAdminBusinessesControllerUpdateStatusV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<AdminBusinessResponseDto>;
+}
+
+/**
+ * Request parameters for adminBusinessesControllerCancelErasureV1 operation in AdminBusinessesApi.
+ */
+export interface AdminBusinessesApiAdminBusinessesControllerCancelErasureV1Request {
+  /**
+   * The tenant to restore
+   */
+  readonly tenantId: string;
+}
+
+/**
+ * Request parameters for adminBusinessesControllerListV1 operation in AdminBusinessesApi.
+ */
+export interface AdminBusinessesApiAdminBusinessesControllerListV1Request {
+  /**
+   * Case-insensitive substring match against the tenant name or its owner name.
+   */
+  readonly search?: string;
+}
+
+/**
+ * Request parameters for adminBusinessesControllerRequestErasureV1 operation in AdminBusinessesApi.
+ */
+export interface AdminBusinessesApiAdminBusinessesControllerRequestErasureV1Request {
+  /**
+   * The tenant to erase
+   */
+  readonly tenantId: string;
 }
 
 /**
@@ -325,14 +610,56 @@ export class AdminBusinessesApi
   implements AdminBusinessesApiInterface
 {
   /**
-   * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection.
-   * @summary List every tenant, as a Super Admin \"business\"
+   * Restores the tenant to active and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
+   * @summary Cancel a pending tenant erasure
+   * @param {AdminBusinessesApiAdminBusinessesControllerCancelErasureV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    */
-  public adminBusinessesControllerListV1(options?: RawAxiosRequestConfig) {
+  public adminBusinessesControllerCancelErasureV1(
+    requestParameters: AdminBusinessesApiAdminBusinessesControllerCancelErasureV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
     return AdminBusinessesApiFp(this.configuration)
-      .adminBusinessesControllerListV1(options)
+      .adminBusinessesControllerCancelErasureV1(
+        requestParameters.tenantId,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, the Businesses screen still pages the (now server-filtered) result client-side.
+   * @summary List every tenant, as a Super Admin \"business\"
+   * @param {AdminBusinessesApiAdminBusinessesControllerListV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public adminBusinessesControllerListV1(
+    requestParameters: AdminBusinessesApiAdminBusinessesControllerListV1Request = {},
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminBusinessesApiFp(this.configuration)
+      .adminBusinessesControllerListV1(requestParameters.search, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
+   * @summary Request erasure of a whole tenant
+   * @param {AdminBusinessesApiAdminBusinessesControllerRequestErasureV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public adminBusinessesControllerRequestErasureV1(
+    requestParameters: AdminBusinessesApiAdminBusinessesControllerRequestErasureV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminBusinessesApiFp(this.configuration)
+      .adminBusinessesControllerRequestErasureV1(
+        requestParameters.tenantId,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 

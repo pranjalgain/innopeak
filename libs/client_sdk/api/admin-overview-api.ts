@@ -36,6 +36,8 @@ import type { AdminOverviewStatsResponseDto } from '../models';
 // @ts-ignore
 import type { AdminSignupTrendPointResponseDto } from '../models';
 // @ts-ignore
+import type { PlatformActivityListResponseDto } from '../models';
+// @ts-ignore
 import type { PlatformActivityResponseDto } from '../models';
 /**
  * AdminOverviewApi - axios parameter creator
@@ -96,8 +98,8 @@ export const AdminOverviewApiAxiosParamCreator = function (
       };
     },
     /**
-     * A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
-     * @summary Most recent platform-admin actions
+     * The purpose-built admin-action log (`platform_activity_log`: business suspend/reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized `business_joined` entries (a signup has no platform-admin actor, so it was never added to that log) into one time-sorted, capped feed. Previously two endpoints stitched together client-side; this is the one response the Overview activity panel now needs. See `ApiListPlatformActivity` for the paginated, real-log-only view instead.
+     * @summary Recent platform activity — the Overview page’s glance feed
      * @param {number} [limit]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -293,6 +295,69 @@ export const AdminOverviewApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
+    /**
+     * The same `platform_activity_log` rows `ApiGetRecentActivity` reads, but paginated and filterable by type rather than a bounded top-N read — backs a dedicated Activity view rather than the Overview page\'s small glance card.
+     * @summary Paginated, filterable platform-admin action history
+     * @param {number} [page]
+     * @param {number} [pageSize]
+     * @param {AdminOverviewControllerListActivityV1TypeEnum} [type]
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminOverviewControllerListActivityV1: async (
+      page?: number,
+      pageSize?: number,
+      type?: AdminOverviewControllerListActivityV1TypeEnum,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/admin/overview/activity-log`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      if (page !== undefined) {
+        localVarQueryParameter['page'] = page;
+      }
+
+      if (pageSize !== undefined) {
+        localVarQueryParameter['pageSize'] = pageSize;
+      }
+
+      if (type !== undefined) {
+        localVarQueryParameter['type'] = type;
+      }
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
   };
 };
 
@@ -338,8 +403,8 @@ export const AdminOverviewApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
-     * @summary Most recent platform-admin actions
+     * The purpose-built admin-action log (`platform_activity_log`: business suspend/reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized `business_joined` entries (a signup has no platform-admin actor, so it was never added to that log) into one time-sorted, capped feed. Previously two endpoints stitched together client-side; this is the one response the Overview activity panel now needs. See `ApiListPlatformActivity` for the paginated, real-log-only view instead.
+     * @summary Recent platform activity — the Overview page’s glance feed
      * @param {number} [limit]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -470,6 +535,46 @@ export const AdminOverviewApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
+    /**
+     * The same `platform_activity_log` rows `ApiGetRecentActivity` reads, but paginated and filterable by type rather than a bounded top-N read — backs a dedicated Activity view rather than the Overview page\'s small glance card.
+     * @summary Paginated, filterable platform-admin action history
+     * @param {number} [page]
+     * @param {number} [pageSize]
+     * @param {AdminOverviewControllerListActivityV1TypeEnum} [type]
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async adminOverviewControllerListActivityV1(
+      page?: number,
+      pageSize?: number,
+      type?: AdminOverviewControllerListActivityV1TypeEnum,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<PlatformActivityListResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.adminOverviewControllerListActivityV1(
+          page,
+          pageSize,
+          type,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminOverviewApi.adminOverviewControllerListActivityV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
   };
 };
 
@@ -502,8 +607,8 @@ export const AdminOverviewApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
-     * @summary Most recent platform-admin actions
+     * The purpose-built admin-action log (`platform_activity_log`: business suspend/reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized `business_joined` entries (a signup has no platform-admin actor, so it was never added to that log) into one time-sorted, capped feed. Previously two endpoints stitched together client-side; this is the one response the Overview activity panel now needs. See `ApiListPlatformActivity` for the paginated, real-log-only view instead.
+     * @summary Recent platform activity — the Overview page’s glance feed
      * @param {AdminOverviewApiAdminOverviewControllerGetRecentActivityV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -568,6 +673,26 @@ export const AdminOverviewApiFactory = function (
         .adminOverviewControllerGetStatsV1(options)
         .then((request) => request(axios, basePath));
     },
+    /**
+     * The same `platform_activity_log` rows `ApiGetRecentActivity` reads, but paginated and filterable by type rather than a bounded top-N read — backs a dedicated Activity view rather than the Overview page\'s small glance card.
+     * @summary Paginated, filterable platform-admin action history
+     * @param {AdminOverviewApiAdminOverviewControllerListActivityV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminOverviewControllerListActivityV1(
+      requestParameters: AdminOverviewApiAdminOverviewControllerListActivityV1Request = {},
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<PlatformActivityListResponseDto> {
+      return localVarFp
+        .adminOverviewControllerListActivityV1(
+          requestParameters.page,
+          requestParameters.pageSize,
+          requestParameters.type,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
   };
 };
 
@@ -588,8 +713,8 @@ export interface AdminOverviewApiInterface {
   ): AxiosPromise<Array<AdminBusinessResponseDto>>;
 
   /**
-   * A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
-   * @summary Most recent platform-admin actions
+   * The purpose-built admin-action log (`platform_activity_log`: business suspend/reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized `business_joined` entries (a signup has no platform-admin actor, so it was never added to that log) into one time-sorted, capped feed. Previously two endpoints stitched together client-side; this is the one response the Overview activity panel now needs. See `ApiListPlatformActivity` for the paginated, real-log-only view instead.
+   * @summary Recent platform activity — the Overview page’s glance feed
    * @param {AdminOverviewApiAdminOverviewControllerGetRecentActivityV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -632,6 +757,18 @@ export interface AdminOverviewApiInterface {
   adminOverviewControllerGetStatsV1(
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<AdminOverviewStatsResponseDto>;
+
+  /**
+   * The same `platform_activity_log` rows `ApiGetRecentActivity` reads, but paginated and filterable by type rather than a bounded top-N read — backs a dedicated Activity view rather than the Overview page\'s small glance card.
+   * @summary Paginated, filterable platform-admin action history
+   * @param {AdminOverviewApiAdminOverviewControllerListActivityV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  adminOverviewControllerListActivityV1(
+    requestParameters?: AdminOverviewApiAdminOverviewControllerListActivityV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<PlatformActivityListResponseDto>;
 }
 
 /**
@@ -666,6 +803,17 @@ export interface AdminOverviewApiAdminOverviewControllerGetSignupTrendV1Request 
 }
 
 /**
+ * Request parameters for adminOverviewControllerListActivityV1 operation in AdminOverviewApi.
+ */
+export interface AdminOverviewApiAdminOverviewControllerListActivityV1Request {
+  readonly page?: number;
+
+  readonly pageSize?: number;
+
+  readonly type?: AdminOverviewControllerListActivityV1TypeEnum;
+}
+
+/**
  * AdminOverviewApi - object-oriented interface
  */
 export class AdminOverviewApi
@@ -692,8 +840,8 @@ export class AdminOverviewApi
   }
 
   /**
-   * A purpose-built log (`platform_activity_log`) of business suspend/reactivate and admin invite send/revoke, newest first, with the real actor who performed each one.
-   * @summary Most recent platform-admin actions
+   * The purpose-built admin-action log (`platform_activity_log`: business suspend/reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized `business_joined` entries (a signup has no platform-admin actor, so it was never added to that log) into one time-sorted, capped feed. Previously two endpoints stitched together client-side; this is the one response the Overview activity panel now needs. See `ApiListPlatformActivity` for the paginated, real-log-only view instead.
+   * @summary Recent platform activity — the Overview page’s glance feed
    * @param {AdminOverviewApiAdminOverviewControllerGetRecentActivityV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -759,4 +907,41 @@ export class AdminOverviewApi
       .adminOverviewControllerGetStatsV1(options)
       .then((request) => request(this.axios, this.basePath));
   }
+
+  /**
+   * The same `platform_activity_log` rows `ApiGetRecentActivity` reads, but paginated and filterable by type rather than a bounded top-N read — backs a dedicated Activity view rather than the Overview page\'s small glance card.
+   * @summary Paginated, filterable platform-admin action history
+   * @param {AdminOverviewApiAdminOverviewControllerListActivityV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public adminOverviewControllerListActivityV1(
+    requestParameters: AdminOverviewApiAdminOverviewControllerListActivityV1Request = {},
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminOverviewApiFp(this.configuration)
+      .adminOverviewControllerListActivityV1(
+        requestParameters.page,
+        requestParameters.pageSize,
+        requestParameters.type,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
 }
+
+export const AdminOverviewControllerListActivityV1TypeEnum = {
+  BusinessSuspended: 'business_suspended',
+  BusinessReactivated: 'business_reactivated',
+  BusinessErasureRequested: 'business_erasure_requested',
+  BusinessErasureCancelled: 'business_erasure_cancelled',
+  BusinessErased: 'business_erased',
+  AdminInviteSent: 'admin_invite_sent',
+  AdminInviteRevoked: 'admin_invite_revoked',
+  UserActivated: 'user_activated',
+  UserDeactivated: 'user_deactivated',
+  AdminDisabled: 'admin_disabled',
+  AdminEnabled: 'admin_enabled',
+} as const;
+export type AdminOverviewControllerListActivityV1TypeEnum =
+  (typeof AdminOverviewControllerListActivityV1TypeEnum)[keyof typeof AdminOverviewControllerListActivityV1TypeEnum];

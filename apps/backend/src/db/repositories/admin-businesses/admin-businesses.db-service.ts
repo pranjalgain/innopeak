@@ -4,23 +4,14 @@ import { BusinessStatus } from '@common/enums/business-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import { Injectable } from '@nestjs/common';
 
-import {
-  AdminBusinessesRepository,
-  type AdminBusinessRow,
-  type ConnectionStateRow,
-  type SetBusinessStatusInput,
-} from './admin-businesses.repository';
-
-export interface AdminBusinessSummary {
-  id: string;
-  name: string;
-  status: BusinessStatus;
-  connectionStatus: BusinessConnectionStatus;
-  ownerName: string;
-  ownerEmail: string;
-  userCount: number;
-  createdAt: string;
-}
+import { AdminBusinessesRepository } from './admin-businesses.repository';
+import type {
+  AdminBusinessRow,
+  AdminBusinessSummary,
+  ConnectionStateRow,
+  SetBusinessStatusInput,
+  SetBusinessStatusResult,
+} from './types/admin-businesses.type';
 
 @Injectable()
 export class AdminBusinessesDbService {
@@ -34,8 +25,8 @@ export class AdminBusinessesDbService {
     return rows.map(toConnectionStatus);
   }
 
-  async findAll(): Promise<AdminBusinessSummary[]> {
-    const rows = await this.adminBusinessesRepository.findAll();
+  async findAll(search?: string): Promise<AdminBusinessSummary[]> {
+    const rows = await this.adminBusinessesRepository.findAll(search);
     return rows.map(toSummary);
   }
 
@@ -58,17 +49,38 @@ export class AdminBusinessesDbService {
   }
 
   /**
-   * Sets the tenant's real (3-value) status and returns the mapped summary, or `null` if no such
-   * tenant exists. `reactivate` always lands on `TenantStatus.ACTIVE` regardless of whether the
-   * tenant was previously `pending_activation` or `active` — both collapse to the same
-   * `BusinessStatus.ACTIVE` anyway, so there is nothing to preserve by branching on the prior value.
+   * Sets the tenant's real (3-value) status, or refuses when the tenant doesn't exist or has a
+   * pending erasure request — see `AdminBusinessesRepository.setStatus`. `reactivate` always lands
+   * on `TenantStatus.ACTIVE` regardless of whether the tenant was previously `pending_activation`
+   * or `active` — both collapse to the same `BusinessStatus.ACTIVE` anyway, so there is nothing to
+   * preserve by branching on the prior value.
    */
-  async setStatus(input: SetBusinessStatusInput): Promise<AdminBusinessSummary | null> {
-    const updated = await this.adminBusinessesRepository.setStatus(input);
+  async setStatus(input: SetBusinessStatusInput): Promise<SetBusinessStatusResult> {
+    const outcome = await this.adminBusinessesRepository.setStatus(input);
+    if (outcome.outcome !== 'updated') {
+      return outcome;
+    }
+    const row = await this.adminBusinessesRepository.findById(input.tenantId);
+    return row ? { outcome: 'updated', summary: toSummary(row) } : { outcome: 'not_found' };
+  }
+
+  /** See `AdminBusinessesRepository.requestErasure` — same re-read-and-map shape as `setStatus`. */
+  async requestErasure(tenantId: string): Promise<AdminBusinessSummary | null> {
+    const updated = await this.adminBusinessesRepository.requestErasure(tenantId);
     if (!updated) {
       return null;
     }
-    const row = await this.adminBusinessesRepository.findById(input.tenantId);
+    const row = await this.adminBusinessesRepository.findById(tenantId);
+    return row ? toSummary(row) : null;
+  }
+
+  /** See `AdminBusinessesRepository.cancelErasure`. */
+  async cancelErasure(tenantId: string): Promise<AdminBusinessSummary | null> {
+    const updated = await this.adminBusinessesRepository.cancelErasure(tenantId);
+    if (!updated) {
+      return null;
+    }
+    const row = await this.adminBusinessesRepository.findById(tenantId);
     return row ? toSummary(row) : null;
   }
 }
@@ -77,8 +89,7 @@ function toSummary(row: AdminBusinessRow): AdminBusinessSummary {
   return {
     id: row.id,
     name: row.name,
-    status:
-      row.status === TenantStatus.SUSPENDED ? BusinessStatus.SUSPENDED : BusinessStatus.ACTIVE,
+    status: toBusinessStatus(row.status),
     connectionStatus: toConnectionStatus(row),
     // A tenant always has exactly one owner by construction (signup creates it, nothing deletes
     // it) — `?? ''` only guards a tenant whose owner was anonymized separately from the tenant
@@ -87,7 +98,18 @@ function toSummary(row: AdminBusinessRow): AdminBusinessSummary {
     ownerEmail: row.ownerEmail ?? '',
     userCount: row.userCount,
     createdAt: row.createdAt,
+    erasureRequestedAt: row.erasureRequestedAt,
   };
+}
+
+/** `pending_activation` collapses into `active` (a tenant mid-onboarding is not suspended); every
+ *  other `TenantStatus` value maps straight across. During the erasure grace period a tenant still
+ *  reads as `suspended` here — see `tenants.erasure_requested_at`'s own comment — so `erased` only
+ *  ever shows once the nightly purge job has actually flipped the underlying column. */
+function toBusinessStatus(status: TenantStatus): BusinessStatus {
+  if (status === TenantStatus.SUSPENDED) return BusinessStatus.SUSPENDED;
+  if (status === TenantStatus.ERASED) return BusinessStatus.ERASED;
+  return BusinessStatus.ACTIVE;
 }
 
 /** Takes only the latest-connection pair, not a whole `AdminBusinessRow` — `AdminBusinessRow`

@@ -53,12 +53,16 @@ export const messagesDe: MessageCatalog = {
     TENANT_CONTEXT_REQUIRED: 'Dieser Endpunkt ist für diesen Kontotyp nicht verfügbar.',
     INVALID_OR_EXPIRED_INVITE: 'Dieser Einladungslink ist ungültig oder abgelaufen.',
     INVITE_ACCEPTED: 'Einladung angenommen. Sie sind angemeldet.',
+    FAILED_TO_CREATE_TENANT: 'Mandant konnte nicht erstellt werden',
+    FAILED_TO_CREATE_USER: 'Benutzer konnte nicht erstellt werden',
+    FAILED_TO_CREATE_INVITED_MEMBER: 'Eingeladenes Teammitglied konnte nicht erstellt werden',
   },
   MEDIA: {
     UPLOAD_NOT_VERIFIED: 'Das hochgeladene Bild konnte nicht verifiziert werden.',
     UNSUPPORTED_FORMAT:
       'Dieses Bildformat wird nicht unterstützt. Bitte laden Sie eine JPG-, PNG-, WEBP-, GIF-, AVIF-, HEIC- oder BMP-Datei hoch.',
     FILE_TOO_LARGE: 'Dieses Bild ist zu groß. Bitte laden Sie eine Datei unter 10 MB hoch.',
+    FAILED_TO_PERSIST_AVATAR: 'Avatar konnte nicht gespeichert werden',
   },
   NOTIFICATIONS: {
     LISTED: 'Benachrichtigungen erfolgreich abgerufen',
@@ -85,6 +89,9 @@ export const messagesDe: MessageCatalog = {
     LOCATION_CONFIRMED: 'Standort verbunden. Ihr Rezensionsverlauf wird importiert.',
     LOCATION_INACTIVE: 'Dieser Standort ist getrennt und kann nicht ausgewählt werden.',
     ACTIVE_LOCATION_UPDATED: 'Aktiver Standort aktualisiert.',
+    FAILED_TO_UPSERT_CONNECTION:
+      'Verbindung zum Rezensionsanbieter konnte nicht gespeichert werden',
+    FAILED_TO_UPSERT_LOCATION: 'Standort konnte nicht gespeichert werden',
   },
   DASHBOARD: {
     TENANT_ONLY: 'Dashboard-Analysen stehen nur Mandantenbenutzern zur Verfügung.',
@@ -92,6 +99,17 @@ export const messagesDe: MessageCatalog = {
   REVIEWS: {
     REVIEW_NOT_FOUND: 'Rezension nicht gefunden.',
     TENANT_ONLY: 'Rezensionen stehen nur Mandantenbenutzern zur Verfügung.',
+    FAILED_TO_ACQUIRE_SYNC_RUN: 'Synchronisierungslauf konnte nicht gestartet werden',
+    FAILED_TO_UPSERT_REVIEW: 'Rezension konnte nicht gespeichert werden',
+    GENERATED_RESPONSE_INSERT_FAILED: (reviewId: string): string =>
+      `Generierte Antwort für Rezension ${reviewId} konnte nicht gespeichert werden`,
+    RESPONSE_NOT_FOUND: 'Antwortentwurf nicht gefunden.',
+    RESPONSE_NOT_ACTIONABLE:
+      'Über diese Antwort wurde bereits entschieden — sie kann nicht mehr geändert werden.',
+    RESPONSE_ALREADY_LIVE:
+      'Für diese Rezension existiert bereits eine genehmigte oder veröffentlichte Antwort.',
+    RESPONSE_APPROVED: 'Antwort erfolgreich genehmigt',
+    RESPONSE_REJECTED: 'Antwort erfolgreich abgelehnt',
   },
   PROMPTS: {
     LISTED: 'Prompts erfolgreich abgerufen',
@@ -142,6 +160,9 @@ export const messagesDe: MessageCatalog = {
     DUMMY_PROVIDER_NOT_ACTIVE: 'Nicht gefunden',
     CHECKOUT_COMPLETED: 'Bezahlvorgang erfolgreich abgeschlossen',
     SUBSCRIPTION_CANCELED: 'Abonnement wird zum Ende des aktuellen Abrechnungszeitraums gekündigt',
+    FAILED_TO_CREATE_SUBSCRIPTION: 'Mandantenabonnement konnte nicht erstellt werden',
+    FREE_PLAN_NOT_SEEDED: 'Der kostenlose Tarif ist nicht angelegt',
+    PAID_PLAN_NOT_SEEDED: 'Der kostenpflichtige Tarif ist nicht angelegt',
     RECEIPTS_RETRIEVED: 'Belege erfolgreich abgerufen',
     RECEIPT_NOT_FOUND: 'Beleg nicht gefunden',
     BILLING_PROFILE_RETRIEVED: 'Abrechnungsprofil erfolgreich abgerufen',
@@ -160,6 +181,8 @@ export const messagesDe: MessageCatalog = {
     RETRIEVED: 'Einstellungen erfolgreich abgerufen',
     UPDATED: 'Einstellungen aktualisiert',
     TENANT_SETTINGS_MISSING: 'Für dieses Konto wurden keine Mandanteneinstellungen eingerichtet',
+    TENANT_SETTINGS_ROW_MISSING: (tenantId: string): string =>
+      `Keine Mandanteneinstellungen für Mandant ${tenantId} gefunden`,
     PLATFORM_CONFIG_MISSING: 'Die Plattformeinstellungen sind nicht konfiguriert.',
     MEMBER_INVITE_SENT: 'Einladung gesendet.',
     MEMBER_INVITE_REVOKED: 'Einladung widerrufen.',
@@ -170,6 +193,12 @@ export const messagesDe: MessageCatalog = {
       'Diese Einladung wurde bereits angenommen oder ist nicht mehr ausstehend.',
     MEMBER_INVITES_DISABLED:
       'Das Einladen von Teammitgliedern ist für diese Plattform deaktiviert.',
+    MEMBER_REMOVAL_REQUESTED: (days: number): string =>
+      `Entfernung angefordert. Dieses Mitglied verliert sofort den Zugriff, und seine Daten werden in ${days} Tagen endgültig gelöscht, sofern Sie nicht vorher abbrechen.`,
+    MEMBER_REMOVAL_CANCELLED: 'Entfernung abgebrochen — dieses Mitglied behält seinen Zugriff.',
+    MEMBER_REMOVAL_NOT_PENDING: 'Für dieses Mitglied liegt keine ausstehende Entfernung vor.',
+    CANNOT_REMOVE_LAST_OWNER: 'Mindestens ein Inhaber muss für dieses Konto bestehen bleiben.',
+    CANNOT_REMOVE_SELF: 'Sie können Ihr eigenes Konto auf diesem Weg nicht entfernen.',
     NOTIFICATION_RECIPIENTS_LISTED: 'Benachrichtigungsempfänger erfolgreich abgerufen',
     NOTIFICATION_RECIPIENT_UPDATED: 'Benachrichtigungsempfänger aktualisiert',
     NOTIFICATION_RECIPIENT_NOT_FOUND: 'Benachrichtigungsempfänger nicht gefunden',
@@ -182,6 +211,13 @@ export const messagesDe: MessageCatalog = {
     USER_STATUS_UPDATED: 'Benutzerstatus aktualisiert.',
     BUSINESS_NOT_FOUND: 'Unternehmen nicht gefunden.',
     BUSINESS_STATUS_UPDATED: 'Unternehmensstatus aktualisiert.',
+    BUSINESS_ERASURE_REQUESTED: (days: number): string =>
+      `Löschung angefordert. Jeder Benutzer dieses Unternehmens verliert sofort den Zugriff, und die Daten werden in ${days} Tagen endgültig gelöscht, sofern Sie nicht vorher abbrechen.`,
+    BUSINESS_ERASURE_CANCELLED: 'Löschung abgebrochen — dieses Unternehmen ist wieder aktiv.',
+    BUSINESS_ERASURE_PENDING:
+      'Für dieses Unternehmen liegt eine ausstehende Löschanfrage vor. Brechen Sie diese ab, bevor Sie den Status direkt ändern.',
+    USER_REMOVAL_PENDING:
+      'Für diesen Benutzer liegt eine ausstehende Entfernungsanfrage vor. Brechen Sie diese ab, bevor Sie den Status direkt ändern.',
     AVATAR_UPDATED: 'Avatar aktualisiert.',
     PASSWORD_CHANGED: 'Passwort geändert.',
     INVITE_SENT: 'Einladung gesendet.',
@@ -209,9 +245,12 @@ export const messagesDe: MessageCatalog = {
       'Dieser Administrator hat seine Einladung noch nicht angenommen — widerrufen Sie stattdessen die Einladung.',
     ADMIN_DISABLED: 'Administrator deaktiviert.',
     ADMIN_ENABLED: 'Administrator aktiviert.',
+    FAILED_TO_CREATE_INVITED_PLATFORM_ADMIN:
+      'Eingeladener Plattform-Administrator konnte nicht erstellt werden',
   },
   COMMON: {
     SUCCESS: 'Erfolgreich',
     REQUEST_SUCCESSFUL: 'Anfrage erfolgreich',
+    INTERNAL_ERROR: 'Etwas ist schiefgelaufen. Bitte versuchen Sie es später erneut.',
   },
 };

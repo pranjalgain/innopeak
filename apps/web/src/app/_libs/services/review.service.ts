@@ -132,13 +132,27 @@ export class ReviewService {
   }
 
   /**
-   * Approve/reject are not wired to the backend yet: those routes act on AI-generated drafts, and
-   * nothing generates drafts until the review-pipeline module ships. Kept as a local echo so the
-   * detail screen's interactions still work against a backfilled review's imported reply.
+   * Persists the decision — records who approved it and when. Omit `content` to approve the draft
+   * as-is. Does NOT post the reply to Google Business Profile: that's a distinct, not-yet-built
+   * step (blocked on GBP write-API access) — the returned draft's status is `approved`, not `posted`.
    */
-  static async updateReview(review: Review): Promise<Review> {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    return review;
+  static async approveReply(
+    reviewId: string,
+    responseId: string,
+    content?: string,
+  ): Promise<ReviewReplyDraft> {
+    const apiResponse = await reviewsApi.reviewsControllerApproveReplyV1({
+      reviewId,
+      responseId,
+      approveReplyDto: { content },
+    });
+    return this.toReplyDraft(unwrap<ApiReviewResponse>(apiResponse.data));
+  }
+
+  /** Persists the decision — who rejected it and when, no free-text reason. */
+  static async rejectReply(reviewId: string, responseId: string): Promise<ReviewReplyDraft> {
+    const apiResponse = await reviewsApi.reviewsControllerRejectReplyV1({ reviewId, responseId });
+    return this.toReplyDraft(unwrap<ApiReviewResponse>(apiResponse.data));
   }
 
   private static toReview(item: ApiReviewListItem): Review {

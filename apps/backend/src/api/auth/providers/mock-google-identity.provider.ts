@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { GoogleIdentityProvider } from './google-identity.provider';
 
-import type { GoogleIdentity } from '../types/google-identity.type';
+import type { GoogleIdentity } from '../types/auth.type';
 
 /**
  * Dev-only stand-in, selected when `DEV_GOOGLE_AUTH_MOCK=true` (Joi-forbidden in production, the

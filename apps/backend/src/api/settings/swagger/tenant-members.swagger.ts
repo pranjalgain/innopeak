@@ -93,3 +93,68 @@ export function ApiRevokeMemberInvite(): ReturnType<typeof applyDecorators> {
     })
   );
 }
+
+export function ApiRequestMemberRemoval(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Request removal of an active team member',
+      description:
+        'Revokes access immediately (`status: "disabled"`). The member\'s data is not deleted yet ' +
+        '— actual anonymization runs in a nightly job once `ERASURE_GRACE_PERIOD_DAYS` has passed, ' +
+        "and the request can be cancelled any time before then. Refused for the tenant's last " +
+        'remaining owner, and for removing your own account (use a different flow for that).',
+    }),
+    ApiParam({ name: 'memberId', description: "The member's `users.id`" }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Removal requested.',
+      schema: {
+        properties: {
+          message: {
+            type: 'string',
+            example:
+              'Removal requested. This member loses access now, and their data is permanently ' +
+              'erased in 21 days unless you cancel first.',
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: HttpStatus.BAD_REQUEST,
+      description: 'Last remaining owner, or self-removal',
+    }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: "Not this tenant's owner" }),
+    ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'No such member in this tenant' })
+  );
+}
+
+export function ApiCancelMemberRemoval(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Cancel a pending team-member removal',
+      description:
+        'Restores access (`status: "active"`) and clears the pending marker — a clean, full undo, ' +
+        'since nothing is anonymized until the grace period actually elapses.',
+    }),
+    ApiParam({ name: 'memberId', description: "The member's `users.id`" }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Removal cancelled.',
+      schema: {
+        properties: {
+          message: {
+            type: 'string',
+            example: 'Removal cancelled — this member keeps their access.',
+          },
+        },
+      },
+    }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: "Not this tenant's owner" }),
+    ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'No such member in this tenant' }),
+    ApiResponse({ status: HttpStatus.CONFLICT, description: 'This member has no pending removal' })
+  );
+}

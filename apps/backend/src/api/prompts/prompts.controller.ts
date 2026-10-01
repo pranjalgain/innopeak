@@ -41,7 +41,7 @@ import {
   ApiUpdatePromptTone,
 } from './swagger/prompts.swagger';
 
-import type { AuthUser } from '../auth/types/auth-user.type';
+import type { AuthUser } from '../auth/types/auth.type';
 
 @Controller({ path: RouteNames.PROMPTS, version: '1' })
 @ApiTags('Prompts')

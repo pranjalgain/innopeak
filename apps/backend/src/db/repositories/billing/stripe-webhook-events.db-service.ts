@@ -9,7 +9,12 @@ export class StripeWebhookEventsDbService {
 
   /** `true` = this event id was not seen before and should be processed; `false` = duplicate,
    *  skip. See `StripeWebhookEventsRepository.insertIfNew`. */
-  recordIfNew(id: string, type: string, tx?: DrizzleTransaction): Promise<boolean> {
-    return this.stripeWebhookEventsRepository.insertIfNew(id, type, tx);
+  recordIfNew(
+    id: string,
+    type: string,
+    customerId: string | null,
+    tx?: DrizzleTransaction
+  ): Promise<boolean> {
+    return this.stripeWebhookEventsRepository.insertIfNew(id, type, customerId, tx);
   }
 }

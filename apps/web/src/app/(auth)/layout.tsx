@@ -1,9 +1,11 @@
+import type { ReactNode } from "react";
+
 import { DecorativeBackground } from "@/app/(auth)/_components/decorative-background";
 import { LanguageSwitcher } from "@/app/_components/language-switcher";
 import { ThemeToggle } from "@/app/_components/theme-toggle";
 
 interface AuthLayoutProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 /**

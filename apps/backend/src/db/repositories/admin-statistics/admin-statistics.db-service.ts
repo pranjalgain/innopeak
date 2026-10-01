@@ -4,32 +4,17 @@ import { AdminBusinessesDbService } from '@db/repositories/admin-businesses/admi
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { Injectable } from '@nestjs/common';
 
-import {
-  AdminStatisticsRepository,
-  type ClassificationBreakdownRow,
-  type RatingDistributionRow,
-  type ReviewsTrendPoint,
-} from './admin-statistics.repository';
+import { AdminStatisticsRepository } from './admin-statistics.repository';
+import type {
+  AdminStatisticsSummary,
+  ClassificationBreakdownRow,
+  ConnectionHealthCounts,
+  RatingDistributionRow,
+  ReviewsTrendPoint,
+} from './types/admin-statistics.type';
 
 const ALL_RATINGS = [1, 2, 3, 4, 5] as const;
 const ALL_CLASSIFICATIONS = Object.values(ReviewClassification);
-
-export interface ConnectionHealthCounts {
-  connected: number;
-  needsReauth: number;
-  disconnected: number;
-  neverConnected: number;
-}
-
-export interface AdminStatisticsSummary {
-  replyRatePercent: number;
-  avgRating: number;
-  syncSuccessRatePercent: number;
-  connectionHealth: ConnectionHealthCounts;
-  reviewsTrend: ReviewsTrendPoint[];
-  ratingDistribution: RatingDistributionRow[];
-  classificationBreakdown: ClassificationBreakdownRow[];
-}
 
 /**
  * Composes `AdminStatisticsRepository`'s own queries with two sibling DB Services — cross-domain

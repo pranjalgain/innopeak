@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-import type { TenantSettingsRecord } from '../types/tenant-settings.type';
+import type { TenantSettingsRecord } from '../types/settings.type';
 
 export class TenantSettingsResponseDto {
   @ApiProperty({ example: '0190f3b4-1a88-70c5-8d19-6b2e4f7a9c33' })

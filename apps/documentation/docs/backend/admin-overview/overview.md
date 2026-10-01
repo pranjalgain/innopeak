@@ -45,7 +45,8 @@ all call through, but none of those actions originate here.
 | `stats.totalRepliesSent` | Same method — `COUNT(*)` over `review_responses WHERE status = 'posted'` | Only replies that actually reached Google — `approved` and `post_failed` don't count here, unlike the [prompt-performance endpoint](../prompts/api-reference.md#get-v1promptspromptidstats)'s broader `approvedCount`, because this figure answers "how much did the product actually do," not "how much did a human approve" |
 | Recent businesses / needs attention | `AdminBusinessesDbService.findRecent()` / `findNeedingAttention()` over `tenants`, with owner name/email, user count, and latest connection status resolved via correlated subqueries | Same rows and columns the Businesses management screen uses (`AdminBusinessesRepository`'s `ADMIN_BUSINESS_COLUMNS`) — this module only asks for a smaller, differently-filtered page of them |
 | Signup trend | `AdminOverviewRepository.getSignupTrend()` — `tenants` grouped by `EXTRACT(YEAR/MONTH FROM created_at)`, UTC | Zero-filled to a full window by `fillSignupTrendWindow` before the response leaves the service — see [below](#signup-trend-is-zero-filled-in-the-service-not-the-repository) |
-| Recent activity | `AdminOverviewRepository.getRecentActivity()` — plain `SELECT ... ORDER BY occurred_at DESC` over `platform_activity_log`, `LIMIT` only | No filter at all; every entry type surfaces in one feed |
+| Recent activity (glance feed) | `AdminOverviewRepository.getRecentActivity()` over `platform_activity_log`, merged server-side with synthesized `business_joined` entries — see [below](#recent-activity-is-merged-server-side-with-synthesized-business_joined-entries) | No filter; every entry type (real and synthesized) surfaces in one feed, capped at `limit` after merging |
+| Activity log (paginated) | `AdminOverviewRepository.listActivity()` — real `platform_activity_log` rows only, paginated and filterable by `type` | Distinct endpoint, distinct from the glance feed above — see [API surface](#api-surface) |
 
 ## Why this is its own module, not folded into admin-businesses/admin-users
 
@@ -121,9 +122,58 @@ would tell an admin their action didn't apply when it actually did. A dropped lo
 outcome to hide than to accept: it is logged at error level so it stays visible, but it does not
 retry and does not roll back the action it was recording.
 
+## Recent activity is merged server-side, with synthesized `business_joined` entries
+
+A tenant signing up has no platform-admin actor at all — `POST /v1/auth/signup` is the tenant's own
+action, which is exactly why it was never one of `platform_activity_log`'s eight real types (that
+log is scoped to actions a platform admin takes *on* someone else). The Overview page's glance feed
+still needs to show "New business X signed up" alongside real admin actions, so
+`AdminOverviewService.getRecentActivity` synthesizes one `business_joined` entry per recent tenant
+from `AdminBusinessSummary.createdAt` — a column that already exists, needing no new table — and
+merges it with the real log rows before responding:
+
+```ts
+async getRecentActivity(actor: AuthUser, limit: number): Promise<PlatformActivityResponseDto[]> {
+  requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
+  const [rows, businesses] = await Promise.all([
+    this.adminOverviewDbService.getRecentActivity(limit),
+    this.adminOverviewDbService.getRecentBusinesses(limit),
+  ]);
+  const activities = rows.map(row => PlatformActivityResponseDto.from(row));
+  return buildActivityFeed(activities, businesses, limit);
+}
+```
+
+**This used to be two client-side calls, merged in the browser.** The frontend previously called
+both `GET /activity` and `GET /recent-businesses` independently and stitched the two together
+itself (`buildActivityFeed` in `apps/web/src/app/_libs/utils/admin-activity-feed.ts`). Moving the
+merge into `AdminOverviewService.getRecentActivity` (backend `buildActivityFeed`,
+`src/api/admin/utils/activity-feed.utils.ts`) means the Overview page's activity panel is now fed
+by exactly one network call — see [Consumers](#consumers) below for the frontend side of that
+change.
+
+**Fetching `limit` rows from *each* source before merging is always sufficient, not a heuristic.**
+The true top-`limit` of a union of two independently-sorted lists can never need more than `limit`
+items from either list alone: if the merged top-`limit` needed more than `limit` items from one
+source, that source alone would already exceed `limit`, a contradiction. So
+`Promise.all([getRecentActivity(limit), getRecentBusinesses(limit)])` — fetching `limit` from each,
+independently, before a single `sort` + `slice(0, limit)` — is provably correct, never
+under-fetching (which could drop a real entry that should have made the cut) and never
+over-fetching unboundedly. `ADMIN_ACTIVITY_LIMIT_DEFAULT` was bumped from `5` to `8` when this
+shipped, to preserve the previous merged-feed's effective size now that one endpoint *is* the
+merged feed rather than a single un-merged source.
+
+**The paginated activity-log endpoint below is deliberately real-log-only — no `business_joined`.**
+There is no precedent anywhere in this codebase for paginating a `UNION` of two independently
+paginated sources (verified by checking both existing paginated endpoints —
+[`listSyncRuns`](../connections/api-reference.md) and [admin-billing's own
+`listWebhookEvents`](../admin-billing/api-reference.md#webhook-activity) — both single-table), and
+building one for this one glance-card merge was judged not worth the complexity. The bounded,
+un-paginated `GET /activity` above is the only place `business_joined` ever appears.
+
 ## API surface
 
-Five `GET` routes, each mapped straight to one response DTO — see the [API
+Six `GET` routes, each mapped straight to one response DTO — see the [API
 reference](./api-reference.md) for full request/response contracts:
 
 | Route | Query params | Response |
@@ -132,35 +182,42 @@ reference](./api-reference.md) for full request/response contracts:
 | `GET /v1/admin/overview/recent-businesses` | `limit` (1–50, default 5) | `AdminBusinessResponseDto[]` |
 | `GET /v1/admin/overview/needs-attention` | `limit` (1–50, default 3) | `AdminBusinessResponseDto[]` |
 | `GET /v1/admin/overview/signup-trend` | `months` (1–24, default 6) | `AdminSignupTrendPointResponseDto[]` |
-| `GET /v1/admin/overview/activity` | `limit` (1–50, default 5) | `PlatformActivityResponseDto[]` |
+| `GET /v1/admin/overview/activity` | `limit` (1–50, default 8) | `PlatformActivityResponseDto[]` — merged with synthesized `business_joined` entries, see [above](#recent-activity-is-merged-server-side-with-synthesized-business_joined-entries) |
+| `GET /v1/admin/overview/activity-log` | `page`, `pageSize` (1–100, default 20), `type` | `PlatformActivityListResponseDto` — real log rows only, no `business_joined` |
 
-All five narrow to a platform admin in the service layer via
+All six narrow to a platform admin in the service layer via
 `requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY)`, on top of the controller-level
 `@Roles(JwtTokenType.PLATFORM_ADMIN)` — belt and braces the same way the prompts and dashboard
 modules narrow to a tenant user in their own service layers. No route carries a `@Throttle()`
-override, so all five fall back to the global `short` tier (30/minute).
+override, so all six fall back to the global `short` tier (30/minute).
 
 ## Consumers
 
 `useAdminOverview` (`apps/web/src/hooks/admin/use-admin-overview.ts`) is the single hook every
-panel on the Overview page goes through — it fires all five queries independently (one per route,
-via `useQuery`, not a single combined call) and exposes one combined `isLoading`/`isError`. The
-combined `isError` is deliberate: `AdminOverviewView` blanks the *entire* page on any one query
-failing, rather than letting four panels render confident zeroes ("0 Businesses", "Nothing needs
-attention", "No signups yet") beside a fifth that visibly failed — an outage described as good news
-being worse than an explicit retry state.
+panel on the Overview page goes through — it fires five queries independently (one per route, via
+`useQuery`, not a single combined call — `activity-log` is not one of the five, since it backs a
+different page, see below) and exposes one combined `isLoading`/`isError`. The combined `isError`
+is deliberate: `AdminOverviewView` blanks the *entire* page on any one query failing, rather than
+letting four panels render confident zeroes ("0 Businesses", "Nothing needs attention", "No signups
+yet") beside a fifth that visibly failed — an outage described as good news being worse than an
+explicit retry state.
 
 Each query feeds exactly one card: `RecentBusinessesCard` and `NeedsAttentionPanel` (which renders
 `null` entirely when its list is empty, letting `RecentBusinessesCard` take the full row rather
 than leaving a blank column), `SignupTrendCard`, and `ActivityLogCard`. `ActivityLogCard`'s feed is
-not the raw `GET /activity` response, though — `buildActivityFeed`
-(`apps/web/src/app/_libs/utils/admin-activity-feed.ts`) merges it with `recentBusinesses` client-side
-to synthesize a ninth, frontend-only `business_joined` entry type for each newly-created tenant,
-because tenant creation itself has no corresponding write into `platform_activity_log` (it isn't a
-platform-admin *action* in the same sense suspend/invite/disable are). `recentBusinesses` is
-over-fetched at `limit=8` for exactly this reason — above what `RecentBusinessesCard` itself
-displays (3) — so the merge has enough real candidates to fill the feed's own slot count, not just
-the three the card shows.
+now exactly `GET /activity`'s own response — no client-side merge — since the merge described
+[above](#recent-activity-is-merged-server-side-with-synthesized-business_joined-entries) moved into
+the backend; the frontend's own `buildActivityFeed` util that used to do this client-side merge was
+deleted once nothing called it, and `recentBusinesses`' own fetch limit dropped from `8` back to
+`3` to match what `RecentBusinessesCard` actually displays, now that it no longer also has to supply
+merge candidates for the activity feed. `AdminOverviewView` also renders a "Show more →" link from
+`ActivityLogCard` into a separate, dedicated Activity page (`/admin/activity`) with **Platform
+activity** and **Webhook activity** tabs — `PlatformActivityLogCard`
+(`apps/web/src/app/admin/activity/_components/`) is the paginated/filterable consumer of `GET
+/activity-log` above, distinct from `ActivityLogCard`'s bounded glance version. See [Admin Console:
+search, pagination, and the loading-state trap](../../frontend/admin-console.md) for the shared
+pagination/filter pattern both that card and [Admin Billing's webhook activity
+card](../admin-billing/overview.md#consumers) use.
 
 ## Known limitations
 

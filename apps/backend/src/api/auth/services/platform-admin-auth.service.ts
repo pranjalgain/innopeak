@@ -26,35 +26,15 @@ import {
   InviteNotFoundException,
 } from '../exceptions/auth.exceptions';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
-import type { GoogleAuthorizeRedirect } from '../types/google-authorize-redirect.type';
-import type { GoogleIdentity } from '../types/google-identity.type';
+import type {
+  GoogleAuthorizeRedirect,
+  GoogleIdentity,
+  LinkedAdminLookup,
+  PlatformAdminLoginResult,
+} from '../types/auth.type';
 import { buildAdminInviteLink } from '../utils/admin-invite-link.util';
 import { normalizeEmail } from '../utils/email.utils';
 import { hashToken } from '../utils/token.utils';
-
-/**
- * Structurally distinct from `TokenIssuanceResult` (`AuthService`'s own tenant equivalent — no
- * `refreshToken` field, since a platform admin has none — see `TokenService.signPlatformAdminAccessToken`)
- * and `LoginPendingVerificationDto` (no `body`/`admin` field). `AuthController`'s Google callback
- * still needs to tell all of these apart with a plain `in`/`kind` check, which is why this shape
- * hasn't changed even though it now lives on its own service.
- */
-export interface PlatformAdminLoginResult {
-  admin: true;
-  body: PlatformAdminTokenResponseDto;
-}
-
-/**
- * The outcome of resolving a Google identity against `platform_admin_identities` — used only by
- * the shared Google callback's login/signup branches (`AuthService.handleGoogleCallback`), to
- * decide whether this round trip belongs to a *returning* admin before it ever consults the
- * tenant tables. Not used by the `ADMIN_INVITE` intent, which is always a first-time link and
- * goes through `completeAdminInviteGoogle` instead.
- */
-export type LinkedAdminLookup =
-  | { linked: false }
-  | { linked: true; active: false }
-  | { linked: true; active: true; tokens: PlatformAdminLoginResult };
 
 /**
  * Platform-admin authentication — login, and both invite-acceptance paths (password and Google).

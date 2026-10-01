@@ -43,6 +43,17 @@ export interface VerifiedUpload {
  * `MediaService.confirmAvatar`'s own comment for why only one of them is safe to surface to the
  * client as anything more specific than "could not verify this upload."
  */
+/**
+ * `StorageProvider.delete` throws this specifically when the asset is already gone from storage —
+ * distinct from any other delete failure (rate limit, auth error, network blip). `MediaService.
+ * deleteAvatarIfPresent` treats this one case differently: the asset's absence IS the goal state a
+ * delete is trying to reach, so it's safe to proceed to removing the `media` row even though the
+ * provider call itself "failed" — without this distinction, a retry of a DB-row delete that
+ * crashed right after a successful storage delete can never make progress, since the asset it
+ * reads is already gone and every retry's storage-delete call fails the same way forever.
+ */
+export class StorageAssetNotFoundError extends Error {}
+
 export type VerifyUploadResult =
   | {
       ok: false;

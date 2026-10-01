@@ -14,7 +14,7 @@ import {
   InvalidAccessTokenException,
   PlatformAdminAccountDisabledException,
 } from '../exceptions/auth.exceptions';
-import { AuthUser } from '../types/auth-user.type';
+import { AuthUser } from '../types/auth.type';
 import { fromAccessTokenCookie } from '../utils/jwt-cookie-extractor.util';
 
 /** Untyped on purpose — a verified signature proves who signed it, not that the claims have the shape this module expects. */

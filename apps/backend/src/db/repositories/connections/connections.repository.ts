@@ -1,3 +1,4 @@
+import { MESSAGES } from '@common/constants/messages.constants';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import { ReviewProvider } from '@common/enums/review-provider.enum';
@@ -7,72 +8,13 @@ import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 
-export interface ProviderConnectionRow {
-  id: string;
-  tenantId: string;
-  connectedByUserId: string;
-  provider: ReviewProvider;
-  providerAccountId: string;
-  credentialReference: string;
-  tokenExpiresAt: string | null;
-  status: ReviewProviderConnectionStatus;
-  disconnectedAt: string | null;
-  createdAt: string;
-}
-
-export interface LocationRow {
-  id: string;
-  tenantId: string;
-  providerConnectionId: string;
-  provider: ReviewProvider;
-  externalLocationId: string;
-  name: string;
-  address: string | null;
-  status: LocationStatus;
-  lastSyncedAt: string | null;
-  lastSyncStatus: SyncHealthStatus | null;
-  lastSyncError: string | null;
-  onboardingBackfillCompletedAt: string | null;
-  lastReviewSyncedAt: string | null;
-  /** `null` = not paused. Set when a tenant is over their plan's `max_locations` — see
-   *  `0011_billing.sql`'s column comment and `BillingEntitlementsService`. Deliberately distinct
-   *  from `status = 'inactive'`: a billing-paused location is still a live, valid connection, just
-   *  excluded from the poll while over the cap. */
-  billingPausedAt: string | null;
-  createdAt: string;
-}
-
-/**
- * A location the poller may enqueue a `review-poll` job for — exactly the fields `IReviewSyncJob`
- * needs. Deliberately excludes `lastReviewSyncedAt`: `runPoll` re-reads that cursor itself right
- * before paginating rather than trusting a value baked into the job payload at enqueue time,
- * since a BullMQ job can sit queued for a while before a worker picks it up.
- */
-export interface PollableLocationRow {
-  tenantId: string;
-  locationId: string;
-  connectionId: string;
-  externalAccountId: string;
-  externalLocationId: string;
-}
-
-export interface UpsertConnectionInput {
-  tenantId: string;
-  connectedByUserId: string;
-  providerAccountId: string;
-  credentialReference: string;
-  tokenExpiresAt: Date | null;
-}
-
-export interface UpsertLocationInput {
-  tenantId: string;
-  providerConnectionId: string;
-  /** Copied off the connection row by the DB service — never taken from a request body. */
-  provider: ReviewProvider;
-  externalLocationId: string;
-  name: string;
-  address: string | null;
-}
+import type {
+  LocationRow,
+  PollableLocationRow,
+  ProviderConnectionRow,
+  UpsertConnectionInput,
+  UpsertLocationInput,
+} from './types/connections.type';
 
 const CONNECTION_COLUMNS = {
   id: schema.reviewProviderConnections.id,
@@ -191,7 +133,7 @@ export class ConnectionsRepository {
 
     const row = rows[0];
     if (!row) {
-      throw new Error('Failed to upsert review provider connection');
+      throw new Error(MESSAGES.CONNECTIONS.FAILED_TO_UPSERT_CONNECTION);
     }
     return row as ProviderConnectionRow;
   }
@@ -325,7 +267,7 @@ export class ConnectionsRepository {
 
     const row = rows[0];
     if (!row) {
-      throw new Error('Failed to upsert location');
+      throw new Error(MESSAGES.CONNECTIONS.FAILED_TO_UPSERT_LOCATION);
     }
     return row as LocationRow;
   }

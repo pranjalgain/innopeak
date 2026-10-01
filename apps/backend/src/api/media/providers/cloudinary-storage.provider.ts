@@ -5,10 +5,11 @@ import { v2 as cloudinary } from 'cloudinary';
 
 import { StorageProvider } from './storage.provider';
 
-import type {
-  CreateUploadAuthorizationInput,
-  UploadAuthorization,
-  VerifyUploadResult,
+import {
+  type CreateUploadAuthorizationInput,
+  StorageAssetNotFoundError,
+  type UploadAuthorization,
+  type VerifyUploadResult,
 } from '../types/storage-provider.type';
 
 /**
@@ -153,9 +154,17 @@ export class CloudinaryStorageProvider extends StorageProvider {
    * rejected call — rather than rejecting. Taking the resolve at face value meant the caller's
    * best-effort `.catch()` never fired and every failed cleanup passed silently, which is exactly
    * the case that leaves an asset orphaned and nobody any the wiser.
+   *
+   * `'not found'` specifically throws the typed `StorageAssetNotFoundError`, not a generic `Error`
+   * — see that class's own doc comment for why `MediaService.deleteAvatarIfPresent` treats "the
+   * asset is already gone" differently from every other delete failure.
    */
   async delete(providerAssetId: string): Promise<void> {
     const outcome = (await cloudinary.uploader.destroy(providerAssetId)) as { result?: string };
+
+    if (outcome.result === 'not found') {
+      throw new StorageAssetNotFoundError(`Cloudinary asset "${providerAssetId}" does not exist.`);
+    }
 
     if (outcome.result !== 'ok') {
       throw new Error(

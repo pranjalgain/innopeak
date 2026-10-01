@@ -12,6 +12,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+interface SecondaryRowAction {
+  label: string;
+  variant?: "default" | "destructive";
+  confirmTitle: string;
+  confirmDescription: string;
+  confirmLabel: string;
+  destructive?: boolean;
+  onConfirm: () => void;
+}
+
 interface RowActionsMenuProps {
   ariaLabel: string;
   actionLabel: string;
@@ -22,6 +32,10 @@ interface RowActionsMenuProps {
   cancelLabel: string;
   destructive?: boolean;
   onConfirm: () => void;
+  /** A second menu item + its own confirm dialog — e.g. a business row's "Suspend"/"Reactivate"
+   *  alongside "Request erasure"/"Cancel erasure", each needing an independent confirmation.
+   *  Omitted by every other caller of this component. */
+  secondaryAction?: SecondaryRowAction;
 }
 
 /**
@@ -47,8 +61,10 @@ export function RowActionsMenu({
   cancelLabel,
   destructive,
   onConfirm,
+  secondaryAction,
 }: RowActionsMenuProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [secondaryConfirmOpen, setSecondaryConfirmOpen] = useState(false);
 
   return (
     <>
@@ -62,6 +78,14 @@ export function RowActionsMenu({
           <DropdownMenuItem variant={actionVariant} onSelect={() => setConfirmOpen(true)}>
             {actionLabel}
           </DropdownMenuItem>
+          {secondaryAction ? (
+            <DropdownMenuItem
+              variant={secondaryAction.variant}
+              onSelect={() => setSecondaryConfirmOpen(true)}
+            >
+              {secondaryAction.label}
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -75,6 +99,19 @@ export function RowActionsMenu({
         destructive={destructive}
         onConfirm={onConfirm}
       />
+
+      {secondaryAction ? (
+        <ConfirmActionDialog
+          open={secondaryConfirmOpen}
+          onOpenChange={setSecondaryConfirmOpen}
+          title={secondaryAction.confirmTitle}
+          description={secondaryAction.confirmDescription}
+          confirmLabel={secondaryAction.confirmLabel}
+          cancelLabel={cancelLabel}
+          destructive={secondaryAction.destructive}
+          onConfirm={secondaryAction.onConfirm}
+        />
+      ) : null}
     </>
   );
 }

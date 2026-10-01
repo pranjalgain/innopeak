@@ -2,18 +2,10 @@ import { ReviewPipelineDbService } from '@db/repositories/review-pipeline/review
 import { Injectable, Logger } from '@nestjs/common';
 
 import { classifyReview } from './review-classification.rule';
-
-export interface ClassifyPendingReviewsInput {
-  tenantId: string;
-  locationId: string;
-}
-
-export interface ClassifyPendingReviewsResult {
-  classified: number;
-  /** Lost the claim CAS — another worker classified the review first, or it stopped being `new`
-   *  between the queue read and the write. See `ReviewSyncRepository.claimClassification`. */
-  skipped: number;
-}
+import type {
+  ClassifyPendingReviewsInput,
+  ClassifyPendingReviewsResult,
+} from './types/classification-result.type';
 
 /**
  * Deliberately above what one import can produce, and that margin has to be maintained by hand:

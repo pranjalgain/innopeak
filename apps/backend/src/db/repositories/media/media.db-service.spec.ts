@@ -2,7 +2,8 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
 import { MediaDbService } from './media.db-service';
-import { MediaRepository, type MediaRow } from './media.repository';
+import { MediaRepository } from './media.repository';
+import type { MediaRow } from './types/media.type';
 
 describe('MediaDbService', () => {
   let target: MediaDbService;
@@ -37,6 +38,7 @@ describe('MediaDbService', () => {
     mediaRepository = {
       findAvatar: jest.fn(),
       upsertAvatar: jest.fn(),
+      deleteAvatar: jest.fn(),
     } as unknown as jest.Mocked<MediaRepository>;
 
     const module: TestingModule = await Test.createTestingModule({
@@ -97,6 +99,29 @@ describe('MediaDbService', () => {
       const result = await target.upsertAvatar(owner, asset(sameId));
 
       expect(result.previousAsset).toEqual({ provider: 'noop', providerAssetId: sameId });
+    });
+  });
+
+  describe('deleteAvatar', () => {
+    it('passes through to the repository', async () => {
+      mediaRepository.deleteAvatar.mockResolvedValue({
+        provider: 'cloudinary',
+        providerAssetId: 'avatars/users/user-1/asset-1',
+      });
+
+      const result = await target.deleteAvatar(owner);
+
+      expect(mediaRepository.deleteAvatar).toHaveBeenCalledWith(owner);
+      expect(result).toEqual({
+        provider: 'cloudinary',
+        providerAssetId: 'avatars/users/user-1/asset-1',
+      });
+    });
+
+    it('returns null when the owner had no avatar', async () => {
+      mediaRepository.deleteAvatar.mockResolvedValue(null);
+
+      await expect(target.deleteAvatar(owner)).resolves.toBeNull();
     });
   });
 });

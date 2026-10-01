@@ -6,7 +6,7 @@ import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { PromptsDbService } from '@db/repositories/prompts/prompts.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
-import type { GenerationCandidateRow } from '@db/repositories/review-sync/review-sync.repository';
+import type { GenerationCandidateRow } from '@db/repositories/review-sync/types/review-sync.type';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
@@ -23,7 +23,7 @@ import { AiProvider } from './providers/ai.provider';
 import type { GenerateReplyResult } from './types/ai-provider.type';
 
 import { JwtTokenType } from '../auth/enums/jwt-token-type.enum';
-import type { TenantAuthUser } from '../auth/types/auth-user.type';
+import type { TenantAuthUser } from '../auth/types/auth.type';
 
 describe('AiReplyGenerationService', () => {
   let target: AiReplyGenerationService;

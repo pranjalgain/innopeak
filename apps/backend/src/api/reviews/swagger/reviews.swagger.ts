@@ -6,8 +6,30 @@ import { ReviewStatus } from '@common/enums/review-status.enum';
 import { applyDecorators } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
-import { ReviewDetailResponseDto, ReviewListResponseDto } from '../dto/review-response.dto';
+import {
+  ReviewDetailResponseDto,
+  ReviewListResponseDto,
+  ReviewResponseItemDto,
+} from '../dto/review-response.dto';
 import { ClientResponseStatus } from '../enums/client-response-status.enum';
+
+const REVIEW_RESPONSE_ITEM_EXAMPLE = {
+  id: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64',
+  generationGroupId: null,
+  label: 'A',
+  responseType: ResponseType.AUTO_REPLY_SUGGESTION,
+  content: 'Thank you so much, Marta — we hope to see you again soon!',
+  originalContent: 'Thank you for your feedback, Marta.',
+  source: ResponseSource.HUMAN_EDITED,
+  status: ClientResponseStatus.APPROVED,
+  createdByUserId: null,
+  approvedByUserId: '0190f3b2-4d90-7a55-b7e2-9f1c3a6d8e21',
+  rejectedByUserId: null,
+  createdAt: '2026-03-12T09:01:11.402Z',
+  decidedAt: '2026-03-12T09:05:44.201Z',
+  postedAt: null,
+  errorMessage: null,
+};
 
 const REVIEW_LIST_ITEM_EXAMPLE = {
   id: '0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22',
@@ -121,6 +143,7 @@ export function ApiGetReview(): ReturnType<typeof applyDecorators> {
                 status: ClientResponseStatus.APPROVED,
                 createdByUserId: null,
                 approvedByUserId: null,
+                rejectedByUserId: null,
                 createdAt: '2026-03-12T09:01:11.402Z',
                 decidedAt: null,
                 postedAt: '2026-03-12T09:01:11.402Z',
@@ -132,5 +155,71 @@ export function ApiGetReview(): ReturnType<typeof applyDecorators> {
       },
     }),
     ApiResponse({ status: 404, description: "REVIEW_NOT_FOUND (unknown id, or another tenant's)" })
+  );
+}
+
+export function ApiApproveReply(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiParam({ name: 'reviewId', example: '0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22' }),
+    ApiParam({ name: 'responseId', example: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64' }),
+    ApiOperation({
+      summary: 'Approve a pending reply draft',
+      description:
+        'Persists the decision — records who approved it and when. Omit `content` to approve the ' +
+        'draft as-is; pass edited text and the response is recorded as `human_edited` instead of ' +
+        'its original source. Supersedes every other still-pending sibling on the same review, ' +
+        'since only one reply can ever be live per review. Lands the response at ' +
+        '`status: approved`, never `posted` — actually publishing to Google Business Profile is a ' +
+        'separate, not-yet-built step.',
+    }),
+    ApiResponse({
+      status: 200,
+      type: ReviewResponseItemDto,
+      examples: {
+        default: { summary: 'The approved response', value: REVIEW_RESPONSE_ITEM_EXAMPLE },
+      },
+    }),
+    ApiResponse({ status: 404, description: 'REVIEW_RESPONSE_NOT_FOUND' }),
+    ApiResponse({
+      status: 409,
+      description:
+        'REVIEW_RESPONSE_NOT_ACTIONABLE (already decided) or REVIEW_RESPONSE_ALREADY_LIVE ' +
+        '(a sibling won the same race first)',
+    })
+  );
+}
+
+export function ApiRejectReply(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiParam({ name: 'reviewId', example: '0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22' }),
+    ApiParam({ name: 'responseId', example: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64' }),
+    ApiOperation({
+      summary: 'Reject a pending reply draft',
+      description:
+        'Persists the decision — records who rejected it and when (`rejectedByUserId`/`decidedAt`), ' +
+        'no free-text reason. The row is kept, not deleted: a rejected sibling is shown greyed out ' +
+        'with its outcome, the same reasoning `superseded` rows already follow.',
+    }),
+    ApiResponse({
+      status: 200,
+      type: ReviewResponseItemDto,
+      examples: {
+        default: {
+          summary: 'The rejected response',
+          value: {
+            ...REVIEW_RESPONSE_ITEM_EXAMPLE,
+            source: ResponseSource.AI_GENERATED,
+            status: ClientResponseStatus.REJECTED,
+            approvedByUserId: null,
+            rejectedByUserId: '0190f3b2-4d90-7a55-b7e2-9f1c3a6d8e21',
+            postedAt: null,
+          },
+        },
+      },
+    }),
+    ApiResponse({ status: 404, description: 'REVIEW_RESPONSE_NOT_FOUND' }),
+    ApiResponse({ status: 409, description: 'REVIEW_RESPONSE_NOT_ACTIONABLE (already decided)' })
   );
 }

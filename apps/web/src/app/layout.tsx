@@ -6,13 +6,14 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import Script from "next/script";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
+import type { ReactNode } from "react";
 
 import GoogleAnalyticsScripts from "@/app/_components/google-analytics";
 import SonnarToaster from "@/app/_components/sonner-toaster";
 import { TanstackProvider } from "@/app/_components/tanstack-provider";
 import { ThemeProvider } from "@/app/_components/theme-provider";
 import { firacode, geologica } from "@/app/_config/fonts";
-import { getJsonLd } from "@/app/_config/jsonId";
+import { getJsonLd } from "@/app/_config/json-id";
 import { metadata } from "@/app/_config/metadata";
 import { viewport } from "@/app/_config/viewport";
 
@@ -21,7 +22,7 @@ export { metadata, viewport };
 export default async function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: ReactNode;
 }>) {
   const [locale, messages] = await Promise.all([getLocale(), getMessages()]);
 

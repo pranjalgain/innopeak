@@ -9,7 +9,7 @@ import { TokenService } from "@/app/_libs/services/token.service";
 // pair of interceptors installed here cover every SDK call, without threading an axios instance
 // through each `api-sdk/*.ts` file.
 interface InnopeakRequestOptions {
-  /** Skip attaching the stored access token as a Bearer header — for public routes (login, signup, refresh itself, etc). */
+  /** Skip the refresh-and-retry dance's exemption on a 401 from this request — for public routes (login, signup, refresh itself, etc), where a 401 is an expected outcome, not a lapsed session. */
   authOptional?: boolean;
   /** Never attempt the refresh-and-retry dance on a 401 from this request. Load-bearing for the refresh call itself (would otherwise recurse) and for change/set-password, where a wrong current password is also a 401 that must not be mistaken for an expired access token. */
   skipRefresh?: boolean;
@@ -50,8 +50,7 @@ export const apiConfig = new Configuration({
 const REFRESH_PATH = "/v1/auth/refresh";
 
 interface RefreshResponseData {
-  accessToken?: string;
-  user?: { name?: string; hasPassword?: boolean; businessName?: string };
+  user?: { name?: string };
 }
 
 /**
@@ -76,20 +75,14 @@ async function attemptRefresh(): Promise<RefreshAttempt> {
       authOptional: true,
       skipRefresh: true,
     });
-    const accessToken = response.data.data?.accessToken;
-    if (!accessToken) return { ok: false, status: 0 };
-
-    TokenService.setAccessToken(accessToken);
-    // The one path a Google sign-in (redirect-only, no JSON body ever reaches this app) has for
-    // getting its display name at all: `useAuthToken` calls this the moment localStorage starts
-    // out empty, and `/v1/auth/refresh`'s response carries `user.name` same as every other
-    // token-issuing endpoint.
+    // The httpOnly `access_token`/`refresh_token` cookies are already set by the time this
+    // resolves — nothing in the body needs to be stored to authenticate future requests. `name` is
+    // the one exception: the one path a Google sign-in (redirect-only, no JSON body ever reaches
+    // this app) has for getting its display name at all — `useAuthToken` calls this the moment the
+    // session cookie says signed-in but nothing is cached yet, and `/v1/auth/refresh`'s response
+    // carries `user.name` same as every other token-issuing endpoint.
     const name = response.data.data?.user?.name;
     if (name) TokenService.setName(name);
-    const hasPassword = response.data.data?.user?.hasPassword;
-    if (hasPassword !== undefined) TokenService.setHasPassword(hasPassword);
-    const businessName = response.data.data?.user?.businessName;
-    if (businessName) TokenService.setBusinessName(businessName);
     return { ok: true };
   } catch (error) {
     // The response interceptor below has already turned this into an ApiError. A transport
@@ -118,10 +111,10 @@ async function doRefresh(): Promise<boolean> {
     // lost-race signature.
     if (first.status !== 401) return false;
 
-    // Guarded on having *something* stored: a browser that never held a session here cannot have
+    // Guarded on having *some* session hint: a browser that was never signed in here cannot have
     // lost a race, and retrying for it would double every anonymous visitor's cost against that
     // same throttle, which real sessions share.
-    if (!TokenService.getStoredAccessToken()) return false;
+    if (!TokenService.hasSession()) return false;
 
     return (await attemptRefresh()).ok;
   })();
@@ -138,53 +131,18 @@ export function refreshSession(): Promise<boolean> {
   return doRefresh();
 }
 
-/**
- * Whether a request is bound for this app's own origin, and may therefore carry the access token.
- *
- * These interceptors live on the *global* axios instance, so they see every request any code in
- * the bundle makes through the default export — not only SDK calls. Attaching the token
- * unconditionally would hand a live credential to any absolute third-party URL that happened to
- * go through axios. Nothing in `apps/web` does that today; this keeps it from becoming a leak the
- * moment something does, since a `Bearer` header travels wherever the URL points and no CORS
- * rule stops the *request* from being sent.
- *
- * Every SDK call is a path relative to this app (`basePath: ""`, with `/v1/*` rewritten to the
- * backend by `next.config.ts`), so the common case resolves to our own origin and is allowed.
- * Resolving against `baseURL` matters too: an absolute foreign `baseURL` with a relative `url`
- * must not slip through.
- */
-function isOwnOrigin(config: InternalAxiosRequestConfig): boolean {
-  // No `window` means SSR, where there is no stored token to leak anyway — fail closed.
-  if (typeof window === "undefined") return false;
-  try {
-    const resolved = new URL(config.url ?? "", config.baseURL || window.location.origin);
-    return resolved.origin === window.location.origin;
-  } catch {
-    return false;
-  }
-}
-
 let installed = false;
 
 /**
  * Installs the request/response interceptors on the global axios instance exactly once. Called
  * automatically below, at module load, rather than from a root provider component: every
  * `api-sdk/*.ts` file imports `apiConfig` from this module, so the first SDK call anywhere already
- * guarantees this has run. Safe to evaluate during SSR too — `TokenService` already no-ops without
- * `window`, so the interceptors are inert (never see a token, never see a 401 worth retrying) until
- * a real browser request comes through them.
+ * guarantees this has run. Safe to evaluate during SSR too — there is no request happening yet for
+ * these interceptors to act on until a real browser request comes through them.
  */
 function installApiInterceptors(): void {
   if (installed) return;
   installed = true;
-
-  axios.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-    if (!config.authOptional && isOwnOrigin(config)) {
-      const token = TokenService.getAccessToken();
-      if (token) config.headers.set("Authorization", `Bearer ${token}`);
-    }
-    return config;
-  });
 
   axios.interceptors.response.use(
     (response) => response,
@@ -209,11 +167,11 @@ function installApiInterceptors(): void {
           config._retried = true;
           return axios(config);
         }
-        // Clearing the token is all that's needed: which principal a session belongs to is read
-        // straight off the token's own `type` claim now (`TokenService.getTokenType`), so there is
-        // no second, separately-stored role flag left to go stale alongside it. A platform admin
-        // has no refresh token at all (see `TokenService.signPlatformAdminAccessToken` on the
-        // backend), so this path is exactly what their 15-minute session expiry runs through.
+        // Only the cached display name is left to clear — which principal a session belongs to is
+        // read straight off the `session` cookie (`TokenService.getTokenType`), which the backend
+        // clears itself once there is truly nothing left to refresh. A platform admin has no
+        // refresh token at all (see `TokenService.signPlatformAdminAccessToken` on the backend), so
+        // this path is exactly what their 15-minute session expiry runs through.
         TokenService.clear();
       }
 

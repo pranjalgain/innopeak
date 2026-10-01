@@ -1,6 +1,6 @@
-import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
-import { AuthDbService, type TenantRow } from '@db/repositories/auth/auth.db-service';
+import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import type { TenantRow } from '@db/repositories/auth/types/auth.type';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -15,48 +15,21 @@ import {
   REFRESH_TOKEN_TTL_SECONDS,
 } from '../constants/auth.constants';
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
-import { TenantStatus } from '../enums/tenant-status.enum';
-import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
 import { RefreshTokenSupersededException } from '../errors/refresh-token.error';
 import { InvalidRefreshTokenException } from '../exceptions/auth.exceptions';
-import {
+import type {
   PlatformAdminJwtPayload,
+  PlatformAdminTokenSubject,
   RefreshJwtPayload,
+  SignedTokenPair,
+  SpentTokenInput,
   TenantJwtPayload,
-} from '../types/jwt-payload.type';
-import { TokenResponse } from '../types/token-response.type';
+  TokenResponse,
+  TokenSubject,
+} from '../types/auth.type';
+import { isTenantLoginBlocked } from '../utils/tenant-status.util';
 import { hashToken } from '../utils/token.utils';
-
-export interface TokenSubject {
-  id: string;
-  tenantId: string;
-  email: string;
-  role: UserRole;
-  /** Embedded in the access token so locale resolution never needs a per-request DB lookup — see
-   * `resolveLocale`'s call sites. Null means "never chose", same as the `users.locale` column. */
-  locale: Locale | null;
-}
-
-export interface PlatformAdminTokenSubject {
-  id: string;
-  email: string;
-  /** Same reasoning as `TokenSubject.locale` — embedded so locale resolution never needs a
-   * per-request DB lookup. Null means "never chose", same as `platform_admins.locale`. */
-  locale: Locale | null;
-}
-
-interface SpentTokenInput {
-  revokedAt: string;
-  userId: string;
-}
-
-/** A signed pair plus what `refresh_tokens` needs to record it — separated from persisting so `rotate` can commit the insert atomically with the revoke. */
-interface SignedTokenPair {
-  tokens: TokenResponse;
-  refreshTokenHash: string;
-  refreshExpiresAt: string;
-}
 
 /**
  * Owns issuing/rotating/revoking the access+refresh token pair — the one thing every success
@@ -142,7 +115,7 @@ export class TokenService {
     }
 
     const tenant = await this.authDbService.findTenantStatus(user.tenantId);
-    if (user.status === UserStatus.DISABLED || tenant?.status === TenantStatus.SUSPENDED) {
+    if (user.status === UserStatus.DISABLED || isTenantLoginBlocked(tenant)) {
       await this.revokeAll(user.id);
       throw new InvalidRefreshTokenException();
     }

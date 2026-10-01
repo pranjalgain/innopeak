@@ -9,11 +9,11 @@ import { LuStore } from "react-icons/lu";
 
 
 import { ROUTES } from "@/app/_libs/constants/routes";
-import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useBusinessSwitcher } from "@/hooks/connections/use-business-switcher";
+import { useConnectionAuthorize } from "@/hooks/connections/use-connection-authorize";
 import type { ConnectionInfo } from "@/types/domain";
 
 interface ConnectionSettingsSectionProps {
@@ -37,7 +37,7 @@ export function ConnectionSettingsSection({
   const format = useFormatter();
   const router = useRouter();
   const [isConfirming, setIsConfirming] = useState(false);
-  const [isRedirecting, setIsRedirecting] = useState(false);
+  const { isRedirecting, startAuthorize } = useConnectionAuthorize();
   const isConnected = connection.status === "connected";
   // Read-only: this tab only shows what's confirmed, it doesn't switch between them (that's the
   // header's BusinessSwitcher, already visible on this page) — reusing its hook avoids a second
@@ -60,10 +60,7 @@ export function ConnectionSettingsSection({
   // A full-page navigation into the OAuth flow, returning to this tab via the backend's
   // `?tab=connection` redirect. Previously the only way back from "disconnected" was the
   // onboarding screen, which meant Settings could break a connection but never repair one.
-  const handleConnect = () => {
-    setIsRedirecting(true);
-    void ConnectionService.startAuthorize("settings");
-  };
+  const handleConnect = () => startAuthorize("settings");
 
   return (
     <Card className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid motion-reduce:animate-none duration-500">

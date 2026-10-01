@@ -5,12 +5,22 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';
-import { Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
-import type { AuthUser } from '../../auth/types/auth-user.type';
+import type { AuthUser } from '../../auth/types/auth.type';
 import { AdminUserResponseDto } from '../dto/admin-user-response.dto';
+import { ListAdminUsersQueryDto } from '../dto/list-admin-users-query.dto';
 import { AdminUsersService } from '../services/admin-users.service';
 import { ApiListAdminUsers, ApiToggleAdminUserActive } from '../swagger/admin-users.swagger';
 
@@ -22,8 +32,11 @@ export class AdminUsersController {
 
   @Get()
   @ApiListAdminUsers()
-  async list(@CurrentUser() actor: AuthUser): Promise<ApiResponseDto<AdminUserResponseDto[]>> {
-    const result = await this.adminUsersService.list(actor);
+  async list(
+    @CurrentUser() actor: AuthUser,
+    @Query() query: ListAdminUsersQueryDto
+  ): Promise<ApiResponseDto<AdminUserResponseDto[]>> {
+    const result = await this.adminUsersService.list(actor, query);
     return ResponseUtil.success(result, undefined, HttpStatus.OK);
   }
 

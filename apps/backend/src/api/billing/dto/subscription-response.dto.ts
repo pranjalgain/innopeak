@@ -1,6 +1,6 @@
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
-import type { TenantSubscriptionRow } from '@db/repositories/billing/tenant-subscriptions.repository';
+import type { TenantSubscriptionRow } from '@db/repositories/billing/types/billing.type';
 import { ApiProperty } from '@nestjs/swagger';
 
 import type { PaymentMethodSummary, PaymentProviderType } from '../types/billing.type';

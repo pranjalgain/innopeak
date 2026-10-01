@@ -3,7 +3,7 @@ import type { DBService, DrizzleTransaction } from '@db/db.service';
 import type { BillingReceiptsDbService } from '@db/repositories/billing/billing-receipts.db-service';
 import type { StripeWebhookEventsDbService } from '@db/repositories/billing/stripe-webhook-events.db-service';
 import type { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
-import type { TenantSubscriptionRow } from '@db/repositories/billing/tenant-subscriptions.repository';
+import type { TenantSubscriptionRow } from '@db/repositories/billing/types/billing.type';
 import type { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 
 import type { BillingEntitlementsService } from './billing-entitlements.service';
@@ -93,6 +93,7 @@ describe('BillingWebhooksService', () => {
       expect(stripeWebhookEventsDbService.recordIfNew).toHaveBeenCalledWith(
         'evt_1',
         'checkout.session.completed',
+        'cus_1',
         fakeTx
       );
       expect(tenantSubscriptionsDbService.setToPaidFromCheckout).not.toHaveBeenCalled();
@@ -355,6 +356,7 @@ describe('BillingWebhooksService', () => {
       expect(stripeWebhookEventsDbService.recordIfNew).toHaveBeenCalledWith(
         'evt_8',
         'charge.succeeded',
+        null,
         fakeTx
       );
       expect(tenantSubscriptionsDbService.updateStatus).not.toHaveBeenCalled();

@@ -1,42 +1,16 @@
-import { EscalationReason } from '@common/enums/escalation-reason.enum';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
-import { ReviewStatus } from '@common/enums/review-status.enum';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import type { SQL } from 'drizzle-orm';
 import { and, count, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
-export interface RatingCountRow {
-  rating: number;
-  value: number;
-}
-
-/** Raw aggregates for the dashboard's stat cards, before `DashboardDbService` zero-fills `ratingCounts` into a 1-5 `ratingDistribution`. */
-export interface DashboardMetricsRow {
-  total: number;
-  avgRating: number | null;
-  pending: number;
-  escalated: number;
-  ratingCounts: RatingCountRow[];
-}
-
-export interface RecentEscalatedRow {
-  id: string;
-  reviewerName: string | null;
-  rating: number;
-  reviewText: string | null;
-  escalationReason: EscalationReason | null;
-  reviewedAt: string | null;
-}
-
-/** The already-decided scope every query in this repository runs against — see the class doc comment. */
-export interface DashboardQueryScope {
-  tenantId: string;
-  locationIds: string[];
-  openStatuses: ReviewStatus[];
-}
+import type {
+  DashboardMetricsRow,
+  DashboardQueryScope,
+  RecentEscalatedRow,
+} from './types/dashboard.type';
 
 const RECENT_ESCALATED_COLUMNS = {
   id: schema.reviews.id,

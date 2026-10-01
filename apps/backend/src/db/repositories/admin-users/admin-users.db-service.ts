@@ -1,13 +1,14 @@
 import { Injectable } from '@nestjs/common';
 
-import { type AdminUserRow, AdminUsersRepository } from './admin-users.repository';
+import { AdminUsersRepository } from './admin-users.repository';
+import type { AdminUserRow, ToggleActiveResult } from './types/admin-users.type';
 
 @Injectable()
 export class AdminUsersDbService {
   constructor(private readonly adminUsersRepository: AdminUsersRepository) {}
 
-  async findAll(): Promise<AdminUserRow[]> {
-    return this.adminUsersRepository.findAll();
+  async findAll(search?: string): Promise<AdminUserRow[]> {
+    return this.adminUsersRepository.findAll(search);
   }
 
   /** Total non-anonymized user count — passed straight through, there is no row to map. */
@@ -17,15 +18,16 @@ export class AdminUsersDbService {
 
   /**
    * Toggles the user's active status and returns the updated row (joined with `businessName`/
-   * `lastLoginAt`), or `null` if no such user exists — the CAS in `toggleActive` and the re-read
-   * in `findById` are two round trips, but a toggle happens at most a few times a day from one
-   * admin console, not a hot path worth collapsing into one query.
+   * `lastLoginAt`) — the CAS in `toggleActive` and the re-read in `findById` are two round trips,
+   * but a toggle happens at most a few times a day from one admin console, not a hot path worth
+   * collapsing into one query.
    */
-  async toggleActive(userId: string): Promise<AdminUserRow | null> {
-    const updated = await this.adminUsersRepository.toggleActive(userId);
-    if (!updated) {
-      return null;
+  async toggleActive(userId: string): Promise<ToggleActiveResult> {
+    const outcome = await this.adminUsersRepository.toggleActive(userId);
+    if (outcome.outcome !== 'toggled') {
+      return outcome;
     }
-    return this.adminUsersRepository.findById(userId);
+    const row = await this.adminUsersRepository.findById(userId);
+    return row ? { outcome: 'toggled', row } : { outcome: 'not_found' };
   }
 }

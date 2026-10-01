@@ -7,9 +7,6 @@
 import type { AtRiskSubscriptionResponseDto } from './at-risk-subscription-response-dto';
 // May contain unused imports in some cases
 // @ts-ignore
-import type { BillingWebhookEventResponseDto } from './billing-webhook-event-response-dto';
-// May contain unused imports in some cases
-// @ts-ignore
 import type { UpgradeTrendPointResponseDto } from './upgrade-trend-point-response-dto';
 
 export interface AdminBillingSummaryResponseDto {
@@ -49,8 +46,4 @@ export interface AdminBillingSummaryResponseDto {
    * Past-due subscriptions, most recently updated first, capped at 10.
    */
   atRisk: Array<AtRiskSubscriptionResponseDto>;
-  /**
-   * Most recently processed Stripe webhook deliveries, newest first, capped at 10.
-   */
-  recentWebhookEvents: Array<BillingWebhookEventResponseDto>;
 }

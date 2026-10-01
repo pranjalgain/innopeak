@@ -1,4 +1,4 @@
-import type { PlatformSettingsRow } from '@db/repositories/platform-settings/platform-settings.repository';
+import type { PlatformSettingsRow } from '@db/repositories/platform-settings/types/platform-settings.type';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class PlatformSettingsResponseDto {

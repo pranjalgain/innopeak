@@ -1,6 +1,6 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
-import type { TenantAuthUser } from '@auth/types/auth-user.type';
+import type { TenantAuthUser } from '@auth/types/auth.type';
 import { DashboardDbService } from '@db/repositories/dashboard/dashboard.db-service';
 import { Test } from '@nestjs/testing';
 

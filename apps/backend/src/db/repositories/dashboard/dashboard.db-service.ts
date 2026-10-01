@@ -1,27 +1,13 @@
 import { ReviewStatus } from '@common/enums/review-status.enum';
 import { Injectable } from '@nestjs/common';
 
-import {
+import { DashboardRepository } from './dashboard.repository';
+import type {
+  DashboardMetrics,
   DashboardQueryScope,
-  DashboardRepository,
+  DashboardScopeInput,
   RecentEscalatedRow,
-} from './dashboard.repository';
-
-export interface DashboardMetrics {
-  total: number;
-  avgRating: number | null;
-  pending: number;
-  escalated: number;
-  ratingDistribution: Record<number, number>;
-}
-
-/** One named location, or every currently-active one when `locationId` is omitted — see `resolveLocationScope`. */
-export interface DashboardScopeInput {
-  tenantId: string;
-  locationId?: string | undefined;
-}
-
-export type { RecentEscalatedRow };
+} from './types/dashboard.type';
 
 /**
  * `DashboardRepository`'s raw queries carry no meaning of their own — the policy of what counts

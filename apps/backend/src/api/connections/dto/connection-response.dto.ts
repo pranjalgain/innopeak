@@ -1,3 +1,4 @@
+import { PaginationMetaDto } from '@common/dto/pagination-meta.dto';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import { ReviewProvider } from '@common/enums/review-provider.enum';
@@ -338,20 +339,6 @@ export class SyncRunDto {
 
   @ApiPropertyOptional({ example: null, nullable: true })
   errorMessage!: string | null;
-}
-
-export class PaginationMetaDto {
-  @ApiProperty({ example: 1 })
-  page!: number;
-
-  @ApiProperty({ example: 20 })
-  pageSize!: number;
-
-  @ApiProperty({ example: 2 })
-  total!: number;
-
-  @ApiProperty({ example: 1 })
-  totalPages!: number;
 }
 
 export class SyncRunListResponseDto {

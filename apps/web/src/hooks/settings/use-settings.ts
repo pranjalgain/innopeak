@@ -150,7 +150,11 @@ export function useSettings(enabled = true): UseSettingsResult {
         setSettings({ ...settings, general: nextGeneral });
         return true;
       } catch (error) {
-        toast.error(error instanceof SettingsApiError ? error.message : t("generalSaveFailed"));
+        if (error instanceof SettingsApiError && error.statusCode === 403) {
+          toast.error(t("forbidden"));
+        } else {
+          toast.error(error instanceof SettingsApiError ? error.message : t("generalSaveFailed"));
+        }
         return false;
       }
     },
@@ -173,7 +177,11 @@ export function useSettings(enabled = true): UseSettingsResult {
         toast.success(t("blocklistTermAdded"));
         return true;
       } catch (error) {
-        toast.error(error instanceof SettingsApiError ? error.message : t("saveFailed"));
+        if (error instanceof SettingsApiError && error.statusCode === 403) {
+          toast.error(t("forbidden"));
+        } else {
+          toast.error(error instanceof SettingsApiError ? error.message : t("saveFailed"));
+        }
         return false;
       }
     },
@@ -196,7 +204,11 @@ export function useSettings(enabled = true): UseSettingsResult {
         });
         toast.success(t("blocklistTermRemoved"));
       } catch (error) {
-        toast.error(error instanceof SettingsApiError ? error.message : t("saveFailed"));
+        if (error instanceof SettingsApiError && error.statusCode === 403) {
+          toast.error(t("forbidden"));
+        } else {
+          toast.error(error instanceof SettingsApiError ? error.message : t("saveFailed"));
+        }
       }
     },
     [settings, t, removeBlocklistTermMutation, setSettings],
@@ -228,34 +240,38 @@ export function useSettings(enabled = true): UseSettingsResult {
     [settings, updateRecipientMutation, t],
   );
 
+  // Callbacks live on the mutation itself, not on the `mutate()` call — same reasoning as
+  // `updateRecipientMutation` above: a per-call callback is dropped if a second `mutate()`
+  // supersedes the first on the same observer. There is only one call site for this mutation
+  // today, but a click a user could plausibly double-fire before the button disables shouldn't
+  // silently lose the toast/cache-cleanup the first click was owed.
   const disconnectMutation = useMutation({
     mutationFn: () => ConnectionService.disconnect(),
+    onSuccess: async () => {
+      if (!settings) return;
+      setSettings({ ...settings, connection: { ...settings.connection, status: "disconnected" } });
+      toast.success(t("disconnected"));
+      // `useConnection`'s cached `["connection"]` data would otherwise keep reporting
+      // "connected" until it next refetches on its own — the guard, the reconnect banner and
+      // any other reader of that cache entry would all lag the change this tab just made.
+      await refreshConnection();
+      // The locations list is a separate cache entry, and `useBusinessSwitcher` only *disables*
+      // its query once there's no connection — a disabled query keeps whatever it already
+      // fetched, so the header's switcher would go on offering the locations this disconnect
+      // just deactivated. Removed rather than invalidated: there is nothing to refetch while
+      // disconnected, and the query is disabled anyway.
+      queryClient.removeQueries({ queryKey: connectionLocationsQueryKey });
+    },
+    onError: () => toast.error(t("disconnectFailed")),
   });
 
   const disconnect = useCallback(() => {
     if (!settings) return;
-
     // A real DELETE now, not a localStorage flag: the backend deactivates the tenant's locations
     // and revokes the stored Google credential. The optimistic local update stays so the tab
     // reflects the change immediately, but the authoritative state is the API's.
-    disconnectMutation.mutate(undefined, {
-      onSuccess: async () => {
-        setSettings({ ...settings, connection: { ...settings.connection, status: "disconnected" } });
-        toast.success(t("disconnected"));
-        // `useConnection`'s cached `["connection"]` data would otherwise keep reporting
-        // "connected" until it next refetches on its own — the guard, the reconnect banner and
-        // any other reader of that cache entry would all lag the change this tab just made.
-        await refreshConnection();
-        // The locations list is a separate cache entry, and `useBusinessSwitcher` only *disables*
-        // its query once there's no connection — a disabled query keeps whatever it already
-        // fetched, so the header's switcher would go on offering the locations this disconnect
-        // just deactivated. Removed rather than invalidated: there is nothing to refetch while
-        // disconnected, and the query is disabled anyway.
-        queryClient.removeQueries({ queryKey: connectionLocationsQueryKey });
-      },
-      onError: () => toast.error(t("disconnectFailed")),
-    });
-  }, [settings, setSettings, t, refreshConnection, disconnectMutation, queryClient]);
+    disconnectMutation.mutate();
+  }, [settings, disconnectMutation]);
 
   return {
     settings,

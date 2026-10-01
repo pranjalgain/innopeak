@@ -1,10 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
-import {
-  type PlatformSettingsPatch,
-  PlatformSettingsRepository,
-  type PlatformSettingsRow,
-} from './platform-settings.repository';
+import { PlatformSettingsRepository } from './platform-settings.repository';
+import type { PlatformSettingsPatch, PlatformSettingsRow } from './types/platform-settings.type';
 
 @Injectable()
 export class PlatformSettingsDbService {

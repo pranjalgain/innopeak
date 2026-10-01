@@ -1,6 +1,12 @@
 import { promptsApi } from "@/app/_libs/api-sdk/prompts-api";
 import { unwrap } from "@/app/_libs/services/api-error";
-import type { AiPrompt, PromptTone, PromptVersion, PromptVersionStats } from "@/types/domain";
+import type {
+  AiPrompt,
+  PromptTone,
+  PromptVersion,
+  PromptVersionStats,
+  PromptVersionStatsBatchItem,
+} from "@/types/domain";
 
 export { ApiError as PromptApiError } from "@/app/_libs/services/api-error";
 
@@ -48,14 +54,8 @@ export interface PromptStatsPair {
   version: number;
 }
 
-interface ApiPromptStatsBatchItem {
-  promptId: string;
-  version: number;
-  stats: ApiPromptVersionStats;
-}
-
 interface ApiPromptStatsBatchResponse {
-  results: ApiPromptStatsBatchItem[];
+  results: PromptVersionStatsBatchItem[];
 }
 
 /**
@@ -132,7 +132,7 @@ export class PromptService {
    * `getVersionStats`, used by `usePromptAnalytics` so rendering a prompt list's current-version
    * stats costs one round trip instead of one per prompt.
    */
-  static async getVersionStatsBatch(pairs: PromptStatsPair[]): Promise<ApiPromptStatsBatchItem[]> {
+  static async getVersionStatsBatch(pairs: PromptStatsPair[]): Promise<PromptVersionStatsBatchItem[]> {
     if (pairs.length === 0) return [];
 
     const response = await promptsApi.promptsControllerGetVersionStatsBatchV1({

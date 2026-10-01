@@ -1,6 +1,7 @@
 {
   "marketing": {
     "nav": {
+      "ariaLabel": "Hauptnavigation",
       "features": "Funktionen",
       "howItWorks": "So funktioniert's",
       "signIn": "Anmelden",
@@ -109,6 +110,7 @@
       "button": "Jetzt starten"
     },
     "footer": {
+      "ariaLabel": "Fußzeile",
       "tagline": "KI-unterstützte Antworten für Google Unternehmensprofil-Bewertungen — immer von einem Menschen geprüft, bevor sie veröffentlicht werden.",
       "signIn": "Anmelden",
       "getStarted": "Jetzt starten",
@@ -124,8 +126,9 @@
     "overview": "Übersicht",
     "businesses": "Unternehmen",
     "users": "Benutzer",
-    "settings": "Einstellungen",
-    "billing": "Abrechnung"
+    "billing": "Abrechnung",
+    "activity": "Aktivität",
+    "settings": "Einstellungen"
   },
   "appShell": {
     "notifications": "Benachrichtigungen",
@@ -155,7 +158,8 @@
   },
   "businessSwitcher": {
     "label": "Unternehmen wechseln",
-    "switchFailed": "Ihr aktives Unternehmen konnte nicht gewechselt werden. Bitte versuchen Sie es erneut."
+    "switchFailed": "Ihr aktives Unternehmen konnte nicht gewechselt werden. Bitte versuchen Sie es erneut.",
+    "switchForbidden": "Nur der Kontoinhaber kann den aktiven Standort wechseln."
   },
   "languageSwitcher": {
     "syncFailed": "Spracheinstellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
@@ -622,7 +626,8 @@
         "avatarUpdated": "Profilbild aktualisiert.",
         "passwordChanged": "Passwort geändert. Andere Sitzungen wurden abgemeldet.",
         "passwordSet": "Passwort festgelegt. Sie können sich jetzt auch mit einem Passwort anmelden.",
-        "otpSent": "Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren."
+        "otpSent": "Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren.",
+        "tooManyRequests": "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut."
       },
       "errors": {
         "currentPasswordRequired": "Geben Sie Ihr aktuelles Passwort ein.",
@@ -643,7 +648,9 @@
       "emailPlaceholder": "name@unternehmen.de",
       "inviteButton": "Einladen",
       "revoke": "Widerrufen",
+      "remove": "Entfernen",
       "cancel": "Abbrechen",
+      "cancelRemoval": "Entfernung abbrechen",
       "empty": "Noch keine Teammitglieder.",
       "role": {
         "owner": "Inhaber",
@@ -655,16 +662,28 @@
         "pending_verification": "Ausstehend",
         "disabled": "Deaktiviert"
       },
+      "removalPending": "Entfernung wirksam am {date}",
       "confirmRevoke": {
         "title": "Einladung für {name} widerrufen?",
         "description": "Dieser Einladungslink funktioniert sofort nicht mehr."
+      },
+      "confirmRemove": {
+        "title": "{name} entfernen?",
+        "description": "Der Zugriff wird sofort entzogen. Die Daten werden nach der Übergangsfrist endgültig gelöscht, sofern Sie nicht vorher abbrechen."
+      },
+      "confirmCancelRemoval": {
+        "title": "Entfernung für {name} abbrechen?",
+        "description": "Der Zugriff bleibt erhalten — es wurde noch nichts gelöscht."
       },
       "toasts": {
         "loadFailed": "Teammitglieder konnten nicht geladen werden.",
         "invited": "Einladung an {email} gesendet.",
         "inviteFailed": "Diese Einladung konnte nicht gesendet werden. Bitte versuchen Sie es erneut.",
         "revoked": "Einladung widerrufen.",
-        "revokeFailed": "Diese Einladung konnte nicht widerrufen werden. Bitte versuchen Sie es erneut."
+        "revokeFailed": "Diese Einladung konnte nicht widerrufen werden. Bitte versuchen Sie es erneut.",
+        "requestRemovalFailed": "Dieses Mitglied konnte nicht entfernt werden. Bitte versuchen Sie es erneut.",
+        "removalCancelled": "Entfernung abgebrochen — dieses Mitglied behält seinen Zugriff.",
+        "cancelRemovalFailed": "Diese Entfernung konnte nicht abgebrochen werden. Bitte versuchen Sie es erneut."
       },
       "errors": {
         "emailInvalid": "Geben Sie eine gültige E-Mail-Adresse zum Einladen ein."
@@ -672,6 +691,7 @@
     },
     "toasts": {
       "loadFailed": "Einstellungen konnten nicht geladen werden.",
+      "forbidden": "Nur der Kontoinhaber kann diese Einstellungen ändern.",
       "saveFailed": "Die Sperrliste konnte nicht aktualisiert werden.",
       "generalSaveFailed": "Allgemeine Einstellungen konnten nicht gespeichert werden.",
       "generalSaved": "Einstellungen gespeichert.",
@@ -851,6 +871,7 @@
     },
     "toasts": {
       "loadFailed": "Prompts konnten nicht geladen werden.",
+      "accessDenied": "Nur der Kontoinhaber kann Prompts verwalten.",
       "saveFailed": "Dieser Prompt konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
       "versionSaved": "Als v{version} gespeichert.",
       "toneUpdated": "Tonalität aktualisiert."
@@ -897,13 +918,17 @@
         "business_joined": "Neues Unternehmen \"{businessName}\" registriert",
         "business_suspended": "{businessName} gesperrt",
         "business_reactivated": "{businessName} reaktiviert",
+        "business_erasure_requested": "Löschung von {businessName} angefordert",
+        "business_erasure_cancelled": "Löschung von {businessName} abgebrochen",
+        "business_erased": "{businessName} gelöscht",
         "admin_invite_sent": "{email} als Plattform-Administrator eingeladen",
         "admin_invite_revoked": "Einladung für {email} widerrufen",
         "admin_disabled": "Administrator {email} deaktiviert",
         "admin_enabled": "Administrator {email} aktiviert",
         "user_activated": "{email} bei {businessName} reaktiviert",
         "user_deactivated": "{email} bei {businessName} deaktiviert"
-      }
+      },
+      "viewAll": "Mehr anzeigen →"
     },
     "toasts": {
       "loadFailed": "Die Übersicht konnte nicht geladen werden."
@@ -973,9 +998,22 @@
       }
     },
     "webhookEvents": {
-      "title": "Letzte Webhook-Aktivität",
-      "subtitle": "Die neuesten von dieser App verarbeiteten Stripe-Ereignisse",
-      "empty": "Noch keine Webhook-Ereignisse."
+      "title": "Aktuelle Webhook-Aktivität",
+      "subtitle": "Die neuesten Stripe-Ereignisse, die diese App verarbeitet hat",
+      "empty": "Noch keine Webhook-Ereignisse.",
+      "noResults": "Keine Ereignisse entsprechen diesem Filter.",
+      "unknownBusiness": "Unbekanntes Unternehmen",
+      "filters": {
+        "label": "Filter",
+        "all": "Alle Ereignisse",
+        "eventTypes": {
+          "checkoutSessionCompleted": "Checkout abgeschlossen",
+          "subscriptionUpdated": "Abonnement aktualisiert",
+          "subscriptionDeleted": "Abonnement gekündigt",
+          "invoicePaymentFailed": "Zahlung fehlgeschlagen",
+          "invoicePaymentSucceeded": "Zahlung erfolgreich"
+        }
+      }
     },
     "toasts": {
       "loadFailed": "Die Abrechnung konnte nicht geladen werden."
@@ -993,11 +1031,15 @@
     },
     "status": {
       "active": "Aktiv",
-      "suspended": "Gesperrt"
+      "suspended": "Gesperrt",
+      "erased": "Gelöscht"
     },
     "suspend": "Sperren",
     "reactivate": "Reaktivieren",
     "cancel": "Abbrechen",
+    "requestErasure": "Löschung anfordern",
+    "cancelErasure": "Löschung abbrechen",
+    "erasurePending": "Löschung wirksam am {date}",
     "confirmSuspend": {
       "title": "{name} sperren?",
       "description": "Der Zugriff auf das Dashboard geht sofort verloren. Sie können das Konto jederzeit reaktivieren."
@@ -1005,6 +1047,14 @@
     "confirmReactivate": {
       "title": "{name} reaktivieren?",
       "description": "Der Zugriff auf das Dashboard wird sofort wiederhergestellt."
+    },
+    "confirmRequestErasure": {
+      "title": "Löschung von {name} anfordern?",
+      "description": "Jeder Benutzer dieses Unternehmens verliert sofort den Zugriff. Die Daten werden nach der Übergangsfrist endgültig gelöscht, sofern Sie nicht vorher abbrechen."
+    },
+    "confirmCancelErasure": {
+      "title": "Löschung von {name} abbrechen?",
+      "description": "Dieses Unternehmen wird wieder aktiv — es wurde noch nichts gelöscht."
     },
     "emptyState": {
       "title": "Noch keine Unternehmen",
@@ -1018,7 +1068,9 @@
     "searchPlaceholder": "Nach Name oder Inhaber suchen…",
     "toasts": {
       "loadFailed": "Unternehmen konnten nicht geladen werden.",
-      "updateFailed": "Dieses Unternehmen konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut."
+      "updateFailed": "Dieses Unternehmen konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut.",
+      "requestErasureFailed": "Für dieses Unternehmen konnte keine Löschung angefordert werden. Bitte versuchen Sie es erneut.",
+      "cancelErasureFailed": "Die Löschung für dieses Unternehmen konnte nicht abgebrochen werden. Bitte versuchen Sie es erneut."
     }
   },
   "adminUsers": {
@@ -1235,6 +1287,46 @@
     "unauthorized": {
       "title": "Nicht angemeldet",
       "description": "Sie müssen angemeldet sein, um diese Seite zu sehen."
+    }
+  },
+  "notFound": {
+    "eyebrow": "Route nicht verfügbar",
+    "title": "Seite nicht gefunden",
+    "description": "Diese Route existiert nicht mehr oder wurde im Zuge der Weiterentwicklung verschoben.",
+    "backToHome": "Zurück zur Startseite"
+  },
+  "loading": {
+    "ariaLabel": "Inhalt wird geladen",
+    "preparingWorkspace": "Ihr Arbeitsbereich wird vorbereitet",
+    "pleaseWait": "Wird geladen, bitte warten…"
+  },
+  "adminActivity": {
+    "tabs": {
+      "platformActivity": "Plattform-Aktivität",
+      "webhookActivity": "Webhook-Aktivität"
+    },
+    "platformActivityLog": {
+      "title": "Aktivität",
+      "subtitle": "Plattform-Admin-Aktionen — Unternehmen sperren/reaktivieren, Admin-Einladungen, Statusänderungen von Mitgliedern",
+      "empty": "Noch keine Aktivität."
+    },
+    "filters": {
+      "label": "Filter",
+      "all": "Alle Aktivitäten",
+      "noResults": "Keine Aktivität entspricht diesem Filter.",
+      "types": {
+        "business_suspended": "Unternehmen gesperrt",
+        "business_reactivated": "Unternehmen reaktiviert",
+        "business_erasure_requested": "Löschung von Unternehmen angefordert",
+        "business_erasure_cancelled": "Löschung von Unternehmen abgebrochen",
+        "business_erased": "Unternehmen gelöscht",
+        "admin_invite_sent": "Admin-Einladung gesendet",
+        "admin_invite_revoked": "Admin-Einladung widerrufen",
+        "admin_disabled": "Admin deaktiviert",
+        "admin_enabled": "Admin aktiviert",
+        "user_activated": "Benutzer aktiviert",
+        "user_deactivated": "Benutzer deaktiviert"
+      }
     }
   }
 }

@@ -21,10 +21,24 @@ export const adminOverviewNeedsAttentionQueryKey = [
 ] as const;
 export const adminOverviewSignupTrendQueryKey = ["admin", "overview", "signup-trend"] as const;
 export const adminOverviewActivityQueryKey = ["admin", "overview", "activity"] as const;
+/** The dedicated Activity page's paginated "Platform activity" tab — distinct from
+ *  `adminOverviewActivityQueryKey` above (the Overview page's bounded glance feed). Every mutation
+ *  that writes to `platform_activity_log` (business suspend/reactivate, user toggle, admin invite
+ *  send/revoke/status) invalidates both prefixes, not just one. */
+export const adminOverviewActivityLogQueryKey = [
+  "admin",
+  "overview",
+  "activity-log",
+] as const;
 export const adminStatisticsSummaryQueryKey = ["admin", "statistics", "summary"] as const;
 export const adminBillingSummaryQueryKey = ["admin", "billing", "summary"] as const;
 export const adminBillingHasPaidTenantsQueryKey = [
   "admin",
   "billing",
   "has-paid-tenants",
+] as const;
+export const adminBillingWebhookEventsQueryKey = [
+  "admin",
+  "billing",
+  "webhook-events",
 ] as const;

@@ -376,6 +376,63 @@ export const SettingsApiAxiosParamCreator = function (
       };
     },
     /**
+     * Restores access (`status: \"active\"`) and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
+     * @summary Cancel a pending team-member removal
+     * @param {string} memberId The member\&#39;s &#x60;users.id&#x60;
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantMembersControllerCancelRemovalV1: async (
+      memberId: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'memberId' is not null or undefined
+      assertParamExists(
+        'tenantMembersControllerCancelRemovalV1',
+        'memberId',
+        memberId,
+      );
+      const localVarPath =
+        `/v1/settings/members/{memberId}/cancel-removal`.replace(
+          '{memberId}',
+          encodeURIComponent(String(memberId)),
+        );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * Creates the invited member\'s own row (`status: \"invited\"`, no password, `role: \"member\"`) and a 7-day invite token, then emails the invite link. Refused with 403 while `platform_settings.invite_members_enabled` is off.
      * @summary Invite a teammate
      * @param {InviteMemberDto} inviteMemberDto
@@ -453,6 +510,63 @@ export const SettingsApiAxiosParamCreator = function (
 
       const localVarRequestOptions = {
         method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Revokes access immediately (`status: \"disabled\"`). The member\'s data is not deleted yet — actual anonymization runs in a nightly job once `ERASURE_GRACE_PERIOD_DAYS` has passed, and the request can be cancelled any time before then. Refused for the tenant\'s last remaining owner, and for removing your own account (use a different flow for that).
+     * @summary Request removal of an active team member
+     * @param {string} memberId The member\&#39;s &#x60;users.id&#x60;
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantMembersControllerRequestRemovalV1: async (
+      memberId: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'memberId' is not null or undefined
+      assertParamExists(
+        'tenantMembersControllerRequestRemovalV1',
+        'memberId',
+        memberId,
+      );
+      const localVarPath =
+        `/v1/settings/members/{memberId}/request-removal`.replace(
+          '{memberId}',
+          encodeURIComponent(String(memberId)),
+        );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
         ...baseOptions,
         ...options,
       };
@@ -845,6 +959,40 @@ export const SettingsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Restores access (`status: \"active\"`) and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
+     * @summary Cancel a pending team-member removal
+     * @param {string} memberId The member\&#39;s &#x60;users.id&#x60;
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async tenantMembersControllerCancelRemovalV1(
+      memberId: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<TenantMembersControllerRevokeV1200Response>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.tenantMembersControllerCancelRemovalV1(
+          memberId,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'SettingsApi.tenantMembersControllerCancelRemovalV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Creates the invited member\'s own row (`status: \"invited\"`, no password, `role: \"member\"`) and a 7-day invite token, then emails the invite link. Refused with 403 while `platform_settings.invite_members_enabled` is off.
      * @summary Invite a teammate
      * @param {InviteMemberDto} inviteMemberDto
@@ -899,6 +1047,40 @@ export const SettingsApiFp = function (configuration?: Configuration) {
         operationServerMap['SettingsApi.tenantMembersControllerListV1']?.[
           localVarOperationServerIndex
         ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Revokes access immediately (`status: \"disabled\"`). The member\'s data is not deleted yet — actual anonymization runs in a nightly job once `ERASURE_GRACE_PERIOD_DAYS` has passed, and the request can be cancelled any time before then. Refused for the tenant\'s last remaining owner, and for removing your own account (use a different flow for that).
+     * @summary Request removal of an active team member
+     * @param {string} memberId The member\&#39;s &#x60;users.id&#x60;
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async tenantMembersControllerRequestRemovalV1(
+      memberId: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<TenantMembersControllerRevokeV1200Response>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.tenantMembersControllerRequestRemovalV1(
+          memberId,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'SettingsApi.tenantMembersControllerRequestRemovalV1'
+        ]?.[localVarOperationServerIndex]?.url;
       return (axios, basePath) =>
         createRequestFunction(
           localVarAxiosArgs,
@@ -1109,6 +1291,24 @@ export const SettingsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Restores access (`status: \"active\"`) and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
+     * @summary Cancel a pending team-member removal
+     * @param {SettingsApiTenantMembersControllerCancelRemovalV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantMembersControllerCancelRemovalV1(
+      requestParameters: SettingsApiTenantMembersControllerCancelRemovalV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<TenantMembersControllerRevokeV1200Response> {
+      return localVarFp
+        .tenantMembersControllerCancelRemovalV1(
+          requestParameters.memberId,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Creates the invited member\'s own row (`status: \"invited\"`, no password, `role: \"member\"`) and a 7-day invite token, then emails the invite link. Refused with 403 while `platform_settings.invite_members_enabled` is off.
      * @summary Invite a teammate
      * @param {SettingsApiTenantMembersControllerInviteV1Request} requestParameters Request parameters.
@@ -1137,6 +1337,24 @@ export const SettingsApiFactory = function (
     ): AxiosPromise<Array<TenantMemberResponseDto>> {
       return localVarFp
         .tenantMembersControllerListV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Revokes access immediately (`status: \"disabled\"`). The member\'s data is not deleted yet — actual anonymization runs in a nightly job once `ERASURE_GRACE_PERIOD_DAYS` has passed, and the request can be cancelled any time before then. Refused for the tenant\'s last remaining owner, and for removing your own account (use a different flow for that).
+     * @summary Request removal of an active team member
+     * @param {SettingsApiTenantMembersControllerRequestRemovalV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantMembersControllerRequestRemovalV1(
+      requestParameters: SettingsApiTenantMembersControllerRequestRemovalV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<TenantMembersControllerRevokeV1200Response> {
+      return localVarFp
+        .tenantMembersControllerRequestRemovalV1(
+          requestParameters.memberId,
+          options,
+        )
         .then((request) => request(axios, basePath));
     },
     /**
@@ -1259,6 +1477,18 @@ export interface SettingsApiInterface {
   ): AxiosPromise<PlatformSettingsResponseDto>;
 
   /**
+   * Restores access (`status: \"active\"`) and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
+   * @summary Cancel a pending team-member removal
+   * @param {SettingsApiTenantMembersControllerCancelRemovalV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  tenantMembersControllerCancelRemovalV1(
+    requestParameters: SettingsApiTenantMembersControllerCancelRemovalV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<TenantMembersControllerRevokeV1200Response>;
+
+  /**
    * Creates the invited member\'s own row (`status: \"invited\"`, no password, `role: \"member\"`) and a 7-day invite token, then emails the invite link. Refused with 403 while `platform_settings.invite_members_enabled` is off.
    * @summary Invite a teammate
    * @param {SettingsApiTenantMembersControllerInviteV1Request} requestParameters Request parameters.
@@ -1279,6 +1509,18 @@ export interface SettingsApiInterface {
   tenantMembersControllerListV1(
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<Array<TenantMemberResponseDto>>;
+
+  /**
+   * Revokes access immediately (`status: \"disabled\"`). The member\'s data is not deleted yet — actual anonymization runs in a nightly job once `ERASURE_GRACE_PERIOD_DAYS` has passed, and the request can be cancelled any time before then. Refused for the tenant\'s last remaining owner, and for removing your own account (use a different flow for that).
+   * @summary Request removal of an active team member
+   * @param {SettingsApiTenantMembersControllerRequestRemovalV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  tenantMembersControllerRequestRemovalV1(
+    requestParameters: SettingsApiTenantMembersControllerRequestRemovalV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<TenantMembersControllerRevokeV1200Response>;
 
   /**
    * Deletes the invited member\'s row outright — only while it is still `invited`. A member who has already accepted cannot be removed through this route.
@@ -1339,10 +1581,30 @@ export interface SettingsApiNotificationRecipientsControllerUpdateV1Request {
 }
 
 /**
+ * Request parameters for tenantMembersControllerCancelRemovalV1 operation in SettingsApi.
+ */
+export interface SettingsApiTenantMembersControllerCancelRemovalV1Request {
+  /**
+   * The member\&#39;s &#x60;users.id&#x60;
+   */
+  readonly memberId: string;
+}
+
+/**
  * Request parameters for tenantMembersControllerInviteV1 operation in SettingsApi.
  */
 export interface SettingsApiTenantMembersControllerInviteV1Request {
   readonly inviteMemberDto: InviteMemberDto;
+}
+
+/**
+ * Request parameters for tenantMembersControllerRequestRemovalV1 operation in SettingsApi.
+ */
+export interface SettingsApiTenantMembersControllerRequestRemovalV1Request {
+  /**
+   * The member\&#39;s &#x60;users.id&#x60;
+   */
+  readonly memberId: string;
 }
 
 /**
@@ -1460,6 +1722,25 @@ export class SettingsApi extends BaseAPI implements SettingsApiInterface {
   }
 
   /**
+   * Restores access (`status: \"active\"`) and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
+   * @summary Cancel a pending team-member removal
+   * @param {SettingsApiTenantMembersControllerCancelRemovalV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public tenantMembersControllerCancelRemovalV1(
+    requestParameters: SettingsApiTenantMembersControllerCancelRemovalV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return SettingsApiFp(this.configuration)
+      .tenantMembersControllerCancelRemovalV1(
+        requestParameters.memberId,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
    * Creates the invited member\'s own row (`status: \"invited\"`, no password, `role: \"member\"`) and a 7-day invite token, then emails the invite link. Refused with 403 while `platform_settings.invite_members_enabled` is off.
    * @summary Invite a teammate
    * @param {SettingsApiTenantMembersControllerInviteV1Request} requestParameters Request parameters.
@@ -1487,6 +1768,25 @@ export class SettingsApi extends BaseAPI implements SettingsApiInterface {
   public tenantMembersControllerListV1(options?: RawAxiosRequestConfig) {
     return SettingsApiFp(this.configuration)
       .tenantMembersControllerListV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Revokes access immediately (`status: \"disabled\"`). The member\'s data is not deleted yet — actual anonymization runs in a nightly job once `ERASURE_GRACE_PERIOD_DAYS` has passed, and the request can be cancelled any time before then. Refused for the tenant\'s last remaining owner, and for removing your own account (use a different flow for that).
+   * @summary Request removal of an active team member
+   * @param {SettingsApiTenantMembersControllerRequestRemovalV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public tenantMembersControllerRequestRemovalV1(
+    requestParameters: SettingsApiTenantMembersControllerRequestRemovalV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return SettingsApiFp(this.configuration)
+      .tenantMembersControllerRequestRemovalV1(
+        requestParameters.memberId,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 

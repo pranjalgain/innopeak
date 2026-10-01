@@ -1,4 +1,4 @@
-import type { SignupTrendPoint } from '@db/repositories/admin-overview/admin-overview.repository';
+import type { SignupTrendPoint } from '@db/repositories/admin-overview/types/admin-overview.type';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class AdminSignupTrendPointResponseDto {

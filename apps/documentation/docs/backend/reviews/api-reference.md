@@ -6,13 +6,15 @@ sidebar_position: 2
 
 ## How to read this document
 
-This is the **target/spec design** for the reviews module's HTTP surface. Unlike auth, there is
-no current implementation to diverge from: `apps/backend/src/api/` contains only `dev-tools`,
-`health`, `metrics`, and `tracing`, and nothing review-related exists anywhere under
-`apps/backend/src/` except the migrations themselves. Everything below describes what to build,
-not what runs. It assumes you have read [Reviews Module — Overview](./overview.md) for the data
-model, the enums, the state machine, and the one-reply-per-review invariant; this document turns
-those into concrete request/response contracts rather than repeating them.
+This is the **target/spec design** for the reviews module's HTTP surface, with four routes now
+**implemented** against that spec: `GET /v1/reviews`, `GET /v1/reviews/:reviewId`, and — added this
+pass — `POST .../responses/:responseId/approve` and `.../reject` (`src/api/reviews/`). Everything
+else below (manual replies, dismiss, retry-post, post-status) describes what to build, not what
+runs. Each implemented section says so explicitly and calls out anywhere the shipped code diverges
+from what this document originally specified. It assumes you have read [Reviews Module —
+Overview](./overview.md) for the data model, the enums, the state machine, and the
+one-reply-per-review invariant; this document turns those into concrete request/response contracts
+rather than repeating them.
 
 The document is intentionally **HTTP-contract-level only** — no controller, service, or
 decorator code. When implementing a route below, it lives under `src/api/reviews/` per
@@ -279,65 +281,55 @@ Errors: `404 REVIEW_NOT_FOUND` (unknown id, or a review belonging to another ten
 
 | Method | Path | Auth | Throttle |
 |---|---|---|---|
-| `POST` | `/v1/reviews/:reviewId/responses/:responseId/approve` | Bearer | 30 / min |
-| `POST` | `/v1/reviews/:reviewId/responses/:responseId/reject` | Bearer | 30 / min |
+| `POST` | `/v1/reviews/:reviewId/responses/:responseId/approve` | Bearer | 30 / min (global default — no per-route override) |
+| `POST` | `/v1/reviews/:reviewId/responses/:responseId/reject` | Bearer | 30 / min (global default — no per-route override) |
 | `POST` | `/v1/reviews/:reviewId/responses/:responseId/retry-post` | Bearer | 10 / min |
+
+**`approve` and `reject` are implemented** (`ReviewsController`/`ReviewsService`,
+`src/api/reviews/`, backed by `ReviewSyncDbService`/`ReviewSyncRepository`,
+`src/db/repositories/review-sync/`) — see [Persisting approve / reject
+decisions](./overview.md#persisting-approve--reject-decisions) for the design reasoning behind the
+shape documented below. `retry-post` remains spec-only; its section is unchanged from the original
+target design.
 
 ### `POST /v1/reviews/:reviewId/responses/:responseId/approve`
 
-The module's central action, and the one with the most invariants to hold at once. It performs
-five things in **one transaction**:
+**Implemented**, narrower than this document originally specified for it. `ReviewsService.approveReply`
+does three things, not five — posting to Google is out of scope entirely (not merely deferred), and
+there is no separate review-level dismiss guard, because [dismiss](#review-triage) itself is still
+unbuilt:
 
-1. A guarded compare-and-swap on the target row:
-   `UPDATE review_responses SET status = 'approved', ... WHERE id = ? AND tenant_id = ? AND
-   review_id = ? AND status = 'pending_approval'`. The `review_id` term is not redundant — without
-   it, pairing this review's `:reviewId` with another review's `:responseId` actions the wrong
-   row, which is what `404 RESPONSE_NOT_FOUND` in the [error reference](#error-reference) promises
-   to prevent. Zero rows affected → `409 RESPONSE_ALREADY_ACTIONED`
-   (`PLAN.md` §8.4). There is deliberately no `expectedStatus` request field: `pending_approval`
-   is the only legal source state for this transition, so the guard is server-fixed rather than
-   client-supplied.
-2. Writes `approved_by_user_id` from the authenticated user — taken from the JWT, never from the
-   request body, so it cannot be spoofed — and `decided_at = now()`.
-3. Applies the edit, if any, and sets `source` accordingly. This is the **only** place
-   `ai_generated` becomes `human_edited`.
-4. Supersedes every sibling: `UPDATE review_responses SET status = 'superseded',
-   decided_at = now() WHERE review_id = ? AND tenant_id = ? AND id <> ? AND status IN ('draft',
-   'pending_approval')`. Scoped by `review_id`, not `generation_group_id` — the invariant is one
-   reply per *review*, so a stale draft from an earlier batch must be swept too.
-   **The `tenant_id` term is load-bearing, not decoration.** `review_id` arrives from the path, so
-   without it a caller in tenant A can pass tenant B's `reviewId` alongside their own
-   `responseId`: step 1 passes on their own row, and this statement then terminally supersedes
-   every pending draft on tenant B's review — their escalation snippets vanish from the queue and
-   the review is never answered. Every statement in this transaction carries `tenant_id`, per
-   [Conventions](#conventions); this is the one where omitting it is a cross-tenant write rather
-   than a cross-tenant read.
-5. Enqueues the post-back job. The transaction does not call Google.
+1. Looks up the response (`ReviewSyncDbService.findResponseForTenant`, scoped by `responseId` +
+   `reviewId` + the caller's `tenantId`) and throws `404 REVIEW_RESPONSE_NOT_FOUND` if it doesn't
+   match — this one lookup is what a mismatched `:reviewId`/`:responseId` pair, or a cross-tenant
+   attempt, resolves to; there is no separate `REVIEW_NOT_FOUND` code on this route.
+2. In one transaction (`ReviewSyncDbService.approveResponse`): a guarded compare-and-swap —
+   `UPDATE review_responses SET status = 'approved', content = ?, source = ?,
+   approved_by_user_id = ?, decided_at = now() WHERE id = ? AND review_id = ? AND tenant_id = ? AND
+   status = 'pending_approval'` — immediately followed by `supersedeSiblingDrafts`, which marks
+   every other still-`pending_approval`/`draft` response on the **same `review_id`** (not scoped to
+   `generation_group_id`) as `superseded`. Zero rows affected on the CAS → the transaction returns
+   `null` and the service throws `409 REVIEW_RESPONSE_NOT_ACTIONABLE`. See [Persisting approve /
+   reject decisions](./overview.md#persisting-approve--reject-decisions) for why the supersede
+   sweep is reviewwide and why it must share the approval's own transaction.
+3. If two sibling drafts on the same review are approved at genuinely the same instant, the CAS in
+   step 2 can pass for both before either commits — `idx_review_responses_review_id_live_reply`
+   (`UNIQUE (review_id) WHERE status IN ('approved', 'posted')`) is the database-level backstop,
+   and the service catches that unique violation (`isUniqueViolation`, matched against the index
+   name) and throws a *different* `409 REVIEW_RESPONSE_ALREADY_LIVE` — distinct from
+   `REVIEW_RESPONSE_NOT_ACTIONABLE` because the two causes need different client copy (see the
+   overview section linked above).
 
-Step 3 is what the `response_source` enum's `ai_generated` / `human_edited` split exists for, and
-the comparison must be against `original_content`, not against whatever the client claims was
-there before: if `content` is present and its trimmed value differs from the trimmed
-`original_content`, the row becomes `source = 'human_edited'` and `content` is overwritten;
-otherwise `source` is left alone. Because `original_content` was added by `0006_prompts.sql` and
-is nullable, a row generated before that migration has no baseline — for those, set
-`original_content` to the pre-edit `content` in the same statement. `prompt-analytics.ts`'s
-approved-as-is-vs-edited split is exactly `content.trim() !== originalContent.trim()` over
-`approved` rows, so a missing baseline silently reports every approval as "as-is."
+`source` becomes `human_edited` only when the submitted `content` differs from a baseline —
+`originalContent` if the row has one, else its own `content` (so a `human_manual`/`imported` row,
+which never had an AI draft to diverge from, can never spuriously read as "edited"). Omitting
+`content` entirely approves the draft unchanged.
 
-Step 5 is deliberately outside the state change. `approved → posted` needs a live single-review
-freshness check against Google immediately before the write (`PLAN.md` §8.12) — Google's reply
-endpoint is an unconditional upsert with no existence check, so posting without it can silently
-overwrite a reply the owner wrote by hand — and that check is a network call, which belongs in
-neither a transaction nor a request handler. The response below therefore returns `approved`,
-not `posted`; the frontend's confirmation copy is already future-tense and matches.
-
-If two staff members approve different siblings at genuinely the same instant, one transaction
-loses on `idx_review_responses_review_id_live_reply`
-(`UNIQUE (review_id) WHERE status IN ('approved', 'posted')`). That unique violation must be
-translated into `409 REVIEW_ALREADY_HAS_LIVE_REPLY`, not allowed to surface as a `500`
-(`PLAN.md` §8.5). Treating it as the module's expected concurrency outcome — rather than an
-unexpected database error — is the difference between the second user seeing "someone else
-already approved a reply for this review" and seeing a crash.
+There is no post-back job, no `supersededResponseIds` field, and no `reviewStatus` field in the
+response — actually publishing to Google Business Profile is a distinct, not-yet-built step (see
+the controller's own doc comment and [Persisting approve / reject
+decisions](./overview.md#persisting-approve--reject-decisions)), so this route never touches
+`reviews.status` and the response is the single decided row, not a reconciliation payload.
 
 Request:
 
@@ -349,85 +341,83 @@ Request:
 
 | Field | Type | Rules |
 |---|---|---|
-| `content` | string | optional, 1–4096 chars, trimmed, non-empty after trimming. Omit to approve the AI draft unchanged. Present and identical to `original_content` → treated as unchanged (`source` stays `ai_generated`); present and different → `source` becomes `human_edited`. `reply-draft-card.tsx` always submits the textarea's current value, so the equal-value case is the normal path, not an edge case. |
+| `content` | string | optional, 1–5000 chars (`ApproveReplyDto`, `@MaxLength(5000)`), non-empty after trimming. Omit to approve the AI draft unchanged. |
 
 Success `200`:
 
 ```json
 {
   "id": "0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64",
-  "reviewId": "0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22",
-  "status": "approved",
+  "generationGroupId": "0190f3b2-6a10-7c1e-9f0a-3b6d5c8e1a22",
+  "label": "A",
+  "responseType": "ai_suggested",
+  "content": "Marcus, a 40-minute wait on a confirmed booking isn't acceptable and I'm sorry no one owned it in the moment. I'd like to make it right — please email me directly.",
+  "originalContent": "Hi Marcus, thank you for your feedback. We're sorry for the wait.",
   "source": "human_edited",
+  "status": "approved",
+  "createdByUserId": null,
   "approvedByUserId": "0190f2b7-9d12-7e34-b501-8c3a5f7d2e19",
+  "rejectedByUserId": null,
+  "createdAt": "2026-08-31T19:58:02Z",
   "decidedAt": "2026-08-31T20:02:11Z",
   "postedAt": null,
-  "supersededResponseIds": ["0190f3c1-2b44-7d10-8a03-1e5c7f9b2d65"],
-  "reviewStatus": "in_review"
+  "errorMessage": null
 }
 ```
 
-`supersededResponseIds` is returned so the client can reconcile its local state in one round
-trip rather than re-fetching the detail page — the frontend already performs exactly this
-supersede sweep optimistically in `use-review-detail.ts`, and returning the authoritative list
-lets it correct itself if the server superseded a row it did not know about. `reviewStatus` stays
-`in_review` here on purpose: it only becomes `responded` once a response actually reaches
-`posted`.
+`status` here is the four-value `ClientResponseStatus` projection (`pending_approval` \| `approved`
+\| `rejected` \| `superseded`), the same one `GET /v1/reviews/:reviewId` returns for every response
+— never the raw seven-value `response_status` column. `label` is a placeholder (`'A'`) on this
+single-row response; the real per-review labeling (`'A'`/`'B'`/…) is only meaningful across a whole
+review's responses and is recomputed by the client's next `GET /v1/reviews/:reviewId`.
 
-**Approve must also re-check the parent review inside the same transaction.** Its own CAS guards
-the *response*; nothing in it looks at `reviews.status`, and dismiss's supersede sweep only touches
-`('draft','pending_approval')` — so two users in two tabs can dismiss and approve the same review
-and both succeed, leaving a `dismissed` review with a reply on its way to Google and
-`reviews.status` ending up `responded`. `PLAN.md` §8.4 covers two staff on one *response*; nothing
-in §8 covers two staff on one *review* through different endpoints. Add
-`AND reviews.status NOT IN ('dismissed','responded')` to the transaction and return
-`409 REVIEW_ALREADY_DISMISSED` — the code
-[`POST /v1/reviews/:reviewId/responses`](#post-v1reviewsreviewidresponses) already defines for the
-same situation.
-
-> **Open product decision — precedence.** Requiring the check is not in question; which action
-> wins is. Either dismiss is final (approve then 409s, and dismiss must additionally refuse when a
-> live `approved`/`posted` reply already exists) or approve is (dismiss 409s once a reply is
-> live). Pick one explicitly — the two endpoints currently assume opposite answers.
-
-Errors: `400` validation (empty or over-length `content`), `404 REVIEW_NOT_FOUND`,
-`404 RESPONSE_NOT_FOUND`, `409 RESPONSE_ALREADY_ACTIONED`,
-`409 REVIEW_ALREADY_HAS_LIVE_REPLY`, `409 REVIEW_ALREADY_DISMISSED`,
-`409 REVIEW_REMOVED_UPSTREAM`, `401`, `429`.
+Errors: `400` validation (empty or over-5000-char `content`), `404 REVIEW_RESPONSE_NOT_FOUND`,
+`409 REVIEW_RESPONSE_NOT_ACTIONABLE`, `409 REVIEW_RESPONSE_ALREADY_LIVE`, `401`, `429`.
 
 ### `POST /v1/reviews/:reviewId/responses/:responseId/reject`
 
-Rejects one response. Narrower than approve in the one way that matters: **it does not touch
-siblings.** Rejecting snippet A leaves snippet B at `pending_approval`, because the user's
-intent is "not this wording," not "no reply for this review" — that second intent is
-[dismiss](#post-v1reviewsreviewiddismiss). The frontend matches: `rejectDraft` in
-`use-review-detail.ts` maps only the target draft and leaves every other one alone, in explicit
-contrast to `approveDraft`.
+**Implemented.** Rejects one response. Narrower than approve in the one way that matters: **it does
+not touch siblings.** Rejecting snippet A leaves snippet B at `pending_approval`, because the
+user's intent is "not this wording," not "no reply for this review" — that second intent is
+[dismiss](#review-triage), still unbuilt.
 
-Guarded compare-and-swap on `status = 'pending_approval'` → `'rejected'`, plus
-`decided_at = now()`. No request body. `rejected` is terminal — there is no un-reject; a user who
-changes their mind writes a manual reply instead.
+Same lookup-then-CAS shape as approve: `findResponseForTenant` first (`404
+REVIEW_RESPONSE_NOT_FOUND` if no match), then a guarded compare-and-swap —
+`status = 'pending_approval'` → `'rejected'`, writing `rejected_by_user_id` from the authenticated
+user and `decided_at = now()`. Zero rows affected → `409 REVIEW_RESPONSE_NOT_ACTIONABLE`. No
+request body. `rejected` is terminal — there is no un-reject; a user who changes their mind writes
+a manual reply instead (once [Manual replies](#manual-replies) is built).
 
-Success `200`:
+Success `200` — same shape as approve's response above:
 
 ```json
 {
   "id": "0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64",
-  "reviewId": "0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22",
+  "generationGroupId": "0190f3b2-6a10-7c1e-9f0a-3b6d5c8e1a22",
+  "label": "A",
+  "responseType": "ai_suggested",
+  "content": "Hi Marcus, thank you for your feedback. We're sorry for the wait.",
+  "originalContent": "Hi Marcus, thank you for your feedback. We're sorry for the wait.",
+  "source": "ai_generated",
   "status": "rejected",
+  "createdByUserId": null,
+  "approvedByUserId": null,
+  "rejectedByUserId": "0190f2b7-9d12-7e34-b501-8c3a5f7d2e19",
+  "createdAt": "2026-08-31T19:58:02Z",
   "decidedAt": "2026-08-31T20:04:47Z",
-  "reviewStatus": "in_review"
+  "postedAt": null,
+  "errorMessage": null
 }
 ```
 
-Note what this response cannot include: **there is no `rejected_by_user_id` column.**
-`review_responses` has `created_by_user_id` and `approved_by_user_id` only, so a rejection's
-author is not recoverable at all — there is no generic audit trail in this schema to fall back
-on either — see
-[Schema prerequisites](#schema-prerequisites-not-yet-in-the-migrations).
+Unlike this section's original spec, **`rejected_by_user_id` does exist**:
+`review_responses.rejected_by_user_id` (`UUID REFERENCES users(id) ON DELETE SET NULL`, added to
+`0004_reviews.sql` alongside this feature) mirrors `approved_by_user_id`'s own accountability shape
+exactly — see [Persisting approve / reject
+decisions](./overview.md#persisting-approve--reject-decisions) for why `SET NULL`, not `CASCADE`.
+There is still no free-text rejection-reason field; only who rejected it and when.
 
-Errors: `404 REVIEW_NOT_FOUND`, `404 RESPONSE_NOT_FOUND`, `409 RESPONSE_ALREADY_ACTIONED`,
-`401`, `429`.
+Errors: `404 REVIEW_RESPONSE_NOT_FOUND`, `409 REVIEW_RESPONSE_NOT_ACTIONABLE`, `401`, `429`.
 
 ### `POST /v1/reviews/:reviewId/responses/:responseId/retry-post`
 
@@ -644,16 +634,17 @@ query. `prompt_version_id`, `original_content`, and `decided_at` — the three c
 prompt-analytics figure depends on — exist only as un-run `ALTER TABLE` statements.
 Run `pnpm db:migrate` then `pnpm db:introspect` before writing repository code.
 
-**2. No attribution column for a rejection or a dismissal.** `review_responses` has
-`created_by_user_id` and `approved_by_user_id`; there is no `rejected_by_user_id`, and `reviews`
-has no `dismissed_by_user_id` / `dismissed_at`. Neither action is recoverable from anywhere —
-there is no generic audit trail in this schema — so "who dismissed this?" has no answer today,
-not even a slow one. `PLAN.md` §6.2 argues at length that losing the
-who-approved-this trail would be worse than the GDPR gap it was discussing, precisely because
-human approval is this system's core safety mechanism; the same argument applies with slightly
-less force to the negative decisions. **Required follow-up migration** if rejection/dismissal
-attribution needs to be queryable: add `rejected_by_user_id UUID REFERENCES users(id) ON DELETE
-SET NULL` to `review_responses`, and `dismissed_by_user_id` / `dismissed_at` to `reviews`.
+**2. Resolved for rejection, still open for dismissal.** `review_responses.rejected_by_user_id`
+(`UUID REFERENCES users(id) ON DELETE SET NULL`) was added to `0004_reviews.sql` alongside the
+approve/reject implementation — see [`POST .../reject`](#post-v1reviewsreviewidresponsesresponseidreject)
+above. `reviews` still has no `dismissed_by_user_id` / `dismissed_at`, and dismiss itself remains
+unbuilt (see [Review triage](#review-triage) below): neither is recoverable from anywhere, since
+there is no generic audit trail in this schema, so "who dismissed this?" still has no answer today.
+`PLAN.md` §6.2's argument for why losing the who-approved-this trail would be worse than the GDPR
+gap it was discussing — human approval being this system's core safety mechanism — is exactly the
+reasoning that was applied to add `rejected_by_user_id`; the same argument still applies to
+dismissal. **Required follow-up migration** if dismissal attribution needs to be queryable: add
+`dismissed_by_user_id` / `dismissed_at` to `reviews`.
 
 **3. `PLAN.md` §2 recommends `review_responses.approved_at` and it was never added.**
 `0004_reviews.sql` created `approved_by_user_id` but no `approved_at`; the closest column is
@@ -694,9 +685,12 @@ string the frontend branches on.
 | `401` | `Unauthorized` | Every route | Missing, malformed, or expired access token. Every route in this module is `Bearer`. |
 | `403` | `Forbidden` (`TENANT_SUSPENDED`) | Every route | `tenants.status = 'suspended'`. Not instant for a token already issued — see `PLAN.md` §8.20. |
 | `404` | `Not Found` (`REVIEW_NOT_FOUND`) | Every route with `:reviewId` | Unknown id, **or** a review belonging to another tenant. Deliberately not `403` — a `403` would confirm the review exists. |
-| `404` | `Not Found` (`RESPONSE_NOT_FOUND`) | approve, reject, retry-post, post-status | Unknown `:responseId`, or one whose `review_id` is not the `:reviewId` in the path. Mismatched-parent is a `404`, not a `400`: the response does not exist *at that path*. |
-| `409` | `Conflict` (`RESPONSE_ALREADY_ACTIONED`) | approve, reject | The guarded compare-and-swap affected zero rows — the response was no longer at `pending_approval` (another user approved, rejected, or a sibling's approval superseded it). `PLAN.md` §8.4. |
-| `409` | `Conflict` (`REVIEW_ALREADY_HAS_LIVE_REPLY`) | approve, manual reply, retry-post | `idx_review_responses_review_id_live_reply` unique violation — a row for this review is already `approved` or `posted`. The constraint-level backstop for two simultaneous sibling approvals, translated into a clean conflict rather than a `500`. `PLAN.md` §8.5. |
+| `404` | `Not Found` (`RESPONSE_NOT_FOUND`) | retry-post, post-status | Unknown `:responseId`, or one whose `review_id` is not the `:reviewId` in the path. Mismatched-parent is a `404`, not a `400`: the response does not exist *at that path*. Still spec-only on these two routes — see `REVIEW_RESPONSE_NOT_FOUND` below for the implemented equivalent on approve/reject. |
+| `404` | `Not Found` (`REVIEW_RESPONSE_NOT_FOUND`) | **approve, reject** (implemented) | `findResponseForTenant` found no row matching `:responseId` + `:reviewId` + the caller's `tenantId` — the single lookup these two routes use, which is also what a mismatched-parent or cross-tenant attempt resolves to. There is no separate `REVIEW_NOT_FOUND` on these two routes. |
+| `409` | `Conflict` (`RESPONSE_ALREADY_ACTIONED`) | retry-post | The guarded compare-and-swap affected zero rows. Still spec-only on this route — see `REVIEW_RESPONSE_NOT_ACTIONABLE` below for the implemented equivalent on approve/reject. |
+| `409` | `Conflict` (`REVIEW_RESPONSE_NOT_ACTIONABLE`) | **approve, reject** (implemented) | The guarded compare-and-swap affected zero rows — the response was no longer at `pending_approval` (already decided, or a sibling's approval superseded it first). |
+| `409` | `Conflict` (`REVIEW_RESPONSE_ALREADY_LIVE`) | **approve** (implemented) | `idx_review_responses_review_id_live_reply` unique violation, caught and translated rather than left to surface as a `500` — two sibling drafts on the same review were approved at genuinely the same instant; the second to commit loses with this error. |
+| `409` | `Conflict` (`REVIEW_ALREADY_HAS_LIVE_REPLY`) | manual reply, retry-post | `idx_review_responses_review_id_live_reply` unique violation under this document's original spec naming. Still spec-only on these two routes — approve's implemented equivalent is `REVIEW_RESPONSE_ALREADY_LIVE` above. |
 | `409` | `Conflict` (`RESPONSE_NOT_RETRYABLE`) | retry-post | The response is not at `post_failed`. |
 | `409` | `Conflict` (`REVIEW_NOT_DISMISSIBLE`) | dismiss | `reviews.status` is already `responded` or `dismissed`. |
 | `409` | `Conflict` (`REVIEW_ALREADY_DISMISSED`) | manual reply | Cannot reply to a dismissed review. Reported separately from `REVIEW_NOT_DISMISSIBLE` because the remedy differs — undismissing is not an operation this module offers. |

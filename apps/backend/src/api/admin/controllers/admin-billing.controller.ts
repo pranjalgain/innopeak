@@ -1,7 +1,7 @@
 import { CurrentUser } from '@auth/decorators/current-user.decorator';
 import { Roles } from '@auth/decorators/roles.decorator';
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';
@@ -10,9 +10,15 @@ import { ApiTags } from '@nestjs/swagger';
 
 import { AdminBillingSummaryQueryDto } from '../dto/admin-billing-summary-query.dto';
 import { AdminBillingSummaryResponseDto } from '../dto/admin-billing-summary-response.dto';
+import { BillingWebhookEventListResponseDto } from '../dto/billing-webhook-event-response.dto';
 import { HasPaidTenantsResponseDto } from '../dto/has-paid-tenants-response.dto';
+import { ListBillingWebhookEventsQueryDto } from '../dto/list-billing-webhook-events-query.dto';
 import { AdminBillingService } from '../services/admin-billing.service';
-import { ApiGetBillingSummary, ApiGetHasPaidTenants } from '../swagger/admin-billing.swagger';
+import {
+  ApiGetBillingSummary,
+  ApiGetHasPaidTenants,
+  ApiListBillingWebhookEvents,
+} from '../swagger/admin-billing.swagger';
 
 /** Platform-admin visibility into `billing_plans`/`tenant_subscriptions`/`stripe_webhook_events` —
  *  see `ApiGetBillingSummary`'s own doc comment for what this covers. Deliberately separate from
@@ -40,6 +46,16 @@ export class AdminBillingController {
     @Query() query: AdminBillingSummaryQueryDto
   ): Promise<ApiResponseDto<AdminBillingSummaryResponseDto>> {
     const result = await this.adminBillingService.getSummary(user, query.months);
+    return ResponseUtil.success(result, undefined, HttpStatus.OK);
+  }
+
+  @Get(RouteNames.ADMIN_BILLING_WEBHOOK_EVENTS)
+  @ApiListBillingWebhookEvents()
+  async listWebhookEvents(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListBillingWebhookEventsQueryDto
+  ): Promise<ApiResponseDto<BillingWebhookEventListResponseDto>> {
+    const result = await this.adminBillingService.listWebhookEvents(user, query);
     return ResponseUtil.success(result, undefined, HttpStatus.OK);
   }
 }

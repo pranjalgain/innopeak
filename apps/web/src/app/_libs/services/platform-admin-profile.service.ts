@@ -5,7 +5,7 @@ import type {
 
 import { adminSettingsApi } from "@/app/_libs/api-sdk/admin-settings-api";
 import { unwrap } from "@/app/_libs/services/api-error";
-import { uploadAvatarFile } from "@/app/_libs/services/avatar-upload.service";
+import { AvatarUploadService } from "@/app/_libs/services/avatar-upload.service";
 import type { PlatformAdminProfile } from "@/types/domain";
 
 /**
@@ -20,35 +20,9 @@ export class PlatformAdminProfileService {
   }
 
   /**
-   * "Do I have a live platform-admin session right now?", answered from the httpOnly
-   * `access_token` cookie rather than from localStorage — the one question `useAuthToken` cannot
-   * answer for this principal.
-   *
-   * A platform admin has no refresh token (see `TokenService.signPlatformAdminAccessToken` on the
-   * backend), so `refreshSession()` can never revive them; and a Google-accepted admin arrives
-   * through a server-side redirect that leaves localStorage empty, so there is nothing stored to
-   * check either. Their session lives *only* in cookies, which `JwtStrategy` accepts — so an
-   * authenticated round trip is the only honest test. See `AdminGuard`, the sole caller.
-   *
-   * `skipRefresh` is load-bearing here, not a nicety: without it the interceptor answers a 401 by
-   * calling `/v1/auth/refresh`, which — finding no refresh cookie — clears `access_token` and the
-   * session hint on its way to failing (`AuthController.refresh`). That would make this *probe*
-   * destroy the very session it is asking about.
-   */
-  static async probeSession(): Promise<boolean> {
-    try {
-      await adminSettingsApi.adminSettingsControllerGetProfileV1({ skipRefresh: true });
-      return true;
-    } catch {
-      // 401 (no/expired cookie), 403 (a tenant session), or a transport failure — none of them
-      // are a platform-admin session, and the guard treats all three the same way.
-      return false;
-    }
-  }
-
-  /**
    * Mints a signed authorization the browser uploads the new avatar image directly with — see
-   * `uploadAvatarFile` (`app/_libs/services/avatar-upload.service.ts`) for what happens next.
+   * `AvatarUploadService.upload` (`app/_libs/services/avatar-upload.service.ts`) for what happens
+   * next.
    */
   private static async getAvatarUploadAuthorization(): Promise<AvatarUploadAuthorizationResponseDto> {
     const response = await adminSettingsApi.adminAvatarControllerAuthorizeV1();
@@ -63,7 +37,7 @@ export class PlatformAdminProfileService {
    */
   static async updateAvatar(file: File): Promise<string | null> {
     const authorization = await this.getAvatarUploadAuthorization();
-    const providerAssetId = await uploadAvatarFile(file, authorization);
+    const providerAssetId = await AvatarUploadService.upload(file, authorization);
 
     const response = await adminSettingsApi.adminAvatarControllerConfirmAvatarV1({
       confirmAvatarDto: { providerAssetId },

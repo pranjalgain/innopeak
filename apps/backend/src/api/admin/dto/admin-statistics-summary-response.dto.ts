@@ -1,13 +1,11 @@
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import type {
   AdminStatisticsSummary,
-  ConnectionHealthCounts,
-} from '@db/repositories/admin-statistics/admin-statistics.db-service';
-import type {
   ClassificationBreakdownRow,
+  ConnectionHealthCounts,
   RatingDistributionRow,
   ReviewsTrendPoint,
-} from '@db/repositories/admin-statistics/admin-statistics.repository';
+} from '@db/repositories/admin-statistics/types/admin-statistics.type';
 import { ApiProperty } from '@nestjs/swagger';
 
 /** Nested value objects for `AdminStatisticsSummaryResponseDto` — co-located rather than one file

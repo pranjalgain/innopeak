@@ -3,11 +3,17 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { Injectable } from '@nestjs/common';
 
-import type { AuthUser } from '../../auth/types/auth-user.type';
+import type { AuthUser } from '../../auth/types/auth.type';
+import { ACTIVITY_LOG_PAGE_SIZE_DEFAULT } from '../constants/admin-overview.constants';
 import { AdminBusinessResponseDto } from '../dto/admin-business-response.dto';
 import { AdminOverviewStatsResponseDto } from '../dto/admin-overview-stats-response.dto';
 import { AdminSignupTrendPointResponseDto } from '../dto/admin-signup-trend-point-response.dto';
-import { PlatformActivityResponseDto } from '../dto/platform-activity-response.dto';
+import type { ListPlatformActivityQueryDto } from '../dto/list-platform-activity-query.dto';
+import {
+  PlatformActivityListResponseDto,
+  PlatformActivityResponseDto,
+} from '../dto/platform-activity-response.dto';
+import { buildActivityFeed } from '../utils/activity-feed.utils';
 import { fillSignupTrendWindow } from '../utils/signup-trend.utils';
 
 @Injectable()
@@ -43,9 +49,40 @@ export class AdminOverviewService {
     );
   }
 
+  /**
+   * The real admin-action log merged with synthesized `business_joined` entries into one
+   * time-sorted, capped feed — see `buildActivityFeed`'s own comment for why `limit` rows from
+   * *each* source is always enough to correctly determine the top-`limit` of the merge. Used to
+   * be two separate endpoints stitched together client-side; this is now the one response the
+   * Overview page's activity panel needs.
+   */
   async getRecentActivity(actor: AuthUser, limit: number): Promise<PlatformActivityResponseDto[]> {
     requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const rows = await this.adminOverviewDbService.getRecentActivity(limit);
-    return rows.map(row => PlatformActivityResponseDto.from(row));
+    const [rows, businesses] = await Promise.all([
+      this.adminOverviewDbService.getRecentActivity(limit),
+      this.adminOverviewDbService.getRecentBusinesses(limit),
+    ]);
+    const activities = rows.map(row => PlatformActivityResponseDto.from(row));
+    return buildActivityFeed(activities, businesses, limit);
+  }
+
+  async listActivity(
+    actor: AuthUser,
+    query: ListPlatformActivityQueryDto
+  ): Promise<PlatformActivityListResponseDto> {
+    requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? ACTIVITY_LOG_PAGE_SIZE_DEFAULT;
+
+    const { activities, total } = await this.adminOverviewDbService.listActivity({
+      page,
+      pageSize,
+      type: query.type,
+    });
+
+    return {
+      activities: activities.map(row => PlatformActivityResponseDto.from(row)),
+      meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    };
   }
 }

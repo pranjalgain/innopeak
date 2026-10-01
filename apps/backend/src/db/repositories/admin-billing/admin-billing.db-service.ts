@@ -1,31 +1,18 @@
 import { Injectable } from '@nestjs/common';
 
-import {
-  AdminBillingRepository,
-  type AtRiskSubscriptionRow,
-  type UpgradeTrendPoint,
-  type WebhookEventRow,
-} from './admin-billing.repository';
-
-export interface AdminBillingSummary {
-  freeCount: number;
-  paidCount: number;
-  activeCount: number;
-  pastDueCount: number;
-  canceledCount: number;
-  incompleteCount: number;
-  cancelingCount: number;
-  upgradeTrend: UpgradeTrendPoint[];
-  atRisk: AtRiskSubscriptionRow[];
-  recentWebhookEvents: WebhookEventRow[];
-}
+import { AdminBillingRepository } from './admin-billing.repository';
+import type {
+  AdminBillingSummary,
+  UpgradeTrendPoint,
+  WebhookEventRow,
+} from './types/admin-billing.type';
 
 const AT_RISK_LIMIT = 10;
-const RECENT_WEBHOOK_EVENTS_LIMIT = 10;
 
 /** Composes `AdminBillingRepository`'s independent queries into the one payload the admin Billing
  *  page's whole first screen is built from — mirrors `AdminStatisticsDbService.getSummary()`'s own
- *  shape and reasoning. */
+ *  shape and reasoning. Webhook events are a separate, paginated concern — see
+ *  `listWebhookEvents` below — not part of this one-shot summary. */
 @Injectable()
 export class AdminBillingDbService {
   constructor(private readonly adminBillingRepository: AdminBillingRepository) {}
@@ -35,15 +22,13 @@ export class AdminBillingDbService {
   }
 
   async getSummary(monthsBack: number): Promise<AdminBillingSummary> {
-    const [planSplit, statusCounts, cancelingCount, upgradeTrend, atRisk, recentWebhookEvents] =
-      await Promise.all([
-        this.adminBillingRepository.getPlanSplit(),
-        this.adminBillingRepository.getSubscriptionStatusCounts(),
-        this.adminBillingRepository.getCancelingCount(),
-        this.adminBillingRepository.getUpgradeTrend(monthsBack),
-        this.adminBillingRepository.getAtRiskSubscriptions(AT_RISK_LIMIT),
-        this.adminBillingRepository.getRecentWebhookEvents(RECENT_WEBHOOK_EVENTS_LIMIT),
-      ]);
+    const [planSplit, statusCounts, cancelingCount, upgradeTrend, atRisk] = await Promise.all([
+      this.adminBillingRepository.getPlanSplit(),
+      this.adminBillingRepository.getSubscriptionStatusCounts(),
+      this.adminBillingRepository.getCancelingCount(),
+      this.adminBillingRepository.getUpgradeTrend(monthsBack),
+      this.adminBillingRepository.getAtRiskSubscriptions(AT_RISK_LIMIT),
+    ]);
 
     return {
       ...planSplit,
@@ -51,8 +36,15 @@ export class AdminBillingDbService {
       cancelingCount,
       upgradeTrend: this.fillUpgradeTrendWindow(upgradeTrend, monthsBack),
       atRisk,
-      recentWebhookEvents,
     };
+  }
+
+  listWebhookEvents(input: {
+    page: number;
+    pageSize: number;
+    type?: string | undefined;
+  }): Promise<{ events: WebhookEventRow[]; total: number }> {
+    return this.adminBillingRepository.listWebhookEvents(input);
   }
 
   /** Same zero-fill reasoning as `fillSignupTrendWindow` (`admin-overview`'s own util) — a month

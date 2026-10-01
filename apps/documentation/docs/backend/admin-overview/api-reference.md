@@ -38,7 +38,7 @@ turns them into request/response contracts.
   anything else — and exists purely so the rest of the method can read `actor.id`/`actor.email` as
   facts the type system guarantees, the same reasoning `requireTenantUser` documents for tenant
   routes elsewhere in this backend.
-- **Throttle**: no route in this controller carries a `@Throttle()` override, so all five fall back
+- **Throttle**: no route in this controller carries a `@Throttle()` override, so all six fall back
   to the global `short` tier — 30 requests/minute, shared with every other unthrottled route in the
   app (`ThrottlerModule.forRoot`, `app.module.ts`).
 - **Envelopes**: success payloads shown below are the *inner* `data` — `TransformInterceptor` wraps
@@ -91,10 +91,10 @@ Errors: `401`, `403`, `429`.
 ## Recent businesses & needs attention
 
 Both routes return the same `AdminBusinessResponseDto[]` shape and underlying `tenants` columns as
-`GET /v1/admin/businesses` (the Super Admin Businesses management screen's own listing endpoint,
-`AdminBusinessesController` — not yet documented in this doc set) — this module only asks for a
-smaller, differently-filtered page of the same rows, via `AdminBusinessesRepository.findRecent`
-and `.findNeedingAttention` rather than its `.findAll`.
+[`GET /v1/admin/businesses`](../admin-management/api-reference.md#get-v1adminbusinesses) (the Super
+Admin Businesses management screen's own listing endpoint) — this module only asks for a smaller,
+differently-filtered page of the same rows, via `AdminBusinessesRepository.findRecent` and
+`.findNeedingAttention` rather than its `.findAll`.
 
 | Method | Path | Auth | Throttle |
 |---|---|---|---|
@@ -243,31 +243,43 @@ Errors: `400` validation (`months` non-integer or outside 1–24), `401`, `403`,
 
 ### `GET /v1/admin/overview/activity`
 
-The most recent rows from `platform_activity_log`, newest first, capped at `limit` — a purpose-built
-log of exactly eight platform-admin action types (business suspend/reactivate, admin invite
-send/revoke, admin enable/disable, tenant-user activate/deactivate), written explicitly by the
-services that perform those actions rather than trigger-populated. See [Overview § Activity
-log](./overview.md#activity-log-a-purpose-built-write-not-a-generic-audit-trail) for why this is a
-narrow, purpose-built table rather than a generic audit trail.
+The most recent rows from `platform_activity_log`, merged with synthesized `business_joined`
+entries, newest first, capped at `limit` — the Overview page's glance feed. See [Overview § Recent
+activity is merged server-side](./overview.md#recent-activity-is-merged-server-side-with-synthesized-business_joined-entries)
+for the merge mechanics and why fetching `limit` rows from each of the two sources before merging
+is always sufficient. `platform_activity_log` itself is a purpose-built log of exactly eight
+platform-admin action types (business suspend/reactivate, admin invite send/revoke, admin
+enable/disable, tenant-user activate/deactivate), written explicitly by the services that perform
+those actions rather than trigger-populated — see [Overview § Activity
+log](./overview.md#activity-log-a-purpose-built-write-not-a-generic-audit-trail).
 
 | Query param | Type | Rules |
 |---|---|---|
-| `limit` | integer | optional, default `5`, min `1`, max `50`. Example: `5` |
+| `limit` | integer | optional, default `8`, min `1`, max `50`. Applied to *each* source independently before merging — see the reasoning linked above. Example: `8` |
 
-`businessName` and `email` are mutually exclusive per entry, enforced at the database by
-`platform_activity_log_target_check` — which one is populated depends on `type`:
+`businessName` and `email` are mutually exclusive per entry — which one is populated depends on
+`type`. `actorEmail` is `null` for a synthesized `business_joined` entry (a signup has no
+platform-admin actor at all):
 
 Success `200`:
 
 ```json
 [
   {
+    "id": "business-joined-0190f3c1-2a88-70c5-8d19-6b2e4f7a9c33",
+    "type": "business_joined",
+    "actorEmail": null,
+    "businessName": "The Coastal Table",
+    "email": null,
+    "occurredAt": "2026-09-11T09:12:00.000Z"
+  },
+  {
     "id": "0190f3b4-1a88-70c5-8d19-6b2e4f7a9c33",
     "type": "business_suspended",
     "actorEmail": "admin@innopeak.com",
     "businessName": "Oak & Iron Hardware",
     "email": null,
-    "occurredAt": "2026-09-11T09:12:00.000Z"
+    "occurredAt": "2026-09-10T09:12:00.000Z"
   },
   {
     "id": "0190f3b5-2c00-71a4-8e21-9d3f5a0c1188",
@@ -282,18 +294,62 @@ Success `200`:
 
 | Field | Type | Rules |
 |---|---|---|
-| `[].id` | string (uuid) | `platform_activity_log.id` |
-| `[].type` | enum | `business_suspended` \| `business_reactivated` \| `admin_invite_sent` \| `admin_invite_revoked` \| `admin_disabled` \| `admin_enabled` \| `user_activated` \| `user_deactivated` (`platform_activity_type`) |
-| `[].actorEmail` | string | Snapshotted at write time from the acting admin's `AuthUser`, not joined from `platform_admins` — survives that admin's row being deleted |
-| `[].businessName` | string \| null | Set (non-null) only for `business_suspended` / `business_reactivated` / `user_activated` / `user_deactivated`; `null` otherwise. Snapshotted, not joined from `tenants`, so a later rename or deletion doesn't retroactively rewrite what a past entry says happened |
+| `[].id` | string (uuid) \| string | `platform_activity_log.id` for a real row; `business-joined-<tenants.id>` for a synthesized one |
+| `[].type` | enum | `business_suspended` \| `business_reactivated` \| `admin_invite_sent` \| `admin_invite_revoked` \| `admin_disabled` \| `admin_enabled` \| `user_activated` \| `user_deactivated` (`platform_activity_type`), or the synthesized `business_joined` — the latter never appears on [`GET /activity-log`](#get-v1adminoverviewactivity-log) below |
+| `[].actorEmail` | string \| null | Snapshotted at write time from the acting admin's `AuthUser`, not joined from `platform_admins` — survives that admin's row being deleted. `null` for `business_joined` |
+| `[].businessName` | string \| null | Set (non-null) for `business_suspended` / `business_reactivated` / `user_activated` / `user_deactivated` / `business_joined`; `null` otherwise. Snapshotted, not joined from `tenants`, so a later rename or deletion doesn't retroactively rewrite what a past entry says happened |
 | `[].email` | string \| null | Set (non-null) only for `admin_invite_sent` / `admin_invite_revoked` / `admin_disabled` / `admin_enabled` / `user_activated` / `user_deactivated`; `null` otherwise |
-| `[].occurredAt` | string (ISO) | `platform_activity_log.occurred_at` |
+| `[].occurredAt` | string (ISO) | `platform_activity_log.occurred_at`, or `tenants.created_at` for a synthesized entry |
 
 There is no `404`/empty-state error for a platform with no logged activity yet — an empty array is
 a normal response, rendered by `ActivityLogCard` as its own "nothing yet" copy rather than treated
 as a fault.
 
 Errors: `400` validation (`limit` non-integer or outside 1–50), `401`, `403`, `429`.
+
+## Activity log
+
+| Method | Path | Auth | Throttle |
+|---|---|---|---|
+| `GET` | `/v1/admin/overview/activity-log` | Bearer, platform admin | global `short` tier (30/min) |
+
+### `GET /v1/admin/overview/activity-log`
+
+The same `platform_activity_log` rows `GET /activity` above reads, but paginated and filterable by
+`type` rather than a bounded top-`limit` read — backs the dedicated Activity page's "Platform
+activity" tab, distinct from the Overview page's small glance card. **Never includes the
+synthesized `business_joined` entry** — see [Overview § why this endpoint is real-log-only](./overview.md#recent-activity-is-merged-server-side-with-synthesized-business_joined-entries).
+
+| Query param | Type | Rules |
+|---|---|---|
+| `page` | integer | optional, default `1`, min `1`. Example: `1` |
+| `pageSize` | integer | optional, default `20`, min `1`, max `100`. Example: `20` |
+| `type` | enum | optional, one of the eight real `platform_activity_type` values (never `business_joined`). Example: `business_suspended` |
+
+Success `200`:
+
+```json
+{
+  "activities": [
+    {
+      "id": "0190f3b4-1a88-70c5-8d19-6b2e4f7a9c33",
+      "type": "business_suspended",
+      "actorEmail": "admin@innopeak.com",
+      "businessName": "Oak & Iron Hardware",
+      "email": null,
+      "occurredAt": "2026-09-11T09:12:00.000Z"
+    }
+  ],
+  "meta": { "page": 1, "pageSize": 20, "total": 1, "totalPages": 1 }
+}
+```
+
+Same per-entry field shape as [`GET /activity`](#get-v1adminoverviewactivity) above, minus the
+`business_joined` variant. `meta` is the shared `PaginationMetaDto` — `{ page, pageSize, total,
+totalPages }`.
+
+Errors: `400` validation (`type` not one of the eight values, `page`/`pageSize` non-integer or out
+of range), `401`, `403`, `429`.
 
 ## Error reference
 

@@ -45,6 +45,9 @@ describe('AuthDbService', () => {
       deleteInvitedMember: jest.fn(),
       deleteExpiredMemberInvite: jest.fn(),
       listTenantMembers: jest.fn(),
+      requestMemberRemoval: jest.fn(),
+      cancelMemberRemoval: jest.fn(),
+      anonymizeUser: jest.fn(),
       transaction: jest.fn((fn: (tx: never) => unknown) => fn(tx)),
     } as unknown as jest.Mocked<AuthRepository>;
 
@@ -419,6 +422,38 @@ describe('AuthDbService', () => {
 
     await expect(target.listTenantMembers('tenant-1')).resolves.toEqual([]);
     expect(authRepository.listTenantMembers).toHaveBeenCalledWith('tenant-1');
+  });
+
+  it('requestMemberRemoval passes through to the repository, tenant-scoped', async () => {
+    authRepository.requestMemberRemoval.mockResolvedValue({
+      outcome: 'requested',
+      id: 'user-1',
+      email: 'sam.rivera@thecoffeehouse.com',
+    });
+
+    await expect(target.requestMemberRemoval('tenant-1', 'user-1')).resolves.toEqual({
+      outcome: 'requested',
+      id: 'user-1',
+      email: 'sam.rivera@thecoffeehouse.com',
+    });
+    expect(authRepository.requestMemberRemoval).toHaveBeenCalledWith('tenant-1', 'user-1');
+  });
+
+  it('cancelMemberRemoval passes through to the repository, tenant-scoped', async () => {
+    authRepository.cancelMemberRemoval.mockResolvedValue({ outcome: 'cancelled', id: 'user-1' });
+
+    await expect(target.cancelMemberRemoval('tenant-1', 'user-1')).resolves.toEqual({
+      outcome: 'cancelled',
+      id: 'user-1',
+    });
+    expect(authRepository.cancelMemberRemoval).toHaveBeenCalledWith('tenant-1', 'user-1');
+  });
+
+  it('anonymizeUser passes through to the repository', async () => {
+    authRepository.anonymizeUser.mockResolvedValue({ outcome: 'anonymized' });
+
+    await expect(target.anonymizeUser('user-1')).resolves.toEqual({ outcome: 'anonymized' });
+    expect(authRepository.anonymizeUser).toHaveBeenCalledWith('user-1');
   });
 
   it('findMemberInviteEmailByTokenHash passes through to the repository', async () => {

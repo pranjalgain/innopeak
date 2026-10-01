@@ -1,6 +1,6 @@
 import type { Response } from 'express';
 
-import { buildCookieOptions } from './cookie-options.util';
+import { buildCookieOptions, buildSessionHintCookieOptions } from './cookie-options.util';
 
 import {
   ACCESS_TOKEN_COOKIE_PATH,
@@ -19,7 +19,8 @@ import {
  * never drift on cookie shape.
  *
  * Just two cookies: `admin_access_token` (the credential) and `session=admin` (the routing hint
- * `proxy.ts` reads). Unlike the pre-split version of this function, there is nothing to *clear*
+ * `proxy.ts` and the frontend's client-side route guards both read — see
+ * `buildSessionHintCookieOptions`). Unlike the pre-split version of this function, there is nothing to *clear*
  * here — `admin_access_token` is its own cookie name, so a tenant session's own
  * `access_token`/`refresh_token` cookies simply cannot collide with it. (Logging out still clears
  * this cookie too, from the shared `POST /v1/auth/logout` — see `AuthController.clearSessionCookies`.)
@@ -35,6 +36,6 @@ export function setAdminSessionCookies(res: Response, accessToken: string): void
     SESSION_HINT_ADMIN_VALUE,
     // No refresh token to extend it, unlike a tenant's — the hint can't outlive the one thing
     // that can actually revive this session, so it shares the access token's own TTL.
-    buildCookieOptions(SESSION_HINT_COOKIE_PATH, ACCESS_TOKEN_TTL_SECONDS)
+    buildSessionHintCookieOptions(SESSION_HINT_COOKIE_PATH, ACCESS_TOKEN_TTL_SECONDS)
   );
 }

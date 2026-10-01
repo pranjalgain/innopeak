@@ -1,6 +1,6 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
-import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth-user.type';
+import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth.type';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { AdminStatisticsDbService } from '@db/repositories/admin-statistics/admin-statistics.db-service';
 import { ForbiddenException } from '@nestjs/common';

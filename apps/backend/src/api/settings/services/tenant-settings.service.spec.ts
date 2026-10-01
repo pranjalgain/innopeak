@@ -8,7 +8,7 @@ import { Test } from '@nestjs/testing';
 import { TenantSettingsService } from './tenant-settings.service';
 
 import { JwtTokenType } from '../../auth/enums/jwt-token-type.enum';
-import type { TenantAuthUser } from '../../auth/types/auth-user.type';
+import type { TenantAuthUser } from '../../auth/types/auth.type';
 
 describe('TenantSettingsService', () => {
   let target: TenantSettingsService;

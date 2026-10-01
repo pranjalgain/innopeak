@@ -2,7 +2,7 @@ import { MESSAGES } from '@common/constants/messages.constants';
 
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { TenantOnlyException } from '../exceptions/auth.exceptions';
-import type { AuthUser, TenantAuthUser } from '../types/auth-user.type';
+import type { AuthUser, TenantAuthUser } from '../types/auth.type';
 
 /**
  * Narrows `@CurrentUser()`'s `AuthUser` to a `TenantAuthUser`, for any handler whose work is

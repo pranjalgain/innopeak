@@ -22,6 +22,7 @@ export interface ReviewResponseItemDto {
   status: ReviewResponseItemDtoStatusEnum;
   createdByUserId?: object | null;
   approvedByUserId?: object | null;
+  rejectedByUserId?: object | null;
   createdAt: string;
   decidedAt?: object | null;
   postedAt?: object | null;

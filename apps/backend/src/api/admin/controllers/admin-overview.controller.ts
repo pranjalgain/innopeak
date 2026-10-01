@@ -1,7 +1,7 @@
 import { CurrentUser } from '@auth/decorators/current-user.decorator';
 import { Roles } from '@auth/decorators/roles.decorator';
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';
@@ -11,8 +11,12 @@ import { ApiTags } from '@nestjs/swagger';
 import { AdminBusinessResponseDto } from '../dto/admin-business-response.dto';
 import { AdminOverviewStatsResponseDto } from '../dto/admin-overview-stats-response.dto';
 import { AdminSignupTrendPointResponseDto } from '../dto/admin-signup-trend-point-response.dto';
+import { ListPlatformActivityQueryDto } from '../dto/list-platform-activity-query.dto';
 import { NeedsAttentionQueryDto } from '../dto/needs-attention-query.dto';
-import { PlatformActivityResponseDto } from '../dto/platform-activity-response.dto';
+import {
+  PlatformActivityListResponseDto,
+  PlatformActivityResponseDto,
+} from '../dto/platform-activity-response.dto';
 import { RecentActivityQueryDto } from '../dto/recent-activity-query.dto';
 import { RecentBusinessesQueryDto } from '../dto/recent-businesses-query.dto';
 import { SignupTrendQueryDto } from '../dto/signup-trend-query.dto';
@@ -23,6 +27,7 @@ import {
   ApiGetRecentActivity,
   ApiGetRecentBusinesses,
   ApiGetSignupTrend,
+  ApiListPlatformActivity,
 } from '../swagger/admin-overview.swagger';
 
 @Controller({ path: RouteNames.ADMIN_OVERVIEW, version: '1' })
@@ -77,6 +82,16 @@ export class AdminOverviewController {
     @Query() query: RecentActivityQueryDto
   ): Promise<ApiResponseDto<PlatformActivityResponseDto[]>> {
     const result = await this.adminOverviewService.getRecentActivity(user, query.limit);
+    return ResponseUtil.success(result, undefined, HttpStatus.OK);
+  }
+
+  @Get(RouteNames.ADMIN_OVERVIEW_ACTIVITY_LOG)
+  @ApiListPlatformActivity()
+  async listActivity(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListPlatformActivityQueryDto
+  ): Promise<ApiResponseDto<PlatformActivityListResponseDto>> {
+    const result = await this.adminOverviewService.listActivity(user, query);
     return ResponseUtil.success(result, undefined, HttpStatus.OK);
   }
 }

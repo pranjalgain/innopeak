@@ -2,7 +2,8 @@ import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import { DrizzleTransaction } from '@db/db.service';
 import { Injectable } from '@nestjs/common';
 
-import { BillingPlanRow, BillingPlansRepository } from './billing-plans.repository';
+import { BillingPlansRepository } from './billing-plans.repository';
+import type { BillingPlanRow } from './types/billing.type';
 
 @Injectable()
 export class BillingPlansDbService {

@@ -4,6 +4,7 @@ import { dashboardApi } from "@/app/_libs/api-sdk/dashboard-api";
 import { unwrap } from "@/app/_libs/services/api-error";
 import type {
   AttentionReview,
+  DashboardMetrics,
   DashboardStats,
   DateRange,
   RatingDistributionRow,
@@ -23,19 +24,23 @@ const RANGE_DAYS: Record<DateRange, number> = { "7d": 7, "30d": 30, "90d": 90 };
  */
 export class DashboardService {
   /**
-   * `metrics` now carries the rating distribution too — `getStats`/`getRatingDistribution` used
-   * to be two round trips for the same `days` window; callers that need both should share one
-   * `getMetrics` call rather than each hitting the endpoint separately.
+   * `metrics` carries the rating distribution too — `getStats`/`getRatingDistribution` used to be
+   * two round trips for the same `days` window; one fetch here derives both domain views the
+   * dashboard needs, so the raw generated-SDK `MetricsDto` never has to leave this class.
    */
-  static async getMetrics(range: DateRange, locationId?: string): Promise<MetricsDto> {
+  static async getMetrics(range: DateRange, locationId?: string): Promise<DashboardMetrics> {
     const response = await dashboardApi.dashboardControllerGetMetricsV1({
       days: RANGE_DAYS[range],
       locationId,
     });
-    return unwrap<MetricsDto>(response.data);
+    const metrics = unwrap<MetricsDto>(response.data);
+    return {
+      stats: this.toStats(range, metrics),
+      ratingDistribution: this.toRatingDistribution(metrics),
+    };
   }
 
-  static toStats(range: DateRange, metrics: MetricsDto): DashboardStats {
+  private static toStats(range: DateRange, metrics: MetricsDto): DashboardStats {
     return {
       range,
       reviewCount: metrics.total,
@@ -46,7 +51,7 @@ export class DashboardService {
     };
   }
 
-  static toRatingDistribution(metrics: MetricsDto): RatingDistributionRow[] {
+  private static toRatingDistribution(metrics: MetricsDto): RatingDistributionRow[] {
     const { ratingDistribution } = metrics;
 
     // `percentage` is relative to the largest bucket, not to the total — it drives the bar width,

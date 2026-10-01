@@ -1,6 +1,7 @@
 {
   "marketing": {
     "nav": {
+      "ariaLabel": "Primary navigation",
       "features": "Features",
       "howItWorks": "How it works",
       "signIn": "Sign in",
@@ -109,6 +110,7 @@
       "button": "Get started"
     },
     "footer": {
+      "ariaLabel": "Footer",
       "tagline": "AI-assisted replies for Google Business Profile reviews — always reviewed by a human before they go out.",
       "signIn": "Sign in",
       "getStarted": "Get started",
@@ -124,8 +126,9 @@
     "overview": "Overview",
     "businesses": "Businesses",
     "users": "Users",
-    "settings": "Settings",
-    "billing": "Billing"
+    "billing": "Billing",
+    "activity": "Activity",
+    "settings": "Settings"
   },
   "appShell": {
     "notifications": "Notifications",
@@ -162,7 +165,8 @@
   },
   "businessSwitcher": {
     "label": "Switch business",
-    "switchFailed": "Could not switch your active business. Please try again."
+    "switchFailed": "Could not switch your active business. Please try again.",
+    "switchForbidden": "Only the business owner can switch the active location."
   },
   "auth": {
     "login": {
@@ -622,7 +626,8 @@
         "avatarUpdated": "Profile picture updated.",
         "passwordChanged": "Password changed. Other sessions have been signed out.",
         "passwordSet": "Password set. You can now also sign in with a password.",
-        "otpSent": "Verification code sent. Check your email to continue."
+        "otpSent": "Verification code sent. Check your email to continue.",
+        "tooManyRequests": "Too many attempts. Please wait a minute and try again."
       },
       "errors": {
         "currentPasswordRequired": "Enter your current password.",
@@ -643,7 +648,9 @@
       "emailPlaceholder": "name@company.com",
       "inviteButton": "Invite",
       "revoke": "Revoke",
+      "remove": "Remove",
       "cancel": "Cancel",
+      "cancelRemoval": "Cancel removal",
       "empty": "No team members yet.",
       "role": {
         "owner": "Owner",
@@ -655,16 +662,28 @@
         "pending_verification": "Pending",
         "disabled": "Disabled"
       },
+      "removalPending": "Removal takes effect on {date}",
       "confirmRevoke": {
         "title": "Revoke invite for {name}?",
         "description": "This invite link will stop working immediately."
+      },
+      "confirmRemove": {
+        "title": "Remove {name}?",
+        "description": "They lose access immediately. Their data is permanently erased after the grace period unless you cancel before then."
+      },
+      "confirmCancelRemoval": {
+        "title": "Cancel removal for {name}?",
+        "description": "They keep their access — nothing was erased yet."
       },
       "toasts": {
         "loadFailed": "Could not load team members.",
         "invited": "Invite sent to {email}.",
         "inviteFailed": "Could not send this invite. Please try again.",
         "revoked": "Invite revoked.",
-        "revokeFailed": "Could not revoke this invite. Please try again."
+        "revokeFailed": "Could not revoke this invite. Please try again.",
+        "requestRemovalFailed": "Could not remove this member. Please try again.",
+        "removalCancelled": "Removal cancelled — this member keeps their access.",
+        "cancelRemovalFailed": "Could not cancel this removal. Please try again."
       },
       "errors": {
         "emailInvalid": "Enter a valid email address to invite."
@@ -672,6 +691,7 @@
     },
     "toasts": {
       "loadFailed": "Could not load settings.",
+      "forbidden": "Only the business owner can change these settings.",
       "saveFailed": "Could not update the blocklist.",
       "generalSaveFailed": "Could not save general settings.",
       "generalSaved": "Settings saved.",
@@ -851,6 +871,7 @@
     },
     "toasts": {
       "loadFailed": "Could not load prompts.",
+      "accessDenied": "Only the business owner can manage prompts.",
       "saveFailed": "Could not save this prompt. Please try again.",
       "versionSaved": "Saved as v{version}.",
       "toneUpdated": "Tone updated."
@@ -897,13 +918,17 @@
         "business_joined": "New business \"{businessName}\" signed up",
         "business_suspended": "Suspended {businessName}",
         "business_reactivated": "Reactivated {businessName}",
+        "business_erasure_requested": "Requested erasure of {businessName}",
+        "business_erasure_cancelled": "Cancelled erasure of {businessName}",
+        "business_erased": "Erased {businessName}",
         "admin_invite_sent": "Invited {email} as a platform admin",
         "admin_invite_revoked": "Revoked the invite for {email}",
         "admin_disabled": "Disabled admin {email}",
         "admin_enabled": "Enabled admin {email}",
         "user_activated": "Reactivated {email} at {businessName}",
         "user_deactivated": "Deactivated {email} at {businessName}"
-      }
+      },
+      "viewAll": "Show more →"
     },
     "toasts": {
       "loadFailed": "Could not load the overview."
@@ -975,7 +1000,20 @@
     "webhookEvents": {
       "title": "Recent webhook activity",
       "subtitle": "The latest Stripe events this app has processed",
-      "empty": "No webhook events yet."
+      "empty": "No webhook events yet.",
+      "noResults": "No events match this filter.",
+      "unknownBusiness": "Unknown business",
+      "filters": {
+        "label": "Filter",
+        "all": "All events",
+        "eventTypes": {
+          "checkoutSessionCompleted": "Checkout completed",
+          "subscriptionUpdated": "Subscription updated",
+          "subscriptionDeleted": "Subscription deleted",
+          "invoicePaymentFailed": "Invoice payment failed",
+          "invoicePaymentSucceeded": "Invoice payment succeeded"
+        }
+      }
     },
     "toasts": {
       "loadFailed": "Could not load billing."
@@ -993,11 +1031,15 @@
     },
     "status": {
       "active": "Active",
-      "suspended": "Suspended"
+      "suspended": "Suspended",
+      "erased": "Erased"
     },
     "suspend": "Suspend",
     "reactivate": "Reactivate",
     "cancel": "Cancel",
+    "requestErasure": "Request erasure",
+    "cancelErasure": "Cancel erasure",
+    "erasurePending": "Erasure takes effect on {date}",
     "confirmSuspend": {
       "title": "Suspend {name}?",
       "description": "They'll immediately lose access to their dashboard. You can reactivate them at any time."
@@ -1005,6 +1047,14 @@
     "confirmReactivate": {
       "title": "Reactivate {name}?",
       "description": "They'll regain access to their dashboard right away."
+    },
+    "confirmRequestErasure": {
+      "title": "Request erasure of {name}?",
+      "description": "Every user in this business loses access now. Their data is permanently erased after the grace period unless you cancel before then."
+    },
+    "confirmCancelErasure": {
+      "title": "Cancel erasure of {name}?",
+      "description": "This business is restored to active — nothing was erased yet."
     },
     "emptyState": {
       "title": "No businesses yet",
@@ -1018,7 +1068,9 @@
     "searchPlaceholder": "Search by name or owner…",
     "toasts": {
       "loadFailed": "Could not load businesses.",
-      "updateFailed": "Could not update this business. Please try again."
+      "updateFailed": "Could not update this business. Please try again.",
+      "requestErasureFailed": "Could not request erasure for this business. Please try again.",
+      "cancelErasureFailed": "Could not cancel erasure for this business. Please try again."
     }
   },
   "adminUsers": {
@@ -1235,6 +1287,46 @@
     "unauthorized": {
       "title": "Unauthorized",
       "description": "You need to be signed in to view this page."
+    }
+  },
+  "notFound": {
+    "eyebrow": "Route unavailable",
+    "title": "Page not found",
+    "description": "This route does not exist, or it may have moved while the product evolved.",
+    "backToHome": "Back to the homepage"
+  },
+  "loading": {
+    "ariaLabel": "Loading content",
+    "preparingWorkspace": "Preparing your workspace",
+    "pleaseWait": "Loading, please wait…"
+  },
+  "adminActivity": {
+    "tabs": {
+      "platformActivity": "Platform activity",
+      "webhookActivity": "Webhook activity"
+    },
+    "platformActivityLog": {
+      "title": "Activity",
+      "subtitle": "Platform-admin actions — business suspend/reactivate, admin invites, member status changes",
+      "empty": "No activity yet."
+    },
+    "filters": {
+      "label": "Filter",
+      "all": "All activity",
+      "noResults": "No activity matches this filter.",
+      "types": {
+        "business_suspended": "Business suspended",
+        "business_reactivated": "Business reactivated",
+        "business_erasure_requested": "Business erasure requested",
+        "business_erasure_cancelled": "Business erasure cancelled",
+        "business_erased": "Business erased",
+        "admin_invite_sent": "Admin invite sent",
+        "admin_invite_revoked": "Admin invite revoked",
+        "admin_disabled": "Admin disabled",
+        "admin_enabled": "Admin enabled",
+        "user_activated": "User activated",
+        "user_deactivated": "User deactivated"
+      }
     }
   }
 }

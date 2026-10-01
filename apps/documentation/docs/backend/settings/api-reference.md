@@ -7,11 +7,15 @@ sidebar_position: 2
 ## How to read this document
 
 This document is the **target/spec design** for the settings HTTP surface. **Blocklist
-`GET`/`POST`/`DELETE /v1/settings/blocklist-terms` and the `tenant_settings` singleton
-`GET`/`PUT /v1/settings` are implemented** (`src/api/settings/`). Tenant profile,
-notification-recipients, and blocklist `PATCH` are still spec only — see the overview's
+`GET`/`POST`/`DELETE /v1/settings/blocklist-terms`, the `tenant_settings` singleton
+`GET`/`PUT /v1/settings`, and the whole Team members surface — `GET`/`POST
+/v1/settings/members`, `DELETE /v1/settings/members/:memberId`, and the two removal routes
+`POST /v1/settings/members/:memberId/request-removal` / `POST
+/v1/settings/members/:memberId/cancel-removal` — are implemented** (`src/api/settings/`). Tenant
+profile, notification-recipients, and blocklist `PATCH` are still spec only — see the overview's
 [Gap](./overview.md#gap-between-current-code-and-target-design). The tables (`tenant_settings`,
-`blocklist_terms`, `notification_recipients`) are migrated.
+`blocklist_terms`, `notification_recipients`) are migrated; Team members has no table of its own —
+it reads and writes `users`, owned by the auth module (`src/db/repositories/auth/`).
 
 It assumes you have read [Settings Module — Overview](./overview.md) for the data model, the
 downstream consumers of each setting, and the MVP-scope boundaries; this document turns those into
@@ -79,6 +83,11 @@ workflow only … **no Settings access**." That translates into one rule with on
   sees. It exposes only the business's own public-facing profile — nothing configuration-shaped.
 - **`PATCH /v1/tenant` requires `@Roles('owner')`.** Renaming the business is a settings action
   that happens to live on a different path.
+- **Every route under `/v1/settings/members` requires `@Roles('owner')`, with no exception.**
+  `PLAN.md` §2's own wording for the owner role is "full tenant access … inviting/removing
+  users" — team management is the literal thing that sentence is describing. A `member` cannot
+  list the roster, invite a teammate, revoke an invite, or request/cancel another member's
+  removal; there is no read-only carve-out here the way `GET /v1/tenant` has one.
 
 **Enforcement is entirely backend-side today.** The web app has no role gating anywhere: grepping
 `apps/web/src` for `role` returns only `[role=checkbox]` CSS selectors in
@@ -753,6 +762,224 @@ Success `200`:
 
 Errors: `401`, `403` (member), `404 RECIPIENT_NOT_FOUND`, `500`.
 
+## Team members
+
+| Method | Path | Auth |
+|---|---|---|
+| `GET` | `/v1/settings/members` | Bearer, `@Roles('owner')` |
+| `POST` | `/v1/settings/members` | Bearer, `@Roles('owner')` |
+| `DELETE` | `/v1/settings/members/:memberId` | Bearer, `@Roles('owner')` |
+| `POST` | `/v1/settings/members/:memberId/request-removal` | Bearer, `@Roles('owner')` |
+| `POST` | `/v1/settings/members/:memberId/cancel-removal` | Bearer, `@Roles('owner')` |
+
+The tenant-owner-facing roster: invite a teammate, revoke a pending invite, and — the two routes
+this pass adds — request or cancel the removal of an already-accepted member. There is no `tenant
+_member_invites` table: an invite's token lives on `password_reset_tokens` (`purpose = 'invite'`),
+and the invited person is a real `users` row from the moment the invite is sent
+(`status = 'invited'`), not a separate pending record — see
+`apps/documentation/docs/backend/auth/tenant-member-invite-design.md` for why. This module reads
+and writes that same `users` row through `AuthRepository`/`AuthDbService` (`src/db/repositories/
+auth/`) — there is no settings-local member repository, since the auth module already owns `users`.
+
+Every route in this section requires `@Roles('owner')` with no exception — see [Role
+requirements](#role-requirements). Accepting an invite (by password or Google SSO) is a `@Public()`
+route on the auth module, not here — the invitee has no session yet, so it cannot live behind this
+controller's guard. See [Auth Module — API Reference](../auth/api-reference.md) for
+`POST /v1/auth/invite/accept` and `GET /v1/auth/invite/:token/google`.
+
+### `GET /v1/settings/members`
+
+Lists the tenant's roster — every non-anonymized `users` row for the tenant, owner and members and
+pending invites alike. Backs the Team tab's member list.
+
+Success `200`:
+
+```json
+{
+  "items": [
+    {
+      "id": "0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f",
+      "name": "Maria Delgado",
+      "email": "maria@thecoastaltable.com",
+      "role": "owner",
+      "status": "active",
+      "invitedAt": "2026-02-01T09:00:00.000Z",
+      "erasureRequestedAt": null
+    },
+    {
+      "id": "0190f3c9-5b7e-7d2a-8a44-2f6a5c8d1e04",
+      "name": "sam.rivera@thecoffeehouse.com",
+      "email": "sam.rivera@thecoffeehouse.com",
+      "role": "member",
+      "status": "invited",
+      "invitedAt": "2026-03-01T09:12:00.000Z",
+      "erasureRequestedAt": null
+    }
+  ]
+}
+```
+
+| Field | Type | Source |
+|---|---|---|
+| `items[].id` | string (uuid) | `users.id` |
+| `items[].name` | string | `users.name` — before an invite is accepted this is the invited email address, since the invitee chooses their own display name on the accept screen, not the owner on the invite form |
+| `items[].email` | string | `users.email` |
+| `items[].role` | enum | `users.role` (`owner` \| `member`) |
+| `items[].status` | enum | `users.status` (`user_status`: `invited` \| `pending_verification` \| `active` \| `disabled`) |
+| `items[].invitedAt` | string (ISO 8601) | `users.created_at` — the owner's own row (created at signup, never invited) uses its own `createdAt` under the same field name |
+| `items[].erasureRequestedAt` | string (ISO 8601) \| null | `users.erasure_requested_at` — set once removal has been requested for this member, `null` means no removal is pending. Combine with `ERASURE_GRACE_PERIOD_DAYS` to show when it takes effect |
+
+Errors: `401`, `403` (member), `500`.
+
+### `POST /v1/settings/members`
+
+Invites a teammate by email. Backs the Team tab's invite form.
+
+Refused up front, before any DB write, in two independent ways: `403 MEMBER_INVITES_DISABLED` if
+the platform-wide `platform_settings.invite_members_enabled` switch is off, and
+`403 TEAM_MEMBER_LIMIT_REACHED` if this tenant's plan has hit its team-member cap
+(`BillingEntitlementsService.canInviteTeamMember`) — two different exceptions on purpose, since the
+frontend shows different upsell copy for each ("invites are off for this platform" vs. "your plan
+caps team members at N").
+
+`email` is checked against the **global** `idx_users_email_active` unique index, not a tenant-scoped
+one — one non-anonymized account per email address across the whole product, so an address already
+claimed by this tenant's own owner, a member of an unrelated tenant, or a self-signed-up account is
+refused before the insert rather than surfacing as a raw `23505`. A **lapsed** invite (still
+`status = 'invited'` but past its 7-day token expiry, or with no token row left at all — the nightly
+token-cleanup sweep purges expired invite tokens while leaving the `users` row behind) is not
+treated as a live claim: re-inviting deletes the stale row and its token, then proceeds as a fresh
+invite. A still-live invite is `409 MEMBER_EMAIL_ALREADY_INVITED`; an address that belongs to an
+already-active account anywhere is `409 EMAIL_ALREADY_REGISTERED`.
+
+Request:
+
+```json
+{
+  "email": "sam.rivera@thecoffeehouse.com"
+}
+```
+
+| Field | Type | Rules |
+|---|---|---|
+| `email` | string | required, valid email, normalized (case/whitespace) before comparison |
+
+Success `201` — the new roster row, same shape as one `items[]` entry from `GET` above:
+
+```json
+{
+  "id": "0190f3c9-5b7e-7d2a-8a44-2f6a5c8d1e04",
+  "name": "sam.rivera@thecoffeehouse.com",
+  "email": "sam.rivera@thecoffeehouse.com",
+  "role": "member",
+  "status": "invited",
+  "invitedAt": "2026-03-01T09:12:00.000Z",
+  "erasureRequestedAt": null
+}
+```
+
+Errors: `400` validation, `401`, `403` (member), `403 MEMBER_INVITES_DISABLED`,
+`403 TEAM_MEMBER_LIMIT_REACHED`, `409 MEMBER_EMAIL_ALREADY_INVITED`, `409 EMAIL_ALREADY_REGISTERED`,
+`500`.
+
+### `DELETE /v1/settings/members/:memberId`
+
+Revokes a **pending invite** — not a general "remove this member" route. Backs the roster row's
+revoke action while `status = 'invited'`.
+
+The two failure modes answer differently on purpose: an unknown id is `404`, while an id that
+exists but is no longer `invited` (already accepted) is `409` — the member is still visible in the
+roster, so "not found" would describe something the owner can plainly see is there. To remove an
+already-accepted member, use [`POST .../request-removal`](#post-v1settingsmembersmemberidrequest-removal)
+below instead — this route never touches an active member.
+
+No request body.
+
+| Field | Type | Rules |
+|---|---|---|
+| `memberId` (path) | string (uuid) | required, must be a `users` row belonging to the caller's tenant |
+
+Success `200`:
+
+```json
+{
+  "message": "Invite revoked."
+}
+```
+
+Errors: `401`, `403` (member), `404 MEMBER_NOT_FOUND`, `409 MEMBER_INVITE_NOT_REVOCABLE`, `500`.
+
+### `POST /v1/settings/members/:memberId/request-removal`
+
+Requests removal of an already-accepted team member. Backs the roster row's "Remove" action once a
+member is no longer just a pending invite.
+
+**Revokes access immediately, defers the actual data erasure.** On success the target's
+`status` flips to `disabled` (they can no longer sign in) and `erasure_requested_at` is set to
+`now()` — nothing is anonymized yet. A separate nightly cron job (`CronJobName.ERASURE_PURGE` —
+see [Review pipeline — Retention and erasure
+jobs](../review-pipeline/overview.md#retention-and-erasure-jobs)) anonymizes the member's `name`/
+`email`/`password_hash` once `ERASURE_GRACE_PERIOD_DAYS` (default 21) has elapsed, unless the owner
+cancels first via the route below.
+
+Two guards refuse the request outright, before any row is touched:
+
+- **`memberId === ` the caller's own id → `400 CANNOT_REMOVE_SELF`.** An owner never removes
+  themself through this flow — checked first, with no DB round trip, since it needs no lock or
+  last-owner count.
+- **The target is this tenant's last remaining owner → `400 CANNOT_REMOVE_LAST_OWNER`.** Counted
+  under a per-tenant advisory lock (`pg_advisory_xact_lock(hashtext('tenants:owner-guard'),
+  hashtext(tenantId))`) so two concurrent removal requests against a tenant's last two owners can't
+  both read "at least one other owner exists" and both succeed, leaving the tenant ownerless. The
+  lock is keyed per-tenant (mirroring `ConnectionsRepository.acquireLocationConfirmLock`'s and
+  `TenantSubscriptionsRepository.acquireCheckoutLock`'s existing per-tenant lock shape), so two
+  unrelated tenants' removal requests never serialize against each other.
+
+No request body.
+
+| Field | Type | Rules |
+|---|---|---|
+| `memberId` (path) | string (uuid) | required, must be a `users` row belonging to the caller's tenant |
+
+Success `200` — the response message interpolates the configured grace period so the owner sees
+exactly how long they have to change their mind:
+
+```json
+{
+  "message": "Removal requested. This member loses access now, and their data is permanently erased in 21 days unless you cancel first."
+}
+```
+
+Errors: `401`, `403` (member), `400 CANNOT_REMOVE_SELF`, `400 CANNOT_REMOVE_LAST_OWNER`,
+`404 MEMBER_NOT_FOUND`, `500`.
+
+### `POST /v1/settings/members/:memberId/cancel-removal`
+
+Undoes `request-removal` — a clean, full undo, since nothing is anonymized until the grace period
+actually elapses. Restores `status = 'active'` and clears `erasure_requested_at`.
+
+The fallback existence-check that distinguishes the two error cases below also excludes
+already-anonymized rows: if the nightly purge already ran for this member (`anonymized_at` set)
+before the owner clicked cancel, this resolves to `404 MEMBER_NOT_FOUND` rather than the misleading
+`409 MEMBER_REMOVAL_NOT_PENDING` — there is no pending removal left to cancel because the member is
+already gone, not because the request was never made.
+
+No request body.
+
+| Field | Type | Rules |
+|---|---|---|
+| `memberId` (path) | string (uuid) | required, must be a `users` row belonging to the caller's tenant |
+
+Success `200`:
+
+```json
+{
+  "message": "Removal cancelled — this member keeps their access."
+}
+```
+
+Errors: `401`, `403` (member), `404 MEMBER_NOT_FOUND`, `409 MEMBER_REMOVAL_NOT_PENDING`, `500`.
+
 ## Error reference
 
 Every error uses the standard error envelope — see [Auth Module — API
@@ -771,6 +998,15 @@ below; `error` is the category string the frontend branches on.
 | `404` | `BLOCKLIST_TERM_NOT_FOUND` | `PATCH`/`DELETE /v1/settings/blocklist-terms/:id` | No such term **for this tenant**. Also returned for a term that exists under a different tenant — `403` there would confirm the id exists. |
 | `404` | `RECIPIENT_NOT_FOUND` | `PATCH`/`DELETE /v1/settings/notification-recipients/:id` | Same rule, for `notification_recipients.id`. |
 | `404` | `USER_NOT_FOUND` | `POST /v1/settings/notification-recipients` | `userId` is not a `users` row in the caller's tenant. Same non-confirmation reasoning. |
+| `400` | `CANNOT_REMOVE_SELF` | `POST /v1/settings/members/:memberId/request-removal` | `memberId` is the caller's own id — an owner never removes themself through this flow. |
+| `400` | `CANNOT_REMOVE_LAST_OWNER` | `POST /v1/settings/members/:memberId/request-removal` | The target is this tenant's last remaining owner (`role='owner' AND anonymized_at IS NULL`), counted under a per-tenant advisory lock. |
+| `403` | `MEMBER_INVITES_DISABLED` | `POST /v1/settings/members` | The platform-wide `platform_settings.invite_members_enabled` switch is off. |
+| `403` | `TEAM_MEMBER_LIMIT_REACHED` | `POST /v1/settings/members` | This tenant's plan has hit its team-member cap (`BillingEntitlementsService.canInviteTeamMember`). |
+| `404` | `MEMBER_NOT_FOUND` | `DELETE /v1/settings/members/:memberId`, `POST .../request-removal`, `POST .../cancel-removal` | No such `users` row for this tenant — or, for cancel-removal specifically, a row that exists but was already anonymized by the nightly purge (deliberately collapsed into the same `404`, not a misleading `409`). |
+| `409` | `MEMBER_EMAIL_ALREADY_INVITED` | `POST /v1/settings/members` | This email already has a live, unexpired pending invite. |
+| `409` | `EMAIL_ALREADY_REGISTERED` | `POST /v1/settings/members` | This email belongs to an already-active account anywhere in the product (global `idx_users_email_active`). |
+| `409` | `MEMBER_INVITE_NOT_REVOCABLE` | `DELETE /v1/settings/members/:memberId` | The id exists but is no longer `invited` (already accepted) — nothing left to revoke. |
+| `409` | `MEMBER_REMOVAL_NOT_PENDING` | `POST /v1/settings/members/:memberId/cancel-removal` | The target has no pending removal (`erasure_requested_at IS NULL`) to cancel. |
 | `409` | `BLOCKLIST_TERM_EXISTS` | `POST /v1/settings/blocklist-terms`, `PATCH /v1/settings/blocklist-terms/:id` | `lower(term)` collides with an existing row (`idx_blocklist_terms_tenant_id_lower_term`). `POST` has no reactivation path — removal is a hard `DELETE`, so every collision is a `409`. |
 | `409` | `RECIPIENT_ALREADY_EXISTS` | `POST /v1/settings/notification-recipients` | This user is already a recipient for this `notification_type`. Application-enforced until the unique index above is migrated, and therefore racy under concurrent submits. |
 | `429` | `Too Many Requests` | Every route | The global `short` tier (30 / minute) — this module sets no per-route override. |

@@ -1,5 +1,6 @@
 import { useFormatter, useTranslations } from "next-intl";
 
+import { cn } from "@/app/_libs/utils/cn";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ConnectionHealth } from "@/types/domain";
 
@@ -33,7 +34,7 @@ export function ConnectionHealthCard({ health }: ConnectionHealthCardProps) {
           ROWS.map((row) => (
             <div key={row.key} className="flex items-center justify-between gap-3 py-1">
               <span className="flex items-center gap-2 text-sm">
-                <span className={`size-2 shrink-0 rounded-full ${row.dotClassName}`} />
+                <span className={cn("size-2 shrink-0 rounded-full", row.dotClassName)} />
                 {t(row.key)}
               </span>
               <span className="text-sm tabular-nums text-muted-foreground">

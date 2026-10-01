@@ -1,4 +1,4 @@
-import type { AdminOverviewStats } from '@db/repositories/admin-overview/admin-overview.db-service';
+import type { AdminOverviewStats } from '@db/repositories/admin-overview/types/admin-overview.type';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class AdminOverviewStatsResponseDto {

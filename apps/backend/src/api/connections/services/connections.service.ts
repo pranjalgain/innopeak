@@ -1,4 +1,4 @@
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { MESSAGES } from '@common/constants/messages.constants';
@@ -8,14 +8,14 @@ import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { EnvConfig } from '@config/env.config';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import {
-  type ConfirmLocationResult,
   ConnectionsDbService,
   LocationLimitExceededError,
 } from '@db/repositories/connections/connections.db-service';
 import type {
+  ConfirmLocationResult,
   LocationRow,
   ProviderConnectionRow,
-} from '@db/repositories/connections/connections.repository';
+} from '@db/repositories/connections/types/connections.type';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';

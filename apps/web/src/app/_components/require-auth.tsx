@@ -34,8 +34,7 @@ interface RequireAuthProps {
  * exists to prevent, just re-created one layer up if this component doesn't agree with it.
  */
 export function RequireAuth({ children, loadingFallback = null }: RequireAuthProps) {
-  // `reviveMissing`: a Google sign-in lands here with real cookies but empty localStorage.
-  const { hasToken, tokenType } = useAuthToken({ reviveMissing: true });
+  const { hasToken, tokenType } = useAuthToken();
   const isWrongType = hasToken === true && tokenType !== null && tokenType !== "tenant_user";
 
   useEffect(() => {

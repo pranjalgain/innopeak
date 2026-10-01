@@ -47,6 +47,9 @@ export class CronProcessor extends WorkerHost {
         case CronJobName.REVIEWER_RETENTION_PURGE:
           await this.cronService.purgeExpiredReviewerPii();
           break;
+        case CronJobName.ERASURE_PURGE:
+          await this.cronService.purgeErasureRequests();
+          break;
         default: {
           // Exhaustiveness check: a new CronJobName member left unhandled here fails the build.
           const unhandled: never = job.name;

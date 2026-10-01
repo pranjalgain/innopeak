@@ -6,7 +6,7 @@ import { eq, sql } from 'drizzle-orm';
 import type {
   TenantSettingsRecord,
   TenantSettingsWrite,
-} from '../../../api/settings/types/tenant-settings.type';
+} from '../../../api/settings/types/settings.type';
 
 @Injectable()
 export class TenantSettingsRepository {

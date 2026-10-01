@@ -2,7 +2,7 @@
 
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { motion } from "motion/react";
-import * as React from "react";
+import { type ComponentProps, createContext, useContext, useId, useState } from "react";
 
 
 import { cn } from "@/app/_libs/utils/cn";
@@ -15,7 +15,7 @@ interface TabsIndicatorContextValue {
   indicatorId: string;
 }
 
-const TabsIndicatorContext = React.createContext<TabsIndicatorContextValue | null>(null);
+const TabsIndicatorContext = createContext<TabsIndicatorContextValue | null>(null);
 
 function Tabs({
   className,
@@ -23,9 +23,9 @@ function Tabs({
   defaultValue,
   onValueChange,
   ...props
-}: React.ComponentProps<typeof TabsPrimitive.Root>) {
-  const indicatorId = React.useId();
-  const [uncontrolledValue, setUncontrolledValue] = React.useState(defaultValue);
+}: ComponentProps<typeof TabsPrimitive.Root>) {
+  const indicatorId = useId();
+  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
   const activeValue = value ?? uncontrolledValue;
 
   return (
@@ -45,7 +45,7 @@ function Tabs({
   );
 }
 
-function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.List>) {
+function TabsList({ className, ...props }: ComponentProps<typeof TabsPrimitive.List>) {
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
@@ -63,8 +63,8 @@ function TabsTrigger({
   value,
   children,
   ...props
-}: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
-  const context = React.useContext(TabsIndicatorContext);
+}: ComponentProps<typeof TabsPrimitive.Trigger>) {
+  const context = useContext(TabsIndicatorContext);
   const isActive = context?.activeValue === value;
 
   return (
@@ -99,7 +99,7 @@ function TabsTrigger({
   );
 }
 
-function TabsContent({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.Content>) {
+function TabsContent({ className, ...props }: ComponentProps<typeof TabsPrimitive.Content>) {
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"

@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { GoogleIdentityProvider } from './google-identity.provider';
 
 import { GOOGLE_AUTH } from '../constants/google-auth.constants';
-import type { GoogleIdentity } from '../types/google-identity.type';
+import type { GoogleIdentity } from '../types/auth.type';
 
 interface TokenResponse {
   access_token?: string;

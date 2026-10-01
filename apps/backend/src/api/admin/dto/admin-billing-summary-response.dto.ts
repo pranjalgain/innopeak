@@ -1,11 +1,10 @@
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import { toIsoString } from '@common/helpers/date.utils';
-import type { AdminBillingSummary } from '@db/repositories/admin-billing/admin-billing.db-service';
 import type {
+  AdminBillingSummary,
   AtRiskSubscriptionRow,
   UpgradeTrendPoint,
-  WebhookEventRow,
-} from '@db/repositories/admin-billing/admin-billing.repository';
+} from '@db/repositories/admin-billing/types/admin-billing.type';
 import { ApiProperty } from '@nestjs/swagger';
 
 /** Nested value objects for `AdminBillingSummaryResponseDto` — co-located rather than one file
@@ -58,25 +57,6 @@ export class AtRiskSubscriptionResponseDto {
   }
 }
 
-export class BillingWebhookEventResponseDto {
-  @ApiProperty({ example: 'evt_1UJ8pAPZYAmQ4L9BbRlyLvwZ', description: "Stripe's own event id." })
-  id!: string;
-
-  @ApiProperty({ example: 'checkout.session.completed' })
-  type!: string;
-
-  @ApiProperty({ example: '2026-09-24T09:27:54.169Z' })
-  processedAt!: string;
-
-  static from(row: WebhookEventRow): BillingWebhookEventResponseDto {
-    const dto = new BillingWebhookEventResponseDto();
-    dto.id = row.id;
-    dto.type = row.type;
-    dto.processedAt = toIsoString(row.processedAt);
-    return dto;
-  }
-}
-
 export class AdminBillingSummaryResponseDto {
   @ApiProperty({ example: 121, description: 'Tenants on the Free plan.' })
   freeCount!: number;
@@ -122,12 +102,6 @@ export class AdminBillingSummaryResponseDto {
   })
   atRisk!: AtRiskSubscriptionResponseDto[];
 
-  @ApiProperty({
-    type: [BillingWebhookEventResponseDto],
-    description: 'Most recently processed Stripe webhook deliveries, newest first, capped at 10.',
-  })
-  recentWebhookEvents!: BillingWebhookEventResponseDto[];
-
   static from(summary: AdminBillingSummary): AdminBillingSummaryResponseDto {
     const dto = new AdminBillingSummaryResponseDto();
     dto.freeCount = summary.freeCount;
@@ -139,9 +113,6 @@ export class AdminBillingSummaryResponseDto {
     dto.cancelingCount = summary.cancelingCount;
     dto.upgradeTrend = summary.upgradeTrend.map(point => UpgradeTrendPointResponseDto.from(point));
     dto.atRisk = summary.atRisk.map(row => AtRiskSubscriptionResponseDto.from(row));
-    dto.recentWebhookEvents = summary.recentWebhookEvents.map(row =>
-      BillingWebhookEventResponseDto.from(row)
-    );
     return dto;
   }
 }

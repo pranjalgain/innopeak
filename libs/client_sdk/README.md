@@ -51,6 +51,7 @@ All URIs are relative to *http://localhost*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
+*AIApi* | [**aiControllerGenerateDryRunReplyV1**](docs/AIApi.md#aicontrollergeneratedryrunreplyv1) | **POST** /v1/ai/dry-run | Generate an AI reply for a mock review (dry run)
 *AdminAuthApi* | [**platformAdminAuthControllerAcceptAdminInviteV1**](docs/AdminAuthApi.md#platformadminauthcontrolleracceptadmininvitev1) | **POST** /v1/admin/auth/invite/accept | Accept a platform-admin invite by setting a password
 *AdminAuthApi* | [**platformAdminAuthControllerGoogleLoginV1**](docs/AdminAuthApi.md#platformadminauthcontrollergoogleloginv1) | **GET** /v1/admin/auth/google | Start a platform-admin Google sign-in
 *AdminAuthApi* | [**platformAdminAuthControllerInviteGoogleAuthorizeV1**](docs/AdminAuthApi.md#platformadminauthcontrollerinvitegoogleauthorizev1) | **GET** /v1/admin/auth/invite/{token}/google | Accept a platform-admin invite via Google
@@ -58,13 +59,17 @@ Class | Method | HTTP request | Description
 *AdminAuthApi* | [**platformAdminAuthControllerValidateAdminInviteV1**](docs/AdminAuthApi.md#platformadminauthcontrollervalidateadmininvitev1) | **GET** /v1/admin/auth/invite/{token} | Preview a platform-admin invite
 *AdminBillingApi* | [**adminBillingControllerGetSummaryV1**](docs/AdminBillingApi.md#adminbillingcontrollergetsummaryv1) | **GET** /v1/admin/billing/summary | Platform-wide billing statistics
 *AdminBillingApi* | [**adminBillingControllerHasPaidTenantsV1**](docs/AdminBillingApi.md#adminbillingcontrollerhaspaidtenantsv1) | **GET** /v1/admin/billing/has-paid-tenants | Whether any tenant is currently on the Paid plan
+*AdminBillingApi* | [**adminBillingControllerListWebhookEventsV1**](docs/AdminBillingApi.md#adminbillingcontrollerlistwebhookeventsv1) | **GET** /v1/admin/billing/webhook-events | Paginated, filterable Stripe webhook activity
+*AdminBusinessesApi* | [**adminBusinessesControllerCancelErasureV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollercancelerasurev1) | **POST** /v1/admin/businesses/{tenantId}/cancel-erasure | Cancel a pending tenant erasure
 *AdminBusinessesApi* | [**adminBusinessesControllerListV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollerlistv1) | **GET** /v1/admin/businesses | List every tenant, as a Super Admin \&quot;business\&quot;
+*AdminBusinessesApi* | [**adminBusinessesControllerRequestErasureV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollerrequesterasurev1) | **POST** /v1/admin/businesses/{tenantId}/request-erasure | Request erasure of a whole tenant
 *AdminBusinessesApi* | [**adminBusinessesControllerUpdateStatusV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollerupdatestatusv1) | **POST** /v1/admin/businesses/{tenantId}/status | Suspend or reactivate a tenant
 *AdminOverviewApi* | [**adminOverviewControllerGetNeedsAttentionV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetneedsattentionv1) | **GET** /v1/admin/overview/needs-attention | Businesses needing attention
-*AdminOverviewApi* | [**adminOverviewControllerGetRecentActivityV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetrecentactivityv1) | **GET** /v1/admin/overview/activity | Most recent platform-admin actions
+*AdminOverviewApi* | [**adminOverviewControllerGetRecentActivityV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetrecentactivityv1) | **GET** /v1/admin/overview/activity | Recent platform activity — the Overview page’s glance feed
 *AdminOverviewApi* | [**adminOverviewControllerGetRecentBusinessesV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetrecentbusinessesv1) | **GET** /v1/admin/overview/recent-businesses | Most recently created businesses
 *AdminOverviewApi* | [**adminOverviewControllerGetSignupTrendV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetsignuptrendv1) | **GET** /v1/admin/overview/signup-trend | Tenant signups by month
 *AdminOverviewApi* | [**adminOverviewControllerGetStatsV1**](docs/AdminOverviewApi.md#adminoverviewcontrollergetstatsv1) | **GET** /v1/admin/overview/stats | Overview stat cards
+*AdminOverviewApi* | [**adminOverviewControllerListActivityV1**](docs/AdminOverviewApi.md#adminoverviewcontrollerlistactivityv1) | **GET** /v1/admin/overview/activity-log | Paginated, filterable platform-admin action history
 *AdminSettingsApi* | [**adminAvatarControllerAuthorizeV1**](docs/AdminSettingsApi.md#adminavatarcontrollerauthorizev1) | **POST** /v1/admin/settings/profile/avatar/authorize | Get a signed avatar upload authorization
 *AdminSettingsApi* | [**adminAvatarControllerConfirmAvatarV1**](docs/AdminSettingsApi.md#adminavatarcontrollerconfirmavatarv1) | **POST** /v1/admin/settings/profile/avatar/confirm | Confirm an uploaded avatar
 *AdminSettingsApi* | [**adminSettingsControllerChangePasswordV1**](docs/AdminSettingsApi.md#adminsettingscontrollerchangepasswordv1) | **POST** /v1/admin/settings/profile/change-password | Change the signed-in platform admin\&#39;s own password
@@ -133,16 +138,20 @@ Class | Method | HTTP request | Description
 *PromptsApi* | [**promptsControllerGetVersionStatsV1**](docs/PromptsApi.md#promptscontrollergetversionstatsv1) | **GET** /v1/prompts/{promptId}/stats | Get prompt analytics
 *PromptsApi* | [**promptsControllerListV1**](docs/PromptsApi.md#promptscontrollerlistv1) | **GET** /v1/prompts | List tenant prompts
 *PromptsApi* | [**promptsControllerUpdateToneV1**](docs/PromptsApi.md#promptscontrollerupdatetonev1) | **PUT** /v1/prompts/{promptId}/tone | Update prompt tone
+*ReviewsApi* | [**reviewsControllerApproveReplyV1**](docs/ReviewsApi.md#reviewscontrollerapprovereplyv1) | **POST** /v1/reviews/{reviewId}/responses/{responseId}/approve | Approve a pending reply draft
 *ReviewsApi* | [**reviewsControllerGetReviewV1**](docs/ReviewsApi.md#reviewscontrollergetreviewv1) | **GET** /v1/reviews/{reviewId} | One review with every response attached
 *ReviewsApi* | [**reviewsControllerListReviewsV1**](docs/ReviewsApi.md#reviewscontrollerlistreviewsv1) | **GET** /v1/reviews | The review queue listing
+*ReviewsApi* | [**reviewsControllerRejectReplyV1**](docs/ReviewsApi.md#reviewscontrollerrejectreplyv1) | **POST** /v1/reviews/{reviewId}/responses/{responseId}/reject | Reject a pending reply draft
 *SettingsApi* | [**blocklistTermsControllerCreateV1**](docs/SettingsApi.md#blocklisttermscontrollercreatev1) | **POST** /v1/settings/blocklist-terms | Add a blocklist term
 *SettingsApi* | [**blocklistTermsControllerListV1**](docs/SettingsApi.md#blocklisttermscontrollerlistv1) | **GET** /v1/settings/blocklist-terms | List blocklist terms
 *SettingsApi* | [**blocklistTermsControllerRemoveV1**](docs/SettingsApi.md#blocklisttermscontrollerremovev1) | **DELETE** /v1/settings/blocklist-terms/{id} | Remove a blocklist term
 *SettingsApi* | [**notificationRecipientsControllerListV1**](docs/SettingsApi.md#notificationrecipientscontrollerlistv1) | **GET** /v1/settings/notification-recipients | List escalation notification recipients
 *SettingsApi* | [**notificationRecipientsControllerUpdateV1**](docs/SettingsApi.md#notificationrecipientscontrollerupdatev1) | **PATCH** /v1/settings/notification-recipients/{recipientId} | Update a notification recipient
 *SettingsApi* | [**platformSettingsControllerGetV1**](docs/SettingsApi.md#platformsettingscontrollergetv1) | **GET** /v1/settings/platform-config | Get platform-wide feature settings
+*SettingsApi* | [**tenantMembersControllerCancelRemovalV1**](docs/SettingsApi.md#tenantmemberscontrollercancelremovalv1) | **POST** /v1/settings/members/{memberId}/cancel-removal | Cancel a pending team-member removal
 *SettingsApi* | [**tenantMembersControllerInviteV1**](docs/SettingsApi.md#tenantmemberscontrollerinvitev1) | **POST** /v1/settings/members | Invite a teammate
 *SettingsApi* | [**tenantMembersControllerListV1**](docs/SettingsApi.md#tenantmemberscontrollerlistv1) | **GET** /v1/settings/members | List this tenant\&#39;s team, owner included
+*SettingsApi* | [**tenantMembersControllerRequestRemovalV1**](docs/SettingsApi.md#tenantmemberscontrollerrequestremovalv1) | **POST** /v1/settings/members/{memberId}/request-removal | Request removal of an active team member
 *SettingsApi* | [**tenantMembersControllerRevokeV1**](docs/SettingsApi.md#tenantmemberscontrollerrevokev1) | **DELETE** /v1/settings/members/{memberId} | Revoke a pending invite
 *SettingsApi* | [**tenantSettingsControllerGetV1**](docs/SettingsApi.md#tenantsettingscontrollergetv1) | **GET** /v1/settings | Get tenant settings
 *SettingsApi* | [**tenantSettingsControllerReplaceV1**](docs/SettingsApi.md#tenantsettingscontrollerreplacev1) | **PUT** /v1/settings | Replace tenant settings
@@ -161,6 +170,7 @@ Class | Method | HTTP request | Description
  - [AdminSignupTrendPointResponseDto](docs/AdminSignupTrendPointResponseDto.md)
  - [AdminStatisticsSummaryResponseDto](docs/AdminStatisticsSummaryResponseDto.md)
  - [AdminUserResponseDto](docs/AdminUserResponseDto.md)
+ - [ApproveReplyDto](docs/ApproveReplyDto.md)
  - [AtRiskSubscriptionResponseDto](docs/AtRiskSubscriptionResponseDto.md)
  - [AuthenticatedUserDto](docs/AuthenticatedUserDto.md)
  - [AvailableLocationDto](docs/AvailableLocationDto.md)
@@ -171,6 +181,7 @@ Class | Method | HTTP request | Description
  - [BillingPlanDto](docs/BillingPlanDto.md)
  - [BillingPlansResponseDto](docs/BillingPlansResponseDto.md)
  - [BillingProfileResponseDto](docs/BillingProfileResponseDto.md)
+ - [BillingWebhookEventListResponseDto](docs/BillingWebhookEventListResponseDto.md)
  - [BillingWebhookEventResponseDto](docs/BillingWebhookEventResponseDto.md)
  - [BlocklistTermDto](docs/BlocklistTermDto.md)
  - [BlocklistTermListResponseDto](docs/BlocklistTermListResponseDto.md)
@@ -194,6 +205,8 @@ Class | Method | HTTP request | Description
  - [CurrentRunDto](docs/CurrentRunDto.md)
  - [DeleteBlocklistTermResponseDto](docs/DeleteBlocklistTermResponseDto.md)
  - [DisconnectResponseDto](docs/DisconnectResponseDto.md)
+ - [GenerateReplyDryRunDto](docs/GenerateReplyDryRunDto.md)
+ - [GenerateReplyDryRunResponseDto](docs/GenerateReplyDryRunResponseDto.md)
  - [GetPromptStatsBatchDto](docs/GetPromptStatsBatchDto.md)
  - [HasPaidTenantsResponseDto](docs/HasPaidTenantsResponseDto.md)
  - [InviteMemberDto](docs/InviteMemberDto.md)
@@ -203,6 +216,7 @@ Class | Method | HTTP request | Description
  - [LoginDto](docs/LoginDto.md)
  - [MemberInvitePreviewDto](docs/MemberInvitePreviewDto.md)
  - [MetricsDto](docs/MetricsDto.md)
+ - [MockReviewDto](docs/MockReviewDto.md)
  - [NotificationDto](docs/NotificationDto.md)
  - [NotificationListResponseDto](docs/NotificationListResponseDto.md)
  - [NotificationReadResponseDto](docs/NotificationReadResponseDto.md)
@@ -210,6 +224,7 @@ Class | Method | HTTP request | Description
  - [NotificationRecipientListResponseDto](docs/NotificationRecipientListResponseDto.md)
  - [PaginationMetaDto](docs/PaginationMetaDto.md)
  - [PaymentMethodResponseDto](docs/PaymentMethodResponseDto.md)
+ - [PlatformActivityListResponseDto](docs/PlatformActivityListResponseDto.md)
  - [PlatformActivityResponseDto](docs/PlatformActivityResponseDto.md)
  - [PlatformSettingsResponseDto](docs/PlatformSettingsResponseDto.md)
  - [PromptCreatedByDto](docs/PromptCreatedByDto.md)

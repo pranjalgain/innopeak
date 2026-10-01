@@ -3,17 +3,9 @@ import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
 import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 
-import type { ListNotificationsInput } from '../../../api/notifications/types/notification.type';
+import type { RawNotificationRow } from './types/notifications.type';
 
-interface RawNotificationRow {
-  id: string;
-  type: string;
-  title: string;
-  description: string | null;
-  reviewId: string | null;
-  readAt: string | null;
-  createdAt: string;
-}
+import type { ListNotificationsInput } from '../../../api/notifications/types/notification.type';
 
 @Injectable()
 export class NotificationsRepository {

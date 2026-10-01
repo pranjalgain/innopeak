@@ -24,14 +24,14 @@ import { isCheckViolation, isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
-import type { PlatformSettingsPatch } from '@db/repositories/platform-settings/platform-settings.repository';
+import type { PlatformSettingsPatch } from '@db/repositories/platform-settings/types/platform-settings.type';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
 
 import type { UpdateLocaleDto } from '../../auth/dto/update-locale.dto';
-import type { AuthUser } from '../../auth/types/auth-user.type';
+import type { AuthUser } from '../../auth/types/auth.type';
 import { PlatformSettingsResponseDto } from '../../settings/dto/platform-settings-response.dto';
 import { AdminInviteResponseDto } from '../dto/admin-invite-response.dto';
 import { AdminProfileResponseDto } from '../dto/admin-profile-response.dto';
@@ -54,21 +54,10 @@ import {
   PlatformSettingsNoMethodEnabledException,
   SocialLoginDisallowedGoogleOnlyAdminException,
 } from '../exceptions/admin.exceptions';
+import type { SetAdminStatusParams, SetAdminStatusResult } from '../types/admin.type';
 
 /** Matches the frontend mock's own window — see `PlatformAdminInviteService`. */
 const INVITE_TTL_DAYS = 7;
-
-export interface SetAdminStatusParams {
-  targetAdminId: string;
-  enabled: boolean;
-}
-
-/** `message` rides along so the controller never has to branch on `enabled` itself to pick
- *  between `MESSAGES.ADMIN.ADMIN_ENABLED`/`ADMIN_DISABLED` — that decision belongs here. */
-export interface SetAdminStatusResult {
-  admin: AdminInviteResponseDto;
-  message: string;
-}
 
 @Injectable()
 export class AdminSettingsService {

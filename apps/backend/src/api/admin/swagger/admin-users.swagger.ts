@@ -1,5 +1,5 @@
 import { applyDecorators, HttpStatus } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
 import { AdminUserResponseDto } from '../dto/admin-user-response.dto';
 
@@ -20,9 +20,11 @@ export function ApiListAdminUsers(): ReturnType<typeof applyDecorators> {
     ApiOperation({
       summary: 'List every user across every tenant',
       description:
-        'Platform-admin only. No pagination/filter params yet — the console does its own ' +
-        'client-side paging over the full list.',
+        'Platform-admin only. `search` is applied server-side (user name or business name ' +
+        'substring, case-insensitive) — no pagination yet, the console still pages the (now ' +
+        'server-filtered) result client-side.',
     }),
+    ApiQuery({ name: 'search', required: false, example: 'jane' }),
     ApiResponse({
       status: HttpStatus.OK,
       type: [AdminUserResponseDto],

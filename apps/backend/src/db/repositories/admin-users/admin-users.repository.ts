@@ -1,22 +1,11 @@
-import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
+import { escapeLikePattern } from '@common/helpers/like-pattern.utils';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 
-export interface AdminUserRow {
-  id: string;
-  businessId: string;
-  businessName: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  status: UserStatus;
-  /** Most recent `refresh_tokens.created_at` for this user — see `findAll`'s own comment for why
-   * this stands in for a real `last_login_at` column, which does not exist on `users`. */
-  lastLoginAt: string | null;
-}
+import type { AdminUserRow, ToggleActiveOutcome } from './types/admin-users.type';
 
 const ADMIN_USER_COLUMNS = {
   id: schema.users.id,
@@ -47,9 +36,12 @@ export class AdminUsersRepository {
   constructor(private readonly dbService: DBService) {}
 
   /**
-   * Every non-anonymized user, across every tenant, newest first. No pagination/filter params
-   * yet — the Super Admin area has no user-search UI today, and the frontend already does its own
-   * client-side paging over the full list; add real query params here if that changes.
+   * Every non-anonymized user, across every tenant, newest first, optionally narrowed by `search`
+   * (name or business name substring, case-insensitive — the two fields the Users screen's search
+   * box has always searched, previously client-side via `useSearchFilter`'s `USER_SEARCH_FIELDS`).
+   * Both columns are already real, joined columns on this query (unlike the Businesses list's
+   * owner name, which needs an `EXISTS` — see `businessSearchCondition`), so a plain `or(ilike, ilike)`
+   * is enough here. No pagination yet; the Users screen still pages the result client-side.
    *
    * `lastLoginAt` is approximated from the most recent `refresh_tokens` row this user was ever
    * issued (login, verify-email, a Google callback, or a refresh rotation all mint one) — there is
@@ -57,12 +49,21 @@ export class AdminUsersRepository {
    * token-issuing path in the auth module. A user who never completed signup (no session ever
    * issued) correctly reads `null` here.
    */
-  async findAll(): Promise<AdminUserRow[]> {
+  async findAll(search?: string): Promise<AdminUserRow[]> {
+    const pattern = search ? `%${escapeLikePattern(search)}%` : undefined;
+
     const rows = await this.dbService.db
       .select(ADMIN_USER_COLUMNS)
       .from(schema.users)
       .innerJoin(schema.tenants, eq(schema.tenants.id, schema.users.tenantId))
-      .where(isNull(schema.users.anonymizedAt))
+      .where(
+        and(
+          isNull(schema.users.anonymizedAt),
+          pattern
+            ? or(ilike(schema.users.name, pattern), ilike(schema.tenants.name, pattern))
+            : undefined
+        )
+      )
       .orderBy(desc(schema.users.createdAt));
 
     return rows as AdminUserRow[];
@@ -108,25 +109,45 @@ export class AdminUsersRepository {
    *
    * `email_verified_at` is the right source because it is written exactly once, by that same
    * `activateUser`, and nothing ever clears it — so it survives any number of toggles.
+   *
+   * Refuses to run while `erasure_requested_at` is set (a tenant owner has an active team-member
+   * removal request pending on this user) — reactivating a "disabled" user out from under that
+   * flag would leave it stale: the user would look active again with no way for anyone to notice
+   * the nightly erasure-purge job still has them queued for anonymization once the original grace
+   * period elapses. The caller must cancel the pending removal first.
    */
-  async toggleActive(userId: string): Promise<boolean> {
-    const rows = await this.dbService.db
-      .update(schema.users)
-      .set({
-        status: sql`CASE
-          WHEN ${schema.users.status} = ${UserStatus.DISABLED}
-            THEN CASE
-              WHEN ${schema.users.emailVerifiedAt} IS NULL
-                THEN ${UserStatus.PENDING_VERIFICATION}::user_status
-              ELSE ${UserStatus.ACTIVE}::user_status
-            END
-          ELSE ${UserStatus.DISABLED}::user_status
-        END`,
-        updatedAt: sql`now()`,
-      })
-      .where(and(eq(schema.users.id, userId), isNull(schema.users.anonymizedAt)))
-      .returning({ id: schema.users.id });
+  async toggleActive(userId: string): Promise<ToggleActiveOutcome> {
+    const result = await this.dbService.db.execute(sql`
+      WITH target AS (
+        SELECT id, anonymized_at FROM users WHERE id = ${userId}::uuid
+      ),
+      updated AS (
+        UPDATE users
+        SET status = CASE
+              WHEN status = ${UserStatus.DISABLED} THEN CASE
+                WHEN email_verified_at IS NULL THEN ${UserStatus.PENDING_VERIFICATION}::user_status
+                ELSE ${UserStatus.ACTIVE}::user_status
+              END
+              ELSE ${UserStatus.DISABLED}::user_status
+            END,
+            updated_at = now()
+        WHERE id = ${userId}::uuid AND anonymized_at IS NULL AND erasure_requested_at IS NULL
+        RETURNING id
+      )
+      SELECT target.id AS id, (target.anonymized_at IS NOT NULL) AS anonymized,
+             (updated.id IS NOT NULL) AS was_updated
+      FROM target
+      LEFT JOIN updated ON true
+    `);
 
-    return rows.length > 0;
+    const row = result.rows[0] as
+      { id: string; anonymized: boolean; was_updated: boolean } | undefined;
+    if (row === undefined) {
+      return { outcome: 'not_found' };
+    }
+    if (row.was_updated) {
+      return { outcome: 'toggled' };
+    }
+    return { outcome: row.anonymized ? 'not_found' : 'removal_pending' };
   }
 }

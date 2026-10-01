@@ -8,6 +8,7 @@ import type { IMemberInviteEmailJob } from '@bg/interfaces/job.interface';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { TeamMemberLimitReachedException } from '@billing/exceptions/billing.exceptions';
 import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
+import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { isProduction } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
@@ -19,14 +20,17 @@ import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
 
-import type { AuthUser } from '../../auth/types/auth-user.type';
+import type { AuthUser } from '../../auth/types/auth.type';
 import { InviteMemberDto } from '../dto/invite-member.dto';
 import { TenantMemberResponseDto } from '../dto/tenant-member-response.dto';
 import {
+  CannotRemoveLastOwnerException,
+  CannotRemoveSelfException,
   MemberEmailAlreadyInvitedException,
   MemberInviteNotRevocableException,
   MemberInvitesDisabledException,
   MemberNotFoundException,
+  MemberRemovalNotPendingException,
 } from '../exceptions/settings.exceptions';
 
 /** Matches `AdminSettingsService`'s own `INVITE_TTL_DAYS` — same product default, kept as its own
@@ -180,6 +184,48 @@ export class TenantMembersService {
     if (revoked.outcome === 'not_invited') {
       throw new MemberInviteNotRevocableException();
     }
+  }
+
+  /**
+   * Revokes access immediately (`status = disabled`); the actual anonymization is deferred to the
+   * nightly `ERASURE_PURGE` cron job once `ERASURE_GRACE_PERIOD_DAYS` elapses — see
+   * `AuthRepository.requestMemberRemoval`. Self-removal is refused here, before any DB round trip,
+   * since it needs no lock or last-owner count: an owner never removes themself through this flow.
+   */
+  async requestRemoval(actor: AuthUser, memberId: string): Promise<{ gracePeriodDays: number }> {
+    const owner = requireTenantUser(actor, MESSAGES.SETTINGS.TENANT_ONLY);
+
+    if (memberId === owner.id) {
+      throw new CannotRemoveSelfException();
+    }
+
+    const result = await this.authDbService.requestMemberRemoval(owner.tenantId, memberId);
+
+    if (result.outcome === 'not_found') {
+      throw new MemberNotFoundException();
+    }
+    if (result.outcome === 'last_owner') {
+      throw new CannotRemoveLastOwnerException();
+    }
+
+    return { gracePeriodDays: this.gracePeriodDays() };
+  }
+
+  /** Undoes `requestRemoval` — restores access. Nothing was anonymized yet, so this is a clean, full undo. */
+  async cancelRemoval(actor: AuthUser, memberId: string): Promise<void> {
+    const owner = requireTenantUser(actor, MESSAGES.SETTINGS.TENANT_ONLY);
+    const result = await this.authDbService.cancelMemberRemoval(owner.tenantId, memberId);
+
+    if (result.outcome === 'not_found') {
+      throw new MemberNotFoundException();
+    }
+    if (result.outcome === 'not_pending') {
+      throw new MemberRemovalNotPendingException();
+    }
+  }
+
+  private gracePeriodDays(): number {
+    return getErasureGracePeriodDays(this.configService);
   }
 
   /** Fire-and-forget, same shape as `AdminSettingsService.sendInviteEmail` — the transaction that created the invite already committed. */

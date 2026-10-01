@@ -400,6 +400,21 @@ describe('AuthService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    /** Defense-in-depth: an already-issued session must be explicitly rejected once every user in
+     *  a tenant has been anonymized, not merely rely on each individual user's own row. */
+    it('throws 403 for an erased tenant', async () => {
+      authDbService.findUserForLogin.mockResolvedValue(activeUser);
+      hashingService.compare.mockResolvedValue(true);
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ERASED,
+        name: 'Test Tenant',
+      });
+
+      await expect(
+        target.login({ email: activeUser.email, password: 'StrongP@ss1' })
+      ).rejects.toThrow(ForbiddenException);
+    });
+
     it('reissues an OTP and returns a pending_verification result, not tokens, for an unverified account', async () => {
       authDbService.findUserForLogin.mockResolvedValue({
         ...activeUser,

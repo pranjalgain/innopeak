@@ -1,7 +1,7 @@
 import { CurrentUser } from '@auth/decorators/current-user.decorator';
 import { Roles } from '@auth/decorators/roles.decorator';
 import { UserRole } from '@auth/enums/user-role.enum';
-import type { AuthUser } from '@auth/types/auth-user.type';
+import type { AuthUser } from '@auth/types/auth.type';
 import { MESSAGES } from '@common/constants/messages.constants';
 import type { ApiResponse } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
