@@ -67,4 +67,7 @@ export enum CronJobName {
   /** GDPR erasure grace-period sweep (team-member removal + tenant erasure) — see
    *  CronService.purgeErasureRequests. */
   ERASURE_PURGE = 'erasure-purge',
+  /** Nightly safety net for a missed/delayed Stripe webhook — see
+   *  CronService.reconcileStaleBillingSubscriptions. */
+  BILLING_RECONCILIATION_SWEEP = 'billing-reconciliation-sweep',
 }

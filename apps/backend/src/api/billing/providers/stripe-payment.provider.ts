@@ -11,11 +11,13 @@ import { PaymentProvider } from './payment.provider';
 import { StripeWebhookSignatureInvalidException } from '../exceptions/billing.exceptions';
 import type {
   BillingProfile,
+  CheckoutSessionSnapshot,
   CreateCheckoutSessionInput,
   CreateCustomerInput,
   CreatePortalSessionInput,
   PaymentMethodSummary,
   PaymentWebhookEvent,
+  SubscriptionSnapshot,
   UpdateBillingProfileInput,
 } from '../types/billing.type';
 
@@ -200,6 +202,44 @@ export class StripePaymentProvider extends PaymentProvider {
     });
   }
 
+  /**
+   * `expand: ['subscription']` is what lets this read the subscription Checkout created in the
+   * same round trip, rather than a second call — `session.subscription` comes back as the full
+   * object, not just its id, whenever Checkout has actually attached one (i.e. payment completed).
+   * `session.metadata.tenantId` is the same metadata `createCheckoutSession` set when minting this
+   * session — `BillingReconciliationService` compares it against the caller's own tenant id before
+   * trusting anything else in the response.
+   */
+  async retrieveCheckoutSession(sessionId: string): Promise<CheckoutSessionSnapshot> {
+    const session = await this.stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['subscription'],
+    });
+
+    const tenantId = session.metadata?.['tenantId'] ?? null;
+    const subscription =
+      session.subscription && typeof session.subscription !== 'string'
+        ? this.toSubscriptionSnapshot(session.subscription)
+        : null;
+
+    return { tenantId, subscription };
+  }
+
+  /** `status: 'active'` + `limit: 1` — this app only ever stores one live subscription per tenant
+   *  (`idx_tenant_subscriptions_stripe_subscription_id`'s own partial-unique shape), so the newest
+   *  active one is the only one worth reading back. */
+  async retrieveActiveSubscriptionForCustomer(
+    customerId: string
+  ): Promise<SubscriptionSnapshot | null> {
+    const subscriptions = await this.stripe.subscriptions.list({
+      customer: customerId,
+      status: 'active',
+      limit: 1,
+    });
+
+    const subscription = subscriptions.data[0];
+    return subscription ? this.toSubscriptionSnapshot(subscription) : null;
+  }
+
   private toPaymentMethodSummary(card: Stripe.PaymentMethod.Card): PaymentMethodSummary {
     return {
       brand: card.brand,
@@ -218,7 +258,7 @@ export class StripePaymentProvider extends PaymentProvider {
       throw new StripeWebhookSignatureInvalidException();
     }
 
-    return this.mapEvent(event);
+    return { ...this.mapEvent(event), createdAt: new Date(event.created * 1000).toISOString() };
   }
 
   private mapStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
@@ -235,6 +275,20 @@ export class StripePaymentProvider extends PaymentProvider {
 
   private toIsoOrNull(unixSeconds: number | null | undefined): string | null {
     return unixSeconds ? new Date(unixSeconds * 1000).toISOString() : null;
+  }
+
+  /** The one place a `Stripe.Subscription` becomes this app's own `SubscriptionSnapshot` shape —
+   *  shared by `mapEvent`'s `customer.subscription.updated` case, `retrieveCheckoutSession`, and
+   *  `retrieveActiveSubscriptionForCustomer`, so all three ways this app ever learns about a
+   *  subscription's state agree on exactly which fields matter and how they're derived. */
+  private toSubscriptionSnapshot(subscription: Stripe.Subscription): SubscriptionSnapshot {
+    return {
+      stripeSubscriptionId: subscription.id,
+      status: this.mapStatus(subscription.status),
+      currentPeriodStart: this.toIsoOrNull(subscription.items.data[0]?.current_period_start),
+      currentPeriodEnd: this.toIsoOrNull(subscription.items.data[0]?.current_period_end),
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    };
   }
 
   private mapEvent(event: Stripe.Event): PaymentWebhookEvent {
@@ -259,15 +313,16 @@ export class StripePaymentProvider extends PaymentProvider {
       case 'customer.subscription.updated': {
         const subscription = event.data.object;
         const customerId = typeof subscription.customer === 'string' ? subscription.customer : '';
+        const snapshot = this.toSubscriptionSnapshot(subscription);
         return {
           id: event.id,
           type: 'customer.subscription.updated',
           customerId,
-          subscriptionId: subscription.id,
-          status: this.mapStatus(subscription.status),
-          currentPeriodStart: this.toIsoOrNull(subscription.items.data[0]?.current_period_start),
-          currentPeriodEnd: this.toIsoOrNull(subscription.items.data[0]?.current_period_end),
-          cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          subscriptionId: snapshot.stripeSubscriptionId,
+          status: snapshot.status,
+          currentPeriodStart: snapshot.currentPeriodStart,
+          currentPeriodEnd: snapshot.currentPeriodEnd,
+          cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
         };
       }
       case 'customer.subscription.deleted': {

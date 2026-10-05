@@ -1,8 +1,9 @@
 import { MESSAGES } from '@common/constants/messages.constants';
+import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 
 import type {
   InsertSubscriptionInput,
@@ -20,6 +21,8 @@ const SUBSCRIPTION_COLUMNS = {
   currentPeriodStart: schema.tenantSubscriptions.currentPeriodStart,
   currentPeriodEnd: schema.tenantSubscriptions.currentPeriodEnd,
   cancelAtPeriodEnd: schema.tenantSubscriptions.cancelAtPeriodEnd,
+  stripeLastVerifiedAt: schema.tenantSubscriptions.stripeLastVerifiedAt,
+  checkoutStartedAt: schema.tenantSubscriptions.checkoutStartedAt,
 } as const;
 
 /**
@@ -154,5 +157,68 @@ export class TenantSubscriptionsRepository {
       .returning(SUBSCRIPTION_COLUMNS);
 
     return (rows[0] as TenantSubscriptionRow | undefined) ?? null;
+  }
+
+  /**
+   * Stamps `stripe_last_verified_at` only — deliberately not `updated_at` too, since nothing about
+   * the row's actual billing state changed; conflating the two would make `updated_at` lie about
+   * when this row's business data last changed. A dedicated method rather than routing through
+   * `updateByTenantId`'s generic patch, so every call site reads as "we just confirmed this
+   * tenant against Stripe" rather than an easily-missed one-field patch object.
+   */
+  async touchStripeVerifiedAt(tenantId: string, tx?: DrizzleTransaction): Promise<void> {
+    await (tx ?? this.dbService.db)
+      .update(schema.tenantSubscriptions)
+      .set({ stripeLastVerifiedAt: sql`now()` })
+      .where(eq(schema.tenantSubscriptions.tenantId, tenantId));
+  }
+
+  /** Stamps `checkout_started_at` only — see `0011_billing.sql` for what reads it. `updated_at` is
+   *  left alone for the same reason `touchStripeVerifiedAt` leaves it: no billing state changed. */
+  async touchCheckoutStartedAt(tenantId: string, tx?: DrizzleTransaction): Promise<void> {
+    await (tx ?? this.dbService.db)
+      .update(schema.tenantSubscriptions)
+      .set({ checkoutStartedAt: sql`now()` })
+      .where(eq(schema.tenantSubscriptions.tenantId, tenantId));
+  }
+
+  /**
+   * The candidate query for the periodic reconciliation sweep (`CronService
+   * .reconcileStaleBillingSubscriptions`): tenants who have a Stripe customer id (meaning a
+   * checkout was at least started) but are still on the `free` plan — the exact signature of "paid
+   * on Stripe, this app never heard about it." No `LIMIT`, filter-driven, same shape as
+   * `ConnectionsRepository.findLocationsDueForPoll`. The 1-hour floor on `stripeLastVerifiedAt`
+   * just avoids re-checking a tenant the synchronous checkout-redirect path verified minutes ago.
+   *
+   * `checkout_started_at` within the last 4 days is what keeps this bounded: a Checkout Session
+   * lives 24h and Stripe retries a failed webhook for up to 3 days, so past 4 days there is nothing
+   * left to reconcile. Without it, every tenant that ever clicked Upgrade once would be re-queried
+   * against Stripe on every nightly run, forever.
+   */
+  async findStaleFreeWithStripeCustomer(): Promise<
+    { tenantId: string; stripeCustomerId: string }[]
+  > {
+    const rows = await this.dbService.db
+      .select({
+        tenantId: schema.tenantSubscriptions.tenantId,
+        stripeCustomerId: schema.tenantSubscriptions.stripeCustomerId,
+      })
+      .from(schema.tenantSubscriptions)
+      .innerJoin(schema.billingPlans, eq(schema.tenantSubscriptions.planId, schema.billingPlans.id))
+      .where(
+        and(
+          isNotNull(schema.tenantSubscriptions.stripeCustomerId),
+          eq(schema.billingPlans.code, BillingPlanCode.FREE),
+          gt(schema.tenantSubscriptions.checkoutStartedAt, sql`now() - interval '4 days'`),
+          or(
+            isNull(schema.tenantSubscriptions.stripeLastVerifiedAt),
+            lt(schema.tenantSubscriptions.stripeLastVerifiedAt, sql`now() - interval '1 hour'`)
+          )
+        )
+      );
+
+    // `stripeCustomerId` can't actually be null given the `isNotNull` filter above — Drizzle's
+    // inferred column type is nullable regardless, since it doesn't narrow on a WHERE clause.
+    return rows as { tenantId: string; stripeCustomerId: string }[];
   }
 }

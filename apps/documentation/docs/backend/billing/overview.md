@@ -34,7 +34,7 @@ migrations-are-edited-in-place convention — see that file's own header comment
 | Table / column | Notes |
 |---|---|
 | `billing_plans` | Seeded catalog, not admin-managed — exactly two rows (`free`, `paid`) for the lifetime of this schema version. Entitlements (`max_locations`, `max_ai_drafts_per_month`, `max_team_members`, `custom_prompts_enabled`) live directly on the row rather than a separate `plan_entitlements` table, since there are only ever two rows and entitlements never change independently of the plan itself. `NULL` on any `max_*` column means unlimited. `stripe_product_id`/`stripe_price_id` are both `NULL` for `free` — no Stripe object backs a plan with no price |
-| `tenant_subscriptions` | One row per tenant, always present — created in the same transaction as the tenant itself (`AuthDbService.signup`/`completeGoogleSignup`, via `TenantSubscriptionsDbService.insertFreeSubscription`), defaulting to the `free` plan. "Which plan is this tenant on" never needs a null-check anywhere it's read. `stripe_customer_id`/`stripe_subscription_id`/`status`/period fields are all nullable — a pure-Free tenant that has never started a checkout has none of them |
+| `tenant_subscriptions` | One row per tenant, always present — created in the same transaction as the tenant itself (`AuthDbService.signup`/`completeGoogleSignup`, via `TenantSubscriptionsDbService.insertFreeSubscription`), defaulting to the `free` plan. "Which plan is this tenant on" never needs a null-check anywhere it's read. `stripe_customer_id`/`stripe_subscription_id`/`status`/period fields are all nullable — a pure-Free tenant that has never started a checkout has none of them. Two more nullable timestamps support missed-webhook recovery (see [§ Recovering from a missed webhook](#recovering-from-a-missed-webhook)): `stripe_last_verified_at` (last time the row was confirmed against Stripe, by any path) and `checkout_started_at` (last time a Checkout Session was created, which bounds the nightly sweep) |
 | `stripe_webhook_events` | Idempotency ledger, Stripe's own recommended pattern — insert the event id first (`id VARCHAR(255) PRIMARY KEY`, Stripe's own event id string, not `uuidv7()`), treat a conflict as "already processed, skip." The one table in this schema keyed on an externally-issued id |
 | `platform_settings.billing_enabled` | `BOOLEAN NOT NULL DEFAULT false`, added directly to `0008_platform_settings.sql` alongside the other four platform toggles (`sso_login_enabled`/`password_login_enabled`/`social_login_enabled`/`invite_members_enabled`) |
 | `locations.billing_paused_at` | `TIMESTAMPTZ`, nullable, added directly to `0003_review_provider_locations.sql`. See [§ Downgrading with multiple locations](#downgrading-with-multiple-locations--the-location-choice-mechanism) for why this is a new column rather than reusing `status` or `tenants.active_location_id` |
@@ -128,10 +128,50 @@ NOTHING` — zero rows returned means "already processed, skip"), then dispatche
 | `customer.subscription.deleted` | Fires when Stripe actually ends the subscription (at period end, or immediately if canceled outside a grace period). **This is the one write that flips `plan_id` back to `free`** and clears `stripe_subscription_id`/`status`/period fields. Entitlement checks read `plan_id`, not `status` — forgetting this write would leave a canceled tenant permanently reading as `paid` with unlimited access. Also calls `BillingEntitlementsService.enforceLocationLimitOnDowngrade`. |
 | `invoice.payment_failed` / `invoice.payment_succeeded` | `status` only (`past_due` / `active`) — no email queuing in v1. |
 
-Every branch resolves the tenant by Stripe customer/subscription id and no-ops (with a warning
-logged) if none is found, rather than throwing — an orphan event (a customer/subscription this app
-never created, or a race with an as-yet-uncommitted Checkout) must not fail the webhook and
-trigger endless Stripe retries for something that will never resolve.
+Every branch resolves the tenant by Stripe customer/subscription id. A customer id no
+`tenant_subscriptions` row matches **throws** (`StripeWebhookTenantNotFoundException`, HTTP 404)
+instead of being swallowed: the `stripe_webhook_events` ledger insert and the handler's writes share
+one transaction, so the throw rolls the ledger row back too and Stripe retries the delivery, rather
+than the event being marked "processed" with nothing written. That retry is bounded — once an
+unknown-customer event is older than `UNKNOWN_CUSTOMER_RETRY_GRACE_MS` (1 hour) it is acknowledged
+and logged instead, since a customer this database still doesn't know after that long never will
+(a shared Stripe account, a wiped local database), and failing it for days risks Stripe disabling
+the endpoint. The one deliberate silent no-op is a genuinely stale, out-of-order event for a
+subscription the tenant has since superseded. The webhook route is exempt from the global rate
+limiter (`@SkipThrottle()`), since a burst of Stripe retries after an outage must not be answered
+with `429`.
+
+## Recovering from a missed webhook
+
+Webhooks are the primary path, but they can be missed (the server was down past Stripe's retry
+window) or delayed (the user is back on the success page before the event arrives). Two more paths
+read Stripe directly and apply the result through the same `setToPaidFromCheckout` write the webhook
+uses, so all three converge on identical state in any order:
+
+1. **Checkout-redirect reconciliation.** `createCheckoutSession`'s `success_url` carries Stripe's
+   `{CHECKOUT_SESSION_ID}` template token as `session_id`. When the Settings page loads with
+   `checkout=success&session_id=…`, the frontend calls `POST /v1/billing/checkout/reconcile`, which
+   retrieves the session from Stripe and verifies `session.metadata.tenantId` matches the caller
+   (a mismatch is a `404`, so one tenant cannot probe another's session).
+2. **Nightly sweep** (`CronJobName.BILLING_RECONCILIATION_SWEEP`, daily 5am,
+   `CronService.reconcileStaleBillingSubscriptions`) for a user who never returns to the page.
+   Candidates are free-plan tenants with a Stripe customer whose last checkout started within 4
+   days (`checkout_started_at` — a session lives 24h and Stripe retries for up to 3 days) and that
+   haven't been verified in the last hour. Each is checked in its own `try/catch`, so one Stripe
+   failure does not starve the rest.
+
+Both paths only apply a **live** subscription (`active` or `past_due`). A `canceled` one means the
+subscription behind an old success URL has since ended, and an `incomplete` one means the first
+payment hasn't been captured — applying either would grant Paid to a tenant who is not paying. In
+those cases, as when Stripe reports no subscription at all, only `stripe_last_verified_at` is
+stamped. Applying a snapshot (plan, subscription fields, clearing `billing_paused_at`, the verified
+stamp) is one transaction. The reconcile route is Stripe-only (`STRIPE_ONLY_FEATURE` under Dummy,
+whose checkout never reaches `success_url`). The worker process loads only
+`BillingReconciliationModule` (payment provider + reconciliation service), not the full
+`BillingModule`.
+
+Out of scope: detecting a missed *renewal* webhook on an already-Paid subscription. The sweep only
+targets the free-but-has-a-Stripe-customer signature.
 
 ## Downgrading with multiple locations — the location-choice mechanism
 

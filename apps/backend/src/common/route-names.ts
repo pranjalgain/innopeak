@@ -173,6 +173,11 @@ export enum RouteNames {
   BILLING_PLANS = 'plans',
   BILLING_SUBSCRIPTION = 'subscription',
   BILLING_CHECKOUT = 'checkout',
+  // Synchronous reconciliation for the checkout-redirect path — see BillingReconciliationService.
+  // Reads the Checkout Session straight from Stripe instead of waiting on
+  // checkout.session.completed, so a tenant landing on the success page is never stuck reading as
+  // unpaid just because that webhook was delayed or missed.
+  BILLING_CHECKOUT_RECONCILE = 'checkout/reconcile',
   BILLING_PORTAL = 'portal',
   // In-app cancel — calls the payment provider directly (no hosted-portal redirect) since
   // cancellation itself needs none of the PCI-scoped UI a card update would. Provider-agnostic:

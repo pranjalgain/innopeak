@@ -191,4 +191,19 @@ export class TenantSubscriptionsDbService {
   ): Promise<TenantSubscriptionRow | null> {
     return this.tenantSubscriptionsRepository.updateByTenantId(tenantId, { status }, tx);
   }
+
+  /** See `TenantSubscriptionsRepository.touchStripeVerifiedAt`. */
+  touchStripeVerifiedAt(tenantId: string, tx?: DrizzleTransaction): Promise<void> {
+    return this.tenantSubscriptionsRepository.touchStripeVerifiedAt(tenantId, tx);
+  }
+
+  /** See `TenantSubscriptionsRepository.touchCheckoutStartedAt`. */
+  touchCheckoutStartedAt(tenantId: string, tx?: DrizzleTransaction): Promise<void> {
+    return this.tenantSubscriptionsRepository.touchCheckoutStartedAt(tenantId, tx);
+  }
+
+  /** See `TenantSubscriptionsRepository.findStaleFreeWithStripeCustomer`. */
+  findStaleFreeWithStripeCustomer(): Promise<{ tenantId: string; stripeCustomerId: string }[]> {
+    return this.tenantSubscriptionsRepository.findStaleFreeWithStripeCustomer();
+  }
 }

@@ -83,6 +83,16 @@ CREATE TABLE IF NOT EXISTS tenant_subscriptions (
     -- subscription (customer.subscription.deleted), which is the one event that flips `plan_id`
     -- back to 'free'. See BillingWebhooksService's own doc comment for the full state machine.
     cancel_at_period_end BOOLEAN NOT NULL DEFAULT false,
+    -- Last time this row was confirmed in sync with Stripe: stamped by a webhook-driven write, by
+    -- the synchronous checkout-redirect reconciliation, and by the nightly reconciliation sweep —
+    -- including when either of the last two confirms the tenant is still genuinely free, which is
+    -- as much a verification as a state change. NULL = never verified.
+    stripe_last_verified_at TIMESTAMPTZ,
+    -- Stamped each time a Checkout Session is created for this tenant. Bounds the nightly
+    -- reconciliation sweep: a payment can only land within a Checkout Session's lifetime of this,
+    -- so a tenant whose last checkout started days ago has nothing left to reconcile and drops out
+    -- of the sweep instead of being re-queried against Stripe every night forever.
+    checkout_started_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

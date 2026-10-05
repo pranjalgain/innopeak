@@ -1,11 +1,13 @@
 import type {
   BillingProfile,
+  CheckoutSessionSnapshot,
   CreateCheckoutSessionInput,
   CreateCustomerInput,
   CreatePortalSessionInput,
   PaymentMethodSummary,
   PaymentProviderType,
   PaymentWebhookEvent,
+  SubscriptionSnapshot,
   UpdateBillingProfileInput,
 } from '../types/billing.type';
 
@@ -61,4 +63,22 @@ export abstract class PaymentProvider {
    * Stripe signed. Throws `StripeWebhookSignatureInvalidException` on a bad signature.
    */
   abstract constructWebhookEvent(payload: Buffer, signature: string): PaymentWebhookEvent;
+
+  /**
+   * Reads a Checkout Session directly from the provider, independent of whether its
+   * `checkout.session.completed` webhook has arrived yet — `BillingReconciliationService`'s
+   * synchronous checkout-redirect path, for the case a missed/delayed webhook would otherwise
+   * leave the tenant reading as unpaid despite Stripe having already completed the charge.
+   */
+  abstract retrieveCheckoutSession(sessionId: string): Promise<CheckoutSessionSnapshot>;
+
+  /**
+   * The newest active subscription for a customer, directly from the provider — the periodic
+   * reconciliation sweep's own "ask Stripe what's actually true" primitive for a tenant whose
+   * local row has no (or a stale) `stripe_subscription_id` to look up by id instead. `null` means
+   * genuinely no active subscription (an abandoned checkout, a canceled one) — not an error.
+   */
+  abstract retrieveActiveSubscriptionForCustomer(
+    customerId: string
+  ): Promise<SubscriptionSnapshot | null>;
 }

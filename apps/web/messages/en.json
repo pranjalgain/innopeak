@@ -726,7 +726,10 @@
         "portalFailed": "Could not open the billing portal. Please try again.",
         "cancelFailed": "Could not cancel the subscription. Please try again.",
         "cancelSucceeded": "Cancellation scheduled — you'll keep access until the end of the period.",
-        "receiptDownloadFailed": "Could not download the receipt. Please try again."
+        "receiptDownloadFailed": "Could not download the receipt. Please try again.",
+        "checkoutReconciled": "Payment confirmed — you're now on the Paid plan.",
+        "checkoutReconcilePending": "Your payment is still processing — your plan will update shortly.",
+        "checkoutReconcileFailed": "We couldn't confirm your payment right now. Refresh this page to try again — if you were charged, your plan will update shortly."
       },
       "chooseLocation": {
         "title": "Choose your active location",

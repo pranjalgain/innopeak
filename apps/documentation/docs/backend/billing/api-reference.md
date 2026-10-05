@@ -151,6 +151,7 @@ Errors: `401`, `403`, `404` `SUBSCRIPTION_NOT_FOUND`, `429`.
 |---|---|---|---|
 | `POST` | `/v1/billing/checkout` | Bearer, owner-only | global `short` tier (30/min) |
 | `POST` | `/v1/billing/portal` | Bearer, owner-only | global `short` tier (30/min) |
+| `POST` | `/v1/billing/checkout/reconcile` | Bearer, owner-only | global `short` tier (30/min) |
 
 ### `POST /v1/billing/checkout`
 
@@ -177,6 +178,27 @@ Success `201` (`DummyPaymentProvider`, the default):
 
 Errors: `403` `BILLING_NOT_ENABLED` (platform is not currently offering upgrades), `404`
 `PLAN_NOT_FOUND` / `SUBSCRIPTION_NOT_FOUND`, `401`, `429`.
+
+### `POST /v1/billing/checkout/reconcile`
+
+Reads a Stripe Checkout Session directly and applies it, so a tenant who lands on the success page
+is never left reading as unpaid just because `checkout.session.completed` was delayed or missed. The
+frontend calls it once when Settings loads with `checkout=success&session_id=…` (Stripe substitutes
+the `session_id` through the `{CHECKOUT_SESSION_ID}` token in `success_url`). Safe to call more than
+once, and after the webhook already landed. Only a live (`active`/`past_due`) subscription moves the
+tenant to Paid — a canceled or still-incomplete one is ignored. See
+[Overview § Recovering from a missed webhook](./overview.md#recovering-from-a-missed-webhook).
+
+Request body:
+
+```json
+{ "checkoutSessionId": "cs_test_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6" }
+```
+
+Success `200`: the refreshed subscription, same shape as `GET /v1/billing/subscription`.
+
+Errors: `404` `CHECKOUT_SESSION_TENANT_MISMATCH` (the session belongs to a different tenant);
+`403` `STRIPE_ONLY_FEATURE` (`PAYMENT_PROVIDER` is not `stripe`).
 
 ### `POST /v1/billing/portal`
 
@@ -226,7 +248,7 @@ disconnected), `400` validation (`locationId` missing/not a UUID), `401`, `403`,
 
 | Method | Path | Auth | Throttle |
 |---|---|---|---|
-| `POST` | `/v1/billing/webhooks/stripe` | Public — Stripe signature, no JWT | global `short` tier (30/min) |
+| `POST` | `/v1/billing/webhooks/stripe` | Public — Stripe signature, no JWT | exempt (`@SkipThrottle()`) |
 
 ### `POST /v1/billing/webhooks/stripe`
 
@@ -255,6 +277,9 @@ Success `200`: `data: null`.
 
 Errors: `400` `STRIPE_WEBHOOK_SIGNATURE_INVALID` — either `req.rawBody`/the signature header is
 missing, or `Stripe.webhooks.constructEvent` rejected the signature.
+`404` `STRIPE_WEBHOOK_TENANT_NOT_FOUND` — no tenant matches the event's Stripe customer. The
+transaction (including the idempotency-ledger row) is rolled back so Stripe retries; once the event
+is more than an hour old it is acknowledged with `200` and logged instead.
 
 ## Error reference
 
@@ -274,6 +299,9 @@ that surfaces them belongs to a different module.
 | `403` | `CUSTOM_PROMPTS_NOT_ON_PLAN` | `POST /v1/prompts/:promptId/versions` (`PromptsService.createVersion`) — not a billing-module route | The tenant's plan has `custom_prompts_enabled = false` (Free). Checked before the submitted template is even validated. |
 | `403` | `AI_DRAFT_LIMIT_REACHED` | `POST /v1/ai/dry-run` (not a billing-module route) | `BillingEntitlementsService.canGenerateAiDraft` returned false — see [AI Module § Billing entitlement check](../ai/overview.md#billing-entitlement-check-everywhere-generation-can-run). Fires once the tenant's real generation path (`generateForClassifiedReviews`) has persisted 20 `ai_generated` drafts this month — the dry-run route shares the check but never contributes to the count itself. |
 | `400` | `STRIPE_WEBHOOK_SIGNATURE_INVALID` | `POST /v1/billing/webhooks/stripe` | Missing `req.rawBody`/`Stripe-Signature` header, or `Stripe.webhooks.constructEvent` rejected the signature. |
+| `404` | `STRIPE_WEBHOOK_TENANT_NOT_FOUND` | `POST /v1/billing/webhooks/stripe` | No `tenant_subscriptions` row for the event's Stripe customer, and the event is less than an hour old. Rolled back so Stripe retries. |
+| `404` | `CHECKOUT_SESSION_TENANT_MISMATCH` | `POST /v1/billing/checkout/reconcile` | The Checkout Session's `metadata.tenantId` isn't the caller's tenant. |
+| `403` | `STRIPE_ONLY_FEATURE` | `POST /v1/billing/checkout/reconcile` (and the in-app profile/card routes) | `PAYMENT_PROVIDER` is not `stripe`. |
 | `400` | `LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION` | `PUT /v1/billing/active-location` | The given `locationId` isn't this tenant's own, or isn't `status = 'active'` (disconnected). |
 | `400` | `Validation Error` | `PUT /v1/billing/active-location` | `locationId` missing or not a UUID. `message` is the comma-joined list of violations. |
 | `401` | `Unauthorized` | Every `BillingController` route | Missing, malformed, or expired access token. |

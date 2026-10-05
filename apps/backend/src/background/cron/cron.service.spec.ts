@@ -1,9 +1,11 @@
 import { AccountAnonymizationService } from '@auth/services/account-anonymization.service';
 import { CronJobName } from '@bg/constants/job.constant';
 import type { ICronJob } from '@bg/interfaces/job.interface';
+import { BillingReconciliationService } from '@billing/services/billing-reconciliation.service';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import type { AcquireErasureLock } from '@db/repositories/auth/types/auth.type';
+import { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Logger } from '@nestjs/common';
@@ -22,6 +24,12 @@ describe('CronService', () => {
   let reviewSyncDbService: jest.Mocked<ReviewSyncDbService>;
   let accountAnonymizationService: jest.Mocked<AccountAnonymizationService>;
   let adminOverviewDbService: jest.Mocked<AdminOverviewDbService>;
+  let billingReconciliationService: jest.Mocked<
+    Pick<BillingReconciliationService, 'reconcileTenantSubscription'>
+  >;
+  let tenantSubscriptionsDbService: jest.Mocked<
+    Pick<TenantSubscriptionsDbService, 'findStaleFreeWithStripeCustomer'>
+  >;
   let configService: { get: jest.Mock };
   let acquireLock: jest.Mock;
 
@@ -64,6 +72,14 @@ describe('CronService', () => {
       recordActivityBestEffort: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<AdminOverviewDbService>;
 
+    billingReconciliationService = {
+      reconcileTenantSubscription: jest.fn().mockResolvedValue(undefined),
+    };
+
+    tenantSubscriptionsDbService = {
+      findStaleFreeWithStripeCustomer: jest.fn().mockResolvedValue([]),
+    };
+
     configService = { get: jest.fn().mockReturnValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -75,6 +91,8 @@ describe('CronService', () => {
         { provide: ReviewSyncDbService, useValue: reviewSyncDbService },
         { provide: AccountAnonymizationService, useValue: accountAnonymizationService },
         { provide: AdminOverviewDbService, useValue: adminOverviewDbService },
+        { provide: BillingReconciliationService, useValue: billingReconciliationService },
+        { provide: TenantSubscriptionsDbService, useValue: tenantSubscriptionsDbService },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -348,6 +366,53 @@ describe('CronService', () => {
       await target.purgeErasureRequests();
 
       expect(authDbService.findTenantsDueForErasurePurge).toHaveBeenCalledWith(21);
+    });
+  });
+
+  describe('reconcileStaleBillingSubscriptions', () => {
+    it('reconciles every stale candidate against Stripe', async () => {
+      tenantSubscriptionsDbService.findStaleFreeWithStripeCustomer.mockResolvedValue([
+        { tenantId: 'tenant-1', stripeCustomerId: 'cus_1' },
+        { tenantId: 'tenant-2', stripeCustomerId: 'cus_2' },
+      ]);
+
+      await target.reconcileStaleBillingSubscriptions();
+
+      expect(billingReconciliationService.reconcileTenantSubscription).toHaveBeenCalledTimes(2);
+      expect(billingReconciliationService.reconcileTenantSubscription).toHaveBeenNthCalledWith(1, {
+        tenantId: 'tenant-1',
+        stripeCustomerId: 'cus_1',
+      });
+      expect(billingReconciliationService.reconcileTenantSubscription).toHaveBeenNthCalledWith(2, {
+        tenantId: 'tenant-2',
+        stripeCustomerId: 'cus_2',
+      });
+    });
+
+    it('does nothing when there are no stale candidates', async () => {
+      tenantSubscriptionsDbService.findStaleFreeWithStripeCustomer.mockResolvedValue([]);
+
+      await target.reconcileStaleBillingSubscriptions();
+
+      expect(billingReconciliationService.reconcileTenantSubscription).not.toHaveBeenCalled();
+    });
+
+    /** Same reasoning as `pollDueLocations`'s own isolation test — one tenant's Stripe lookup
+     *  failing must not starve every other candidate in the same sweep. */
+    it('keeps reconciling the remaining candidates when one fails', async () => {
+      tenantSubscriptionsDbService.findStaleFreeWithStripeCustomer.mockResolvedValue([
+        { tenantId: 'tenant-1', stripeCustomerId: 'cus_1' },
+        { tenantId: 'tenant-2', stripeCustomerId: 'cus_2' },
+        { tenantId: 'tenant-3', stripeCustomerId: 'cus_3' },
+      ]);
+      billingReconciliationService.reconcileTenantSubscription
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('Stripe timeout'))
+        .mockResolvedValueOnce(undefined);
+
+      await expect(target.reconcileStaleBillingSubscriptions()).resolves.toBeUndefined();
+
+      expect(billingReconciliationService.reconcileTenantSubscription).toHaveBeenCalledTimes(3);
     });
   });
 });

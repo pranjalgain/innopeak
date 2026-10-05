@@ -114,6 +114,7 @@ Class | Method | HTTP request | Description
 *BillingApi* | [**billingControllerGetSubscriptionV1**](docs/BillingApi.md#billingcontrollergetsubscriptionv1) | **GET** /v1/billing/subscription | Get the caller tenant\&#39;s subscription
 *BillingApi* | [**billingControllerListPlansV1**](docs/BillingApi.md#billingcontrollerlistplansv1) | **GET** /v1/billing/plans | List billing plans
 *BillingApi* | [**billingControllerListReceiptsV1**](docs/BillingApi.md#billingcontrollerlistreceiptsv1) | **GET** /v1/billing/receipts | List the caller tenant\&#39;s payment receipts
+*BillingApi* | [**billingControllerReconcileCheckoutSessionV1**](docs/BillingApi.md#billingcontrollerreconcilecheckoutsessionv1) | **POST** /v1/billing/checkout/reconcile | Reconcile billing status against a Checkout session
 *BillingApi* | [**billingControllerSetActiveLocationV1**](docs/BillingApi.md#billingcontrollersetactivelocationv1) | **PUT** /v1/billing/active-location | Choose which connected location stays active under the current plan cap
 *BillingApi* | [**billingControllerSetDefaultPaymentMethodV1**](docs/BillingApi.md#billingcontrollersetdefaultpaymentmethodv1) | **PUT** /v1/billing/payment-method | Make a just-confirmed SetupIntent payment method the default card
 *BillingApi* | [**billingControllerUpdateBillingProfileV1**](docs/BillingApi.md#billingcontrollerupdatebillingprofilev1) | **PUT** /v1/billing/profile | Update the caller tenant\&#39;s Stripe billing profile
@@ -240,6 +241,7 @@ Class | Method | HTTP request | Description
  - [ReceiptDto](docs/ReceiptDto.md)
  - [ReceiptListResponseDto](docs/ReceiptListResponseDto.md)
  - [RecentEscalatedDto](docs/RecentEscalatedDto.md)
+ - [ReconcileCheckoutSessionDto](docs/ReconcileCheckoutSessionDto.md)
  - [RedirectUrlResponseDto](docs/RedirectUrlResponseDto.md)
  - [ResendOtpDto](docs/ResendOtpDto.md)
  - [ReviewDetailResponseDto](docs/ReviewDetailResponseDto.md)

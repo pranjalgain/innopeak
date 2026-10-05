@@ -56,4 +56,18 @@ export class CronScheduler implements OnModuleInit {
     this.logger.debug('Scheduling erasure purge job');
     await this.cronQueue.addErasurePurgeJob();
   }
+
+  /**
+   * Safety net for a Stripe webhook that was missed or delayed past Stripe's own retry window —
+   * see `BillingReconciliationService`'s own doc comment for the full three-layer design. Daily is
+   * generous, not urgent: Stripe's retry window is itself measured in hours/days, and the
+   * synchronous checkout-redirect path (`POST /v1/billing/checkout/reconcile`) already closes the
+   * common case instantly. Its own slot, off every other daily job, same reasoning as
+   * `scheduleErasurePurge`.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_5AM)
+  async scheduleBillingReconciliationSweep(): Promise<void> {
+    this.logger.debug('Scheduling billing reconciliation sweep job');
+    await this.cronQueue.addBillingReconciliationSweepJob();
+  }
 }

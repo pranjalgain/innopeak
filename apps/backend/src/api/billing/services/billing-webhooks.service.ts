@@ -9,6 +9,8 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { BillingEntitlementsService } from './billing-entitlements.service';
 
+import { UNKNOWN_CUSTOMER_RETRY_GRACE_MS } from '../constants/billing.constants';
+import { StripeWebhookTenantNotFoundException } from '../exceptions/billing.exceptions';
 import type { PaymentWebhookEvent } from '../types/billing.type';
 
 /**
@@ -23,10 +25,23 @@ import type { PaymentWebhookEvent } from '../types/billing.type';
  * | `invoice.payment_failed` | `status` only — no email queuing in v1. |
  * | `invoice.payment_succeeded` | `status`, plus a `billing_receipts` row (amount/currency/invoice number) so the tenant can download a PDF receipt — see `0012_billing_receipts.sql`. |
  *
- * Every branch resolves the tenant by Stripe id and no-ops (with a warning logged) if none is
- * found, rather than throwing — an orphan event (a customer/subscription this app never created,
- * or a race with an as-yet-uncommitted Checkout) must not fail the webhook and trigger endless
- * Stripe retries for something that will never resolve.
+ * Every branch resolves the tenant by Stripe id via `requireSubscriptionByCustomerId`, which
+ * **throws** (`StripeWebhookTenantNotFoundException`) rather than swallowing a miss — see that
+ * method's own doc comment for why: letting the throw propagate and fail the webhook response is
+ * what makes Stripe actually retry a transient miss (a race with an as-yet-uncommitted Checkout, a
+ * brief replication lag) instead of this app silently, permanently losing it. That retry is bounded
+ * (`UNKNOWN_CUSTOMER_RETRY_GRACE_MS`): once such an event is older than the grace window it is
+ * acknowledged and logged instead, since a customer this database still doesn't know after that
+ * long never will — failing it for days would only risk Stripe disabling the whole endpoint. The one deliberate
+ * exception is `resolveSubscription`'s *own* no-op for a genuinely stale, out-of-order event (a
+ * `.deleted` for a subscription the tenant has since superseded) — that one is correct to skip
+ * forever, since reprocessing it later would never produce a different, more correct result.
+ *
+ * Every handler that resolves a real tenant also returns its `tenantId`, so `handleEvent` can stamp
+ * `tenant_subscriptions.stripe_last_verified_at` once, in one place, after any event type —
+ * `BillingReconciliationService`'s cron sweep reads that column to decide which tenants still need
+ * checking, and a tenant a webhook just confirmed in sync should not be re-checked again shortly
+ * after for no reason.
  *
  * **One transaction per delivery.** `handleEvent` opens a single `DBService.db.transaction(...)`
  * spanning the idempotency-ledger insert (`stripeWebhookEventsDbService.recordIfNew`) AND every
@@ -56,52 +71,78 @@ export class BillingWebhooksService {
     const rawType = event.type === 'unhandled' ? event.rawType : event.type;
     const customerId = event.type === 'unhandled' ? null : event.customerId;
 
-    await this.dbService.db.transaction(async tx => {
-      // Insert-first, ON CONFLICT DO NOTHING — 0 rows returned means this event id was already
-      // processed (a duplicate delivery, Stripe's own retry behavior), and it must be skipped. Runs
-      // inside this same transaction — see this class's own doc comment for why.
-      const isNew = await this.stripeWebhookEventsDbService.recordIfNew(
-        event.id,
-        rawType,
-        customerId,
-        tx
-      );
-      if (!isNew) {
-        this.logger.debug(`Skipping duplicate Stripe webhook event ${event.id} (${rawType})`);
+    try {
+      await this.dbService.db.transaction(async tx => {
+        // Insert-first, ON CONFLICT DO NOTHING — 0 rows returned means this event id was already
+        // processed (a duplicate delivery, Stripe's own retry behavior), and it must be skipped.
+        // Runs inside this same transaction — see this class's own doc comment for why.
+        const isNew = await this.stripeWebhookEventsDbService.recordIfNew(
+          event.id,
+          rawType,
+          customerId,
+          tx
+        );
+        if (!isNew) {
+          this.logger.debug(`Skipping duplicate Stripe webhook event ${event.id} (${rawType})`);
+          return;
+        }
+
+        const tenantId = await this.dispatchEvent(tx, event);
+        if (tenantId !== null) {
+          await this.tenantSubscriptionsDbService.touchStripeVerifiedAt(tenantId, tx);
+        }
+      });
+    } catch (error) {
+      // The transaction (ledger row included) is already rolled back by the time this runs, so
+      // swallowing here only stops Stripe retrying — it never marks the event processed.
+      if (error instanceof StripeWebhookTenantNotFoundException && this.isPastRetryGrace(event)) {
+        this.logger.error(
+          `Dropping Stripe event ${event.id} (${rawType}) for unknown customer ${customerId ?? 'n/a'} — ` +
+            `still unresolved after ${UNKNOWN_CUSTOMER_RETRY_GRACE_MS / 60000} min of retries, so this is ` +
+            `not a transient miss.`
+        );
         return;
       }
+      throw error;
+    }
+  }
 
-      switch (event.type) {
-        case 'checkout.session.completed':
-          await this.handleCheckoutCompleted(tx, event);
-          return;
-        case 'customer.subscription.updated':
-          await this.handleSubscriptionUpdated(tx, event);
-          return;
-        case 'customer.subscription.deleted':
-          await this.handleSubscriptionDeleted(tx, event);
-          return;
-        case 'invoice.payment_failed':
-          await this.syncStatusByCustomerId(tx, event.customerId, SubscriptionStatus.PAST_DUE);
-          return;
-        case 'invoice.payment_succeeded':
-          await this.handleInvoicePaymentSucceeded(tx, event);
-          return;
-        case 'unhandled':
-          this.logger.debug(`Ignoring unhandled Stripe event type ${event.rawType}`);
-          return;
-      }
-    });
+  private isPastRetryGrace(event: PaymentWebhookEvent): boolean {
+    return (
+      event.createdAt !== undefined &&
+      Date.now() - new Date(event.createdAt).getTime() > UNKNOWN_CUSTOMER_RETRY_GRACE_MS
+    );
+  }
+
+  /** Routes to the per-event-type handler and returns the tenant id it resolved, or `null` for an
+   *  event that legitimately touches no tenant (`unhandled`, or `resolveSubscription`'s stale-event
+   *  no-op) — `handleEvent` uses that to decide whether to stamp `stripe_last_verified_at`. */
+  private async dispatchEvent(
+    tx: DrizzleTransaction,
+    event: PaymentWebhookEvent
+  ): Promise<string | null> {
+    switch (event.type) {
+      case 'checkout.session.completed':
+        return this.handleCheckoutCompleted(tx, event);
+      case 'customer.subscription.updated':
+        return this.handleSubscriptionUpdated(tx, event);
+      case 'customer.subscription.deleted':
+        return this.handleSubscriptionDeleted(tx, event);
+      case 'invoice.payment_failed':
+        return this.syncStatusByCustomerId(tx, event.customerId, SubscriptionStatus.PAST_DUE);
+      case 'invoice.payment_succeeded':
+        return this.handleInvoicePaymentSucceeded(tx, event);
+      case 'unhandled':
+        this.logger.debug(`Ignoring unhandled Stripe event type ${event.rawType}`);
+        return null;
+    }
   }
 
   private async handleCheckoutCompleted(
     tx: DrizzleTransaction,
     event: Extract<PaymentWebhookEvent, { type: 'checkout.session.completed' }>
-  ): Promise<void> {
+  ): Promise<string> {
     const subscription = await this.requireSubscriptionByCustomerId(tx, event.customerId);
-    if (!subscription) {
-      return;
-    }
 
     await this.tenantSubscriptionsDbService.setToPaidFromCheckout(
       subscription.tenantId,
@@ -117,15 +158,17 @@ export class BillingWebhooksService {
 
     // Paid has no location cap — see §3a's final paragraph in the plan.
     await this.connectionsDbService.clearBillingPauseForTenant(subscription.tenantId, tx);
+
+    return subscription.tenantId;
   }
 
   private async handleSubscriptionUpdated(
     tx: DrizzleTransaction,
     event: Extract<PaymentWebhookEvent, { type: 'customer.subscription.updated' }>
-  ): Promise<void> {
+  ): Promise<string | null> {
     const subscription = await this.resolveSubscription(tx, event.customerId, event.subscriptionId);
     if (!subscription) {
-      return;
+      return null;
     }
 
     // `plan_id` is deliberately untouched here — see this class's own doc comment table.
@@ -139,15 +182,17 @@ export class BillingWebhooksService {
       },
       tx
     );
+
+    return subscription.tenantId;
   }
 
   private async handleSubscriptionDeleted(
     tx: DrizzleTransaction,
     event: Extract<PaymentWebhookEvent, { type: 'customer.subscription.deleted' }>
-  ): Promise<void> {
+  ): Promise<string | null> {
     const subscription = await this.resolveSubscription(tx, event.customerId, event.subscriptionId);
     if (!subscription) {
-      return;
+      return null;
     }
 
     await this.tenantSubscriptionsDbService.setToFreeFromSubscriptionDeleted(
@@ -158,6 +203,8 @@ export class BillingWebhooksService {
       subscription.tenantId,
       tx
     );
+
+    return subscription.tenantId;
   }
 
   /** Syncs status (unchanged from before) and additionally records a `billing_receipts` row so the
@@ -167,11 +214,8 @@ export class BillingWebhooksService {
   private async handleInvoicePaymentSucceeded(
     tx: DrizzleTransaction,
     event: Extract<PaymentWebhookEvent, { type: 'invoice.payment_succeeded' }>
-  ): Promise<void> {
+  ): Promise<string> {
     const subscription = await this.requireSubscriptionByCustomerId(tx, event.customerId);
-    if (!subscription) {
-      return;
-    }
 
     await this.tenantSubscriptionsDbService.updateStatus(
       subscription.tenantId,
@@ -191,18 +235,18 @@ export class BillingWebhooksService {
       },
       tx
     );
+
+    return subscription.tenantId;
   }
 
   private async syncStatusByCustomerId(
     tx: DrizzleTransaction,
     customerId: string,
     status: SubscriptionStatus
-  ): Promise<void> {
+  ): Promise<string> {
     const subscription = await this.requireSubscriptionByCustomerId(tx, customerId);
-    if (!subscription) {
-      return;
-    }
     await this.tenantSubscriptionsDbService.updateStatus(subscription.tenantId, status, tx);
+    return subscription.tenantId;
   }
 
   /**
@@ -233,9 +277,6 @@ export class BillingWebhooksService {
     }
 
     const byCustomerId = await this.requireSubscriptionByCustomerId(tx, customerId);
-    if (!byCustomerId) {
-      return null;
-    }
 
     if (
       byCustomerId.stripeSubscriptionId !== null &&
@@ -251,19 +292,31 @@ export class BillingWebhooksService {
     return byCustomerId;
   }
 
+  /**
+   * Throws, rather than returning `null`, when no `tenant_subscriptions` row matches this Stripe
+   * customer id — see `StripeWebhookTenantNotFoundException`'s own doc comment and this class's.
+   * The one place a "no match" genuinely should be a silent no-op (a stale, out-of-order event for
+   * a subscription the tenant has since superseded) is `resolveSubscription`'s own check *after*
+   * this call succeeds, not here: this method only ever answers "does any tenant own this Stripe
+   * customer at all," and the answer is never legitimately "no and that's fine" — every customer id
+   * in a webhook payload was, at some point, written by this same app (`StripePaymentProvider
+   * .createCustomer`), so a miss is always either a transient race or a genuine data problem, both
+   * worth Stripe retrying rather than this app discarding silently.
+   */
   private async requireSubscriptionByCustomerId(
     tx: DrizzleTransaction,
     customerId: string
-  ): Promise<TenantSubscriptionRow | null> {
+  ): Promise<TenantSubscriptionRow> {
     const subscription = await this.tenantSubscriptionsDbService.findByStripeCustomerId(
       customerId,
       tx
     );
     if (!subscription) {
       this.logger.warn(
-        `No tenant_subscriptions row found for Stripe customer ${customerId} — ignoring event.`
+        `No tenant_subscriptions row found for Stripe customer ${customerId} — rolling back so ` +
+          `Stripe retries this delivery instead of it being marked processed forever.`
       );
-      return null;
+      throw new StripeWebhookTenantNotFoundException();
     }
     return subscription;
   }

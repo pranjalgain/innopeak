@@ -110,3 +110,25 @@ export class DummyProviderNotActiveException extends NotFoundException {
     super({ message, code: 'DUMMY_PROVIDER_NOT_ACTIVE' });
   }
 }
+
+/** `BillingWebhooksService.requireSubscriptionByCustomerId` found no `tenant_subscriptions` row
+ *  for the event's Stripe customer id. Thrown, not swallowed, specifically so it propagates out of
+ *  `handleEvent`'s transaction and rolls back the `stripe_webhook_events` idempotency-ledger insert
+ *  along with it — a webhook endpoint returning non-2xx is exactly what makes Stripe retry the
+ *  delivery, which is the right outcome for a miss that might resolve once a still-committing
+ *  Checkout Session, or a brief replication lag, catches up. See that method's own doc comment. */
+export class StripeWebhookTenantNotFoundException extends NotFoundException {
+  constructor(message: string = MESSAGES.BILLING.STRIPE_WEBHOOK_TENANT_NOT_FOUND) {
+    super({ message, code: 'STRIPE_WEBHOOK_TENANT_NOT_FOUND' });
+  }
+}
+
+/** `POST /v1/billing/checkout/reconcile` was called with a `checkoutSessionId` whose own
+ *  `metadata.tenantId` doesn't match the authenticated caller's tenant — either a stale/foreign
+ *  session id, or an attempt to probe another tenant's checkout outcome. Reported as 404, the same
+ *  enumeration-prevention stance every other tenant-scoped lookup in this app takes. */
+export class CheckoutSessionTenantMismatchException extends NotFoundException {
+  constructor(message: string = MESSAGES.BILLING.CHECKOUT_SESSION_TENANT_MISMATCH) {
+    super({ message, code: 'CHECKOUT_SESSION_TENANT_MISMATCH' });
+  }
+}

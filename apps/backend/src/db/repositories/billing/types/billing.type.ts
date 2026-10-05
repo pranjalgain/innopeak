@@ -52,6 +52,13 @@ export interface TenantSubscriptionRow {
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
+  /** Last time this row was confirmed in sync with Stripe — by a webhook, the synchronous
+   *  checkout-redirect reconciliation, or the periodic reconciliation sweep. `null` means never
+   *  verified. A sweep confirming a tenant is still genuinely free stamps this too. */
+  stripeLastVerifiedAt: string | null;
+  /** When this tenant last started a Checkout Session — bounds the reconciliation sweep, see
+   *  `0011_billing.sql`. `null` means no checkout was ever started. */
+  checkoutStartedAt: string | null;
 }
 
 export interface InsertSubscriptionInput {

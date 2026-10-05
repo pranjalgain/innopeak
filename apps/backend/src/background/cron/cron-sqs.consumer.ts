@@ -42,6 +42,9 @@ export class CronSqsConsumer extends SqsQueueConsumerBase {
       case CronJobName.ERASURE_PURGE:
         await this.cronService.purgeErasureRequests();
         break;
+      case CronJobName.BILLING_RECONCILIATION_SWEEP:
+        await this.cronService.reconcileStaleBillingSubscriptions();
+        break;
       default: {
         // Exhaustiveness check: a new CronJobName member left unhandled here fails the build.
         const unhandled: never = name;

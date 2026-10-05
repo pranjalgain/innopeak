@@ -14,6 +14,7 @@ import type { TenantSubscriptionRow } from '@db/repositories/billing/types/billi
 import type { ConfigService } from '@nestjs/config';
 
 import type { BillingEntitlementsService } from './billing-entitlements.service';
+import type { BillingReconciliationService } from './billing-reconciliation.service';
 import type { BillingWebhooksService } from './billing-webhooks.service';
 import { BillingService } from './billing.service';
 
@@ -49,6 +50,8 @@ const baseSubscription: TenantSubscriptionRow = {
   currentPeriodStart: null,
   currentPeriodEnd: null,
   cancelAtPeriodEnd: false,
+  stripeLastVerifiedAt: null,
+  checkoutStartedAt: null,
 };
 
 /** Matches `EnvConfig`'s real key set closely enough for `ConfigService.get()` to answer the two
@@ -71,13 +74,16 @@ describe('BillingService', () => {
   let tenantSubscriptionsDbService: jest.Mocked<
     Pick<
       TenantSubscriptionsDbService,
-      'attachStripeCustomerId' | 'findByTenantId' | 'withCheckoutLock'
+      'attachStripeCustomerId' | 'findByTenantId' | 'touchCheckoutStartedAt' | 'withCheckoutLock'
     >
   >;
   let billingEntitlementsService: jest.Mocked<
     Pick<BillingEntitlementsService, 'getEntitlements' | 'setActiveLocationForPlan'>
   >;
   let billingWebhooksService: jest.Mocked<Pick<BillingWebhooksService, 'handleEvent'>>;
+  let billingReconciliationService: jest.Mocked<
+    Pick<BillingReconciliationService, 'reconcileFromCheckoutSession'>
+  >;
   let billingReceiptsDbService: jest.Mocked<
     Pick<BillingReceiptsDbService, 'findByIdForTenant' | 'listByTenantId'>
   >;
@@ -101,6 +107,7 @@ describe('BillingService', () => {
     billingPlansDbService = { findByCode: jest.fn() };
     tenantSubscriptionsDbService = {
       findByTenantId: jest.fn(),
+      touchCheckoutStartedAt: jest.fn().mockResolvedValue(undefined),
       attachStripeCustomerId: jest.fn().mockResolvedValue(baseSubscription),
       // Mirrors the real `TenantSubscriptionsDbService.withCheckoutLock`: resolves the tenant's
       // current row (via this same mock's own `findByTenantId`, so existing
@@ -129,6 +136,9 @@ describe('BillingService', () => {
       }),
     };
     billingWebhooksService = { handleEvent: jest.fn() };
+    billingReconciliationService = {
+      reconcileFromCheckoutSession: jest.fn().mockResolvedValue(undefined),
+    };
     billingReceiptsDbService = {
       listByTenantId: jest.fn().mockResolvedValue([]),
       findByIdForTenant: jest.fn().mockResolvedValue(null),
@@ -154,6 +164,7 @@ describe('BillingService', () => {
       tenantSubscriptionsDbService as unknown as TenantSubscriptionsDbService,
       billingEntitlementsService as unknown as BillingEntitlementsService,
       billingWebhooksService as unknown as BillingWebhooksService,
+      billingReconciliationService as unknown as BillingReconciliationService,
       billingReceiptsDbService as unknown as BillingReceiptsDbService,
       authDbService as unknown as AuthDbService,
       paymentProvider as unknown as PaymentProvider,
@@ -168,6 +179,7 @@ describe('BillingService', () => {
         tenantSubscriptionsDbService as unknown as TenantSubscriptionsDbService,
         billingEntitlementsService as unknown as BillingEntitlementsService,
         billingWebhooksService as unknown as BillingWebhooksService,
+        billingReconciliationService as unknown as BillingReconciliationService,
         billingReceiptsDbService as unknown as BillingReceiptsDbService,
         authDbService as unknown as AuthDbService,
         paymentProvider as unknown as PaymentProvider,
@@ -201,6 +213,7 @@ describe('BillingService', () => {
 
       expect(result).toEqual({ url: 'https://example.com/checkout' });
       expect(paymentProvider.createCheckoutSession).toHaveBeenCalledTimes(1);
+      expect(tenantSubscriptionsDbService.touchCheckoutStartedAt).toHaveBeenCalledWith('tenant-1');
     });
 
     it('reuses an existing Stripe customer id instead of minting a second one', async () => {
@@ -260,6 +273,7 @@ describe('BillingService', () => {
         tenantSubscriptionsDbService as unknown as TenantSubscriptionsDbService,
         billingEntitlementsService as unknown as BillingEntitlementsService,
         billingWebhooksService as unknown as BillingWebhooksService,
+        billingReconciliationService as unknown as BillingReconciliationService,
         billingReceiptsDbService as unknown as BillingReceiptsDbService,
         authDbService as unknown as AuthDbService,
         paymentProvider as unknown as PaymentProvider,
@@ -494,6 +508,45 @@ describe('BillingService', () => {
       const result = await target.getSubscription(tenantUser);
 
       expect(result.paymentProvider).toBe('stripe');
+    });
+  });
+
+  describe('reconcileCheckoutSession', () => {
+    it('delegates to BillingReconciliationService with the caller own tenant id, then returns the refreshed subscription', async () => {
+      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue({
+        ...baseSubscription,
+        planId: 'plan-paid',
+      });
+      paymentProvider.type = 'stripe';
+
+      const result = await target.reconcileCheckoutSession(tenantUser, 'cs_test_123');
+
+      expect(billingReconciliationService.reconcileFromCheckoutSession).toHaveBeenCalledWith({
+        tenantId: tenantUser.tenantId,
+        checkoutSessionId: 'cs_test_123',
+      });
+      expect(result.paymentProvider).toBe('stripe');
+    });
+
+    it('rejects with StripeOnlyFeatureException under the dummy provider, without calling the reconciliation service', async () => {
+      paymentProvider.type = 'dummy';
+
+      await expect(
+        target.reconcileCheckoutSession(tenantUser, 'cs_test_123')
+      ).rejects.toBeInstanceOf(StripeOnlyFeatureException);
+      expect(billingReconciliationService.reconcileFromCheckoutSession).not.toHaveBeenCalled();
+    });
+
+    it('propagates whatever BillingReconciliationService throws (e.g. a tenant mismatch) without touching the subscription read', async () => {
+      paymentProvider.type = 'stripe';
+      billingReconciliationService.reconcileFromCheckoutSession.mockRejectedValue(
+        new Error('CHECKOUT_SESSION_TENANT_MISMATCH')
+      );
+
+      await expect(
+        target.reconcileCheckoutSession(tenantUser, 'cs_test_someone_elses')
+      ).rejects.toThrow('CHECKOUT_SESSION_TENANT_MISMATCH');
+      expect(tenantSubscriptionsDbService.findByTenantId).not.toHaveBeenCalled();
     });
   });
 

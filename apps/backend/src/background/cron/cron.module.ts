@@ -1,4 +1,5 @@
 import { AuthModule } from '@auth/auth.module';
+import { BillingReconciliationModule } from '@billing/billing-reconciliation.module';
 import { isAwsDeploymentTarget } from '@config/deployment-target.util';
 import { CronSqsConsumer } from '@cron/cron-sqs.consumer';
 import { CronProcessor } from '@cron/cron.processor';
@@ -17,10 +18,13 @@ const consumerProvider: Provider = isAws ? CronSqsConsumer : CronProcessor;
  * `pollDueLocations` is the first cron job in this codebase whose work is "publish more jobs"
  * rather than doing its work inline, so `CronService` needed a producer for the first time;
  * importing the consumer module here would additionally start a second review-sync `@Processor`
- * wherever this module is loaded. `ConnectionsDbService`/`AdminOverviewDbService` (`CronService`'s
- * other DB-layer dependencies) need no import: `DBModule` is `@Global()`. `AuthModule` is imported
- * for `AccountAnonymizationService` alone — the GDPR erasure-purge job's one cross-module
- * dependency; no cycle risk, since nothing `AuthModule` imports ever imports `CronModule` back.
+ * wherever this module is loaded. `ConnectionsDbService`/`AdminOverviewDbService`/
+ * `TenantSubscriptionsDbService` (`CronService`'s other DB-layer dependencies) need no import:
+ * `DBModule` is `@Global()`. `AuthModule` is imported for `AccountAnonymizationService` alone — the
+ * GDPR erasure-purge job's one cross-module dependency; `BillingReconciliationModule` (deliberately not the whole `BillingModule`, whose controllers and checkout code the worker has no use for) likewise for
+ * `BillingReconciliationService` alone, the nightly billing-reconciliation sweep's own one
+ * cross-module dependency. No cycle risk for either: nothing `AuthModule`/`BillingReconciliationModule` imports
+ * ever imports `CronModule` back.
  */
 @Module({
   imports: [
@@ -28,6 +32,7 @@ const consumerProvider: Provider = isAws ? CronSqsConsumer : CronProcessor;
     DeadLetterQueueModule,
     ReviewSyncQueueProducerModule,
     AuthModule,
+    BillingReconciliationModule,
   ],
   providers: [consumerProvider, CronService],
 })

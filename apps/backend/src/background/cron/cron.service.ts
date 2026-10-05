@@ -1,10 +1,12 @@
 import { AccountAnonymizationService } from '@auth/services/account-anonymization.service';
 import { ICronJob } from '@bg/interfaces/job.interface';
+import { BillingReconciliationService } from '@billing/services/billing-reconciliation.service';
 import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { EnvConfig } from '@config/env.config';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Injectable, Logger } from '@nestjs/common';
@@ -26,6 +28,8 @@ export class CronService {
     private readonly reviewSyncDbService: ReviewSyncDbService,
     private readonly accountAnonymizationService: AccountAnonymizationService,
     private readonly adminOverviewDbService: AdminOverviewDbService,
+    private readonly billingReconciliationService: BillingReconciliationService,
+    private readonly tenantSubscriptionsDbService: TenantSubscriptionsDbService,
     private readonly configService: ConfigService<EnvConfig>
   ) {}
 
@@ -192,5 +196,46 @@ export class CronService {
         `Erasure purge: anonymized ${anonymizedUsers} user(s), erased ${erasedTenants} tenant(s)`
       );
     });
+  }
+
+  /**
+   * The nightly safety net in `BillingReconciliationService`'s own three-layer design — for a
+   * tenant who never comes back to the checkout success page at all (closes the tab, pays from a
+   * different device), the synchronous redirect path (`POST /v1/billing/checkout/reconcile`) never
+   * runs either. This sweep is what still catches it.
+   *
+   * Candidates are `TenantSubscriptionsRepository.findStaleFreeWithStripeCustomer`'s own
+   * signature: a Stripe customer id (a checkout was at least started) but still on the `free`
+   * plan, unverified for over an hour — exactly "paid on Stripe, this app never heard about it."
+   * Each is isolated in its own try/catch, same reasoning as `pollDueLocations`: one tenant's
+   * Stripe lookup failing must not starve every other candidate in the same tick.
+   */
+  async reconcileStaleBillingSubscriptions(): Promise<void> {
+    const candidates = await this.tenantSubscriptionsDbService.findStaleFreeWithStripeCustomer();
+
+    let reconciled = 0;
+    const failed: string[] = [];
+
+    for (const candidate of candidates) {
+      try {
+        await this.billingReconciliationService.reconcileTenantSubscription(candidate);
+        reconciled += 1;
+      } catch (error) {
+        failed.push(candidate.tenantId);
+        this.logger.error(
+          `Failed to reconcile billing for tenant ${candidate.tenantId}: ${(error as Error).message}`
+        );
+      }
+    }
+
+    if (failed.length > 0) {
+      this.logger.error(
+        `Reconciled ${reconciled}/${candidates.length} stale billing subscription(s); ` +
+          `${failed.length} failed and will be retried at the next sweep: ${failed.join(', ')}`
+      );
+      return;
+    }
+
+    this.logger.debug(`Reconciled ${reconciled} stale billing subscription(s)`);
   }
 }
