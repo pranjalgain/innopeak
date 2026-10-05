@@ -703,3 +703,339 @@ describe('ReviewSyncDbService.rejectResponse', () => {
     expect(result).toBe(rejected);
   });
 });
+
+describe('ReviewSyncDbService.claimResponseForPosting', () => {
+  let service: ReviewSyncDbService;
+  const claimResponseForPosting = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: { claimResponseForPosting } },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('passes the input straight through to the repository', async () => {
+    const claimed = { id: 'response-1', status: 'approved' };
+    claimResponseForPosting.mockResolvedValue(claimed);
+
+    const result = await service.claimResponseForPosting({
+      responseId: 'response-1',
+      tenantId: 'tenant-1',
+    });
+
+    expect(claimResponseForPosting).toHaveBeenCalledWith({
+      responseId: 'response-1',
+      tenantId: 'tenant-1',
+    });
+    expect(result).toBe(claimed);
+  });
+});
+
+describe('ReviewSyncDbService.markResponsePosted', () => {
+  let service: ReviewSyncDbService;
+  const markResponsePosted = jest.fn();
+  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn({}));
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: { transaction, markResponsePosted } },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('runs inside a transaction and passes the input straight through', async () => {
+    const posted = { id: 'response-1', status: 'posted' };
+    markResponsePosted.mockResolvedValue(posted);
+
+    const result = await service.markResponsePosted({
+      responseId: 'response-1',
+      reviewId: 'review-1',
+      postedAt: '2026-03-12T09:01:11.402Z',
+    });
+
+    expect(markResponsePosted).toHaveBeenCalledWith(expect.anything(), {
+      responseId: 'response-1',
+      reviewId: 'review-1',
+      postedAt: '2026-03-12T09:01:11.402Z',
+    });
+    expect(result).toBe(posted);
+  });
+});
+
+describe('ReviewSyncDbService.markResponsePostFailed', () => {
+  let service: ReviewSyncDbService;
+  const markResponsePostFailed = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: { markResponsePostFailed } },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('passes the input straight through to the repository', async () => {
+    const failed = { id: 'response-1', status: 'post_failed' };
+    markResponsePostFailed.mockResolvedValue(failed);
+
+    const result = await service.markResponsePostFailed({
+      responseId: 'response-1',
+      errorMessage: 'Google API returned 429',
+    });
+
+    expect(markResponsePostFailed).toHaveBeenCalledWith({
+      responseId: 'response-1',
+      errorMessage: 'Google API returned 429',
+    });
+    expect(result).toBe(failed);
+  });
+});
+
+describe('ReviewSyncDbService.supersedeForExternalReply', () => {
+  let service: ReviewSyncDbService;
+  const supersedeForExternalReply = jest.fn();
+  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn({}));
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: { transaction, supersedeForExternalReply } },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('runs inside a transaction and passes the input straight through', async () => {
+    supersedeForExternalReply.mockResolvedValue(true);
+
+    const result = await service.supersedeForExternalReply({
+      responseId: 'response-1',
+      reviewId: 'review-1',
+      tenantId: 'tenant-1',
+      content: "Thanks, we're glad you enjoyed it!",
+      postedAt: '2026-03-12T09:01:11.402Z',
+    });
+
+    expect(supersedeForExternalReply).toHaveBeenCalledWith(expect.anything(), {
+      responseId: 'response-1',
+      reviewId: 'review-1',
+      tenantId: 'tenant-1',
+      content: "Thanks, we're glad you enjoyed it!",
+      postedAt: '2026-03-12T09:01:11.402Z',
+    });
+    expect(result).toBe(true);
+  });
+
+  it('reports false, unchanged, when the CAS found nothing to supersede', async () => {
+    supersedeForExternalReply.mockResolvedValue(false);
+
+    const result = await service.supersedeForExternalReply({
+      responseId: 'response-1',
+      reviewId: 'review-1',
+      tenantId: 'tenant-1',
+      content: 'Someone else replied.',
+      postedAt: '2026-03-12T09:01:11.402Z',
+    });
+
+    expect(result).toBe(false);
+  });
+});
+
+describe('ReviewSyncDbService.retryPostableResponse', () => {
+  let service: ReviewSyncDbService;
+  const retryPostableResponse = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: { retryPostableResponse } },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('passes the input straight through to the repository', async () => {
+    const retried = { id: 'response-1', status: 'approved' };
+    retryPostableResponse.mockResolvedValue(retried);
+
+    const result = await service.retryPostableResponse({
+      responseId: 'response-1',
+      tenantId: 'tenant-1',
+    });
+
+    expect(retryPostableResponse).toHaveBeenCalledWith({
+      responseId: 'response-1',
+      tenantId: 'tenant-1',
+    });
+    expect(result).toBe(retried);
+  });
+});
+
+describe('ReviewSyncDbService.insertManualReply', () => {
+  let service: ReviewSyncDbService;
+  const insertManualReply = jest.fn();
+  const supersedeSiblingDrafts = jest.fn();
+  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn({}));
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        {
+          provide: ReviewSyncRepository,
+          useValue: { transaction, insertManualReply, supersedeSiblingDrafts },
+        },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('inserts the reply then supersedes non-terminal siblings in the same transaction', async () => {
+    const inserted = { id: 'response-2', reviewId: 'review-1' };
+    insertManualReply.mockResolvedValue(inserted);
+    supersedeSiblingDrafts.mockResolvedValue(['response-1']);
+
+    const result = await service.insertManualReply({
+      tenantId: 'tenant-1',
+      reviewId: 'review-1',
+      responseType: 'escalation_snippet',
+      content: 'A manual reply.',
+      createdByUserId: 'user-1',
+    } as Parameters<typeof service.insertManualReply>[0]);
+
+    expect(insertManualReply).toHaveBeenCalledWith(expect.anything(), {
+      tenantId: 'tenant-1',
+      reviewId: 'review-1',
+      responseType: 'escalation_snippet',
+      content: 'A manual reply.',
+      createdByUserId: 'user-1',
+    });
+    expect(supersedeSiblingDrafts).toHaveBeenCalledWith(expect.anything(), {
+      reviewId: 'review-1',
+      excludeResponseId: 'response-2',
+    });
+    expect(result).toEqual({ response: inserted, supersededResponseIds: ['response-1'] });
+  });
+});
+
+describe('ReviewSyncDbService.releaseResponseClaim', () => {
+  it('delegates to the repository with the same input', async () => {
+    const releaseResponseClaim = jest.fn().mockResolvedValue(true);
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        { provide: ReviewSyncRepository, useValue: { releaseResponseClaim } },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+
+    const result = await moduleRef
+      .get(ReviewSyncDbService)
+      .releaseResponseClaim({ responseId: 'response-1', tenantId: 'tenant-1' });
+
+    expect(result).toBe(true);
+    expect(releaseResponseClaim).toHaveBeenCalledWith({
+      responseId: 'response-1',
+      tenantId: 'tenant-1',
+    });
+  });
+});
+
+describe('ReviewSyncDbService.importLiveReply', () => {
+  const input = {
+    tenantId: 'tenant-1',
+    reviewId: 'review-1',
+    content: 'Live on Google.',
+    postedAt: '2026-03-12T10:00:00.000Z',
+  };
+  const tx = { __tx: true };
+  const insertImportedReply = jest.fn();
+  const markReviewResponded = jest.fn();
+  const transaction = jest.fn((fn: (t: unknown) => Promise<unknown>) => fn(tx));
+  let service: ReviewSyncDbService;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    insertImportedReply.mockResolvedValue(true);
+    markReviewResponded.mockResolvedValue(undefined);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReviewSyncDbService,
+        {
+          provide: ReviewSyncRepository,
+          useValue: { transaction, insertImportedReply, markReviewResponded },
+        },
+        { provide: ReviewsReadRepository, useValue: {} },
+        { provide: ConnectionsRepository, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ReviewSyncDbService);
+  });
+
+  it('imports the live reply and advances the review to responded in one transaction', async () => {
+    await expect(service.importLiveReply(input)).resolves.toBe(true);
+
+    expect(insertImportedReply).toHaveBeenCalledWith(tx, input);
+    expect(markReviewResponded).toHaveBeenCalledWith(tx, 'review-1');
+  });
+
+  it('returns false instead of throwing when the review already has a live reply on record', async () => {
+    transaction.mockRejectedValueOnce(
+      Object.assign(new Error('duplicate key'), {
+        code: '23505',
+        constraint: 'idx_review_responses_review_id_live_reply',
+      })
+    );
+
+    await expect(service.importLiveReply(input)).resolves.toBe(false);
+  });
+
+  it('rethrows any other failure', async () => {
+    transaction.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(service.importLiveReply(input)).rejects.toThrow('db down');
+  });
+});

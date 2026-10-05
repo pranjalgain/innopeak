@@ -118,6 +118,20 @@ export const messagesEn: MessageCatalog = {
     RESPONSE_ALREADY_LIVE: 'This review already has an approved or posted reply.',
     RESPONSE_APPROVED: 'Reply approved successfully',
     RESPONSE_REJECTED: 'Reply rejected successfully',
+    RESPONSE_NOT_RETRYABLE: 'Only a reply that failed to post can be retried.',
+    RESPONSE_NOT_POSTABLE: 'Only an approved reply that has not yet posted can be posted.',
+    REVIEW_ALREADY_HAS_LIVE_REPLY: 'This review already has an approved or posted reply.',
+    REVIEW_ALREADY_DISMISSED: 'This review has been dismissed and cannot be replied to.',
+    REVIEW_REMOVED_UPSTREAM: 'This review was removed on Google and cannot be replied to.',
+    POST_QUEUE_UNAVAILABLE: 'Could not queue the reply for posting right now. Please try again.',
+    POST_FAILED_REVIEW_REMOVED:
+      'This review was removed on Google, so the reply could not be posted.',
+    MANUAL_REPLY_INSERT_FAILED: (reviewId: string): string =>
+      `Failed to record the manual reply for review ${reviewId}`,
+    MANUAL_REPLY_CREATED: 'Reply created successfully',
+    RESPONSE_POST_QUEUED: 'Reply queued to post to Google',
+    RESPONSE_RETRY_QUEUED: 'Reply queued to retry posting to Google',
+    POST_STATUS_RETRIEVED: 'Post status retrieved successfully',
   },
   PROMPTS: {
     LISTED: 'Prompts retrieved successfully',
@@ -141,6 +155,11 @@ export const messagesEn: MessageCatalog = {
     PROMPT_NOT_CONFIGURED: 'No prompt is configured for this category yet.',
     PROVIDER_NOT_CONFIGURED:
       'The AI provider is not configured. Set OPENROUTER_API_KEY and OPENROUTER_MODEL.',
+    AZURE_PROVIDER_NOT_CONFIGURED:
+      'The Azure OpenAI provider is not configured. Set AZURE_OPENAI_ENDPOINT, ' +
+      'AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT, and AZURE_OPENAI_API_VERSION.',
+    AZURE_REGION_INVALID:
+      'AZURE_OPENAI_REGION must be "westeurope" — a GDPR requirement for this deployment.',
     GENERATION_FAILED: 'Failed to generate an AI reply. Please try again.',
   },
   BILLING: {

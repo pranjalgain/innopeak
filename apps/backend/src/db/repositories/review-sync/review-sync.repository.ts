@@ -1,4 +1,5 @@
 import { MESSAGES } from '@common/constants/messages.constants';
+import { POST_CLAIM_STALE_MINUTES } from '@common/constants/review-post.constants';
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
@@ -14,12 +15,18 @@ import { and, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type {
   ApproveResponseInput,
   ClaimClassificationInput,
+  ClaimResponseForPostingInput,
   GenerationCandidateRow,
   InsertGeneratedResponseInput,
   InsertImportedReplyInput,
+  InsertManualReplyInput,
+  MarkResponsePostedInput,
+  MarkResponsePostFailedInput,
   PendingClassificationRow,
   RejectResponseInput,
+  RetryPostableResponseInput,
   ReviewResponseRow,
+  SupersedeForExternalReplyInput,
   SyncRunRow,
   UpsertReviewInput,
 } from './types/review-sync.type';
@@ -778,8 +785,8 @@ export class ReviewSyncRepository {
   async supersedeSiblingDrafts(
     tx: DrizzleTransaction,
     input: { reviewId: string; excludeResponseId: string }
-  ): Promise<void> {
-    await tx
+  ): Promise<string[]> {
+    const rows = await tx
       .update(schema.reviewResponses)
       .set({ status: ResponseStatus.SUPERSEDED, decidedAt: sql`now()`, updatedAt: sql`now()` })
       .where(
@@ -788,7 +795,10 @@ export class ReviewSyncRepository {
           ne(schema.reviewResponses.id, input.excludeResponseId),
           eq(schema.reviewResponses.status, ResponseStatus.PENDING_APPROVAL)
         )
-      );
+      )
+      .returning({ id: schema.reviewResponses.id });
+
+    return rows.map(row => row.id);
   }
 
   /**
@@ -855,5 +865,243 @@ export class ReviewSyncRepository {
       // row. With no snapshot table left to leak into, the anonymizing UPDATE above is the whole job.
       return result.rows.length;
     });
+  }
+
+  /**
+   * Claims an `approved` response for posting, immediately before the queue service calls Google —
+   * the CAS half of `0004_reviews.sql`'s crash-window fix. Same claim-with-staleness-reclaim
+   * shape as `acquireSyncRun`: a first attempt sets `post_attempted_at = now()`, and a worker that
+   * crashed between that write and the next terminal write (`markResponsePosted`/
+   * `markResponsePostFailed`/`supersedeForExternalReply`, all of which clear it back to null)
+   * leaves a window where a *second* attempt may reclaim rather than being blocked forever by a
+   * dead worker's stale claim.
+   *
+   * Zero rows updated means: the response is not `approved` (already posted, rejected, superseded,
+   * never approved), or it is `approved` but another attempt claimed it within the last
+   * `POST_CLAIM_STALE_MINUTES` and is presumably still in flight. Both are "nothing to do here,"
+   * not an error — the caller (`ReviewPostQueueService`) logs and returns rather than throwing.
+   */
+  async claimResponseForPosting(
+    input: ClaimResponseForPostingInput
+  ): Promise<ReviewResponseRow | null> {
+    const rows = await this.dbService.db
+      .update(schema.reviewResponses)
+      .set({ postAttemptedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.reviewResponses.id, input.responseId),
+          eq(schema.reviewResponses.tenantId, input.tenantId),
+          eq(schema.reviewResponses.status, ResponseStatus.APPROVED),
+          sql`(${schema.reviewResponses.postAttemptedAt} IS NULL OR ${schema.reviewResponses.postAttemptedAt} < now() - interval '${sql.raw(String(POST_CLAIM_STALE_MINUTES))} minutes')`
+        )
+      )
+      .returning(ReviewSyncRepository.RETURNING_COLUMNS);
+
+    return (rows[0] as ReviewResponseRow | undefined) ?? null;
+  }
+
+  /** The review half of every "a live reply now exists" write — posted, superseded-by-external,
+   *  and imported-after-a-lost-CAS all end here. */
+  async markReviewResponded(tx: DrizzleTransaction, reviewId: string): Promise<void> {
+    await tx
+      .update(schema.reviews)
+      .set({ status: ReviewStatus.RESPONDED, updatedAt: sql`now()` })
+      .where(eq(schema.reviews.id, reviewId));
+  }
+
+  /**
+   * The successful-post write: CAS `approved -> posted`, and — in the same transaction — the
+   * parent review to `responded`. `postedAt` is Google's own `reviewReply.updateTime` from the
+   * `replyToReview` call that just succeeded, not `now()`, so this row reads identically to one the
+   * historical backfill imported.
+   */
+  async markResponsePosted(
+    tx: DrizzleTransaction,
+    input: MarkResponsePostedInput
+  ): Promise<ReviewResponseRow | null> {
+    const rows = await tx
+      .update(schema.reviewResponses)
+      .set({
+        status: ResponseStatus.POSTED,
+        postedAt: input.postedAt,
+        postAttemptedAt: null,
+        errorMessage: null,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(schema.reviewResponses.id, input.responseId),
+          eq(schema.reviewResponses.status, ResponseStatus.APPROVED)
+        )
+      )
+      .returning(ReviewSyncRepository.RETURNING_COLUMNS);
+
+    const posted = rows[0];
+    if (!posted) {
+      return null;
+    }
+
+    await this.markReviewResponded(tx, input.reviewId);
+
+    return posted as ReviewResponseRow;
+  }
+
+  /**
+   * Gives a claim back without changing the response's status: the response stays `approved` and
+   * immediately claimable. Used when an attempt is abandoned for a reason that is not the
+   * response's fault (a transient provider error being rescheduled), so the rescheduled job is not
+   * blocked behind a claim nothing is still working on. `false` means the response was no longer
+   * `approved`, i.e. there was no claim of ours left to release.
+   */
+  async releaseResponseClaim(input: ClaimResponseForPostingInput): Promise<boolean> {
+    const rows = await this.dbService.db
+      .update(schema.reviewResponses)
+      .set({ postAttemptedAt: null, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.reviewResponses.id, input.responseId),
+          eq(schema.reviewResponses.tenantId, input.tenantId),
+          eq(schema.reviewResponses.status, ResponseStatus.APPROVED)
+        )
+      )
+      .returning({ id: schema.reviewResponses.id });
+
+    return rows.length > 0;
+  }
+
+  /** CAS `approved -> post_failed`, recording the provider's own error text for the retry UI. */
+  async markResponsePostFailed(
+    input: MarkResponsePostFailedInput
+  ): Promise<ReviewResponseRow | null> {
+    const rows = await this.dbService.db
+      .update(schema.reviewResponses)
+      .set({
+        status: ResponseStatus.POST_FAILED,
+        errorMessage: input.errorMessage,
+        postAttemptedAt: null,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(schema.reviewResponses.id, input.responseId),
+          eq(schema.reviewResponses.status, ResponseStatus.APPROVED)
+        )
+      )
+      .returning(ReviewSyncRepository.RETURNING_COLUMNS);
+
+    return (rows[0] as ReviewResponseRow | undefined) ?? null;
+  }
+
+  /**
+   * PLAN.md §8.12's abort path: the freshness check found a reply already live on Google that this
+   * response did not write (an owner replying directly on Google, or a reply this same response
+   * already posted on a prior attempt that crashed before its own `markResponsePosted` committed —
+   * the caller tells the two apart by comparing content before calling this). CAS `approved ->
+   * superseded`, then imports the reply Google actually has as a new `source = 'imported'`,
+   * `status = 'posted'` row — reusing `insertImportedReply`'s own conflict-tolerant insert, since
+   * the shape (and the "a live reply beats a historical no-op" reasoning) is identical.
+   *
+   * Returns `false` without inserting anything when the CAS itself affected no rows — the response
+   * was no longer `approved` (a race with a human rejecting/re-approving between the claim and this
+   * call), in which case there is no stale approval left to supersede.
+   *
+   * Also advances `reviews.status` to `responded`, the same write `markResponsePosted` makes for
+   * the ordinary successful-post path — the review genuinely has a live, accurate reply now (the
+   * one just imported), so leaving its status at `new`/`in_review` would strand it in the
+   * dashboard's pending-response queue forever despite already being answered.
+   */
+  async supersedeForExternalReply(
+    tx: DrizzleTransaction,
+    input: SupersedeForExternalReplyInput
+  ): Promise<boolean> {
+    const rows = await tx
+      .update(schema.reviewResponses)
+      .set({
+        status: ResponseStatus.SUPERSEDED,
+        decidedAt: sql`now()`,
+        postAttemptedAt: null,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(schema.reviewResponses.id, input.responseId),
+          eq(schema.reviewResponses.status, ResponseStatus.APPROVED)
+        )
+      )
+      .returning({ id: schema.reviewResponses.id });
+
+    if (rows.length === 0) {
+      return false;
+    }
+
+    await this.insertImportedReply(tx, {
+      tenantId: input.tenantId,
+      reviewId: input.reviewId,
+      content: input.content,
+      postedAt: input.postedAt,
+    });
+
+    await this.markReviewResponded(tx, input.reviewId);
+
+    return true;
+  }
+
+  /** The `post_failed -> approved` arrow in PLAN.md §4.2 — clears `error_message` so the retried
+   *  attempt starts clean, and `post_attempted_at` so it is immediately claimable. */
+  async retryPostableResponse(
+    input: RetryPostableResponseInput
+  ): Promise<ReviewResponseRow | null> {
+    const rows = await this.dbService.db
+      .update(schema.reviewResponses)
+      .set({
+        status: ResponseStatus.APPROVED,
+        errorMessage: null,
+        postAttemptedAt: null,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(schema.reviewResponses.id, input.responseId),
+          eq(schema.reviewResponses.tenantId, input.tenantId),
+          eq(schema.reviewResponses.status, ResponseStatus.POST_FAILED)
+        )
+      )
+      .returning(ReviewSyncRepository.RETURNING_COLUMNS);
+
+    return (rows[0] as ReviewResponseRow | undefined) ?? null;
+  }
+
+  /**
+   * Writes a reply from scratch, landing directly at `approved` — the author is the approver, and
+   * a self-approval step through `approveResponse` would be theatre. `source = 'human_manual'`,
+   * `generation_group_id`/`original_content`/`prompt_version_id` all stay `NULL` (never had an AI
+   * draft behind them). Can raise a 23505 on `idx_review_responses_review_id_live_reply`,
+   * deliberately left to propagate — the service layer catches it the same way
+   * `ReviewsService.approveReply` already does for the equivalent conflict.
+   */
+  async insertManualReply(
+    tx: DrizzleTransaction,
+    input: InsertManualReplyInput
+  ): Promise<ReviewResponseRow> {
+    const rows = await tx
+      .insert(schema.reviewResponses)
+      .values({
+        tenantId: input.tenantId,
+        reviewId: input.reviewId,
+        responseType: input.responseType,
+        content: input.content,
+        source: ResponseSource.HUMAN_MANUAL,
+        status: ResponseStatus.APPROVED,
+        createdByUserId: input.createdByUserId,
+        approvedByUserId: input.createdByUserId,
+        decidedAt: sql`now()`,
+      })
+      .returning(ReviewSyncRepository.RETURNING_COLUMNS);
+
+    const inserted = rows[0];
+    if (!inserted) {
+      throw new Error(MESSAGES.REVIEWS.MANUAL_REPLY_INSERT_FAILED(input.reviewId));
+    }
+    return inserted as ReviewResponseRow;
   }
 }

@@ -94,6 +94,16 @@ CREATE TABLE IF NOT EXISTS review_responses (
     posted_at TIMESTAMPTZ,
     error_message TEXT,
     generation_metadata JSONB,
+    -- The posting worker's own claim marker, not a `response_status` value. The queue service CASes
+    -- `WHERE status = 'approved' AND (post_attempted_at IS NULL OR post_attempted_at < now() -
+    -- interval '5 minutes')` immediately before calling Google — the same claim-with-staleness-
+    -- reclaim shape `sync_runs.started_at`/`updated_at` already uses (`ReviewSyncRepository
+    -- .acquireSyncRun`) — so a worker that crashes mid-POST leaves a row only the *next* attempt's
+    -- freshness check (not a raw retry) can safely resolve, rather than a second worker racing the
+    -- first's still-in-flight HTTP call. Cleared back to NULL on every terminal write (`posted`,
+    -- `post_failed`, `superseded`) so a retried response starts its next attempt unclaimed. Closes
+    -- PLAN.md §8.12's crash-window gap between a successful Google PUT and the DB write recording it.
+    post_attempted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -119,6 +119,32 @@ export interface MessageCatalog {
     RESPONSE_ALREADY_LIVE: string;
     RESPONSE_APPROVED: string;
     RESPONSE_REJECTED: string;
+    /** The response is not at `post_failed` — `retry-post`'s one legal source state. */
+    RESPONSE_NOT_RETRYABLE: string;
+    /** The response is not at `approved` — the manual `.../responses/:responseId/post` route's
+     *  one legal source state. */
+    RESPONSE_NOT_POSTABLE: string;
+    /** `idx_review_responses_review_id_live_reply` unique violation on manual-reply/retry-post/
+     *  manual-post — distinct code from `RESPONSE_ALREADY_LIVE` (approve's own) per the documented
+     *  API spec, since the two routes' client copy differs. */
+    REVIEW_ALREADY_HAS_LIVE_REPLY: string;
+    /** Manual reply attempted on a `reviews.status = 'dismissed'` review. */
+    REVIEW_ALREADY_DISMISSED: string;
+    /** Manual reply attempted on a review whose `removed_upstream_at` is set — the reviewer
+     *  deleted it on Google, so there is nothing left to reply to. */
+    REVIEW_REMOVED_UPSTREAM: string;
+    /** The post queue could not be reached — a manual post/retry request, or the `error_message`
+     *  recorded on a response whose automatic post could not be queued. */
+    POST_QUEUE_UNAVAILABLE: string;
+    /** Recorded as `error_message` when the worker finds the review removed on Google before
+     *  posting — nothing was sent to Google. */
+    POST_FAILED_REVIEW_REMOVED: string;
+    /** `ReviewSyncRepository.insertManualReply` — the insert affected no rows for the given review. */
+    MANUAL_REPLY_INSERT_FAILED: (reviewId: string) => string;
+    MANUAL_REPLY_CREATED: string;
+    RESPONSE_POST_QUEUED: string;
+    RESPONSE_RETRY_QUEUED: string;
+    POST_STATUS_RETRIEVED: string;
   };
   PROMPTS: {
     LISTED: string;
@@ -144,6 +170,13 @@ export interface MessageCatalog {
     /** `OPENROUTER_API_KEY`/`OPENROUTER_MODEL` unset — checked lazily on first call, not at boot.
      *  See `OpenRouterAiProvider`'s own doc comment for why. */
     PROVIDER_NOT_CONFIGURED: string;
+    /** One or more of `AZURE_OPENAI_ENDPOINT`/`AZURE_OPENAI_API_KEY`/`AZURE_OPENAI_DEPLOYMENT`/
+     *  `AZURE_OPENAI_API_VERSION` unset — see `AzureOpenAiProvider`'s own doc comment. Not used
+     *  when `USE_LOCAL_MOCK_SERVER=true`, which needs none of these. */
+    AZURE_PROVIDER_NOT_CONFIGURED: string;
+    /** `AZURE_OPENAI_REGION` set to anything other than `'westeurope'` — PLAN.md §5 treats this as
+     *  a GDPR requirement, not a preference. */
+    AZURE_REGION_INVALID: string;
     GENERATION_FAILED: string;
   };
   BILLING: {

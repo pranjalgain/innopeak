@@ -1,0 +1,29 @@
+{
+  "name": "mock-external-apis",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Standalone local emulator for the Azure OpenAI chat-completions endpoint and the GBP reply-posting endpoints, for use while real credentials for either service aren't available. Toggled on via USE_LOCAL_MOCK_SERVER in apps/backend.",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" --fix",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "express": "4.21.2"
+  },
+  "devDependencies": {
+    "@types/express": "4.17.21",
+    "@types/node": "24.5.2",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

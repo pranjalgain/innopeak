@@ -85,7 +85,7 @@ export class OpenRouterAiProvider extends AiProvider {
             { role: 'user', content: input.userPrompt },
           ],
           temperature: AI_TEMPERATURE,
-          max_tokens: AI_MAX_OUTPUT_TOKENS,
+          max_tokens: input.maxOutputTokens ?? AI_MAX_OUTPUT_TOKENS,
         },
         { timeout: AI_REQUEST_TIMEOUT_MS, maxRetries: AI_MAX_RETRIES }
       );

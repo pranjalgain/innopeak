@@ -79,8 +79,12 @@ export enum RouteNames {
 
   // Reviews module
   REVIEW_BY_ID = ':reviewId',
+  REVIEW_RESPONSES = ':reviewId/responses',
   REVIEW_RESPONSE_APPROVE = ':reviewId/responses/:responseId/approve',
   REVIEW_RESPONSE_REJECT = ':reviewId/responses/:responseId/reject',
+  REVIEW_RESPONSE_RETRY_POST = ':reviewId/responses/:responseId/retry-post',
+  REVIEW_RESPONSE_POST = ':reviewId/responses/:responseId/post',
+  REVIEW_RESPONSE_POST_STATUS = ':reviewId/responses/:responseId/post-status',
 
   // Prompts module — nested segments under RouteNames.PROMPTS. PROMPT_STATS_BATCH is a static
   // segment registered as its own route rather than nested under PROMPT_STATS, since the batch

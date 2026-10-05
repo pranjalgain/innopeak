@@ -1095,6 +1095,7 @@ export const reviewResponses = pgTable(
     promptVersionId: uuid('prompt_version_id'),
     originalContent: text('original_content'),
     decidedAt: timestamp('decided_at', { withTimezone: true, mode: 'string' }),
+    postAttemptedAt: timestamp('post_attempted_at', { withTimezone: true, mode: 'string' }),
   },
   table => [
     index('idx_review_responses_approved_by_user_id').using(

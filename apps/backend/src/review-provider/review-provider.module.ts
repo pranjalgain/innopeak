@@ -1,3 +1,4 @@
+import { getLocalMockServerUrl } from '@common/helpers/local-mock-server.util';
 import { isAwsDeploymentTarget, isProduction } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
 import { Global, Logger, Module } from '@nestjs/common';
@@ -23,10 +24,17 @@ const logger = new Logger('ReviewProviderModule');
 const reviewProviderFactory = {
   provide: ReviewProvider,
   useFactory: (configService: ConfigService<EnvConfig>): ReviewProvider => {
+    const localMockServerUrl = getLocalMockServerUrl(configService);
     const config = {
       clientId: configService.get<string>('GBP_CLIENT_ID') ?? '',
       clientSecret: configService.get<string>('GBP_CLIENT_SECRET') ?? '',
       callbackUrl: configService.get<string>('GBP_CALLBACK_URL') ?? '',
+      // Independent of DEV_GBP_MOCK below — see GbpProviderConfig.localMockServerUrl's own
+      // comment. Applies to both the mock and the real provider construction further down, since
+      // it only affects the write-path methods neither mock subclass overrides. Conditionally
+      // spread, not `localMockServerUrl: localMockServerUrl` directly — exactOptionalPropertyTypes
+      // treats an explicit `undefined` on an optional property as a type error, not "absent".
+      ...(localMockServerUrl !== undefined ? { localMockServerUrl } : {}),
     };
 
     // Belt and braces with the Joi schema's `Joi.forbidden()` in production: that rejects the env

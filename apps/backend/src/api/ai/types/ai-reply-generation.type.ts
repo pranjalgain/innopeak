@@ -43,6 +43,10 @@ export interface GenerateForClassifiedReviewsInput {
 }
 
 export interface GenerationBatchResult {
+  /** Persisted `review_responses` rows, not reviews processed — a non-escalated review produces
+   *  exactly one, but an escalated review can produce up to `tenant_settings.ai_reply_count`
+   *  (1-3) sharing one `generation_group_id`. This is also what the monthly AI-draft quota is
+   *  spent against, one unit per row. */
   generated: number;
   /** Lost the claim CAS — another worker already generated for it, or its `status` moved off
    *  `new` in the window between the candidate read and the write. Mirrors
@@ -52,8 +56,10 @@ export interface GenerationBatchResult {
    *  released, but tallied here too so the caller (`ReviewSyncQueueService`) can tell "processed
    *  the batch, some rows failed" apart from "processed the batch cleanly." */
   failed: number;
-  /** True when the tenant's plan-level monthly AI-draft quota was already exhausted before this
-   *  batch started — nothing in it was even attempted. Not folded into `skipped`: a skipped
-   *  candidate lost a race with another worker, this one was never in the race at all. */
+  /** True when the tenant's plan-level monthly AI-draft quota was either already exhausted before
+   *  this batch started, or ran out partway through it (an escalated candidate earlier in the
+   *  same batch spent more than one unit) — either way, at least one fetched candidate was left
+   *  untouched for the next tick to retry. Not folded into `skipped`: a skipped candidate lost a
+   *  race with another worker, this one was never attempted at all. */
   quotaReached: boolean;
 }

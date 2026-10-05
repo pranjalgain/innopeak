@@ -1,11 +1,15 @@
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import type { QueueName } from '@bg/constants/job.constant';
 import { getQueueUrlEnvKey } from '@bg/constants/job.constant';
+import type { PublishOptions } from '@bg/providers/queue-publisher.provider';
 import { QueuePublisherProvider } from '@bg/providers/queue-publisher.provider';
 import { getAwsEndpointOverride, getFlociCredentials } from '@common/helpers/aws-endpoint.util';
 import type { EnvConfig } from '@config/env.config';
 import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
+
+/** SQS's hard ceiling on `DelaySeconds` (15 minutes). */
+const SQS_MAX_DELAY_SECONDS = 900;
 
 export class SqsQueuePublisher extends QueuePublisherProvider {
   private readonly logger = new Logger(SqsQueuePublisher.name);
@@ -23,7 +27,12 @@ export class SqsQueuePublisher extends QueuePublisherProvider {
     });
   }
 
-  async publish<T>(queueName: QueueName, jobName: string, data: T): Promise<void> {
+  async publish<T>(
+    queueName: QueueName,
+    jobName: string,
+    data: T,
+    options?: PublishOptions
+  ): Promise<void> {
     const envKey = getQueueUrlEnvKey(queueName);
     const queueUrl = this.configService.get<string>(envKey as keyof EnvConfig);
     if (!queueUrl) {
@@ -34,6 +43,14 @@ export class SqsQueuePublisher extends QueuePublisherProvider {
       new SendMessageCommand({
         QueueUrl: queueUrl,
         MessageBody: JSON.stringify(data),
+        ...(options?.delayMs
+          ? {
+              DelaySeconds: Math.min(
+                SQS_MAX_DELAY_SECONDS,
+                Math.max(0, Math.ceil(options.delayMs / 1000))
+              ),
+            }
+          : {}),
         MessageAttributes: {
           JobName: { DataType: 'String', StringValue: jobName },
         },

@@ -2,10 +2,12 @@ import { BillingModule } from '@billing/billing.module';
 import type { EnvConfig } from '@config/env.config';
 import { Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ReviewPostQueueUIModule } from '@review-post-queue/review-post-queue-ui.module';
 
 import { AiReplyGenerationService } from './ai-reply-generation.service';
 import { AiController } from './ai.controller';
 import { AiProvider } from './providers/ai.provider';
+import { AzureOpenAiProvider } from './providers/azure-openai.provider';
 import { OpenRouterAiProvider } from './providers/openrouter-ai.provider';
 
 // NOTE: `PromptsDbService`/`AuthDbService`/`AdminBusinessesDbService`/`ReviewSyncDbService` aren't
@@ -16,23 +18,23 @@ const logger = new Logger('AiModule');
 
 /**
  * Same DI-swap shape as `BillingModule`'s `paymentProviderFactory` — see that file's own doc
- * comment for why the selection lives in a module-scoped factory. Only `'openrouter'` is a real
- * branch today; `'azure'` is documented (`AI_PROVIDER`'s own comment in `env.config.ts`,
- * `apps/documentation/docs/backend/ai/overview.md`) but deliberately not a `case` here yet — an
- * untested stub class that only throws would be dead code, not a real abstraction. Adding
- * `AzureOpenAiProvider` is meant to be exactly one new file plus one new `case`, nothing else.
+ * comment for why the selection lives in a module-scoped factory. `'azure'` is the default and
+ * intended production provider (PLAN.md §5's GDPR/`westeurope` requirement); `'openrouter'`
+ * remains a real, working secondary option.
  */
 const aiProviderFactory = {
   provide: AiProvider,
   useFactory: (configService: ConfigService<EnvConfig>): AiProvider => {
-    const providerType = configService.get<string>('AI_PROVIDER') ?? 'openrouter';
+    const providerType = configService.get<string>('AI_PROVIDER') ?? 'azure';
 
     logger.log(`Initializing AI provider: ${providerType}`);
 
     switch (providerType) {
       case 'openrouter':
-      default:
         return new OpenRouterAiProvider(configService);
+      case 'azure':
+      default:
+        return new AzureOpenAiProvider(configService);
     }
   },
   inject: [ConfigService],
@@ -51,7 +53,7 @@ const aiProviderFactory = {
  * global.
  */
 @Module({
-  imports: [BillingModule],
+  imports: [BillingModule, ReviewPostQueueUIModule],
   controllers: [AiController],
   providers: [aiProviderFactory, AiReplyGenerationService],
   exports: [AiReplyGenerationService],

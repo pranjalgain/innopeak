@@ -1,6 +1,10 @@
 import { ProviderMappingError } from '../errors/provider.error';
-import type { GbpListReviewsResponse, GbpReview } from '../types/gbp-wire.type';
-import type { ProviderReview, ProviderReviewPage } from '../types/review-provider.type';
+import type { GbpListReviewsResponse, GbpReview, GbpReviewReply } from '../types/gbp-wire.type';
+import type {
+  ProviderReview,
+  ProviderReviewPage,
+  ProviderReviewReply,
+} from '../types/review-provider.type';
 import { starRatingToInt } from '../utils/star-rating.util';
 
 /**
@@ -47,19 +51,24 @@ export function mapGbpReview(review: GbpReview): ProviderReview {
     text: review.comment ?? null,
     reviewedAt: review.createTime,
     externalUpdatedAt: review.updateTime,
-    reply: mapReply(review.reviewReply),
+    reply: mapGbpReviewReply(review.reviewReply),
   };
 }
 
 /**
  * Only an APPROVED reply is live on Google. The backfill imports replies as `status = 'posted'`
  * and the AI later imitates them as the owner's voice — so importing a reply Google rejected for a
- * policy violation would both misstate what is public and teach the model a bad example.
+ * policy violation would both misstate what is public and teach the model a bad example. Reused by
+ * `GoogleBusinessProfileProvider.getReviewReply`/`replyToReview` (the write path's freshness check
+ * and its own post response) for the identical reason — a rejected/pending reply must read the
+ * same as "no reply" to the freshness check, or a post could be wrongly aborted (or wrongly allowed
+ * to overwrite) based on a reply that was never actually public.
  *
  * A missing state is treated as approved: the field is output-only and documented as always
- * populated, so its absence means a fixture or an older payload, not a moderation outcome.
+ * populated, so its absence means a fixture/mock payload or an older payload, not a moderation
+ * outcome.
  */
-function mapReply(reply: GbpReview['reviewReply']): ProviderReview['reply'] {
+export function mapGbpReviewReply(reply: GbpReviewReply | undefined): ProviderReviewReply | null {
   if (!reply) {
     return null;
   }

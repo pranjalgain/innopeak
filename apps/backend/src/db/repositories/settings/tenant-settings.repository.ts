@@ -77,6 +77,16 @@ export class TenantSettingsRepository {
     return rows[0]?.autoPostEnabled ?? null;
   }
 
+  async findAiReplyCount(tenantId: string): Promise<number | null> {
+    const rows = await this.dbService.db
+      .select({ aiReplyCount: schema.tenantSettings.aiReplyCount })
+      .from(schema.tenantSettings)
+      .where(eq(schema.tenantSettings.tenantId, tenantId))
+      .limit(1);
+
+    return rows[0]?.aiReplyCount ?? null;
+  }
+
   private toRecord(row: {
     id: string;
     escalationRatingThreshold: number;

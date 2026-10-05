@@ -63,6 +63,25 @@ export interface IReviewBackfillJob extends IReviewSyncJob {
   syncRunId: string;
 }
 
+/**
+ * Published whenever something decides one `review_responses` row is ready to go out:
+ * `ReviewsService.approveReply`'s auto-post step, the non-escalated auto-approve step in
+ * `AiReplyGenerationService`, the manual `.../responses/:responseId/post` route, and `retry-post`.
+ * Deliberately minimal — everything else the worker needs (the review's external ids, the tenant's
+ * connection, the response's current content) is looked up fresh inside
+ * `ReviewPostQueueService.postResponse` rather than carried in the payload, the same reasoning
+ * `IReviewBackfillJob`'s own doc comment gives for re-reading a cursor rather than trusting one
+ * baked into the job: a job can sit queued for a while, and this data can change underneath it.
+ */
+export interface IReviewPostJob {
+  tenantId: string;
+  reviewId: string;
+  responseId: string;
+  /** 1-based attempt number; absent on a first attempt. Only `ReviewPostQueueService` sets it,
+   *  when it reschedules itself after a transient provider failure — see that class. */
+  attempt?: number;
+}
+
 export interface IDLQFailedJobData {
   originalQueueName: QueueName;
   originalJobId: string;
