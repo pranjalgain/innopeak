@@ -175,6 +175,9 @@ export const messagesEn: MessageCatalog = {
     SETUP_INTENT_CREATED: 'Card setup started',
     PAYMENT_METHOD_UPDATED: 'Payment method updated',
     STRIPE_ONLY_FEATURE: "This isn't available in this environment.",
+    STRIPE_WEBHOOK_TENANT_NOT_FOUND: 'No matching tenant for this Stripe event',
+    CHECKOUT_SESSION_TENANT_MISMATCH: 'Checkout session not found',
+    CHECKOUT_RECONCILED: 'Billing status refreshed',
   },
   SETTINGS: {
     BLOCKLIST_LISTED: 'Blocklist terms retrieved successfully',

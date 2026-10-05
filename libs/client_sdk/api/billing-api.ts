@@ -38,6 +38,8 @@ import type { CompleteDummyCheckoutDto } from '../models';
 // @ts-ignore
 import type { ReceiptListResponseDto } from '../models';
 // @ts-ignore
+import type { ReconcileCheckoutSessionDto } from '../models';
+// @ts-ignore
 import type { RedirectUrlResponseDto } from '../models';
 // @ts-ignore
 import type { SetActiveLocationDto } from '../models';
@@ -520,6 +522,65 @@ export const BillingApiAxiosParamCreator = function (
         ...headersFromBaseOptions,
         ...options.headers,
       };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Reads the given Checkout Session straight from Stripe and applies it if it has a subscription on it yet — recovers the tenant\'s billing status even if checkout.session.completed was delayed or never arrived. Call this once when the browser lands back on the success page with the session_id Stripe appended to success_url. Safe to call more than once, and safe to call even after the webhook already landed.
+     * @summary Reconcile billing status against a Checkout session
+     * @param {ReconcileCheckoutSessionDto} reconcileCheckoutSessionDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    billingControllerReconcileCheckoutSessionV1: async (
+      reconcileCheckoutSessionDto: ReconcileCheckoutSessionDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'reconcileCheckoutSessionDto' is not null or undefined
+      assertParamExists(
+        'billingControllerReconcileCheckoutSessionV1',
+        'reconcileCheckoutSessionDto',
+        reconcileCheckoutSessionDto,
+      );
+      const localVarPath = `/v1/billing/checkout/reconcile`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        reconcileCheckoutSessionDto,
+        localVarRequestOptions,
+        configuration,
+      );
 
       return {
         url: toPathString(localVarUrlObj),
@@ -1016,6 +1077,40 @@ export const BillingApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Reads the given Checkout Session straight from Stripe and applies it if it has a subscription on it yet — recovers the tenant\'s billing status even if checkout.session.completed was delayed or never arrived. Call this once when the browser lands back on the success page with the session_id Stripe appended to success_url. Safe to call more than once, and safe to call even after the webhook already landed.
+     * @summary Reconcile billing status against a Checkout session
+     * @param {ReconcileCheckoutSessionDto} reconcileCheckoutSessionDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async billingControllerReconcileCheckoutSessionV1(
+      reconcileCheckoutSessionDto: ReconcileCheckoutSessionDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<SubscriptionResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.billingControllerReconcileCheckoutSessionV1(
+          reconcileCheckoutSessionDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'BillingApi.billingControllerReconcileCheckoutSessionV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Only meaningful when the tenant has more connected locations than their plan allows — atomically pauses every other location and unpauses the chosen one.
      * @summary Choose which connected location stays active under the current plan cap
      * @param {SetActiveLocationDto} setActiveLocationDto
@@ -1265,6 +1360,24 @@ export const BillingApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Reads the given Checkout Session straight from Stripe and applies it if it has a subscription on it yet — recovers the tenant\'s billing status even if checkout.session.completed was delayed or never arrived. Call this once when the browser lands back on the success page with the session_id Stripe appended to success_url. Safe to call more than once, and safe to call even after the webhook already landed.
+     * @summary Reconcile billing status against a Checkout session
+     * @param {BillingApiBillingControllerReconcileCheckoutSessionV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    billingControllerReconcileCheckoutSessionV1(
+      requestParameters: BillingApiBillingControllerReconcileCheckoutSessionV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<SubscriptionResponseDto> {
+      return localVarFp
+        .billingControllerReconcileCheckoutSessionV1(
+          requestParameters.reconcileCheckoutSessionDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Only meaningful when the tenant has more connected locations than their plan allows — atomically pauses every other location and unpauses the chosen one.
      * @summary Choose which connected location stays active under the current plan cap
      * @param {BillingApiBillingControllerSetActiveLocationV1Request} requestParameters Request parameters.
@@ -1430,6 +1543,18 @@ export interface BillingApiInterface {
   ): AxiosPromise<ReceiptListResponseDto>;
 
   /**
+   * Reads the given Checkout Session straight from Stripe and applies it if it has a subscription on it yet — recovers the tenant\'s billing status even if checkout.session.completed was delayed or never arrived. Call this once when the browser lands back on the success page with the session_id Stripe appended to success_url. Safe to call more than once, and safe to call even after the webhook already landed.
+   * @summary Reconcile billing status against a Checkout session
+   * @param {BillingApiBillingControllerReconcileCheckoutSessionV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  billingControllerReconcileCheckoutSessionV1(
+    requestParameters: BillingApiBillingControllerReconcileCheckoutSessionV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<SubscriptionResponseDto>;
+
+  /**
    * Only meaningful when the tenant has more connected locations than their plan allows — atomically pauses every other location and unpauses the chosen one.
    * @summary Choose which connected location stays active under the current plan cap
    * @param {BillingApiBillingControllerSetActiveLocationV1Request} requestParameters Request parameters.
@@ -1478,6 +1603,13 @@ export interface BillingApiBillingControllerCompleteDummyCheckoutV1Request {
  */
 export interface BillingApiBillingControllerDownloadReceiptPdfV1Request {
   readonly receiptId: string;
+}
+
+/**
+ * Request parameters for billingControllerReconcileCheckoutSessionV1 operation in BillingApi.
+ */
+export interface BillingApiBillingControllerReconcileCheckoutSessionV1Request {
+  readonly reconcileCheckoutSessionDto: ReconcileCheckoutSessionDto;
 }
 
 /**
@@ -1642,6 +1774,25 @@ export class BillingApi extends BaseAPI implements BillingApiInterface {
   public billingControllerListReceiptsV1(options?: RawAxiosRequestConfig) {
     return BillingApiFp(this.configuration)
       .billingControllerListReceiptsV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Reads the given Checkout Session straight from Stripe and applies it if it has a subscription on it yet — recovers the tenant\'s billing status even if checkout.session.completed was delayed or never arrived. Call this once when the browser lands back on the success page with the session_id Stripe appended to success_url. Safe to call more than once, and safe to call even after the webhook already landed.
+   * @summary Reconcile billing status against a Checkout session
+   * @param {BillingApiBillingControllerReconcileCheckoutSessionV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public billingControllerReconcileCheckoutSessionV1(
+    requestParameters: BillingApiBillingControllerReconcileCheckoutSessionV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return BillingApiFp(this.configuration)
+      .billingControllerReconcileCheckoutSessionV1(
+        requestParameters.reconcileCheckoutSessionDto,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 

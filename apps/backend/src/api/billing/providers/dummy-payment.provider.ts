@@ -9,11 +9,13 @@ import { PaymentProvider } from './payment.provider';
 import { BILLING_REDIRECT_PATHS } from '../constants/billing.constants';
 import type {
   BillingProfile,
+  CheckoutSessionSnapshot,
   CreateCheckoutSessionInput,
   CreateCustomerInput,
   CreatePortalSessionInput,
   PaymentMethodSummary,
   PaymentWebhookEvent,
+  SubscriptionSnapshot,
   UpdateBillingProfileInput,
 } from '../types/billing.type';
 
@@ -138,6 +140,26 @@ export class DummyPaymentProvider extends PaymentProvider {
   constructWebhookEvent(_payload: Buffer, _signature: string): PaymentWebhookEvent {
     throw new Error(
       "DummyPaymentProvider has no external webhook caller — see this class's own doc comment."
+    );
+  }
+
+  /** Same "no real Stripe object to read" reasoning as `getBillingProfile` et al. above — Dummy's
+   *  checkout flow redirects to `DUMMY_CHECKOUT`, never `success_url`, so this is never actually
+   *  reached in practice; `completeDummyCheckout` is Dummy's own equivalent of this reconciliation
+   *  path, driven by the query params its own confirmation page already carries. */
+  retrieveCheckoutSession(_sessionId: string): Promise<CheckoutSessionSnapshot> {
+    return Promise.reject(
+      new Error(
+        "DummyPaymentProvider has no real Checkout Session to retrieve — see this class's own doc comment."
+      )
+    );
+  }
+
+  retrieveActiveSubscriptionForCustomer(_customerId: string): Promise<SubscriptionSnapshot | null> {
+    return Promise.reject(
+      new Error(
+        "DummyPaymentProvider has no real Stripe subscription to retrieve — see this class's own doc comment."
+      )
     );
   }
 

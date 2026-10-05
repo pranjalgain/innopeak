@@ -726,7 +726,10 @@
         "portalFailed": "Abrechnungsportal konnte nicht geöffnet werden. Bitte erneut versuchen.",
         "cancelFailed": "Abonnement konnte nicht gekündigt werden. Bitte erneut versuchen.",
         "cancelSucceeded": "Kündigung geplant — Sie behalten den Zugriff bis zum Ende des Zeitraums.",
-        "receiptDownloadFailed": "Der Beleg konnte nicht heruntergeladen werden. Bitte erneut versuchen."
+        "receiptDownloadFailed": "Der Beleg konnte nicht heruntergeladen werden. Bitte erneut versuchen.",
+        "checkoutReconciled": "Zahlung bestätigt — Sie nutzen jetzt den kostenpflichtigen Plan.",
+        "checkoutReconcilePending": "Ihre Zahlung wird noch verarbeitet — Ihr Plan wird in Kürze aktualisiert.",
+        "checkoutReconcileFailed": "Wir konnten Ihre Zahlung gerade nicht bestätigen. Laden Sie die Seite neu, um es erneut zu versuchen — falls Sie belastet wurden, wird Ihr Plan in Kürze aktualisiert."
       },
       "chooseLocation": {
         "title": "Aktiven Standort wählen",

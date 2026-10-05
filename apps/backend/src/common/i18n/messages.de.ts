@@ -170,6 +170,9 @@ export const messagesDe: MessageCatalog = {
     SETUP_INTENT_CREATED: 'Karteneinrichtung gestartet',
     PAYMENT_METHOD_UPDATED: 'Zahlungsmethode aktualisiert',
     STRIPE_ONLY_FEATURE: 'Dies ist in dieser Umgebung nicht verfügbar.',
+    STRIPE_WEBHOOK_TENANT_NOT_FOUND: 'Kein passender Mandant für dieses Stripe-Ereignis gefunden',
+    CHECKOUT_SESSION_TENANT_MISMATCH: 'Checkout-Sitzung nicht gefunden',
+    CHECKOUT_RECONCILED: 'Abrechnungsstatus aktualisiert',
   },
   SETTINGS: {
     BLOCKLIST_LISTED: 'Sperrlisteneinträge erfolgreich abgerufen',

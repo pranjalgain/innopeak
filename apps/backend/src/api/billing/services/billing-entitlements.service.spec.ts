@@ -92,6 +92,8 @@ describe('BillingEntitlementsService', () => {
     currentPeriodStart: null,
     currentPeriodEnd: null,
     cancelAtPeriodEnd: false,
+    stripeLastVerifiedAt: null,
+    checkoutStartedAt: null,
   };
 
   beforeEach(() => {

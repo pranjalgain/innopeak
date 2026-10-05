@@ -195,6 +195,14 @@ export interface MessageCatalog {
     FREE_PLAN_NOT_SEEDED: string;
     /** Same should-never-happen shape as `FREE_PLAN_NOT_SEEDED`, for the `paid` plan row. */
     PAID_PLAN_NOT_SEEDED: string;
+    /** `BillingWebhooksService.requireSubscriptionByCustomerId` — see
+     *  `StripeWebhookTenantNotFoundException`'s own doc comment for why this is thrown, not
+     *  swallowed. */
+    STRIPE_WEBHOOK_TENANT_NOT_FOUND: string;
+    /** `POST /v1/billing/checkout/reconcile`'s `checkoutSessionId` doesn't belong to the
+     *  authenticated tenant. */
+    CHECKOUT_SESSION_TENANT_MISMATCH: string;
+    CHECKOUT_RECONCILED: string;
   };
   SETTINGS: {
     BLOCKLIST_LISTED: string;

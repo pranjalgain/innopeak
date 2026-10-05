@@ -58,6 +58,20 @@ export class BillingService {
     return unwrap<RedirectUrlResult>(response.data);
   }
 
+  /**
+   * `POST /v1/billing/checkout/reconcile` — called once the browser lands back on the success
+   * page with the `session_id` Stripe appended to `success_url` (see `useCheckoutReconciliation`).
+   * Reads the Checkout Session straight from Stripe and applies it if
+   * `checkout.session.completed` hasn't landed yet, so the subscription reads as Paid even when
+   * that webhook was delayed or missed entirely.
+   */
+  static async reconcileCheckoutSession(checkoutSessionId: string): Promise<Subscription> {
+    const response = await billingApi.billingControllerReconcileCheckoutSessionV1({
+      reconcileCheckoutSessionDto: { checkoutSessionId },
+    });
+    return unwrap<Subscription>(response.data);
+  }
+
   static async setActiveLocation(locationId: string): Promise<void> {
     await billingApi.billingControllerSetActiveLocationV1({
       setActiveLocationDto: { locationId },

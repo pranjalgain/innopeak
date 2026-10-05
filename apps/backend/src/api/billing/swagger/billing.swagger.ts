@@ -5,6 +5,7 @@ import { BillingProfileResponseDto } from '../dto/billing-profile-response.dto';
 import { CompleteDummyCheckoutDto } from '../dto/complete-dummy-checkout.dto';
 import { BillingPlansResponseDto } from '../dto/plan-response.dto';
 import { ReceiptListResponseDto } from '../dto/receipt-response.dto';
+import { ReconcileCheckoutSessionDto } from '../dto/reconcile-checkout-session.dto';
 import { RedirectUrlResponseDto } from '../dto/redirect-url-response.dto';
 import { SetActiveLocationDto } from '../dto/set-active-location.dto';
 import { SetDefaultPaymentMethodDto } from '../dto/set-default-payment-method.dto';
@@ -117,6 +118,43 @@ export function ApiCreateCheckoutSession(): ReturnType<typeof applyDecorators> {
     ApiResponse({
       status: HttpStatus.NOT_FOUND,
       description: 'PLAN_NOT_FOUND / SUBSCRIPTION_NOT_FOUND',
+    })
+  );
+}
+
+export function ApiReconcileCheckoutSession(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Reconcile billing status against a Checkout session',
+      description:
+        'Reads the given Checkout Session straight from Stripe and applies it if it has a ' +
+        "subscription on it yet — recovers the tenant's billing status even if " +
+        'checkout.session.completed was delayed or never arrived. Call this once when the browser ' +
+        'lands back on the success page with the session_id Stripe appended to success_url. Safe ' +
+        'to call more than once, and safe to call even after the webhook already landed.',
+    }),
+    ApiBody({
+      type: ReconcileCheckoutSessionDto,
+      examples: {
+        default: { value: { checkoutSessionId: 'cs_test_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6' } },
+      },
+    }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Subscription, refreshed against Stripe',
+      type: SubscriptionResponseDto,
+      examples: {
+        default: { summary: 'Now paid', value: { ...SUBSCRIPTION_EXAMPLE, planCode: 'paid' } },
+      },
+    }),
+    ApiResponse({
+      status: HttpStatus.NOT_FOUND,
+      description: 'CHECKOUT_SESSION_TENANT_MISMATCH / SUBSCRIPTION_NOT_FOUND',
+    }),
+    ApiResponse({
+      status: HttpStatus.FORBIDDEN,
+      description: 'STRIPE_ONLY_FEATURE — PAYMENT_PROVIDER is not stripe',
     })
   );
 }

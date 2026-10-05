@@ -18,6 +18,7 @@ describe('CronSqsConsumer', () => {
       pollDueLocations: jest.fn().mockResolvedValue(undefined),
       purgeExpiredReviewerPii: jest.fn().mockResolvedValue(undefined),
       purgeErasureRequests: jest.fn().mockResolvedValue(undefined),
+      reconcileStaleBillingSubscriptions: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CronService>;
     dlqService = {
       addFailedJobToDLQ: jest.fn().mockResolvedValue(undefined),
@@ -64,6 +65,12 @@ describe('CronSqsConsumer', () => {
       await consumer.process(CronJobName.ERASURE_PURGE, undefined);
 
       expect(cronService.purgeErasureRequests).toHaveBeenCalledTimes(1);
+    });
+
+    it('dispatches BILLING_RECONCILIATION_SWEEP jobs to CronService.reconcileStaleBillingSubscriptions and awaits it', async () => {
+      await consumer.process(CronJobName.BILLING_RECONCILIATION_SWEEP, undefined);
+
+      expect(cronService.reconcileStaleBillingSubscriptions).toHaveBeenCalledTimes(1);
     });
 
     it('throws on an unrecognized job name rather than silently dropping it', async () => {

@@ -28,6 +28,7 @@ import { NotificationsSettingsSection } from "@/app/(dashboard)/settings/_compon
 import { ProfileSettingsSection } from "@/app/(dashboard)/settings/_components/profile-settings-section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCheckoutReconciliation } from "@/hooks/billing/use-checkout-reconciliation";
 import { useSubscription } from "@/hooks/billing/use-subscription";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 import { useSettings } from "@/hooks/settings/use-settings";
@@ -88,6 +89,10 @@ export function SettingsView() {
   // Same reasoning as `useSettings(!isMember)` above — `GET /v1/billing/subscription` is also
   // owner-only on the backend.
   const { data: subscription } = useSubscription(!isMember);
+  // One-shot: reconciles billing status against Stripe when the browser lands back here from a
+  // Checkout success redirect — see that hook's own doc comment. A no-op on every other render
+  // (neither `checkout=success` nor `session_id` is present).
+  useCheckoutReconciliation();
   /**
    * The Billing tab's own availability rule — deliberately broader than a bare
    * `platformSettings.paymentFeatureEnabled` check. That flag only gates *starting a new

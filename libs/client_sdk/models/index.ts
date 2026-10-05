@@ -80,6 +80,7 @@ export * from './rating-distribution-point-response-dto';
 export * from './receipt-dto';
 export * from './receipt-list-response-dto';
 export * from './recent-escalated-dto';
+export * from './reconcile-checkout-session-dto';
 export * from './redirect-url-response-dto';
 export * from './resend-otp-dto';
 export * from './review-detail-response-dto';

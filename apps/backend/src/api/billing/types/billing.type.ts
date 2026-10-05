@@ -47,6 +47,29 @@ export interface CreatePortalSessionInput {
   returnUrl: string;
 }
 
+/** What a live Stripe subscription looks like once retrieved directly from Stripe's API (as
+ *  opposed to `PaymentWebhookEvent`'s shape, which is one Stripe event's worth of fields) — the
+ *  common shape `BillingReconciliationService` applies via `TenantSubscriptionsDbService
+ *  .setToPaidFromCheckout`, whether it came from a checkout session's expanded subscription or a
+ *  direct subscription lookup. */
+export interface SubscriptionSnapshot {
+  stripeSubscriptionId: string;
+  status: SubscriptionStatus;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
+/** `PaymentProvider.retrieveCheckoutSession`'s result — `tenantId` is the session's own
+ *  `metadata.tenantId` (set by `createCheckoutSession`), `null` only for a session this app never
+ *  created (shouldn't happen for a real id, but checked rather than assumed). `subscription` is
+ *  `null` when the session hasn't completed payment yet (an abandoned checkout, or the browser
+ *  landing on `success_url` before Stripe has actually finished processing). */
+export interface CheckoutSessionSnapshot {
+  tenantId: string | null;
+  subscription: SubscriptionSnapshot | null;
+}
+
 /** Card metadata only — never the PAN itself, so displaying this carries no PCI scope. Stripe
  *  (and `DummyPaymentProvider`'s fixture) already hand back exactly this shape; a provider maps
  *  its own representation into it rather than `BillingService` reaching into a raw Stripe type. */
@@ -79,7 +102,7 @@ export interface UpdateBillingProfileInput {
  * `SubscriptionStatus` (a deliberate subset of Stripe's own statuses — see
  * `0011_billing.sql`'s comment); a concrete provider is responsible for that mapping.
  */
-export type PaymentWebhookEvent =
+type PaymentWebhookEventBody =
   | {
       id: string;
       /** Every Stripe event type this app does not act on — logged and skipped. `rawType` carries
@@ -132,6 +155,13 @@ export type PaymentWebhookEvent =
       invoiceNumber: string | null;
       paidAt: string;
     };
+
+/**
+ * `createdAt` is when the provider says the event happened (ISO) — optional because the Dummy
+ * provider's synthesized events have no meaningful one. `BillingWebhooksService` uses it to stop
+ * retrying a delivery for an unknown customer once it is clearly not a transient miss.
+ */
+export type PaymentWebhookEvent = PaymentWebhookEventBody & { createdAt?: string };
 
 /**
  * The 5 Stripe event types `BillingWebhooksService.handleEvent` actually acts on — every other

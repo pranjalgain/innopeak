@@ -9,6 +9,7 @@ import type { ConnectionsDbService } from '@db/repositories/connections/connecti
 import type { BillingEntitlementsService } from './billing-entitlements.service';
 import { BillingWebhooksService } from './billing-webhooks.service';
 
+import { StripeWebhookTenantNotFoundException } from '../exceptions/billing.exceptions';
 import type { PaymentWebhookEvent } from '../types/billing.type';
 
 /** Opaque stand-in for the real Drizzle transaction handle — `handleEvent` opens exactly one via
@@ -26,6 +27,8 @@ const subscriptionRow: TenantSubscriptionRow = {
   currentPeriodStart: '2026-08-01T00:00:00.000Z',
   currentPeriodEnd: '2026-09-01T00:00:00.000Z',
   cancelAtPeriodEnd: false,
+  stripeLastVerifiedAt: null,
+  checkoutStartedAt: null,
 };
 
 describe('BillingWebhooksService', () => {
@@ -40,6 +43,7 @@ describe('BillingWebhooksService', () => {
       | 'setToFreeFromSubscriptionDeleted'
       | 'setToPaidFromCheckout'
       | 'syncSubscriptionFields'
+      | 'touchStripeVerifiedAt'
       | 'updateStatus'
     >
   >;
@@ -61,6 +65,7 @@ describe('BillingWebhooksService', () => {
       syncSubscriptionFields: jest.fn(),
       setToFreeFromSubscriptionDeleted: jest.fn(),
       updateStatus: jest.fn(),
+      touchStripeVerifiedAt: jest.fn(),
     };
     connectionsDbService = { clearBillingPauseForTenant: jest.fn() };
     billingEntitlementsService = { enforceLocationLimitOnDowngrade: jest.fn() };
@@ -131,13 +136,25 @@ describe('BillingWebhooksService', () => {
       );
     });
 
-    it('does nothing (but does not throw) when no tenant_subscriptions row matches the Stripe customer', async () => {
+    it('throws (rolling back the whole transaction, idempotency ledger included) when no tenant_subscriptions row matches the Stripe customer', async () => {
       tenantSubscriptionsDbService.findByStripeCustomerId.mockResolvedValue(null);
 
-      await expect(target.handleEvent(event)).resolves.toBeUndefined();
+      await expect(target.handleEvent(event)).rejects.toBeInstanceOf(
+        StripeWebhookTenantNotFoundException
+      );
 
       expect(tenantSubscriptionsDbService.setToPaidFromCheckout).not.toHaveBeenCalled();
       expect(connectionsDbService.clearBillingPauseForTenant).not.toHaveBeenCalled();
+      expect(tenantSubscriptionsDbService.touchStripeVerifiedAt).not.toHaveBeenCalled();
+    });
+
+    it('stamps stripe_last_verified_at after a successful checkout completion', async () => {
+      await target.handleEvent(event);
+
+      expect(tenantSubscriptionsDbService.touchStripeVerifiedAt).toHaveBeenCalledWith(
+        'tenant-1',
+        fakeTx
+      );
     });
   });
 
@@ -226,16 +243,48 @@ describe('BillingWebhooksService', () => {
       );
     });
 
-    it('does nothing when the tenant cannot be resolved', async () => {
+    it('acknowledges (does not throw) an unknown-customer event older than the retry grace window', async () => {
       tenantSubscriptionsDbService.findByStripeSubscriptionId.mockResolvedValue(null);
       tenantSubscriptionsDbService.findByStripeCustomerId.mockResolvedValue(null);
 
-      await target.handleEvent({
-        id: 'evt_5',
-        type: 'customer.subscription.deleted',
-        customerId: 'cus_unknown',
-        subscriptionId: 'sub_unknown',
-      });
+      await expect(
+        target.handleEvent({
+          id: 'evt_old',
+          type: 'customer.subscription.deleted',
+          customerId: 'cus_unknown',
+          subscriptionId: 'sub_unknown',
+          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        })
+      ).resolves.toBeUndefined();
+    });
+
+    it('still throws for a recent unknown-customer event, so Stripe keeps retrying a transient miss', async () => {
+      tenantSubscriptionsDbService.findByStripeSubscriptionId.mockResolvedValue(null);
+      tenantSubscriptionsDbService.findByStripeCustomerId.mockResolvedValue(null);
+
+      await expect(
+        target.handleEvent({
+          id: 'evt_recent',
+          type: 'customer.subscription.deleted',
+          customerId: 'cus_unknown',
+          subscriptionId: 'sub_unknown',
+          createdAt: new Date(Date.now() - 60 * 1000).toISOString(),
+        })
+      ).rejects.toBeInstanceOf(StripeWebhookTenantNotFoundException);
+    });
+
+    it('throws when the tenant cannot be resolved by either id', async () => {
+      tenantSubscriptionsDbService.findByStripeSubscriptionId.mockResolvedValue(null);
+      tenantSubscriptionsDbService.findByStripeCustomerId.mockResolvedValue(null);
+
+      await expect(
+        target.handleEvent({
+          id: 'evt_5',
+          type: 'customer.subscription.deleted',
+          customerId: 'cus_unknown',
+          subscriptionId: 'sub_unknown',
+        })
+      ).rejects.toBeInstanceOf(StripeWebhookTenantNotFoundException);
 
       expect(tenantSubscriptionsDbService.setToFreeFromSubscriptionDeleted).not.toHaveBeenCalled();
       expect(billingEntitlementsService.enforceLocationLimitOnDowngrade).not.toHaveBeenCalled();
@@ -330,20 +379,22 @@ describe('BillingWebhooksService', () => {
       );
     });
 
-    it('does not record a receipt when the tenant cannot be resolved', async () => {
+    it('throws (and records no receipt) when the tenant cannot be resolved', async () => {
       tenantSubscriptionsDbService.findByStripeCustomerId.mockResolvedValue(null);
 
-      await target.handleEvent({
-        id: 'evt_9',
-        type: 'invoice.payment_succeeded',
-        customerId: 'cus_unknown',
-        invoiceId: 'in_2',
-        subscriptionId: null,
-        amountPaid: 4900,
-        currency: 'usd',
-        invoiceNumber: null,
-        paidAt: '2026-09-01T00:00:00.000Z',
-      });
+      await expect(
+        target.handleEvent({
+          id: 'evt_9',
+          type: 'invoice.payment_succeeded',
+          customerId: 'cus_unknown',
+          invoiceId: 'in_2',
+          subscriptionId: null,
+          amountPaid: 4900,
+          currency: 'usd',
+          invoiceNumber: null,
+          paidAt: '2026-09-01T00:00:00.000Z',
+        })
+      ).rejects.toBeInstanceOf(StripeWebhookTenantNotFoundException);
 
       expect(billingReceiptsDbService.recordIfNew).not.toHaveBeenCalled();
     });

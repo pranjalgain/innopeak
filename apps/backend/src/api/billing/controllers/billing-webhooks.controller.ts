@@ -4,6 +4,7 @@ import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';
 import { Controller, HttpCode, HttpStatus, Post, type RawBodyRequest, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { StripeWebhookSignatureInvalidException } from '../exceptions/billing.exceptions';
@@ -18,9 +19,15 @@ import { ApiStripeWebhook } from '../swagger/billing-webhooks.swagger';
  * route-scoped `bodyParser.raw()` registered ahead of the global JSON parser in `bootstrap.ts` —
  * a real signature check is only meaningful against the exact bytes Stripe signed, never a
  * re-serialized parsed body.
+ *
+ * `@SkipThrottle()`: this route must never share the app-wide `ThrottlerGuard` bucket. Stripe's
+ * retries are a finite, precious resource — a burst of queued retries after an outage hitting a
+ * 429 here would burn through that budget for no reason, and a 429 counts as a failed delivery to
+ * Stripe exactly like a 500 would.
  */
 @Controller({ path: RouteNames.BILLING, version: '1' })
 @ApiTags('Billing')
+@SkipThrottle()
 export class BillingWebhooksController {
   constructor(
     private readonly paymentProvider: PaymentProvider,

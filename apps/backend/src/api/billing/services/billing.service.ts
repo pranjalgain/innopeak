@@ -14,6 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 
 import { BillingEntitlementsService } from './billing-entitlements.service';
+import { BillingReconciliationService } from './billing-reconciliation.service';
 import { BillingWebhooksService } from './billing-webhooks.service';
 
 import { BILLING_REDIRECT_PATHS } from '../constants/billing.constants';
@@ -58,6 +59,7 @@ export class BillingService {
     private readonly tenantSubscriptionsDbService: TenantSubscriptionsDbService,
     private readonly billingEntitlementsService: BillingEntitlementsService,
     private readonly billingWebhooksService: BillingWebhooksService,
+    private readonly billingReconciliationService: BillingReconciliationService,
     private readonly billingReceiptsDbService: BillingReceiptsDbService,
     private readonly authDbService: AuthDbService,
     private readonly paymentProvider: PaymentProvider,
@@ -84,9 +86,38 @@ export class BillingService {
 
   async getSubscription(user: AuthUser): Promise<SubscriptionResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
+    return this.buildSubscriptionResponse(tenantUser.tenantId);
+  }
+
+  /**
+   * `POST /v1/billing/checkout/reconcile` — the checkout-redirect reconciliation path (Layer 2 of
+   * the webhook-miss recovery design, see `BillingReconciliationService`'s own doc comment). Reads
+   * the Checkout Session straight from Stripe instead of waiting on `checkout.session.completed`,
+   * so a tenant who lands on the success page is never stuck reading as unpaid just because that
+   * webhook was delayed or never arrived — safe to call even when the webhook already landed first
+   * (`setToPaidFromCheckout` is a plain idempotent `UPDATE`).
+   */
+  async reconcileCheckoutSession(
+    user: AuthUser,
+    checkoutSessionId: string
+  ): Promise<SubscriptionResponseDto> {
+    const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
+    // A Dummy checkout never redirects to Stripe's success_url, so there is no real Checkout
+    // Session to read — reject cleanly rather than letting the provider's plain Error surface as 500.
+    if (this.paymentProvider.type !== 'stripe') {
+      throw new StripeOnlyFeatureException();
+    }
+    await this.billingReconciliationService.reconcileFromCheckoutSession({
+      tenantId: tenantUser.tenantId,
+      checkoutSessionId,
+    });
+    return this.buildSubscriptionResponse(tenantUser.tenantId);
+  }
+
+  private async buildSubscriptionResponse(tenantId: string): Promise<SubscriptionResponseDto> {
     const [subscription, entitlements] = await Promise.all([
-      this.tenantSubscriptionsDbService.findByTenantId(tenantUser.tenantId),
-      this.billingEntitlementsService.getEntitlements(tenantUser.tenantId),
+      this.tenantSubscriptionsDbService.findByTenantId(tenantId),
+      this.billingEntitlementsService.getEntitlements(tenantId),
     ]);
 
     if (!subscription) {
@@ -171,6 +202,11 @@ export class BillingService {
         return refreshed?.stripeCustomerId ?? created.customerId;
       }
     );
+
+    // Stamped before the session exists, not after: if this write failed afterwards, a payment
+    // could land on a session the nightly reconciliation sweep is blind to. See
+    // `0011_billing.sql`'s `checkout_started_at` comment.
+    await this.tenantSubscriptionsDbService.touchCheckoutStartedAt(tenantUser.tenantId);
 
     const session = await this.paymentProvider.createCheckoutSession({
       tenantId: tenantUser.tenantId,

@@ -1376,6 +1376,11 @@ export const tenantSubscriptions = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
+    stripeLastVerifiedAt: timestamp('stripe_last_verified_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    checkoutStartedAt: timestamp('checkout_started_at', { withTimezone: true, mode: 'string' }),
   },
   table => [
     uniqueIndex('idx_tenant_subscriptions_tenant_id').using(

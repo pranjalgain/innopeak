@@ -25,6 +25,7 @@ import type { BillingProfileResponseDto } from '../dto/billing-profile-response.
 import { CompleteDummyCheckoutDto } from '../dto/complete-dummy-checkout.dto';
 import type { BillingPlansResponseDto } from '../dto/plan-response.dto';
 import type { ReceiptListResponseDto } from '../dto/receipt-response.dto';
+import { ReconcileCheckoutSessionDto } from '../dto/reconcile-checkout-session.dto';
 import type { RedirectUrlResponseDto } from '../dto/redirect-url-response.dto';
 import { SetActiveLocationDto } from '../dto/set-active-location.dto';
 import { SetDefaultPaymentMethodDto } from '../dto/set-default-payment-method.dto';
@@ -43,6 +44,7 @@ import {
   ApiGetSubscription,
   ApiListBillingPlans,
   ApiListReceipts,
+  ApiReconcileCheckoutSession,
   ApiSetActiveLocation,
   ApiSetDefaultPaymentMethod,
   ApiUpdateBillingProfile,
@@ -84,6 +86,16 @@ export class BillingController {
       MESSAGES.BILLING.CHECKOUT_SESSION_CREATED,
       HttpStatus.CREATED
     );
+  }
+
+  @Post(RouteNames.BILLING_CHECKOUT_RECONCILE)
+  @ApiReconcileCheckoutSession()
+  async reconcileCheckoutSession(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ReconcileCheckoutSessionDto
+  ): Promise<ApiResponse<SubscriptionResponseDto>> {
+    const result = await this.billingService.reconcileCheckoutSession(user, dto.checkoutSessionId);
+    return ResponseUtil.success(result, MESSAGES.BILLING.CHECKOUT_RECONCILED);
   }
 
   @Post(RouteNames.BILLING_PORTAL)

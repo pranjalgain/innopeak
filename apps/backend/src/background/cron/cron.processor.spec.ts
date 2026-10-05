@@ -33,6 +33,7 @@ describe('CronProcessor', () => {
       pollDueLocations: jest.fn().mockResolvedValue(undefined),
       purgeExpiredReviewerPii: jest.fn().mockResolvedValue(undefined),
       purgeErasureRequests: jest.fn().mockResolvedValue(undefined),
+      reconcileStaleBillingSubscriptions: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CronService>;
     dlqService = {
       addFailedJobToDLQ: jest.fn().mockResolvedValue(undefined),
@@ -100,6 +101,18 @@ describe('CronProcessor', () => {
       await processor.process(job);
 
       expect(cronService.purgeErasureRequests).toHaveBeenCalledTimes(1);
+      expect(cronService.sendDailyMail).not.toHaveBeenCalled();
+    });
+
+    it('dispatches BILLING_RECONCILIATION_SWEEP jobs to CronService.reconcileStaleBillingSubscriptions and awaits it', async () => {
+      const job = buildJob({
+        name: CronJobName.BILLING_RECONCILIATION_SWEEP,
+        data: { jobType: CronJobName.BILLING_RECONCILIATION_SWEEP },
+      });
+
+      await processor.process(job);
+
+      expect(cronService.reconcileStaleBillingSubscriptions).toHaveBeenCalledTimes(1);
       expect(cronService.sendDailyMail).not.toHaveBeenCalled();
     });
 
