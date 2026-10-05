@@ -3,6 +3,7 @@ export enum QueueName {
   DEAD_LETTER = 'dead-letter',
   CRON = 'cron',
   REVIEW_SYNC = 'review-sync',
+  REVIEW_POST = 'review-post',
 }
 
 export const QUEUE_LIST = Object.values(QueueName).filter((v): v is QueueName =>
@@ -54,6 +55,8 @@ export enum JobName {
   REVIEW_BACKFILL = 'review-backfill',
   /** One per eligible location, fanned out by CronService.pollDueLocations every 15 minutes. */
   REVIEW_POLL = 'review-poll',
+  /** Published per `IReviewPostJob` — see that interface's own comment for every publisher. */
+  REVIEW_POST = 'review-post',
 }
 
 export enum CronJobName {

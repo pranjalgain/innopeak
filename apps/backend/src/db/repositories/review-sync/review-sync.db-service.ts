@@ -9,22 +9,29 @@ import { ReviewSyncRepository } from './review-sync.repository';
 import { ReviewsReadRepository } from './reviews-read.repository';
 import type {
   ApproveResponseInput,
+  ClaimResponseForPostingInput,
   FindResponseForTenantInput,
   FindResponsesForReviewsInput,
   FindReviewByIdForTenantInput,
   GenerationCandidateRow,
   GetPromptVersionStatsBatchInput,
   GetPromptVersionStatsInput,
+  ImportLiveReplyInput,
   ImportPageInput,
   ImportPageResult,
   ImportReviewInput,
   InsertGeneratedResponseInput,
+  InsertManualReplyInput,
   ListReviewsFilter,
+  MarkResponsePostedInput,
+  MarkResponsePostFailedInput,
   PromptVersionStatsBatchRow,
   PromptVersionStatsRow,
   RejectResponseInput,
+  RetryPostableResponseInput,
   ReviewResponseRow,
   ReviewRow,
+  SupersedeForExternalReplyInput,
   SyncRunRow,
 } from './types/review-sync.type';
 
@@ -419,5 +426,80 @@ export class ReviewSyncDbService {
   /** See `ReviewSyncRepository.insertGeneratedResponse`. */
   insertGeneratedResponse(input: InsertGeneratedResponseInput): Promise<string> {
     return this.reviewSyncRepository.insertGeneratedResponse(input);
+  }
+
+  /** See `ReviewSyncRepository.claimResponseForPosting`. */
+  claimResponseForPosting(input: ClaimResponseForPostingInput): Promise<ReviewResponseRow | null> {
+    return this.reviewSyncRepository.claimResponseForPosting(input);
+  }
+
+  /** See `ReviewSyncRepository.releaseResponseClaim`. */
+  releaseResponseClaim(input: ClaimResponseForPostingInput): Promise<boolean> {
+    return this.reviewSyncRepository.releaseResponseClaim(input);
+  }
+
+  /**
+   * Records a reply that is demonstrably live on Google when the response that was meant to post it
+   * can no longer be marked `posted` (it stopped being `approved` mid-flight — a human rejected or
+   * edited it while the worker was talking to Google). Imports what Google actually has, as
+   * `insertImportedReply` would, and advances the review to `responded`, so the record matches
+   * what is public. Returns `false` when the review already has a live reply on record (the
+   * `idx_review_responses_review_id_live_reply` index) — in which case there is nothing to add.
+   */
+  async importLiveReply(input: ImportLiveReplyInput): Promise<boolean> {
+    try {
+      return await this.reviewSyncRepository.transaction(async tx => {
+        const inserted = await this.reviewSyncRepository.insertImportedReply(tx, input);
+        await this.reviewSyncRepository.markReviewResponded(tx, input.reviewId);
+        return inserted;
+      });
+    } catch (error) {
+      if (isUniqueViolation(error, LIVE_REPLY_INDEX)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /** See `ReviewSyncRepository.markResponsePosted`. */
+  markResponsePosted(input: MarkResponsePostedInput): Promise<ReviewResponseRow | null> {
+    return this.reviewSyncRepository.transaction(tx =>
+      this.reviewSyncRepository.markResponsePosted(tx, input)
+    );
+  }
+
+  /** See `ReviewSyncRepository.markResponsePostFailed`. */
+  markResponsePostFailed(input: MarkResponsePostFailedInput): Promise<ReviewResponseRow | null> {
+    return this.reviewSyncRepository.markResponsePostFailed(input);
+  }
+
+  /** See `ReviewSyncRepository.supersedeForExternalReply`. */
+  supersedeForExternalReply(input: SupersedeForExternalReplyInput): Promise<boolean> {
+    return this.reviewSyncRepository.transaction(tx =>
+      this.reviewSyncRepository.supersedeForExternalReply(tx, input)
+    );
+  }
+
+  /** See `ReviewSyncRepository.retryPostableResponse`. */
+  retryPostableResponse(input: RetryPostableResponseInput): Promise<ReviewResponseRow | null> {
+    return this.reviewSyncRepository.retryPostableResponse(input);
+  }
+
+  /** See `ReviewSyncRepository.insertManualReply` — wrapped in the same transaction as
+   *  `supersedeSiblingDrafts`, mirroring `approveResponse`'s own shape, so a crash between the two
+   *  never leaves a review with both a new live reply and a stale pending sibling. */
+  async insertManualReply(
+    input: InsertManualReplyInput
+  ): Promise<{ response: ReviewResponseRow; supersededResponseIds: string[] }> {
+    return this.reviewSyncRepository.transaction(async tx => {
+      const inserted = await this.reviewSyncRepository.insertManualReply(tx, input);
+
+      const supersededResponseIds = await this.reviewSyncRepository.supersedeSiblingDrafts(tx, {
+        reviewId: input.reviewId,
+        excludeResponseId: inserted.id,
+      });
+
+      return { response: inserted, supersededResponseIds };
+    });
   }
 }

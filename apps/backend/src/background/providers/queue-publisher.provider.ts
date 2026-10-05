@@ -3,6 +3,9 @@ import type { QueueName } from '@bg/constants/job.constant';
 export interface PublishOptions {
   attempts?: number;
   backoffDelayMs?: number;
+  /** Hold the job back this long before a worker may receive it. SQS caps this at 15 minutes
+   *  (`SqsQueuePublisher` clamps rather than rejecting a longer value). */
+  delayMs?: number;
 }
 
 /**

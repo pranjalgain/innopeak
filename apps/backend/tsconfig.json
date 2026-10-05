@@ -70,6 +70,7 @@
       "@billing/*": ["api/billing/*"],
       "@reviews/*": ["api/reviews/*"],
       "@review-sync-queue/*": ["background/queue/review-sync/*"],
+      "@review-post-queue/*": ["background/queue/review-post/*"],
       "@sms/*": ["sms/*"],
       "@notifications/*": ["notifications/*"]
     }

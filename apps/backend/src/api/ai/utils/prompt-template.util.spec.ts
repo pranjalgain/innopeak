@@ -1,4 +1,8 @@
-import { buildSystemPrompt, fillPromptTemplate } from './prompt-template.util';
+import {
+  buildSystemPrompt,
+  fillPromptTemplate,
+  parseMultiSnippetReplies,
+} from './prompt-template.util';
 
 describe('fillPromptTemplate', () => {
   it('substitutes every placeholder with its matching value', () => {
@@ -74,5 +78,53 @@ describe('buildSystemPrompt', () => {
     const prompt = buildSystemPrompt('professional');
     expect(prompt).toContain('no preamble');
     expect(prompt).toContain('no markdown formatting');
+  });
+
+  it('defaults to the single-reply instruction when snippetCount is omitted', () => {
+    expect(buildSystemPrompt('professional')).not.toContain('JSON array');
+  });
+
+  it('switches to the JSON-array, explicitly-distinct instruction for snippetCount > 1', () => {
+    const prompt = buildSystemPrompt('professional', 3);
+    expect(prompt).toContain('exactly 3 distinct reply options');
+    expect(prompt).toContain('differ meaningfully from one another');
+    expect(prompt).toContain('JSON array of exactly 3 strings');
+  });
+});
+
+describe('parseMultiSnippetReplies', () => {
+  it('parses a clean JSON array of the expected length', () => {
+    const result = parseMultiSnippetReplies(
+      JSON.stringify(['Option A', 'Option B', 'Option C']),
+      3
+    );
+    expect(result).toEqual(['Option A', 'Option B', 'Option C']);
+  });
+
+  it('tolerates a ```json fenced code block around the array', () => {
+    const fenced = '```json\n["Option A", "Option B"]\n```';
+    expect(parseMultiSnippetReplies(fenced, 2)).toEqual(['Option A', 'Option B']);
+  });
+
+  it('trims whitespace off each entry', () => {
+    const result = parseMultiSnippetReplies(JSON.stringify(['  Option A  ', 'Option B']), 2);
+    expect(result).toEqual(['Option A', 'Option B']);
+  });
+
+  it('returns null for non-JSON content', () => {
+    expect(parseMultiSnippetReplies('Sure, here you go: 1. Thanks! 2. Appreciated!', 2)).toBeNull();
+  });
+
+  it('returns null when the array length does not match expectedCount', () => {
+    expect(parseMultiSnippetReplies(JSON.stringify(['Only one']), 2)).toBeNull();
+  });
+
+  it('returns null for a JSON value that is not an array', () => {
+    expect(parseMultiSnippetReplies(JSON.stringify({ reply: 'Option A' }), 1)).toBeNull();
+  });
+
+  it('returns null when an entry is blank or not a string', () => {
+    expect(parseMultiSnippetReplies(JSON.stringify(['Option A', '   ']), 2)).toBeNull();
+    expect(parseMultiSnippetReplies(JSON.stringify(['Option A', 42]), 2)).toBeNull();
   });
 });

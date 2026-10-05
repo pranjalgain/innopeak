@@ -153,7 +153,11 @@ export interface ApproveResponseInput {
   responseId: string;
   reviewId: string;
   tenantId: string;
-  approvedByUserId: string;
+  /** `null` is a legitimate value, not a placeholder for "not yet known" — the system's own
+   *  auto-post step (`AiReplyGenerationService`'s non-escalated, `auto_post_enabled = true` path)
+   *  approves with no human involved at all, and `null` here is how that is recorded truthfully.
+   *  The column's `ON DELETE SET NULL` FK already allows it. */
+  approvedByUserId: string | null;
   /** Final content to store — possibly edited from the draft's own `content`. */
   content: string;
   source: ResponseSource;
@@ -185,6 +189,56 @@ export interface ListReviewsFilter {
 export interface FindReviewByIdForTenantInput {
   reviewId: string;
   tenantId: string;
+}
+
+// ─── Posting lifecycle (PLAN.md §4.2's `approved -> posted/post_failed`, §8.12's freshness check) ──
+
+export interface ClaimResponseForPostingInput {
+  responseId: string;
+  tenantId: string;
+}
+
+export interface MarkResponsePostedInput {
+  responseId: string;
+  reviewId: string;
+  /** Google's own `reviewReply.updateTime` for the reply just posted — not `now()`, so this
+   *  matches what a freshness-check read of the same reply would report. */
+  postedAt: string;
+}
+
+export interface ImportLiveReplyInput {
+  tenantId: string;
+  reviewId: string;
+  /** The reply found live on Google. */
+  content: string;
+  postedAt: string;
+}
+
+export interface MarkResponsePostFailedInput {
+  responseId: string;
+  errorMessage: string;
+}
+
+export interface SupersedeForExternalReplyInput {
+  responseId: string;
+  reviewId: string;
+  tenantId: string;
+  /** The reply PLAN.md §8.12's freshness check found already live on Google. */
+  content: string;
+  postedAt: string;
+}
+
+export interface RetryPostableResponseInput {
+  responseId: string;
+  tenantId: string;
+}
+
+export interface InsertManualReplyInput {
+  tenantId: string;
+  reviewId: string;
+  responseType: ResponseType;
+  content: string;
+  createdByUserId: string;
 }
 
 export interface FindResponsesForReviewsInput {

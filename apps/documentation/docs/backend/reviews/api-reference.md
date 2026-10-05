@@ -6,12 +6,15 @@ sidebar_position: 2
 
 ## How to read this document
 
-This is the **target/spec design** for the reviews module's HTTP surface, with four routes now
-**implemented** against that spec: `GET /v1/reviews`, `GET /v1/reviews/:reviewId`, and — added this
-pass — `POST .../responses/:responseId/approve` and `.../reject` (`src/api/reviews/`). Everything
-else below (manual replies, dismiss, retry-post, post-status) describes what to build, not what
-runs. Each implemented section says so explicitly and calls out anywhere the shipped code diverges
-from what this document originally specified. It assumes you have read [Reviews Module —
+This is the **target/spec design** for the reviews module's HTTP surface, and by this pass nearly
+all of it is **implemented** against that spec: `GET /v1/reviews`, `GET /v1/reviews/:reviewId`,
+`POST .../responses/:responseId/approve`, `.../reject`, `.../retry-post`, `.../post`, `GET
+.../post-status`, and `POST .../responses` (manual replies) all run real code in `src/api/reviews/`,
+backed by the review-post queue (`src/background/queue/review-post/`) for the actual Google
+write. **Only [dismiss](#review-triage)** (`POST /v1/reviews/:reviewId/dismiss`) remains spec-only —
+it was not built this pass and still describes what to build, not what runs. Each implemented
+section says so explicitly and calls out anywhere the shipped code diverges from what this document
+originally specified. It assumes you have read [Reviews Module —
 Overview](./overview.md) for the data model, the enums, the state machine, and the
 one-reply-per-review invariant; this document turns those into concrete request/response contracts
 rather than repeating them.
@@ -284,13 +287,15 @@ Errors: `404 REVIEW_NOT_FOUND` (unknown id, or a review belonging to another ten
 | `POST` | `/v1/reviews/:reviewId/responses/:responseId/approve` | Bearer | 30 / min (global default — no per-route override) |
 | `POST` | `/v1/reviews/:reviewId/responses/:responseId/reject` | Bearer | 30 / min (global default — no per-route override) |
 | `POST` | `/v1/reviews/:reviewId/responses/:responseId/retry-post` | Bearer | 10 / min |
+| `POST` | `/v1/reviews/:reviewId/responses/:responseId/post` | Bearer | 10 / min |
 
-**`approve` and `reject` are implemented** (`ReviewsController`/`ReviewsService`,
-`src/api/reviews/`, backed by `ReviewSyncDbService`/`ReviewSyncRepository`,
-`src/db/repositories/review-sync/`) — see [Persisting approve / reject
-decisions](./overview.md#persisting-approve--reject-decisions) for the design reasoning behind the
-shape documented below. `retry-post` remains spec-only; its section is unchanged from the original
-target design.
+**`approve`, `reject`, `retry-post`, and the manual `post` route below are all implemented**
+(`ReviewsController`/`ReviewsService`, `src/api/reviews/`, backed by
+`ReviewSyncDbService`/`ReviewSyncRepository`, `src/db/repositories/review-sync/`) — see [Persisting
+approve / reject decisions](./overview.md#persisting-approve--reject-decisions) for the design
+reasoning behind the shape documented below. `retry-post`'s section is corrected against the actual
+shipped code where it diverges from the original target design; `post` did not exist in this
+document's original spec at all — see its own subsection for why it was added this pass.
 
 ### `POST /v1/reviews/:reviewId/responses/:responseId/approve`
 
@@ -421,21 +426,34 @@ Errors: `404 REVIEW_RESPONSE_NOT_FOUND`, `409 REVIEW_RESPONSE_NOT_ACTIONABLE`, `
 
 ### `POST /v1/reviews/:reviewId/responses/:responseId/retry-post`
 
-The `post_failed → approved` arrow in `PLAN.md` §4.2. Posting to Google can fail on a rate limit,
-an expired token, or a content-policy rejection; `error_message` and the `post_failed` status
-exist specifically so that surfaces in the UI with a retry path rather than stranding an approved
-reply (`PLAN.md` §2, `review_responses`).
+**Implemented** (`ReviewsService.retryPost`, backed by `ReviewSyncDbService`/
+`ReviewSyncRepository.retryPostableResponse`). The `post_failed → approved` arrow in `PLAN.md`
+§4.2. Posting to Google can fail on a rate limit, an expired token, or a content-policy rejection;
+`error_message` and the `post_failed` status exist specifically so that surfaces in the UI with a
+retry path rather than stranding an approved reply (`PLAN.md` §2, `review_responses`).
 
-Guarded compare-and-swap on `status = 'post_failed'` → `'approved'`, clearing `error_message`,
-then re-enqueuing the same post-back job — including its freshness check, which is the whole
-point of re-running it rather than retrying the raw API call: by the time someone clicks retry,
-the review may well have been answered another way.
+The service first looks up the review (`findReviewForTenant`, `404 REVIEW_NOT_FOUND` if it doesn't
+match the caller's tenant) and the response (`findResponseForTenant`, `404
+REVIEW_RESPONSE_NOT_FOUND` — the same code `approve`/`reject` use, not a separate
+`RESPONSE_NOT_FOUND`), then checks `existing.status === ResponseStatus.POST_FAILED` itself before
+ever touching the database — a response that isn't `post_failed` throws `409
+RESPONSE_NOT_RETRYABLE` immediately, rather than relying solely on the CAS below to catch it.
+
+`ReviewSyncRepository.retryPostableResponse` is a guarded compare-and-swap on `status =
+'post_failed'` → `'approved'`, clearing both `error_message` and `post_attempted_at` (the
+crash-window claim marker — see [the overview's posting
+section](./overview.md#posting-and-the-freshness-check-before-it)) so the retried attempt is
+immediately claimable. `ReviewsService.retryPost` then enqueues the identical post-back job via
+`ReviewPostQueue.addPostJob` — including its freshness check, which is the whole point of
+re-running it rather than retrying the raw API call: by the time someone clicks retry, the review
+may well have been answered another way.
 
 `post_failed` is inside the live-reply partial unique index's scope on neither side — the index
 covers `('approved', 'posted')` only — so a `post_failed` row does not block another sibling from
 being approved. That is a real ordering hazard worth stating: if a user approves a different
-snippet while an earlier one sits at `post_failed`, this retry will then lose on the unique index
-and return `409 REVIEW_ALREADY_HAS_LIVE_REPLY`. Correct outcome, non-obvious cause.
+snippet while an earlier one sits at `post_failed`, this retry's CAS will then lose on the unique
+index — caught via `isUniqueViolation` against `idx_review_responses_review_id_live_reply` and
+re-thrown as `409 REVIEW_ALREADY_HAS_LIVE_REPLY`. Correct outcome, non-obvious cause.
 
 No request body.
 
@@ -450,8 +468,57 @@ Success `200`:
 }
 ```
 
-Errors: `404 REVIEW_NOT_FOUND`, `404 RESPONSE_NOT_FOUND`, `409 RESPONSE_NOT_RETRYABLE` (the row
-is not at `post_failed`), `409 REVIEW_ALREADY_HAS_LIVE_REPLY`, `401`, `429`.
+Errors: `404 REVIEW_NOT_FOUND`, `404 REVIEW_RESPONSE_NOT_FOUND` (not `RESPONSE_NOT_FOUND` — this
+route shares the same lookup, and the same exception, as approve/reject), `409
+RESPONSE_NOT_RETRYABLE` (the row is not at `post_failed`), `409 REVIEW_ALREADY_HAS_LIVE_REPLY`,
+`409 REVIEW_ALREADY_DISMISSED`, `409 REVIEW_REMOVED_UPSTREAM`, `503 POST_QUEUE_UNAVAILABLE` (the
+response is put back at `post_failed`), `401`, `429`.
+
+### `POST /v1/reviews/:reviewId/responses/:responseId/post`
+
+**Implemented** (`ReviewsService.postResponse`). Not in this document's original spec at all —
+added this pass because the existing design note for `tenant_settings.auto_post_enabled` directly
+implied it was needed, and building the posting pipeline without it would have left no way to post
+a response for a tenant who has that flag off.
+
+`tenant_settings.auto_post_enabled` (`BOOLEAN NOT NULL DEFAULT false`, `0002_tenant_auth.sql`) is
+read by `ReviewsService.postIfAutoPostEnabled` every time a response becomes `approved` — after a
+human approval via the [approve](#post-v1reviewsreviewidresponsesresponseidapprove) route, after a
+[manual reply](#manual-replies), and after the system's own non-escalated auto-approval (see the
+AI module's `maybeAutoApproveAndPost`). When the flag is **on**, that moment also enqueues the post
+job immediately — the response goes from `approved` to posted (or `post_failed`) without anyone
+touching this route. When it is **off** (the default), the response stays at `approved` with
+nothing queued behind it, and this route is the only way to actually publish it: a human reviews
+the approved text one more time and explicitly clicks "post," rather than every approval
+auto-publishing.
+
+The service looks up the review (`404 REVIEW_NOT_FOUND`) and the response (`404
+REVIEW_RESPONSE_NOT_FOUND`), then requires `existing.status === ResponseStatus.APPROVED` — any
+other status throws `409 RESPONSE_NOT_POSTABLE` (`ResponseNotPostableException`, a code distinct
+from retry-post's `RESPONSE_NOT_RETRYABLE` since the two routes' one legal source state differs:
+`approved` here, `post_failed` there). Unlike retry-post, there is no compare-and-swap write on
+this route at all — the response is already `approved`, so there is nothing to transition; the
+route's only job is to enqueue `ReviewPostQueue.addPostJob`, and the actual `approved → posted` /
+`post_failed` transition happens on the worker, identically to the auto-post path. A unique-index
+race on `idx_review_responses_review_id_live_reply` is therefore not reachable here the way it is
+for approve/manual-reply/retry-post: this route never writes `review_responses` itself.
+
+No request body.
+
+Success `200`:
+
+```json
+{
+  "id": "0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64",
+  "status": "approved",
+  "postQueuedAt": "2026-08-31T21:15:03Z"
+}
+```
+
+Errors: `404 REVIEW_NOT_FOUND`, `404 REVIEW_RESPONSE_NOT_FOUND`, `409 RESPONSE_NOT_POSTABLE` (the
+response is not at `approved`), `409 REVIEW_ALREADY_DISMISSED`, `409 REVIEW_REMOVED_UPSTREAM`,
+`503 POST_QUEUE_UNAVAILABLE` (the post queue could not be reached; the response stays `approved`, so
+the call can simply be repeated), `401`, `429`.
 
 ## Manual replies
 
@@ -461,20 +528,37 @@ is not at `post_failed`), `409 REVIEW_ALREADY_HAS_LIVE_REPLY`, `401`, `429`.
 
 ### `POST /v1/reviews/:reviewId/responses`
 
-Writes a reply from scratch instead of approving a generated one — the `human_manual` value of
-`response_source`. Backend-target only: the shipped UI has no composer, and `ReviewReplyDraft`
-in `apps/web/src/types/domain.ts` models AI drafts exclusively. It is specified because a review
-whose every snippet was rejected otherwise has no path to a reply at all, and because
-`PLAN.md` §5's few-shot example set explicitly draws on `human_manual` rows alongside the other
-three sources — the system is designed to learn from replies people wrote themselves.
+**Implemented** (`ReviewsService.createManualReply`, backed by `ReviewSyncDbService`/
+`ReviewSyncRepository.insertManualReply`). Writes a reply from scratch instead of approving a
+generated one — the `human_manual` value of `response_source`. Still backend-target only in the
+sense that mattered when this was spec'd: the shipped UI has no composer, and `ReviewReplyDraft`
+in `apps/web/src/types/domain.ts` models AI drafts exclusively, so nothing in the frontend calls
+this route yet. It exists because a review whose every snippet was rejected otherwise has no path
+to a reply at all, and because `PLAN.md` §5's few-shot example set explicitly draws on
+`human_manual` rows alongside the other three sources — the system is designed to learn from
+replies people wrote themselves.
 
-Inserts a new row at `status = 'approved'` (not `pending_approval` — the author is the approver,
-and a self-approval step would be theatre), with `source = 'human_manual'`,
-`created_by_user_id` **and** `approved_by_user_id` both set to the calling user,
-`decided_at = now()`, and `original_content` / `prompt_version_id` / `generation_group_id` all
-`NULL`. It then supersedes non-terminal siblings and enqueues the post exactly as
-[approve](#post-v1reviewsreviewidresponsesresponseidapprove) does — same transaction, same
-sweep, same unique-index backstop.
+`ReviewsService.createManualReply` first loads the review (`404 REVIEW_NOT_FOUND`) and rejects two
+review-level states before writing anything: `reviews.status === 'dismissed'` (`409
+REVIEW_ALREADY_DISMISSED`) and `removed_upstream_at` set (`409 REVIEW_REMOVED_UPSTREAM`).
+`response_type` is derived from `review.classification` — `escalation_snippet` when `escalated`,
+`auto_reply_suggestion` otherwise — never accepted from the client.
+
+`ReviewSyncRepository.insertManualReply` inserts the new row directly at `status = 'approved'`
+(not `pending_approval` — the author is the approver, and a self-approval step would be theatre),
+with `source = 'human_manual'`, `created_by_user_id` **and** `approved_by_user_id` both set to the
+calling user, `decided_at = now()`, and `generation_group_id` / `original_content` /
+`prompt_version_id` all `NULL` (never had an AI draft behind them). `ReviewSyncDbService
+.insertManualReply` wraps that insert and `supersedeSiblingDrafts` in one transaction — the same
+shape `approveResponse` uses for its own supersede sweep — so a crash between the two never leaves
+a review with both a new live reply and a stale `pending_approval` sibling. The insert can raise a
+23505 on `idx_review_responses_review_id_live_reply`, which `ReviewsService` catches via
+`isUniqueViolation` and re-throws as `409 REVIEW_ALREADY_HAS_LIVE_REPLY` — the same translation
+[approve](#post-v1reviewsreviewidresponsesresponseidapprove) does for its own equivalent conflict.
+
+After the insert, `createManualReply` calls the same `postIfAutoPostEnabled` gate approve uses —
+see [Post-back status](#post-back-status) and the overview's [posting
+section](./overview.md#posting-and-the-freshness-check-before-it) for what that gate does.
 
 `response_type` is `NOT NULL` with no "manual" value available, so it is derived server-side
 from the review — `escalation_snippet` when `classification = 'escalated'`,
@@ -491,7 +575,7 @@ Request:
 
 | Field | Type | Rules |
 |---|---|---|
-| `content` | string | required, 1–4096 chars, trimmed, non-empty after trimming. |
+| `content` | string | required, 1–4096 chars (`CreateManualReplyDto`, `@IsNotEmpty() @MaxLength(4096)`). Not server-trimmed — the DTO has no `@Transform`, unlike this document's original spec, which described trimming that was never added. |
 
 Success `201`:
 
@@ -500,6 +584,7 @@ Success `201`:
   "id": "0190f3d4-6e01-7a92-b7c3-0f2a8d5b1e46",
   "reviewId": "0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22",
   "responseType": "escalation_snippet",
+  "content": "Marcus, I've read this and I'm sorry. I'm the owner — please email me at hello@example.com and I'll sort this out personally.",
   "source": "human_manual",
   "status": "approved",
   "createdByUserId": "0190f2b7-9d12-7e34-b501-8c3a5f7d2e19",
@@ -509,6 +594,10 @@ Success `201`:
   "reviewStatus": "in_review"
 }
 ```
+
+`content` **is** in the response, unlike this document's original spec example above, which
+omitted it — `ManualReplyResponseDto` (`src/api/reviews/dto/post-actions.dto.ts`) carries it
+straight through, the same as every other response-item shape in this module.
 
 Errors: `400` validation, `404 REVIEW_NOT_FOUND`, `409 REVIEW_ALREADY_HAS_LIVE_REPLY` (a reply is
 already approved or posted for this review), `409 REVIEW_ALREADY_DISMISSED`,
@@ -576,13 +665,13 @@ Errors: `404 REVIEW_NOT_FOUND`, `409 REVIEW_NOT_DISMISSIBLE` (already `responded
 
 ### `GET /v1/reviews/:reviewId/responses/:responseId/post-status`
 
-Reads the outcome of the asynchronous post-back for one response. Because
-[approve](#post-v1reviewsreviewidresponsesresponseidapprove) returns at `approved` and the actual
-Google call happens on a worker, a client that wants to show "posted" rather than "will post"
-needs somewhere to look. It is separate from the detail endpoint — which returns the same three
-fields inline — on purpose: polling `GET /v1/reviews/:reviewId` every two seconds to watch one
-field would re-read every response row for the review, and this endpoint's throttle tier is
-deliberately looser to make short-interval polling legitimate.
+**Implemented** (`ReviewsService.getPostStatus`). Reads the outcome of the asynchronous post-back
+for one response. Because [approve](#post-v1reviewsreviewidresponsesresponseidapprove) returns at
+`approved` and the actual Google call happens on a worker, a client that wants to show "posted"
+rather than "will post" needs somewhere to look. It is separate from the detail endpoint — which
+returns the same three fields inline — on purpose: polling `GET /v1/reviews/:reviewId` every two
+seconds to watch one field would re-read every response row for the review, and this endpoint's
+throttle tier is deliberately looser to make short-interval polling legitimate.
 
 No frontend consumer exists today. `ReplyDraftStatus` in `apps/web/src/types/domain.ts` is
 `pending_approval | approved | rejected | superseded` — no `posted` or `post_failed` member at
@@ -616,25 +705,21 @@ and nothing was overwritten. `PLAN.md` §8.12 is explicit that silently overwrit
 manual reply is a materially worse outcome than a failed action, which makes this endpoint's
 `superseded` case a success path for the system and a failure path for the user's intent.
 
-Errors: `404 REVIEW_NOT_FOUND`, `404 RESPONSE_NOT_FOUND`, `401`, `429`.
+Errors: `404 REVIEW_NOT_FOUND`, `404 REVIEW_RESPONSE_NOT_FOUND` (not `RESPONSE_NOT_FOUND` — same
+correction as retry-post's error list above), `401`, `429`.
 
 ## Schema prerequisites not yet in the migrations
 
-Four things this module needs are absent from the SQL, called out here rather than silently
+Three things this module needs are absent from the SQL, called out here rather than silently
 assumed — the same way [../auth/api-reference.md](../auth/api-reference.md#configuration) flags
-its missing `refresh_tokens` table.
+its missing `refresh_tokens` table. (A fourth item this list used to carry — that `0006_prompts.sql`
+had not been applied or introspected — is resolved: all migrations
+are applied, `src/db/drizzle/schema.ts` is introspected against them, and `reviews` /
+`review_responses` — `prompt_version_id`, `original_content`, `decided_at`, and
+`post_attempted_at` included — exist as real Drizzle tables every repository in this module queries
+today.)
 
-**1. `0006_prompts.sql` has not been applied, and nothing in the InnoPeak schema has been
-introspected.** The journal (`src/db/drizzle/migrations/meta/_journal.json`) has an entry for
-`0006_prompts` at `idx: 6`, so `pnpm db:migrate` will pick it up — but
-`src/db/drizzle/schema.ts` is still the generic boilerplate's introspected output (`users`,
-`roles`, `permissions`, `refresh_tokens`, `api_keys`, `media`, `webhooks`, …) and contains
-**none** of the InnoPeak tables. There is no `reviews` and no `reviewResponses` Drizzle table to
-query. `prompt_version_id`, `original_content`, and `decided_at` — the three columns every
-prompt-analytics figure depends on — exist only as un-run `ALTER TABLE` statements.
-Run `pnpm db:migrate` then `pnpm db:introspect` before writing repository code.
-
-**2. Resolved for rejection, still open for dismissal.** `review_responses.rejected_by_user_id`
+**1. Resolved for rejection, still open for dismissal.** `review_responses.rejected_by_user_id`
 (`UUID REFERENCES users(id) ON DELETE SET NULL`) was added to `0004_reviews.sql` alongside the
 approve/reject implementation — see [`POST .../reject`](#post-v1reviewsreviewidresponsesresponseidreject)
 above. `reviews` still has no `dismissed_by_user_id` / `dismissed_at`, and dismiss itself remains
@@ -646,7 +731,7 @@ reasoning that was applied to add `rejected_by_user_id`; the same argument still
 dismissal. **Required follow-up migration** if dismissal attribution needs to be queryable: add
 `dismissed_by_user_id` / `dismissed_at` to `reviews`.
 
-**3. `PLAN.md` §2 recommends `review_responses.approved_at` and it was never added.**
+**2. `PLAN.md` §2 recommends `review_responses.approved_at` and it was never added.**
 `0004_reviews.sql` created `approved_by_user_id` but no `approved_at`; the closest column is
 `decided_at`, added later by `0006_prompts.sql`, which covers *any* terminal transition —
 approved, rejected, or superseded. That is adequate for `prompt-analytics.ts`'s time-to-decision
@@ -655,7 +740,7 @@ only answerable by reading `decided_at` **together with** `status = 'approved'`.
 a deliberate substitution rather than a missing column — a real follow-up only if approval time
 ever needs distinguishing from rejection time on the same row.
 
-**4. No index supports the `search` filter.** `GET /v1/reviews`'s `search` param matches
+**3. No index supports the `search` filter.** `GET /v1/reviews`'s `search` param matches
 `reviews.reviewer_name` case-insensitively, and the seven indexes on `reviews`
 (`idx_reviews_tenant_id`, `_location_id`, the unique `_location_id_external_review_id`,
 `_status`, `_classification`, `_reviewed_at`, `_external_reviewer_id`) include nothing on
@@ -685,18 +770,19 @@ string the frontend branches on.
 | `401` | `Unauthorized` | Every route | Missing, malformed, or expired access token. Every route in this module is `Bearer`. |
 | `403` | `Forbidden` (`TENANT_SUSPENDED`) | Every route | `tenants.status = 'suspended'`. Not instant for a token already issued — see `PLAN.md` §8.20. |
 | `404` | `Not Found` (`REVIEW_NOT_FOUND`) | Every route with `:reviewId` | Unknown id, **or** a review belonging to another tenant. Deliberately not `403` — a `403` would confirm the review exists. |
-| `404` | `Not Found` (`RESPONSE_NOT_FOUND`) | retry-post, post-status | Unknown `:responseId`, or one whose `review_id` is not the `:reviewId` in the path. Mismatched-parent is a `404`, not a `400`: the response does not exist *at that path*. Still spec-only on these two routes — see `REVIEW_RESPONSE_NOT_FOUND` below for the implemented equivalent on approve/reject. |
-| `404` | `Not Found` (`REVIEW_RESPONSE_NOT_FOUND`) | **approve, reject** (implemented) | `findResponseForTenant` found no row matching `:responseId` + `:reviewId` + the caller's `tenantId` — the single lookup these two routes use, which is also what a mismatched-parent or cross-tenant attempt resolves to. There is no separate `REVIEW_NOT_FOUND` on these two routes. |
-| `409` | `Conflict` (`RESPONSE_ALREADY_ACTIONED`) | retry-post | The guarded compare-and-swap affected zero rows. Still spec-only on this route — see `REVIEW_RESPONSE_NOT_ACTIONABLE` below for the implemented equivalent on approve/reject. |
+| `404` | `Not Found` (`REVIEW_RESPONSE_NOT_FOUND`) | **approve, reject, retry-post, post, post-status** (all implemented) | `findResponseForTenant` found no row matching `:responseId` + `:reviewId` + the caller's `tenantId` — the single lookup every one of these routes uses, which is also what a mismatched-parent or cross-tenant attempt resolves to. This document's original spec gave retry-post and post-status their own separate `RESPONSE_NOT_FOUND` code (see below); the shipped code never implemented that second code — every route in this module that needs this check reuses the one `ReviewResponseNotFoundException` approve/reject already defined. |
+| ~~`404`~~ | ~~`Not Found` (`RESPONSE_NOT_FOUND`)~~ | — | **Never implemented.** This document's original spec gave retry-post/post-status this separate code for a mismatched-parent response lookup; the shipped code uses `REVIEW_RESPONSE_NOT_FOUND` for that case on every route instead (row above). Listed here only so a reader of an older version of this document, or of client code written against it, knows why the code never appears on the wire. |
 | `409` | `Conflict` (`REVIEW_RESPONSE_NOT_ACTIONABLE`) | **approve, reject** (implemented) | The guarded compare-and-swap affected zero rows — the response was no longer at `pending_approval` (already decided, or a sibling's approval superseded it first). |
 | `409` | `Conflict` (`REVIEW_RESPONSE_ALREADY_LIVE`) | **approve** (implemented) | `idx_review_responses_review_id_live_reply` unique violation, caught and translated rather than left to surface as a `500` — two sibling drafts on the same review were approved at genuinely the same instant; the second to commit loses with this error. |
-| `409` | `Conflict` (`REVIEW_ALREADY_HAS_LIVE_REPLY`) | manual reply, retry-post | `idx_review_responses_review_id_live_reply` unique violation under this document's original spec naming. Still spec-only on these two routes — approve's implemented equivalent is `REVIEW_RESPONSE_ALREADY_LIVE` above. |
-| `409` | `Conflict` (`RESPONSE_NOT_RETRYABLE`) | retry-post | The response is not at `post_failed`. |
-| `409` | `Conflict` (`REVIEW_NOT_DISMISSIBLE`) | dismiss | `reviews.status` is already `responded` or `dismissed`. |
-| `409` | `Conflict` (`REVIEW_ALREADY_DISMISSED`) | manual reply | Cannot reply to a dismissed review. Reported separately from `REVIEW_NOT_DISMISSIBLE` because the remedy differs — undismissing is not an operation this module offers. |
-| `409` | `Conflict` (`REVIEW_REMOVED_UPSTREAM`) | approve, manual reply | `reviews.removed_upstream_at` is set — the reviewer deleted the review on Google, so there is nothing left to reply to. Read routes still return the row; write routes refuse it. |
+| `409` | `Conflict` (`REVIEW_ALREADY_HAS_LIVE_REPLY`) | **manual reply, retry-post** (implemented) | `idx_review_responses_review_id_live_reply` unique violation, caught via `isUniqueViolation` on these two routes — approve's own equivalent conflict is `REVIEW_RESPONSE_ALREADY_LIVE` above instead, since the two routes' client copy differs (see [retry-post](#post-v1reviewsreviewidresponsesresponseidretry-post)'s own callout for the ordering hazard that triggers this on that route). |
+| `409` | `Conflict` (`RESPONSE_NOT_RETRYABLE`) | **retry-post** (implemented) | The response is not at `post_failed` — checked both before the CAS (an obviously-wrong status) and as the CAS's own zero-rows outcome (a race since the status was last read), so this one code covers everything this document's original spec split into `RESPONSE_ALREADY_ACTIONED` and `RESPONSE_NOT_RETRYABLE`; only the latter name was actually implemented. |
+| `409` | `Conflict` (`RESPONSE_NOT_POSTABLE`) | **post** (implemented) | The response is not at `approved` — the manual `.../post` route's one legal source state. Not in this document's original spec; added alongside that route. |
+| `409` | `Conflict` (`REVIEW_NOT_DISMISSIBLE`) | dismiss | `reviews.status` is already `responded` or `dismissed`. Still spec-only — dismiss itself is unbuilt. |
+| `409` | `Conflict` (`REVIEW_ALREADY_DISMISSED`) | **manual reply, post, retry-post** (implemented) | Cannot reply to a dismissed review. Reported separately from `REVIEW_NOT_DISMISSIBLE` because the remedy differs — undismissing is not an operation this module offers. |
+| `409` | `Conflict` (`REVIEW_REMOVED_UPSTREAM`) | **manual reply, post, retry-post** (implemented) | `reviews.removed_upstream_at` is set — the reviewer deleted the review on Google, so there is nothing left to reply to. This document's original spec also listed this on approve; the shipped `ReviewsService.approveReply` does not check `removed_upstream_at` at all, so approve cannot actually return this code today — only manual reply does. |
+| `503` | `Service Unavailable` (`POST_QUEUE_UNAVAILABLE`) | **post, retry-post** (implemented) | The review-post queue (Redis/SQS) rejected the job. On `post` the response stays `approved`; on `retry-post` it is put back at `post_failed` so the retry control stays available. The same failure on an automatic post (approve / manual reply with `auto_post_enabled`) does not fail the request — the response is moved to `post_failed` with this message as its `errorMessage`. |
 | `429` | `Too Many Requests` | Any route | `ThrottlerGuard` limit for that route's tier — see the per-group throttle columns above. Post-status is deliberately looser to make polling legitimate. |
-| `500` | `Internal Server Error` | Any route | Unhandled exception. Only `traceId` is safe to show a user. A unique-violation on `idx_review_responses_review_id_live_reply` reaching this row means the translation in `409 REVIEW_ALREADY_HAS_LIVE_REPLY` is missing — treat any `500` from an approve as a bug in that mapping first. |
+| `500` | `Internal Server Error` | Any route | Unhandled exception. Only `traceId` is safe to show a user. A unique-violation on `idx_review_responses_review_id_live_reply` reaching this row means the translation in `409 REVIEW_ALREADY_HAS_LIVE_REPLY`/`REVIEW_RESPONSE_ALREADY_LIVE` is missing — treat any `500` from an approve, manual-reply, or retry-post call as a bug in that mapping first. |
 
 Two errors this module deliberately does **not** define:
 

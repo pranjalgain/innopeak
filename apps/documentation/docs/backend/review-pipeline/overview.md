@@ -589,91 +589,140 @@ what enforces it, which is why the previous stage must never leave `generation_g
 > Separately, `notifications` has no `error_message` (nor `failed_at`), so a `failed` row cannot say
 > why — `review_responses` has exactly that column for the same reason. Add `error_message TEXT`.
 
-### Posting back to Google
+### Posting back to Google — implemented
 
-**Trigger.** A human approving a `review_responses` row over HTTP (the reviews module) enqueues
-this job. The approval itself is not part of this pipeline; the post is. Also triggered by a retry
-of a `post_failed` row.
+**Where it lives.** `src/background/queue/review-post/` (`ReviewPostQueueService.postResponse`) —
+per that file's own doc comment, the processor/consumer/queue files around it are adapt-and-rename
+boilerplate copied from the `email` queue's shape; `postResponse` itself is the one genuinely new
+piece of business logic this stage adds. Its data access is five new `ReviewSyncRepository`
+methods (`claimResponseForPosting`, `releaseResponseClaim`, `markResponsePosted`,
+`markResponsePostFailed`, `supersedeForExternalReply`, `retryPostableResponse`), composed through
+`ReviewSyncDbService` (which adds `importLiveReply`), plus
+`insertManualReply` for the unrelated manual-reply path the reviews module also added this pass.
 
-**Inputs.** The `review_responses` row at `status = 'approved'`, its `reviews` parent, the
-location's connection credentials, and — critically — a **live** read of that one review's current
-reply state from the GBP API.
+**Trigger.** Four call sites enqueue `ReviewPostQueue.addPostJob`, none of them this pipeline's own
+code: [approve](../reviews/api-reference.md#post-v1reviewsreviewidresponsesresponseidapprove) and
+[manual reply](../reviews/api-reference.md#manual-replies) (both via `ReviewsService
+.postIfAutoPostEnabled`, gated on `tenant_settings.auto_post_enabled`), the system's own
+non-escalated auto-approval (`AiReplyGenerationService.maybeAutoApproveAndPost`, same gate), and the
+manual [`.../responses/:responseId/post`
+route](../reviews/api-reference.md#post-v1reviewsreviewidresponsesresponseidpost) — added this pass
+specifically for the `auto_post_enabled = false` case, where an `approved` response needs an
+explicit second action to actually publish. [`retry-post`](../reviews/api-reference.md#post-v1reviewsreviewidresponsesresponseidretry-post)
+re-enqueues the identical job for a `post_failed` row. The approval itself is not part of this
+pipeline; the post is — see `../reviews/overview.md`'s own posting section for the gating logic
+from the reviews module's side.
 
-**Writes and the state machine.** `response_status` is `draft` \| `pending_approval` \| `approved`
-\| `rejected` \| `posted` \| `post_failed` \| `superseded`, and §4.2 is the authoritative machine.
-On a successful post:
+**The claim, and the crash-window fix.** `0004_reviews.sql` adds
+`review_responses.post_attempted_at TIMESTAMPTZ` specifically so this stage can tell "currently
+being posted by another attempt" apart from "safe to claim." `claimResponseForPosting` is a
+compare-and-swap — `UPDATE ... SET post_attempted_at = now() WHERE id = ? AND tenant_id = ? AND
+status = 'approved' AND (post_attempted_at IS NULL OR post_attempted_at < now() - interval '5
+minutes')` — the same claim-with-staleness-reclaim shape `sync_runs.started_at`/`updated_at`
+already uses for poll runs. Zero rows affected (not `approved`, or claimed by a still-in-flight
+attempt) is a quiet no-op, logged and returned, not an error. This closes the crash-window gap
+§8.12 on its own does not model: without a claim marker, a worker whose `PUT` succeeds at Google
+but then dies before its own DB write leaves no `posted` row, so the *next* attempt's freshness
+check would see a `reviewReply` it cannot account for and wrongly conclude someone replied
+externally — superseding the approval and re-importing its own text, dropping
+`approved_by_user_id` and telling the approver their post failed when it had actually already
+succeeded. `post_attempted_at` is cleared back to `NULL` on every terminal write (`posted`,
+`post_failed`, `superseded`), so a retried response starts its next attempt unclaimed.
 
-1. `review_responses.status = 'posted'`, `posted_at = now()`, `error_message` cleared —
-   as a **compare-and-swap**, `UPDATE ... WHERE id = ? AND status = 'approved'`, never a blind
-   write. Do **not** rewrite `decided_at`: it records the *human* decision (set at approve time by
-   [the approve endpoint](../reviews/api-reference.md#post-v1reviewsreviewidresponsesresponseidapprove)),
-   and `prompts`' average-time-to-decision metric divides by it — overwriting it here silently
-   redefines that metric as "time until Google accepted the reply."
-2. `reviews.status = 'responded'`.
+**The freshness check, and telling "our own prior attempt" apart from "someone else."** Immediately
+after claiming, `postResponse` resolves the connection/location/credential and calls
+`GoogleBusinessProfileProvider.getReviewReply` — a live, single-review `GET`, fetched fresh, never
+from the last poll's cached copy, exactly as §8.12 requires. If that call returns an existing
+reply, `postResponse` compares its `comment` against the claimed response's own `content` before
+deciding what happened. The comparison collapses whitespace runs and trims both sides
+(`normalizeReplyText`), because Google may normalize line endings or surrounding whitespace in a
+stored reply, and an exact `===` would misread this app's own earlier post as someone else's:
 
-**Why the CAS matters, and what has to happen before the `PUT`.** Between approve and post, a
-poller run can supersede this row (§8.6, an upstream edit) or an import can land (§8.12). With a
-blind write the worker publishes text answering a review that no longer exists *and* forces a
-`superseded` row to `posted` — a transition §4.2 does not contain. So: re-read the row
-`FOR UPDATE WHERE id = ? AND status = 'approved'` immediately before calling Google, abort if it
-does not match, and make the completion write the CAS above.
+- **Comment matches** — this response's own prior attempt already posted it (the crash window
+  above), so `markResponsePosted` records it as `posted` (using the fetched `reviewReply`'s own
+  `updatedAt`) without re-sending; Google's endpoint is an unconditional upsert, so a second
+  identical `PUT` would be harmless, just pointless.
+- **Comment differs** — someone else's text is genuinely live (the owner replied directly on
+  Google, or a race with another worker). `ReviewSyncRepository.supersedeForExternalReply` CASes
+  `approved → superseded` (clearing `post_attempted_at`, setting `decided_at`) and, in the same
+  transaction, inserts the reply Google actually has as a new `source = 'imported'`, `status =
+  'posted'` row — the abort-and-import path §8.12 calls for. The person who approved finds out
+  through [post-status](../reviews/api-reference.md#post-back-status), not a `500`.
 
-**The crash window is a third state §8.12 does not model.** §8.12's freshness check keys on "does
-a `posted` row exist for this review". If the `PUT` succeeds at Google but the worker dies before
-its DB write, no `posted` row exists — so the next poll sees a `reviewReply` it cannot account for
-and concludes *someone replied externally*: it supersedes our own `approved` row and re-imports our
-own text as `source = 'imported'`, dropping `approved_by_user_id` and telling the approver their
-reply "did not go through because the review was already answered externally." Two guards, both
-cheap: write a `post_attempted_at` marker (or a `posting` state) **before** the `PUT`, and have the
-freshness check compare the fetched `reviewReply.comment` against our `content` before declaring
-it external. Note the sibling supersede is **not** listed above — it belongs in the approve
-transaction, scoped by `review_id`, per
-[the reviews module](../reviews/api-reference.md#post-v1reviewsreviewidresponsesresponseidapprove);
-doing it here would leave live `pending_approval` siblings alongside an `approved` row, which is
-exactly the §8.5 window the live-reply index exists to close.
+When no reply exists yet, `postResponse` calls `replyToReview` (`PUT .../reviews/{reviewId}/reply`)
+and then `markResponsePosted`, which — in one transaction — CASes `review_responses.status` to
+`posted` (`posted_at` = Google's own `reviewReply.updateTime`, not `now()`, so an API-posted row
+reads identically to one the historical backfill imported) and writes `reviews.status =
+'responded'`. It deliberately does **not** rewrite `decided_at`: that column records the *human*
+decision (set at approve time), and `prompts`' average-time-to-decision metric divides by it —
+overwriting it here would silently redefine that metric as "time until Google accepted the reply."
 
-On an API error: `review_responses.status = 'post_failed'` with a real `error_message`, and
-`post_failed → approved` is the documented retry edge in §4.2.
-
-Google's reply endpoint is `PUT .../reviews/{reviewId}/reply`, setting the review's single
-`reviewReply {comment, updateTime}` sub-field. There is no reply id — §2 dropped
-`google_response_id` for exactly this reason and `posted_at` is the substitute — which also means a
-re-post overwrites: editing a posted reply flips the old `posted` row to `superseded` and makes the
-new row `posted`. Order matters against the schema here, because
-`idx_review_responses_review_id_live_reply` is `UNIQUE (review_id) WHERE status IN ('approved',
-'posted')`: the supersede of the old row must commit *before* the new one is set `approved` or
-`posted`, or the index rejects the write. That same index is why an approval of a second sibling
-fails at the database rather than at the API — deliberate, per §8.5.
+Google's reply endpoint sets the review's single `reviewReply {comment, updateTime}` sub-field with
+no reply id — §2 dropped `google_response_id` for exactly this reason, and `posted_at` is the
+substitute — so a re-post overwrites: editing a posted reply flips the old `posted` row to
+`superseded` and makes the new row `posted`. `idx_review_responses_review_id_live_reply` (`UNIQUE
+(review_id) WHERE status IN ('approved', 'posted')`) is why an approval of a second sibling fails
+at the database rather than at the API — deliberate, per §8.5 — and why the supersede of an old row
+must commit before a new one is set `approved`/`posted`, or the index rejects the write.
 
 **Failure modes.**
 
-- **A reply already exists on Google that we did not write** — the sharp half of §8.12. Google's
-  reply endpoint is an unconditional upsert with no "already exists" check, so posting would
-  silently overwrite a reply the owner wrote themselves, report success, and mark `posted`. §8.12's
-  fix is mandatory: fetch that single review's current reply state immediately before the `PUT`. If
-  a reply exists, **abort the post**, supersede the `approved` row instead, import the discovered
-  reply (`source = 'imported'`, `status = 'posted'`), and surface to the approver that their action
-  did not go through. One extra lightweight API call per post is the stated price.
-- **401/403** — same as ingestion's §8.14 path: flip the connection to `needs_reauth`. The response
-  goes to `post_failed`, not `superseded` — still valid text, just unpostable right now. A 429 or
-  content-policy rejection is the same, with the provider's message in `error_message`.
-- **Blind job retries** — the generic 3-attempt default is dangerous here, since attempt 2 must
-  re-run the freshness check rather than replay a decision made against attempt 1's world. Set
-  `attempts: 1` and rely on the UI retry path, or make the freshness check unconditional at the top
-  of the handler.
+- **A reply already exists on Google that we did not write** — handled, see the freshness-check
+  comparison above.
+- **401/403** — same as ingestion's §8.14 path: a `ProviderAuthError` flips the connection to
+  `needs_reauth` via `markNeedsReauth`. The response goes to `post_failed` (via
+  `markResponsePostFailed`, with the provider's message in `error_message`), not `superseded` —
+  still valid text, just unpostable right now. Not retried automatically: a dead grant cannot
+  recover on its own.
+- **Transient provider failures (429, 5xx, network)** — retried by this stage, not by BullMQ. The
+  queue runs `attempts: 1`, so a blind transport retry never replays a stale decision. Instead
+  `ReviewPostQueueService` releases the claim (`releaseResponseClaim`, status stays `approved`) and
+  enqueues a fresh job with `attempt + 1` and a delay (1 min, then 5 min; a longer `Retry-After`
+  wins), so every attempt starts again at the claim and the freshness check. After 3 attempts the
+  response goes to `post_failed` for the user's [`retry-post`
+  route](../reviews/api-reference.md#post-v1reviewsreviewidresponsesresponseidretry-post). Delays are
+  carried by the transport (`PublishOptions.delayMs`: BullMQ `delay`, SQS `DelaySeconds`, clamped to
+  SQS's 15-minute maximum).
+- **A database failure after Google was reached** — the reply may already be live, so the response is
+  deliberately *not* marked `post_failed`. The claim is left in place and a re-check job is queued
+  for after it goes stale (6 minutes); that job's freshness check finds the live reply and records
+  it. Only when attempts are exhausted does it fail loudly, leaving the row `approved`, where a manual
+  post or retry hits the same own-reply check.
+- **The response stopped being `approved` while Google was being called** (a human rejected or edited
+  it) — `markResponsePosted`/`supersedeForExternalReply` return a lost compare-and-swap, which is not
+  treated as success. The reply that is live on Google is imported as `source = 'imported'`
+  (`importLiveReply`, which also advances `reviews.status` to `responded`) so the record matches
+  what is public.
+- **Review removed on Google** — checked before calling Google: the response goes to `post_failed`
+  with a clear reason, and the `post`/`retry-post` routes reject such a review (and a dismissed one)
+  up front with `REVIEW_REMOVED_UPSTREAM`/`REVIEW_ALREADY_DISMISSED`.
+- **The post queue itself is unreachable** — an `approved` row with no job behind it is
+  indistinguishable from one nobody chose to post, so nothing could sweep it. Every enqueue site
+  (`enqueuePostOrMarkFailed`) therefore moves the response to `post_failed` with
+  `POST_QUEUE_UNAVAILABLE`, the one state the UI already surfaces with a retry control. The manual
+  `post` and `retry-post` routes additionally answer `503 POST_QUEUE_UNAVAILABLE`.
 
-**Guards.** Two staff acting at once: §8.4 — every status change is a guarded compare-and-swap
-against the status the client loaded (`... WHERE id = ? AND status = 'pending_approval'`), and zero
-rows affected is surfaced to the second user, not swallowed. Sibling snippets racing to post: §8.5.
-Someone replied directly on Google while our draft was pending: §8.12, both the poll-side and the
-pre-post freshness check.
+**Guards.** Two staff acting at once on the *approval* itself: §8.4 — every status change upstream
+of this stage is a guarded compare-and-swap against the status the client loaded, and zero rows
+affected is surfaced to the second user, not swallowed; see the reviews module's own approve/reject
+documentation for that half. Sibling snippets racing to post: §8.5, via the live-reply unique
+index described above. Someone replied directly on Google while our draft was pending: §8.12, both
+the poll-side (still unbuilt — see [Ingestion](#ingestion--the-15-minute-poller--implemented)'s own
+callout) and this stage's pre-post freshness check (built, described above).
+
+For the HTTP surface this stage sits behind, see `../reviews/api-reference.md`'s
+[retry-post](../reviews/api-reference.md#post-v1reviewsreviewidresponsesresponseidretry-post), the
+manual [`post`](../reviews/api-reference.md#post-v1reviewsreviewidresponsesresponseidpost) route,
+and [post-status](../reviews/api-reference.md#post-back-status) sections — this section describes
+the worker behind all three, plus the auto-post path that needs none of them.
 
 > **Required follow-up migration.** `PLAN.md` §2 asks for **both** `approved_by_user_id` and
 > `approved_at` on `review_responses`. Only `approved_by_user_id` is in `0004_reviews.sql`.
 > `decided_at` from `0006_prompts.sql` covers "when the status became terminal", and `approved` is
 > not terminal — a row can sit `approved` for a while before posting, or fail and retry. Add
 > `approved_at TIMESTAMPTZ` to keep the approval audit trail §2 asked for; without it, "who
-> approved this and when" has no answer anywhere in the schema.
+> approved this and when" has no answer anywhere in the schema. Still outstanding:
+> `post_attempted_at` exists on `review_responses`, but this column does not.
 
 ## Historical backfill
 
@@ -993,19 +1042,23 @@ pin exactly one worker replica and say so.
 
 ## Gap between current code and target design
 
-**Historical backfill, both halves of ingestion, and classification are built; generation,
-notification, and posting are not.** `src/background/queue/review-sync/` implements both the
-one-time backfill (`ReviewSyncQueueService.runBackfill`, `ReviewSyncDbService.importPage`) and the
-15-minute scheduled poll (`runPoll`, `importPollPage`, fanned out by `CronService.pollDueLocations`
-on `CronScheduler.scheduleReviewSyncPoll`'s tick) against a real Google Business Profile client
-under `src/review-provider/`. `src/review-pipeline/` implements classification exactly as described
-in [Classification — implemented](#classification--implemented) above, called from both. The
-Ingestion section's §8.1 reclaim description, §8.14 handling, and CAS/completion mechanics are now
-verified against real code, not target design — the two per-review checks it still doesn't do
-(§8.6, §8.12) are called out explicitly in that section rather than left implicit. Generation, the
-notification stage, and posting back to Google remain entirely unbuilt, same as before. The schema,
-by contrast, is done: every table this document writes exists in the migrations, with the specific
-partial unique indexes §8 asks for already applied.
+**Historical backfill, both halves of ingestion, classification, AI generation, and posting back to
+Google are all now built; only the notification stage (and the poll-side half of §8.6/§8.12) is
+not.** `src/background/queue/review-sync/` implements both the one-time backfill
+(`ReviewSyncQueueService.runBackfill`, `ReviewSyncDbService.importPage`) and the 15-minute scheduled
+poll (`runPoll`, `importPollPage`, fanned out by `CronService.pollDueLocations` on
+`CronScheduler.scheduleReviewSyncPoll`'s tick) against a real Google Business Profile client under
+`src/review-provider/`. `src/review-pipeline/` implements classification exactly as described in
+[Classification — implemented](#classification--implemented) above, called from both. The Ingestion
+section's §8.1 reclaim description, §8.14 handling, and CAS/completion mechanics are now verified
+against real code, not target design — the two per-review checks it still doesn't do (§8.6, §8.12)
+are called out explicitly in that section rather than left implicit. AI generation is built
+(`src/api/ai/` — see `../ai/overview.md`) and posting back to Google is built
+(`src/background/queue/review-post/` — see [Posting back to Google —
+implemented](#posting-back-to-google--implemented) above); only the escalation **notification**
+stage described above remains unbuilt. The schema, by contrast, is done: every table this document
+writes exists in the migrations, with the specific partial unique indexes §8 asks for already
+applied.
 
 **To build, in the background layer:**
 
@@ -1019,33 +1072,36 @@ partial unique indexes §8 asks for already applied.
   **not** have its own queue — `ReviewClassificationService` is called in-process from
   `review-sync`'s own job handler (both `runBackfill` and `runPoll`), since a per-review job would
   need the same `pending_classification` CAS guard either way and review counts at this scale don't
-  yet justify the extra queue hop. **Two new queues remain** — `review-generate`, `review-post` —
-  each needing a `QueueName` enum value, a `*.queue.ts` producer, a BullMQ `*.processor.ts`, an
-  `*-sqs.consumer.ts`, a `*-queue.module.ts` with the `isAws` ternary, an `env.config.ts` entry for
-  its `*_QUEUE_URL`, and a Terraform entry. Reuse the existing `notification` and `email` queues for
-  escalation delivery rather than adding a third.
+  yet justify the extra queue hop. ~~Two new queues remain — `review-generate`, `review-post`~~ —
+  **both built.** Generation runs in-process from the same `review-sync` job handler
+  (`AiReplyGenerationService.generateForClassifiedReviews`, called right after classification — see
+  `../ai/overview.md`'s own "Wired into the review-sync pipeline" section for why it has no separate
+  queue either), and `review-post` is a real `QueueName` with its own producer/processor/consumer
+  (see [Posting back to Google — implemented](#posting-back-to-google--implemented)). Only the
+  escalation-delivery side still needs work:
 - **A Teams outbound adapter.** `notification_channel` includes `teams` and
   `notification_channel_pref` includes `both`; nothing in `src/notifications/` (FCM push, in-app)
-  speaks Teams. This is a new provider under the existing Provider/Strategy pattern.
+  speaks Teams. This is a new provider under the existing Provider/Strategy pattern. The
+  `notifications`-row-writing stage itself (escalation dedup, email delivery) also remains unbuilt —
+  see [Notification](#notification) above.
 
-**Two external clients, neither of which exists:**
+**External clients — both now built, contrary to this section's older claim that neither existed:**
 
-- **Azure OpenAI client.** `src/ai/providers/` has `ClaudeProvider` and `OpenAiProvider` against the
-  `AiProvider` abstract base; there is no Azure provider, and `src/config/env.config.ts` has only
-  `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_DEFAULT_MODEL`, `OPENAI_EMBEDDING_MODEL` — no
-  `AZURE_*` anything. Needs `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`,
-  `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`, plus a constructor-time assertion that the
-  endpoint's region is `westeurope` — §5 requires the pin to be validated at client-config level and
-  to fail loudly, not to be a convention someone can drift off. Slot it in as a third
-  `AiProvider` implementation so provider selection stays a factory decision in module registration.
-- **GBP API client.** Nothing exists. It needs list-reviews-for-location with pagination, get-single-review
-  (for §8.12's freshness check), and `PUT reviews/{reviewId}/reply`; the `STAR_RATING` →
-  integer mapping; distinct handling for 401/403 vs 429; and credential resolution from
-  `review_provider_connections.credential_reference` (a *pointer* to a stored credential, never the
-  token itself). Its OAuth grant is owned by the connections module and is a `review_provider`
-  concern, entirely separate from the `user_identity_provider` Google used for login
-  (`../auth/overview.md#data-model`). §8.9 additionally requires token refresh to be serialized per
-  connection row via an advisory lock or a short-lived cached-token check.
+- ~~Azure OpenAI client. Nothing exists.~~ **Built** — `AzureOpenAiProvider`
+  (`src/api/ai/providers/azure-openai.provider.ts`) is the default `AiProvider`
+  (`AI_PROVIDER=azure`), with the `westeurope` region pin enforced at client-construction time
+  exactly as §5 requires, not left to convention. See `../ai/overview.md`'s own provider-abstraction
+  section.
+- ~~GBP API client. Nothing exists.~~ **Built** — `GoogleBusinessProfileProvider`
+  (`src/review-provider/providers/google-business-profile.provider.ts`) covers list-reviews,
+  get-single-review (`getReviewReply`, §8.12's freshness check), and `PUT reviews/{reviewId}/reply`
+  (`replyToReview`); the `STAR_RATING` → integer mapping; distinct 401/403-vs-429-vs-5xx handling;
+  and credential resolution via `ProviderCredentialService`/`review_provider_connections
+  .credential_reference`. See [Ingestion](#ingestion--the-15-minute-poller--implemented) above for
+  the read side and [Posting back to Google](#posting-back-to-google--implemented) for the write
+  side. Both the real provider and `apps/mock-external-apis`'s stand-in (`USE_LOCAL_MOCK_SERVER`,
+  for developing against GBP-posting and Azure OpenAI before real credentials exist) are documented
+  in `apps/mock-external-apis/README.md`.
 
 **Conventions this work must follow** (`apps/backend/docs/conventions/module-structure.md`,
 `apps/backend/CLAUDE.md`):

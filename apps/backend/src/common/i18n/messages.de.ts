@@ -110,6 +110,25 @@ export const messagesDe: MessageCatalog = {
       'Für diese Rezension existiert bereits eine genehmigte oder veröffentlichte Antwort.',
     RESPONSE_APPROVED: 'Antwort erfolgreich genehmigt',
     RESPONSE_REJECTED: 'Antwort erfolgreich abgelehnt',
+    RESPONSE_NOT_RETRYABLE:
+      'Nur eine Antwort, deren Veröffentlichung fehlgeschlagen ist, kann erneut versucht werden.',
+    RESPONSE_NOT_POSTABLE:
+      'Nur eine genehmigte, noch nicht veröffentlichte Antwort kann veröffentlicht werden.',
+    REVIEW_ALREADY_HAS_LIVE_REPLY:
+      'Für diese Rezension existiert bereits eine genehmigte oder veröffentlichte Antwort.',
+    REVIEW_ALREADY_DISMISSED: 'Diese Rezension wurde verworfen und kann nicht beantwortet werden.',
+    REVIEW_REMOVED_UPSTREAM:
+      'Diese Rezension wurde bei Google entfernt und kann nicht beantwortet werden.',
+    POST_QUEUE_UNAVAILABLE:
+      'Die Antwort konnte gerade nicht zur Veröffentlichung eingereiht werden. Bitte erneut versuchen.',
+    POST_FAILED_REVIEW_REMOVED:
+      'Diese Rezension wurde bei Google entfernt, daher konnte die Antwort nicht veröffentlicht werden.',
+    MANUAL_REPLY_INSERT_FAILED: (reviewId: string): string =>
+      `Manuelle Antwort für Rezension ${reviewId} konnte nicht gespeichert werden`,
+    MANUAL_REPLY_CREATED: 'Antwort erfolgreich erstellt',
+    RESPONSE_POST_QUEUED: 'Antwort zur Veröffentlichung bei Google eingereiht',
+    RESPONSE_RETRY_QUEUED: 'Antwort zur erneuten Veröffentlichung bei Google eingereiht',
+    POST_STATUS_RETRIEVED: 'Veröffentlichungsstatus erfolgreich abgerufen',
   },
   PROMPTS: {
     LISTED: 'Prompts erfolgreich abgerufen',
@@ -134,6 +153,11 @@ export const messagesDe: MessageCatalog = {
     PROMPT_NOT_CONFIGURED: 'Für diese Kategorie ist noch kein Prompt konfiguriert.',
     PROVIDER_NOT_CONFIGURED:
       'Der KI-Anbieter ist nicht konfiguriert. Setzen Sie OPENROUTER_API_KEY und OPENROUTER_MODEL.',
+    AZURE_PROVIDER_NOT_CONFIGURED:
+      'Der Azure-OpenAI-Anbieter ist nicht konfiguriert. Setzen Sie AZURE_OPENAI_ENDPOINT, ' +
+      'AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT und AZURE_OPENAI_API_VERSION.',
+    AZURE_REGION_INVALID:
+      'AZURE_OPENAI_REGION muss „westeurope" sein — eine DSGVO-Anforderung für diese Bereitstellung.',
     GENERATION_FAILED: 'KI-Antwort konnte nicht generiert werden. Bitte versuchen Sie es erneut.',
   },
   BILLING: {

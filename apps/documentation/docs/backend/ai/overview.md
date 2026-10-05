@@ -34,7 +34,8 @@ For the endpoint contract, see [AI Module — API Reference](./api-reference.md)
 
 ```
 src/api/ai/
-  ai.module.ts                          # AiProvider factory (AI_PROVIDER=openrouter today)
+  ai.module.ts                          # AiProvider factory (AI_PROVIDER=azure by default, falls
+                                         # back to 'azure' when unset; 'openrouter' also selectable)
   ai.controller.ts                      # POST /v1/ai/dry-run, no auth — see the API reference
   ai-reply-generation.service.ts        # the two entrypoints — generateDryRunReply and
                                          # generateForClassifiedReviews (flat, not services/ —
@@ -43,7 +44,9 @@ src/api/ai/
                                          # trigger for the services/ subfolder)
   providers/
     ai.provider.ts                      # abstract AiProvider — generateReply(input)
-    openrouter-ai.provider.ts           # concrete, built on the `openai` SDK
+    azure-openai.provider.ts            # the default — AI_PROVIDER=azure, westeurope-pinned,
+                                         # checks USE_LOCAL_MOCK_SERVER before real Azure config
+    openrouter-ai.provider.ts           # secondary — concrete, built on the `openai` SDK
   utils/
     prompt-template.util.ts            # fillPromptTemplate (placeholder substitution),
                                          # buildSystemPrompt (fixed house-style rules)
@@ -93,44 +96,58 @@ only on the abstract `AiProvider`, and `AiModule`'s factory picks the concrete i
 ```
 AiReplyGenerationService --> AiProvider (abstract)
                                  |
-                                 +-- OpenRouterAiProvider   (AI_PROVIDER=openrouter, built)
-                                 +-- AzureOpenAiProvider    (AI_PROVIDER=azure, not built yet)
+                                 +-- AzureOpenAiProvider    (AI_PROVIDER=azure, built — the default)
+                                 +-- OpenRouterAiProvider   (AI_PROVIDER=openrouter, built — secondary)
 ```
 
-**`OpenRouterAiProvider`** uses the official `openai` npm SDK pointed at OpenRouter's own
-`baseURL` (`https://openrouter.ai/api/v1`), rather than a hand-rolled `fetch` call — OpenRouter's
-API is a drop-in-compatible superset of OpenAI's Chat Completions API. This is also what makes the
-eventual Azure swap cheap: **Azure OpenAI speaks the same request/response shape through the same
-SDK** (`AzureOpenAI` client construction, or a plain `OpenAI` client pointed at the Azure
-endpoint + `api-version` query param), so `AzureOpenAiProvider` is expected to differ from
-`OpenRouterAiProvider` mainly in *how the client is constructed*, not in how a completion is
-requested or parsed. That shared shape — not just the `AiProvider` interface on its own — is the
-actual thing making a later swap low-risk.
+**`AzureOpenAiProvider` is now the default and intended production provider** —
+`aiProviderFactory` in `ai.module.ts` reads `AI_PROVIDER` and falls back to `'azure'` when the env
+var is unset, matching PLAN.md §5's GDPR requirement for this engagement (an Azure OpenAI resource
+provisioned in `westeurope`). `OpenRouterAiProvider` remains a real, working secondary option, kept
+for exactly the same DI-swap reason it was built first — neither `AiReplyGenerationService`, the
+controller, nor the DTOs know or care which one is live.
 
-Config is read **lazily**, on the first real call, not in the constructor or the module factory —
-deliberately unlike `StripePaymentProvider`, which validates its required config at
-construction time. Nothing in the product calls this provider on any load-bearing path yet (see
-below), so a missing `OPENROUTER_API_KEY`/`OPENROUTER_MODEL` must not fail app startup the way a
-misconfigured live payment provider would. Revisit this once generation is wired into the
-classification pipeline and becomes load-bearing, the same way `PAYMENT_PROVIDER`'s Joi validation
-in `env-config.module.ts` is currently required in production but this module's isn't.
+Built on the same `openai` npm SDK `OpenRouterAiProvider` uses, pointed at Azure's own
+chat-completions path (`{endpoint}/openai/deployments/{deployment}`, with `api-version` as a query
+param and the key sent as the `api-key` header) rather than OpenRouter's `baseURL` — Azure speaks
+the same chat-completions request/response shape through that SDK, so `AzureOpenAiProvider` differs
+from `OpenRouterAiProvider` mainly in how the client's `baseURL`/auth are constructed, not in how a
+completion is requested or parsed, exactly as this section originally predicted.
 
-### Adding Azure OpenAI later
+**The `westeurope` region pin is enforced, not just documented.** `getClient()` reads
+`AZURE_OPENAI_REGION` and throws `AiProviderNotConfiguredException` (`MESSAGES.AI
+.AZURE_REGION_INVALID`) unless it is exactly `'westeurope'` — PLAN.md §5's instruction to
+"hardcode/validate the region at the client-config level, not just convention" is implemented as a
+literal string comparison (`REQUIRED_AZURE_REGION` in `azure-openai.provider.ts`), not a comment.
+The same method also requires `AZURE_OPENAI_ENDPOINT`/`AZURE_OPENAI_API_KEY`/
+`AZURE_OPENAI_DEPLOYMENT`/`AZURE_OPENAI_API_VERSION` all non-empty before constructing the client,
+throwing the same exception (`MESSAGES.AI.AZURE_PROVIDER_NOT_CONFIGURED`) if any is missing.
 
-Deliberately not scaffolded as an untested stub — the `AI_PROVIDER` Joi schema only allows
-`'openrouter'` today, and `AiModule`'s factory has no `'azure'` case. When it's time:
+Config is still read **lazily**, on the first real call (`getClient()`), not in the constructor or
+the module factory — same reasoning as before: a missing/misconfigured value fails the first
+generation attempt with a clear exception, not app startup, which matters now that generation is
+genuinely wired into the live poll tick (see [Wired into the review-sync
+pipeline](#wired-into-the-review-sync-pipeline) below) and a transient config problem should not
+take the whole worker process down.
 
-1. Add `AzureOpenAiProvider` (`src/api/ai/providers/azure-openai.provider.ts`), constructed from
-   `AZURE_OPENAI_ENDPOINT`/`AZURE_OPENAI_API_KEY`/`AZURE_OPENAI_DEPLOYMENT`/
-   `AZURE_OPENAI_API_VERSION` (reserved names, not yet wired to anything).
-2. Add an `AZURE_OPENAI_REGION` check that must equal `'westeurope'`, validated at construction —
-   PLAN.md §5's explicit instruction is to "hardcode/validate the region at the client-config
-   level, not just convention," since Azure OpenAI availability/region is a GDPR requirement here,
-   not a preference.
-3. Add `'azure'` to `AI_PROVIDER`'s allowed values (`env.config.ts` + `env-config.module.ts`) and
-   a matching `case` in `AiModule`'s factory.
-4. Nothing in `AiReplyGenerationService`, the controller, or the DTOs needs to change — they only
-   ever depend on `AiProvider`.
+### Developing against it before real Azure credentials exist: the local mock server
+
+`getClient()` checks `getLocalMockServerUrl(this.configService)` **before** validating any of the
+real `AZURE_OPENAI_*` config above. When `USE_LOCAL_MOCK_SERVER=true`, every call is redirected at
+`apps/mock-external-apis`'s `POST /azure-openai/deployments/:deployment/chat/completions` instead
+of a real Azure resource — the mock path needs none of the real endpoint/key/api-version/region
+config, only the deployment name, used purely as a path segment the mock server itself ignores. By
+the time a request reaches the mock, the backend's real `fillPromptTemplate` has already
+substituted the review's actual rating/reviewer/text into the prompt, so the mock reads those
+values back out of the prompt text and composes a reply that visibly reacts to them (acknowledging
+the star rating, quoting a short excerpt) — dry-run output and escalation snippets look like real
+model responses rather than one fixed canned string. `apps/mock-external-apis` is a dev-only tool:
+nothing in `apps/backend` talks to it unless that env var is set, and the backend's own Joi schema
+forbids `USE_LOCAL_MOCK_SERVER` outside non-production environments. Run it with `pnpm --filter
+mock-external-apis dev` (defaults to `http://localhost:4100`). The same server also emulates Google
+Business Profile's reply read/write endpoints for `GoogleBusinessProfileProvider`'s
+`localMockServerUrl` toggle — see `apps/mock-external-apis/README.md` and
+`../review-pipeline/overview.md`'s posting section for that side.
 
 ## Wired into the review-sync pipeline
 

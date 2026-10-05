@@ -18,25 +18,39 @@ import {
   ProviderUnavailableError,
 } from '../errors/provider.error';
 import { mapGbpAccount, mapGbpLocation } from '../mappers/gbp-location.mapper';
-import { mapGbpReviewPage } from '../mappers/gbp-review.mapper';
+import { mapGbpReviewPage, mapGbpReviewReply } from '../mappers/gbp-review.mapper';
 import type {
   GbpListAccountsResponse,
   GbpListLocationsResponse,
   GbpListReviewsResponse,
+  GbpReview,
+  GbpReviewReply,
   GbpTokenResponse,
 } from '../types/gbp-wire.type';
 import type {
+  GetReviewReplyInput,
   ListReviewsOptions,
   ProviderConnectionResult,
   ProviderLocation,
   ProviderReviewPage,
+  ProviderReviewReply,
   ProviderTokenSet,
+  ReplyToReviewInput,
 } from '../types/review-provider.type';
 
 export interface GbpProviderConfig {
   clientId: string;
   clientSecret: string;
   callbackUrl: string;
+  /**
+   * Set (by `review-provider.module.ts`'s factory, via `getLocalMockServerUrl`) when
+   * `USE_LOCAL_MOCK_SERVER=true` — redirects `getReviewReply`/`replyToReview` at
+   * `apps/mock-external-apis` instead of the real `GBP_HOSTS.LEGACY_V4` host. Deliberately scoped
+   * to only these two write-path methods: `listLocations`/`listReviews` already have their own,
+   * separate in-process mock (`MockGoogleBusinessProfileProvider`, `DEV_GBP_MOCK`) and are
+   * unaffected by this flag either way.
+   */
+  localMockServerUrl?: string;
 }
 
 /** `error.errors[].reason` values Google's docs name as quota-specific — see `isQuotaExceeded403`. */
@@ -57,6 +71,13 @@ const QUOTA_EXCEEDED_REASONS = new Set([
  * 401/403-vs-429-vs-5xx classification below are all *inherited* and genuinely exercised under
  * `DEV_GBP_MOCK=true`. That is the point of the split: the parts most likely to be wrong are the
  * parts the mock cannot bypass.
+ *
+ * `getReviewReply`/`replyToReview` (the write path) are a separate mock story from the rest of
+ * this class: rather than another `MockGoogleBusinessProfileProvider`-style subclass, they check
+ * `config.localMockServerUrl` (set by the factory when `USE_LOCAL_MOCK_SERVER=true`) and simply
+ * point at `apps/mock-external-apis` instead of `GBP_HOSTS.LEGACY_V4` — same request/response
+ * handling either way, only the host differs. See `GbpProviderConfig.localMockServerUrl`'s own
+ * comment for why this is deliberately independent of `DEV_GBP_MOCK`.
  */
 export class GoogleBusinessProfileProvider extends ReviewProvider {
   readonly providerKey = ReviewProviderKey.GOOGLE;
@@ -179,15 +200,80 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
   }
 
   /**
+   * The freshness check PLAN.md §8.12 requires immediately before posting. `GET
+   * .../reviews/{reviewId}` returns the single `Review` resource directly (not a list page), so
+   * this reads `reviewReply` straight off it via the same `mapGbpReviewReply` the list mapper
+   * uses — a rejected/pending reply must read identically to "no reply" here too, for the same
+   * reason it does on the read side.
+   */
+  async getReviewReply(
+    accessToken: string,
+    input: GetReviewReplyInput
+  ): Promise<ProviderReviewReply | null> {
+    const response = await this.request<GbpReview>(
+      `${this.legacyV4Base()}/${input.externalAccountId}/${input.externalLocationId}/reviews/${input.externalReviewId}`,
+      accessToken
+    );
+
+    return mapGbpReviewReply(response.reviewReply);
+  }
+
+  /**
+   * `PUT .../reviews/{reviewId}/reply` — an unconditional upsert, per this method's own doc
+   * comment on the abstract class. Google returns the `ReviewReply` resource directly (the same
+   * shape `getReviewReply` reads off the parent review), not wrapped in anything.
+   */
+  async replyToReview(
+    accessToken: string,
+    input: ReplyToReviewInput
+  ): Promise<ProviderReviewReply> {
+    const response = await this.request<GbpReviewReply>(
+      `${this.legacyV4Base()}/${input.externalAccountId}/${input.externalLocationId}/reviews/${input.externalReviewId}/reply`,
+      accessToken,
+      { method: 'PUT', body: JSON.stringify({ comment: input.comment }) }
+    );
+
+    const mapped = mapGbpReviewReply(response);
+    if (mapped === null) {
+      // Only reachable if Google's own moderation rejected the reply we just submitted — still a
+      // real response, not a transport failure, so this is a mapping problem (the caller asked to
+      // post something that didn't end up live), not a retryable one.
+      throw new ProviderMappingError(
+        `Google did not return a live reply after posting (state: ${response.reviewReplyState ?? 'unknown'})`
+      );
+    }
+    return mapped;
+  }
+
+  /** The real `GBP_HOSTS.LEGACY_V4` host, or — when `localMockServerUrl` is set —
+   *  `apps/mock-external-apis`'s equivalent `/v4` path, so `getReviewReply`/`replyToReview`'s own
+   *  URL construction is identical either way; only the base differs. */
+  private legacyV4Base(): string {
+    return this.config.localMockServerUrl !== undefined
+      ? `${this.config.localMockServerUrl}/v4`
+      : GBP_HOSTS.LEGACY_V4;
+  }
+
+  /**
    * The single outbound-HTTP seam. `protected` because overriding exactly this method — and
    * nothing else — is what makes the mock a mock rather than a reimplementation.
    */
-  protected async request<T>(url: string, accessToken: string): Promise<T> {
+  protected async request<T>(
+    url: string,
+    accessToken: string,
+    init?: { method: 'PUT'; body: string }
+  ): Promise<T> {
     let response: Response;
 
     try {
       response = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+        method: init?.method ?? 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+          ...(init ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(init ? { body: init.body } : {}),
       });
     } catch (error) {
       // A transport failure never reached Google, so it is by definition retryable — mapping it

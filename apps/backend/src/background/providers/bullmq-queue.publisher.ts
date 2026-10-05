@@ -21,6 +21,7 @@ export class BullMqQueuePublisher extends QueuePublisherProvider {
 
     await queue.add(jobName, data, {
       ...(options?.attempts ? { attempts: options.attempts } : {}),
+      ...(options?.delayMs ? { delay: options.delayMs } : {}),
       ...(options?.backoffDelayMs
         ? { backoff: { type: 'exponential', delay: options.backoffDelayMs } }
         : {}),

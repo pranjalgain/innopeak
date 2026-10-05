@@ -13,6 +13,14 @@ export interface GenerateReplyInput {
   /** The tenant's prompt template for this review's category, with every required placeholder
    *  already substituted with real review data. */
   userPrompt: string;
+  /**
+   * Overrides `AI_MAX_OUTPUT_TOKENS` for this call. `AI_MAX_OUTPUT_TOKENS` is sized for one
+   * ~60-80-word reply; `AiReplyGenerationService`'s multi-snippet escalation path asks for up to
+   * `MAX_AI_REPLY_COUNT` replies in a single JSON-array completion and scales this up
+   * proportionally, since the single-reply budget would risk truncating (and thus failing to
+   * parse) a multi-reply response mid-array. `undefined` keeps the provider's own default.
+   */
+  maxOutputTokens?: number;
 }
 
 export interface GenerateReplyResult {

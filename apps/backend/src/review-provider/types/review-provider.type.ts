@@ -71,3 +71,15 @@ export interface ListReviewsOptions {
   pageToken?: string | undefined;
   pageSize?: number | undefined;
 }
+
+/** What `getReviewReply`/`replyToReview` both need to address one specific review — the same
+ *  account/location/review triple that identifies a single GBP review resource. */
+export interface GetReviewReplyInput {
+  externalAccountId: string;
+  externalLocationId: string;
+  externalReviewId: string;
+}
+
+export interface ReplyToReviewInput extends GetReviewReplyInput {
+  comment: string;
+}

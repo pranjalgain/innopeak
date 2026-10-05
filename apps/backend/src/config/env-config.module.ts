@@ -282,6 +282,18 @@ const validationSchema = Joi.object({
     then: Joi.forbidden(),
     otherwise: Joi.string().allow(null, ''),
   }),
+  // Same rule and reasoning as DEV_GBP_MOCK: redirecting the GBP write path / Azure OpenAI at a
+  // local emulator must never be possible in production, even by accident.
+  USE_LOCAL_MOCK_SERVER: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.forbidden(),
+    otherwise: Joi.string().valid('true', 'false').allow(null, ''),
+  }),
+  LOCAL_MOCK_SERVER_URL: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.forbidden(),
+    otherwise: Joi.string().uri().allow(null, ''),
+  }),
   PAYMENT_FEATURE_ENABLED: Joi.string().valid('true', 'false').allow(null, ''),
   // Unlike the DEV_* flags above, this isn't only gated by PAYMENT_FEATURE_ENABLED: the Dummy
   // provider's `/v1/billing/dummy/complete-checkout` route flips any tenant to `paid` on nothing
@@ -312,15 +324,25 @@ const validationSchema = Joi.object({
     otherwise: Joi.string().allow(null, ''),
   }),
   STRIPE_PRICE_ID_PAID: Joi.string().allow(null, ''),
-  // Deliberately optional in every environment, unlike PAYMENT_PROVIDER above: nothing in the
-  // product calls `AiReplyGenerationService` yet (dry-run testing only — see
-  // apps/documentation/docs/backend/ai/overview.md), so there is no live path a missing/typo'd
-  // value could silently break. `OpenRouterAiProvider` validates its own required config lazily,
-  // on the first real call, rather than at boot. Revisit once generation is wired into the
-  // classification pipeline and becomes load-bearing, the same way PAYMENT_PROVIDER is.
-  AI_PROVIDER: Joi.string().valid('openrouter').allow(null, ''),
+  // Deliberately optional in every environment, unlike PAYMENT_PROVIDER above: both providers
+  // validate their own required config lazily, on the first real call, rather than at boot (see
+  // `OpenRouterAiProvider`/`AzureOpenAiProvider`'s own constructors) — a missing/typo'd key fails
+  // the first generation attempt with a clear `AiProviderNotConfiguredException`, not app startup.
+  // `AiReplyGenerationService` *is* wired into the review-sync pipeline (unlike when this comment
+  // was first written) — this stays lazy-validated regardless, matching `STORAGE_PROVIDER`'s
+  // boot-tolerant shape rather than `PAYMENT_PROVIDER`'s required-in-production one.
+  AI_PROVIDER: Joi.string().valid('openrouter', 'azure').allow(null, ''),
   OPENROUTER_API_KEY: Joi.string().allow(null, ''),
   OPENROUTER_MODEL: Joi.string().allow(null, ''),
+  AZURE_OPENAI_ENDPOINT: Joi.string().uri().allow(null, ''),
+  AZURE_OPENAI_API_KEY: Joi.string().allow(null, ''),
+  AZURE_OPENAI_DEPLOYMENT: Joi.string().allow(null, ''),
+  AZURE_OPENAI_API_VERSION: Joi.string().allow(null, ''),
+  // PLAN.md §5 treats this as a GDPR requirement, not a preference — the only region Azure
+  // OpenAI is cleared to run in for this engagement. Validated here, not just left to whoever
+  // provisions the Azure resource, same reasoning `AzureOpenAiProvider`'s own constructor check
+  // restates at runtime for the case this schema is ever bypassed.
+  AZURE_OPENAI_REGION: Joi.string().valid('westeurope').allow(null, ''),
   ERASURE_GRACE_PERIOD_DAYS: Joi.number()
     .integer()
     .positive()

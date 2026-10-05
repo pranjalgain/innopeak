@@ -2,11 +2,14 @@
 import type { ReviewProvider as ReviewProviderKey } from '@common/enums/review-provider.enum';
 
 import type {
+  GetReviewReplyInput,
   ListReviewsOptions,
   ProviderConnectionResult,
   ProviderLocation,
   ProviderReviewPage,
+  ProviderReviewReply,
   ProviderTokenSet,
+  ReplyToReviewInput,
 } from '../types/review-provider.type';
 
 /**
@@ -52,4 +55,26 @@ export abstract class ReviewProvider {
     accessToken: string,
     options: ListReviewsOptions
   ): Promise<ProviderReviewPage>;
+
+  /**
+   * The freshness check PLAN.md §8.12 requires immediately before posting a reply — reads this
+   * one review's current reply state fresh from the provider, never from our own last-polled
+   * copy. `null` means no reply exists yet; a non-null result whose `comment` differs from what
+   * we're about to post means someone replied another way (directly on Google, or a race with
+   * another worker) and the caller must abort rather than overwrite it.
+   */
+  abstract getReviewReply(
+    accessToken: string,
+    input: GetReviewReplyInput
+  ): Promise<ProviderReviewReply | null>;
+
+  /**
+   * The actual post. Google's reply endpoint is an unconditional upsert with no "already exists"
+   * check of its own — callers must have just run `getReviewReply` immediately before this to
+   * avoid silently overwriting a reply the owner wrote directly on Google (PLAN.md §8.12).
+   */
+  abstract replyToReview(
+    accessToken: string,
+    input: ReplyToReviewInput
+  ): Promise<ProviderReviewReply>;
 }

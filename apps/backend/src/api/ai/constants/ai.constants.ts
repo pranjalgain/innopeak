@@ -77,3 +77,11 @@ export const GENERATION_BATCH_LIMIT = 20;
  * for a tick. Three in a row is no longer plausibly about the reviews.
  */
 export const MAX_CONSECUTIVE_GENERATION_FAILURES = 3;
+
+/** Fallback when a tenant's `tenant_settings` row is somehow missing (should never happen outside
+ *  a signup that skipped `PLAN.md` §8.10's transaction) — matches the column's own
+ *  `DEFAULT 1`. Also the floor/ceiling `generateAndPersistForCandidate` clamps a read value to,
+ *  defense-in-depth against the column's own `CHECK (ai_reply_count BETWEEN 1 AND 3)` constraint
+ *  rather than trusting it blindly. */
+export const DEFAULT_AI_REPLY_COUNT = 1;
+export const MAX_AI_REPLY_COUNT = 3;

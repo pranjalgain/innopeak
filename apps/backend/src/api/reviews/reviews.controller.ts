@@ -16,8 +16,16 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
 import { ApproveReplyDto } from './dto/approve-reply.dto';
+import { CreateManualReplyDto } from './dto/create-manual-reply.dto';
+import type {
+  ManualReplyResponseDto,
+  PostQueuedResponseDto,
+  PostStatusResponseDto,
+  RetryPostResponseDto,
+} from './dto/post-actions.dto';
 import { ListReviewsQueryDto } from './dto/review-request.dto';
 import type {
   ReviewDetailResponseDto,
@@ -27,9 +35,13 @@ import type {
 import { ReviewsService } from './reviews.service';
 import {
   ApiApproveReply,
+  ApiCreateManualReply,
+  ApiGetPostStatus,
   ApiGetReview,
   ApiListReviews,
+  ApiPostResponse,
   ApiRejectReply,
+  ApiRetryPost,
 } from './swagger/reviews.swagger';
 
 /**
@@ -100,5 +112,64 @@ export class ReviewsController {
   ): Promise<ApiResponseDto<ReviewResponseItemDto>> {
     const response = await this.reviewsService.rejectReply({ user, reviewId, responseId });
     return ResponseUtil.success(response, MESSAGES.REVIEWS.RESPONSE_REJECTED, HttpStatus.OK);
+  }
+
+  @Post(RouteNames.REVIEW_RESPONSE_RETRY_POST)
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiRetryPost()
+  async retryPost(
+    @CurrentUser() user: AuthUser,
+    @Param('reviewId', ParseUUIDPipe) reviewId: string,
+    @Param('responseId', ParseUUIDPipe) responseId: string
+  ): Promise<ApiResponseDto<RetryPostResponseDto>> {
+    const response = await this.reviewsService.retryPost({ user, reviewId, responseId });
+    return ResponseUtil.success(response, MESSAGES.REVIEWS.RESPONSE_RETRY_QUEUED, HttpStatus.OK);
+  }
+
+  @Post(RouteNames.REVIEW_RESPONSE_POST)
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiPostResponse()
+  async postResponse(
+    @CurrentUser() user: AuthUser,
+    @Param('reviewId', ParseUUIDPipe) reviewId: string,
+    @Param('responseId', ParseUUIDPipe) responseId: string
+  ): Promise<ApiResponseDto<PostQueuedResponseDto>> {
+    const response = await this.reviewsService.postResponse({ user, reviewId, responseId });
+    return ResponseUtil.success(response, MESSAGES.REVIEWS.RESPONSE_POST_QUEUED, HttpStatus.OK);
+  }
+
+  @Get(RouteNames.REVIEW_RESPONSE_POST_STATUS)
+  @Throttle({ short: { limit: 60, ttl: 60000 } })
+  @ApiGetPostStatus()
+  async getPostStatus(
+    @CurrentUser() user: AuthUser,
+    @Param('reviewId', ParseUUIDPipe) reviewId: string,
+    @Param('responseId', ParseUUIDPipe) responseId: string
+  ): Promise<ApiResponseDto<PostStatusResponseDto>> {
+    const response = await this.reviewsService.getPostStatus({ user, reviewId, responseId });
+    return ResponseUtil.success(response, MESSAGES.REVIEWS.POST_STATUS_RETRIEVED, HttpStatus.OK);
+  }
+
+  @Post(RouteNames.REVIEW_RESPONSES)
+  @HttpCode(HttpStatus.CREATED)
+  @Throttle({ short: { limit: 20, ttl: 60000 } })
+  @ApiCreateManualReply()
+  async createManualReply(
+    @CurrentUser() user: AuthUser,
+    @Param('reviewId', ParseUUIDPipe) reviewId: string,
+    @Body() dto: CreateManualReplyDto
+  ): Promise<ApiResponseDto<ManualReplyResponseDto>> {
+    const response = await this.reviewsService.createManualReply({
+      user,
+      reviewId,
+      content: dto.content,
+    });
+    return ResponseUtil.success(
+      response,
+      MESSAGES.REVIEWS.MANUAL_REPLY_CREATED,
+      HttpStatus.CREATED
+    );
   }
 }

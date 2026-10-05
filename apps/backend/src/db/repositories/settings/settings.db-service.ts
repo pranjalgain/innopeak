@@ -53,6 +53,10 @@ export class SettingsDbService {
     return this.tenantSettingsRepository.findAutoPostEnabled(tenantId);
   }
 
+  async findAiReplyCount(tenantId: string): Promise<number | null> {
+    return this.tenantSettingsRepository.findAiReplyCount(tenantId);
+  }
+
   async listNotificationRecipients(tenantId: string): Promise<NotificationRecipientRecord[]> {
     return this.notificationRecipientsRepository.listByTenant(tenantId);
   }

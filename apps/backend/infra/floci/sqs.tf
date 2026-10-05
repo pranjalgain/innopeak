@@ -3,8 +3,13 @@
 # codebase, which provisioned two queues nothing ever read. Each queue gets
 # its own transport-level DLQ via native SQS redrive; this is separate from (and in addition to)
 # the application-level DEAD_LETTER queue's own dashboard-visibility DLQ.
+#
+# `review-sync` is deliberately absent — it runs on BullMQ in every environment, with no SQS
+# consumer at all (see ReviewSyncQueueModule's own doc comment). `review-post` is the opposite:
+# it follows the full isAws-ternary template (ReviewPostSqsConsumer exists), the same as `email`,
+# so it needs a provisioned queue here.
 locals {
-  queue_names = ["email", "dead-letter", "cron"]
+  queue_names = ["email", "dead-letter", "cron", "review-post"]
 }
 
 # SQS server-side encryption intentionally omitted — see README "Terraform security exceptions

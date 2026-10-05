@@ -1,4 +1,5 @@
 import { ResponseSource } from '@common/enums/response-source.enum';
+import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { ReviewSentiment } from '@common/enums/review-sentiment.enum';
@@ -6,6 +7,12 @@ import { ReviewStatus } from '@common/enums/review-status.enum';
 import { applyDecorators } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
+import {
+  ManualReplyResponseDto,
+  PostQueuedResponseDto,
+  PostStatusResponseDto,
+  RetryPostResponseDto,
+} from '../dto/post-actions.dto';
 import {
   ReviewDetailResponseDto,
   ReviewListResponseDto,
@@ -221,5 +228,160 @@ export function ApiRejectReply(): ReturnType<typeof applyDecorators> {
     }),
     ApiResponse({ status: 404, description: 'REVIEW_RESPONSE_NOT_FOUND' }),
     ApiResponse({ status: 409, description: 'REVIEW_RESPONSE_NOT_ACTIONABLE (already decided)' })
+  );
+}
+
+export function ApiRetryPost(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiParam({ name: 'reviewId', example: '0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22' }),
+    ApiParam({ name: 'responseId', example: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64' }),
+    ApiOperation({
+      summary: 'Retry posting a failed reply',
+      description:
+        'The `post_failed -> approved` arrow in PLAN.md §4.2. Guarded compare-and-swap on ' +
+        "`status = 'post_failed'`, clearing `error_message`, then re-enqueuing the post-back job " +
+        '— including its freshness check, which runs again rather than blindly resending the ' +
+        'same API call, since the review may have been answered another way since the failed ' +
+        'attempt. No request body.',
+    }),
+    ApiResponse({
+      status: 200,
+      type: RetryPostResponseDto,
+      examples: {
+        default: {
+          summary: 'Retry queued',
+          value: {
+            id: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64',
+            status: ClientResponseStatus.APPROVED,
+            errorMessage: null,
+            retryQueuedAt: '2026-08-31T21:15:03.000Z',
+          },
+        },
+      },
+    }),
+    ApiResponse({ status: 404, description: 'REVIEW_NOT_FOUND or REVIEW_RESPONSE_NOT_FOUND' }),
+    ApiResponse({
+      status: 409,
+      description:
+        'RESPONSE_NOT_RETRYABLE (not at post_failed) or REVIEW_ALREADY_HAS_LIVE_REPLY (a ' +
+        'different sibling was approved while this one sat at post_failed)',
+    })
+  );
+}
+
+export function ApiPostResponse(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiParam({ name: 'reviewId', example: '0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22' }),
+    ApiParam({ name: 'responseId', example: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64' }),
+    ApiOperation({
+      summary: 'Post an approved reply to Google (manual trigger)',
+      description:
+        'The explicit second action for the `auto_post_enabled = false` case: an `approved` ' +
+        'response sits until this route (or an approval/manual-reply made while the flag is ' +
+        "true) enqueues the post-back job. Not in this module's original target spec — added " +
+        'because the existing design note for `auto_post_enabled` directly implies it. No ' +
+        'request body.',
+    }),
+    ApiResponse({
+      status: 200,
+      type: PostQueuedResponseDto,
+      examples: {
+        default: {
+          summary: 'Post queued',
+          value: {
+            id: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64',
+            status: ClientResponseStatus.APPROVED,
+            postQueuedAt: '2026-08-31T21:15:03.000Z',
+          },
+        },
+      },
+    }),
+    ApiResponse({ status: 404, description: 'REVIEW_NOT_FOUND or REVIEW_RESPONSE_NOT_FOUND' }),
+    ApiResponse({ status: 409, description: 'RESPONSE_NOT_POSTABLE (not at approved)' })
+  );
+}
+
+export function ApiGetPostStatus(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiParam({ name: 'reviewId', example: '0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22' }),
+    ApiParam({ name: 'responseId', example: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64' }),
+    ApiOperation({
+      summary: 'Read the outcome of an asynchronous post-back',
+      description:
+        'Separate from GET .../reviewId on purpose: polling the detail route every couple of ' +
+        'seconds to watch one field would re-read every response row for the review, and this ' +
+        "route's throttle tier is deliberately looser to make that short-interval polling " +
+        'legitimate. `status` here is the raw seven-value response_status (including ' +
+        'posted/post_failed/superseded), not the four-value client projection the other routes ' +
+        'in this module return.',
+    }),
+    ApiResponse({
+      status: 200,
+      type: PostStatusResponseDto,
+      examples: {
+        default: {
+          summary: 'A failed post, retryable',
+          value: {
+            id: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64',
+            reviewId: '0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22',
+            status: ResponseStatus.POST_FAILED,
+            postedAt: null,
+            errorMessage: 'Google API returned 429 (quota exceeded) — retry scheduled',
+            reviewStatus: ReviewStatus.IN_REVIEW,
+          },
+        },
+      },
+    }),
+    ApiResponse({ status: 404, description: 'REVIEW_NOT_FOUND or REVIEW_RESPONSE_NOT_FOUND' })
+  );
+}
+
+export function ApiCreateManualReply(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiParam({ name: 'reviewId', example: '0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22' }),
+    ApiOperation({
+      summary: 'Write a reply from scratch',
+      description:
+        'Writes a reply instead of approving a generated draft — `source: human_manual`. Lands ' +
+        'directly at `status: approved` (the author is the approver; a self-approval step would ' +
+        'be theatre), supersedes non-terminal siblings in the same transaction, and queues the ' +
+        'post exactly as approve does when `auto_post_enabled` is true. `response_type` is ' +
+        "derived server-side from the review's classification, never accepted from the client.",
+    }),
+    ApiResponse({
+      status: 201,
+      type: ManualReplyResponseDto,
+      examples: {
+        default: {
+          summary: 'A manual reply, written and approved',
+          value: {
+            id: '0190f3d4-6e01-7a92-b7c3-0f2a8d5b1e46',
+            reviewId: '0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22',
+            responseType: ResponseType.ESCALATION_SNIPPET,
+            content:
+              "Marcus, I've read this and I'm sorry. I'm the owner — please email me at " +
+              "hello@example.com and I'll sort this out personally.",
+            source: ResponseSource.HUMAN_MANUAL,
+            status: ClientResponseStatus.APPROVED,
+            createdByUserId: '0190f2b7-9d12-7e34-b501-8c3a5f7d2e19',
+            approvedByUserId: '0190f2b7-9d12-7e34-b501-8c3a5f7d2e19',
+            decidedAt: '2026-08-31T20:31:09.000Z',
+            supersededResponseIds: ['0190f3c1-2b44-7d10-8a03-1e5c7f9b2d65'],
+            reviewStatus: ReviewStatus.IN_REVIEW,
+          },
+        },
+      },
+    }),
+    ApiResponse({ status: 404, description: 'REVIEW_NOT_FOUND' }),
+    ApiResponse({
+      status: 409,
+      description:
+        'REVIEW_ALREADY_HAS_LIVE_REPLY (a reply is already approved or posted), ' +
+        'REVIEW_ALREADY_DISMISSED, or REVIEW_REMOVED_UPSTREAM',
+    })
   );
 }

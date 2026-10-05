@@ -40,6 +40,15 @@ export class MockGoogleBusinessProfileProvider extends GoogleBusinessProfileProv
   protected override readonly logger = new Logger(MockGoogleBusinessProfileProvider.name);
   private readonly accountIdOverride: string | undefined;
 
+  /**
+   * Self-contained fixture store for `getReviewReply`/`replyToReview` when `DEV_GBP_MOCK=true` is
+   * the *only* mock flag set (no `localMockServerUrl`) — see `request()`'s own comment for why
+   * these two methods need a fixture branch of their own rather than falling into the generic
+   * `/reviews` list-page one below them. Keyed by the bare review id `extractReviewId` produces
+   * (no `reviews/` prefix), mirroring `apps/mock-external-apis`'s own `gbp-reply-store.ts` shape.
+   */
+  private readonly mockReplies = new Map<string, { comment: string; updateTime: string }>();
+
   constructor(config: MockGbpProviderConfig) {
     super(config);
     this.accountIdOverride = config.accountIdOverride;
@@ -74,14 +83,57 @@ export class MockGoogleBusinessProfileProvider extends GoogleBusinessProfileProv
    * The single overridden seam. Routes on the URL the inherited methods built, so a wrong host or
    * a wrong path in the real provider still shows up here as an unhandled URL rather than
    * silently returning the right fixture anyway.
+   *
+   * `getReviewReply`/`replyToReview` (inherited, unoverridden) call `this.request(...)` the same
+   * as every other method, so their write-path URLs land here too — checked by their own
+   * trailing-segment pattern **before** the broader `/reviews` list-page branch below, which would
+   * otherwise also match a single-review GET or a `.../reply` PUT on nothing more than a substring
+   * check and silently hand back the wrong fixture shape (a list page where a single review/reply
+   * was expected).
    */
-  protected override async request<T>(url: string, _accessToken: string): Promise<T> {
+  protected override async request<T>(
+    url: string,
+    accessToken: string,
+    init?: { method: 'PUT'; body: string }
+  ): Promise<T> {
     if (url.startsWith(`${GBP_HOSTS.ACCOUNT_MANAGEMENT}/accounts`)) {
       return Promise.resolve(mockAccountsResponse(this.accountIdOverride) as T);
     }
 
     if (url.startsWith(GBP_HOSTS.BUSINESS_INFORMATION) && url.includes('/locations')) {
       return Promise.resolve(mockLocationsResponse() as T);
+    }
+
+    const pathname = new URL(url).pathname;
+    const replyMatch = /\/reviews\/([^/]+)\/reply$/.exec(pathname);
+    const singleReviewMatch = replyMatch ? null : /\/reviews\/([^/]+)$/.exec(pathname);
+
+    if (replyMatch || singleReviewMatch) {
+      // `config.localMockServerUrl` set means `legacyV4Base()` already pointed this request at
+      // `apps/mock-external-apis` — a real HTTP server implementing these exact routes — so hand
+      // off to the real fetch-based transport (`super.request`) instead of reimplementing its
+      // fixture logic a second time here. Unset means there is no server to talk to, and the
+      // request would otherwise go to the *real* `GBP_HOSTS.LEGACY_V4`: the in-memory fixture
+      // store below is what makes `getReviewReply`/`replyToReview` usable under
+      // `DEV_GBP_MOCK=true` alone, with no Google credentials and no local server either.
+      if (this.config.localMockServerUrl !== undefined) {
+        return super.request<T>(url, accessToken, init);
+      }
+
+      const reviewId = (replyMatch ?? singleReviewMatch)?.[1];
+      if (reviewId === undefined) {
+        throw new ProviderMappingError(`Mock Google Business Profile could not parse: ${url}`);
+      }
+
+      if (replyMatch) {
+        const body =
+          init?.body !== undefined ? (JSON.parse(init.body) as { comment: string }) : null;
+        const reply = { comment: body?.comment ?? '', updateTime: new Date().toISOString() };
+        this.mockReplies.set(reviewId, reply);
+        return Promise.resolve(reply as T);
+      }
+
+      return Promise.resolve({ reviewReply: this.mockReplies.get(reviewId) } as T);
     }
 
     if (url.startsWith(GBP_HOSTS.LEGACY_V4) && url.includes('/reviews')) {

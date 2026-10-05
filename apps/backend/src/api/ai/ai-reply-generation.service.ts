@@ -1,11 +1,14 @@
 import { AiDraftLimitReachedException } from '@billing/exceptions/billing.exceptions';
 import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
+import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
+import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { PromptsDbService } from '@db/repositories/prompts/prompts.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import type { GenerationCandidateRow } from '@db/repositories/review-sync/types/review-sync.type';
+import { SettingsDbService } from '@db/repositories/settings/settings.db-service';
 import { Injectable, Logger } from '@nestjs/common';
 import { DEFAULT_PROMPT_TONE } from '@prompts/constants/default-prompts.constant';
 import { sanitizePromptTemplate } from '@prompts/constants/prompts.constants';
@@ -14,15 +17,21 @@ import type {
   PromptCategory,
   PromptTone,
 } from '@prompts/types/prompt.type';
+import { enqueuePostOrMarkFailed } from '@review-post-queue/enqueue-post-or-mark-failed.util';
+import { ReviewPostQueue } from '@review-post-queue/review-post.queue';
 
 import { randomUUID } from 'crypto';
 
 import {
+  AI_MAX_OUTPUT_TOKENS,
+  DEFAULT_AI_REPLY_COUNT,
   FALLBACK_BUSINESS_NAME,
   GENERATION_BATCH_LIMIT,
+  MAX_AI_REPLY_COUNT,
   MAX_CONSECUTIVE_GENERATION_FAILURES,
 } from './constants/ai.constants';
 import {
+  AiGenerationFailedException,
   AiPromptNotConfiguredException,
   AiProviderNotConfiguredException,
 } from './exceptions/ai.exceptions';
@@ -34,7 +43,22 @@ import type {
   GenerationBatchResult,
 } from './types/ai-reply-generation.type';
 import { resolvePromptCategoryForReview } from './utils/prompt-category-for-review.util';
-import { buildSystemPrompt, fillPromptTemplate } from './utils/prompt-template.util';
+import {
+  buildSystemPrompt,
+  fillPromptTemplate,
+  parseMultiSnippetReplies,
+} from './utils/prompt-template.util';
+
+/** `idx_review_responses_review_id_live_reply` — same index `ReviewsService.approveReply` guards
+ *  against for the human approval path; see `maybeAutoApproveAndPost`'s own comment for why a
+ *  freshly-generated, not-yet-seen response can still lose this race in practice. */
+const LIVE_REPLY_INDEX = 'idx_review_responses_review_id_live_reply';
+
+/** `tenant_settings` values every review in one generation batch shares. */
+interface BatchSettings {
+  aiReplyCount: number;
+  autoPostEnabled: boolean;
+}
 
 /**
  * The business-logic entrypoint for this module — everything else here (the provider, the
@@ -56,18 +80,28 @@ import { buildSystemPrompt, fillPromptTemplate } from './utils/prompt-template.u
  * a dry run never persists anything, so it can safely share the same check without a second,
  * ungoverned quota.
  *
- * **Deliberately simplified against PLAN.md §5's literal wording, on two points**, both flagged
- * here rather than silently matched:
- *  1. §5 asks for ~50 posted `review_responses` rows as few-shot examples in the prompt. Not
- *     implemented — there is no reader anywhere yet of the historical replies backfill already
- *     imports (`ReviewSyncQueueService`'s own `IMPORTED_REPLY_TARGET`), and adding one is a real,
- *     separate change (a second provider round trip's worth of context, prompt-length budgeting)
- *     worth its own pass, not bundled into wiring generation up for the first time.
- *  2. §5 asks for 2-3 `escalation_snippet` rows sharing one `generation_group_id` per escalated
- *     review. This generates exactly one. `generateReplyForCandidate`'s own doc comment covers
- *     why an escalated review still gets a `generation_group_id` today even though only one
- *     snippet is ever in "the group" — the schema is ready for the real multi-snippet version
- *     without a migration; only the loop that would call the provider 2-3 times is deferred.
+ * **Deliberately simplified against PLAN.md §5's literal wording, on one remaining point**:
+ * §5 asks for ~50 posted `review_responses` rows as few-shot examples in the prompt. Not
+ * implemented — there is no reader anywhere yet of the historical replies backfill already
+ * imports (`ReviewSyncQueueService`'s own `IMPORTED_REPLY_TARGET`), and adding one is a real,
+ * separate change (a second provider round trip's worth of context, prompt-length budgeting)
+ * worth its own pass, not bundled into wiring generation up for the first time.
+ *
+ * The other simplification this comment used to describe — generating exactly one draft per
+ * escalated review instead of §5's 2-3 `escalation_snippet`s sharing one `generation_group_id` —
+ * is resolved: `generateAndPersistForCandidate` now reads `tenant_settings.ai_reply_count` and
+ * asks the provider for that many **in one call**, not one call per snippet — see that method's
+ * own doc comment for why a single multi-option completion, not a loop of identical single-reply
+ * calls, is what makes the resulting snippets actually different from one another. Non-escalated
+ * (`auto_reply_candidate`) reviews are unaffected — they always generate exactly one
+ * `AUTO_REPLY_SUGGESTION`, regardless of that setting.
+ *
+ * **Each generated snippet spends one unit of `maxAiDraftsPerMonth`, not one unit per review.**
+ * `generateForClassifiedReviews`'s remaining-quota accounting tracks this explicitly (a mutable
+ * running counter decremented by however many rows a candidate actually produced, 1 for
+ * non-escalated or up to `ai_reply_count` for escalated) — without it, a Free-plan tenant with
+ * several escalated reviews and `ai_reply_count = 3` could blow past its 20/month cap the same
+ * tick it was supposed to be enforced on.
  */
 @Injectable()
 export class AiReplyGenerationService {
@@ -78,7 +112,9 @@ export class AiReplyGenerationService {
     private readonly promptsDbService: PromptsDbService,
     private readonly authDbService: AuthDbService,
     private readonly billingEntitlementsService: BillingEntitlementsService,
-    private readonly reviewSyncDbService: ReviewSyncDbService
+    private readonly reviewSyncDbService: ReviewSyncDbService,
+    private readonly settingsDbService: SettingsDbService,
+    private readonly reviewPostQueue: ReviewPostQueue
   ) {}
 
   /**
@@ -220,7 +256,12 @@ export class AiReplyGenerationService {
     }
 
     const entitlements = await this.billingEntitlementsService.getEntitlements(input.tenantId);
-    const remainingQuota =
+    // `let`, not `const` — this is a running budget the loop below spends as it goes, not a
+    // one-time gate. An escalated candidate can spend more than 1 unit of it per review (see the
+    // class doc comment), so the batch-size estimate below is deliberately an upper bound on
+    // *reviews fetched*, not a guarantee every fetched review gets its full `ai_reply_count`; the
+    // loop re-checks this same counter before each candidate and clamps/stops as it's spent.
+    let remainingQuota =
       entitlements.maxAiDraftsPerMonth === null
         ? Number.POSITIVE_INFINITY
         : entitlements.maxAiDraftsPerMonth - entitlements.aiDraftsUsedThisMonth;
@@ -266,16 +307,32 @@ export class AiReplyGenerationService {
     // (asked, no prompt exists for that category) so a confirmed-missing category is cached too,
     // not re-queried on every review that happens to need it.
     const promptCache = new Map<PromptCategory, CurrentPromptForCategory | null>();
+    // Tenant-wide, like `businessName` — read once here instead of once per review / per draft.
+    const batchSettings = await this.resolveBatchSettings(input.tenantId);
 
     let generated = 0;
+    let reviewsHandled = 0;
     let skipped = 0;
     let failed = 0;
     let consecutiveFailures = 0;
+    let quotaExhaustedMidBatch = false;
 
     for (const candidate of candidates) {
+      if (remainingQuota <= 0) {
+        // The upfront `batchLimit` is a conservative upper bound on *reviews fetched*, not a
+        // guarantee every one gets its full `ai_reply_count` — an escalated candidate earlier in
+        // this same batch can spend more than 1 unit, exhausting the quota before every fetched
+        // candidate is reached. Stopping here (rather than skipping) leaves the rest at `new` for
+        // the next tick, the same self-healing shape `GENERATION_BATCH_LIMIT` truncation already
+        // relies on.
+        quotaExhaustedMidBatch = true;
+        break;
+      }
+
       const claimed = await this.reviewSyncDbService.claimForGeneration(candidate.id);
       if (!claimed) {
         skipped += 1;
+        reviewsHandled += 1;
         this.logger.warn(
           `Review ${candidate.id} stopped being a generation candidate before it could be claimed (already generated for, or no longer 'new'); skipping.`
         );
@@ -283,16 +340,21 @@ export class AiReplyGenerationService {
       }
 
       try {
-        await this.generateAndPersistForCandidate(
+        const draftsGenerated = await this.generateAndPersistForCandidate(
           input.tenantId,
           candidate,
           businessName,
-          promptCache
+          promptCache,
+          remainingQuota,
+          batchSettings
         );
-        generated += 1;
+        generated += draftsGenerated;
+        remainingQuota -= draftsGenerated;
+        reviewsHandled += 1;
         consecutiveFailures = 0;
       } catch (error) {
         failed += 1;
+        reviewsHandled += 1;
         consecutiveFailures += 1;
         this.logger.error(
           `Generation failed for review ${candidate.id}: ${
@@ -322,7 +384,7 @@ export class AiReplyGenerationService {
         if (error instanceof AiProviderNotConfiguredException) {
           this.logger.error(
             `AI provider is not configured — abandoning the remaining ${
-              candidates.length - (generated + skipped + failed)
+              candidates.length - reviewsHandled
             } candidate(s) for location ${input.locationId} rather than failing each one identically.`
           );
           break;
@@ -337,19 +399,39 @@ export class AiReplyGenerationService {
     }
 
     this.logger.log(
-      `Generated ${generated}/${candidates.length} drafts for location ${input.locationId} (${skipped} skipped, ${failed} failed).`
+      `Generated ${generated} draft(s) across ${reviewsHandled}/${candidates.length} review(s) for location ${input.locationId} (${skipped} skipped, ${failed} failed)${
+        quotaExhaustedMidBatch ? ' — stopped early, monthly AI-draft quota exhausted mid-batch' : ''
+      }.`
     );
 
-    return { generated, skipped, failed, quotaReached: false };
+    return { generated, skipped, failed, quotaReached: quotaExhaustedMidBatch };
   }
 
   /**
-   * One already-claimed review, drafted and persisted. `generation_group_id` is assigned for
-   * every `ESCALATION_SNIPPET` row here — not only once there's more than one snippet in it — so
-   * the column already means the same thing it will once PLAN.md §5's full 2-3-snippet version
-   * lands: "the group this row belongs to," a group of one being a perfectly valid group. That
-   * makes the eventual upgrade a change to how many times this method's provider call runs, not a
-   * schema migration or a backfill of existing rows.
+   * One already-claimed review, drafted and persisted. A non-escalated candidate always produces
+   * exactly one `AUTO_REPLY_SUGGESTION` row with `generationGroupId: null`. An escalated candidate
+   * produces `min(tenant_settings.ai_reply_count, maxSnippets)` `ESCALATION_SNIPPET` rows sharing
+   * one freshly-minted `generation_group_id` — `maxSnippets` is the caller's remaining AI-draft
+   * quota at the moment this candidate started, so a tenant with only 1 unit left gets a 1-snippet
+   * group instead of overshooting its plan's monthly cap. Returns however many rows were actually
+   * persisted, which is what the caller decrements its own running quota counter by.
+   *
+   * **All snippets for one candidate come from a single provider call, not one call per
+   * snippet.** Looping the identical single-reply prompt N times and relying on sampling
+   * temperature alone to produce different wording tends to return near-duplicate rewordings of
+   * the same reply — asking the model for `snippetCount` explicitly-distinct options in one
+   * JSON-array completion (`buildSystemPrompt`'s multi-snippet branch) is what actually produces
+   * meaningfully different A/B/C choices. This also closes a quota-accounting gap the per-call
+   * loop used to have: a failure used to be able to leave some snippets persisted and billed
+   * without ever being reflected in the batch's running quota counter, because the per-snippet
+   * loop could throw partway through; a single call either returns all `snippetCount` replies or
+   * none, so there is no longer a partial-success state between "one call succeeded" and "this
+   * candidate's whole result is unknown."
+   *
+   * `maxOutputTokens` is scaled by `snippetCount`: `AI_MAX_OUTPUT_TOKENS` was sized for one reply,
+   * and a multi-reply JSON array needs proportionally more room or risks truncating mid-array —
+   * which would fail `parseMultiSnippetReplies` exactly the way a genuinely malformed response
+   * does, not a subtler bug to chase later.
    *
    * `reviewerName`/`reviewText` fall back to a generic phrase rather than an empty string:
    * Google allows a star-rating-only review with neither field set, and an empty substitution
@@ -359,8 +441,10 @@ export class AiReplyGenerationService {
     tenantId: string,
     candidate: GenerationCandidateRow,
     businessName: string,
-    promptCache: Map<PromptCategory, CurrentPromptForCategory | null>
-  ): Promise<void> {
+    promptCache: Map<PromptCategory, CurrentPromptForCategory | null>,
+    maxSnippets: number,
+    settings: BatchSettings
+  ): Promise<number> {
     const category = resolvePromptCategoryForReview(candidate);
 
     let current = promptCache.get(category);
@@ -378,28 +462,164 @@ export class AiReplyGenerationService {
       rating: String(candidate.rating),
       review_text: candidate.reviewText ?? '(no written comment — rating only)',
     });
-    const systemPrompt = buildSystemPrompt(current.tone);
-
-    const result = await this.aiProvider.generateReply({ systemPrompt, userPrompt });
 
     const isEscalated = candidate.classification === ReviewClassification.ESCALATED;
-    await this.reviewSyncDbService.insertGeneratedResponse({
-      tenantId,
-      reviewId: candidate.id,
-      responseType: isEscalated
-        ? ResponseType.ESCALATION_SNIPPET
-        : ResponseType.AUTO_REPLY_SUGGESTION,
-      content: result.content,
-      generationGroupId: isEscalated ? randomUUID() : null,
-      generationMetadata: {
-        model: result.model,
-        promptTokens: result.promptTokens,
-        completionTokens: result.completionTokens,
-        latencyMs: result.latencyMs,
-        finishReason: result.finishReason,
-        category,
-        tone: current.tone,
-      },
+    const snippetCount = isEscalated
+      ? Math.min(settings.aiReplyCount, Math.max(1, Math.floor(maxSnippets)))
+      : 1;
+    const generationGroupId = isEscalated ? randomUUID() : null;
+
+    const systemPrompt = buildSystemPrompt(current.tone, snippetCount);
+    const result = await this.aiProvider.generateReply({
+      systemPrompt,
+      userPrompt,
+      ...(snippetCount > 1 ? { maxOutputTokens: AI_MAX_OUTPUT_TOKENS * snippetCount } : {}),
     });
+
+    const contents =
+      snippetCount > 1 ? parseMultiSnippetReplies(result.content, snippetCount) : [result.content];
+    if (contents === null) {
+      throw new AiGenerationFailedException();
+    }
+
+    const generationMetadata = {
+      model: result.model,
+      promptTokens: result.promptTokens,
+      completionTokens: result.completionTokens,
+      latencyMs: result.latencyMs,
+      finishReason: result.finishReason,
+      category,
+      tone: current.tone,
+    };
+
+    let persisted = 0;
+    try {
+      for (const content of contents) {
+        const responseId = await this.reviewSyncDbService.insertGeneratedResponse({
+          tenantId,
+          reviewId: candidate.id,
+          responseType: isEscalated
+            ? ResponseType.ESCALATION_SNIPPET
+            : ResponseType.AUTO_REPLY_SUGGESTION,
+          content,
+          generationGroupId,
+          generationMetadata,
+        });
+        persisted += 1;
+
+        if (!isEscalated && settings.autoPostEnabled) {
+          await this.maybeAutoApproveAndPost(tenantId, candidate.id, responseId, content);
+        }
+      }
+    } catch (error) {
+      // Rows already written are real drafts that count against the monthly quota. Throwing here
+      // would report them as a failed review with zero drafts, so the caller would neither subtract
+      // them from the remaining quota nor know they exist. Only a failure before anything was
+      // persisted is a failed review.
+      if (persisted === 0) {
+        throw error;
+      }
+      this.logger.error(
+        `Persisted ${persisted}/${contents.length} draft(s) for review ${candidate.id} before an insert failed (${
+          error instanceof Error ? error.message : String(error)
+        }); keeping the ${persisted} saved.`
+      );
+    }
+
+    return persisted;
+  }
+
+  /**
+   * The non-escalated half of `tenant_settings.auto_post_enabled`: when set, a freshly-generated
+   * `AUTO_REPLY_SUGGESTION` is approved by the system — `approvedByUserId: null`, no human in the
+   * loop at all — and immediately queued to post, rather than surfacing in the dashboard's
+   * pending-approval queue. When the flag is off (or unset — `findAutoPostEnabled` returns `null`
+   * for a tenant with no settings row, treated the same as `false`), this is a no-op and the draft
+   * is left exactly as `insertGeneratedResponse` wrote it, same as before this feature existed.
+   *
+   * Reuses `ReviewSyncDbService.approveResponse` — the identical CAS/supersede-siblings
+   * transaction the human approval endpoint uses — rather than a bespoke write, so this path can
+   * never diverge from what "approved" means anywhere else in this schema. The CAS can only lose
+   * (`approved === null`) if something else decided this response in the handful of milliseconds
+   * between `insertGeneratedResponse` committing and this call — not reachable today (nothing else
+   * yet knows this id exists that fast), but handled as a silent no-op rather than assumed
+   * impossible. The live-reply unique-index violation is the one race that *is* reachable even
+   * this early: a human could submit a manual reply for the same review in that same window.
+   * Logged and swallowed either way — generation itself already succeeded and persisted; a failure
+   * to auto-post must not be mistaken for a failure to generate (which would release the
+   * generation claim and draft this review again next tick, duplicating a perfectly good row).
+   */
+  private async maybeAutoApproveAndPost(
+    tenantId: string,
+    reviewId: string,
+    responseId: string,
+    content: string
+  ): Promise<void> {
+    try {
+      const approved = await this.reviewSyncDbService.approveResponse({
+        responseId,
+        reviewId,
+        tenantId,
+        approvedByUserId: null,
+        content,
+        source: ResponseSource.AI_GENERATED,
+      });
+
+      if (!approved) {
+        this.logger.warn(
+          `Auto-approve skipped for response ${responseId} (review ${reviewId}): it was no longer pending approval by the time this ran.`
+        );
+        return;
+      }
+
+      // Never throws: if the queue is unreachable the response is moved to `post_failed` (visible,
+      // retryable) instead of being left `approved` with no job behind it.
+      await enqueuePostOrMarkFailed(
+        {
+          reviewPostQueue: this.reviewPostQueue,
+          reviewSyncDbService: this.reviewSyncDbService,
+          logger: this.logger,
+        },
+        { tenantId, reviewId, responseId }
+      );
+    } catch (error) {
+      if (isUniqueViolation(error, LIVE_REPLY_INDEX)) {
+        this.logger.warn(
+          `Auto-approve skipped for response ${responseId} (review ${reviewId}): the review already has a live reply.`
+        );
+        return;
+      }
+      this.logger.error(
+        `Auto-post step failed for response ${responseId} (review ${reviewId}); the draft itself was still persisted and remains pending approval: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  /** Clamped against `MAX_AI_REPLY_COUNT`/`DEFAULT_AI_REPLY_COUNT` defensively — the column itself
+   *  already enforces `CHECK (ai_reply_count BETWEEN 1 AND 3)` and `DEFAULT 1`, this just doesn't
+   *  trust that blindly from application code. */
+  private async resolveBatchSettings(tenantId: string): Promise<BatchSettings> {
+    const [aiReplyCountRaw, autoPostEnabled] = await Promise.all([
+      this.settingsDbService.findAiReplyCount(tenantId),
+      this.settingsDbService.findAutoPostEnabled(tenantId).catch((error: unknown) => {
+        // A failed read must not stop drafting — it just means nothing is auto-posted this tick.
+        this.logger.error(
+          `Could not read auto_post_enabled for tenant ${tenantId}; drafts stay pending approval this tick: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        return null;
+      }),
+    ]);
+
+    return {
+      aiReplyCount:
+        aiReplyCountRaw === null
+          ? DEFAULT_AI_REPLY_COUNT
+          : Math.min(Math.max(aiReplyCountRaw, DEFAULT_AI_REPLY_COUNT), MAX_AI_REPLY_COUNT),
+      autoPostEnabled: autoPostEnabled === true,
+    };
   }
 }

@@ -415,6 +415,10 @@ export class EnvConfig {
   @IsString()
   REVIEW_SYNC_QUEUE_URL?: string;
 
+  @IsOptional()
+  @IsString()
+  REVIEW_POST_QUEUE_URL?: string;
+
   // ─── Billing (Stripe) ─────────────────────────────────────────────────────
 
   /**
@@ -464,12 +468,11 @@ export class EnvConfig {
   STRIPE_PRICE_ID_PAID?: string;
 
   /** Selects the `AiProvider` implementation — same DI-swap shape as `PAYMENT_PROVIDER`.
-   *  `'openrouter'` is the only implementation built so far; `'azure'` is reserved for the
-   *  Azure OpenAI switch documented in `apps/documentation/docs/backend/ai/overview.md`, not
-   *  yet a real branch in `AiModule`'s factory. Defaults to `'openrouter'` (applied via
-   *  `?? 'openrouter'` at the call site, not a class-level default here). */
+   *  `'azure'` is the default and intended production provider (GDPR/`westeurope` requirement,
+   *  PLAN.md §5); `'openrouter'` remains a secondary option (applied via `?? 'azure'` at the call
+   *  site, not a class-level default here). */
   @IsOptional()
-  @IsIn(['openrouter'])
+  @IsIn(['openrouter', 'azure'])
   AI_PROVIDER?: string;
 
   /** Read lazily by `OpenRouterAiProvider` on its first call, not at boot — this feature isn't
@@ -485,6 +488,57 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   OPENROUTER_MODEL?: string;
+
+  // ─── Azure OpenAI (default AiProvider) ───────────────────────────────────
+
+  /** Base resource endpoint, e.g. `https://<resource>.openai.azure.com`. Read lazily by
+   *  `AzureOpenAiProvider` on its first call, same reasoning as `OPENROUTER_API_KEY`. */
+  @IsOptional()
+  @IsString()
+  AZURE_OPENAI_ENDPOINT?: string;
+
+  @IsOptional()
+  @IsString()
+  AZURE_OPENAI_API_KEY?: string;
+
+  /** The deployment name (not the underlying model name) — Azure routes by deployment. */
+  @IsOptional()
+  @IsString()
+  AZURE_OPENAI_DEPLOYMENT?: string;
+
+  @IsOptional()
+  @IsString()
+  AZURE_OPENAI_API_VERSION?: string;
+
+  /** Validated `=== 'westeurope'` at provider construction, not just by convention — PLAN.md §5
+   *  treats the Azure OpenAI region as a GDPR requirement for this engagement, not a preference,
+   *  so it's hardcoded/checked at the client-config level rather than left to whoever sets up the
+   *  Azure resource. */
+  @IsOptional()
+  @IsString()
+  AZURE_OPENAI_REGION?: string;
+
+  // ─── Local mock server (dev-only — GBP write-API + Azure OpenAI) ─────────
+
+  /**
+   * Redirects the GBP write-path calls (`getReviewReply`/`replyToReview`) and
+   * `AzureOpenAiProvider` at `apps/mock-external-apis` instead of the real Google/Azure endpoints
+   * — for use while real credentials for either aren't available yet. Same shape as
+   * `DEPLOYMENT_TARGET=aws`'s Floci redirect (`getAwsEndpointOverride`): a single toggle, checked
+   * by the provider construction/call sites themselves, with zero branching anywhere else.
+   * Forbidden in production by the Joi schema, same guard shape as `DEV_GBP_MOCK` — double-guarded
+   * by the provider factories' own `!isProduction()` check too.
+   */
+  @IsOptional()
+  @IsString()
+  USE_LOCAL_MOCK_SERVER?: string;
+
+  /** Only read when `USE_LOCAL_MOCK_SERVER === 'true'`. Defaults to `http://localhost:4100`
+   *  (applied via `??` at the call site, not a class-level default here), matching
+   *  `apps/mock-external-apis`'s own default port. */
+  @IsOptional()
+  @IsString()
+  LOCAL_MOCK_SERVER_URL?: string;
 
   // ─── GDPR erasure (team-member removal / tenant erasure) ─────────────────
 

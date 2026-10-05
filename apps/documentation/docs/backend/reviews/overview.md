@@ -374,28 +374,90 @@ all either endpoint or `prompt-analytics.ts`'s time-to-decision figure needs; it
 inadequate if a future feature needs to distinguish "time to approval" from "time to rejection" on
 the same row, which nothing today does.
 
-**Explicitly out of scope: this does not post anything to Google.** Approving a draft lands the
-response at `status = 'approved'` and nowhere else — `approved_by_user_id`, `decided_at`, and
-(if edited) `content`/`source` are written, and the transaction commits. It does **not** call
-Google Business Profile's reply API, and it does not set `status = 'posted'`. Actually publishing
-the approved reply is a distinct, separately-planned future step, blocked on GBP write-API access
-that has not been built yet — the `approved → posted` arrow in the [state
-machine](#review_responses-state-machine) above is real in the enum, but nothing in this codebase
-drives it today. A reader of the API response should not infer that an `approved` reply is live on
-Google; see the [approve endpoint's](./api-reference.md#post-v1reviewsreviewidresponsesresponseidapprove)
-own note on this.
+**Approving a draft never posts to Google synchronously, by itself.** `ReviewsService.approveReply`
+lands the response at `status = 'approved'` and commits that transaction — `approved_by_user_id`,
+`decided_at`, and (if edited) `content`/`source` are what it writes, nothing more — and returns
+before anything is sent to Google. Whether that approval also results in a post, and when, is a
+separate question answered by `postIfAutoPostEnabled` and the `review-post` queue described below,
+never by the approve endpoint's own request/response cycle. A reader of the API response should
+still not infer that an `approved` reply is live on Google purely from the `200`; see the [approve
+endpoint's](./api-reference.md#post-v1reviewsreviewidresponsesresponseidapprove) own note and
+[post-back status](./api-reference.md#post-back-status) for how to actually confirm delivery.
 
-### Posting, and the freshness check before it
+### Posting, the freshness check, and `auto_post_enabled`
 
-`approved → posted` is the only transition in this module with an external side effect, and
-`PLAN.md` §8.12 requires it to be gated by a **live, single-review freshness check immediately
-before the write** — not on the last poll's cached state. Google's reply endpoint is an
-unconditional upsert with no "already exists" check of its own, so without this gate, approving
-our AI draft minutes after the owner personally replied on Google would silently overwrite the
-owner's own words and report success. If the freshness check finds a reply already present, the
-post is aborted: the `approved` response is superseded, the just-discovered manual reply is
-imported (`source = 'imported'`, `status = 'posted'`), and the person who approved is told their
-action did not go through. One extra lightweight API call per post buys that.
+`approved → posted` is the only transition in this module with an external side effect, and it is
+now **built**: `src/background/queue/review-post/` (`ReviewPostQueueService.postResponse`), wired
+behind `ReviewPostQueue.addPostJob`, which `ReviewsService` enqueues from three call sites —
+[approve](./api-reference.md#post-v1reviewsreviewidresponsesresponseidapprove), [manual
+reply](./api-reference.md#manual-replies), and the manual [`post`
+route](./api-reference.md#post-v1reviewsreviewidresponsesresponseidpost) — plus a fourth in
+`AiReplyGenerationService.maybeAutoApproveAndPost` for the system's own non-escalated auto-approval.
+None of those four write `status = 'posted'` themselves; all of them only ever get a response to
+`approved` and hand a job to this queue, which is the only code path that calls Google.
+
+**Gating: `tenant_settings.auto_post_enabled`.** A response reaching `approved` — by a human
+through approve/manual-reply, or by the system through `maybeAutoApproveAndPost` for a
+non-escalated AI draft — does not by itself mean it gets queued to post. `ReviewsService
+.postIfAutoPostEnabled` (called right after every human approval and every manual reply) and
+`AiReplyGenerationService.maybeAutoApproveAndPost` (called right after a non-escalated draft
+auto-approves itself) both read the same `tenant_settings.auto_post_enabled` boolean
+(`0002_tenant_auth.sql`, `NOT NULL DEFAULT false`) before deciding whether to enqueue. When it is
+`true`, the post job is queued immediately and the response moves to `posted`/`post_failed` without
+further human action. When it is `false` (the default), the response simply stays at `approved`
+with nothing queued — the human who approved it (or the system, for an auto-approved draft) must
+separately call the manual [`post`
+route](./api-reference.md#post-v1reviewsreviewidresponsesresponseidpost) to actually publish it. The
+gate is deliberately best-effort and non-blocking: a failure inside `postIfAutoPostEnabled` (e.g. the
+settings read itself erroring) is logged and swallowed rather than undoing the approval that already
+committed — the response stays a legitimate `approved` row either way, and the manual `post` route
+is always available as a fallback regardless of why auto-queueing didn't happen.
+
+**One flag, one meaning, regardless of how a response got to `approved`.** The product decision this
+encodes: an **escalated** AI draft always needs an explicit human approval — `auto_post_enabled`
+never bypasses that, because `maybeAutoApproveAndPost`'s bypass is scoped to non-escalated drafts
+only (see that method's own doc comment in `ai-reply-generation.service.ts`). But once a response
+is `approved` — whichever path put it there — `auto_post_enabled` governs posting identically: it
+does not re-ask "was this a human or the system" or "was this escalated or not" a second time, it
+only asks "is this tenant's approved-reply flow hands-off."
+
+**The freshness check.** `PLAN.md` §8.12 requires the `approved → posted` write to be gated by a
+**live, single-review freshness check immediately before the write** — not on the last poll's
+cached state — because Google's reply endpoint (`PUT .../reviews/{reviewId}/reply`) is an
+unconditional upsert with no "already exists" check of its own. `ReviewPostQueueService
+.postResponse` implements this exactly: after claiming the response (see below), it calls
+`GoogleBusinessProfileProvider.getReviewReply` — a single-review `GET`, fetched fresh, never from
+the last-polled copy — immediately before `replyToReview`. If that call finds a reply already
+present whose text does **not** match the response being posted, the post is aborted:
+`ReviewSyncRepository.supersedeForExternalReply` moves the `approved` row to `superseded` and
+imports the reply Google actually has as a new `source = 'imported'`, `status = 'posted'` row, in
+one transaction — so the person who approved is told (via
+[post-status](./api-reference.md#post-back-status)) that their action did not go through, rather
+than silently losing to an overwrite. One extra lightweight API call per post buys that.
+
+**The crash-window fix: `post_attempted_at`.** `0004_reviews.sql` adds
+`review_responses.post_attempted_at` specifically to close a gap `PLAN.md` §8.12 does not model on
+its own: a worker can have its `PUT` to Google succeed and then crash before its own
+`markResponsePosted` write commits, leaving no `posted` row for a reply that is, in fact, already
+live. Without a marker, the *next* attempt's freshness check would find that live reply, see no
+`posted` row, and conclude a human replied externally — superseding the approval and re-importing
+its own text as `source = 'imported'`, dropping `approved_by_user_id` and telling the approver their
+post failed when it had actually already succeeded. The fix: `claimResponseForPosting` sets
+`post_attempted_at = now()` as a compare-and-swap claim (`WHERE status = 'approved' AND
+(post_attempted_at IS NULL OR post_attempted_at < now() - interval '5 minutes')`) *before* calling
+Google — the same claim-with-staleness-reclaim shape `sync_runs.started_at`/`updated_at` already
+uses for poll runs — and `postResponse` compares the freshness check's fetched `reviewReply.comment`
+(whitespace-normalized) against the claimed response's own `content` before deciding what happened:
+a match means this response's own prior attempt already posted it (recorded as `posted` without
+re-sending, since a second identical `PUT` would be harmless but pointless), while a mismatch means
+someone else's text is live and the abort-and-import path above applies. `post_attempted_at` is
+cleared back to `NULL` on every terminal write (`posted`, `post_failed`, `superseded`) so a retried
+response starts its next attempt unclaimed. `attempts: 1` on this queue's job options means BullMQ
+itself never blindly retries a failed post. Transient provider errors are rescheduled by the service
+itself (up to 3 attempts, each re-running the claim and freshness check), and anything else — or an
+unreachable queue — lands the response at `post_failed` for the user-triggered [`retry-post`
+route](./api-reference.md#post-v1reviewsreviewidresponsesresponseidretry-post). See [Posting back to
+Google](../review-pipeline/overview.md#posting-back-to-google--implemented) for every failure mode.
 
 ### Prompt-analytics linkage
 
@@ -440,17 +502,19 @@ Settings → Prompts surface — is documented separately in
 
 ## API surface
 
-All routes are versioned under `/v1/reviews`. Nothing below exists yet — this is the target
-surface; see [Gap](#gap-between-current-code-and-target-design).
+All routes are versioned under `/v1/reviews`. Every route below is **implemented** in
+`src/api/reviews/` except [dismiss](./api-reference.md#review-triage), which remains the one
+target-surface gap; see [Gap](#gap-between-current-code-and-target-design).
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
 | `GET` | `/v1/reviews` | Bearer | Paginated queue listing. Filters: `status`, `classification`, `search`, `locationId`. Tenant-scoped. |
 | `GET` | `/v1/reviews/:reviewId` | Bearer | One review with all its `review_responses` rows, ordered oldest-first within a generation group. |
-| `POST` | `/v1/reviews/:reviewId/responses/:responseId/approve` | Bearer | Approves a response, optionally with edited `content`. Supersedes siblings; queues the post. Guarded CAS. |
+| `POST` | `/v1/reviews/:reviewId/responses/:responseId/approve` | Bearer | Approves a response, optionally with edited `content`. Supersedes siblings; queues the post if `auto_post_enabled`. Guarded CAS. |
 | `POST` | `/v1/reviews/:reviewId/responses/:responseId/reject` | Bearer | `pending_approval` → `rejected`. Leaves siblings untouched. |
-| `POST` | `/v1/reviews/:reviewId/responses` | Bearer | Posts a manual reply written from scratch (`source = 'human_manual'`). Supersedes non-terminal siblings. |
-| `POST` | `/v1/reviews/:reviewId/dismiss` | Bearer | `reviews.status` → `dismissed`. No reply is posted. |
+| `POST` | `/v1/reviews/:reviewId/responses` | Bearer | Posts a manual reply written from scratch (`source = 'human_manual'`), landing directly at `approved`. Supersedes non-terminal siblings; queues the post if `auto_post_enabled`. |
+| `POST` | `/v1/reviews/:reviewId/responses/:responseId/post` | Bearer | The manual post trigger for the `auto_post_enabled = false` case — not in this module's originally documented spec, added once `auto_post_enabled` needed a route to actually publish an `approved` response through. |
+| `POST` | `/v1/reviews/:reviewId/dismiss` | Bearer | `reviews.status` → `dismissed`. No reply is posted. **Still spec-only** — not built this pass. |
 | `GET` | `/v1/reviews/:reviewId/responses/:responseId/post-status` | Bearer | Post-back outcome: `status`, `posted_at`, `error_message`. |
 | `POST` | `/v1/reviews/:reviewId/responses/:responseId/retry-post` | Bearer | `post_failed` → `approved`, re-queueing the post (`PLAN.md` §4.2's retry arrow). |
 
@@ -517,16 +581,18 @@ Two frontend/schema mismatches to resolve rather than paper over:
 
 ## Gap between current code and target design
 
-**Nothing in this module exists in `apps/backend/src/` today.** Verified: `src/api/` contains
-only `dev-tools`, `health`, `metrics`, and `tracing`; a repository-wide search for anything
-review-related under `src/` matches only the two migration files
-(`0003_review_provider_locations.sql`, `0004_reviews.sql`). There is no controller, service, DB
-service, repository, DTO, or type for reviews anywhere, and no `reviews` slug in
-`src/common/route-names.ts`. This is a from-scratch build, not an adaptation — which is the one
-advantage this module has over auth: it can follow the current conventions from the first
-commit instead of being migrated onto them.
+**Stale as a whole — kept for its still-relevant closing list, not its opening claim.** The
+paragraph and bullet list immediately below describe this module as entirely unbuilt; that was
+true when this section was first written, but by this pass approve/reject/retry-post/post-status/
+manual-replies/the manual `post` route are all implemented (`src/api/reviews/`, `src/db/
+repositories/review-sync/`), the schema is applied and introspected, `messages.constants.ts` exists,
+and `RouteNames.REVIEWS`/the `review_responses` route slugs are all registered in
+`src/common/route-names.ts`. The **one item in the list below still genuinely outstanding is
+dismiss** — not built this pass, see [Review triage](./api-reference.md#review-triage). The
+remainder of this section is left as-is as a record of the module's original build-out plan, not
+as a current gap list.
 
-To be built, in dependency order:
+To be built, in dependency order (now almost entirely complete — see the note above):
 
 - **Apply and introspect the schema.** `src/db/drizzle/schema.ts` is still the boilerplate's
   introspected output and contains none of the InnoPeak tables. Run the documented SQL-first
@@ -557,11 +623,12 @@ To be built, in dependency order:
   from there, never an inline literal.
 - **`RouteNames.REVIEWS = 'reviews'`** in `src/common/route-names.ts`, used as
   `@Controller({ path: RouteNames.REVIEWS, version: '1' })` — never a raw string.
-- **A post-back worker.** `approved → posted` involves an external API call, a freshness check
-  (`PLAN.md` §8.12), and a retry path; it belongs on the existing BullMQ/SQS queue transport,
-  not inline in a request handler. The approve endpoint enqueues; the worker performs the
-  freshness check, posts, and writes `posted` / `post_failed` with `posted_at` or
-  `error_message`.
+- ~~A post-back worker.~~ **Built.** `src/background/queue/review-post/` (`ReviewPostQueueService
+  .postResponse`) is exactly this: a queue, not inline in a request handler. Approve, manual-reply,
+  the manual `post` route, and the system's own non-escalated auto-approval all enqueue; the worker
+  performs the freshness check, posts, and writes `posted` / `post_failed` with `posted_at` or
+  `error_message`. See [Posting, the freshness check, and `auto_post_enabled`](#posting-the-freshness-check-and-auto_post_enabled)
+  above.
 
 Conventions this module must follow, per
 `apps/backend/docs/conventions/module-structure.md` and `apps/backend/CLAUDE.md`:

@@ -1,6 +1,7 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import type { TenantAuthUser } from '@auth/types/auth.type';
+import { MESSAGES } from '@common/constants/messages.constants';
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
@@ -11,10 +12,18 @@ import type {
   ReviewResponseRow,
   ReviewRow,
 } from '@db/repositories/review-sync/types/review-sync.type';
+import { SettingsDbService } from '@db/repositories/settings/settings.db-service';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ReviewPostQueue } from '@review-post-queue/review-post.queue';
 
 import {
+  PostQueueUnavailableException,
+  ResponseNotPostableException,
+  ResponseNotRetryableException,
+  ReviewAlreadyDismissedException,
+  ReviewAlreadyHasLiveReplyException,
+  ReviewRemovedUpstreamException,
   ReviewResponseAlreadyLiveException,
   ReviewResponseNotApprovableException,
 } from './exceptions/reviews.exceptions';
@@ -73,10 +82,18 @@ describe('ReviewsService', () => {
   const findResponseForTenant = jest.fn();
   const approveResponse = jest.fn();
   const rejectResponse = jest.fn();
+  const retryPostableResponse = jest.fn();
+  const insertManualReply = jest.fn();
+  const findAutoPostEnabled = jest.fn();
+  const addPostJob = jest.fn();
+  const markResponsePostFailed = jest.fn();
 
   beforeEach(async () => {
     jest.clearAllMocks();
     findResponsesForReviews.mockResolvedValue([]);
+    findAutoPostEnabled.mockResolvedValue(false);
+    addPostJob.mockResolvedValue(undefined);
+    markResponsePostFailed.mockResolvedValue(null);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -90,7 +107,18 @@ describe('ReviewsService', () => {
             findResponseForTenant,
             approveResponse,
             rejectResponse,
+            retryPostableResponse,
+            insertManualReply,
+            markResponsePostFailed,
           },
+        },
+        {
+          provide: SettingsDbService,
+          useValue: { findAutoPostEnabled },
+        },
+        {
+          provide: ReviewPostQueue,
+          useValue: { addPostJob },
         },
       ],
     }).compile();
@@ -249,6 +277,41 @@ describe('ReviewsService', () => {
         service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' })
       ).rejects.toThrow(dbError);
     });
+
+    it('queues a post-back job when auto_post_enabled is true', async () => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      approveResponse.mockResolvedValue({ ...pendingResponse, status: ResponseStatus.APPROVED });
+      findAutoPostEnabled.mockResolvedValue(true);
+
+      await service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' });
+
+      expect(addPostJob).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        reviewId: 'review-1',
+        responseId: 'response-1',
+      });
+    });
+
+    it('does not queue a post-back job when auto_post_enabled is false', async () => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      approveResponse.mockResolvedValue({ ...pendingResponse, status: ResponseStatus.APPROVED });
+      findAutoPostEnabled.mockResolvedValue(false);
+
+      await service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' });
+
+      expect(addPostJob).not.toHaveBeenCalled();
+    });
+
+    it('does not fail the approval when the auto-post queue write itself fails', async () => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      approveResponse.mockResolvedValue({ ...pendingResponse, status: ResponseStatus.APPROVED });
+      findAutoPostEnabled.mockResolvedValue(true);
+      addPostJob.mockRejectedValue(new Error('queue unavailable'));
+
+      await expect(
+        service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).resolves.toMatchObject({ status: 'approved' });
+    });
   });
 
   describe('rejectReply', () => {
@@ -292,6 +355,311 @@ describe('ReviewsService', () => {
       await expect(
         service.rejectReply({ user, reviewId: 'review-1', responseId: 'response-1' })
       ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  const postFailedResponse: ReviewResponseRow = {
+    ...pendingResponse,
+    status: ResponseStatus.POST_FAILED,
+    errorMessage: 'Google API returned 429',
+  };
+
+  const approvedResponse: ReviewResponseRow = {
+    ...pendingResponse,
+    status: ResponseStatus.APPROVED,
+    approvedByUserId: 'user-1',
+  };
+
+  describe('retryPost', () => {
+    it('CASes post_failed -> approved and re-queues the post-back job', async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      findResponseForTenant.mockResolvedValue(postFailedResponse);
+      retryPostableResponse.mockResolvedValue({ ...postFailedResponse, status: 'approved' });
+
+      const result = await service.retryPost({
+        user,
+        reviewId: 'review-1',
+        responseId: 'response-1',
+      });
+
+      expect(retryPostableResponse).toHaveBeenCalledWith({
+        responseId: 'response-1',
+        tenantId: 'tenant-1',
+      });
+      expect(addPostJob).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        reviewId: 'review-1',
+        responseId: 'response-1',
+      });
+      expect(result.status).toBe('approved');
+      expect(result.errorMessage).toBeNull();
+    });
+
+    it('throws ReviewNotFoundException when the review does not resolve for this tenant', async () => {
+      findReviewForTenant.mockResolvedValue(null);
+
+      await expect(
+        service.retryPost({ user, reviewId: 'missing', responseId: 'response-1' })
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws ResponseNotRetryableException when the response is not at post_failed', async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+
+      await expect(
+        service.retryPost({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).rejects.toThrow(ResponseNotRetryableException);
+      expect(retryPostableResponse).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['dismissed', { status: ReviewStatus.DISMISSED }, ReviewAlreadyDismissedException],
+      [
+        'removed on Google',
+        { removedUpstreamAt: '2026-03-13T00:00:00.000Z' },
+        ReviewRemovedUpstreamException,
+      ],
+    ])(
+      'refuses to retry when the review is %s, before touching the response',
+      async (_n, patch, exception) => {
+        findReviewForTenant.mockResolvedValue({ ...review, ...patch });
+
+        await expect(
+          service.retryPost({ user, reviewId: 'review-1', responseId: 'response-1' })
+        ).rejects.toThrow(exception);
+        expect(retryPostableResponse).not.toHaveBeenCalled();
+        expect(addPostJob).not.toHaveBeenCalled();
+      }
+    );
+
+    it('puts the response back at post_failed and throws when the queue is unreachable', async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      findResponseForTenant.mockResolvedValue(postFailedResponse);
+      retryPostableResponse.mockResolvedValue({ ...postFailedResponse, status: 'approved' });
+      addPostJob.mockRejectedValue(new Error('redis down'));
+
+      await expect(
+        service.retryPost({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).rejects.toThrow(PostQueueUnavailableException);
+
+      expect(markResponsePostFailed).toHaveBeenCalledWith({
+        responseId: 'response-1',
+        errorMessage: MESSAGES.REVIEWS.POST_QUEUE_UNAVAILABLE,
+      });
+    });
+
+    it('throws ReviewAlreadyHasLiveReplyException on the live-reply unique-index conflict', async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      findResponseForTenant.mockResolvedValue(postFailedResponse);
+      retryPostableResponse.mockRejectedValue({
+        code: '23505',
+        constraint: 'idx_review_responses_review_id_live_reply',
+      });
+
+      await expect(
+        service.retryPost({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).rejects.toThrow(ReviewAlreadyHasLiveReplyException);
+    });
+  });
+
+  describe('postResponse', () => {
+    it('queues the post-back job for an approved response', async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      findResponseForTenant.mockResolvedValue(approvedResponse);
+
+      const result = await service.postResponse({
+        user,
+        reviewId: 'review-1',
+        responseId: 'response-1',
+      });
+
+      expect(addPostJob).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        reviewId: 'review-1',
+        responseId: 'response-1',
+      });
+      expect(result.status).toBe('approved');
+    });
+
+    it.each([
+      ['dismissed', { status: ReviewStatus.DISMISSED }, ReviewAlreadyDismissedException],
+      [
+        'removed on Google',
+        { removedUpstreamAt: '2026-03-13T00:00:00.000Z' },
+        ReviewRemovedUpstreamException,
+      ],
+    ])('refuses to post when the review is %s', async (_n, patch, exception) => {
+      findReviewForTenant.mockResolvedValue({ ...review, ...patch });
+
+      await expect(
+        service.postResponse({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).rejects.toThrow(exception);
+      expect(addPostJob).not.toHaveBeenCalled();
+    });
+
+    it('throws PostQueueUnavailableException and leaves the response approved when the queue is unreachable', async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      findResponseForTenant.mockResolvedValue(approvedResponse);
+      addPostJob.mockRejectedValue(new Error('redis down'));
+
+      await expect(
+        service.postResponse({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).rejects.toThrow(PostQueueUnavailableException);
+      expect(markResponsePostFailed).not.toHaveBeenCalled();
+    });
+
+    it('throws ResponseNotPostableException when the response is not at approved', async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+
+      await expect(
+        service.postResponse({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).rejects.toThrow(ResponseNotPostableException);
+      expect(addPostJob).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getPostStatus', () => {
+    it('returns the raw response status alongside the parent review status', async () => {
+      findReviewForTenant.mockResolvedValue({ ...review, status: ReviewStatus.IN_REVIEW });
+      findResponseForTenant.mockResolvedValue(postFailedResponse);
+
+      const result = await service.getPostStatus({
+        user,
+        reviewId: 'review-1',
+        responseId: 'response-1',
+      });
+
+      expect(result).toEqual({
+        id: 'response-1',
+        reviewId: 'review-1',
+        status: ResponseStatus.POST_FAILED,
+        postedAt: null,
+        errorMessage: 'Google API returned 429',
+        reviewStatus: ReviewStatus.IN_REVIEW,
+      });
+    });
+
+    it('throws ReviewNotFoundException when the review does not resolve for this tenant', async () => {
+      findReviewForTenant.mockResolvedValue(null);
+
+      await expect(
+        service.getPostStatus({ user, reviewId: 'missing', responseId: 'response-1' })
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('createManualReply', () => {
+    it('inserts a human_manual reply, deriving escalation_snippet for an escalated review', async () => {
+      findReviewForTenant.mockResolvedValue({
+        ...review,
+        classification: ReviewClassification.ESCALATED,
+      });
+      insertManualReply.mockResolvedValue({
+        response: {
+          ...pendingResponse,
+          responseType: ResponseType.ESCALATION_SNIPPET,
+          source: ResponseSource.HUMAN_MANUAL,
+          status: ResponseStatus.APPROVED,
+          createdByUserId: 'user-1',
+          approvedByUserId: 'user-1',
+          decidedAt: '2026-03-12T09:05:00.000Z',
+        },
+        supersededResponseIds: ['response-2'],
+      });
+
+      const result = await service.createManualReply({
+        user,
+        reviewId: 'review-1',
+        content: 'A manual reply.',
+      });
+
+      expect(insertManualReply).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        reviewId: 'review-1',
+        responseType: ResponseType.ESCALATION_SNIPPET,
+        content: 'A manual reply.',
+        createdByUserId: 'user-1',
+      });
+      expect(result.supersededResponseIds).toEqual(['response-2']);
+      expect(result.status).toBe('approved');
+    });
+
+    it('marks the reply post_failed, without failing the request, when the auto-post queue is unreachable', async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      insertManualReply.mockResolvedValue({
+        response: { ...approvedResponse, source: ResponseSource.HUMAN_MANUAL },
+        supersededResponseIds: [],
+      });
+      findAutoPostEnabled.mockResolvedValue(true);
+      addPostJob.mockRejectedValue(new Error('redis down'));
+
+      const result = await service.createManualReply({
+        user,
+        reviewId: 'review-1',
+        content: 'Hi there.',
+      });
+
+      expect(result.id).toBe('response-1');
+      expect(markResponsePostFailed).toHaveBeenCalledWith({
+        responseId: 'response-1',
+        errorMessage: MESSAGES.REVIEWS.POST_QUEUE_UNAVAILABLE,
+      });
+    });
+
+    it('derives auto_reply_suggestion for a non-escalated review', async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      insertManualReply.mockResolvedValue({
+        response: { ...pendingResponse, source: ResponseSource.HUMAN_MANUAL },
+        supersededResponseIds: [],
+      });
+
+      await service.createManualReply({ user, reviewId: 'review-1', content: 'Hi there.' });
+
+      expect(insertManualReply).toHaveBeenCalledWith(
+        expect.objectContaining({ responseType: ResponseType.AUTO_REPLY_SUGGESTION })
+      );
+    });
+
+    it('throws ReviewNotFoundException when the review does not resolve for this tenant', async () => {
+      findReviewForTenant.mockResolvedValue(null);
+
+      await expect(
+        service.createManualReply({ user, reviewId: 'missing', content: 'Hi.' })
+      ).rejects.toThrow(NotFoundException);
+      expect(insertManualReply).not.toHaveBeenCalled();
+    });
+
+    it('throws ReviewAlreadyDismissedException for a dismissed review', async () => {
+      findReviewForTenant.mockResolvedValue({ ...review, status: ReviewStatus.DISMISSED });
+
+      await expect(
+        service.createManualReply({ user, reviewId: 'review-1', content: 'Hi.' })
+      ).rejects.toThrow(ReviewAlreadyDismissedException);
+    });
+
+    it('throws ReviewRemovedUpstreamException for a review removed on Google', async () => {
+      findReviewForTenant.mockResolvedValue({
+        ...review,
+        removedUpstreamAt: '2026-03-10T00:00:00.000Z',
+      });
+
+      await expect(
+        service.createManualReply({ user, reviewId: 'review-1', content: 'Hi.' })
+      ).rejects.toThrow(ReviewRemovedUpstreamException);
+    });
+
+    it('throws ReviewAlreadyHasLiveReplyException on the live-reply unique-index conflict', async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      insertManualReply.mockRejectedValue({
+        code: '23505',
+        constraint: 'idx_review_responses_review_id_live_reply',
+      });
+
+      await expect(
+        service.createManualReply({ user, reviewId: 'review-1', content: 'Hi.' })
+      ).rejects.toThrow(ReviewAlreadyHasLiveReplyException);
     });
   });
 });
