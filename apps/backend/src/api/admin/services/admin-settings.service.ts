@@ -84,11 +84,7 @@ export class AdminSettingsService {
     return AdminProfileResponseDto.from(row);
   }
 
-  /**
-   * Same shape as `AuthService.changePassword`: proof of the current password, then a new hash.
-   * No session to revoke afterward — a platform admin has no refresh-token concept yet (see
-   * `TokenService.signPlatformAdminAccessToken`), so there is nothing else to rotate.
-   */
+  /** No session to revoke afterward: a platform admin has no refresh token. */
   async changePassword(actor: AuthUser, dto: ChangeAdminPasswordDto): Promise<void> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const row = await this.platformAdminDbService.findById(admin.id);
@@ -109,13 +105,8 @@ export class AdminSettingsService {
   }
 
   /**
-   * The admin-side counterpart to `AuthService.setPassword` — for an admin who has never had a
-   * password (accepted their invite via Google, or was seeded/created before this flow existed),
-   * so there is no current password for `changePassword` to check. Proves intent with a fresh OTP
-   * from `requestSetPasswordOtp` instead — see that method's own doc comment for why an access
-   * token alone is not proof enough. No token to reissue afterward: unlike the tenant flow, a
-   * platform admin has no refresh token, so there is nothing else to rotate — the current access
-   * token simply keeps running its own 15-minute clock.
+   * For admins with no password (Google invite or seeded): proves intent with a fresh OTP from
+   * `requestSetPasswordOtp` instead of a current password. No token reissue; admins have no refresh token.
    */
   async setPassword(actor: AuthUser, dto: SetAdminPasswordDto): Promise<{ message: string }> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
@@ -127,9 +118,8 @@ export class AdminSettingsService {
       throw new PasswordAlreadySetException();
     }
 
-    // Budget spent before comparison, same shape as the tenant flow — an exhausted account can't
-    // be probed for the code at all. 429 rather than 400, matching `AuthService.setPassword`:
-    // "wait and retry" is a different answer from "that code is wrong".
+    // Budget spent before comparison so an exhausted account can't be probed for the code.
+    // 429 rather than 400 (as in `AuthService.setPassword`): "wait and retry" differs from "wrong code".
     if (!(await this.otpAttemptService.consumeAttempt(admin.email))) {
       throw new HttpException(MESSAGES.AUTH.TOO_MANY_OTP_ATTEMPTS, HttpStatus.TOO_MANY_REQUESTS);
     }
@@ -141,9 +131,7 @@ export class AdminSettingsService {
     if (!otpValid) {
       throw new InvalidOtpException();
     }
-    // Releases the budget the attempts above spent — without this a code accepted on the last
-    // allowed try leaves the account locked out of every OTP-gated action for the rest of the
-    // window, despite having just succeeded.
+    // Releases the budget, else a code accepted on the last try locks the account out of OTP-gated actions.
     await this.otpAttemptService.reset(admin.email);
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
@@ -153,12 +141,8 @@ export class AdminSettingsService {
   }
 
   /**
-   * Step-up verification `setPassword` requires before it will act — same reasoning as
-   * `AuthService.requestSetPasswordOtp`'s own doc comment: without this, `setPassword` would be
-   * reachable by anyone holding a stolen access token alone, turning a 15-minute credential into
-   * an indefinite one on any Google-only admin. Mailed via the same generic OTP queue job the
-   * tenant flow uses (`JobName.ADMIN_SET_PASSWORD_OTP_EMAIL`, same `mfa-code` template), under
-   * `platform_admin_invite_purpose`'s own `set_password` value.
+   * Step-up check `setPassword` requires: without it a stolen access token alone could set a password,
+   * turning a 15-minute credential into an indefinite one on a Google-only admin.
    */
   async requestSetPasswordOtp(actor: AuthUser): Promise<{ message: string }> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
@@ -184,20 +168,9 @@ export class AdminSettingsService {
   }
 
   /**
-   * Settings → Profile's language preference — the platform-admin counterpart to
-   * `AuthService.updateLocale`. Persists `platform_admins.locale`, then re-signs only the access
-   * token (`TokenService.signPlatformAdminAccessToken`, reused as the reissue primitive — a
-   * platform admin has no refresh token for this to disturb in the first place, unlike the tenant
-   * case that method's own doc comment explains) so the new value is on its `locale` claim
-   * immediately rather than waiting for the next login. Without persisting it at all, an admin's
-   * choice would silently revert the moment their access token expires and they have to log back
-   * in — 15 minutes later, since a platform admin has no refresh token to renew a session with.
-   *
-   * The replacement token inherits the presenting token's own deadline rather than starting a
-   * fresh 15 minutes. That distinction is the whole reason this route is safe to expose: an admin
-   * session is deliberately un-renewable, so a route that handed back a full-TTL token every time
-   * it was called would let anyone holding a leaked access token keep it alive forever by pinging
-   * this endpoint just under the expiry. Refreshing the claim must not move the deadline.
+   * Persists `platform_admins.locale` and re-signs only the access token so the claim updates immediately.
+   * The replacement inherits the presenting token's own deadline: admin sessions are un-renewable, so a
+   * full-TTL token here would let a leaked access token be kept alive by pinging this route.
    */
   async updateLocale(actor: AuthUser, dto: UpdateLocaleDto): Promise<UpdateAdminLocaleResponseDto> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
@@ -224,32 +197,15 @@ export class AdminSettingsService {
     return rows.map(row => AdminInviteResponseDto.from(row));
   }
 
-  /**
-   * Creates the invited admin's row and its invite token, emails the invite link (or a Google-SSO
-   * alternative — see `GET /v1/auth/invite/:token/google`), and returns the roster row. Accepting
-   * either path is `AuthService.acceptAdminInvite`/`completeAdminInviteGoogle`'s job, not this
-   * method's — this only gets the invite out the door.
-   */
+  /** Only gets the invite out the door; accepting it is `AuthService`'s job. */
   async sendInvite(actor: AuthUser, dto: SendAdminInviteDto): Promise<AdminInviteResponseDto> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
 
-    // Deliberately does NOT refuse an email that already belongs to a tenant user. This used to
-    // 409 (`EMAIL_BELONGS_TO_TENANT_USER`), because a single shared `login` had to resolve one
-    // email to exactly one of `platform_admins`/`users` and checked `platform_admins` first —
-    // so an accepted invite would have silently shadowed the tenant account. Since the
-    // tenant/admin login split there is nothing left to shadow: the two credentials live on two
-    // routes (`POST /v1/auth/login` and `POST /v1/admin/auth/login`), two cookies, and two
-    // lockout scopes, and `AuthService.signup` already dropped its mirror of this guard. Blocking
-    // here would have left the relaxation one-directional — an admin could become a tenant, but
-    // an existing tenant could never be made an admin, which is the direction that actually
-    // matters when staffing the console from people who already use the product. See the
-    // dual-identity decision in `separate-admin-login-design.md`.
+    // Deliberately does NOT refuse an email that already belongs to a tenant user: tenant and admin
+    // logins are separate routes, cookies and lockout scopes, so nothing can be shadowed.
 
-    // A lapsed invite is not a live claim on this address. Previously any existing row answered
-    // 409, and since nothing expires or sweeps `platform_admin_invites`, a single invite that was
-    // never accepted burned that email permanently — the only escape was to notice the stale row
-    // in the roster and revoke it by hand. Re-inviting now replaces it, which is what "send
-    // invite" already means to the person clicking it.
+    // A lapsed invite is not a live claim on the address (nothing sweeps expired invites), so re-inviting
+    // replaces it.
     const existing = await this.platformAdminDbService.findByEmail(dto.email);
     if (existing) {
       const isLapsedInvite =
@@ -261,19 +217,16 @@ export class AdminSettingsService {
         throw new AdminEmailAlreadyInvitedException();
       }
 
-      // Cascades to the invite row. Safe against an accepted admin: the delete is scoped to
-      // `status = 'invited'`, so a race that accepts the invite in between is a no-op here and the
-      // insert below then fails on the unique email index rather than clobbering a real account.
+      // Cascades to the invite row. Scoped to `status = 'invited'`, so a racing accept makes this a no-op
+      // and the insert below fails on the unique email index instead of clobbering a real account.
       await this.platformAdminDbService.deleteExpiredInvite(existing.id);
     }
 
     const rawToken = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-    // The `findByEmail` checks above are read-then-write, so two admins inviting the same address
-    // at once (or one double-clicking — the route allows 5/min) can both pass them and the second
-    // insert still hits `idx_platform_admins_email`. That is the index doing its job; catching it
-    // turns what was a raw 500 into the same 409 the guard above would have given.
+    // The checks above are read-then-write, so concurrent invites of one address can both pass; the second
+    // insert hits `idx_platform_admins_email`, which is mapped to the same 409 instead of a 500.
     let row;
     try {
       row = await this.platformAdminDbService.createInvite({
@@ -301,11 +254,7 @@ export class AdminSettingsService {
     return AdminInviteResponseDto.from(row);
   }
 
-  /**
-   * The two failure modes answer differently: an unknown id is a 404, while an id that exists but
-   * has already been accepted is a 409 — the invite is still visible in the roster, so telling
-   * that admin "Invite not found" describes something they can plainly see is there.
-   */
+  /** Unknown id is 404; an already-accepted invite is 409, since it is still visible in the roster. */
   async revokeInvite(actor: AuthUser, inviteId: string): Promise<void> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const revoked = await this.platformAdminDbService.revokeInvite(inviteId);
@@ -326,20 +275,13 @@ export class AdminSettingsService {
   }
 
   /**
-   * Disables or re-enables another platform admin. This is what makes the disabled state reachable
-   * at all — nothing in `src/` wrote `platform_admins.status` before, so an admin could only be
-   * disabled by hand in the DB. Paired with the per-request status check in `JwtStrategy`, a
-   * disable takes effect on the target's very next request rather than lingering for the token's
-   * 15-minute life.
-   *
-   * Four guards, all to prevent locking the platform out of its own admin console:
-   *  - you cannot change your own status (an admin disabling themselves is only ever a mistake);
-   *  - you cannot disable an `invited` admin (it has no active session to end — revoke the invite);
-   *  - you cannot disable the seeded root admin (`invited_by_platform_admin_id IS NULL`) — it has
-   *    no inviter to re-enable it and no self-service signup exists to create a replacement, so
-   *    this fires even while other admins are still active, not only when root is the last one;
-   *  - you cannot disable the last remaining active admin (that would leave no one able to
-   *    re-enable anyone, and there is no other creation path but the one-time root seed).
+   * Takes effect on the target's next request (`JwtStrategy` checks status per request). Guards against
+   * locking the platform out of its console:
+   *  - no changing your own status;
+   *  - no disabling an `invited` admin (revoke the invite instead);
+   *  - no disabling the seeded root (`invited_by_platform_admin_id IS NULL`): nobody can re-enable it,
+   *    so this fires even while other admins are active;
+   *  - no disabling the last active admin.
    */
   async setAdminStatus(
     actor: AuthUser,
@@ -357,26 +299,20 @@ export class AdminSettingsService {
       throw new PlatformAdminNotFoundException();
     }
     if (currentStatus === PlatformAdminStatus.INVITED) {
-      // An invited admin has no password and no session — "disabling" it is meaningless, and
-      // enabling it would skip the (unbuilt) accept-invite flow. Steer to revoke instead.
+      // An invited admin has no password or session; steer to revoke instead.
       throw new CannotDisableInvitedAdminException();
     }
 
-    // Computed unconditionally (not just when disabling) so the same value can populate the
-    // response DTO below without a second lookup — the guard itself only fires on disable: if
-    // root were ever somehow left `disabled` (bad seed data, a manual DB fix mid-migration),
-    // re-enabling it must still work.
+    // Computed unconditionally so the response DTO can reuse it; the guard only fires on disable, so a
+    // root left `disabled` (bad seed, manual fix) can still be re-enabled.
     const isRootTarget = await this.platformAdminDbService.isRootAdmin(targetAdminId);
     if (!enabled && isRootTarget) {
       throw new CannotDisableRootAdminException();
     }
 
-    // The last-active-admin guard itself is NOT enforced here: a plain read-then-write (count
-    // active, then write if > 1) can't actually prevent two different admins from being disabled
-    // concurrently, since each disable touches a different row and neither blocks the other's
-    // count query. `setStatusGuardingLastActive` re-checks the count atomically, inside the same
-    // transaction as the write, guarded by an advisory lock that serializes every concurrent
-    // status change. This `findStatusById` above stays only for the fast, friendly 404/409s.
+    // The last-active-admin guard is NOT enforced here: read-then-write can't stop two admins being
+    // disabled concurrently. `setStatusGuardingLastActive` re-checks atomically under an advisory lock;
+    // `findStatusById` above only serves the fast, friendly 404/409s.
     const nextStatus = enabled ? PlatformAdminStatus.ACTIVE : PlatformAdminStatus.DISABLED;
     const result = await this.platformAdminDbService.setStatusGuardingLastActive({
       id: targetAdminId,
@@ -397,9 +333,7 @@ export class AdminSettingsService {
       targetEmail: result.email,
     });
 
-    // Reuses the roster DTO shape the Members tab already renders (id/email/status), so the client
-    // can swap the row in place without a refetch. `invitedAt`/`expiresAt` are not meaningful for a
-    // status change and are surfaced as the admin's own timestamps by `listInvites` anyway.
+    // Same roster DTO shape the Members tab renders, so the client can swap the row without a refetch.
     return {
       admin: AdminInviteResponseDto.from({
         id: result.id,
@@ -414,24 +348,10 @@ export class AdminSettingsService {
   }
 
   /**
-   * Partial by design (see `UpdatePlatformSettingsDto`) — only the fields the caller actually
-   * sent are forwarded to the DB service. `exactOptionalPropertyTypes` means an omitted DTO field
-   * must not appear in the patch object at all (an explicit `undefined` value is a type error and,
-   * were it not, would reach Drizzle's `.set()` as a real key), so this is built up field by field
-   * rather than spread directly from `dto`.
-   *
-   * Rejects a patch that would leave `ssoLoginEnabled`/`passwordLoginEnabled`/`socialLoginEnabled`
-   * all false — a tenant with zero working sign-in methods is a real outage, not just a UX gap.
-   * The same invariant is also a DB-level CHECK constraint (`platform_settings_at_least_one_method_check`)
-   * as defense-in-depth against a future write path that skips this service; this check exists
-   * mainly to answer with a clean 400 instead of a raw Postgres constraint-violation 500. Note
-   * this has nothing to do with *admin* login specifically — a platform admin's own password
-   * field on `/login` is unconditional regardless of what this table says (see `LoginView`'s own
-   * comment), since admins have no SSO identity to fall back on at all yet.
-   *
-   * `admin.id` — not part of `patch` — is threaded through to `update()` so
-   * `platform_settings.updated_by_platform_admin_id` always reflects whoever is actually calling,
-   * rather than trusting a caller-supplied value for who made the change.
+   * Only fields the caller sent are forwarded: with `exactOptionalPropertyTypes` an omitted field must be
+   * absent from the patch, not `undefined` (which would reach Drizzle's `.set()` as a real key).
+   * Rejects a patch leaving every sign-in method false (also a DB CHECK) to answer 400 instead of a Postgres 500.
+   * `admin.id` is used for `updated_by_platform_admin_id` rather than any caller-supplied value.
    */
   async updatePlatformSettings(
     actor: AuthUser,
@@ -459,25 +379,11 @@ export class AdminSettingsService {
       throw new PlatformSettingsNoMethodEnabledException();
     }
 
-    // Third guard of the same family as the two above and `setAdminStatus`'s own: refuse a change
-    // that would lock a platform admin out of the console.
-    //
-    // An admin who accepted their invite through Google has no `password_hash` at all (see
-    // `AuthService.completeAdminInviteGoogle`), so `socialLoginEnabled` — which is what decides
-    // whether the login screen offers a Google button — is the *only* thing standing between them
-    // and no way in. There is no admin equivalent of the tenant `set-password` flow for them to
-    // add a password with, and `changePassword` above requires a current password they don't have,
-    // so the lockout would only be escapable by another admin turning this back on.
-    //
-    // Scoped to the transition, not the resulting state: re-asserting `false` when it is already
-    // off changes nothing, and answering 400 to a no-op would be surprising. (An admin stranded
-    // by that pre-existing state is recovered the same way — turn it back on.)
-    //
-    // Read-then-write, like the sign-in-methods check above: an invite accepted through Google in
-    // the window between this count and the UPDATE would slip past. Left as a documented race
-    // rather than locked down — unlike that check there is no single-table CHECK constraint that
-    // could back it up (the invariant spans `platform_admins` and `platform_admin_identities`),
-    // and the consequence is one admin re-enabling a setting, not data loss.
+    // Lockout guard: a Google-only admin has no `password_hash`, so `socialLoginEnabled` is their only way
+    // in, and they have no way to add a password themselves.
+    // Scoped to the transition: re-asserting an already-off setting is a no-op.
+    // Read-then-write: an invite accepted via Google in between slips past. Accepted race: no single-table
+    // CHECK can back it (it spans two tables) and the cost is an admin re-enabling a setting.
     if (patch.socialLoginEnabled === false && current.socialLoginEnabled) {
       const googleOnlyAdmins = await this.platformAdminDbService.countActiveGoogleOnlyAdmins();
       if (googleOnlyAdmins > 0) {
@@ -487,10 +393,8 @@ export class AdminSettingsService {
       }
     }
 
-    // The check above reads then writes, so two admins each disabling a *different* method can
-    // both pass it against the same `current` and the second UPDATE still trips the CHECK. Mapping
-    // it back to the same 400 keeps the answer identical whether the invariant was caught here or
-    // by the database.
+    // Two admins disabling different methods can both pass the check above; map the CHECK violation
+    // back to the same 400.
     let row;
     try {
       row = await this.platformSettingsDbService.update(patch, admin.id);
@@ -510,16 +414,9 @@ export class AdminSettingsService {
   }
 
   /**
-   * Fire-and-forget, same shape as `AuthService.sendOtpEmail` — the transaction that created this
-   * invite already committed, so a queue-publish failure must not fail the whole request; revoking
-   * and re-sending is the recovery path for "the email never arrived."
-   *
-   * `!isProduction()` (this codebase's one dev/prod gate, since `NODE_ENV` only validates to
-   * `development`/`production` — see `env-config.module.ts`'s Joi schema) additionally logs the
-   * link directly, so the flow is exercisable locally without a working mailbox — the same spirit
-   * as `NoopEmailProvider`, which already logs "would have sent to X" for every non-production
-   * environment. This is a deliberate, explicit `Logger.log` call, not a debug-level payload dump
-   * (see `redactJobSecrets` for why that distinction matters).
+   * Fire-and-forget: the invite transaction already committed, so a publish failure must not fail the
+   * request (revoke and re-send is the recovery). `!isProduction()` also logs the link so the flow works
+   * locally without a mailbox.
    */
   private sendInviteEmail(input: { email: string; rawToken: string }): void {
     const { email, rawToken } = input;
@@ -542,8 +439,7 @@ export class AdminSettingsService {
       .catch(() => undefined);
   }
 
-  /** Same config key `AuthService.otpExpiresAt` reads — one shared TTL for every OTP this app
-   *  mails, tenant or admin. */
+  /** Shared with `AuthService.otpExpiresAt`: one TTL for every OTP. */
   private otpExpiresAt(): Date {
     const ttlMinutes = this.configService.get<number>('VERIFY_EMAIL_OTP_TTL_MINUTES') ?? 10;
     return new Date(Date.now() + ttlMinutes * 60 * 1000);

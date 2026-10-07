@@ -5,8 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { ReviewsTrendPoint } from "@/types/domain";
 
 interface ReviewsTrendCardProps {
-  /** Already bucketed by calendar month and zero-filled by the backend (`GET
-   *  .../statistics/summary`) — oldest first, `monthKey` as `YYYY-MM`. */
+  /** Backend buckets by calendar month and zero-fills; oldest first, `monthKey` as `YYYY-MM`. */
   trend: ReviewsTrendPoint[];
 }
 
@@ -17,8 +16,7 @@ interface MonthBucket {
   repliesSent: number;
 }
 
-/** Same UTC-parsing reasoning as `SignupTrendCard.toMonthBuckets` — the backend already did the
- *  actual bucketing and zero-filling, this is presentation-only. */
+// UTC so a month boundary reads the same for every admin, as in `SignupTrendCard`.
 function toMonthBuckets(trend: ReviewsTrendPoint[]): MonthBucket[] {
   return trend.map((point) => {
     const [year, month] = point.monthKey.split("-").map(Number);
@@ -31,19 +29,14 @@ function toMonthBuckets(trend: ReviewsTrendPoint[]): MonthBucket[] {
   });
 }
 
-/** Two-series version of `SignupTrendCard`'s hand-rolled bar chart — reviews fetched (solid) next
- *  to replies sent (a lighter, offset bar) per month, with its own small legend since a two-series
- *  chart (unlike Signups' single series) needs one to say what each bar color means. */
 export function ReviewsTrendCard({ trend }: ReviewsTrendCardProps) {
   const t = useTranslations("adminStatistics.reviewsTrend");
   const format = useFormatter();
 
   const months = toMonthBuckets(trend);
   const maxCount = Math.max(1, ...months.map((month) => Math.max(month.reviewsFetched, month.repliesSent)));
-  // Both series, not just fetches: the two are bucketed independently (fetches by
-  // `reviews.created_at`, replies by `review_responses.posted_at`), so a window can legitimately
-  // carry replies with no new fetches at all — syncing stalled platform-wide while staff kept
-  // working the backlog. Checking only fetches claimed "nothing to show" and hid the replies.
+  // Check both series: they bucket independently (`created_at` vs `posted_at`), so a window can
+  // have replies with no fetches (sync stalled while staff worked the backlog).
   const hasAnyActivity = months.some(
     (month) => month.reviewsFetched > 0 || month.repliesSent > 0,
   );

@@ -54,8 +54,7 @@ export class DevToolsController {
       { name: 'API Docs', url: this.apiDocsUrl, icon: 'swagger.png' },
     ];
 
-    // Bull Board only exists in 'local' mode (BullMQ); in 'aws' mode, queue visibility comes from
-    // the SQS Queues panel below instead — see QueueTransportModule/docker-compose.floci.yml.
+    // Bull Board only exists in 'local' (BullMQ) mode; 'aws' mode uses the SQS Queues panel.
     if (this.isAws) {
       tools.push({
         name: 'SQS Queues',
@@ -73,10 +72,8 @@ export class DevToolsController {
     });
   }
 
-  // Uses @Res() + manual res.render() rather than @Render(), like showTools() above — the
-  // globally-registered TransformInterceptor (see app.module.ts) wraps every other handler's
-  // return value in an ApiResponse envelope, which would bury `isAws`/`queues` one level deeper
-  // than the pug template's top-level locals expect.
+  // @Res() + res.render() rather than @Render(): the global TransformInterceptor would wrap the
+  // locals in an ApiResponse envelope the pug template doesn't expect.
   @Get(RouteNames.DEV_TOOLS_QUEUES)
   @ApiExcludeEndpoint()
   async showQueues(@Res() res: Response): Promise<void> {

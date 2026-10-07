@@ -4,24 +4,16 @@ export interface DefaultPrompt {
   category: PromptCategory;
   name: string;
   description: string;
-  /** The v1 template. Must satisfy `findMissingRequiredPromptPlaceholders` — there is a test for it. */
+  /** Must satisfy `findMissingRequiredPromptPlaceholders` (tested). */
   template: string;
 }
 
 /**
- * What every new tenant starts with, written into `prompts` + `prompt_versions` inside the
- * email-verification transaction (`AuthDbService.provisionTenantWorkspace`) — not at signup, since
- * a `pending_verification` tenant may never activate.
- *
- * Deliberately a TypeScript constant rather than a migration. A migration runs once against a
- * database, so a tenant created afterwards would get nothing — which is exactly the gap this
- * closes. Keeping the copy here also means changing a default is an ordinary reviewable code
- * change, and the templates can be type-checked and tested against the placeholder allowlist,
- * which a SQL string literal never can be.
- *
- * This is the only copy. An earlier dev-seed migration carried its own duplicate, because the
- * owner it created was `active` from birth and so never reached `verifyEmail` — that seed now
- * creates only a root platform admin, which has no tenant and therefore needs no prompts.
+ * Written into `prompts` + `prompt_versions` in the email-verification transaction
+ * (`AuthDbService.provisionTenantWorkspace`), not at signup, since a `pending_verification` tenant
+ * may never activate. A TypeScript constant rather than a migration: a migration runs once, so
+ * later tenants would get nothing, and a constant can be type-checked and tested against the
+ * placeholder allowlist.
  */
 export const DEFAULT_PROMPTS: readonly DefaultPrompt[] = [
   {
@@ -63,5 +55,5 @@ Apologize sincerely without being defensive, briefly acknowledge the specific is
   },
 ];
 
-/** The tone every provisioned prompt starts on — matches `prompts.tone`'s own column default. */
+/** Matches `prompts.tone`'s column default. */
 export const DEFAULT_PROMPT_TONE: PromptTone = 'professional';

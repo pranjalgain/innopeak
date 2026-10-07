@@ -13,11 +13,8 @@ import type { RecentEscalatedDto } from './dto/recent-escalated.dto';
 import { ApiDashboardMetrics, ApiDashboardRecentEscalated } from './swagger/dashboard.swagger';
 
 /**
- * Read-only analytics for the dashboard's stat cards, rating chart and attention list.
- *
- * Every service method narrows to `requireTenantUser()`. The tenant is never accepted as a
- * parameter: these endpoints return reviewer names and review bodies, so a client-supplied
- * tenant id would let any authenticated user read another business's reviews.
+ * Every service method narrows to `requireTenantUser()`; the tenant is never a parameter, since a
+ * client-supplied id would expose another business's reviewer names and review bodies.
  */
 @Controller({ path: RouteNames.DASHBOARD, version: '1' })
 @ApiTags('Dashboard')

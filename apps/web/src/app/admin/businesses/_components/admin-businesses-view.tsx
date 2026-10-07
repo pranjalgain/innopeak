@@ -64,9 +64,7 @@ function AdminBusinessesNoResults({ onClearSearch }: { onClearSearch: () => void
   );
 }
 
-/** A plain, static countdown date — `erasureRequestedAt + ERASURE_GRACE_PERIOD_DAYS`, formatted
- *  the same way every other timestamp on this screen already is. No live ticking timer, no
- *  polling — same convention as `members-settings-section.tsx`'s own pending-removal note. */
+/** Static countdown date (`erasureRequestedAt + ERASURE_GRACE_PERIOD_DAYS`); no live timer or polling. */
 function ErasurePendingNote({ erasureRequestedAt }: { erasureRequestedAt: string }) {
   const t = useTranslations("adminBusinesses");
   const format = useFormatter();
@@ -100,12 +98,9 @@ function BusinessActionsMenu({
 }: BusinessActionsMenuProps) {
   const t = useTranslations("adminBusinesses");
 
-  // Erased is terminal — nothing left to do with this row.
   if (business.status === "erased") return null;
 
-  // A pending erasure supersedes the ordinary suspend/reactivate action entirely: the only thing
-  // left to do with this row is cancel it, same mutual-exclusivity the tenant Settings > Members
-  // screen already uses for a pending member removal.
+  // A pending erasure supersedes suspend/reactivate: the only action left is cancelling it.
   if (business.erasureRequestedAt) {
     return (
       <RowActionsMenu
@@ -207,10 +202,8 @@ export function AdminBusinessesView() {
         )
       ) : (
         <>
-          {/* Desktop layout, `table-fixed` at `min-w-[820px]`. Held back to `xl:` (not `lg:`): at
-              `lg:` the icon-rail sidebar still only leaves ~715px of content width — less than
-              the table needs — which forced a horizontal scrollbar on every `lg:` screen. `xl:`
-              is the first breakpoint with enough room (~964px) to render it without one. */}
+          {/* `xl:`, not `lg:`: at `lg:` the icon-rail sidebar leaves ~715px, less than the table's `min-w-[820px]`, forcing a
+              horizontal scrollbar; `xl:` has ~964px. */}
           <div className="hidden overflow-hidden rounded-xl border border-border bg-card shadow-elevated xl:block">
             <Table className="min-w-[820px] table-fixed">
               <TableHeader>
@@ -226,9 +219,7 @@ export function AdminBusinessesView() {
               <TableBody>
                 <AnimatePresence initial={false}>
                   {pageItems.map((business) => (
-                    // Plain `motion.tr` rather than `motion.create(TableRow)` — `TableRow` doesn't
-                    // forward a ref, which Motion needs to apply layout transforms, so this inlines
-                    // that primitive's own row styling instead of wrapping it.
+                    // Plain `motion.tr`: `TableRow` does not forward a ref, which Motion needs for layout transforms, so its row styling is inlined.
                     <motion.tr
                       key={business.id}
                       layout
@@ -268,7 +259,7 @@ export function AdminBusinessesView() {
             </Table>
           </div>
 
-          {/* Tablet/mobile layout — stacked cards, same pattern as `ReviewCardList`. */}
+          {/* Stacked cards below `xl:`. */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:hidden">
             <AnimatePresence initial={false}>
               {pageItems.map((business) => (

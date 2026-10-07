@@ -22,13 +22,11 @@ import type { PlatformActivityEntry } from "@/types/domain";
 
 interface ActivityLogCardProps {
   entries: PlatformActivityEntry[];
-  /** Shows a "view all" link to the dedicated Activity page — omitted when this card is already
-   *  rendered there (the Platform activity tab), where linking to itself would be redundant. */
+  /** Omitted when already rendered on the Activity page itself. */
   viewAllHref?: Route;
 }
 
-/** Exported for `PlatformActivityLogCard` (the dedicated Activity page's paginated view) to reuse
- *  — same icon/color language for the same entry types, not a separate palette to keep in sync. */
+/** Exported so `PlatformActivityLogCard` shares the same icon/color language. */
 export const TYPE_ICON: Record<
   PlatformActivityEntry["type"],
   ComponentType<{ className?: string }>

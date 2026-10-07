@@ -21,8 +21,7 @@ import type { AdminBusiness, PlatformActivityEntry, SignupTrendPoint } from "@/t
 /** How many months `SignupTrendCard` shows, counting back from the current one. */
 const SIGNUP_TREND_MONTHS = 6;
 
-/** Matches `RecentBusinessesCard`'s own display count — the merge with the activity feed now
- *  happens server-side, so this list no longer needs headroom beyond what the card itself shows. */
+/** Matches `RecentBusinessesCard`'s display count. */
 const RECENT_BUSINESSES_LIMIT = 3;
 
 /** How many rows `NeedsAttentionPanel` shows — matches the backend's own default. */
@@ -35,16 +34,11 @@ interface UseAdminOverviewResult {
   totalRepliesSent: number;
   /** The newest businesses, newest first — feeds `RecentBusinessesCard`. */
   recentBusinesses: AdminBusiness[];
-  /** Non-connected businesses, most urgent first, already capped — an empty array means nothing
-   *  needs attention right now, which is also what the parent view uses to decide whether to
-   *  reserve layout space for the panel. */
+  /** Non-connected businesses, most urgent first, already capped; empty means nothing needs attention. */
   needsAttention: AdminBusiness[];
-  /** Tenant signups bucketed by month over the trailing `SIGNUP_TREND_MONTHS` months — already
-   *  zero-filled by the backend, so `SignupTrendCard` only has to render it. */
+  /** Tenant signups by month over the trailing `SIGNUP_TREND_MONTHS`, already zero-filled by the backend. */
   signupTrend: SignupTrendPoint[];
-  /** The admin-action log merged with synthesized "business joined" entries — the merge now
-   *  happens server-side (`AdminOverviewService.getRecentActivity`), so this is exactly what
-   *  `AdminActivityService.getRecentActivity()` returns, no client-side merge needed. */
+  /** Admin-action log merged server-side with synthesized "business joined" entries. */
   activityFeed: PlatformActivityEntry[];
   isLoading: boolean;
   /** Distinct from "loaded, but empty" — every panel needs to tell an outage from a quiet platform. */
@@ -53,8 +47,7 @@ interface UseAdminOverviewResult {
   refetch: () => void;
 }
 
-/** Aggregates the Super Admin overview page's five independent queries — one per panel, each
- *  already shaped server-side for what that panel actually needs, rather than one wide fetch. */
+/** Aggregates the overview page's five independent queries, one per panel. */
 export function useAdminOverview(): UseAdminOverviewResult {
   const t = useTranslations("adminOverview.toasts");
 
@@ -86,10 +79,7 @@ export function useAdminOverview(): UseAdminOverviewResult {
     signupTrendQuery.isLoading ||
     activityQuery.isLoading;
 
-  // A single combined flag rather than one effect per query: the original only ever showed one
-  // toast for the whole aggregate (`Promise.all` rejects — and its `.catch` runs — at most once),
-  // and gating on the combined boolean (instead of each query's own `isError`) keeps that same
-  // "fires once" behavior instead of one toast per failing source.
+  // A single combined flag so the aggregate shows one toast, not one per failing query.
   const isAnyError =
     needsAttentionQuery.isError ||
     statsQuery.isError ||

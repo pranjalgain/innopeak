@@ -16,6 +16,8 @@ const PG_ERROR_MAP: Record<string, { status: HttpStatus; message: string }> = {
   '22003': { status: HttpStatus.BAD_REQUEST, message: 'Numeric value out of range' },
   '22007': { status: HttpStatus.BAD_REQUEST, message: 'Invalid datetime format' },
   '22P02': { status: HttpStatus.BAD_REQUEST, message: 'Invalid text representation' },
+  // A NUL byte in a text value — the one UTF-8 sequence Postgres refuses outright.
+  '22021': { status: HttpStatus.BAD_REQUEST, message: 'Invalid character sequence' },
   '42P01': { status: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Table or view not found' },
   '42703': { status: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Column not found' },
   '42601': { status: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Syntax error in query' },
@@ -32,7 +34,7 @@ const PG_ERROR_MAP: Record<string, { status: HttpStatus; message: string }> = {
   '57014': { status: HttpStatus.REQUEST_TIMEOUT, message: 'Query timeout — statement cancelled' },
 };
 
-/** Duck-typed shape of an error thrown by the `pg` driver (it doesn't export a typed error class). */
+/** Duck-typed: `pg` doesn't export a typed error class. */
 interface PostgresError extends Error {
   code: string;
   severity: string;
@@ -41,11 +43,7 @@ interface PostgresError extends Error {
   column?: string;
 }
 
-/**
- * Shape shared by axios-style HTTP client errors and Passport social-auth
- * strategy errors — both carry an optional `response` payload from the
- * upstream service.
- */
+/** Shape shared by axios-style HTTP client errors and Passport social-auth strategy errors. */
 interface ResponseCarryingError extends Error {
   response?: {
     status?: number;
@@ -54,12 +52,7 @@ interface ResponseCarryingError extends Error {
   };
 }
 
-/**
- * Shape of an error from the `http-errors` package — what Express's body-parser throws for an
- * oversized body (`413`, `type: 'entity.too.large'`), malformed JSON (`400`), an unsupported
- * charset (`415`), etc. These are raised by middleware *before* Nest's pipeline, so they arrive
- * as plain Errors, not `HttpException`s; without recognising them every one surfaced as a 500.
- */
+/** Error from `http-errors` (e.g. body-parser's 413/400/415), raised before Nest's pipeline so it arrives as a plain Error, not an `HttpException`. */
 interface HttpClientError extends Error {
   statusCode: number;
   expose: boolean;
@@ -70,8 +63,9 @@ export class ErrorHandlerService {
   constructor(private readonly logger: LoggerService) {}
 
   handleError(error: unknown, context: string): ApiResponse<null> {
-    if (this.isPostgresError(error)) {
-      return this.handlePgError(error, context);
+    const pgError = this.findPostgresError(error);
+    if (pgError) {
+      return this.handlePgError(pgError, context);
     }
 
     if (error instanceof HttpException) {
@@ -89,6 +83,18 @@ export class ErrorHandlerService {
     return this.handleUnhandledError(error, context);
   }
 
+  /** Drizzle wraps the driver's `DatabaseError` in `DrizzleQueryError` with the original on `.cause`, so walk the chain (same depth as `pg-error.util`). */
+  private findPostgresError(error: unknown): PostgresError | undefined {
+    let current: unknown = error;
+    for (let depth = 0; depth < 3 && current !== null && current !== undefined; depth++) {
+      if (this.isPostgresError(current)) {
+        return current;
+      }
+      current = (current as { cause?: unknown }).cause;
+    }
+    return undefined;
+  }
+
   private isPostgresError(error: unknown): error is PostgresError {
     if (!(error instanceof Error)) {
       return false;
@@ -101,7 +107,7 @@ export class ErrorHandlerService {
     );
   }
 
-  /** Only 4xx with `expose: true` — that's `http-errors`' own contract for "safe to show the client"; a 5xx-shaped one still goes through the generic path and gets logged as unhandled. */
+  /** Only 4xx with `expose: true` (`http-errors`' contract for "safe to show"); a 5xx still goes through the generic path and is logged as unhandled. */
   private isHttpClientError(error: unknown): error is HttpClientError {
     if (!(error instanceof Error)) {
       return false;
@@ -137,10 +143,7 @@ export class ErrorHandlerService {
   private handlePgError(error: PostgresError, context: string): ApiResponse<null> {
     const mapped = PG_ERROR_MAP[error.code];
 
-    // Postgres's own `detail`/`table`/`column` can name real schema internals (and `detail`
-    // sometimes echoes literal row values) — never sent to a client in production. The full
-    // detail is still available to on-call: `HttpExceptionFilter.catch` logs `exception.message`
-    // and the stack unconditionally, before this method ever runs.
+    // `detail`/`table`/`column` can expose schema internals and literal row values, so never sent to clients in production; `HttpExceptionFilter.catch` already logs the full detail.
     if (mapped) {
       if (isProduction()) {
         return this.createErrorResponse(mapped.status, mapped.message, context, error);
@@ -167,23 +170,12 @@ export class ErrorHandlerService {
   private handleHttpException(error: HttpException, context: string): ApiResponse<null> {
     const status = error.getStatus();
     const message = error.message;
-    // Logged in English regardless of the request's locale — these lines are for on-call/ops
-    // reading the server's own logs, not the client the response eventually reaches. `message`
-    // itself (returned below, unrendered) stays a locale-agnostic key: HttpExceptionFilter is
-    // what renders it into the client's resolved locale, right before the response is sent.
+    // Logged in English regardless of locale (for on-call); `message` stays a locale-agnostic key that `HttpExceptionFilter` renders.
     this.logger.warn(`${error.name} in ${context}: ${renderMessage(message, 'en')}`, error.stack);
     return this.createErrorResponse(status, message, context, error, null, this.extractCode(error));
   }
 
-  /**
-   * An explicit machine-readable code from `new ConflictException({ message, code })`.
-   *
-   * Without it, `error` is derived from the status name alone, so two different 409s — say
-   * CONNECTION_NEEDS_REAUTH (send the owner back through consent) and LOCATION_LIMIT_REACHED
-   * (nothing to re-consent, the tenant already has a location) — are both just "Conflict", and the
-   * only thing left to branch on is the human-readable message string. Purely additive: nothing
-   * that throws a plain string message is affected.
-   */
+  /** An explicit machine-readable code from `new ConflictException({ message, code })`; without it two different 409s are both just "Conflict" and clients can only branch on message text. */
   private extractCode(error: HttpException): string | undefined {
     const response = error.getResponse();
 
@@ -201,9 +193,7 @@ export class ErrorHandlerService {
   }
 
   private handleSocialAuthError(error: ResponseCarryingError, context: string): ApiResponse<null> {
-    // The raw message here is an upstream OAuth/social-auth provider's own wording — never vetted
-    // as client-safe, and never sent to a client in production. Full detail (including the
-    // upstream response body, logged just below) stays available to on-call regardless.
+    // An upstream OAuth provider's wording is unvetted as client-safe, so never sent in production; full detail stays logged.
     if (error.response) {
       this.logger.error(
         `Social auth API error in ${context}: ${JSON.stringify(error.response.data)}`,
@@ -227,10 +217,7 @@ export class ErrorHandlerService {
 
   private handleUnhandledError(error: unknown, context: string): ApiResponse<null> {
     const message = this.extractMessage(error);
-    // Logged in English regardless of the request's locale, same reasoning as
-    // `handleHttpException` above — `message` may now be a tagged `MESSAGES.*` key rather than
-    // literal English, since DB Services/Repositories throw through the message catalog like
-    // everywhere else in this codebase, and an unrendered tag in the log is useless to on-call.
+    // Logged in English regardless of locale, as in `handleHttpException`: `message` may be a tagged `MESSAGES.*` key, useless to on-call unrendered.
     this.logger.error(
       `Unhandled error in ${context}: ${message ? renderMessage(message, 'en') : 'Unknown error'}`,
       this.extractStack(error)
@@ -244,9 +231,7 @@ export class ErrorHandlerService {
       );
     }
     if (isProduction()) {
-      // A raw Error's message here is internal detail — a DB invariant, a stack-trace fragment,
-      // a third-party library's own wording — never vetted as safe to show a real client. It's
-      // already logged in full above for whoever's on call; production never echoes it back.
+      // A raw Error's message is internal detail (DB invariant, stack fragment, library wording), never vetted as client-safe; already logged above.
       return this.createErrorResponse(
         HttpStatus.INTERNAL_SERVER_ERROR,
         MESSAGES.COMMON.INTERNAL_ERROR,
@@ -315,16 +300,9 @@ export class ErrorHandlerService {
   }
 
   /**
-   * A validation failure reaches the user verbatim (the web client shows any 4xx message as-is), so
-   * each one is normalized into a sentence before the list is joined.
-   *
-   * Three things happen: a nested-DTO field prefix is dropped (`password.too short` → `too
-   * short`), the first letter is capitalized, and terminal punctuation is added. Joining with a
-   * space rather than a comma follows from that — comma-joining strings that already end in a
-   * period reads as "…characters., Password must…".
-   *
-   * The prefix strip is skipped when it would empty the message, so a legitimately single-word
-   * message like `Required.` survives.
+   * A validation failure reaches the user verbatim, so each message is normalized into a sentence: nested-DTO field
+   * prefix dropped, first letter capitalized, terminal punctuation added. Joined with a space, not a comma
+   * ("…characters., Password must…"). The prefix strip is skipped when it would empty the message (`Required.`).
    */
   private toSentence(message: string): string {
     const withoutPrefix = message.replace(/^[a-zA-Z0-9_.]+?\./, '');
@@ -352,10 +330,7 @@ export class ErrorHandlerService {
     }
 
     const message = this.extractMessage(error) ?? responseMessage ?? 'Bad request.';
-    // Same `new XException({ message, code })` convention `handleHttpException` already reads for
-    // 409s (see `extractCode`'s own doc comment) — this path just never called it, so a
-    // BadRequestException built that way silently lost its code. Purely additive: a plain-string
-    // BadRequestException (the common case) still resolves to `undefined` here, same as before.
+    // Same `{ message, code }` convention as `handleHttpException`, so a coded BadRequestException keeps its code (undefined for plain strings).
     const code = error instanceof HttpException ? this.extractCode(error) : undefined;
 
     return this.createErrorResponse(
@@ -387,7 +362,16 @@ export class ErrorHandlerService {
         error
       );
     }
-    return this.createErrorResponse(HttpStatus.FORBIDDEN, message ?? 'Forbidden.', context, error);
+    // Same `{ message, code }` convention: without it a 403 like `TENANT_SUSPENDED` reaches the client as a bare "Forbidden".
+    const code = error instanceof HttpException ? this.extractCode(error) : undefined;
+    return this.createErrorResponse(
+      HttpStatus.FORBIDDEN,
+      message ?? 'Forbidden.',
+      context,
+      error,
+      null,
+      code
+    );
   }
 
   handleNotFound(error: unknown, context: string): ApiResponse<null> {

@@ -9,17 +9,11 @@ import { AdminOverviewView } from "@/app/admin/_components/admin-overview-view";
 import { AdminStatisticsView } from "@/app/admin/_components/admin-statistics-view";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-/** Both tabs are read-only platform-analytics views of the same underlying data (Overview's four
- *  headline cards vs. Statistics' deeper trend/breakdown charts) — the same "quick glance vs.
- *  drill in" task, so they live under one URL as tabs rather than as separate top-level nav items.
- *  Businesses/Users/Billing stay separate: those are resource-management screens with their own
- *  filters and actions, a different task shape than a dashboard. */
+// Overview and Statistics are one "glance vs. drill in" task, so they share a URL as tabs rather
+// than separate nav items; Businesses/Users/Billing are resource-management screens.
 const TABS = ["overview", "statistics"] as const;
 
-/** Same URL-controlled-tabs pattern as `AdminSettingsView` — see that component's own doc comment
- *  for why the URL, not local state, has to be the single source of truth (a `?tab=` link clicked
- *  while already on this page needs the already-mounted `Tabs` to actually react). `replace`, not
- *  `push`, so switching tabs doesn't pollute Back history. */
+/** The URL, not local state, drives the tab so a `?tab=` link clicked on this page reacts; `replace` keeps Back history clean. */
 export function AdminDashboardView() {
   const t = useTranslations("adminOverview.tabs");
   const searchParams = useSearchParams();
@@ -34,8 +28,7 @@ export function AdminDashboardView() {
 
   const handleTabChange = useCallback(
     (value: string) => {
-      // Same narrow-cast reasoning as `AdminSettingsView.handleTabChange` — `pathname` is this
-      // component's own route and `value` only ever comes from `TabsTrigger`s built from TABS.
+      // Cast is safe: `pathname` is this route and `value` comes from TABS triggers.
       router.replace(`${pathname}?tab=${value}` as Route, { scroll: false });
     },
     [router, pathname],

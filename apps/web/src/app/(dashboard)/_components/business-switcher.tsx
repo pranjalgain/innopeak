@@ -13,13 +13,8 @@ import {
 import { useBusinessSwitcher } from "@/hooks/connections/use-business-switcher";
 
 /**
- * Only renders once there is something to switch *between* — a single-location tenant (still the
- * common case) has no decision to make, and a dropdown with exactly one option reads as broken UI
- * rather than a real choice. Mirrors `ConfirmLocationStage`'s own single-location fallback.
- *
- * `tenants.active_location_id` is one shared value for the whole tenant, so every member sees the
- * same selection here — this isn't a personal "which store am I looking at" toggle, it's changing
- * what the whole team's Dashboard/Review Queue currently shows.
+ * Hidden for a single-location tenant: a one-option dropdown reads as broken UI. The selection is
+ * shared by the whole tenant (`tenants.active_location_id`), not a personal toggle.
  */
 export function BusinessSwitcher() {
   const t = useTranslations("businessSwitcher");

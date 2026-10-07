@@ -8,16 +8,8 @@ export interface OnboardingContext {
 }
 
 /**
- * Carries "you are still inside the signup wizard" across the OAuth round trip.
- *
- * sessionStorage rather than a query param because the backend's callback redirects to a *fixed*
- * path and drops anything the client appended — the browser leaves for Google carrying our params
- * and comes back carrying Google's. sessionStorage rather than localStorage because this is
- * per-tab, single-run state: a second tab is a different run, and it must not outlive the browser
- * session.
- *
- * It holds no credential and nothing security-relevant — only which stepper to draw. A tampered
- * value shows the wrong step count, nothing more.
+ * sessionStorage, not a query param (the backend callback redirects to a fixed path and drops params) and not localStorage
+ * (per-tab, single-run state). Holds no credential: a tampered value only changes which stepper is drawn.
  */
 export class OnboardingContextService {
   static set(context: OnboardingContext): void {

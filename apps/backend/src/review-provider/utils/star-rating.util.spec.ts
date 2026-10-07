@@ -13,9 +13,7 @@ describe('starRatingToInt', () => {
     expect(starRatingToInt(word)).toBe(expected);
   });
 
-  // The whole reason this function throws instead of returning a number: 0 satisfies TypeScript,
-  // fails `reviews_rating_check` deep inside a batch insert, and until then reads as a 0-star
-  // review that every escalation rule fires on.
+  // A 0 would pass TypeScript, then fail `reviews_rating_check` deep in a batch insert, and read as a 0-star review that trips every escalation rule.
   it('throws on STAR_RATING_UNSPECIFIED rather than returning 0', () => {
     expect(() => starRatingToInt('STAR_RATING_UNSPECIFIED')).toThrow(ProviderMappingError);
   });

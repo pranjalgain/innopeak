@@ -1,11 +1,7 @@
 /**
- * The shared shape both `messages.en.ts` and `messages.de.ts` are typed against. Deliberately an
- * explicit interface, not `typeof messagesEn`: typing `messagesDe: MessageCatalog = {...}` against
- * an interface makes a missing key, an extra key, or a mismatched interpolating-function signature
- * a compile error in the German file itself — the property the multilingual design doc asks for
- * ("a missing or extra German key is a compile error rather than a runtime fallback"). Typing it
- * against `typeof messagesEn` instead would need `messagesEn`'s literal string types widened
- * everywhere first, and would point the error at the wrong file besides.
+ * An explicit interface, not `typeof messagesEn`, so a missing/extra key or mismatched function
+ * signature is a compile error in the German file itself (`typeof messagesEn` would need its
+ * literal types widened and would blame the wrong file).
  */
 export interface MessageCatalog {
   AUTH: {
@@ -28,45 +24,34 @@ export interface MessageCatalog {
     PASSWORD_CHANGED: string;
     PASSWORD_SET: string;
     SET_PASSWORD_OTP_ACK: string;
+    BUSINESS_NAME_MISMATCH: string;
+    PASSWORD_REQUIRED_TO_DELETE: string;
+    DELETE_ACCOUNT_OTP_ACK: string;
+    ACCOUNT_DELETION_NOT_POSSIBLE: string;
+    ACCOUNT_DELETION_SCHEDULED: string;
+    ACCOUNT_SCHEDULED_FOR_DELETION: (date: string) => string;
+    ACCOUNT_RESTORED: string;
     LOCALE_UPDATED: string;
     AVATAR_UPDATED: string;
     TENANT_ONLY: string;
     GOOGLE_NOT_CONFIGURED: string;
     GOOGLE_PENDING_SIGNUP_EXPIRED: string;
     TENANT_CONTEXT_REQUIRED: string;
-    /** Same message for a token that never existed, was already used, or has expired — see
-     *  Security considerations (no enumeration). Covers the password and Google accept paths for
-     *  both the platform-admin and tenant-member invite flows — the same generic wording applies
-     *  to either. */
+    /** One message for never-existed, used, or expired tokens (no enumeration), across all invite accept paths. */
     INVALID_OR_EXPIRED_INVITE: string;
-    /** Shared by `PlatformAdminAuthService.acceptAdminInvite` and `AuthService.acceptMemberInvite`. */
     INVITE_ACCEPTED: string;
-    /** `AuthRepository.createTenant` — the insert affected no rows. Should never happen (no
-     *  conflicting unique constraint on this path); a should-never-happen invariant guard. */
+    /** Invariant guards: the insert affected no rows, which should never happen. */
     FAILED_TO_CREATE_TENANT: string;
-    /** `AuthRepository.createUser`/`createUserWithGoogleIdentity` — the insert affected no rows.
-     *  Same should-never-happen shape as `FAILED_TO_CREATE_TENANT`. */
     FAILED_TO_CREATE_USER: string;
-    /** `AuthRepository.createInvitedMember` — the insert affected no rows. */
     FAILED_TO_CREATE_INVITED_MEMBER: string;
   };
   MEDIA: {
-    /** `StorageProvider.verifyUpload` returned `{ ok: false, reason: 'notFound' }` — the confirmed
-     *  asset doesn't exist, or isn't in the expected folder. Deliberately generic: the specific
-     *  reason is logged server-side, not handed to the client, since either is equally likely to
-     *  be a client bug or someone probing the confirm endpoint with a made-up id. */
+    /** Deliberately generic (asset missing or outside the expected folder): the reason is only logged, since it may be someone probing the confirm endpoint with made-up ids. */
     UPLOAD_NOT_VERIFIED: string;
-    /** `StorageProvider.verifyUpload` returned `{ ok: false, reason: 'unsupportedFormat' }` — a
-     *  real, freshly-uploaded asset whose format this app just doesn't persist avatars as. Safe to
-     *  name specifically (unlike `UPLOAD_NOT_VERIFIED`): reaching this branch already requires a
-     *  real asset the caller itself just uploaded through its own signed authorization, so this
-     *  tells a legitimate user something actionable rather than helping anyone probe for valid ids. */
+    /** Safe to be specific (unlike `UPLOAD_NOT_VERIFIED`): reaching it requires a real asset the caller just uploaded under its own signed authorization. */
     UNSUPPORTED_FORMAT: string;
-    /** `StorageProvider.verifyUpload` returned `{ ok: false, reason: 'tooLarge' }` — a real,
-     *  in-folder asset that exceeds the size cap. Safe to name specifically for the same reason as
-     *  `UNSUPPORTED_FORMAT`, and just as actionable: the fix is a smaller file. */
+    /** Specific for the same reason as `UNSUPPORTED_FORMAT`. */
     FILE_TOO_LARGE: string;
-    /** `MediaRepository.persistAvatar` — the upsert affected no rows. */
     FAILED_TO_PERSIST_AVATAR: string;
   };
   NOTIFICATIONS: {
@@ -88,9 +73,7 @@ export interface MessageCatalog {
     LOCATION_CONFIRMED: string;
     LOCATION_INACTIVE: string;
     ACTIVE_LOCATION_UPDATED: string;
-    /** `ConnectionsRepository.upsertConnection` — the upsert affected no rows. */
     FAILED_TO_UPSERT_CONNECTION: string;
-    /** `ConnectionsRepository.upsertLocation` — the upsert affected no rows. */
     FAILED_TO_UPSERT_LOCATION: string;
   };
   DASHBOARD: {
@@ -99,47 +82,29 @@ export interface MessageCatalog {
   REVIEWS: {
     REVIEW_NOT_FOUND: string;
     TENANT_ONLY: string;
-    /** `ReviewSyncRepository.acquireSyncRun` — the insert affected no rows. */
     FAILED_TO_ACQUIRE_SYNC_RUN: string;
-    /** `ReviewSyncRepository.upsertReview` — the upsert affected no rows. */
     FAILED_TO_UPSERT_REVIEW: string;
-    /** `ReviewSyncRepository.insertGeneratedResponse` — the insert affected no rows for the given
-     *  review. Kept as an interpolating entry (unlike the other should-never-happen guards in this
-     *  batch) so the specific review id survives into the English-rendered server log even though
-     *  the client-facing copy is generic in production — see `ErrorHandlerService`. */
+    /** Interpolating so the review id survives into the English server log while the client copy stays generic in production (`ErrorHandlerService`). */
     GENERATED_RESPONSE_INSERT_FAILED: (reviewId: string) => string;
-    /** `ReviewsService.approveReply`/`rejectReply` — the response id/reviewId/tenantId combination
-     *  doesn't resolve to a real row. */
     RESPONSE_NOT_FOUND: string;
-    /** The response exists but isn't `pending_approval` (already decided, or raced away by a
-     *  sibling's approval) — a 409, not a 404, since the row is plainly still there. */
+    /** Not `pending_approval` (already decided, or a sibling won); 409 not 404, since the row exists. */
     RESPONSE_NOT_ACTIONABLE: string;
-    /** `idx_review_responses_review_id_live_reply` — this review already has an `approved`/`posted`
-     *  response; a sibling won the same race a moment earlier. */
+    /** `idx_review_responses_review_id_live_reply`: a sibling already won the approve race. */
     RESPONSE_ALREADY_LIVE: string;
     RESPONSE_APPROVED: string;
     RESPONSE_REJECTED: string;
-    /** The response is not at `post_failed` — `retry-post`'s one legal source state. */
+    /** `retry-post` only accepts `post_failed`. */
     RESPONSE_NOT_RETRYABLE: string;
-    /** The response is not at `approved` — the manual `.../responses/:responseId/post` route's
-     *  one legal source state. */
+    /** The manual post route only accepts `approved`. */
     RESPONSE_NOT_POSTABLE: string;
-    /** `idx_review_responses_review_id_live_reply` unique violation on manual-reply/retry-post/
-     *  manual-post — distinct code from `RESPONSE_ALREADY_LIVE` (approve's own) per the documented
-     *  API spec, since the two routes' client copy differs. */
+    /** Same unique violation as `RESPONSE_ALREADY_LIVE` but on manual-reply/retry/post; separate code because client copy differs. */
     REVIEW_ALREADY_HAS_LIVE_REPLY: string;
-    /** Manual reply attempted on a `reviews.status = 'dismissed'` review. */
     REVIEW_ALREADY_DISMISSED: string;
-    /** Manual reply attempted on a review whose `removed_upstream_at` is set — the reviewer
-     *  deleted it on Google, so there is nothing left to reply to. */
+    /** `removed_upstream_at` is set: the reviewer deleted it on Google. */
     REVIEW_REMOVED_UPSTREAM: string;
-    /** The post queue could not be reached — a manual post/retry request, or the `error_message`
-     *  recorded on a response whose automatic post could not be queued. */
     POST_QUEUE_UNAVAILABLE: string;
-    /** Recorded as `error_message` when the worker finds the review removed on Google before
-     *  posting — nothing was sent to Google. */
+    /** Recorded as `error_message`; nothing was sent to Google. */
     POST_FAILED_REVIEW_REMOVED: string;
-    /** `ReviewSyncRepository.insertManualReply` — the insert affected no rows for the given review. */
     MANUAL_REPLY_INSERT_FAILED: (reviewId: string) => string;
     MANUAL_REPLY_CREATED: string;
     RESPONSE_POST_QUEUED: string;
@@ -163,19 +128,13 @@ export interface MessageCatalog {
   AI: {
     TENANT_ONLY: string;
     DRY_RUN_GENERATED: string;
-    /** Every tenant is seeded with all three prompt categories at signup
-     *  (`PromptsDbService.insertDefaultsForTenant`), so this is a data-integrity fallback, not an
-     *  expected path — see `AiReplyGenerationService.resolvePrompt`. */
+    /** Every tenant is seeded with all three categories at signup, so this is a data-integrity fallback. */
     PROMPT_NOT_CONFIGURED: string;
-    /** `OPENROUTER_API_KEY`/`OPENROUTER_MODEL` unset — checked lazily on first call, not at boot.
-     *  See `OpenRouterAiProvider`'s own doc comment for why. */
+    /** `OPENROUTER_API_KEY`/`OPENROUTER_MODEL` unset; checked lazily on first call, not at boot. */
     PROVIDER_NOT_CONFIGURED: string;
-    /** One or more of `AZURE_OPENAI_ENDPOINT`/`AZURE_OPENAI_API_KEY`/`AZURE_OPENAI_DEPLOYMENT`/
-     *  `AZURE_OPENAI_API_VERSION` unset — see `AzureOpenAiProvider`'s own doc comment. Not used
-     *  when `USE_LOCAL_MOCK_SERVER=true`, which needs none of these. */
+    /** An `AZURE_OPENAI_*` setting is unset; not used when `USE_LOCAL_MOCK_SERVER=true`. */
     AZURE_PROVIDER_NOT_CONFIGURED: string;
-    /** `AZURE_OPENAI_REGION` set to anything other than `'westeurope'` — PLAN.md §5 treats this as
-     *  a GDPR requirement, not a preference. */
+    /** A region other than `'westeurope'` is a GDPR violation, not a preference. */
     AZURE_REGION_INVALID: string;
     GENERATION_FAILED: string;
   };
@@ -186,55 +145,34 @@ export interface MessageCatalog {
     PORTAL_SESSION_CREATED: string;
     ACTIVE_LOCATION_UPDATED: string;
     TENANT_ONLY: string;
-    /** The deploy-level `PAYMENT_FEATURE_ENABLED` switch is off — gates the *entry point* only
-     *  (`POST /v1/billing/checkout`); an already-subscribed tenant's existing billing is
-     *  unaffected. See `env.config.ts`'s own doc comment on that env var. */
+    /** `PAYMENT_FEATURE_ENABLED` is off; gates the checkout entry point only. */
     NOT_ENABLED: string;
     PLAN_NOT_FOUND: string;
     SUBSCRIPTION_NOT_FOUND: string;
-    /** `POST /v1/billing/checkout` called while the tenant already has a live Stripe subscription
-     *  — see `AlreadySubscribedException`. */
     ALREADY_SUBSCRIBED: string;
     LOCATION_LIMIT_REACHED: string;
     TEAM_MEMBER_LIMIT_REACHED: string;
     CUSTOM_PROMPTS_NOT_ON_PLAN: string;
-    /** `BillingEntitlementsService.canGenerateAiDraft` — genuinely enforced now:
-     *  `AiReplyGenerationService.generateForClassifiedReviews` (wired into the 15-minute review-sync
-     *  poll) persists an `ai_generated` draft on every success, which is exactly what this count
-     *  tracks (see that method's own doc comment). */
     AI_DRAFT_LIMIT_REACHED: string;
     STRIPE_WEBHOOK_SIGNATURE_INVALID: string;
-    /** `PUT /v1/billing/active-location` named a location that isn't this tenant's own, or is
-     *  `status = 'inactive'` (disconnected). */
     LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION: string;
-    /** `POST /v1/billing/dummy/*` called while `PAYMENT_PROVIDER=stripe`. */
     DUMMY_PROVIDER_NOT_ACTIVE: string;
     RECEIPTS_RETRIEVED: string;
-    /** `GET /v1/billing/receipts/:id/pdf` (or the list) named a receipt that isn't this tenant's
-     *  own, or doesn't exist. */
     RECEIPT_NOT_FOUND: string;
     BILLING_PROFILE_RETRIEVED: string;
     BILLING_PROFILE_UPDATED: string;
     SETUP_INTENT_CREATED: string;
     PAYMENT_METHOD_UPDATED: string;
-    /** In-app card/billing-profile editing is Stripe-only — see `StripeOnlyFeatureException`. */
     STRIPE_ONLY_FEATURE: string;
     CHECKOUT_COMPLETED: string;
     SUBSCRIPTION_CANCELED: string;
-    /** `TenantSubscriptionsRepository.createSubscription` — the insert affected no rows. */
     FAILED_TO_CREATE_SUBSCRIPTION: string;
-    /** `TenantSubscriptionsDbService` — the `free` billing plan row is missing from
-     *  `billing_plans`. Should never happen: that row is seeded by migration. */
+    /** Should never happen: the plan row is seeded by migration. */
     FREE_PLAN_NOT_SEEDED: string;
-    /** Same should-never-happen shape as `FREE_PLAN_NOT_SEEDED`, for the `paid` plan row. */
     PAID_PLAN_NOT_SEEDED: string;
-    /** `BillingWebhooksService.requireSubscriptionByCustomerId` — see
-     *  `StripeWebhookTenantNotFoundException`'s own doc comment for why this is thrown, not
-     *  swallowed. */
     STRIPE_WEBHOOK_TENANT_NOT_FOUND: string;
-    /** `POST /v1/billing/checkout/reconcile`'s `checkoutSessionId` doesn't belong to the
-     *  authenticated tenant. */
     CHECKOUT_SESSION_TENANT_MISMATCH: string;
+    PAYMENT_METHOD_NOT_USABLE: string;
     CHECKOUT_RECONCILED: string;
   };
   SETTINGS: {
@@ -242,32 +180,24 @@ export interface MessageCatalog {
     BLOCKLIST_TERM_CREATED: string;
     BLOCKLIST_TERM_REMOVED: string;
     BLOCKLIST_TERM_EXISTS: string;
+    BLOCKLIST_LIMIT_REACHED: string;
     BLOCKLIST_TERM_NOT_FOUND: string;
     TENANT_ONLY: string;
     RETRIEVED: string;
     UPDATED: string;
     TENANT_SETTINGS_MISSING: string;
-    /** `ReviewPipelineDbService` — no `tenant_settings` row for the given tenant. Distinct from
-     *  `TENANT_SETTINGS_MISSING` (that one is `TenantSettingsMissingException`'s public 404
-     *  wording for a settings-read call): this is an internal should-never-happen invariant, kept
-     *  as an interpolating entry so the specific tenant id survives into the English-rendered
-     *  server log even though the client-facing copy is generic in production — see
-     *  `ErrorHandlerService`. */
+    /** Internal invariant, unlike the public 404 `TENANT_SETTINGS_MISSING`; interpolating so the tenant id reaches the English server log while client copy stays generic (`ErrorHandlerService`). */
     TENANT_SETTINGS_ROW_MISSING: (tenantId: string) => string;
-    /** Should never fire in practice — the migration seeds `platform_settings` unconditionally
-     *  and its id is CHECK-constrained to exactly 1 row. */
+    /** Should never fire: the migration seeds the single CHECK-constrained row. */
     PLATFORM_CONFIG_MISSING: string;
     MEMBER_INVITE_SENT: string;
     MEMBER_INVITE_REVOKED: string;
-    /** A live, unexpired invite already exists for this email in this tenant. */
     MEMBER_EMAIL_ALREADY_INVITED: string;
     MEMBER_NOT_FOUND: string;
-    /** The id exists but is no longer `invited` (already accepted, or never was) — a 409, not a 404, since the roster entry is plainly still there. */
+    /** No longer `invited`; 409 not 404, since the roster entry exists. */
     MEMBER_INVITE_NOT_REVOCABLE: string;
-    /** `platform_settings.invite_members_enabled` is off. */
     MEMBER_INVITES_DISABLED: string;
-    /** Interpolates the grace-period day count (`ERASURE_GRACE_PERIOD_DAYS`) so the owner knows
-     *  exactly when the member's data is actually anonymized. */
+    /** `days` is the erasure grace period, so the owner knows when the data is anonymized. */
     MEMBER_REMOVAL_REQUESTED: (days: number) => string;
     MEMBER_REMOVAL_CANCELLED: string;
     /** The id exists but has no removal pending (never requested, or already past the grace
@@ -291,6 +221,8 @@ export interface MessageCatalog {
     USER_NOT_FOUND: string;
     USER_STATUS_UPDATED: string;
     BUSINESS_NOT_FOUND: string;
+    POST_ERASURE_CHARGE_NOT_FOUND: string;
+    POST_ERASURE_CHARGE_RESOLVED: string;
     BUSINESS_STATUS_UPDATED: string;
     /** Interpolates the grace-period day count (`ERASURE_GRACE_PERIOD_DAYS`). */
     BUSINESS_ERASURE_REQUESTED: (days: number) => string;

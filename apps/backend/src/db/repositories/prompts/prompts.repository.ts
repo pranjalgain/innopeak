@@ -17,13 +17,7 @@ import type {
 export class PromptsRepository {
   constructor(private readonly dbService: DBService) {}
 
-  /**
-   * Mechanical half of tenant provisioning: inserts one `prompts` row per given input, within the
-   * caller's `tx` so it joins the signup transaction. `ON CONFLICT DO NOTHING` against
-   * `idx_prompts_tenant_id_category` makes it re-runnable, so a retry or a later backfill over an
-   * already-provisioned tenant is a no-op rather than a 23505. Only rows this statement actually
-   * created come back, so an already-provisioned category is skipped by the caller too.
-   */
+  /** `ON CONFLICT DO NOTHING` on `idx_prompts_tenant_id_category` makes provisioning re-runnable (no 23505); only newly created rows come back. */
   async insertPrompts(
     tx: DrizzleTransaction,
     rows: Array<{
@@ -38,14 +32,12 @@ export class PromptsRepository {
       tx
         .insert(schema.prompts)
         .values(rows)
-        // Targeted rather than bare: this names `idx_prompts_tenant_id_category` as the arbiter, so
-        // any *other* unique violation stays an error instead of being silently swallowed.
+        // Targeted arbiter, not bare: any other unique violation stays an error.
         .onConflictDoNothing({ target: [schema.prompts.tenantId, schema.prompts.category] })
         .returning({ id: schema.prompts.id, category: schema.prompts.category })
     );
   }
 
-  /** Mechanical half of tenant provisioning: inserts the v1 rows for prompts just created. */
   async insertPromptVersions(
     tx: DrizzleTransaction,
     rows: Array<{ promptId: string; version: number; template: string; createdByUserId: null }>
@@ -76,10 +68,7 @@ export class PromptsRepository {
     return row === undefined ? null : this.mapPrompt(row);
   }
 
-  /** `idx_prompts_tenant_id_category` backs this — a tenant has at most one prompt per category.
-   *  What `AiReplyGenerationService` looks up by (tenant, category) instead of by prompt id, since
-   *  a dry-run request names "which kind of review is this" the same way the classification
-   *  pipeline eventually will (§5 of PLAN.md), not a specific `prompts.id`. */
+  /** At most one prompt per (tenant, category) via `idx_prompts_tenant_id_category`; generation looks up by category, not `prompts.id`. */
   async findByTenantAndCategory(
     tenantId: string,
     category: PromptCategory
@@ -109,12 +98,7 @@ export class PromptsRepository {
     return rows.map(row => this.mapVersion(row.version, row.createdByName));
   }
 
-  /**
-   * Joined to `prompts` and scoped by `tenantId` even though every current caller already
-   * verified the prompt belongs to this tenant just before calling in — `prompt_versions` carries
-   * no `tenant_id` of its own, so the only way to make that latent (safe only by caller
-   * discipline) rather than a real hole is to check it here too.
-   */
+  /** Joined to `prompts` and tenant-scoped: `prompt_versions` has no `tenant_id`, so isolation must not rest on caller discipline. */
   async findCurrentVersion(
     promptId: string,
     tenantId: string
@@ -134,9 +118,7 @@ export class PromptsRepository {
     return row === undefined ? null : this.mapVersion(row.version, row.createdByName);
   }
 
-  /** Same tenant-scoping rationale as `findCurrentVersion`, but for one specific version number
-   *  rather than the latest — what `PromptsService.getVersionStats` uses to confirm the version an
-   *  analytics request names actually exists for this tenant before aggregating anything. */
+  /** Same tenant scoping as `findCurrentVersion`, for one specific version number. */
   async findVersion(
     promptId: string,
     version: number,

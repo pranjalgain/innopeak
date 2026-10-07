@@ -24,14 +24,7 @@ import type {
 export class PromptsDbService {
   constructor(private readonly promptsRepository: PromptsRepository) {}
 
-  /**
-   * Provisions a tenant's starting prompts and their v1 templates: decides what to seed
-   * (`DEFAULT_PROMPTS`) and composes the two mechanical repository inserts it takes to land both
-   * tables together, inside the caller's `tx` — a tenant that committed without prompts is exactly
-   * the broken state this exists to prevent, and both tables have to land together or the listing
-   * sees a prompt with no versions. `created_by_user_id` stays NULL: these are system-provisioned,
-   * not authored by the owner.
-   */
+  /** Seeds `DEFAULT_PROMPTS` and their v1 templates in the caller's `tx`: both tables must land together or listing sees a prompt with no versions. `created_by_user_id` stays NULL (system-provisioned). */
   async insertDefaultsForTenant(tx: DrizzleTransaction, tenantId: string): Promise<void> {
     const inserted = await this.promptsRepository.insertPrompts(
       tx,
@@ -47,9 +40,8 @@ export class PromptsDbService {
     const templates = new Map(DEFAULT_PROMPTS.map(prompt => [prompt.category, prompt.template]));
     const versions = inserted.flatMap(row => {
       const template = templates.get(row.category);
-      // Unreachable — every returned category came from DEFAULT_PROMPTS. Skipped rather than
-      // asserted past, because `noUncheckedIndexedAccess` types `Map.get` as possibly undefined
-      // and inserting `undefined` into a NOT NULL column is the worse failure.
+      // Unreachable (categories come from DEFAULT_PROMPTS); skipped because `noUncheckedIndexedAccess` types `Map.get`
+      // as possibly undefined and inserting `undefined` into a NOT NULL column is worse.
       return template === undefined
         ? []
         : [{ promptId: row.id, version: 1, template, createdByUserId: null }];
@@ -77,9 +69,7 @@ export class PromptsDbService {
     }));
   }
 
-  /** Existence check scoped to the caller's tenant — used by `PromptsService.getVersionStats`
-   *  when `version` is omitted, since there is no specific version to look up via `findVersion`
-   *  in that case, only the prompt itself. */
+  /** Existence check scoped to the tenant, for `PromptsService.getVersionStats` when no `version` is given. */
   async findByIdForTenant(promptId: string, tenantId: string): Promise<PromptRecord | null> {
     return this.promptsRepository.findByIdForTenant(promptId, tenantId);
   }
@@ -92,12 +82,8 @@ export class PromptsDbService {
     return this.promptsRepository.findCurrentVersion(promptId, tenantId);
   }
 
-  /** What `AiReplyGenerationService` reads instead of `getCurrentVersion` — that one is keyed by
-   *  a specific `prompts.id` (the Settings → Prompts editor already has it from a prior list
-   *  call); generation only ever knows "which category", not an id. `null` means this tenant has
-   *  no prompt for that category, which should never happen in practice (every tenant is seeded
-   *  with all three at signup) but is a real possibility for a hand-edited/incomplete dev
-   *  database, so the caller still has to handle it. */
+  /** Keyed by category, not `prompts.id`: generation only knows the category. `null` means no prompt for it, which
+   *  shouldn't happen (all three are seeded at signup) but can in a hand-edited dev database. */
   async findCurrentForCategory(
     tenantId: string,
     category: PromptCategory
@@ -108,9 +94,7 @@ export class PromptsDbService {
     }
 
     const version = await this.promptsRepository.findCurrentVersion(prompt.id, tenantId);
-    // Every prompt is seeded with a v1 in the same transaction it's created in
-    // (`insertDefaultsForTenant`), so a versionless prompt is exactly as anomalous as a missing
-    // one — treated the same way rather than throwing a different, more confusing error.
+    // Every prompt is seeded with a v1 in the same transaction, so a versionless prompt is as anomalous as a missing one.
     if (version === null) {
       return null;
     }

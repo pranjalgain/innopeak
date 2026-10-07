@@ -8,8 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { AdminBusiness, BusinessConnectionStatus } from "@/types/domain";
 
 interface NeedsAttentionPanelProps {
-  /** Already filtered to non-connected businesses, sorted most-urgent-first, and capped — by the
-   *  backend (`GET .../overview/needs-attention`). This component only renders it. */
+  /** Backend already filters to non-connected, sorts most urgent first, and caps. */
   businesses: AdminBusiness[];
 }
 
@@ -22,8 +21,7 @@ const STATUS_BADGE_CLASSNAME: Record<Exclude<BusinessConnectionStatus, "connecte
 export function NeedsAttentionPanel({ businesses }: NeedsAttentionPanelProps) {
   const t = useTranslations("adminOverview.needsAttention");
 
-  // Nothing at risk — an empty "all clear" card is just noise; the parent collapses the layout
-  // to give RecentBusinessesCard the full row instead of leaving a blank column beside it.
+  // An empty "all clear" card is noise; the parent gives RecentBusinessesCard the full row instead.
   if (businesses.length === 0) return null;
 
   return (

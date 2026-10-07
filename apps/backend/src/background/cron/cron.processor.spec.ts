@@ -215,16 +215,9 @@ describe('CronProcessor', () => {
       );
     });
 
-    // KNOWN BUG (flagged by the task, intentionally NOT fixed here): BullMQ's `stalled`
-    // worker event actually emits `(jobId: string, prev: string)`, not a `Job` instance.
-    // `onStalled(job: CronJobHandle)`'s declared signature doesn't match that runtime
-    // reality. This test documents the CURRENT (buggy, but non-crashing) behavior when the
-    // handler is invoked the way BullMQ really invokes it: `job` ends up being a bare
-    // string, so `job.id` / `job.name` / `job.attemptsMade` are all `undefined`, and the
-    // DLQ entry silently gets garbage data instead of throwing.
+    // KNOWN BUG, deliberately unfixed: BullMQ's `stalled` event emits `(jobId, prev)`, not a `Job`,
+    // so the handler's `Job` signature is wrong and the DLQ entry gets undefined fields. Pins that behavior.
     it('documents the stalled-event signature mismatch: real BullMQ args produce garbage DLQ data, not a crash', async () => {
-      // BullMQ actually calls this handler as `onStalled(jobId, prev)`, but the handler is
-      // typed/declared to accept only a single `Job` parameter.
       const realisticJobIdArg = 'job-123';
 
       await processor.onStalled(realisticJobIdArg as unknown as CronJobHandle);
@@ -256,11 +249,8 @@ describe('CronProcessor', () => {
       );
     });
 
-    // KNOWN BUG (flagged by the task, intentionally NOT fixed here): BullMQ's `error`
-    // worker event actually emits a single `Error` argument, not `(job: Job, error: Error)`.
-    // Calling the handler the way BullMQ really calls it crashes: `job` becomes the Error
-    // instance and `error` is `undefined`, so `error.message` throws a TypeError. This test
-    // documents that CURRENT (buggy) crash behavior rather than silently changing it.
+    // KNOWN BUG, deliberately unfixed: BullMQ's `error` event emits a single `Error`, so the real
+    // call leaves `error` undefined and `error.message` throws. Pins that behavior.
     it('documents the error-event signature mismatch: real BullMQ single-Error arg crashes the handler', async () => {
       const realError = new Error('worker exploded');
 

@@ -2,19 +2,13 @@ import PDFDocument from 'pdfkit';
 
 export interface ReceiptPdfInput {
   businessName: string;
-  /** The tenant owner's own email — shown under the business name in "Billed to", the same way a
-   *  real invoice's recipient block carries both a company name and a contact. */
   billedToEmail: string;
   invoiceNumber: string | null;
-  /** Stripe's own invoice id (`in_...`) — a secondary reference alongside the human-readable
-   *  `invoiceNumber`, the same way a Stripe-hosted invoice PDF exposes both. */
   stripeInvoiceId: string;
   paidAt: string;
   amountPaid: number;
   currency: string;
-  /** What this payment was for. A plain description rather than a looked-up line-item catalog:
-   *  `billing_plans` has exactly one paid product today (see `BillingPlanCode`), so there is
-   *  nothing to look up yet — the caller passes the one line this describes. */
+  /** A plain description: `billing_plans` has one paid product, so there is no line-item catalog to look up. */
   planDescription: string;
 }
 
@@ -22,23 +16,17 @@ const PAGE_MARGIN = 50;
 const HEADER_HEIGHT = 92;
 const CONTENT_RIGHT_COL_WIDTH = 190;
 
-// A small, deliberately restrained palette — a receipt is a document people print or attach to an
-// expense report, so the body stays white/near-black for ink and legibility; color is spent only
-// on the header band, the PAID stamp, and the total, not the whole page.
 const COLOR = {
-  headerBg: '#111827', // slate-900 — matches the app shell's own dark surface
-  accent: '#ec4899', // pink-500 — the brand's own accent (the dot in "inno•peak")
-  paid: '#059669', // emerald-600 — a status color, deliberately not the brand accent
+  headerBg: '#111827',
+  accent: '#ec4899',
+  paid: '#059669',
   heading: '#111827',
   body: '#374151',
   muted: '#6b7280',
   rule: '#e5e7eb',
 } as const;
 
-/** `amountPaid` is Stripe's own smallest-currency-unit integer (e.g. cents) — `Intl.NumberFormat`
- *  expects the major unit, so this divides by 100. Correct for every currency Stripe issues test
- *  prices in today (all 2-decimal); a zero-decimal currency (e.g. JPY) would need its own branch,
- *  not worth adding speculatively ahead of a real need. */
+/** `amountPaid` is in the smallest currency unit; dividing by 100 assumes a 2-decimal currency (JPY would need its own branch). */
 function formatAmount(amountPaid: number, currency: string): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -54,18 +42,7 @@ function formatPaidDate(paidAt: string): string {
   });
 }
 
-/**
- * A small "LABEL" over a value, the recurring unit this layout repeats for every field — keeping
- * the label/value pairing consistent is what makes the details block read as one designed unit
- * rather than a stack of unrelated lines. `valueFontSize` is overridable for a long, naturally
- * small-print value (Stripe's own invoice id) that would otherwise look like it's shouting.
- *
- * Returns the y coordinate directly below the value it drew, measured with `heightOfString`
- * rather than assumed: every value here is caller-supplied and unbounded (a 255-char business
- * name, a long Stripe id), so any of them can wrap to a second line. Callers must flow from this
- * return value instead of a fixed offset — the previous fixed offsets drew the next element on top
- * of a wrapped one.
- */
+/** Returns the y below the drawn value, measured with heightOfString since values are unbounded and can wrap; callers must flow from it, not fixed offsets. */
 function drawLabeledValue(
   doc: PDFKit.PDFDocument,
   label: string,
@@ -89,7 +66,6 @@ function drawLabeledValue(
     .fillColor(COLOR.heading)
     .text(value, x, valueY, { width, align });
 
-  // Measured after `.text()` so it reflects the font/size just used for the value itself.
   return valueY + doc.heightOfString(value, { width });
 }
 
@@ -103,18 +79,9 @@ function drawRule(doc: PDFKit.PDFDocument, y: number, width: number): void {
 }
 
 /**
- * Renders a single-page, invoice-style PDF payment receipt entirely in-process (no headless
- * browser, no external template engine) — `pdfkit` draws directly onto a stream we buffer into
- * memory, since every receipt is one page of absolutely-positioned text/shapes and never large
- * enough to warrant streaming to the HTTP response incrementally. Stripe-only, by design: see
- * `0012_billing_receipts.sql`'s own comment for why no `DummyPaymentProvider` payment ever reaches
- * this.
- *
- * Deliberately doesn't show a tax line or the card used: this app doesn't collect/compute tax
- * today, so a "$0.00 tax" line would assert something not actually true rather than merely omit
- * it; and the card on file can change after a payment posts, so showing "today's" card next to an
- * old payment would misrepresent what was actually charged at the time — `billing_receipts` has no
- * point-in-time snapshot of it to show instead.
+ * Renders a one-page PDF receipt in-process with pdfkit. Stripe-only: Dummy payments never reach this.
+ * Deliberately shows no tax line (none is computed) and no card (the card on file can change after payment,
+ * and `billing_receipts` keeps no point-in-time snapshot of it).
  */
 export function renderReceiptPdf(input: ReceiptPdfInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -129,7 +96,6 @@ export function renderReceiptPdf(input: ReceiptPdfInput): Promise<Buffer> {
     });
     doc.on('error', reject);
 
-    // ── Header band ──────────────────────────────────────────────────────
     doc.rect(0, 0, pageWidth, HEADER_HEIGHT).fill(COLOR.headerBg);
     doc.rect(0, HEADER_HEIGHT - 3, pageWidth, 3).fill(COLOR.accent);
 
@@ -150,8 +116,6 @@ export function renderReceiptPdf(input: ReceiptPdfInput): Promise<Buffer> {
         characterSpacing: 1.5,
       });
 
-    // A small "stamp" against the dark header — the fastest possible answer to "did this get
-    // paid?" for anyone skimming an inbox full of PDFs, before reading a single line of detail.
     const badgeWidth = 46;
     const badgeX = pageWidth - PAGE_MARGIN - badgeWidth;
     doc.roundedRect(badgeX, 48, badgeWidth, 16, 8).fill(COLOR.paid);
@@ -161,14 +125,11 @@ export function renderReceiptPdf(input: ReceiptPdfInput): Promise<Buffer> {
       .fillColor('#ffffff')
       .text('PAID', badgeX, 52, { width: badgeWidth, align: 'center', characterSpacing: 1 });
 
-    // ── Billed to / invoice details ──────────────────────────────────────
     let y = HEADER_HEIGHT + 32;
     const leftColWidth = contentWidth - CONTENT_RIGHT_COL_WIDTH - 20;
     const rightColX = PAGE_MARGIN + contentWidth - CONTENT_RIGHT_COL_WIDTH;
 
-    // Both columns flow from measured text heights rather than fixed offsets — `businessName` is
-    // a varchar(255) and the Stripe id is unbounded, so either column can run to two lines, and
-    // the divider below has to clear whichever ended up taller.
+    // `businessName` (varchar 255) and the Stripe id are unbounded, so either column can wrap; the divider must clear the taller one.
     doc
       .font('Helvetica-Bold')
       .fontSize(7.5)
@@ -220,11 +181,9 @@ export function renderReceiptPdf(input: ReceiptPdfInput): Promise<Buffer> {
       8.5
     );
 
-    // ── Divider ──────────────────────────────────────────────────────────
     y = Math.max(leftColBottom, rightColBottom) + 22;
     drawRule(doc, y, contentWidth);
 
-    // ── Line item ────────────────────────────────────────────────────────
     y += 22;
     doc
       .font('Helvetica-Bold')
@@ -241,8 +200,7 @@ export function renderReceiptPdf(input: ReceiptPdfInput): Promise<Buffer> {
     drawRule(doc, y, contentWidth);
 
     y += 16;
-    // Capped at 65% of the content width so a long description can never run under the
-    // right-aligned amount; measured afterwards so the sub-note clears it if it does wrap.
+    // Capped at 65% of the content width so a long description can't run under the right-aligned amount.
     const descriptionWidth = contentWidth * 0.65;
     doc
       .font('Helvetica-Bold')
@@ -270,7 +228,6 @@ export function renderReceiptPdf(input: ReceiptPdfInput): Promise<Buffer> {
     y += doc.heightOfString('Recurring monthly subscription', { width: descriptionWidth }) + 14;
     drawRule(doc, y, contentWidth);
 
-    // ── Total ────────────────────────────────────────────────────────────
     y += 18;
     doc
       .font('Helvetica-Bold')
@@ -291,7 +248,6 @@ export function renderReceiptPdf(input: ReceiptPdfInput): Promise<Buffer> {
         align: 'right',
       });
 
-    // ── Footer ───────────────────────────────────────────────────────────
     const footerY = doc.page.height - 90;
     drawRule(doc, footerY, contentWidth);
     doc
@@ -318,9 +274,7 @@ export function renderReceiptPdf(input: ReceiptPdfInput): Promise<Buffer> {
   });
 }
 
-/** `InnoPeak-Receipt-<identifier>.pdf` — a human-readable download name instead of the receipt's
- *  raw UUID. Prefers Stripe's own invoice number (stripped to filename-safe characters); falls
- *  back to the paid date for the rare invoice with no number assigned yet. */
+/** Prefers the Stripe invoice number (filename-safe), falling back to the paid date when none is assigned yet. */
 export function buildReceiptFilename(
   input: Pick<ReceiptPdfInput, 'invoiceNumber' | 'paidAt'>
 ): string {

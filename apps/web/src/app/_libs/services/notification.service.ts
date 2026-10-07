@@ -10,22 +10,12 @@ import type { Notification, NotificationType } from "@/types/domain";
 
 export interface NotificationPage {
   items: Notification[];
-  /** Whether a further `list` call (with a larger `offset`) would return more items. */
   hasMore: boolean;
-  /**
-   * Unread across *every* notification, not just this page. The bell's dot has to reflect the
-   * whole feed — deriving it from the loaded rows meant a user whose unread items sat past page
-   * one saw no indicator at all until they scrolled the entire list.
-   */
+  /** Across the whole feed, not just this page, so the bell's dot is right even when unread rows sit past page one. */
   unreadTotal: number;
 }
 
-/**
- * The backend's `description`/`reviewId` are `string | null` (a real column that may hold
- * nothing); the frontend's `Notification` predates the real API and models the same absence as
- * `""` / `undefined`. Narrowing here, once, is simpler than widening the type everywhere it's
- * rendered.
- */
+// Backend `description`/`reviewId` are `string | null`; the frontend `Notification` models absence as `""`/`undefined`, narrowed once here.
 function toNotification(dto: NotificationDto): Notification {
   return {
     id: dto.id,
@@ -38,15 +28,7 @@ function toNotification(dto: NotificationDto): Notification {
   };
 }
 
-/**
- * Notification service, against the real `/v1/notifications` routes throughout — the feed
- * (`list`) plus both read writes. Hooks and components only ever call `useNotifications`, never
- * this class directly.
- *
- * Both writes answer with the caller's unread total *after* the write, which is the one thing the
- * client cannot work out for itself (the feed it holds is only the pages it has fetched). The
- * hook reconciles its badge from that rather than decrementing a local guess.
- */
+/** Both writes answer with the unread total after the write, which the client cannot derive from its partial pages. */
 export class NotificationService {
   static async list(offset: number, limit: number): Promise<NotificationPage> {
     const response = await notificationsApi.notificationsControllerListV1({ offset, limit });
@@ -58,8 +40,7 @@ export class NotificationService {
     };
   }
 
-  /** Idempotent by contract — re-marking an already-read row succeeds and keeps its original
-   *  timestamp, which is what lets the panel fire this on every click. */
+  /** Idempotent by contract: re-marking a read row succeeds and keeps its timestamp, so the panel can fire this on every click. */
   static async markAsRead(id: string): Promise<number> {
     const response = await notificationsApi.notificationsControllerMarkReadV1({
       notificationId: id,

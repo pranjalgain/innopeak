@@ -376,6 +376,51 @@ export const SettingsApiAxiosParamCreator = function (
       };
     },
     /**
+     * One JSON file — team, settings, blocklist, notification recipients, locations, prompts, reviews with every reply, and billing receipts. Streamed, so a large review history does not load into memory. Credentials, tokens, Stripe ids and internal machinery are never included. The body is the file, not the usual response envelope. Not available for a suspended business (including one with an erasure pending).
+     * @summary Download a copy of the business\'s data (owner only)
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantExportControllerExportDataV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/settings/export`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * Restores access (`status: \"active\"`) and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
      * @summary Cancel a pending team-member removal
      * @param {string} memberId The member\&#39;s &#x60;users.id&#x60;
@@ -959,6 +1004,34 @@ export const SettingsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * One JSON file — team, settings, blocklist, notification recipients, locations, prompts, reviews with every reply, and billing receipts. Streamed, so a large review history does not load into memory. Credentials, tokens, Stripe ids and internal machinery are never included. The body is the file, not the usual response envelope. Not available for a suspended business (including one with an erasure pending).
+     * @summary Download a copy of the business\'s data (owner only)
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async tenantExportControllerExportDataV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.tenantExportControllerExportDataV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['SettingsApi.tenantExportControllerExportDataV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Restores access (`status: \"active\"`) and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
      * @summary Cancel a pending team-member removal
      * @param {string} memberId The member\&#39;s &#x60;users.id&#x60;
@@ -1291,6 +1364,19 @@ export const SettingsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * One JSON file — team, settings, blocklist, notification recipients, locations, prompts, reviews with every reply, and billing receipts. Streamed, so a large review history does not load into memory. Credentials, tokens, Stripe ids and internal machinery are never included. The body is the file, not the usual response envelope. Not available for a suspended business (including one with an erasure pending).
+     * @summary Download a copy of the business\'s data (owner only)
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    tenantExportControllerExportDataV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .tenantExportControllerExportDataV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Restores access (`status: \"active\"`) and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
      * @summary Cancel a pending team-member removal
      * @param {SettingsApiTenantMembersControllerCancelRemovalV1Request} requestParameters Request parameters.
@@ -1475,6 +1561,16 @@ export interface SettingsApiInterface {
   platformSettingsControllerGetV1(
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<PlatformSettingsResponseDto>;
+
+  /**
+   * One JSON file — team, settings, blocklist, notification recipients, locations, prompts, reviews with every reply, and billing receipts. Streamed, so a large review history does not load into memory. Credentials, tokens, Stripe ids and internal machinery are never included. The body is the file, not the usual response envelope. Not available for a suspended business (including one with an erasure pending).
+   * @summary Download a copy of the business\'s data (owner only)
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  tenantExportControllerExportDataV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
 
   /**
    * Restores access (`status: \"active\"`) and clears the pending marker — a clean, full undo, since nothing is anonymized until the grace period actually elapses.
@@ -1718,6 +1814,18 @@ export class SettingsApi extends BaseAPI implements SettingsApiInterface {
   public platformSettingsControllerGetV1(options?: RawAxiosRequestConfig) {
     return SettingsApiFp(this.configuration)
       .platformSettingsControllerGetV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * One JSON file — team, settings, blocklist, notification recipients, locations, prompts, reviews with every reply, and billing receipts. Streamed, so a large review history does not load into memory. Credentials, tokens, Stripe ids and internal machinery are never included. The body is the file, not the usual response envelope. Not available for a suspended business (including one with an erasure pending).
+   * @summary Download a copy of the business\'s data (owner only)
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public tenantExportControllerExportDataV1(options?: RawAxiosRequestConfig) {
+    return SettingsApiFp(this.configuration)
+      .tenantExportControllerExportDataV1(options)
       .then((request) => request(this.axios, this.basePath));
   }
 

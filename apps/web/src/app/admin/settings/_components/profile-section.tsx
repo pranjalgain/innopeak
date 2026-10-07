@@ -37,9 +37,8 @@ export function ProfileSection() {
   } = usePlatformAdminProfile();
 
   if (isLoading) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
-  // `!profile` was folded into the loading branch, so a failed request left a grey rectangle on
-  // screen forever: `retry: false` means `isLoading` goes false with no data and nothing ever
-  // retries, and the one error toast had already faded.
+  // `retry: false` means a failed load ends with `isLoading` false and no data; treating that as loading left a grey
+  // rectangle forever once the error toast faded.
   if (isError || !profile) return <LoadErrorState onRetry={refetch} />;
 
   return (
@@ -82,7 +81,6 @@ export function ProfileSection() {
 
 interface ChangePasswordFormProps {
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
-  /** Disables submit while the request is in flight — see the button's own comment. */
   isChangingPassword: boolean;
 }
 
@@ -93,10 +91,7 @@ function ChangePasswordForm({ changePassword, isChangingPassword }: ChangePasswo
   const [confirmPassword, setConfirmPassword] = useState("");
   const [newPasswordBlurred, setNewPasswordBlurred] = useState(false);
   const [confirmBlurred, setConfirmBlurred] = useState(false);
-  // Collapsed by default — a sensitive, rarely-used action; showing three password inputs on
-  // every visit to a page whose main purpose is just viewing your email is noise (and a bigger
-  // target for shoulder-surfing) for the common case where nobody's changing anything. Mirrors
-  // the tenant-owner profile section's own `ChangePasswordForm`.
+  // Collapsed by default: a rarely-used sensitive action, and three password inputs on every visit is noise.
   const [expanded, setExpanded] = useState(false);
 
   const requirements = checkPasswordRequirements(newPassword);
@@ -104,7 +99,7 @@ function ChangePasswordForm({ changePassword, isChangingPassword }: ChangePasswo
   const hasConfirmValue = confirmPassword.length > 0;
   const passwordsMatch = newPassword === confirmPassword;
 
-  // Hidden again once every rule passes — a column of green ticks is noise, not information.
+  // Hidden once every rule passes: a column of green ticks is noise.
   const showRequirements = newPasswordBlurred && newPassword.length > 0 && !newPasswordValid;
   const showMismatch = confirmBlurred && hasConfirmValue && !passwordsMatch;
 
@@ -192,10 +187,7 @@ function ChangePasswordForm({ changePassword, isChangingPassword }: ChangePasswo
         <Button type="button" variant="ghost" onClick={collapse}>
           {t("cancel")}
         </Button>
-        {/* Also disabled while in flight. Without it a double-click fired two requests: the first
-            rotated the hash, so the second's `currentPassword` no longer matched and answered 401
-            — the admin saw "Password changed." immediately followed by an error, with no way to
-            tell which one had taken effect. The invite form above already guards this way. */}
+        {/* Also disabled while in flight: a double-click fired two requests, the second 401'd on the rotated hash, and the admin saw "Password changed." followed by an error. */}
         <Button type="submit" variant="outline" disabled={!canSubmitPassword || isChangingPassword}>
           {t("updatePassword")}
         </Button>
@@ -213,15 +205,7 @@ interface AddPasswordFormProps {
 
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
-/**
- * Shown instead of `ChangePasswordForm` for a Google-only admin (accepted their invite via SSO) —
- * there is no current password to prove, so the fields (and the collapsed prompt in front of
- * them) are deliberately different rather than a `ChangePasswordForm` with one field hidden. A
- * step-up OTP (mailed by `requestSetPasswordOtp`) stands in for that missing current-password
- * proof — see `AdminSettingsService.setPassword`'s doc comment on the backend. Mirrors the
- * tenant-owner profile section's own `AddPasswordForm`, adapted to this file's plain-`useState`
- * style rather than react-hook-form/zod.
- */
+/** For a Google-only admin with no current password to prove; a mailed step-up OTP stands in. */
 function AddPasswordForm({
   requestSetPasswordOtp,
   isSendingOtp,
@@ -248,10 +232,7 @@ function AddPasswordForm({
   const canSubmitPassword =
     otp.trim().length === 6 && newPasswordValid && passwordsMatch && hasConfirmValue;
 
-  // Depends on whether a countdown is running, not on its current value: keying this to
-  // `cooldown` itself tore the interval down and rebuilt it on every tick, throwing away whatever
-  // part of that second had already elapsed and making the "60s" wait run visibly long. The
-  // functional update is what lets this read the latest value without depending on it.
+  // Keyed on whether a countdown is running, not on `cooldown`: re-keying every tick rebuilt the interval and made the wait run long.
   const cooldownActive = cooldown > 0;
   useEffect(() => {
     if (!cooldownActive) return;
@@ -277,8 +258,7 @@ function AddPasswordForm({
     }
   };
 
-  // On success `profile.hasPassword` flips to true and this component unmounts (replaced by
-  // `ChangePasswordForm`), so there's no local state left to clear.
+  // `profile.hasPassword` flips on success and this unmounts, so no local state needs clearing.
   const handlePasswordSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!canSubmitPassword || isSettingPassword) return;

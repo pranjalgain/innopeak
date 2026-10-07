@@ -2,12 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import type { UploadAuthorization } from '../types/storage-provider.type';
 
-/**
- * Shared by both profile screens (tenant `AuthController` and `AdminSettingsController`) — what a
- * client needs to perform the direct upload is the same regardless of who is uploading; only the
- * confirm step's owner differs. See `UploadAuthorization` for why this is a URL plus opaque form
- * fields rather than named provider-specific parameters.
- */
+/** Shared by the tenant and admin profile screens; only the confirm step's owner differs. */
 export class AvatarUploadAuthorizationResponseDto {
   @ApiProperty({ example: 'cloudinary', enum: ['cloudinary', 'noop'] })
   provider!: UploadAuthorization['provider'];

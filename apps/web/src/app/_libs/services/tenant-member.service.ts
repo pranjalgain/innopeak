@@ -2,9 +2,7 @@ import { settingsApi } from "@/app/_libs/api-sdk/settings-api";
 import { unwrap } from "@/app/_libs/services/api-error";
 import type { TenantMember } from "@/types/domain";
 
-/** The SDK types this `object | null` (a generator quirk with every nullable-string
- *  `@ApiPropertyOptional` in this backend — see `review.service.ts`'s own `ApiReviewResponse` for
- *  the same workaround), so the real shape is declared locally instead of trusting the SDK type. */
+// The SDK types this `object | null` (generator quirk with nullable `@ApiPropertyOptional` strings), so declare the real shape.
 interface ApiTenantMember {
   id: string;
   name: string;
@@ -19,13 +17,7 @@ interface ApiRemovalResponse {
   message: string;
 }
 
-/**
- * Tenant team members — real backend calls against `/v1/settings/members`
- * (`apps/backend`'s `TenantMembersController`), gated behind the platform's
- * `inviteMembersEnabled` setting in the UI (and enforced server-side on invite — see
- * `apps/documentation/docs/backend/auth/tenant-member-invite-design.md`). Hooks/components only
- * ever call `useTenantMembers`, never this class directly.
- */
+/** `inviteMembersEnabled` gates invites in the UI and is enforced server-side on invite. */
 export class TenantMemberService {
   static async getMembers(): Promise<TenantMember[]> {
     const response = await settingsApi.tenantMembersControllerListV1();
@@ -45,11 +37,7 @@ export class TenantMemberService {
     await settingsApi.tenantMembersControllerRevokeV1({ memberId: id });
   }
 
-  /**
-   * Revokes the member's access immediately; the actual anonymization is deferred to a nightly
-   * job — see the backend's `ERASURE_GRACE_PERIOD_DAYS`. Throws `ApiError` on 400 (last owner, or
-   * self-removal) or 404.
-   */
+  /** Revokes access immediately; anonymization is deferred to a nightly job (`ERASURE_GRACE_PERIOD_DAYS`). Throws `ApiError` on 400 (last owner or self-removal) or 404. */
   static async requestRemoval(id: string): Promise<string> {
     const response = await settingsApi.tenantMembersControllerRequestRemovalV1({ memberId: id });
     return unwrap<ApiRemovalResponse>(response.data).message;

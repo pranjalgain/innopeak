@@ -32,12 +32,8 @@ describe('PlatformAdminAuthController.login', () => {
   });
 
   /**
-   * Regression target for the admin-login split: only `admin_access_token` and the admin-tagged
-   * `session` hint are ever set — never `access_token`/`refresh_token`, and never a `clearCookie`
-   * call of any kind. The pre-split version of this login branch had to explicitly
-   * `clearCookie(refresh_token)` to defend against a lingering tenant session hijacking this one;
-   * that defense is gone here because there is nothing left for it to defend against — the two
-   * principals no longer share a cookie name at all.
+   * Guards: admin login sets only `admin_access_token` and the admin-tagged `session` hint, never
+   * `access_token`/`refresh_token` and no `clearCookie` (the principals no longer share cookie names).
    */
   it('sets only the admin access-token cookie and the admin session hint, nothing else', async () => {
     login.mockResolvedValue({

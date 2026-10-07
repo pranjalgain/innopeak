@@ -11,6 +11,7 @@ import { and, desc, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 
 import type {
   AcceptInviteOutcome,
+  PlatformAdminAlertRecipient,
   PlatformAdminLoginRow,
   PlatformAdminProfileRow,
   RevokeInviteOutcome,
@@ -26,9 +27,8 @@ const PROFILE_COLUMNS = {
 } as const;
 
 /**
- * `platform_admins`/`platform_admin_invites` — a platform admin's own identity and the roster of
- * admins invited to join. Distinct domain from `AdminUsersRepository`/`AdminBusinessesRepository`,
- * which read tenant-scoped data; this one owns the platform-admin identity table itself.
+ * A platform admin's own identity and the roster of invited admins; distinct from
+ * `AdminUsersRepository`/`AdminBusinessesRepository`, which read tenant-scoped data.
  */
 @Injectable()
 export class PlatformAdminRepository {
@@ -45,12 +45,8 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * By email, for `PlatformAdminAuthService.login` — the platform-admin login now queries this
-   * table directly rather than going through a shared tenant lookup, since `POST
-   * /v1/admin/auth/login` is its own route with nothing left to disambiguate (see
-   * `separate-admin-login-design.md`). `passwordHash` rides along so the caller can tell an
-   * `invited` admin (no password yet) from one that can actually authenticate, without a second
-   * query.
+   * `passwordHash` rides along so the caller can tell an `invited` admin (no password yet) from one
+   * that can authenticate, without a second query.
    */
   async findForLogin(email: string): Promise<PlatformAdminLoginRow | null> {
     const rows = await this.dbService.db
@@ -68,11 +64,18 @@ export class PlatformAdminRepository {
     return (rows[0] as PlatformAdminLoginRow | undefined) ?? null;
   }
 
+  /** Active admins only: an invited one has not accepted yet, a disabled one must not be mailed. */
+  async findActiveAlertRecipients(): Promise<PlatformAdminAlertRecipient[]> {
+    return this.dbService.db
+      .select({ email: schema.platformAdmins.email, locale: schema.platformAdmins.locale })
+      .from(schema.platformAdmins)
+      .where(eq(schema.platformAdmins.status, PlatformAdminStatus.ACTIVE));
+  }
+
   /**
-   * The live `status` of an admin by id — `null` when no such row exists (a deleted admin). Used by
-   * `JwtStrategy` to re-check the principal on every request: a platform-admin access token is
-   * otherwise honored for its full 15-minute life even after the admin is disabled or removed,
-   * because the JWT itself carries no status. Kept to a single indexed-PK lookup.
+   * `null` when no such row exists. `JwtStrategy` re-checks the principal with this on every request:
+   * the JWT carries no status, so a disabled or removed admin's token would otherwise stay valid
+   * for its full 15-minute life.
    */
   async findStatusById(id: string): Promise<PlatformAdminStatus | null> {
     const rows = await this.dbService.db
@@ -85,11 +88,9 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * Whether `id` is the seeded root admin — `invited_by_platform_admin_id IS NULL`, which
-   * `idx_platform_admins_single_root` (`0001_platform_admin.sql`) guarantees at most one row ever
-   * satisfies. `false` for a deleted/nonexistent id, same as for any genuinely-invited admin —
-   * callers that need to distinguish "not found" from "not root" already do so via
-   * `findStatusById` first, so this only has to answer one question.
+   * The seeded root: `invited_by_platform_admin_id IS NULL`, which
+   * `idx_platform_admins_single_root` guarantees at most one row satisfies. `false` for a
+   * nonexistent id; callers distinguish not-found via `findStatusById` first.
    */
   async isRootAdmin(id: string): Promise<boolean> {
     const rows = await this.dbService.db
@@ -102,18 +103,10 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * Sets an admin's status, atomically refusing a `disabled` write that would leave zero `active`
-   * admins. A plain read-then-write ("count active, then UPDATE if > 1") is not enough on its own:
-   * disabling admin A and disabling admin B touch two *different* rows, so ordinary row-level
-   * locking never makes the two conflict, and two concurrent disables of two different admins can
-   * each read "2 active" before either commits and both proceed — leaving zero, with no admin left
-   * who can re-enable anyone. The transaction-scoped advisory lock below (mirrors
-   * `ReviewSyncRepository.purgeExpiredReviewerPii`'s own) serializes every status change against
-   * every other one, so the second transaction's count is guaranteed to already reflect the
-   * first's write. Coarse, but disabling an admin is a rare, low-volume action.
-   *
-   * Scoped to flip only between `active` and `disabled` by the caller — this method itself does
-   * not treat `invited` rows any differently, but the service never asks it to.
+   * Atomically refuses a `disabled` write that would leave zero `active` admins. Read-then-write is
+   * not enough: disabling two different admins touches different rows, so row locks never conflict
+   * and both could read "2 active" and proceed. The advisory lock serializes every status change so
+   * the second count reflects the first's write.
    */
   async setStatusGuardingLastActive(
     input: SetAdminStatusGuardInput
@@ -173,10 +166,8 @@ export class PlatformAdminRepository {
 
   /**
    * `status` and the invite's `expiresAt` ride along so `AdminSettingsService.sendInvite` can tell
-   * a live claim on this email from a dead one: an `invited` row whose invite has lapsed used to
-   * answer 409 forever, with no resend path and no expiry sweep, so a single expired invite burned
-   * that address permanently. `expiresAt` is null for an admin with no invite row (the seeded
-   * root), which reads correctly as "not an expired invite".
+   * a live claim on an email from a lapsed one; otherwise an expired invite answers 409 forever.
+   * `expiresAt` is null for the seeded root (no invite row).
    */
   async findByEmail(
     email: string
@@ -212,9 +203,10 @@ export class PlatformAdminRepository {
       .where(eq(schema.platformAdmins.id, id));
   }
 
-  /** Settings → Profile's language preference — the platform-admin counterpart to
-   *  `AuthRepository.updateLocale`. No session to revoke, same reasoning as `updatePasswordHash`
-   *  gives for why a locale change is not a security boundary. */
+  /**
+   * Platform-admin counterpart to `AuthRepository.updateLocale`; no session to revoke, since a
+   * locale change is not a security boundary.
+   */
   async updateLocale(id: string, locale: Locale): Promise<void> {
     await this.dbService.db
       .update(schema.platformAdmins)
@@ -223,10 +215,8 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * Every platform admin — the seeded root included — each left-joined to its own `invite`-purpose
-   * `platform_admin_invites` row for `invitedAt`/`expiresAt`. The root has no such row (seeded
-   * directly, never invited), so those two columns come back `null` for it; the DB service maps
-   * that to a `createdAt` fallback.
+   * Every admin including the seeded root, left-joined to its `invite`-purpose row; the root has
+   * none, so `invitedAt`/`expiresAt` come back null (the DB service falls back to `createdAt`).
    */
   async findAllWithInvites(): Promise<
     {
@@ -250,9 +240,8 @@ export class PlatformAdminRepository {
         invitedByPlatformAdminId: schema.platformAdmins.invitedByPlatformAdminId,
       })
       .from(schema.platformAdmins)
-      // `purpose = 'invite'` lives in the JOIN condition, not a WHERE clause — a WHERE here would
-      // turn this back into an INNER JOIN in effect, dropping the seeded root admin (which has no
-      // invite row at all) from the result entirely.
+      // `purpose = 'invite'` lives in the JOIN condition: in a WHERE it would act as an INNER JOIN
+      // and drop the seeded root (no invite row).
       .leftJoin(
         schema.platformAdminInvites,
         and(
@@ -273,7 +262,6 @@ export class PlatformAdminRepository {
     }[];
   }
 
-  /** Creates the invited admin's own row — `status: invited`, no password, attributed to whoever sent the invite. */
   async insertInvitedAdmin(
     tx: DrizzleTransaction,
     input: { email: string; invitedByPlatformAdminId: string }
@@ -308,11 +296,10 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * Same upsert-on-(owner, purpose) shape as `AuthRepository.putSetPasswordOtp` — a resend
-   * reissues this one live row rather than accumulating a new one per request, via
-   * `idx_platform_admin_invites_platform_admin_id_purpose`. The step-up proof
-   * `AdminSettingsService.setPassword` requires before converting a 15-minute access token into a
-   * permanent credential on a passwordless (Google-only) admin account.
+   * Upsert on (owner, purpose) like `AuthRepository.putSetPasswordOtp`, via
+   * `idx_platform_admin_invites_platform_admin_id_purpose`: a resend reissues the one live row. The
+   * step-up proof `setPassword` requires before turning a 15-minute access token into a permanent
+   * credential on a Google-only admin.
    */
   async putSetPasswordOtp(
     tx: DrizzleTransaction,
@@ -337,7 +324,10 @@ export class PlatformAdminRepository {
       });
   }
 
-  /** `consumeVerifyEmailToken`'s CAS shape, scoped to the `set_password`-purpose row `putSetPasswordOtp` writes. */
+  /**
+   * `consumeVerifyEmailToken`'s CAS shape, scoped to the `set_password` row `putSetPasswordOtp`
+   * writes.
+   */
   async consumeSetPasswordOtp(
     tx: DrizzleTransaction,
     input: { platformAdminId: string; tokenHash: string }
@@ -360,14 +350,9 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * How many *active* admins could sign in by Google and nothing else — no `password_hash`, so no
-   * other credential exists for them at all.
-   *
-   * Exists for `AdminSettingsService.updatePlatformSettings`' lockout guard: `socialLoginEnabled`
-   * is what decides whether the login screen renders a Google button, so switching it off while
-   * one of these admins exists takes away the only way in they have. `invited` rows are excluded
-   * (no identity yet, and no session to lose) and so are `disabled` ones (already cannot sign in,
-   * so nothing to strand).
+   * Active admins with no `password_hash`, i.e. Google is their only way in. Backs
+   * `updatePlatformSettings`' lockout guard: switching off `socialLoginEnabled` would strand them.
+   * `invited` (no identity yet) and `disabled` (cannot sign in anyway) are excluded.
    */
   async countActiveGoogleOnlyAdmins(): Promise<number> {
     const rows = await this.dbService.db
@@ -391,15 +376,10 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * Resolves a Google `sub` to the platform admin that linked it at invite acceptance — the read
-   * side of `acceptInviteWithGoogleIdentity`'s write, and the only thing that makes a
-   * Google-accepted admin able to sign in ever again: that admin has no `password_hash` at all, and
-   * platform admins have no refresh token, so without this lookup their session ended 15 minutes
-   * after acceptance with no way back (`revokeInvite`/`deleteExpiredInvite` are both scoped to
-   * `status = 'invited'`, so even re-inviting the address was impossible).
-   *
-   * Keyed on `(provider, provider_user_id)` — the table's own unique index, and deliberately not
-   * the email: a Workspace address can be reassigned, a Google `sub` never is.
+   * Resolves a Google `sub` to the admin that linked it at invite acceptance. Needed because such
+   * an admin has no `password_hash` and platform admins have no refresh token, so the session would
+   * otherwise end 15 minutes after acceptance. Keyed on `(provider, provider_user_id)`, not email:
+   * a Workspace address can be reassigned, a `sub` never is.
    */
   async findByGoogleIdentity(providerUserId: string): Promise<{
     id: string;
@@ -435,12 +415,9 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * Read-only preview for `GET /v1/auth/invite/:token` and the Google-authorize route — so both
-   * can fail fast on a dead link before ever asking the invitee for a password or redirecting to
-   * Google. Deliberately does **not** join on `platform_admins.status`: the invite row's own
-   * `used_at`/`expires_at` are the only source of truth for "still redeemable", and the two are
-   * never allowed to disagree (both `acceptInviteWithPassword`/`WithGoogleIdentity` below flip
-   * both in the same transaction).
+   * Read-only preview so both routes fail fast on a dead link. Deliberately does not join
+   * `platform_admins.status`: the invite row's `used_at`/`expires_at` are the only source of truth
+   * for "still redeemable", and both accept methods flip them in one transaction.
    */
   async findInviteEmailByTokenHash(tokenHash: string): Promise<{ email: string } | null> {
     const rows = await this.dbService.db
@@ -464,9 +441,8 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * Redeems an invite by setting a password — the shared first two steps
-   * (`lockLiveInvite`/consuming it) are identical to `acceptInviteWithGoogleIdentity` below; only
-   * what happens to `platform_admins` differs (a password hash here, an identity row there).
+   * Shares its first steps (`lockLiveInvite`, consuming the invite) with
+   * `acceptInviteWithGoogleIdentity`; only the `platform_admins` write differs.
    */
   async acceptInviteWithPassword(input: {
     tokenHash: string;
@@ -496,7 +472,7 @@ export class PlatformAdminRepository {
       const admin = activated[0];
       if (!admin) {
         // Raced with something else accepting/removing the same admin between the lock above and
-        // this write — the invite row was live a moment ago, the admin row no longer is.
+        // this write.
         return { outcome: 'invalid' };
       }
 
@@ -507,11 +483,8 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * Redeems an invite by linking a Google identity instead of setting a password — see
-   * `acceptInviteWithPassword`'s own comment. `AuthService.completeAdminInviteGoogle` has already
-   * confirmed the Google account's verified email matches the invited address before calling this;
-   * this method itself does not re-check that (it has no `email` to check against —
-   * `platform_admin_identities` carries no email column).
+   * `AuthService.completeAdminInviteGoogle` has already confirmed the Google email matches the
+   * invited address; this does not re-check it (`platform_admin_identities` has no email column).
    */
   async acceptInviteWithGoogleIdentity(input: {
     tokenHash: string;
@@ -547,9 +520,9 @@ export class PlatformAdminRepository {
         });
       } catch (error) {
         if (isUniqueViolation(error)) {
-          // This Google account is already linked to a *different* admin
-          // (`idx_platform_admin_identities_provider_provider_user_id`). Rolled back atomically
-          // with the transaction — the admin above is not left half-activated with no identity.
+          // Google account already linked to a different admin
+          // (`idx_platform_admin_identities_provider_provider_user_id`); rolls back with the
+          // transaction so the admin is not left half-activated.
           return { outcome: 'identity_already_linked' };
         }
         throw error;
@@ -562,9 +535,8 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * Locks the live invite row (unused, unexpired) inside the caller's transaction so a concurrent
-   * redemption of the same token cannot also pass — the row-level lock, not just the `used_at`
-   * check on the later `UPDATE`, is what actually closes the double-submit race.
+   * Locks the live invite row inside the caller's transaction; the row lock, not just the later
+   * `used_at` check on the `UPDATE`, closes the double-submit race.
    */
   private async lockLiveInvite(
     tx: DrizzleTransaction,
@@ -597,26 +569,16 @@ export class PlatformAdminRepository {
       .where(eq(schema.platformAdminInvites.id, inviteId));
   }
 
-  /** The one place `DBService`'s raw connection is touched for a transaction boundary — mirrors `AuthRepository.transaction`. */
+  /** The one place `DBService`'s raw connection is touched for a transaction boundary. */
   async transaction<T>(fn: (tx: DrizzleTransaction) => Promise<T>): Promise<T> {
     return this.dbService.db.transaction(fn);
   }
 
   /**
-   * Deletes the invited admin's own row outright (cascading to its `platform_admin_invites` row)
-   * — not a soft-disable, since the admin never accepted and never had a real account to begin
-   * with. Scoped to `status = 'invited'` so this can never delete an admin who has since accepted
-   * or an already-disabled one; returns whether a row actually matched.
-   */
-  /**
-   * Returns the deleted row's own email (the activity log needs it — the row is gone by the time
-   * anything could look it back up).
-   *
-   * The two failure modes are distinguished rather than both reported as `null`: folding them
-   * together meant revoking an admin who had already accepted answered "Invite not found", which
-   * is actively misleading (the invite is right there in the roster) and left
-   * `MESSAGES.ADMIN.INVITE_NOT_REVOCABLE` defined in both locales but unreachable from any code
-   * path.
+   * Hard-deletes the invited admin (cascading to its invite row), scoped to `status = 'invited'` so
+   * an accepted or disabled admin is never deleted. Returns the email for the activity log, and
+   * distinguishes `not_found` from `not_invited` so revoking an accepted admin does not answer a
+   * misleading "Invite not found".
    */
   async deleteInvitedAdmin(id: string): Promise<RevokeInviteOutcome> {
     const rows = await this.dbService.db
@@ -634,8 +596,8 @@ export class PlatformAdminRepository {
       return { outcome: 'deleted', id: deleted.id, email: deleted.email };
     }
 
-    // Nothing matched: either no such id at all, or an id whose row is no longer `invited`. One
-    // extra read only on the failure path, so the happy path stays a single statement.
+    // Nothing matched: no such id, or a row no longer `invited`. One extra read only on the failure
+    // path.
     const existing = await this.dbService.db
       .select({ id: schema.platformAdmins.id })
       .from(schema.platformAdmins)
@@ -646,9 +608,8 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * Drops a lapsed invite so the same address can be invited again — see `findByEmail` for why a
-   * stale row otherwise claims that email forever. Scoped to `invited` for the same reason
-   * `deleteInvitedAdmin` is: an accepted admin must never be removed by an invite-flow path.
+   * Drops a lapsed invite so the address can be invited again (a stale row otherwise claims it
+   * forever). Scoped to `invited`: an accepted admin must never be removed by an invite-flow path.
    */
   async deleteExpiredInvite(id: string): Promise<void> {
     await this.dbService.db

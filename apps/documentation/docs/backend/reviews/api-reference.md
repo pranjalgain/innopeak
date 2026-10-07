@@ -346,7 +346,7 @@ Request:
 
 | Field | Type | Rules |
 |---|---|---|
-| `content` | string | optional, 1–5000 chars (`ApproveReplyDto`, `@MaxLength(5000)`), non-empty after trimming. Omit to approve the AI draft unchanged. |
+| `content` | string | optional, 1–5000 chars (`ApproveReplyDto`, `@MaxLength(5000)`), and must contain at least one visible character — whitespace, zero-width spaces/joiners, word joiners and a BOM do not count, so a blank reply can never be posted to Google. Omit to approve the AI draft unchanged. The manual-reply `content` (`POST …/responses`, up to 4096 chars) follows the same rule. |
 
 Success `200`:
 

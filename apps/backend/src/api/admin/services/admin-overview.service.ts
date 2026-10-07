@@ -49,13 +49,7 @@ export class AdminOverviewService {
     );
   }
 
-  /**
-   * The real admin-action log merged with synthesized `business_joined` entries into one
-   * time-sorted, capped feed — see `buildActivityFeed`'s own comment for why `limit` rows from
-   * *each* source is always enough to correctly determine the top-`limit` of the merge. Used to
-   * be two separate endpoints stitched together client-side; this is now the one response the
-   * Overview page's activity panel needs.
-   */
+  /** Merges the admin-action log with synthesized `business_joined` entries; see `buildActivityFeed` for why `limit` rows per source suffice. */
   async getRecentActivity(actor: AuthUser, limit: number): Promise<PlatformActivityResponseDto[]> {
     requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const [rows, businesses] = await Promise.all([

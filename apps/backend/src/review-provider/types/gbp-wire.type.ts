@@ -1,29 +1,20 @@
 /**
- * Google's *wire* shapes, exactly as the Business Profile APIs return them — not our row shapes.
- *
- * These are kept verbatim (including `starRating` as an English word rather than a number, and
- * `name` as a slash-delimited resource path rather than a bare id) because the fixtures behind
- * `DEV_GBP_MOCK` are typed against them. A fixture written in row shape would test the mapper
- * against itself; a fixture written in wire shape makes the mapper prove it can survive the
- * things Google actually sends.
- *
- * Two different hosts are involved, which is a real trap — see `GBP_HOSTS`.
+ * Google's wire shapes verbatim (`starRating` as a word, `name` as a resource path): DEV_GBP_MOCK
+ * fixtures are typed against them, so the mapper is tested against what Google actually sends.
+ * Two different hosts are involved; see `GBP_HOSTS`.
  */
 
 /** `starRating` is an enum word. `STAR_RATING_UNSPECIFIED` is Google's "we don't know", not zero. */
 export type GbpStarRating = 'FIVE' | 'FOUR' | 'ONE' | 'STAR_RATING_UNSPECIFIED' | 'THREE' | 'TWO';
 
 export interface GbpReviewer {
-  /** Absent for an anonymous reviewer — the mapper must not assume it. */
+  /** Absent for an anonymous reviewer. */
   displayName?: string;
   profilePhotoUrl?: string;
   isAnonymous?: boolean;
 }
 
-/**
- * Output-only moderation status. Only `APPROVED` is visible to the public — a `REJECTED` reply
- * violated a content policy and a `PENDING` one may still be. Neither is "posted".
- */
+/** Output-only. Only `APPROVED` is publicly visible; `REJECTED` and `PENDING` are not "posted". */
 export type GbpReviewReplyState = 'APPROVED' | 'PENDING' | 'REJECTED';
 
 export interface GbpReviewReply {
@@ -33,38 +24,27 @@ export interface GbpReviewReply {
 }
 
 export interface GbpReview {
-  /** `accounts/{account}/locations/{location}/reviews/{review}` — the review id is the last segment. */
+  /** `accounts/{account}/locations/{location}/reviews/{review}`; the review id is the last segment. */
   name: string;
   reviewId?: string;
   reviewer?: GbpReviewer;
   starRating: GbpStarRating;
-  /** Absent on a rating-only review. Google omits the key entirely rather than sending "". */
+  /** Google omits the key entirely on a rating-only review, rather than sending "". */
   comment?: string;
   createTime: string;
   updateTime: string;
-  /** The business owner's own public reply, if they left one. This is what the backfill imports. */
+  /** The owner's own public reply; what the backfill imports. */
   reviewReply?: GbpReviewReply;
-  /**
-   * Photos/videos the reviewer attached. Real Google responses include this; it is on the wire
-   * type (rather than left off entirely) specifically so that fact is visible and documented, not
-   * silently unknown to the next reader. Untyped on purpose — this product has no review-media
-   * feature, so nothing downstream ever reads it, and modeling `ReviewMediaItem`'s full shape for
-   * data that is always discarded would be effort spent on nothing. `mapGbpReview` does not copy
-   * this field into `ProviderReview`; that omission is deliberate, see the mapper's own comment.
-   */
+  /** Typed `unknown[]` and never read: this product has no review-media feature; `mapGbpReview` deliberately drops it. */
   reviewMediaItems?: unknown[];
-  /**
-   * A prefilled Business Profile deep link for replying to this review. Not used — this product
-   * composes and posts replies through its own dashboard/AI flow, never by sending the owner to
-   * Google's own reply UI. Discarded by `mapGbpReview` for the same reason as `reviewMediaItems`.
-   */
+  /** Unused: replies go through our own flow, not Google's reply UI. Dropped by `mapGbpReview`. */
   reviewReplyUrl?: string;
 }
 
 export interface GbpListReviewsResponse {
   reviews?: GbpReview[];
   nextPageToken?: string;
-  /** Total across all pages, not just this one — the progress bar's denominator. */
+  /** Total across all pages: the progress bar's denominator. */
   totalReviewCount?: number;
   averageRating?: number;
 }

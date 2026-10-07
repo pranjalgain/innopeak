@@ -1,4 +1,5 @@
 import { Public } from '@auth/decorators/public.decorator';
+import { SKIP_ALL_THROTTLERS } from '@common/constants/throttle.constants';
 import type { ApiResponse } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';
@@ -13,21 +14,14 @@ import { BillingWebhooksService } from '../services/billing-webhooks.service';
 import { ApiStripeWebhook } from '../swagger/billing-webhooks.swagger';
 
 /**
- * `POST /v1/billing/webhooks/stripe` — `@Public()` (no JWT; Stripe's own `Stripe-Signature` header
- * is the trust boundary instead, exactly like this codebase already treats OTP/token verification
- * as the trust boundary on other `@Public()` auth routes). Reads `req.rawBody`, populated by the
- * route-scoped `bodyParser.raw()` registered ahead of the global JSON parser in `bootstrap.ts` —
- * a real signature check is only meaningful against the exact bytes Stripe signed, never a
- * re-serialized parsed body.
- *
- * `@SkipThrottle()`: this route must never share the app-wide `ThrottlerGuard` bucket. Stripe's
- * retries are a finite, precious resource — a burst of queued retries after an outage hitting a
- * 429 here would burn through that budget for no reason, and a 429 counts as a failed delivery to
- * Stripe exactly like a 500 would.
+ * No JWT: the `Stripe-Signature` header is the trust boundary, checked against `req.rawBody` (route-scoped
+ * `bodyParser.raw()` in `bootstrap.ts`), since a signature only matches the exact bytes Stripe signed.
+ * `SKIP_ALL_THROTTLERS`: a bare `@SkipThrottle()` only skips a tier named `default`, which this app has
+ * none of; and a 429 counts as a failed delivery, burning Stripe's finite retries.
  */
 @Controller({ path: RouteNames.BILLING, version: '1' })
 @ApiTags('Billing')
-@SkipThrottle()
+@SkipThrottle(SKIP_ALL_THROTTLERS)
 export class BillingWebhooksController {
   constructor(
     private readonly paymentProvider: PaymentProvider,

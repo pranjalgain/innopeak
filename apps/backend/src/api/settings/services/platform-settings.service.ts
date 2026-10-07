@@ -13,13 +13,11 @@ export class PlatformSettingsService {
     private readonly configService: ConfigService<EnvConfig>
   ) {}
 
-  /** Public — no `AuthUser` to check, the sign-in/sign-up screens call this before a session
-   * exists. */
+  /** Public: the sign-in/sign-up screens call this before a session exists. */
   async get(): Promise<PlatformSettingsResponseDto> {
     const row = await this.platformSettingsDbService.get();
     if (!row) {
-      // The migration seeds this row unconditionally and its id is CHECK-constrained to 1 — this
-      // can only happen if the row was manually deleted out from under a running deployment.
+      // The migration seeds this row (id CHECK-constrained to 1); missing means it was manually deleted.
       throw new PlatformConfigMissingException();
     }
     const paymentFeatureEnabled =

@@ -1,13 +1,3 @@
--- Migration: reviews
--- Google Business Profile Review Management — review ingestion & response pipeline module
--- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
--- Depends on: 0000_foundation.sql (enum types), 0002_tenant_auth.sql
---   (tenants, users), 0003_review_provider_locations.sql (locations)
-
--- ───────────────────────────────────────────────────────────────────────
--- reviews — depends on: tenants, locations
--- ───────────────────────────────────────────────────────────────────────
-
 CREATE TABLE IF NOT EXISTS reviews (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -39,24 +29,16 @@ CREATE INDEX idx_reviews_classification ON reviews(classification);
 CREATE INDEX idx_reviews_reviewed_at ON reviews(reviewed_at);
 CREATE INDEX idx_reviews_external_reviewer_id ON reviews(external_reviewer_id);
 
--- ───────────────────────────────────────────────────────────────────────
--- sync_runs — depends on: tenants, locations
--- ───────────────────────────────────────────────────────────────────────
-
 CREATE TABLE IF NOT EXISTS sync_runs (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
     "trigger" sync_trigger NOT NULL,
-    -- Acquisition always stamps now(); the repository wrote `sql`now()`` at every insert.
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
-    -- A run is only ever acquired `running`; ok/error are terminal updates.
     status sync_run_status NOT NULL DEFAULT 'running',
     reviews_fetched INTEGER,
-    -- Denominator for the onboarding progress bar, written once from the provider's first page.
-    -- Nullable on purpose: a provider that doesn't report a total leaves this NULL and the UI
-    -- shows an indeterminate bar rather than a fabricated percentage.
+    -- NULL when the provider reports no total; the UI then shows an indeterminate bar.
     reviews_total INTEGER,
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -65,17 +47,10 @@ CREATE TABLE IF NOT EXISTS sync_runs (
 
 CREATE INDEX idx_sync_runs_tenant_id ON sync_runs(tenant_id);
 CREATE INDEX idx_sync_runs_location_id ON sync_runs(location_id);
--- The sync-run history endpoint's exact ordering (most recent run for a location first).
 CREATE INDEX idx_sync_runs_location_id_started_at ON sync_runs(location_id, started_at DESC);
 
--- Prevents overlapping poller runs for the same location (PLAN.md §8.1). Pair with an
--- application-level staleness check so a crashed run stuck at 'running' doesn't
--- permanently block the location.
+-- Prevents overlapping runs for one location.
 CREATE UNIQUE INDEX idx_sync_runs_location_id_running ON sync_runs(location_id) WHERE status = 'running';
-
--- ───────────────────────────────────────────────────────────────────────
--- review_responses — depends on: tenants, reviews, users
--- ───────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS review_responses (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -88,21 +63,12 @@ CREATE TABLE IF NOT EXISTS review_responses (
     status response_status NOT NULL DEFAULT 'draft',
     created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     approved_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    -- Same SET NULL, never CASCADE, as approved_by_user_id — a rejection is a decision on the
-    -- record, and the accountability trail must survive the deciding user's own removal.
     rejected_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     posted_at TIMESTAMPTZ,
     error_message TEXT,
     generation_metadata JSONB,
-    -- The posting worker's own claim marker, not a `response_status` value. The queue service CASes
-    -- `WHERE status = 'approved' AND (post_attempted_at IS NULL OR post_attempted_at < now() -
-    -- interval '5 minutes')` immediately before calling Google — the same claim-with-staleness-
-    -- reclaim shape `sync_runs.started_at`/`updated_at` already uses (`ReviewSyncRepository
-    -- .acquireSyncRun`) — so a worker that crashes mid-POST leaves a row only the *next* attempt's
-    -- freshness check (not a raw retry) can safely resolve, rather than a second worker racing the
-    -- first's still-in-flight HTTP call. Cleared back to NULL on every terminal write (`posted`,
-    -- `post_failed`, `superseded`) so a retried response starts its next attempt unclaimed. Closes
-    -- PLAN.md §8.12's crash-window gap between a successful Google PUT and the DB write recording it.
+    -- The posting worker's claim marker: a row claimed within the last 5 minutes is not re-posted;
+    -- cleared on terminal writes.
     post_attempted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -116,15 +82,13 @@ CREATE INDEX idx_review_responses_created_by_user_id ON review_responses(created
 CREATE INDEX idx_review_responses_approved_by_user_id ON review_responses(approved_by_user_id);
 CREATE INDEX idx_review_responses_rejected_by_user_id ON review_responses(rejected_by_user_id);
 
--- Google (and any provider) only ever has one live reply per review — posting overwrites,
--- it doesn't version. Covering 'approved' as well as 'posted' closes the sibling-snippet
--- race (PLAN.md §8.5): the second of two near-simultaneous approvals fails here before it
--- ever calls the provider's API.
+-- A review has at most one live reply; 'approved' is included so two near-simultaneous approvals
+-- cannot both reach the provider.
 CREATE UNIQUE INDEX idx_review_responses_review_id_live_reply
     ON review_responses(review_id)
     WHERE status IN ('approved', 'posted');
 
--- Makes the historical backfill job (PLAN.md §7) idempotent/safely re-runnable.
+-- Makes the historical backfill idempotent.
 CREATE UNIQUE INDEX idx_review_responses_review_id_imported
     ON review_responses(review_id)
     WHERE source = 'imported';

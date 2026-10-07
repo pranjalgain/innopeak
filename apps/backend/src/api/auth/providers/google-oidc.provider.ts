@@ -18,11 +18,8 @@ interface UserInfoResponse {
   name?: string;
 }
 
-/**
- * Real Google sign-in over OpenID Connect. Bare `fetch` rather than a passport strategy: the flow
- * is two HTTP calls, and a strategy would put the redirect and callback semantics inside passport
- * where the state/nonce/cookie handling this module needs cannot reach them.
- */
+// Bare `fetch` instead of a passport strategy: passport would hide the redirect/callback where
+// this module's state/nonce/cookie handling cannot reach it.
 @Injectable()
 export class GoogleOidcProvider extends GoogleIdentityProvider {
   private readonly logger = new Logger(GoogleOidcProvider.name);
@@ -48,9 +45,7 @@ export class GoogleOidcProvider extends GoogleIdentityProvider {
       response_type: 'code',
       scope: GOOGLE_AUTH.SCOPES.join(' '),
       state,
-      // Sign-in reads a profile once per round trip and stores no Google token, so there is
-      // nothing to refresh — asking for offline access would collect a refresh token this feature
-      // has no use for and would then have to protect.
+      // Online: no Google token is stored, so an offline refresh token would be one we'd have to protect for nothing.
       access_type: 'online',
       prompt: 'select_account',
     });

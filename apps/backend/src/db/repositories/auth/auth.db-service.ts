@@ -10,6 +10,8 @@ import type {
   AcceptMemberInviteOutcome,
   AcquireErasureLock,
   CancelMemberRemovalOutcome,
+  ErasureNoticeRecipient,
+  ErasureReminderCandidate,
   GoogleIdentityLookup,
   InsertRefreshTokenInput,
   MemberInviteStatusRow,
@@ -37,12 +39,7 @@ import { PromptsDbService } from '../prompts/prompts.db-service';
 /** Index name Postgres reports as `constraint` on the 23505 a losing concurrent signup raises — see 0002_tenant_auth.sql. */
 const USERS_EMAIL_ACTIVE_INDEX = 'idx_users_email_active';
 
-/**
- * Owns every auth transaction — AuthService/TokenService never touch AuthRepository or run a
- * query themselves (module-structure.md). Several methods below are thin pass-throughs (a
- * single repository call, no composition) — kept here rather than skipped so that invariant
- * holds without exception, not because each one does real composition work.
- */
+/** Owns every auth transaction so AuthService/TokenService never touch AuthRepository; some methods are thin pass-throughs to keep that invariant without exception. */
 @Injectable()
 export class AuthDbService {
   constructor(
@@ -52,12 +49,11 @@ export class AuthDbService {
   ) {}
 
   /**
-   * Returns null when the email is already registered (any status, any tenant) — caller maps that
-   * to a 409. The up-front `findUserByEmail` is only the cheap common-case answer; the actual
-   * guarantee is `idx_users_email_active` (partial unique on `users(email) WHERE anonymized_at IS
-   * NULL`). Two simultaneous signups for one email both pass the pre-check, and then exactly one
-   * `insertOwnerUser` commits — the loser's unique violation rolls back its tenant + settings and
-   * is reported as the same null (observed before this: 5 concurrent signups → 4 tenants).
+   * Returns null when the email is already registered (caller maps it to a 409). The
+   * `findUserByEmail` pre-check is only the cheap path; the real guarantee is the partial unique
+   * index `idx_users_email_active`: of concurrent signups for one email exactly one
+   * `insertOwnerUser` commits, and the loser's unique violation rolls back its tenant + settings
+   * and is reported as null.
    */
   async signup(input: SignupInput): Promise<SignupResult | null> {
     const existing = await this.authRepository.findUserByEmail(input.email);
@@ -76,12 +72,8 @@ export class AuthDbService {
           passwordHash: input.passwordHash,
         });
         await this.authRepository.insertTenantSettings(tx, { tenantId: tenant.id });
-        // A tenant must never be observable without a subscription row — see
-        // `tenant_subscriptions`'s own migration comment (0011_billing.sql) and
-        // `TenantSubscriptionsDbService.insertFreeSubscription`. Same transaction as the tenant
-        // itself, not a second one, for that same reason. Both tenant-creation paths need this
-        // (password `signup` and `completeGoogleSignup` below), since either can be the first —
-        // and only — moment a brand-new tenant row is ever created.
+        // A tenant must never be observable without a subscription row, so create it in the same
+        // transaction (both signup paths need this).
         await this.tenantSubscriptionsDbService.insertFreeSubscription(tx, tenant.id);
         await this.authRepository.insertNotificationRecipient(tx, {
           tenantId: tenant.id,
@@ -109,34 +101,24 @@ export class AuthDbService {
   }
 
   /**
-   * Everything a tenant needs before its dashboard is usable. Called at the moment the tenant
-   * becomes real — today that is email verification; a future already-verified signup path
-   * (Microsoft/Google SSO asserts a verified email, so it activates in one step) must call this
-   * too rather than repeating the inserts.
+   * Everything a tenant needs before its dashboard is usable; call it when the tenant becomes real
+   * (email verification, or any already-verified SSO signup path).
    *
-   * Deliberately not done at signup: a `pending_verification` tenant may never activate, and
-   * provisioning there would leave prompt rows behind for accounts that never existed in any
-   * meaningful sense.
-   *
-   * Safe to call more than once — `insertDefaultsForTenant` conflicts away on the
-   * `(tenant_id, category)` unique index. That matters because a tenant can have several users,
-   * and each of them verifying reaches this same path.
+   * Not done at signup: a `pending_verification` tenant may never activate and would leave prompt
+   * rows behind. Idempotent, since `insertDefaultsForTenant` conflicts away on
+   * `(tenant_id, category)` and every user of a tenant verifying reaches this path.
    */
   private async provisionTenantWorkspace(tx: DrizzleTransaction, tenantId: string): Promise<void> {
     await this.promptsDbService.insertDefaultsForTenant(tx, tenantId);
   }
 
   /**
-   * Resolves a Google identity against `user_identities`/`users` by `sub` alone — the returning
-   * user case, and the only one of the two lookups that touches nothing.
+   * Resolves a Google identity by `sub` alone (the returning-user case); a pure read.
    *
-   * Deliberately split from `linkGoogleIdentityByEmail` below rather than falling through to it,
-   * because the two differ in more than which column they match on: this one is a read, that one
-   * is a write with side effects, and *which accounts are allowed to reach the write* is a
-   * security decision the caller has to make in between. See `AuthService.handleGoogleCallback`.
-   *
-   * `{ kind: 'unknown' }` means "no tenant identity for this Google account" — what that implies
-   * depends on intent, a business rule this DB service deliberately does not make.
+   * Split from `linkGoogleIdentityByEmail` because that one writes, and which accounts may reach it
+   * is a security decision the caller must make in between (see `AuthService.handleGoogleCallback`).
+   * `{ kind: 'unknown' }` means no tenant identity exists; what that implies depends on intent,
+   * which this service does not decide.
    */
   async findGoogleIdentityBySub(providerUserId: string): Promise<GoogleIdentityLookup> {
     const existingIdentity = await this.authRepository.findUserIdByIdentity(
@@ -149,26 +131,21 @@ export class AuthDbService {
     }
 
     const user = await this.authRepository.findUserById(existingIdentity.userId);
-    // An identity row with no matching user is unreachable in practice (nothing hard-deletes a
-    // user), so this is treated the same as never having seen this person — not worth a third
-    // branch for a case that can't occur.
+    // Unreachable in practice (nothing hard-deletes a user); treated as never seen.
     return user === null
       ? { kind: 'unknown' }
-      : // An existing Google-identity link is by definition a returning user, never a first
-        // activation — that only ever happens the first time an identity row is created.
+      : // An existing identity link is always a returning user, never a first activation.
         { kind: 'known', user: this.toVerifiedUser(user), firstActivation: false };
   }
 
   /**
-   * The second half of Google resolution: the person signed up with a password and is now using
-   * the Google button, so link the identity to the `users` row already holding that address.
+   * Links the Google identity to the `users` row already holding that address (signed up with a
+   * password, now using Google).
    *
-   * **This writes.** It upserts a `user_identities` row, and for a `pending_verification` account
-   * it also activates the user and their tenant, clears the password hash and provisions the
-   * workspace. It matches on *email* — an address anyone can start a signup with, since nothing
-   * proves a mailbox before the OTP — so the caller must decide who is allowed to reach it rather
-   * than calling it as a blind fallback. `AuthService.handleGoogleCallback` withholds it from
-   * Google accounts that belong to a platform admin for exactly that reason.
+   * This writes: it upserts a `user_identities` row and, for a `pending_verification` account,
+   * activates the user and tenant, clears the password hash and provisions the workspace. It
+   * matches on email, which nothing proves before the OTP, so the caller must decide who may reach
+   * it; `AuthService.handleGoogleCallback` withholds it from platform-admin Google accounts.
    */
   async linkGoogleIdentityByEmail(input: {
     providerUserId: string;
@@ -176,10 +153,8 @@ export class AuthDbService {
   }): Promise<GoogleIdentityLookup> {
     const byEmail = await this.authRepository.findUserByEmail(input.email);
     if (byEmail) {
-      // Google has verified this address, so linking also *finishes* a signup that stalled at the
-      // OTP screen: without this the account stayed `pending_verification` (and its tenant
-      // `pending_activation`) forever while being perfectly usable through the Google button, and
-      // password login kept mailing codes for an account that was already proven.
+      // Google verified the address, so linking also finishes a signup stalled at the OTP screen
+      // (otherwise it stays pending_verification forever).
       const activated = await this.authRepository.transaction(async tx => {
         await this.authRepository.upsertUserIdentity(tx, {
           userId: byEmail.id,
@@ -194,25 +169,15 @@ export class AuthDbService {
 
         const promoted = await this.authRepository.activateUser(tx, byEmail.id);
         if (promoted) {
-          // Pre-hijack defence, and the reason this branch is not a plain "link and activate".
-          //
-          // A `pending_verification` row's password was typed by whoever ran signup, and nothing
-          // has proven that was the mailbox owner: anyone can sign up as victim@example.com and
-          // simply ignore the OTP that lands in the victim's inbox. Google verifying the address
-          // proves the *mailbox*, not the password — so activating this row with that password
-          // still attached would hand the squatter permanent password access to a tenant the
-          // victim now owns (and, worse, their connected Business Profile), with a business name
-          // they never typed as the only tell.
-          //
-          // The unproven password is therefore dropped along with its outstanding code. The
-          // account works through Google immediately and can adopt a password of its own via
-          // `POST /v1/auth/set-password`, which `hasPassword: false` already drives in Settings.
+          // Pre-hijack defence: a pending_verification password was typed by whoever ran signup, and
+          // nothing proves they own the mailbox. Google proves the mailbox, not the password, so
+          // keeping it would give a squatter permanent password access to the victim's tenant. Drop it
+          // with its outstanding code; the account adopts its own via POST /v1/auth/set-password.
           await this.authRepository.clearPasswordHash(tx, byEmail.id);
           await this.authRepository.deleteVerifyEmailTokensForUser(tx, byEmail.id);
 
           await this.authRepository.activateTenant(tx, byEmail.tenantId);
-          // The OTP path provisions here too — an account that never reaches `verifyEmail` would
-          // otherwise own a tenant with no prompts.
+          // This account never reaches `verifyEmail`, so provision here or the tenant has no prompts.
           await this.provisionTenantWorkspace(tx, byEmail.tenantId);
         }
         return promoted;
@@ -231,18 +196,12 @@ export class AuthDbService {
   }
 
   /**
-   * The other half of a deferred Google signup: called once a business name has been collected,
-   * with the identity Google already verified at the callback. Same shape as the old inline
-   * creation branch of `resolveGoogleIdentity` — tenant + owner + settings + identity + prompts,
-   * one transaction — just triggered later, after the one thing Google cannot supply is known.
+   * Second half of a deferred Google signup, once a business name is collected: tenant + owner +
+   * settings + identity + prompts in one transaction. The owner is created active and verified, so
+   * it provisions its own workspace here (it never reaches `verifyEmail`).
    *
-   * The created owner is `active` and email-verified immediately, which is exactly the
-   * "already-verified signup path" `provisionTenantWorkspace` was written for: it never reaches
-   * `verifyEmail`, so it provisions its own workspace here or the tenant would have no prompts.
-   *
-   * Returns null on the same race `signup` guards against — someone else registered this exact
-   * email in the window between the OAuth callback and this call (a password signup, or a second
-   * Google round trip). The caller reports a clean conflict rather than a 500.
+   * Returns null on the same race `signup` guards against (email registered between the OAuth
+   * callback and this call); the caller reports a conflict rather than a 500.
    */
   async completeGoogleSignup(input: {
     providerUserId: string;
@@ -261,12 +220,8 @@ export class AuthDbService {
           email: input.email,
         });
         await this.authRepository.insertTenantSettings(tx, { tenantId: tenant.id });
-        // A tenant must never be observable without a subscription row — see
-        // `tenant_subscriptions`'s own migration comment (0011_billing.sql) and
-        // `TenantSubscriptionsDbService.insertFreeSubscription`. Same transaction as the tenant
-        // itself, not a second one, for that same reason. Both tenant-creation paths need this
-        // (password `signup` and `completeGoogleSignup` below), since either can be the first —
-        // and only — moment a brand-new tenant row is ever created.
+        // A tenant must never be observable without a subscription row, so create it in the same
+        // transaction (both signup paths need this).
         await this.tenantSubscriptionsDbService.insertFreeSubscription(tx, tenant.id);
         await this.authRepository.insertNotificationRecipient(tx, {
           tenantId: tenant.id,
@@ -278,8 +233,7 @@ export class AuthDbService {
           providerUserId: input.providerUserId,
           email: input.email,
         });
-        // Google already verified the owner's email, so this tenant is activated on the spot
-        // rather than waiting for an OTP round trip it will never make.
+        // Google already verified the owner's email, so activate on the spot.
         await this.authRepository.activateTenant(tx, tenant.id);
         await this.provisionTenantWorkspace(tx, tenant.id);
 
@@ -289,10 +243,8 @@ export class AuthDbService {
           email: input.email,
           name: ownerName,
           role: UserRole.OWNER,
-          // A Google signup never sets `password_hash` — there is nothing to hash yet.
           passwordHash: null,
           status: UserStatus.ACTIVE,
-          // A brand new row — nobody has had the chance to choose a locale yet.
           locale: null,
         };
       });
@@ -341,11 +293,44 @@ export class AuthDbService {
     );
   }
 
+  /** The step-up code an SSO-only owner clears before scheduling their own business's erasure — see `AuthRepository.putDeleteAccountOtp`. */
+  async putDeleteAccountOtp(input: PutVerifyEmailTokenInput): Promise<void> {
+    const { userId, tokenHash, expiresAt } = input;
+    await this.authRepository.transaction(tx =>
+      this.authRepository.putDeleteAccountOtp(tx, { userId, tokenHash, expiresAt })
+    );
+  }
+
+  /** CAS-consumes the delete-account OTP; true only if it matched, was unused, and hadn't expired. */
+  async consumeDeleteAccountOtp(input: UserTokenHashInput): Promise<boolean> {
+    const { userId, tokenHash } = input;
+    return this.authRepository.transaction(tx =>
+      this.authRepository.consumeDeleteAccountOtp(tx, { userId, tokenHash })
+    );
+  }
+
+  requestTenantErasureBySelf(input: {
+    tenantId: string;
+    requestedByUserId: string;
+  }): Promise<{ name: string } | null> {
+    return this.authRepository.requestTenantErasureBySelf(input);
+  }
+
+  cancelSelfRequestedErasure(input: {
+    tenantId: string;
+    requestedByUserId: string;
+    gracePeriodDays: number;
+  }): Promise<{ name: string } | null> {
+    return this.authRepository.cancelSelfRequestedErasure(input);
+  }
+
+  findTenantErasureState(tenantId: string): ReturnType<AuthRepository['findTenantErasureState']> {
+    return this.authRepository.findTenantErasureState(tenantId);
+  }
+
   /**
-   * Returns null when the code doesn't match, was already used, is expired, or the account isn't
-   * `pending_verification` — the caller (AuthService) turns that into the uniform
-   * INVALID_OR_EXPIRED_OTP error, never distinguishing which (auth API reference's Security
-   * considerations). On success, returns everything the caller needs to issue tokens.
+   * Returns null for a wrong, used or expired code, or a non-`pending_verification` account; the
+   * caller maps every case to the uniform INVALID_OR_EXPIRED_OTP so they stay indistinguishable.
    */
   async verifyEmail(input: VerifyEmailInput): Promise<VerifiedUser | null> {
     const { email, tokenHash } = input;
@@ -368,8 +353,7 @@ export class AuthDbService {
         return null;
       }
 
-      // The owner's email is now proven, which is what `tenants.status` tracks — nothing else in
-      // the codebase ever moved it off its `pending_activation` default.
+      // The proven email is what `tenants.status` tracks; nothing else moves it off `pending_activation`.
       await this.authRepository.activateTenant(tx, user.tenantId);
       await this.provisionTenantWorkspace(tx, user.tenantId);
 
@@ -409,21 +393,19 @@ export class AuthDbService {
     );
   }
 
-  /** See `AuthRepository.findRefreshTokenByHash` — includes already-revoked rows, so reuse of a spent token is distinguishable from a token that never existed. */
+  /** Includes already-revoked rows so reuse of a spent token is distinguishable from one that never existed. */
   async findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRow | null> {
     return this.authRepository.findRefreshTokenByHash(tokenHash);
   }
 
-  /** See `AuthRepository.hasActiveRefreshToken` — distinguishes a lost rotation race from a dead session. */
+  /** Distinguishes a lost rotation race from a dead session. */
   async hasActiveRefreshToken(userId: string): Promise<boolean> {
     return this.authRepository.hasActiveRefreshToken(userId);
   }
 
   /**
-   * Single-use rotation as one atomic step: revoke the spent token and persist its replacement in
-   * the same transaction, and only persist if the revoke actually flipped the row. Returns false
-   * (and persists nothing) when the token had already been spent — a concurrent rotation, or a
-   * replay — so the caller can reject instead of minting a second live session off one token.
+   * Revoke and persist the replacement atomically, only if the revoke flipped the row. Returns
+   * false when the token was already spent (concurrent rotation or replay) so the caller can reject.
    */
   async rotateRefreshToken(
     revokeId: string,
@@ -446,11 +428,7 @@ export class AuthDbService {
     );
   }
 
-  /**
-   * Password change: write the new hash and kill every existing session in one transaction so a
-   * crash between the two cannot leave the old password live alongside already-revoked tokens
-   * (or the reverse — a new hash with old refresh tokens still valid).
-   */
+  /** Hash write and revoke-all-sessions in one transaction, so a crash cannot leave the old password live. */
   async updatePasswordAndRevokeSessions(input: UpdatePasswordInput): Promise<void> {
     const { userId, passwordHash } = input;
     await this.authRepository.transaction(async tx => {
@@ -459,7 +437,7 @@ export class AuthDbService {
     });
   }
 
-  /** Settings → Profile's language preference. No session revoke — unlike a password change, a locale is not a security boundary. */
+  /** No session revoke — unlike a password change, a locale is not a security boundary. */
   async updateLocale(input: UpdateLocaleInput): Promise<void> {
     const { userId, locale } = input;
     await this.authRepository.transaction(tx =>
@@ -467,13 +445,11 @@ export class AuthDbService {
     );
   }
 
-  /** The tenant-wide "currently viewing" business — see `tenants.active_location_id`'s column
-   *  comment. Null means either never chosen or the chosen location was later removed. */
+  /** Null means never chosen, or the chosen location was later removed. */
   findActiveLocationId(tenantId: string): Promise<string | null> {
     return this.authRepository.findActiveLocationId(tenantId);
   }
 
-  /** `null` clears the pointer — see `ConnectionsService.disconnect`. */
   async setActiveLocationId(input: SetActiveLocationIdInput): Promise<void> {
     const { tenantId, locationId } = input;
     await this.authRepository.transaction(tx =>
@@ -489,20 +465,19 @@ export class AuthDbService {
     }));
   }
 
-  /** See `PlatformAdminRepository.findByEmail` / `AuthRepository.findMemberInviteStatusByEmail` — the global check `TenantMembersService.sendInvite` runs before ever attempting the insert. */
+  /** The global check `TenantMembersService.sendInvite` runs before attempting the insert. */
   async findMemberInviteStatusByEmail(email: string): Promise<MemberInviteStatusRow | null> {
     return this.authRepository.findMemberInviteStatusByEmail(email);
   }
 
-  /** Drops a lapsed invite so the same address can be invited again — see `AuthRepository.deleteExpiredMemberInvite`. */
+  /** Lets the same address be invited again once an invite has lapsed. */
   async deleteExpiredMemberInvite(id: string): Promise<void> {
     await this.authRepository.deleteExpiredMemberInvite(id);
   }
 
   /**
-   * Creates the invited member's `users` row and its `password_reset_tokens` invite row in one
-   * transaction — mirrors `PlatformAdminDbService.createInvite`. Constructs the returned row from
-   * the inputs rather than re-reading what was just written, same as that method.
+   * Creates the invited member's `users` row and invite token in one transaction; the returned row
+   * is built from the inputs rather than re-read (as in `PlatformAdminDbService.createInvite`).
    */
   async createMemberInvite(input: {
     tenantId: string;
@@ -515,8 +490,7 @@ export class AuthDbService {
       const user = await this.authRepository.insertInvitedMember(tx, {
         tenantId: input.tenantId,
         email: input.email,
-        // `users.name` is `NOT NULL`; the invitee picks their own on the accept screen. See
-        // `InsertInvitedMemberInput.name`'s own comment.
+        // `users.name` is NOT NULL; the invitee picks their own on the accept screen.
         name: input.email,
         invitedByUserId: input.invitedByUserId,
       });
@@ -539,17 +513,16 @@ export class AuthDbService {
     };
   }
 
-  /** See `AuthRepository.deleteInvitedMember` — tenant-scoped, so an owner can only revoke their own tenant's pending invites. */
+  /** Tenant-scoped so an owner can only revoke their own tenant's pending invites. */
   async revokeMemberInvite(tenantId: string, memberId: string): Promise<RevokeMemberInviteOutcome> {
     return this.authRepository.deleteInvitedMember(tenantId, memberId);
   }
 
-  /** See `AuthRepository.listTenantMembers` — the Team Members list, owner and members alike. */
   async listTenantMembers(tenantId: string): Promise<TenantMemberRow[]> {
     return this.authRepository.listTenantMembers(tenantId);
   }
 
-  /** See `AuthRepository.requestMemberRemoval` — the last-owner-guarded, grace-period start. */
+  /** Last-owner-guarded; starts the grace period. */
   async requestMemberRemoval(
     tenantId: string,
     memberId: string
@@ -557,7 +530,6 @@ export class AuthDbService {
     return this.authRepository.requestMemberRemoval(tenantId, memberId);
   }
 
-  /** See `AuthRepository.cancelMemberRemoval`. */
   async cancelMemberRemoval(
     tenantId: string,
     memberId: string
@@ -565,53 +537,60 @@ export class AuthDbService {
     return this.authRepository.cancelMemberRemoval(tenantId, memberId);
   }
 
-  /** See `AuthRepository.anonymizeUser`. */
   async anonymizeUser(userId: string): Promise<{ outcome: 'already_anonymized' | 'anonymized' }> {
     return this.authRepository.anonymizeUser(userId);
   }
 
-  /** See `AuthRepository.findTenantsDueForErasurePurge`. */
   async findTenantsDueForErasurePurge(
     gracePeriodDays: number
-  ): Promise<{ id: string; name: string }[]> {
+  ): Promise<{ id: string; name: string; erasureRequestedAt: string | null }[]> {
     return this.authRepository.findTenantsDueForErasurePurge(gracePeriodDays);
   }
 
-  /** See `AuthRepository.findNonAnonymizedUserIdsForTenant`. */
   async findNonAnonymizedUserIdsForTenant(tenantId: string): Promise<string[]> {
     return this.authRepository.findNonAnonymizedUserIdsForTenant(tenantId);
   }
 
-  /** See `AuthRepository.markTenantErased`. */
+  async findTenantOwnerRecipients(tenantId: string): Promise<ErasureNoticeRecipient[]> {
+    return this.authRepository.findTenantOwnerRecipients(tenantId);
+  }
+
+  async findTenantsDueForErasureReminder(input: {
+    gracePeriodDays: number;
+    reminderDaysBefore: number;
+  }): Promise<ErasureReminderCandidate[]> {
+    return this.authRepository.findTenantsDueForErasureReminder(input);
+  }
+
+  async claimErasureReminder(
+    tenantId: string
+  ): Promise<{ name: string; erasureRequestedAt: string } | null> {
+    return this.authRepository.claimErasureReminder(tenantId);
+  }
+
   async markTenantErased(tenantId: string): Promise<{ name: string } | null> {
     return this.authRepository.markTenantErased(tenantId);
   }
 
-  /** See `AuthRepository.findUsersDueForErasurePurge`. */
   async findUsersDueForErasurePurge(gracePeriodDays: number): Promise<string[]> {
     return this.authRepository.findUsersDueForErasurePurge(gracePeriodDays);
   }
 
-  /** See `AuthRepository.runWithErasurePurgeLock`. */
   async runWithErasurePurgeLock<T>(
     fn: (acquireLock: AcquireErasureLock) => Promise<T>
   ): Promise<T> {
     return this.authRepository.runWithErasurePurgeLock(fn);
   }
 
-  /** See `AuthRepository.isTenantStillDueForErasure`. */
   async isTenantStillDueForErasure(tenantId: string, gracePeriodDays: number): Promise<boolean> {
     return this.authRepository.isTenantStillDueForErasure(tenantId, gracePeriodDays);
   }
 
-  /** See `AuthRepository.isUserStillDueForErasure`. */
   async isUserStillDueForErasure(userId: string, gracePeriodDays: number): Promise<boolean> {
     return this.authRepository.isUserStillDueForErasure(userId, gracePeriodDays);
   }
 
-  /**
-   * Read-only preview for the accept screen — see `AuthRepository.findMemberInviteEmailByTokenHash`.
-   */
+  /** Read-only preview for the accept screen. */
   async findMemberInviteEmailByTokenHash(
     tokenHash: string
   ): Promise<{ email: string; tenantId: string } | null> {

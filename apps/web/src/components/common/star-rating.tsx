@@ -8,10 +8,6 @@ interface StarRatingProps {
   className?: string;
 }
 
-/**
- * A row of 5 stars, filled up to `rating`. Used anywhere a review's rating
- * is shown (Dashboard, and later Review Queue / Review Detail).
- */
 export function StarRating({ rating, className }: StarRatingProps) {
   const t = useTranslations("common");
 

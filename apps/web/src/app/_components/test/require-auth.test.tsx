@@ -3,11 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { RequireAuth } from "../require-auth";
 
-/**
- * `RequireAuth`/`useAuthToken` read the non-credential `session` cookie the backend sets on every
- * sign-in (see `TokenService.getTokenType`'s own doc comment) — seeding it directly here is the
- * jsdom equivalent of the backend's `res.cookie("session", ...)`.
- */
+// Seeds the non-credential `session` cookie directly, as the backend's `res.cookie("session", ...)` would.
 function setSessionCookie(value: "tenant" | "admin" | null): void {
   document.cookie =
     value === null
@@ -29,9 +25,7 @@ describe("RequireAuth", () => {
   beforeEach(() => {
     setSessionCookie(null);
     originalLocation = window.location;
-    // jsdom doesn't support a plain assignment to `window.location.href` the way a real browser
-    // does — replaced with a settable stand-in so the component's hard redirect (deliberately
-    // `window.location.href`, not `router.replace()` — see its own doc comment) can be observed.
+    // jsdom rejects assigning `window.location.href`; swap in a settable stand-in to observe the hard redirect.
     Object.defineProperty(window, "location", {
       configurable: true,
       value: { ...originalLocation, href: "http://localhost:3002/dashboard" },
@@ -59,12 +53,8 @@ describe("RequireAuth", () => {
     expect(window.location.href).toBe("http://localhost:3002/dashboard");
   });
 
-  /**
-   * Regression: this is the exact bug report. A platform admin manually navigating to a
-   * tenant-only route had a real, valid session — so this must NOT be treated as "no session"
-   * (which redirects to /login, where the admin's own still-valid session would try to bounce them
-   * right back here, forever). A valid-but-wrong-type session is a 403 shape, not a 401 shape.
-   */
+  // Regression: a platform admin on a tenant-only route has a valid session, so it must not count as no-session
+  // (which bounces via /login forever); it is a 403 shape, not a 401.
   test("redirects a signed-in platform admin to /forbidden, not /login", async () => {
     setSessionCookie("admin");
 

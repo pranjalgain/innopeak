@@ -1,5 +1,6 @@
 import { AuthModule } from '@auth/auth.module';
 import { QueueUIModule } from '@bg/queue-ui.module';
+import { BillingReconciliationModule } from '@billing/billing-reconciliation.module';
 import { BcryptService } from '@common/hashing/bcrypt.service';
 import { HashingService } from '@common/hashing/hashing.service';
 import { Module } from '@nestjs/common';
@@ -21,6 +22,7 @@ import { AdminUsersService } from './services/admin-users.service';
   imports: [
     QueueUIModule, // for AddingJobsToQueueManager — AdminSettingsService.sendInvite enqueues the invite email
     AuthModule, // for TokenService — AdminSettingsService.updateLocale reissues the access token
+    BillingReconciliationModule, // AdminBusinessesService.requestErasure schedules the subscription's cancellation
   ],
   controllers: [
     AdminUsersController,

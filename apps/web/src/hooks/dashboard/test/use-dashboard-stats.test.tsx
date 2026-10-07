@@ -69,13 +69,7 @@ describe("useDashboardStats — location scoping", () => {
     vi.restoreAllMocks();
   });
 
-  /**
-   * Regression: neither query was gated on `["connection"]` settling, and a null `locationId`
-   * means "every location this tenant has" to the API — not "not scoped yet". So the first paint
-   * of a multi-location dashboard showed the summed figures across every store, then replaced
-   * them with the active store's once the connection resolved and the key changed. Two requests,
-   * and the first one's numbers were wrong rather than merely stale.
-   */
+  /** Regression: ungated queries with a null `locationId` (= all locations) flashed summed figures before the active store's loaded. */
   test("fires no request until the active location is known", async () => {
     let resolveConnection: (state: ConnectionState) => void = () => undefined;
     vi.spyOn(ConnectionService, "getState").mockReturnValue(
@@ -91,8 +85,7 @@ describe("useDashboardStats — location scoping", () => {
     const { wrapper } = renderWithClient();
     const { result } = renderHook(() => useDashboardStats("30d"), { wrapper });
 
-    // Still resolving the connection: nothing may have gone out yet, and the screen must read as
-    // loading rather than as an empty dashboard (a disabled query reports `isLoading: false`).
+    // Connection still resolving: nothing sent, yet it must read as loading (a disabled query reports `isLoading: false`).
     expect(getMetrics).not.toHaveBeenCalled();
     expect(getAttentionReviews).not.toHaveBeenCalled();
     expect(result.current.isLoading).toBe(true);
@@ -132,9 +125,7 @@ describe("useDashboardStats — location scoping", () => {
   });
 
   test("switching the active location fetches fresh data under a new query key, not a stale cache hit", async () => {
-    // Regression: without `locationId` in the query key, switching business would either show the
-    // previous business's already-cached numbers or require a manual invalidation this hook never
-    // performs — the key itself has to change for react-query to treat it as a different query.
+    // Regression: without `locationId` in the key, switching business would show the previous business's cached numbers.
     const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue(metrics());
     vi.spyOn(DashboardService, "getAttentionReviews").mockResolvedValue([]);
     const getState = vi
@@ -146,8 +137,7 @@ describe("useDashboardStats — location scoping", () => {
 
     await waitFor(() => expect(getMetrics).toHaveBeenCalledWith("30d", "loc-1"));
 
-    // Simulate the Business Switcher's own mutation success handler — a direct write into the
-    // shared `["connection"]` cache, exactly what `useBusinessSwitcher` does.
+    // Simulates `useBusinessSwitcher`'s success handler writing to the shared `["connection"]` cache.
     getState.mockResolvedValue(connectionState({ location: location({ id: "loc-2" }) }));
     queryClient.setQueryData(["connection"], connectionState({ location: location({ id: "loc-2" }) }));
     rerender();

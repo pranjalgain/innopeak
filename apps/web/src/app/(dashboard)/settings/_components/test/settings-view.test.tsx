@@ -17,9 +17,7 @@ import { SettingsView } from "../settings-view";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => "/settings",
-  // Default tab (`general`) so only `GeneralSettingsSection` mounts — Radix `TabsContent` doesn't
-  // mount an inactive tab's children, so this keeps the fixture to exactly what the tab-list
-  // itself needs, regardless of what `BillingSettingsSection`'s own queries would otherwise need.
+  // Default tab so only `GeneralSettingsSection` mounts (Radix doesn't mount inactive `TabsContent`), keeping the fixture small.
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -83,13 +81,7 @@ describe("SettingsView — Billing tab availability", () => {
     vi.spyOn(SettingsService, "getSettings").mockResolvedValue(MOCK_SETTINGS);
   });
 
-  /**
-   * The scenario this whole fix is for: an operator disables `PAYMENT_FEATURE_ENABLED` (which
-   * only ever gates *starting a new checkout*) while a tenant is still on a live, auto-renewing
-   * Stripe subscription. Without `billingTabAvailable`'s override, the tab — and with it the only
-   * in-app "Cancel subscription" button — disappeared entirely, leaving that tenant charged every
-   * cycle with no way to stop it short of contacting support directly.
-   */
+  /** Regression: with PAYMENT_FEATURE_ENABLED off, a tenant on a live Stripe subscription lost the Billing tab and with it the only Cancel button. */
   test("keeps the Billing tab for a tenant already on Paid, even with PAYMENT_FEATURE_ENABLED off", async () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue(PLATFORM_SETTINGS_BILLING_OFF);
     vi.spyOn(BillingService, "getSubscription").mockResolvedValue(PAID_SUBSCRIPTION);
@@ -105,8 +97,7 @@ describe("SettingsView — Billing tab availability", () => {
 
     renderView();
 
-    // Wait for the settled state via a tab that's always offered, then assert Billing is absent —
-    // asserting an absence directly would otherwise race the initial loading skeleton.
+    // Waits via an always-offered tab; asserting absence directly would race the loading skeleton.
     expect(await screen.findByRole("tab", { name: /general/i })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /billing/i })).not.toBeInTheDocument();
   });

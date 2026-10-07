@@ -20,6 +20,8 @@ interface UseAuthResult {
   loginWithMicrosoft: (email: string) => Promise<void>;
   /** Returns null on failure (a toast is already shown) — the caller only needs to branch on a non-null result. */
   loginWithPassword: (email: string, password: string) => Promise<LoginResult | null>;
+  /** Undoes the owner's own pending deletion. Returns whether it worked — a toast is already shown on failure. */
+  restoreAccount: (email: string, password: string) => Promise<boolean>;
   startGoogleLogin: () => void;
   signupWithMicrosoft: () => Promise<boolean>;
   signupWithPassword: (values: CreateAccountFormValues) => Promise<boolean>;
@@ -34,13 +36,8 @@ interface UseAuthResult {
 }
 
 /**
- * A 4xx from this API carries copy written for the user — `messages.constants.ts` on the backend
- * plus DTO validation messages — so it is shown as-is. "Invalid email or password." *is* the point
- * of a 401 here; replacing it with "something went wrong" tells the user nothing and hides the one
- * thing they can act on.
- *
- * The generic fallback is reserved for what it actually means: a 5xx, or a network failure that
- * produced no response at all, where there is no server-authored message to show.
+ * A 4xx carries copy written for the user, so it is shown as-is ("Invalid email or password" is the
+ * point of a 401). The generic fallback is only for a 5xx or a network failure with no server message.
  */
 export function authErrorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError && error.statusCode >= 400 && error.statusCode < 500
@@ -48,21 +45,13 @@ export function authErrorMessage(error: unknown, fallback: string): string {
     : fallback;
 }
 
-/**
- * Auth actions for the login/onboarding screens. Wraps `AuthService` so
- * components never call it directly — swapping the mock service for a real
- * backend call later needs no change here or in any consuming component.
- * Failures surface via toast — there's no inline error UI on either form.
- */
+/** Auth actions for the login/onboarding screens; failures surface via toast. */
 export function useAuth(): UseAuthResult {
   const t = useTranslations("auth.toasts");
   const [isLoading, setIsLoading] = useState(false);
 
-  // `startGoogleLogin`/`startGoogleSignup` below navigate away instead of awaiting anything, on
-  // the assumption that the page being replaced makes a reset unnecessary. That holds for a
-  // forward navigation, but browser-back can restore this page from bfcache instead of remounting
-  // it — the in-memory `isLoading: true` comes back with it, and with no new mount there is no
-  // other point that would ever clear it, leaving every social-auth button permanently disabled.
+  // Google login/signup navigate away, but browser-back can restore this page from bfcache with
+  // `isLoading: true` and no remount, leaving every social-auth button disabled.
   useEffect(() => {
     const handlePageShow = (event: PageTransitionEvent) => {
       if (event.persisted) setIsLoading(false);
@@ -100,12 +89,25 @@ export function useAuth(): UseAuthResult {
     [t],
   );
 
+  const restoreAccount = useCallback(
+    async (email: string, password: string) => {
+      setIsLoading(true);
+      try {
+        await AuthService.restoreAccount(email, password);
+        return true;
+      } catch (error) {
+        toast.error(authErrorMessage(error, t("restoreFailed")));
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [t],
+  );
+
   /**
-   * Navigates away rather than awaiting anything, so there is no success path to handle and no
-   * `finally` to clear the spinner — the page is being replaced. Failures come back as
-   * `?error=` on the destination, which the login and signup views read on mount. The `pageshow`
-   * listener above covers the one case where this page isn't actually replaced: the user hits
-   * browser-back and it's restored from bfcache instead.
+   * Navigates away, so there is no `finally` to clear the spinner. Failures come back as `?error=`
+   * on the destination; the `pageshow` listener above covers a bfcache restore.
    */
   const startGoogleLogin = useCallback(() => {
     setIsLoading(true);
@@ -173,11 +175,7 @@ export function useAuth(): UseAuthResult {
     }
   }, []);
 
-  /**
-   * Returns whether the resend actually went out. Previously this had no error handling at all,
-   * unlike every other method here — so a throttled resend (the endpoint allows 5/min) rejected,
-   * the rejection was swallowed by the caller's `void`, and the user saw literally nothing happen.
-   */
+  /** Returns whether the resend went out; a throttled resend (5/min) must not fail silently. */
   const resendSignupOtp = useCallback(async (email: string) => {
     try {
       await AuthService.resendSignupOtp(email);
@@ -199,6 +197,7 @@ export function useAuth(): UseAuthResult {
   return {
     loginWithMicrosoft,
     loginWithPassword,
+    restoreAccount,
     startGoogleLogin,
     signupWithMicrosoft,
     signupWithPassword,

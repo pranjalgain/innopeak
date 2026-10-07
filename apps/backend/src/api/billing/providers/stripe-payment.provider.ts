@@ -8,7 +8,11 @@ import { randomUUID } from 'crypto';
 
 import { PaymentProvider } from './payment.provider';
 
-import { StripeWebhookSignatureInvalidException } from '../exceptions/billing.exceptions';
+import {
+  CheckoutSessionTenantMismatchException,
+  PaymentMethodNotUsableException,
+  StripeWebhookSignatureInvalidException,
+} from '../exceptions/billing.exceptions';
 import type {
   BillingProfile,
   CheckoutSessionSnapshot,
@@ -22,10 +26,8 @@ import type {
 } from '../types/billing.type';
 
 /**
- * Stripe's own subscription statuses are a superset of this app's `SubscriptionStatus` — see
- * `0011_billing.sql`'s comment: `trialing`/`incomplete_expired`/`unpaid` are deliberately omitted
- * because nothing in v1 produces them (no trial period). Anything not in this map falls back to
- * `INCOMPLETE` with a warning logged, rather than throwing and dropping the whole webhook.
+ * `trialing`/`incomplete_expired`/`unpaid` are deliberately omitted: nothing produces them (no
+ * trial). Unmapped statuses fall back to `INCOMPLETE` with a warning rather than dropping the webhook.
  */
 const STRIPE_STATUS_MAP: Partial<Record<Stripe.Subscription.Status, SubscriptionStatus>> = {
   active: SubscriptionStatus.ACTIVE,
@@ -34,8 +36,6 @@ const STRIPE_STATUS_MAP: Partial<Record<Stripe.Subscription.Status, Subscription
   incomplete: SubscriptionStatus.INCOMPLETE,
 };
 
-/** Real Stripe integration — Checkout Sessions, the Customer Portal, and verified webhooks via the
- *  `stripe` npm SDK. Selected by `PAYMENT_PROVIDER=stripe`; see `billing.module.ts`'s factory. */
 @Injectable()
 export class StripePaymentProvider extends PaymentProvider {
   readonly type = 'stripe' as const;
@@ -51,16 +51,9 @@ export class StripePaymentProvider extends PaymentProvider {
   }
 
   /**
-   * Idempotency keys guard against exactly the failure mode between our own DB write and Stripe's
-   * response that a naive integration misses: if `BillingService.createCheckoutSession` creates
-   * this customer successfully but then fails to persist `stripeCustomerId` (a dropped connection,
-   * a crash before the `UPDATE` commits), `subscription.stripeCustomerId` is still `null` on the
-   * next attempt and this method runs again. Without a key, that's a second, orphaned Stripe
-   * customer for the same tenant with no record of it in our own DB. The key is deterministic and
-   * tenant-scoped — "this tenant's one customer" — so Stripe itself recognizes the retry and
-   * returns the original customer instead of creating another one, for the key's ~24h cache
-   * window (a retry any later than that is vanishingly unlikely, and worth a manual fix if it ever
-   * happens rather than complicating this call for it).
+   * Deterministic, tenant-scoped idempotency key: if the customer is created but persisting
+   * `stripeCustomerId` fails, the retry would otherwise create a second, orphaned Stripe customer.
+   * Stripe only replays the key for ~24h; a later retry is unlikely enough to fix manually.
    */
   async createCustomer(input: CreateCustomerInput): Promise<{ customerId: string }> {
     const customer = await this.stripe.customers.create(
@@ -74,12 +67,9 @@ export class StripePaymentProvider extends PaymentProvider {
   }
 
   /**
-   * A fresh key per call, not a deterministic one keyed on tenant/customer: unlike `createCustomer`,
-   * a tenant legitimately starts more than one Checkout Session over time (an abandoned session,
-   * a cancel-then-resubscribe) and those must NOT be deduped into the same stale session. This key
-   * only protects against the Stripe SDK's own built-in retry-on-network-error retrying this exact
-   * call with two different underlying HTTP attempts — it's generated once per invocation and
-   * reused across the SDK's internal retries of that one attempt, never across two separate calls.
+   * Fresh key per call, unlike `createCustomer`: a tenant legitimately starts several Checkout
+   * Sessions over time (abandoned, resubscribe) that must not be deduped into a stale one. It only
+   * covers the SDK's own network retries of one call.
    */
   async createCheckoutSession(input: CreateCheckoutSessionInput): Promise<{ url: string }> {
     const session = await this.stripe.checkout.sessions.create(
@@ -100,8 +90,7 @@ export class StripePaymentProvider extends PaymentProvider {
     return { url: session.url };
   }
 
-  /** Same reasoning as `createCheckoutSession` — a fresh per-call key only, since a tenant opening
-   *  the Customer Portal more than once must get a fresh session each time, not a cached one. */
+  // Fresh key per call, as in `createCheckoutSession`: each portal open needs a new session.
   async createPortalSession(input: CreatePortalSessionInput): Promise<{ url: string }> {
     const session = await this.stripe.billingPortal.sessions.create(
       {
@@ -114,32 +103,62 @@ export class StripePaymentProvider extends PaymentProvider {
   }
 
   /**
-   * Deterministic, keyed on the subscription plus which of the two actions was requested — unlike
-   * checkout/portal sessions, this mutates one specific, already-existing Stripe object, so a
-   * retry (our webhook handler's DB write failed after Stripe already applied the change, and the
-   * caller tries again) must reach the *same* end state rather than erroring a second time
-   * (`subscriptions.cancel` 400s on an already-canceled subscription with no idempotency key) or
-   * risk any doubled side effect if Stripe ever attaches one to this action in the future.
+   * Immediate cancel uses a deterministic key: `subscriptions.cancel` 400s on an already-cancelled
+   * subscription, so a retry must replay the first result.
+   *
+   * At-period-end is naturally idempotent and gets a fresh key: Stripe replays a key for 24h, so
+   * cancel, resume, cancel again within a day would skip the second cancel and leave it renewing.
    */
   async cancelSubscription(subscriptionId: string, atPeriodEnd: boolean): Promise<void> {
-    const idempotencyKey = `billing_cancel_${subscriptionId}_${atPeriodEnd ? 'at_period_end' : 'immediate'}`;
     if (atPeriodEnd) {
       await this.stripe.subscriptions.update(
         subscriptionId,
         { cancel_at_period_end: true },
-        { idempotencyKey }
+        { idempotencyKey: randomUUID() }
       );
     } else {
-      await this.stripe.subscriptions.cancel(subscriptionId, {}, { idempotencyKey });
+      await this.stripe.subscriptions.cancel(
+        subscriptionId,
+        {},
+        { idempotencyKey: `billing_cancel_${subscriptionId}_immediate` }
+      );
+    }
+  }
+
+  // Fresh key per call, like the at-period-end cancel: resume, cancel, resume within a day must each apply.
+  async resumeSubscription(subscriptionId: string): Promise<void> {
+    await this.stripe.subscriptions.update(
+      subscriptionId,
+      { cancel_at_period_end: false },
+      { idempotencyKey: randomUUID() }
+    );
+  }
+
+  async voidOpenInvoices(subscriptionId: string): Promise<number> {
+    const open = await this.stripe.invoices.list({ subscription: subscriptionId, status: 'open' });
+    for (const invoice of open.data) {
+      if (invoice.id) {
+        await this.stripe.invoices.voidInvoice(invoice.id);
+      }
+    }
+    return open.data.length;
+  }
+
+  async deleteCustomer(customerId: string): Promise<void> {
+    try {
+      await this.stripe.customers.del(customerId);
+    } catch (error) {
+      // Already deleted (or never existed on this account): the goal state is reached.
+      if ((error as { code?: unknown }).code === 'resource_missing') {
+        return;
+      }
+      throw error;
     }
   }
 
   /**
-   * `invoice_settings.default_payment_method` first — what Checkout actually sets as "the" card
-   * for a subscription — falling back to the oldest attached card via `paymentMethods.list` for
-   * the rare case that field is empty (e.g. a customer created outside Checkout). Returns `null`
-   * rather than throwing for a deleted customer or one with no card at all: this is read-only
-   * display data, never something a caller should have to guard with a try/catch for.
+   * Prefers `invoice_settings.default_payment_method` (what Checkout sets), falling back to the
+   * first attached card. Returns `null` rather than throwing: this is read-only display data.
    */
   async getPaymentMethodSummary(customerId: string): Promise<PaymentMethodSummary | null> {
     const customer = await this.stripe.customers.retrieve(customerId, {
@@ -159,8 +178,7 @@ export class StripePaymentProvider extends PaymentProvider {
     return firstCard ? this.toPaymentMethodSummary(firstCard) : null;
   }
 
-  /** Deleted-customer case returns `{ name: null, email: null }` rather than throwing — same
-   *  read-only-display reasoning as `getPaymentMethodSummary`. */
+  // A deleted customer yields nulls rather than throwing (read-only display).
   async getBillingProfile(customerId: string): Promise<BillingProfile> {
     const customer = await this.stripe.customers.retrieve(customerId);
     if (customer.deleted) {
@@ -180,10 +198,7 @@ export class StripePaymentProvider extends PaymentProvider {
     return { name: customer.name ?? null, email: customer.email ?? null };
   }
 
-  /** `usage: 'off_session'` — this card must be chargeable for a future automatic subscription
-   *  renewal, not only while the tenant is actively completing this form. A fresh key per call,
-   *  same reasoning as `createCheckoutSession`: a tenant retrying a failed card entry must get a
-   *  new SetupIntent, not one already consumed by the failed attempt. */
+  /** `off_session`: the card must be chargeable for future renewals. Fresh key per call so a retry gets a new SetupIntent, not a consumed one. */
   async createSetupIntent(customerId: string): Promise<{ clientSecret: string }> {
     const setupIntent = await this.stripe.setupIntents.create(
       { customer: customerId, payment_method_types: ['card'], usage: 'off_session' },
@@ -197,23 +212,41 @@ export class StripePaymentProvider extends PaymentProvider {
   }
 
   async setDefaultPaymentMethod(customerId: string, paymentMethodId: string): Promise<void> {
-    await this.stripe.customers.update(customerId, {
-      invoice_settings: { default_payment_method: paymentMethodId },
-    });
+    try {
+      await this.stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: paymentMethodId },
+      });
+    } catch (error) {
+      // A nonexistent id, or one not belonging to this customer, is the caller's mistake (or a probe).
+      if ((error as { type?: unknown }).type === 'StripeInvalidRequestError') {
+        throw new PaymentMethodNotUsableException();
+      }
+      throw error;
+    }
   }
 
   /**
-   * `expand: ['subscription']` is what lets this read the subscription Checkout created in the
-   * same round trip, rather than a second call — `session.subscription` comes back as the full
-   * object, not just its id, whenever Checkout has actually attached one (i.e. payment completed).
-   * `session.metadata.tenantId` is the same metadata `createCheckoutSession` set when minting this
-   * session — `BillingReconciliationService` compares it against the caller's own tenant id before
-   * trusting anything else in the response.
+   * `expand: ['subscription']` returns the full subscription (once payment completed) in one round
+   * trip. `metadata.tenantId` lets `BillingReconciliationService` verify ownership before trusting the rest.
    */
   async retrieveCheckoutSession(sessionId: string): Promise<CheckoutSessionSnapshot> {
-    const session = await this.stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ['subscription'],
-    });
+    let session: Stripe.Checkout.Session;
+    try {
+      session = await this.stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ['subscription'],
+      });
+    } catch (error) {
+      // The id is client input: an unknown one must look like another tenant's session (404), not a
+      // 500 echoing Stripe's "No such checkout.session" text.
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        (error as { code?: unknown }).code === 'resource_missing'
+      ) {
+        throw new CheckoutSessionTenantMismatchException();
+      }
+      throw error;
+    }
 
     const tenantId = session.metadata?.['tenantId'] ?? null;
     const subscription =
@@ -224,9 +257,7 @@ export class StripePaymentProvider extends PaymentProvider {
     return { tenantId, subscription };
   }
 
-  /** `status: 'active'` + `limit: 1` — this app only ever stores one live subscription per tenant
-   *  (`idx_tenant_subscriptions_stripe_subscription_id`'s own partial-unique shape), so the newest
-   *  active one is the only one worth reading back. */
+  // `limit: 1`: only one live subscription is stored per tenant.
   async retrieveActiveSubscriptionForCustomer(
     customerId: string
   ): Promise<SubscriptionSnapshot | null> {
@@ -277,10 +308,7 @@ export class StripePaymentProvider extends PaymentProvider {
     return unixSeconds ? new Date(unixSeconds * 1000).toISOString() : null;
   }
 
-  /** The one place a `Stripe.Subscription` becomes this app's own `SubscriptionSnapshot` shape —
-   *  shared by `mapEvent`'s `customer.subscription.updated` case, `retrieveCheckoutSession`, and
-   *  `retrieveActiveSubscriptionForCustomer`, so all three ways this app ever learns about a
-   *  subscription's state agree on exactly which fields matter and how they're derived. */
+  /** Shared by the webhook, checkout and reconciliation paths so they derive state identically. */
   private toSubscriptionSnapshot(subscription: Stripe.Subscription): SubscriptionSnapshot {
     return {
       stripeSubscriptionId: subscription.id,
@@ -302,9 +330,8 @@ export class StripePaymentProvider extends PaymentProvider {
           type: 'checkout.session.completed',
           customerId,
           subscriptionId,
-          // Checkout's own webhook payload doesn't carry subscription status/period fields —
-          // a freshly completed Checkout session's subscription is always active with no grace
-          // period yet, so this can be set directly rather than making a second Stripe API call.
+          // The payload carries no status/period fields; a just-completed Checkout subscription is
+          // always active, so no second API call is needed.
           status: SubscriptionStatus.ACTIVE,
           currentPeriodStart: null,
           currentPeriodEnd: null,

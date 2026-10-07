@@ -134,8 +134,7 @@ describe('HealthService', () => {
     });
 
     it('falls back to a down entry via extractEntry when the indicator result is missing the expected key', async () => {
-      // Simulates the theoretically-unreachable branch where HealthIndicatorResult doesn't
-      // contain the requested key (guards the noUncheckedIndexedAccess fallback in extractEntry).
+      // Unreachable in practice; guards the noUncheckedIndexedAccess fallback in extractEntry.
       http.pingCheck.mockResolvedValue({ unexpected: { status: 'up' } });
       database.isHealthy.mockResolvedValue({ database: { status: 'up' } });
       redisHealth.isHealthy.mockResolvedValue({ redis: { status: 'up' } });
@@ -144,7 +143,6 @@ describe('HealthService', () => {
       const result = await target.checkHealth();
 
       expect(result.info.google).toEqual({ status: 'down' });
-      // The extractEntry fallback doesn't throw, so overall status stays up as no error path fired.
       expect(result.status).toBe('up');
     });
   });

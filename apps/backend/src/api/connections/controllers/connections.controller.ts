@@ -88,8 +88,8 @@ export class ConnectionsController {
   }
 
   /**
-   * `@Public()` because Google — not the SPA — performs this request and it carries no bearer
-   * token. All tenant context comes from the signed `state` plus the Redis record it names.
+   * `@Public()` because Google, not the SPA, performs this request with no bearer token; tenant context
+   * comes from the signed `state` plus its Redis record.
    */
   @Get(RouteNames.GOOGLE_CALLBACK)
   @Public()
@@ -164,11 +164,7 @@ export class ConnectionsController {
     );
   }
 
-  /**
-   * The tenant-wide "currently viewing" business, shown on the Dashboard/Review Queue and in a
-   * Business Switcher. `@Roles(OWNER)`: this changes what every member of the tenant sees, so
-   * only an owner may switch it — a member's own view is read-only.
-   */
+  /** `@Roles(OWNER)`: switching changes what every member of the tenant sees; a member's view is read-only. */
   @Patch(RouteNames.ACTIVE_LOCATION)
   @Roles(UserRole.OWNER)
   @Throttle({ short: { limit: 20, ttl: 60000 } })

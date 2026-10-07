@@ -10,13 +10,9 @@ import {
 import { ROUTES } from "@/app/_libs/constants/routes";
 
 /**
- * Same shape as the tenant dashboard's `NAV_ITEMS` (`app/(dashboard)/_components/nav-items.ts`)
- * — `AppShell`/`MobileBottomNav` are generic over this shape, `labelKey` resolves against
- * `adminNav.*` instead of `nav.*`. Statistics is deliberately not its own nav item — it's a tab
- * on Overview (`AdminDashboardView`), not a separate resource screen; see that component's own
- * doc comment for why. Activity, by contrast, gets its own item: platform activity and webhook
- * activity are both log-style views (filterable/paginated) an admin comes back to on their own,
- * not a glance-once summary figure.
+ * Same shape as the tenant `NAV_ITEMS`, but `labelKey` resolves against `adminNav.*`. Statistics
+ * is deliberately a tab on Overview, not an item; Activity gets its own since log-style views are
+ * revisited on their own.
  */
 export const ADMIN_NAV_ITEMS = [
   { labelKey: "overview", href: ROUTES.ADMIN, icon: LuLayoutDashboard },

@@ -45,6 +45,8 @@ import { BlocklistTermsRepository } from './repositories/settings/blocklist-term
 import { NotificationRecipientsRepository } from './repositories/settings/notification-recipients.repository';
 import { SettingsDbService } from './repositories/settings/settings.db-service';
 import { TenantSettingsRepository } from './repositories/settings/tenant-settings.repository';
+import { TenantExportDbService } from './repositories/tenant-export/tenant-export.db-service';
+import { TenantExportRepository } from './repositories/tenant-export/tenant-export.repository';
 
 const repositories = [
   AuthRepository,
@@ -89,6 +91,8 @@ const repositories = [
   AdminStatisticsDbService,
   AdminBillingRepository,
   AdminBillingDbService,
+  TenantExportRepository,
+  TenantExportDbService,
 ];
 
 @Global()

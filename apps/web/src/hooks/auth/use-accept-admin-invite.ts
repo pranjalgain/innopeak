@@ -20,11 +20,7 @@ interface UseAcceptAdminInviteResult {
   startWithGoogle: () => void;
 }
 
-/**
- * Platform-admin invite acceptance — validates the token on mount (so a dead link fails before
- * the invitee ever types a password), then offers the two ways to finish: a password, or Google.
- * Wraps `AuthService` the same way `useAuth` does, so the accept page never calls it directly.
- */
+/** Validates the token on mount (so a dead link fails before a password is typed), then offers password or Google. */
 export function useAcceptAdminInvite(token: string): UseAcceptAdminInviteResult {
   const t = useTranslations("auth.toasts");
   const [isValidating, setIsValidating] = useState(true);

@@ -42,7 +42,7 @@ describe('JwtStrategy', () => {
       role: UserRole.OWNER,
       locale: 'de',
     });
-    // A tenant token is never re-checked against the DB — only platform admins pay for that.
+    // Only platform admins pay for the per-request DB status check.
     expect(platformAdminDbService.findStatusById).not.toHaveBeenCalled();
   });
 
@@ -87,8 +87,7 @@ describe('JwtStrategy', () => {
     expect(platformAdminDbService.findStatusById).toHaveBeenCalledWith('admin-1');
   });
 
-  /** Same claim-passthrough the tenant branch gets — a platform admin who has chosen a locale
-   *  must see it on every request, not just the one right after they changed it. */
+  // A chosen locale must persist on every request, not just the one right after the change.
   it("carries a platform_admin payload's locale claim through to the returned user", async () => {
     platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.ACTIVE);
 
@@ -107,10 +106,7 @@ describe('JwtStrategy', () => {
     });
   });
 
-  /**
-   * The per-request status re-check: a disabled admin's still-valid JWT must stop working on the
-   * very next request, not linger for the token's 15-minute life.
-   */
+  // A disabled admin's still-valid JWT must stop working on the next request, not at token expiry.
   it('rejects a platform_admin whose row is now DISABLED, even with a valid token', async () => {
     platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.DISABLED);
 

@@ -5,10 +5,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 
 /**
- * Non-production stands in for the real provider unconditionally (see EmailModule's factory) —
- * regardless of EMAIL_PROVIDER/SMTP_HOST, nothing actually leaves the process outside
- * production. Logs what would have been sent instead, so signup/verification flows are still
- * observable locally without risking a real inbox.
+ * Outside production this replaces the real provider regardless of EMAIL_PROVIDER/SMTP_HOST, so
+ * nothing leaves the process; it logs instead.
  */
 @Injectable()
 export class NoopEmailProvider extends EmailProvider {

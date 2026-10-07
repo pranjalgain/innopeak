@@ -28,19 +28,12 @@ function validateRetentionMonths(text: string, t: (key: string) => string): stri
   return Number.isInteger(parsed) && parsed >= 1 ? null : t("retention.errors.min");
 }
 
-/**
- * Edits are staged in local `draft` state and only reach the backend when Save is clicked — Cancel
- * discards `draft` back to the last-saved `general` prop. Deliberately not wired through `onUpdate`
- * per keystroke/toggle the way this used to work: a save-per-field meant the escalation slider alone
- * fired a request per drag tick.
- */
+/** Edits are staged in local `draft` and sent only on Save; saving per change would fire a request per slider tick. */
 export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSectionProps) {
   const t = useTranslations("settings.general");
   const tToasts = useTranslations("settings.toasts");
   const [draft, setDraft] = useState(general);
-  // The retention input's own text, decoupled from `draft.reviewDataRetentionMonths`: the field
-  // must be freely clearable (to retype a new value) without the minimum-1 rule snapping it back
-  // to the old number on every keystroke — that check only runs when Save is clicked.
+  // Decoupled from `draft` so the field can be cleared to retype without the minimum-1 rule snapping it back; checked only on Save.
   const [retentionText, setRetentionText] = useState(() =>
     retentionTextFor(general.reviewDataRetentionMonths),
   );

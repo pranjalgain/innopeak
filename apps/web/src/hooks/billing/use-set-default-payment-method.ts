@@ -3,9 +3,7 @@ import { useMutation, type UseMutationResult, useQueryClient } from "@tanstack/r
 import { BillingService } from "@/app/_libs/services/billing.service";
 import { subscriptionQueryKey } from "@/hooks/billing/use-subscription";
 
-/** Call once Stripe.js confirms the SetupIntent client-side — makes the new card the one
- *  `getSubscription().paymentMethod` shows, then invalidates that query so the masked-card display
- *  in Settings → Billing reflects it without a manual refresh. */
+/** Call once Stripe.js confirms the SetupIntent client-side. */
 export function useSetDefaultPaymentMethod(): UseMutationResult<void, unknown, string> {
   const queryClient = useQueryClient();
 

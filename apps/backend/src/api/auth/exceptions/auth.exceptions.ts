@@ -97,11 +97,43 @@ export class GooglePendingSignupExpiredException extends BadRequestException {
   }
 }
 
-/** Thrown by `JwtStrategy` when a platform-admin token's account is no longer active — distinct
- *  from `AccountDisabledException` (403, refused at login) since here a previously valid token is
- *  being invalidated mid-session, which is a 401. */
+/** Unlike `AccountDisabledException` (403 at login), a previously valid token is invalidated mid-session, hence 401. */
 export class PlatformAdminAccountDisabledException extends UnauthorizedException {
   constructor(message: string = MESSAGES.AUTH.ACCOUNT_DISABLED) {
     super({ message, code: 'PLATFORM_ADMIN_ACCOUNT_DISABLED' });
+  }
+}
+
+export class BusinessNameMismatchException extends BadRequestException {
+  constructor(message: string = MESSAGES.AUTH.BUSINESS_NAME_MISMATCH) {
+    super({ message, code: 'BUSINESS_NAME_MISMATCH' });
+  }
+}
+
+export class PasswordRequiredToDeleteException extends BadRequestException {
+  constructor(message: string = MESSAGES.AUTH.PASSWORD_REQUIRED_TO_DELETE) {
+    super({ message, code: 'PASSWORD_REQUIRED' });
+  }
+}
+
+export class AccountDeletionNotPossibleException extends ConflictException {
+  constructor(message: string = MESSAGES.AUTH.ACCOUNT_DELETION_NOT_POSSIBLE) {
+    super({ message, code: 'ACCOUNT_DELETION_NOT_POSSIBLE' });
+  }
+}
+
+/**
+ * Thrown only after the password is proven, so naming the situation reveals nothing to someone who
+ * merely knows the email. The date rides in the message because the error envelope carries only
+ * `message` and `code`.
+ */
+export class AccountScheduledForDeletionException extends ForbiddenException {
+  constructor(scheduledFor: Date) {
+    super({
+      message: MESSAGES.AUTH.ACCOUNT_SCHEDULED_FOR_DELETION(
+        scheduledFor.toISOString().slice(0, 10)
+      ),
+      code: 'ACCOUNT_SCHEDULED_FOR_DELETION',
+    });
   }
 }

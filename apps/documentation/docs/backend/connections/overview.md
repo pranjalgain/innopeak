@@ -144,7 +144,10 @@ import has finished (`PLAN.md` §8.2) — without it, the live classifier could 
 backfill hasn't yet marked `responded` and push a years-old, already-answered review through
 classification, AI generation, and an escalation notification. The scheduler simply doesn't
 enqueue scheduled runs for a location whose column is still `NULL`, so "done" in the UI and
-"eligible for live polling" in the backend are the same event.
+"eligible for live polling" in the backend are the same event. The poller also skips any tenant
+that is `suspended` (which includes one in its erasure grace period) or `erased`: suspension used to
+stop sign-in and nothing else, so a suspended business kept producing reviews, AI drafts and
+notification emails.
 
 **2. Reconnect / `needs_reauth`.** A GBP grant stops working for ordinary reasons: the owner
 revokes it in their Google account, the refresh token rotates out, the password changes. Whoever

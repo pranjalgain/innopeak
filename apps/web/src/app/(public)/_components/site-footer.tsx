@@ -5,9 +5,6 @@ import { useTranslations } from "next-intl";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { InnoPeakLogo } from "@/assets/icons/innopeak-logo";
 
-/**
- * Shared footer for public (unauthenticated) routes.
- */
 export function SiteFooter() {
   const t = useTranslations("marketing.footer");
 

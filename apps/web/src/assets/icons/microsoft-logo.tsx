@@ -3,9 +3,7 @@ interface MicrosoftLogoProps {
   className?: string;
 }
 
-/**
- * Microsoft's four-square logo mark, used as-is on SSO entry points.
- */
+/** Microsoft's four-square mark, used as-is on SSO entry points. */
 export function MicrosoftLogo({ size = 17, className = "shrink-0" }: MicrosoftLogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 21 21" className={className} aria-hidden="true">

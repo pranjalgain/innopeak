@@ -18,21 +18,14 @@ interface UsePlatformAdminProfileResult {
   isError: boolean;
   refetch: () => void;
   updateAvatar: (file: File) => Promise<void>;
-  /** In-flight flag for the avatar upload, so the picker can disable itself and show a spinner. */
   isUploadingAvatar: boolean;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
-  /** In-flight flag for the change-password request, so the form can block a double submit. */
   isChangingPassword: boolean;
-  /** Step-up verification ahead of `setPassword` — mails a 6-digit code. Returns whether it was
-   *  acknowledged (network/unexpected failures only; the backend's own ack is always "success"
-   *  whether or not a fresh code actually went out, to avoid leaking cooldown state). */
+  /** Step-up verification ahead of `setPassword`; returns whether it was acknowledged. The backend always acks success so cooldown state doesn't leak. */
   requestSetPasswordOtp: () => Promise<boolean>;
-  /** In-flight flag for the request-OTP call. */
   isSendingSetPasswordOtp: boolean;
-  /** For an admin with no password yet — flips `profile.hasPassword` to true on success, so the
-   *  form swaps to the normal change-password one without a reload. */
+  /** For an admin with no password yet; flips `profile.hasPassword` so the form swaps without a reload. */
   setPassword: (newPassword: string, otp: string) => Promise<boolean>;
-  /** In-flight flag for the set-password request, so the form can block a double submit. */
   isSettingPassword: boolean;
 }
 
@@ -45,10 +38,8 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
     queryFn: () => PlatformAdminProfileService.get(),
   });
 
-  // This hook is called from several simultaneously mounted components (the admin shell layout,
-  // ProfileSection, InviteSection) that all share this one query key — see `useQueryErrorToast`'s
-  // own comment for why a plain `useEffect` here would show the same toast once per mounted
-  // instance instead of once per actual failure.
+  // Called from several mounted components sharing one query key; see `useQueryErrorToast` for why
+  // a plain `useEffect` would toast once per instance.
   useQueryErrorToast(platformAdminProfileQueryKey, profileQuery, t("loadFailed"));
 
   const updateAvatarMutation = useMutation({
@@ -59,16 +50,13 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
     async (file: File) => {
       try {
         const avatarUrl = await updateAvatarMutation.mutateAsync(file);
-        // The confirm route only ever knows the avatar itself, not this admin's full profile (see
-        // `PlatformAdminProfileService.updateAvatar`) — merge into what's already cached rather
-        // than replacing it.
+        // The confirm route only knows the avatar, not the full profile: merge into the cache.
         queryClient.setQueryData<PlatformAdminProfile>(platformAdminProfileQueryKey, (current) =>
           current ? { ...current, avatarUrl } : current,
         );
         toast.success(t("avatarUpdated"));
       } catch (error) {
-        // See the tenant hook's twin: the provider's own refusal is the only message that tells
-        // the user to pick a different file.
+        // See the tenant hook: the provider's refusal is the only message telling the user to pick another file.
         toast.error(AvatarUploadService.errorMessage(error, t("updateFailed")));
       }
     },
@@ -93,10 +81,8 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
         toast.success(t("passwordChanged"));
         return true;
       } catch (error) {
-        // Same three-way split as the tenant form (`useTenantOwnerProfile`): a 401 here is a wrong
-        // current password, not a dead session — the service sends `skipRefresh` precisely so it
-        // still reaches us as an error instead of signing the admin out. Collapsing all three onto
-        // "Could not save this change" left the one recoverable case looking like a server fault.
+        // Same three-way split as `useTenantOwnerProfile`: a 401 is a wrong current password, not a dead
+        // session (the service sends `skipRefresh` so it isn't signed out).
         toastApiError(error, { 401: t("currentPasswordIncorrect"), 400: null }, t("updateFailed"));
         return false;
       }
@@ -114,9 +100,7 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
       toast.success(t("otpSent"));
       return true;
     } catch (error) {
-      // 429 is its own case, not a server fault: both set-password routes carry a 5/minute
-      // throttle, and "Could not save this change" told an admin who had just clicked resend once
-      // too often to keep trying, which is exactly the wrong advice.
+      // 429 is not a server fault: both set-password routes have a 5/minute throttle, so keep-trying advice is wrong.
       toastApiError(error, { 429: t("tooManyRequests"), 400: null }, t("updateFailed"));
       return false;
     }
@@ -137,9 +121,7 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
         toast.success(t("passwordSet"));
         return true;
       } catch (error) {
-        // Same three-way split as `requestSetPasswordOtp`: the backend answers 429 both for the
-        // route's own throttle and for a spent OTP attempt budget, and either one means "wait",
-        // not "something broke".
+        // 429 covers both the route throttle and a spent OTP attempt budget; either means "wait".
         toastApiError(error, { 429: t("tooManyRequests"), 400: null }, t("updateFailed"));
         return false;
       }

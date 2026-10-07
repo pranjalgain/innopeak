@@ -34,12 +34,7 @@ describe('LoggerService', () => {
   let nestLoggerErrorSpy: jest.SpyInstance;
   let fetchMock: jest.Mock;
 
-  /**
-   * Fresh-requires the module under test (and its dependencies) after resetting
-   * the module registry. This is required because LoggerService keeps a
-   * `static sigtermListenerAdded` flag on the class itself, so re-requiring the
-   * module gives every test a clean class definition with the flag reset.
-   */
+  /** Fresh-requires the module: `LoggerService` keeps a static `sigtermListenerAdded` flag, so each test needs a clean class. */
   function loadLoggerService(): {
     LoggerService: typeof LoggerServiceType;
   } {
@@ -220,7 +215,6 @@ describe('LoggerService', () => {
       dataHandler({ message: 'first log' });
       dataHandler({ message: 'second log' });
 
-      // Nothing should be flushed before the interval elapses.
       expect(breakerInstance?.fire).not.toHaveBeenCalled();
 
       fetchMock.mockResolvedValueOnce({ ok: true });
@@ -270,7 +264,6 @@ describe('LoggerService', () => {
       fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
 
       await jest.advanceTimersByTimeAsync(5000);
-      // allow the rejected breaker.fire() promise chain to settle
       await Promise.resolve();
       await Promise.resolve();
 
@@ -283,8 +276,6 @@ describe('LoggerService', () => {
         'HTTP error! status: 500'
       );
 
-      // The failed batch should have been re-queued: the next flush should resend it
-      // together with anything queued afterwards.
       fetchMock.mockResolvedValueOnce({ ok: true });
       dataHandler({ message: 'newly queued' });
 
@@ -312,8 +303,7 @@ describe('LoggerService', () => {
       ) => void;
       dataHandler({ message: 'queued' });
 
-      // Bypass the real sendBatchToPromtail action and reject with a non-Error value
-      // to exercise the `String(error)` branch of the instanceof-narrowed catch handler.
+      // Rejects with a non-Error value to exercise the `String(error)` branch.
       (breakerInstance as BreakerMock).fire = jest.fn().mockRejectedValue('plain-string-failure');
 
       await jest.advanceTimersByTimeAsync(5000);
@@ -351,10 +341,10 @@ describe('LoggerService', () => {
 
       sigtermHandler();
 
-      // process.exit must not be called synchronously - the flush is awaited first.
+      // The flush is awaited first, so process.exit is not synchronous.
       expect(processExitSpy).not.toHaveBeenCalled();
 
-      // Let the SIGTERM IIFE's internal awaits (fetch + response handling) settle.
+      // Let the SIGTERM handler's awaits settle.
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
@@ -372,7 +362,7 @@ describe('LoggerService', () => {
       context?: unknown;
     }) => string {
       const formatArg = createLoggerMock.mock.calls[0]?.[0] as { format: unknown[] };
-      // format = format.combine(format.timestamp(...), logFormat) -> combineMock returns args array
+      // `format.combine` is mocked to return its args array.
       const logFormatFn = formatArg.format[1] as (info: {
         timestamp?: unknown;
         level: string;

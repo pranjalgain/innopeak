@@ -3,6 +3,8 @@ import { redactJobSecrets } from '@bg/helpers/redact-job-secrets.util';
 import {
   IAdminInviteEmailJob,
   IEmailJob,
+  IErasureNoticeEmailJob,
+  IErasurePurgeAlertEmailJob,
   IMemberInviteEmailJob,
   IOtpEmailJob,
 } from '@bg/interfaces/job.interface';
@@ -31,9 +33,7 @@ export class EmailProcessor extends WorkerHost {
     super();
   }
   async process(job: Job<IEmailJob, void, JobName>, _token?: string): Promise<void> {
-    // `redactJobSecrets` — never JSON.stringify(job.data) raw here. See that helper's own comment:
-    // this exact line previously shipped live OTPs into log files and Loki whenever debug logging
-    // was enabled, and an admin invite link would be the same kind of leak.
+    // Use `redactJobSecrets`, never a raw JSON.stringify(job.data): it leaks OTPs and invite links into logs.
     let logString_ = `Processing job ${job.id} of type ${job.name} with data ${JSON.stringify(redactJobSecrets(job.data))}...`;
     this.logger.debug(logString_, 'EmailProcessor');
     if (typeof job.log === 'function') void job.log(logString_);
@@ -52,6 +52,16 @@ export class EmailProcessor extends WorkerHost {
         case JobName.MEMBER_INVITE_EMAIL:
           await this.emailQueueService.sendMemberInviteEmail(
             job.data as unknown as IMemberInviteEmailJob
+          );
+          break;
+        case JobName.ERASURE_NOTICE_EMAIL:
+          await this.emailQueueService.sendErasureNoticeEmail(
+            job.data as unknown as IErasureNoticeEmailJob
+          );
+          break;
+        case JobName.ERASURE_PURGE_ALERT_EMAIL:
+          await this.emailQueueService.sendErasurePurgeAlertEmail(
+            job.data as unknown as IErasurePurgeAlertEmailJob
           );
           break;
         default:
@@ -89,11 +99,8 @@ export class EmailProcessor extends WorkerHost {
   }
 
   /**
-   * BullMQ fires `failed` after *every* failed attempt, not only the last one — so a job that
-   * fails once and then succeeds on retry used to land in the DLQ anyway, even though nothing
-   * ultimately failed. The DLQ never replays, so that corrupted the signal (a "failure" that
-   * later self-healed) rather than causing any double-processing. Only forward it once BullMQ
-   * itself has given up — `attemptsMade` has reached `opts.attempts` (default 1 if unset).
+   * BullMQ fires `failed` after every attempt, so forward to the DLQ only once `attemptsMade` reaches
+   * `opts.attempts` (default 1); otherwise retries that self-heal pollute it (it never replays).
    */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<IEmailJob, void, JobName>): Promise<void> {
@@ -106,7 +113,6 @@ export class EmailProcessor extends WorkerHost {
       return;
     }
 
-    // Push the failed job to the Dead Letter Queue
     await this.dlqService.addFailedJobToDLQ({
       originalQueueName: QueueName.EMAIL,
       originalJobId: job.id ?? '',
@@ -123,7 +129,6 @@ export class EmailProcessor extends WorkerHost {
     this.logger.error(`Job ${job.id} has been stalled`);
     if (typeof job.log === 'function') void job.log(`Job ${job.id} has been stalled`);
 
-    // Considering stalled jobs to DLQ if they are consistently stalling
     await this.dlqService.addFailedJobToDLQ({
       originalQueueName: QueueName.EMAIL,
       originalJobId: job.id ?? '',
@@ -140,7 +145,6 @@ export class EmailProcessor extends WorkerHost {
     this.logger.error(logString_);
     if (typeof job.log === 'function') void job.log(logString_);
 
-    // Errors to DLQ as well
     await this.dlqService.addFailedJobToDLQ({
       originalQueueName: QueueName.EMAIL,
       originalJobId: job.id ?? '',

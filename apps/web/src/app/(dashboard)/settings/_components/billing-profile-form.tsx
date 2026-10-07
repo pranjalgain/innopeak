@@ -31,16 +31,13 @@ export function BillingProfileForm() {
     formState: { errors, isValid, isSubmitting, isDirty },
   } = useForm<BillingProfileFields>({
     resolver: zodResolver(schema),
-    // `onChange`, not `onTouched` (unlike the fresh-empty-fields password forms elsewhere in
-    // Settings): this form's fields start pre-filled by `reset()` below, from server data the
-    // tenant never typed — so "touched" alone would never include an untouched-but-already-valid
-    // field, and `isValid` would stay stale if the tenant only edits one of the two fields.
+    // `onChange`, not `onTouched`: fields are pre-filled by `reset()` from server data, so "touched" would never include an
+    // untouched-but-valid field and `isValid` would go stale.
     mode: "onChange",
     defaultValues: { name: "", email: "" },
   });
 
-  // Populates the form once the profile loads — `defaultValues` above can't know it yet, since
-  // this data arrives asynchronously after the form is already mounted.
+  // `defaultValues` can't know the profile yet; it arrives after mount.
   useEffect(() => {
     if (profile) reset({ name: profile.name ?? "", email: profile.email ?? "" });
   }, [profile, reset]);

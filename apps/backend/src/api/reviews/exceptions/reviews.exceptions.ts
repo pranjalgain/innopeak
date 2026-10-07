@@ -13,8 +13,7 @@ export class ReviewResponseNotFoundException extends NotFoundException {
   }
 }
 
-/** The response exists but isn't `pending_approval` — already decided, or raced away by a
- *  sibling's approval superseding it first. A 409, not a 404: the row is plainly still there. */
+/** Not `pending_approval`: already decided, or superseded by a sibling's approval. A 409, not a 404: the row exists. */
 export class ReviewResponseNotApprovableException extends ConflictException {
   constructor(message: string = MESSAGES.REVIEWS.RESPONSE_NOT_ACTIONABLE) {
     super({ message, code: 'REVIEW_RESPONSE_NOT_ACTIONABLE' });
@@ -28,24 +27,21 @@ export class ReviewResponseAlreadyLiveException extends ConflictException {
   }
 }
 
-/** The response is not at `post_failed` — `retry-post`'s one legal source state. */
+/** Not at `post_failed`, `retry-post`'s one legal source state. */
 export class ResponseNotRetryableException extends ConflictException {
   constructor(message: string = MESSAGES.REVIEWS.RESPONSE_NOT_RETRYABLE) {
     super({ message, code: 'RESPONSE_NOT_RETRYABLE' });
   }
 }
 
-/** The response is not at `approved` — the manual `.../responses/:responseId/post` route's one
- *  legal source state. */
+/** Not at `approved`, the manual `.../post` route's one legal source state. */
 export class ResponseNotPostableException extends ConflictException {
   constructor(message: string = MESSAGES.REVIEWS.RESPONSE_NOT_POSTABLE) {
     super({ message, code: 'RESPONSE_NOT_POSTABLE' });
   }
 }
 
-/** `idx_review_responses_review_id_live_reply` unique violation on manual-reply/retry-post/
- *  manual-post — distinct code from `ReviewResponseAlreadyLiveException` (approve's own) per the
- *  documented API spec, since the two routes' client copy differs. */
+/** Live-reply unique violation on manual-reply/retry-post/manual-post; distinct code from `ReviewResponseAlreadyLiveException` (approve's) because client copy differs. */
 export class ReviewAlreadyHasLiveReplyException extends ConflictException {
   constructor(message: string = MESSAGES.REVIEWS.REVIEW_ALREADY_HAS_LIVE_REPLY) {
     super({ message, code: 'REVIEW_ALREADY_HAS_LIVE_REPLY' });
@@ -66,9 +62,7 @@ export class ReviewRemovedUpstreamException extends ConflictException {
   }
 }
 
-/** The review-post queue (Redis/SQS) rejected the job — nothing was posted. A manual post leaves the
- *  response `approved` to try again; a failed retry puts it back at `post_failed`, so the retry
- *  control stays available either way. */
+/** The review-post queue rejected the job, nothing was posted. A manual post leaves the response `approved`; a failed retry puts it back at `post_failed`. */
 export class PostQueueUnavailableException extends ServiceUnavailableException {
   constructor(message: string = MESSAGES.REVIEWS.POST_QUEUE_UNAVAILABLE) {
     super({ message, code: 'POST_QUEUE_UNAVAILABLE' });

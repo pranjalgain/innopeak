@@ -7,16 +7,13 @@ import type { JwtTokenType } from '../enums/jwt-token-type.enum';
 import type { OAuthIntent } from '../enums/oauth-intent.enum';
 import type { UserRole } from '../enums/user-role.enum';
 
-// ─── Auth user (session identity) ────────────────────────────────────────────
-
 export interface TenantAuthUser {
   type: JwtTokenType.TENANT_USER;
   id: string;
   tenantId: string;
   email: string;
   role: UserRole;
-  /** From the access token's `locale` claim — null if the user never chose one, stale until the
-   * token is refreshed. See `resolveLocale`'s call sites for how this is used. */
+  /** From the access token's `locale` claim; null = never chose one. Stale until the token is refreshed. */
   locale: Locale | null;
 }
 
@@ -24,41 +21,29 @@ export interface PlatformAdminAuthUser {
   type: JwtTokenType.PLATFORM_ADMIN;
   id: string;
   email: string;
-  /** From the access token's `locale` claim — null if the admin never chose one, stale until the
-   * token is refreshed. Same shape as `TenantAuthUser.locale`. */
+  /** From the access token's `locale` claim; null = never chose one. Stale until the token is refreshed. */
   locale: Locale | null;
   /**
-   * The presenting token's `exp` claim, in seconds since the epoch. Only routes that re-sign a
-   * platform-admin token mid-session need it, so that the replacement expires at the *same*
-   * instant as the token that authorized the call. Without that, any route handing back a freshly
-   * signed token would double as a session-extension primitive: a platform admin has no refresh
-   * token precisely so that a leaked access token dies within its 15 minutes, and a caller looping
-   * such a route just under the TTL would keep the stolen session alive indefinitely.
-   *
-   * Optional because it is session metadata rather than identity — a caller that does not re-sign
-   * has no business reading it, and a token somehow lacking `exp` simply falls back to the full
-   * TTL at the one call site that cares.
+   * The presenting token's `exp` (epoch seconds). A re-signed platform-admin token must expire at
+   * the same instant: admins have no refresh token so a leaked access token dies within 15 minutes,
+   * and a fresh-TTL re-sign would let a looping caller keep a stolen session alive indefinitely.
+   * A token lacking `exp` falls back to the full TTL.
    */
   sessionExpiresAt?: number;
 }
 
 /**
- * A guard/repository must narrow on `type` before trusting `tenantId` or `role` — a
- * platform-admin token has neither, and treating them as absent-but-fine on a tenant-scoped
- * query is a cross-tenant data leak, not a type error. See the auth API reference's Session /
- * token model section.
+ * Narrow on `type` before trusting `tenantId` or `role` — a platform-admin token has neither, and
+ * treating that as absent-but-fine on a tenant-scoped query is a cross-tenant data leak.
  */
 export type AuthUser = PlatformAdminAuthUser | TenantAuthUser;
-
-// ─── JWT payloads ─────────────────────────────────────────────────────────────
 
 export interface TenantJwtPayload {
   sub: string; // users.id
   tenantId: string;
   email: string;
   role: UserRole;
-  /** `users.locale` at the time this token was signed — null means the user never chose one.
-   * Stale until the token is refreshed, same as `role`/`tenantId`. */
+  /** `users.locale` when signed; null = never chose. Stale until refresh, like `role`/`tenantId`. */
   locale: Locale | null;
   type: JwtTokenType.TENANT_USER;
   iat?: number;
@@ -68,8 +53,7 @@ export interface TenantJwtPayload {
 export interface PlatformAdminJwtPayload {
   sub: string; // platform_admins.id
   email: string;
-  /** `platform_admins.locale` at the time this token was signed — null means the admin never
-   * chose one. Stale until the token is refreshed, same as the tenant claim above. */
+  /** `platform_admins.locale` when signed; null = never chose. Stale until refresh. */
   locale: Locale | null;
   type: JwtTokenType.PLATFORM_ADMIN;
   iat?: number;
@@ -77,9 +61,8 @@ export interface PlatformAdminJwtPayload {
 }
 
 /**
- * Signed with JWT_REFRESH_SECRET, never JWT_SECRET, so it can't pass `JwtStrategy` on signature
- * alone; the `type` claim is the second, independent line — even with the two secrets equal
- * (the local-dev fallback), a refresh token presented as a bearer token is rejected.
+ * Signed with JWT_REFRESH_SECRET so it can't pass `JwtStrategy` on signature alone; the `type`
+ * claim is the second line of defence when the two secrets are equal (local-dev fallback).
  */
 export interface RefreshJwtPayload {
   sub: string; // users.id
@@ -89,10 +72,7 @@ export interface RefreshJwtPayload {
   exp?: number;
 }
 
-/** What `JwtStrategy.validate` may receive — the access-token shapes it accepts, or anything else it must refuse. */
 export type JwtPayload = PlatformAdminJwtPayload | TenantJwtPayload;
-
-// ─── Token issuance ───────────────────────────────────────────────────────────
 
 export interface TokenResponse {
   accessToken: string;
@@ -105,16 +85,14 @@ export interface TokenSubject {
   tenantId: string;
   email: string;
   role: UserRole;
-  /** Embedded in the access token so locale resolution never needs a per-request DB lookup — see
-   * `resolveLocale`'s call sites. Null means "never chose", same as the `users.locale` column. */
+  /** Embedded in the access token so locale resolution needs no per-request DB lookup. Null = never chose. */
   locale: Locale | null;
 }
 
 export interface PlatformAdminTokenSubject {
   id: string;
   email: string;
-  /** Same reasoning as `TokenSubject.locale` — embedded so locale resolution never needs a
-   * per-request DB lookup. Null means "never chose", same as `platform_admins.locale`. */
+  /** Embedded in the access token so locale resolution needs no per-request DB lookup. Null = never chose. */
   locale: Locale | null;
 }
 
@@ -123,44 +101,36 @@ export interface SpentTokenInput {
   userId: string;
 }
 
-/** A signed pair plus what `refresh_tokens` needs to record it — separated from persisting so `rotate` can commit the insert atomically with the revoke. */
+/** Kept separate from persisting so `rotate` can commit the insert atomically with the revoke. */
 export interface SignedTokenPair {
   tokens: TokenResponse;
   refreshTokenHash: string;
   refreshExpiresAt: string;
 }
 
+/** The refresh token is kept out of the body so the controller can set it as an httpOnly cookie, unreadable by page scripts. */
 export interface TokenIssuanceResult {
   body: TokenResponseDto;
   refreshToken: string;
 }
 
 /**
- * Structurally distinct from `TokenIssuanceResult` (`AuthService`'s own tenant equivalent — no
- * `refreshToken` field, since a platform admin has none — see `TokenService.signPlatformAdminAccessToken`)
- * and `LoginPendingVerificationDto` (no `body`/`admin` field). `AuthController`'s Google callback
- * still needs to tell all of these apart with a plain `in`/`kind` check, which is why this shape
- * hasn't changed even though it now lives on its own service.
+ * No `refreshToken` (platform admins have none). Must stay structurally distinct from
+ * `TokenIssuanceResult` and `LoginPendingVerificationDto`: the Google callback tells them apart
+ * with a plain `in`/`kind` check.
  */
 export interface PlatformAdminLoginResult {
   admin: true;
   body: PlatformAdminTokenResponseDto;
 }
 
-// ─── Google identity & OAuth ──────────────────────────────────────────────────
-
-/** The normalized profile the callback works with, whatever provider implementation produced it. */
 export interface GoogleIdentity {
-  /**
-   * Google's stable subject id. The identity key, deliberately not the email — an email can be
-   * reassigned within a Workspace domain, `sub` never is, which is why
-   * `idx_user_identities_provider_provider_user_id` is unique on `(provider, provider_user_id)`.
-   */
+  /** Google's stable `sub`. The identity key, deliberately not the email, which can be reassigned within a Workspace domain. */
   providerUserId: string;
   email: string;
-  /** Google's own claim. A false value is refused rather than trusted — see the callback. */
+  /** Google's own claim; false is refused rather than trusted. */
   emailVerified: boolean;
-  /** The person's display name. Absent on some accounts, so the caller falls back to the email. */
+  /** Absent on some accounts; the caller falls back to the email. */
   name: string | null;
 }
 
@@ -172,13 +142,7 @@ export interface GoogleCallbackRequest {
   code: string;
 }
 
-/**
- * What starting a Google OAuth round trip produces — shared by `AuthService.buildGoogleAuthorizeRedirect`
- * (tenant login/signup) and `PlatformAdminAuthService.buildAdminInviteGoogleRedirect` (admin
- * invite acceptance), so both controllers redirect either way with the same shape rather than
- * throwing for an expected failure — the browser navigated here directly, so an exception
- * filter's JSON body would paint as a document.
- */
+/** Failure is a redirect, not an exception: the browser navigated here directly, so a JSON error body would render as a document. */
 export type GoogleAuthorizeRedirect =
   { ok: false; redirectUrl: string } | { ok: true; authorizationUrl: string; sid: string };
 
@@ -186,19 +150,10 @@ export interface GoogleAuthorizeInput {
   intent: OAuthIntent;
 }
 
-/**
- * What a successful verify-email/login/refresh actually produces: the JSON body (no refresh
- * token in it) plus the raw refresh token separately, so `AuthController` can set it as an
- * httpOnly cookie instead of serializing it into the response — a script on the page should
- * never be able to read it.
- */
 export type GoogleCallbackOutcome =
-  /** `redirectUrl` is already the full `<page>?error=<failure>` target — computed here, from
-   *  `intent`, rather than by `AuthController.googleCallback`. */
+  /** `redirectUrl` is already the full `<page>?error=<failure>` target. */
   | { ok: false; failure: GoogleAuthFailure; redirectUrl: string }
-  /** `OAuthIntent.ADMIN_INVITE` completed, or a returning Google-linked admin signed back in on
-   *  an ordinary login/signup round trip — see `PlatformAdminAuthService.completeAdminInviteGoogle`
-   *  / `findLinkedAdmin`. */
+  /** `ADMIN_INVITE` completed, or a returning Google-linked admin signed in on an ordinary login/signup round trip. */
   | { ok: true; kind: 'admin_signed_in'; tokens: PlatformAdminLoginResult }
   /** A genuinely new person — the caller sets `pendingSignupCookie` and redirects to collect a business name. */
   | { ok: true; kind: 'needs_business_name'; pendingSignupCookie: string }
@@ -209,9 +164,7 @@ export interface GoogleAuthStateRecord {
   intent: OAuthIntent;
   /** SHA-256 of the browser-binding cookie value. The cookie itself is never stored. */
   sidHash: string;
-  /** `OAuthIntent.ADMIN_INVITE` only — which `platform_admin_invites` row this round trip is
-   *  redeeming. Carried server-side in Redis, never round-tripped through the client beyond the
-   *  opaque signed `state`. */
+  /** `ADMIN_INVITE` only — the invite being redeemed; kept server-side, never exposed beyond the opaque signed `state`. */
   inviteToken?: string;
 }
 
@@ -224,7 +177,7 @@ export interface MintedGoogleState {
 
 export type ConsumeGoogleStateResult = { ok: false } | { ok: true; record: GoogleAuthStateRecord };
 
-/** A Google identity Google has verified, but that has no tenant yet — see `PendingGoogleSignupService`'s own doc comment. */
+/** A Google-verified identity with no tenant yet. */
 export interface PendingGoogleSignupIdentity {
   providerUserId: string;
   email: string;
@@ -234,19 +187,11 @@ export interface PendingGoogleSignupIdentity {
 export type ConsumePendingGoogleSignupResult =
   { ok: false } | { ok: true; identity: PendingGoogleSignupIdentity };
 
-/**
- * The outcome of resolving a Google identity against `platform_admin_identities` — used only by
- * the shared Google callback's login/signup branches (`AuthService.handleGoogleCallback`), to
- * decide whether this round trip belongs to a *returning* admin before it ever consults the
- * tenant tables. Not used by the `ADMIN_INVITE` intent, which is always a first-time link and
- * goes through `completeAdminInviteGoogle` instead.
- */
+/** Lets the login/signup callback detect a *returning* admin before consulting tenant tables. Not used for `ADMIN_INVITE`, which is always a first-time link. */
 export type LinkedAdminLookup =
   | { linked: false }
   | { linked: true; active: false }
   | { linked: true; active: true; tokens: PlatformAdminLoginResult };
-
-// ─── OTP / signup helpers ─────────────────────────────────────────────────────
 
 export interface IssueOtpInput {
   userId: string;

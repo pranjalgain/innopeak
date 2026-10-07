@@ -12,13 +12,7 @@ interface TanstackProviderProps {
   children: ReactNode;
 }
 
-/**
- * Mounted once at the root layout. `useMemo` (not a module-level singleton) so each mount gets
- * its own `QueryClient` — the correct App Router pattern, since a module-level instance would be
- * reused across requests on the server. Nothing else in this tree depends on being inside it
- * (unlike a setup with an axios-interceptor context provider): this app's interceptors are
- * installed at import time (`_libs/api-sdk/config.ts`), not via React context.
- */
+/** `useMemo`, not a module-level singleton: each mount needs its own `QueryClient`, since a module-level one is shared across server requests. Interceptors install at import time (`_libs/api-sdk/config.ts`), not via context. */
 export function TanstackProvider({ children }: TanstackProviderProps) {
   const queryClient = useMemo(() => createQueryClient(), []);
 

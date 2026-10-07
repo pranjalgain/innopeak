@@ -1,9 +1,13 @@
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
-import type { BillingReceiptRow, InsertBillingReceiptInput } from './types/billing.type';
+import type {
+  BillingReceiptRow,
+  InsertBillingReceiptInput,
+  RecordReceiptOutcome,
+} from './types/billing.type';
 
 const RECEIPT_COLUMNS = {
   id: schema.billingReceipts.id,
@@ -16,24 +20,40 @@ const RECEIPT_COLUMNS = {
   paidAt: schema.billingReceipts.paidAt,
 } as const;
 
-/**
- * `billing_receipts` — mechanical Drizzle queries only, see `0012_billing_receipts.sql`. One row
- * per successfully paid Stripe invoice; `BillingWebhooksService` is the only writer.
- */
+/** One row per paid Stripe invoice; BillingWebhooksService is the only writer. */
 @Injectable()
 export class BillingReceiptsRepository {
   constructor(private readonly dbService: DBService) {}
 
-  /** Insert-first, `ON CONFLICT DO NOTHING` — same idempotency shape as
-   *  `StripeWebhookEventsRepository.insertIfNew`, keyed on `stripe_invoice_id` here since a
-   *  duplicate webhook delivery for an already-recorded invoice must not create a second receipt.
-   *  `tx` is optional so `BillingWebhooksService` can commit this atomically alongside the
-   *  subscription-status update and the event-ledger insert in the same webhook delivery. */
-  async insertIfNew(input: InsertBillingReceiptInput, tx?: DrizzleTransaction): Promise<void> {
-    await (tx ?? this.dbService.db)
+  /** Insert-first ON CONFLICT DO NOTHING on `stripe_invoice_id`, so a duplicate webhook can't create a second receipt. `tx` lets the webhook commit it with the subscription update and event ledger. */
+  async insertIfNew(
+    input: InsertBillingReceiptInput,
+    tx?: DrizzleTransaction
+  ): Promise<RecordReceiptOutcome> {
+    // Flagged by the INSERT itself so no gap exists between "paid" and "flagged" in which an erasure could be requested
+    // or cancelled. Covers a still-pending erasure or the latest cancelled one (a retried webhook can arrive after the
+    // owner restored the business). A $0 invoice owes nothing back.
+    const paidAfterErasureRequest = sql<boolean>`(${input.amountPaid} > 0 AND EXISTS (
+      SELECT 1 FROM tenants
+      WHERE id = ${input.tenantId}::uuid
+        AND (
+          (status = 'suspended'
+            AND erasure_requested_at IS NOT NULL
+            AND erasure_requested_at <= ${input.paidAt}::timestamptz)
+          OR (last_erasure_requested_at IS NOT NULL
+            AND last_erasure_requested_at <= ${input.paidAt}::timestamptz
+            AND ${input.paidAt}::timestamptz <= last_erasure_cancelled_at)
+        )
+    ))`;
+
+    const rows = await (tx ?? this.dbService.db)
       .insert(schema.billingReceipts)
-      .values(input)
-      .onConflictDoNothing({ target: schema.billingReceipts.stripeInvoiceId });
+      .values({ ...input, paidAfterErasureRequest })
+      .onConflictDoNothing({ target: schema.billingReceipts.stripeInvoiceId })
+      .returning({ flagged: schema.billingReceipts.paidAfterErasureRequest });
+
+    const row = rows[0];
+    return { inserted: row !== undefined, paidAfterErasureRequest: row?.flagged ?? false };
   }
 
   async findByTenantId(tenantId: string): Promise<BillingReceiptRow[]> {
@@ -46,12 +66,7 @@ export class BillingReceiptsRepository {
     return rows;
   }
 
-  /**
-   * Tenant-scoped by design, same reasoning as `ConnectionsRepository.findLocationByIdForTenant`:
-   * the query itself excludes another tenant's receipt rather than relying on the caller to fetch
-   * first and compare `tenantId` afterward, so a future call site can't reintroduce that IDOR by
-   * forgetting the check.
-   */
+  /** Tenant-scoped in the query itself, so a call site that forgets to compare `tenantId` can't reintroduce an IDOR. */
   async findByIdForTenant(id: string, tenantId: string): Promise<BillingReceiptRow | null> {
     const rows = await this.dbService.db
       .select(RECEIPT_COLUMNS)

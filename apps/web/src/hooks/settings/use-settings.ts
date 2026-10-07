@@ -29,20 +29,11 @@ interface UseSettingsResult {
 }
 
 /**
- * Loads Settings once, then owns interactive state through react-query's cache. Blocklist
- * add/remove wait on the settings API and only update chips after success. Notification
- * recipients apply optimistically instead (see `updateRecipientChannel`/`toggleRecipientActive`
- * below) — a channel toggle or active switch is a fast, low-stakes, instantly-reversible edit,
- * unlike adding/removing a blocklist term.
- *
- * `saveGeneral` is the one path that writes `PUT /v1/settings` — the General tab stages edits
- * locally (its own Save/Cancel) and calls it once on an explicit Save click; the AI tab's reply-
- * count select calls it immediately on change instead, since it has no staged-draft UI of its own.
- *
- * `enabled` (default `true`) gates the underlying query — `GET /v1/settings` is
- * `@Roles(UserRole.OWNER)` on the backend, so `SettingsView` passes `false` for a `member`
- * caller. Without it, every tenant member hit this 403 on every Settings visit and saw a
- * "Couldn't load settings" toast for a page they were never going to be allowed to load.
+ * Blocklist add/remove wait on the API; notification recipients update optimistically (fast, low-
+ * stakes, reversible). `saveGeneral` is the one `PUT /v1/settings` path: the General tab stages
+ * edits and calls it on Save, the AI tab's reply-count select calls it on change. `enabled` gates
+ * the query: `GET /v1/settings` is owner-only, so `SettingsView` passes `false` for members, who
+ * would otherwise get a 403 toast on every visit.
  */
 export function useSettings(enabled = true): UseSettingsResult {
   const t = useTranslations("settings.toasts");
@@ -67,8 +58,10 @@ export function useSettings(enabled = true): UseSettingsResult {
     [queryClient],
   );
 
-  /** Writes one recipient back into the cached list, leaving every other row untouched — the
-   *  granularity both the success reconcile and the failure rollback need. */
+  /**
+   * Writes one recipient back, leaving other rows untouched: the granularity both the success
+   * reconcile and the failure rollback need.
+   */
   const replaceRecipient = useCallback(
     (recipient: NotificationRecipient) => {
       queryClient.setQueryData<SettingsData>(settingsQueryKey, (current) =>
@@ -85,14 +78,10 @@ export function useSettings(enabled = true): UseSettingsResult {
     [queryClient],
   );
 
-  // Optimistic-local + fire-and-forget persist: the UI applies the change and reports success
-  // immediately, independent of whether this background `PATCH` has actually confirmed yet. A
-  // failed write rolls the optimistic edit back rather than leaving it silently wrong in the
-  // cache. Callbacks live on the mutation itself, not on the individual `mutate()` call — per-call
-  // callbacks are dropped whenever a second `mutate()` supersedes the first on the same observer,
-  // so toggling two recipients in quick succession would silently lose the first one's toast *and*
-  // its rollback. `onMutate`'s returned context is what carries each call's own snapshot back to
-  // its own `onError`.
+  // Optimistic-local + fire-and-forget persist; a failed write rolls the edit back. Callbacks live
+  // on the mutation, not `mutate()`: per-call callbacks are dropped when a second `mutate()`
+  // supersedes the first on the same observer, losing the first toggle's toast and rollback.
+  // `onMutate`'s context carries each call's own snapshot to its `onError`.
   const updateRecipientMutation = useMutation({
     mutationFn: ({
       id,
@@ -113,14 +102,12 @@ export function useSettings(enabled = true): UseSettingsResult {
           ),
         });
       }
-      // Only this recipient's prior state, not a snapshot of the whole settings object. Restoring
-      // the whole thing on failure would revert rows that succeeded in the meantime: toggle A
-      // (slow, then fails) and B (fast, succeeds), and A's rollback would put B's switch back too.
+      // Roll back only this recipient, not the whole settings object: restoring everything would
+      // revert rows that succeeded meanwhile (A slow-fails, B succeeds, A's rollback would undo B).
       return { restore };
     },
-    // The server's own row replaces the optimistic guess, so what's rendered is what was actually
-    // stored rather than what the client asked for. Without this the cache held the guess for the
-    // full `staleTime`, and a value the backend normalized or clamped only surfaced on a reload.
+    // The server's row replaces the optimistic guess so a normalized or clamped value shows without
+    // a reload (the cache would otherwise hold the guess for the full `staleTime`).
     onSuccess: (updated, { successMessage }) => {
       replaceRecipient(updated);
       toast.success(successMessage);
@@ -240,26 +227,21 @@ export function useSettings(enabled = true): UseSettingsResult {
     [settings, updateRecipientMutation, t],
   );
 
-  // Callbacks live on the mutation itself, not on the `mutate()` call — same reasoning as
-  // `updateRecipientMutation` above: a per-call callback is dropped if a second `mutate()`
-  // supersedes the first on the same observer. There is only one call site for this mutation
-  // today, but a click a user could plausibly double-fire before the button disables shouldn't
-  // silently lose the toast/cache-cleanup the first click was owed.
+  // Callbacks live on the mutation, not `mutate()`, as in `updateRecipientMutation`: a double-fired
+  // click must not lose the first click's toast and cache cleanup.
   const disconnectMutation = useMutation({
     mutationFn: () => ConnectionService.disconnect(),
     onSuccess: async () => {
       if (!settings) return;
       setSettings({ ...settings, connection: { ...settings.connection, status: "disconnected" } });
       toast.success(t("disconnected"));
-      // `useConnection`'s cached `["connection"]` data would otherwise keep reporting
-      // "connected" until it next refetches on its own — the guard, the reconnect banner and
-      // any other reader of that cache entry would all lag the change this tab just made.
+      // Otherwise `["connection"]` keeps reporting "connected" until its next refetch, so the guard
+      // and reconnect banner would lag.
       await refreshConnection();
-      // The locations list is a separate cache entry, and `useBusinessSwitcher` only *disables*
-      // its query once there's no connection — a disabled query keeps whatever it already
-      // fetched, so the header's switcher would go on offering the locations this disconnect
-      // just deactivated. Removed rather than invalidated: there is nothing to refetch while
-      // disconnected, and the query is disabled anyway.
+      // The locations list is a separate entry, and `useBusinessSwitcher` only disables its query
+      // without a connection (which keeps stale data), so the switcher would keep offering
+      // deactivated locations. Removed rather than invalidated: nothing to refetch while
+      // disconnected.
       queryClient.removeQueries({ queryKey: connectionLocationsQueryKey });
     },
     onError: () => toast.error(t("disconnectFailed")),
@@ -267,9 +249,8 @@ export function useSettings(enabled = true): UseSettingsResult {
 
   const disconnect = useCallback(() => {
     if (!settings) return;
-    // A real DELETE now, not a localStorage flag: the backend deactivates the tenant's locations
-    // and revokes the stored Google credential. The optimistic local update stays so the tab
-    // reflects the change immediately, but the authoritative state is the API's.
+    // The backend deactivates the tenant's locations and revokes the stored Google credential. The
+    // optimistic local update shows the change immediately, but the API's state is authoritative.
     disconnectMutation.mutate();
   }, [settings, disconnectMutation]);
 

@@ -33,20 +33,13 @@ import {
   MemberRemovalNotPendingException,
 } from '../exceptions/settings.exceptions';
 
-/** Matches `AdminSettingsService`'s own `INVITE_TTL_DAYS` — same product default, kept as its own
- *  module-local constant rather than shared, since the two invite flows have no other coupling. */
+// Same product default as `AdminSettingsService`'s `INVITE_TTL_DAYS`, deliberately not shared.
 const INVITE_TTL_DAYS = 7;
 
 /**
- * Tenant "Team members" — an owner inviting, listing, and revoking invites for their own tenant.
- * Mirrors `AdminSettingsService`'s invite trio (`sendInvite`/`listInvites`/`revokeInvite`), with
- * one structural difference: there is no separate invite-row table here, since the invite token
- * lives on `password_reset_tokens` (`purpose = 'invite'`) rather than a dedicated
- * `tenant_member_invites` table — see `tenant-member-invite-design.md` for why.
- *
- * Accepting an invite (password or Google) is `AuthService`'s job, not this one's — the invitee
- * has no session yet, so it can't live behind this `@Roles(UserRole.OWNER)`-gated controller. This
- * service only ever gets the invite out the door and manages the roster.
+ * Invite tokens live on `password_reset_tokens` (`purpose = 'invite'`), not a dedicated table.
+ * Accepting an invite is `AuthService`'s job: the invitee has no session, so it can't sit behind
+ * this owner-gated controller.
  */
 @Injectable()
 export class TenantMembersService {
@@ -66,12 +59,6 @@ export class TenantMembersService {
     return rows.map(row => TenantMemberResponseDto.from(row));
   }
 
-  /**
-   * Creates the invited member's row and its invite token, emails the invite link (or a
-   * Google-SSO alternative — see `GET /v1/auth/invite/:token/google`), and returns the roster row.
-   * Accepting either path is `AuthService.acceptMemberInvite`/`completeMemberInviteGoogle`'s job,
-   * not this method's — this only gets the invite out the door.
-   */
   async sendInvite(actor: AuthUser, dto: InviteMemberDto): Promise<TenantMemberResponseDto> {
     const owner = requireTenantUser(actor, MESSAGES.SETTINGS.TENANT_ONLY);
 
@@ -80,34 +67,19 @@ export class TenantMembersService {
       throw new MemberInvitesDisabledException();
     }
 
-    // Independent of the platform-off check above — a distinct exception (plan-locked, not
-    // platform-locked) since the frontend needs different upsell copy for each: "your plan caps
-    // team members at N" vs. "team invites are turned off for this platform".
+    // Distinct from the platform-off exception: the frontend shows different upsell copy for plan-locked vs platform-locked.
     if (!(await this.billingEntitlementsService.canInviteTeamMember(owner.tenantId))) {
       throw new TeamMemberLimitReachedException();
     }
 
-    // Global lookup, not tenant-scoped — `idx_users_email_active` is a global uniqueness
-    // guarantee (one non-anonymized account per email, across every tenant), so an email already
-    // claimed anywhere — this tenant's own owner, a member of a different tenant, a self-signed-up
-    // account — must be refused before the insert, not discovered as a raw 23505. See
-    // `AuthRepository.findMemberInviteStatusByEmail`.
+    // Global, not tenant-scoped: `idx_users_email_active` allows one non-anonymized account per email
+    // across every tenant, so a claimed email is refused up front rather than found as a raw 23505.
     const existing = await this.authDbService.findMemberInviteStatusByEmail(dto.email);
     if (existing) {
-      // A lapsed invite is not a live claim on this address — see `AdminSettingsService.sendInvite`'s
-      // own comment for the identical reasoning. Re-inviting replaces it, which is what "send
-      // invite" already means to the owner clicking it.
-      //
-      // A missing expiry counts as lapsed, not as live. An `invited` row whose token row is gone
-      // cannot be redeemed by anyone, and the nightly `AUTH_TOKEN_CLEANUP` sweep produces exactly
-      // that state for every invite that expires unaccepted (`PURGEABLE_OTP_PURPOSES` covers
-      // `invite`, and it deletes the token while leaving this row behind). Reading a null expiry as
-      // a live invite stranded the address permanently: the link was dead, re-inviting answered
-      // "already has a pending invite", and only a manual revoke could clear it.
-      //
-      // Status-gated, because a null expiry means something else entirely on a row that was never
-      // invited — a self-signed-up owner has no invite token either, and must keep answering
-      // "already registered" rather than being deleted and replaced.
+      // A lapsed invite is not a live claim; re-inviting replaces it. A null expiry counts as lapsed:
+      // the nightly `AUTH_TOKEN_CLEANUP` deletes the token of an expired invite but leaves this row,
+      // which nobody can redeem. Status-gated because a self-signed-up owner also has a null expiry
+      // and must keep answering "already registered".
       const isLapsedInvite =
         existing.status === UserStatus.INVITED &&
         (existing.inviteExpiresAt === null ||
@@ -120,19 +92,15 @@ export class TenantMembersService {
         throw new EmailAlreadyRegisteredException();
       }
 
-      // Cascades to the invite token row. Safe against an accepted member: the delete is scoped to
-      // `status = 'invited'`, so a race that accepts the invite in between is a no-op here and the
-      // insert below then fails on the global unique email index rather than clobbering a real
-      // account.
+      // Cascades to the token row. Scoped to `status = 'invited'`, so a racing acceptance is a no-op
+      // and the insert below fails on the unique email index rather than clobbering a real account.
       await this.authDbService.deleteExpiredMemberInvite(existing.id);
     }
 
     const rawToken = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-    // The lookup above is read-then-write, so two owners inviting the same address at once (or one
-    // double-clicking) can both pass it and the second insert still hits `idx_users_email_active`.
-    // That is the index doing its job; the caller sees the same conflict either way.
+    // The lookup is read-then-write: a concurrent duplicate still hits `idx_users_email_active`, mapped to the same conflict.
     let member;
     try {
       member = await this.authDbService.createMemberInvite({
@@ -149,31 +117,19 @@ export class TenantMembersService {
       throw error;
     }
 
-    // `findTenantStatus` was not otherwise needed on this path — `sendInvite` never checks
-    // suspension, since an owner acting on a suspended tenant is a problem `assertGoodStanding`
-    // already catches the moment they try to *sign in*, not something this route needs to
-    // duplicate. It is fetched purely for `name`, to attribute the email to the actual business
-    // rather than a generic "a team" — see `IMemberInviteEmailJob.businessName`'s own comment.
+    // Fetched only for `name`; suspension is not checked here because `assertGoodStanding` blocks sign-in.
     const tenant = await this.authDbService.findTenantStatus(owner.tenantId);
     this.sendInviteEmail({
       email: dto.email,
       rawToken,
-      // `tenant` is only ever null if `owner.tenantId` stopped existing between authenticating this
-      // request and this query — the row an authenticated owner belongs to. Never observed; a
-      // literal fallback rather than a thrown error, since a slightly generic invite email is a
-      // fine outcome for a case that isn't expected to occur, and throwing here would fail the
-      // whole invite over a cosmetic detail.
+      // Fallback rather than a throw: a generic invite email beats failing the invite over a cosmetic detail.
       businessName: tenant?.name ?? 'your team',
     });
 
     return TenantMemberResponseDto.from(member);
   }
 
-  /**
-   * The two failure modes answer differently: an unknown id is a 404, while an id that exists but
-   * is no longer `invited` (already accepted) is a 409 — the member is still visible in the
-   * roster, so telling the owner "not found" describes something they can plainly see is there.
-   */
+  /** Unknown id is a 404, but an already-accepted member is a 409: they are visible in the roster, so "not found" would be wrong. */
   async revokeInvite(actor: AuthUser, memberId: string): Promise<void> {
     const owner = requireTenantUser(actor, MESSAGES.SETTINGS.TENANT_ONLY);
     const revoked = await this.authDbService.revokeMemberInvite(owner.tenantId, memberId);
@@ -186,12 +142,7 @@ export class TenantMembersService {
     }
   }
 
-  /**
-   * Revokes access immediately (`status = disabled`); the actual anonymization is deferred to the
-   * nightly `ERASURE_PURGE` cron job once `ERASURE_GRACE_PERIOD_DAYS` elapses — see
-   * `AuthRepository.requestMemberRemoval`. Self-removal is refused here, before any DB round trip,
-   * since it needs no lock or last-owner count: an owner never removes themself through this flow.
-   */
+  /** Disables access immediately; anonymization is deferred to the nightly `ERASURE_PURGE` after the grace period. Self-removal is refused before any DB round trip. */
   async requestRemoval(actor: AuthUser, memberId: string): Promise<{ gracePeriodDays: number }> {
     const owner = requireTenantUser(actor, MESSAGES.SETTINGS.TENANT_ONLY);
 
@@ -211,7 +162,6 @@ export class TenantMembersService {
     return { gracePeriodDays: this.gracePeriodDays() };
   }
 
-  /** Undoes `requestRemoval` — restores access. Nothing was anonymized yet, so this is a clean, full undo. */
   async cancelRemoval(actor: AuthUser, memberId: string): Promise<void> {
     const owner = requireTenantUser(actor, MESSAGES.SETTINGS.TENANT_ONLY);
     const result = await this.authDbService.cancelMemberRemoval(owner.tenantId, memberId);
@@ -228,7 +178,7 @@ export class TenantMembersService {
     return getErasureGracePeriodDays(this.configService);
   }
 
-  /** Fire-and-forget, same shape as `AdminSettingsService.sendInviteEmail` — the transaction that created the invite already committed. */
+  /** Fire-and-forget: the transaction that created the invite already committed. */
   private sendInviteEmail(input: { email: string; rawToken: string; businessName: string }): void {
     const inviteLink = buildMemberInviteLink(
       this.configService.get<string>('FRONTEND_URL'),

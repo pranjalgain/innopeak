@@ -1,15 +1,9 @@
 import { excerpt, type ExtractedReviewContext } from './extract-review-context';
 
 /**
- * Composes a reply that visibly reacts to the extracted rating/reviewer/text, instead of a single
- * canned string — this is what makes the mock's output distinguishable across reviews during a
- * dry run, without needing a real model call.
- *
- * `variantIndex` is what makes an escalated review's multiple snippets actually read as distinct
- * options rather than the same sentence repeated `ai_reply_count` times — see
- * `azure-openai.routes.ts`'s own comment for where the real provider's multi-snippet instruction
- * is detected and this is called once per requested option. Capped implicitly at 3 variants per
- * bucket, matching `MAX_AI_REPLY_COUNT` — nothing ever asks for more than 3.
+ * Reacts to the extracted rating/reviewer/text so mock output differs across reviews.
+ * `variantIndex` makes an escalated review's multiple snippets distinct; there are 3 variants per
+ * bucket, matching `MAX_AI_REPLY_COUNT`.
  */
 export function composeMockReply(ctx: ExtractedReviewContext, variantIndex = 0): string {
   const name = ctx.reviewerName ?? 'there';

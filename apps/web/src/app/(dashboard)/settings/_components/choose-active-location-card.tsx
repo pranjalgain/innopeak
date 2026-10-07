@@ -12,18 +12,11 @@ import { useSetActiveLocation } from "@/hooks/billing/use-set-active-location";
 interface ChooseActiveLocationCardProps {
   /** Already filtered to `status === "active"` by the caller (`useBusinessSwitcher`). */
   locations: ConnectedLocation[];
-  /** True while showing this ahead of an actual downgrade (`cancelAtPeriodEnd`) — same section,
-   *  different copy, per the plan's §3a "proactive vs reactive" framing. */
+  /** True ahead of an actual downgrade (`cancelAtPeriodEnd`): same section, different copy. */
   proactive: boolean;
   maxLocations: number;
 }
 
-/**
- * Shown when a tenant holds more connected locations than their plan now allows — reading each
- * location's real `billingPausedAt` from `GET /v1/connections/locations`
- * (`ConnectionService.listLocations`, via `BillingSettingsSection`'s `useBusinessSwitcher` call)
- * for its active/paused badge and default selection.
- */
 export function ChooseActiveLocationCard({
   locations: connectedLocations,
   proactive,
@@ -32,8 +25,7 @@ export function ChooseActiveLocationCard({
   const t = useTranslations("settings.billing.chooseLocation");
   const { setActiveLocation, isUpdating } = useSetActiveLocation();
 
-  // `billingPausedAt === null` is the actual billing-pause bookkeeping
-  // (`locations.billing_paused_at`), not an approximation — see `ConnectedLocation`'s own comment.
+  // `billingPausedAt === null` is the real billing-pause bookkeeping (`locations.billing_paused_at`), not an approximation.
   const currentlyActiveId =
     connectedLocations.find((location) => location.billingPausedAt === null)?.id ?? null;
   const [selected, setSelected] = useState<string | null>(currentlyActiveId);

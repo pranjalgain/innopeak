@@ -10,11 +10,7 @@ import type { PaymentProviderType } from './types/billing.type';
 
 const logger = new Logger('BillingReconciliationModule');
 
-/** Same DI-swap shape as `MediaModule`'s own `storageProviderFactory` — see that file's doc
- *  comment for why the selection lives in a module-scoped factory rather than a separate
- *  top-level module. Defaults to `dummy`, unlike `STORAGE_PROVIDER` defaulting to `noop` for a
- *  different reason: shipping real, unwanted Stripe traffic before real keys/webhook secrets exist
- *  is actively harmful, whereas Dummy is a fully working simulated flow on its own. */
+/** Defaults to `dummy`: real Stripe traffic before real keys/webhook secrets exist is harmful. */
 export const paymentProviderFactory = {
   provide: PaymentProvider,
   useFactory: (configService: ConfigService<EnvConfig>): PaymentProvider => {
@@ -35,11 +31,9 @@ export const paymentProviderFactory = {
 };
 
 /**
- * The payment provider plus the one service that only needs it and the DB layer — split out of
- * `BillingModule` so the worker process (`CronModule`'s nightly reconciliation sweep) can reach
- * `BillingReconciliationService` without also instantiating `BillingModule`'s controllers,
- * checkout/portal service and webhook handler. `BillingModule` imports this too, so there is still
- * exactly one `PaymentProvider` instance per process.
+ * Split out of `BillingModule` so the worker (`CronModule`) can reach `BillingReconciliationService`
+ * without instantiating the controllers and webhook handler. `BillingModule` imports this too, so
+ * there is one `PaymentProvider` per process.
  */
 @Module({
   providers: [paymentProviderFactory, BillingReconciliationService],

@@ -13,14 +13,9 @@ interface UseSetActiveLocationResult {
 }
 
 /**
- * `PUT /v1/billing/active-location` — §3a's "choose which connected location stays active" write.
- * Mirrors `useUpdatePlatformSettings`'s shape: a `mutateAsync` wrapped in a stable callback that
- * toasts and reports success/failure as a boolean, rather than exposing react-query's raw mutation
- * object to the section component. On success, invalidates both `subscriptionQueryKey`
- * (`activeLocationCount`) AND `connectionLocationsQueryKey` — `ChooseActiveLocationCard`'s own
- * paused/active badges are driven by the locations list, not the subscription summary, so
- * invalidating only the former left the swap correctly applied server-side while the UI kept
- * showing the pre-swap state until an unrelated refetch happened to occur.
+ * Reports success as a boolean after toasting rather than exposing the raw mutation. Invalidates
+ * `connectionLocationsQueryKey` as well as the subscription: the paused/active badges come from the
+ * locations list, so invalidating only the subscription left the UI stale after the swap.
  */
 export function useSetActiveLocation(): UseSetActiveLocationResult {
   const t = useTranslations("settings.billing.chooseLocation.toasts");

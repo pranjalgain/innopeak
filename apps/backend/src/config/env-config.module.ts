@@ -10,9 +10,8 @@ const envConfig = registerAs(
   (): EnvConfig =>
     ({
       PORT: parseInt(process.env['PORT'] ?? '3000', 10),
-      // No default: an unset NODE_ENV previously read as 'development', which silently
-      // enables the DEV_* bypasses and drops the Secure flag from every session cookie.
-      // Joi requires it below, so boot fails loudly instead.
+      // No default: an unset NODE_ENV read as 'development' would silently enable the DEV_* bypasses and
+      // drop the Secure flag from session cookies; Joi requires it so boot fails loudly instead.
       NODE_ENV: process.env['NODE_ENV'] ?? '',
       CORS_ORIGINS: process.env['CORS_ORIGINS'] ?? '*',
       PROMETHEUS_PORT: parseInt(process.env['PROMETHEUS_PORT'] ?? '9090', 10),
@@ -45,7 +44,6 @@ const envConfig = registerAs(
       POSTGRES_PORT: parseInt(process.env['POSTGRES_PORT'] ?? '5432', 10),
       DATABASE_URL: ((): string => {
         const dbUrl = process.env['DATABASE_URL'];
-        // If DATABASE_URL contains template variables, construct it from individual components
         if (dbUrl?.includes('${')) {
           return `postgresql://${process.env['POSTGRES_USER'] ?? 'postgres'}:${process.env['POSTGRES_PASSWORD'] ?? 'postgres'}@${process.env['POSTGRES_HOST'] ?? '127.0.0.1'}:${process.env['POSTGRES_PORT'] ?? '5432'}/${process.env['POSTGRES_DB'] ?? 'postgres'}`;
         }
@@ -86,30 +84,18 @@ const envConfig = registerAs(
     }) as EnvConfig
 );
 
-// Placeholder secrets shipped in `.env.example` clear every other check — they are long enough
-// (≥32) and differ from each other — so a deploy that copies the example and sets only
-// `NODE_ENV=production` used to boot on values that are public in git. Anyone could then forge an
-// HS256 token for any account (`JwtStrategy.validate` trusts the claims and does no DB lookup),
-// including `type: platform_admin` for the whole `/v1/admin/*` surface. This is a full auth
-// bypass, so production refuses to boot on any recognizably-placeholder secret; other environments
-// warn loudly rather than fail, since local dev deliberately ships usable defaults.
-//
-// Matched by the tell-tale phrase every shipped placeholder carries, not an exact list, so a
-// half-edited copy ("prod-change-in-production-xyz") is still caught. Nothing that is actually
-// random will contain it.
+// Placeholder secrets from `.env.example` pass every other check (long enough, distinct), so a deploy that only sets
+// `NODE_ENV=production` would boot on values public in git, letting anyone forge an HS256 token (`JwtStrategy.validate`
+// does no DB lookup), including `type: platform_admin`. Production refuses to boot on one; other environments warn.
+// Matched by the tell-tale phrase, not an exact list, so a half-edited copy is still caught.
 const SECRET_PLACEHOLDER_MARKER = 'change-in-production';
 
 function looksLikePlaceholderSecret(value: string | undefined): boolean {
   if (!value) return false;
   if (value.toLowerCase().includes(SECRET_PLACEHOLDER_MARKER)) return true;
 
-  // `CREDENTIAL_ENCRYPTION_KEY` is base64-encoded, so its shipped placeholder can never contain
-  // the marker in its *encoded* form — base64's alphabet has no hyphen, and the marker has three.
-  // Decoding first lets one check cover both plain-text and base64 secrets, rather than needing a
-  // separate, easy-to-forget special case for the latter. `Buffer.from(..., 'base64')` is lenient
-  // (never throws on non-base64 input), and real random key bytes interpreted as UTF-8 are
-  // overwhelmingly unlikely to coincidentally contain this exact phrase, so this adds no realistic
-  // false-positive risk for an actual generated secret.
+  // `CREDENTIAL_ENCRYPTION_KEY` is base64, so its placeholder never contains the marker in encoded form (base64 has no
+  // hyphen); decoding first lets one check cover both. `Buffer.from(..., 'base64')` never throws on non-base64 input.
   const decoded = Buffer.from(value, 'base64').toString('utf8').toLowerCase();
   return decoded.includes(SECRET_PLACEHOLDER_MARKER);
 }
@@ -121,9 +107,7 @@ function looksLikePlaceholderSecret(value: string | undefined): boolean {
       'JWT_REFRESH_SECRET',
       'GOOGLE_AUTH_STATE_SECRET',
       'GBP_STATE_SECRET',
-      // Encrypts provider refresh tokens at rest (LocalRedisCredentialStoreProvider) — missing
-      // from this list entirely used to mean a shipped base64 blob that merely *looks* like real
-      // key material passed silently into production, with no substring for this check to catch.
+      // Must be listed: a shipped base64 placeholder otherwise passes into production unnoticed.
       'CREDENTIAL_ENCRYPTION_KEY',
     ] as const
   ).filter(key => looksLikePlaceholderSecret(process.env[key]));
@@ -140,15 +124,10 @@ function looksLikePlaceholderSecret(value: string | undefined): boolean {
   }
 }
 
-// DEV_VERIFY_EMAIL_TOKEN's "never in production" rule is enforced by the Joi schema alone
-// (DEV_VERIFY_EMAIL_TOKEN: Joi.when(...).then(Joi.forbidden()) below) — no separate manual check
-// needed here, unlike JWT_REFRESH_SECRET just below, which has no Joi equivalent at all (Joi has
-// no built-in way to express "required and must differ from another key's value").
+// DEV_VERIFY_EMAIL_TOKEN's production ban is enforced by Joi alone; JWT_REFRESH_SECRET needs a manual check because
+// Joi can't express "must differ from another key's value".
 
-// JWT_REFRESH_SECRET falling back to JWT_SECRET is a local-dev convenience only — if the two
-// secrets are identical in production, a leaked access token can be replayed as a refresh token,
-// which is the exact thing having a separate secret is for. See the auth API reference's
-// Configuration section.
+// Identical secrets in production would let a leaked access token be replayed as a refresh token. The JWT_SECRET fallback is local-dev only.
 if (
   process.env['NODE_ENV'] === 'production' &&
   (!process.env['JWT_REFRESH_SECRET'] ||
@@ -159,22 +138,14 @@ if (
   );
 }
 
-// GBP_STATE_SECRET has the same "Joi can't express this" shape as JWT_REFRESH_SECRET: the OAuth
-// `state` blob is what proves *we* minted a consent URL, and an unsigned or default-signed state
-// lets an attacker mint one naming their own tenant and mail it to a victim business owner. A
-// missing key would otherwise degrade silently to "sign with an empty string", which is not
-// signing. Only enforced in production because local dev has a documented fallback.
+// GBP_STATE_SECRET: the OAuth `state` blob proves we minted a consent URL, so an unsigned one lets an attacker mint one
+// naming their own tenant; a missing key would silently sign with an empty string. Production only: local dev has a fallback.
 if (process.env['NODE_ENV'] === 'production' && !process.env['GBP_STATE_SECRET']) {
   throw new Error('GBP_STATE_SECRET must be set in production.');
 }
 
-// Same shape again, for the Google sign-in/sign-up OAuth state (GoogleOAuthStateService, distinct
-// from GBP_STATE_SECRET's Business Profile connection flow above). Without this check, a missing
-// env var doesn't fail — it silently signs with JWT_SECRET instead (a different secret meant for a
-// different job), and nothing today would ever surface that a production deploy is doing so. Not
-// required to differ from JWT_SECRET the way JWT_REFRESH_SECRET is: this secret only signs an
-// anti-replay nonce, never a JWT with a `type` claim, so sharing it doesn't enable the
-// token-forgery escalation that rule exists to prevent.
+// Google sign-in OAuth state (`GoogleOAuthStateService`): a missing var would silently sign with JWT_SECRET instead.
+// It need not differ from JWT_SECRET: it only signs an anti-replay nonce, never a JWT with a `type` claim.
 if (process.env['NODE_ENV'] === 'production' && !process.env['GOOGLE_AUTH_STATE_SECRET']) {
   throw new Error('GOOGLE_AUTH_STATE_SECRET must be set in production.');
 }
@@ -216,7 +187,6 @@ const validationSchema = Joi.object({
   POSTGRES_PASSWORD: Joi.string().required(),
   POSTGRES_HOST: Joi.string().required(),
   POSTGRES_PORT: Joi.number().port().required(),
-  // Regex validation for PostgreSQL connection string
   DATABASE_URL: Joi.string()
     .required()
     .pattern(/^postgresql:\/\//)
@@ -230,8 +200,8 @@ const validationSchema = Joi.object({
   APP_LOGS_URL: Joi.string().required(),
   DEV_DOCS_URL: Joi.string().required(),
   SERVICES_HEALTH_URL: Joi.string().required(),
-  // Optional on purpose: nothing under src/ reads it yet (it's reserved for OAuth/redirect
-  // URLs), so requiring it would hard-fail boot in every environment that hasn't set it.
+  // Optional: nothing under src/ reads it yet (reserved for OAuth/redirect URLs), so requiring it
+  // would fail boot everywhere it is unset.
   FRONTEND_URL: Joi.string().uri().allow(null, '').optional(),
   VERIFY_EMAIL_OTP_TTL_MINUTES: Joi.number().integer().positive().default(10),
   DEV_VERIFY_EMAIL_TOKEN: Joi.when('NODE_ENV', {
@@ -242,14 +212,10 @@ const validationSchema = Joi.object({
   // HS256's strength is bounded by the secret's entropy: a short one is brute-forceable offline
   // from any single captured token, after which anyone can mint tokens for any account.
   JWT_SECRET: Joi.string().min(JWT_SECRET_MIN_LENGTH).required(),
-  // Cross-field "must differ from JWT_SECRET in production" isn't expressible in Joi without a
-  // custom validator — enforced by the manual check above instead. Falling back to JWT_SECRET in
-  // non-production is a local-dev convenience only.
+  // "Must differ from JWT_SECRET in production" isn't expressible in Joi without a custom validator; see the manual check above.
   JWT_REFRESH_SECRET: Joi.string().min(JWT_SECRET_MIN_LENGTH).allow(null, ''),
   TRUST_PROXY_HOPS: Joi.number().integer().min(0).default(0),
-  // Optional for the same reason FRONTEND_URL is: a developer not working on the connections
-  // module has none of these set, and hard-failing boot for everyone else would be hostile. The
-  // routes that need them answer 503 instead — see GoogleBusinessProfileProvider.
+  // Optional like FRONTEND_URL: developers not working on connections have none set; the routes that need them answer 503 (see GoogleBusinessProfileProvider).
   GOOGLE_AUTH_STATE_SECRET: Joi.string().allow(null, ''),
   // Forbidden in production, mirroring DEV_VERIFY_EMAIL_TOKEN: a mocked sign-in must never ship.
   DEV_GOOGLE_AUTH_MOCK: Joi.when('NODE_ENV', {
@@ -265,13 +231,10 @@ const validationSchema = Joi.object({
   GBP_CLIENT_ID: Joi.string().allow(null, ''),
   GBP_CLIENT_SECRET: Joi.string().allow(null, ''),
   GBP_CALLBACK_URL: Joi.string().uri().allow(null, ''),
-  // "must be set in production" is the manual check above — Joi.when can express it, but keeping
-  // both halves of the secret rules in one place beats splitting them across two mechanisms.
+  // "Must be set in production" is the manual check above, keeping both halves of the secret rules in one place.
   GBP_STATE_SECRET: Joi.string().allow(null, ''),
   CREDENTIAL_ENCRYPTION_KEY: Joi.string().base64().allow(null, ''),
-  // Same rule as DEV_VERIFY_EMAIL_TOKEN above, for the same reason: a connection whose reviews are
-  // fixtures is indistinguishable from a real one in the database, so production must not be able
-  // to create one even by accident.
+  // Forbidden in production like DEV_VERIFY_EMAIL_TOKEN: a connection with fixture reviews is indistinguishable from a real one in the DB.
   DEV_GBP_MOCK: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.forbidden(),
@@ -282,8 +245,7 @@ const validationSchema = Joi.object({
     then: Joi.forbidden(),
     otherwise: Joi.string().allow(null, ''),
   }),
-  // Same rule and reasoning as DEV_GBP_MOCK: redirecting the GBP write path / Azure OpenAI at a
-  // local emulator must never be possible in production, even by accident.
+  // Forbidden in production like DEV_GBP_MOCK: redirecting at a local emulator must never be possible there.
   USE_LOCAL_MOCK_SERVER: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.forbidden(),
@@ -295,24 +257,16 @@ const validationSchema = Joi.object({
     otherwise: Joi.string().uri().allow(null, ''),
   }),
   PAYMENT_FEATURE_ENABLED: Joi.string().valid('true', 'false').allow(null, ''),
-  // Unlike the DEV_* flags above, this isn't only gated by PAYMENT_FEATURE_ENABLED: the Dummy
-  // provider's `/v1/billing/dummy/complete-checkout` route flips any tenant to `paid` on nothing
-  // but the caller's own say-so (`BillingService.completeDummyCheckout`), checked only against
-  // `paymentProvider.type === 'dummy'` — not against whether billing itself is "enabled". A
-  // production deploy that forgets to set this to `stripe` (it defaults to `dummy` in
-  // `BillingModule`'s own factory) would silently accept free upgrades through that route even
-  // with billing otherwise switched off. Required outright in production, not merely forbidden
-  // from being `dummy`, so a typo can't slip through as an unvalidated unknown value either.
+  // Required outright in production, not just forbidden-dummy: `/v1/billing/dummy/complete-checkout` flips any tenant to
+  // `paid` and is gated only by `paymentProvider.type === 'dummy'` (not PAYMENT_FEATURE_ENABLED), and `BillingModule`'s
+  // factory defaults to `dummy`, so a forgotten value would allow free upgrades.
   PAYMENT_PROVIDER: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.string().valid('stripe').required(),
     otherwise: Joi.string().valid('dummy', 'stripe').allow(null, ''),
   }),
-  // Required whenever PAYMENT_PROVIDER=stripe, in every environment (not just production) — a
-  // stripe deploy with no secret key can't call the Stripe API at all, and one with no webhook
-  // secret has `StripePaymentProvider.constructWebhookEvent` silently defaulting to an empty
-  // string and rejecting every real webhook delivery with no boot-time signal that anything is
-  // wrong (see that provider's own constructor).
+  // Required whenever PAYMENT_PROVIDER=stripe, in every environment: without the webhook secret
+  // `StripePaymentProvider` defaults to an empty string and rejects every real delivery with no boot-time signal.
   STRIPE_SECRET_KEY: Joi.when('PAYMENT_PROVIDER', {
     is: 'stripe',
     then: Joi.string().required(),
@@ -324,13 +278,8 @@ const validationSchema = Joi.object({
     otherwise: Joi.string().allow(null, ''),
   }),
   STRIPE_PRICE_ID_PAID: Joi.string().allow(null, ''),
-  // Deliberately optional in every environment, unlike PAYMENT_PROVIDER above: both providers
-  // validate their own required config lazily, on the first real call, rather than at boot (see
-  // `OpenRouterAiProvider`/`AzureOpenAiProvider`'s own constructors) — a missing/typo'd key fails
-  // the first generation attempt with a clear `AiProviderNotConfiguredException`, not app startup.
-  // `AiReplyGenerationService` *is* wired into the review-sync pipeline (unlike when this comment
-  // was first written) — this stays lazy-validated regardless, matching `STORAGE_PROVIDER`'s
-  // boot-tolerant shape rather than `PAYMENT_PROVIDER`'s required-in-production one.
+  // Optional in every environment, unlike PAYMENT_PROVIDER: providers validate their own config lazily on first call
+  // (a missing key fails that generation with `AiProviderNotConfiguredException`, not app startup), like `STORAGE_PROVIDER`.
   AI_PROVIDER: Joi.string().valid('openrouter', 'azure').allow(null, ''),
   OPENROUTER_API_KEY: Joi.string().allow(null, ''),
   OPENROUTER_MODEL: Joi.string().allow(null, ''),
@@ -338,10 +287,7 @@ const validationSchema = Joi.object({
   AZURE_OPENAI_API_KEY: Joi.string().allow(null, ''),
   AZURE_OPENAI_DEPLOYMENT: Joi.string().allow(null, ''),
   AZURE_OPENAI_API_VERSION: Joi.string().allow(null, ''),
-  // PLAN.md §5 treats this as a GDPR requirement, not a preference — the only region Azure
-  // OpenAI is cleared to run in for this engagement. Validated here, not just left to whoever
-  // provisions the Azure resource, same reasoning `AzureOpenAiProvider`'s own constructor check
-  // restates at runtime for the case this schema is ever bypassed.
+  // GDPR requires westeurope for Azure OpenAI; validated here too, in case `AzureOpenAiProvider`'s constructor check is bypassed.
   AZURE_OPENAI_REGION: Joi.string().valid('westeurope').allow(null, ''),
   ERASURE_GRACE_PERIOD_DAYS: Joi.number()
     .integer()

@@ -10,12 +10,7 @@ import type {
   VerifyUploadResult,
 } from '../types/storage-provider.type';
 
-/**
- * A plain gray silhouette, inlined as a data URI rather than fetched from a placeholder service —
- * this provider exists specifically so the upload flow is exercisable with zero external
- * dependencies (no real credentials, no network reachability assumptions), and a placeholder that
- * itself required a network call to render would undercut that.
- */
+// Inlined data URI, not a placeholder service: this provider exists so uploads work with zero external dependencies.
 const PLACEHOLDER_AVATAR_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(
   '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">' +
     '<rect width="256" height="256" fill="#CBD5E1"/>' +
@@ -25,18 +20,9 @@ const PLACEHOLDER_AVATAR_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(
 ).toString('base64')}`;
 
 /**
- * The default `StorageProvider` — see `MediaModule`'s factory for why, unlike `NoopEmailProvider`,
- * this one is not forced outside production: the whole point of this feature is to be usable
- * before real Cloudinary credentials exist, in whichever environment that happens to be, and a
- * hard non-production override would make that impossible to verify locally right up until the
- * moment real credentials arrive.
- *
- * There is no real provider behind this, so `verifyUpload` cannot genuinely verify anything — it
- * accepts any id `createUploadAuthorization` could plausibly have produced and returns the same
- * canned metadata every time, rather than pretending to check something that isn't there. The
- * client-side contract this depends on: seeing `provider: 'noop'` in the authorization response,
- * the client skips the real direct-upload step entirely and calls confirm with the id handed back
- * here — see `UploadAuthorization`'s own doc comment.
+ * Unlike `NoopEmailProvider`, not forced outside production: the feature must be usable before real
+ * Cloudinary credentials exist, in any environment. `verifyUpload` cannot genuinely verify anything,
+ * so it returns the same canned metadata for any id.
  */
 @Injectable()
 export class NoopStorageProvider extends StorageProvider {
@@ -50,7 +36,7 @@ export class NoopStorageProvider extends StorageProvider {
         `provider configured. Set STORAGE_PROVIDER=cloudinary (plus CLOUDINARY_*) to upload for real.`
     );
 
-    // Empty `uploadUrl` is the signal to skip the upload leg entirely — see `UploadAuthorization`.
+    // Empty `uploadUrl` tells the client to skip the upload leg.
     return Promise.resolve({ provider: 'noop', uploadUrl: '', formFields: {}, providerAssetId });
   }
 

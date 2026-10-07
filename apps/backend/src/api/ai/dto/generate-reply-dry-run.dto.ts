@@ -8,6 +8,7 @@ import {
 import type { PromptCategory, PromptTone } from '@prompts/types/prompt.type';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsDefined,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -23,9 +24,6 @@ import {
 
 import type { GenerateDryRunReplyInput, MockReviewInput } from '../types/ai-reply-generation.type';
 
-/** `implements MockReviewInput` rather than the service declaring its own parallel copy of this
- *  shape — see `AiReplyGenerationService`'s own doc comment on `MockReviewInput` for why the
- *  domain type is the one both layers depend on. */
 export class MockReviewDto implements MockReviewInput {
   @ApiProperty({
     description: 'Reviewer display name — fills the {{reviewer_name}} placeholder.',
@@ -62,9 +60,7 @@ export class MockReviewDto implements MockReviewInput {
 }
 
 export class GenerateReplyDryRunDto {
-  // This route has no auth (see AiController's own doc comment), so there is no token to read a
-  // tenantId off — a caller names one instead. Omitted, the controller falls back to the newest
-  // tenant, which is what makes this still convenient on a single-tenant dev database.
+  // No auth on this route, so the caller names the tenant; omitted, the controller uses the newest one.
   @ApiPropertyOptional({
     description:
       "Which tenant's saved prompts/tone to generate with. Omit on a single-tenant dev database and the newest tenant is used.",
@@ -72,8 +68,7 @@ export class GenerateReplyDryRunDto {
     example: '0190f4a1-7c33-7e51-9a02-6d1b8f4c0001',
   })
   @IsOptional()
-  // Not version-pinned: every real id in this schema is uuidv7() (@IsUUID('4') rejected every
-  // genuine tenantId, verified against the actual database — the field was silently unusable).
+  // Not version-pinned: every id in this schema is uuidv7(), which @IsUUID('4') rejects.
   @IsUUID(undefined, { message: 'tenantId must be a UUID' })
   tenantId?: string;
 
@@ -86,6 +81,8 @@ export class GenerateReplyDryRunDto {
   category!: PromptCategory;
 
   @ApiProperty({ description: 'The mock review to generate a reply for.', type: MockReviewDto })
+  // ValidateNested alone lets an absent value through (toServiceInput then 500s); IsDefined makes it a 400.
+  @IsDefined({ message: 'review is required' })
   @ValidateNested()
   @Type(() => MockReviewDto)
   review!: MockReviewDto;
@@ -96,9 +93,7 @@ export class GenerateReplyDryRunDto {
     enum: PROMPT_TONES,
     example: 'friendly',
   })
-  // `| null` is not decoration: `@IsOptional()` skips every other validator when the value is
-  // null *or* undefined, so an explicit JSON `null` reaches this property untouched. Typing it
-  // honestly is what lets `toServiceInput()` below treat it as "absent" — see that method.
+  // `| null` is real: @IsOptional() lets an explicit JSON null through untouched; toServiceInput() treats it as absent.
   @IsOptional()
   @IsIn(PROMPT_TONES, { message: `toneOverride must be one of: ${PROMPT_TONES.join(', ')}` })
   toneOverride?: PromptTone | null;
@@ -120,20 +115,7 @@ export class GenerateReplyDryRunDto {
   @MaxLength(PROMPT_TEMPLATE_MAX_LENGTH)
   templateOverride?: string | null;
 
-  /** Maps this DTO's on-the-wire shape to the service's own input type — kept here (a `static
-   *  from()`-style factory, per module-structure.md's own carve-out) rather than inlined in the
-   *  controller, whose job is bind-and-delegate only. The conditional spreads are
-   *  `exactOptionalPropertyTypes`'s own requirement: omitting an unset optional key, not assigning
-   *  it `undefined`, is what this project's tsconfig demands everywhere else too (see
-   *  `prompts.service.ts`'s identical pattern).
-   *
-   *  **`null` is normalized to "absent", not passed through.** `@IsOptional()` declares that null
-   *  and undefined both mean "not provided" — it skips every other validator on both — so an
-   *  explicit `{"templateOverride": null}` arrives here fully unvalidated. Forwarding that null
-   *  into `GenerateDryRunReplyInput` (whose field is `string | undefined`) took the service's
-   *  `templateOverride !== undefined` branch and handed `null` to `sanitizePromptTemplate`, which
-   *  dereferences it — a 500 on input that should read as "no override given". Matching the
-   *  decorator's own null-means-absent semantics here is what keeps that unreachable. */
+  /** Null overrides are dropped like undefined: forwarding null would reach sanitizePromptTemplate(null) and 500. */
   toServiceInput(): GenerateDryRunReplyInput {
     return {
       category: this.category,

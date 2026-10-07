@@ -2,13 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 
 import { AdminProfileResponseDto } from './admin-profile-response.dto';
 
-/**
- * The platform-admin counterpart to `UpdateLocaleResponseDto` — deliberately narrower than
- * `PlatformAdminTokenResponseDto` for the same reason that one is narrower than
- * `TokenResponseDto`: this reissues the access token alone (see
- * `TokenService.signPlatformAdminAccessToken`, reused here as the reissue primitive since a
- * platform admin has no refresh token to leave untouched in the first place).
- */
+/** Reissues the access token alone; a platform admin has no refresh token. */
 export class UpdateAdminLocaleResponseDto {
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIs...' })
   accessToken!: string;

@@ -1,20 +1,11 @@
-/**
- * The single canonical locale list — everything else (the switcher, `request.ts`'s
- * negotiation, the `messages/*.json` files) is driven off this, so "en"/"de" is
- * declared exactly once. Matches the backend's `Locale` enum and the Docusaurus
- * `locales` array 1:1 — see apps/documentation/docs/meta/multilingual.md.
- */
+/** The single canonical locale list; the switcher, `request.ts` and `messages/*.json` are driven off it. Matches the backend `Locale` enum and the Docusaurus `locales` array 1:1. */
 export const SUPPORTED_LOCALES = ["en", "de"] as const;
 
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
 
 export const DEFAULT_LOCALE: AppLocale = "en";
 
-/**
- * Cookie-only locale storage — no `[locale]` route segment. `NEXT_LOCALE` is the name
- * next-intl's own docs use for this exact "no routing" setup, kept here rather than
- * inline so `request.ts` and the switcher can't drift on the name.
- */
+/** Cookie-only locale storage (no `[locale]` route segment); `NEXT_LOCALE` is next-intl's name for this setup, shared so `request.ts` and the switcher cannot drift. */
 export const LOCALE_COOKIE_NAME = "NEXT_LOCALE";
 
 export const LOCALE_LABELS: Record<AppLocale, string> = {

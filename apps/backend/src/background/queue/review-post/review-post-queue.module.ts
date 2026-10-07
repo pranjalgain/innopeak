@@ -9,18 +9,10 @@ import { ReviewPostProcessor } from '@review-post-queue/review-post.processor';
 const isAws = isAwsDeploymentTarget();
 
 /**
- * The **consumer half**, worker-only — same split `EmailQueueModule`/`EmailQueueUIModule` and
- * `ReviewSyncQueueModule`/`ReviewSyncQueueProducerModule` already keep, and for the identical
- * reason: NestJS's Bull explorer turns a `@Processor` provider anywhere in the graph into a live
- * BullMQ worker, so putting `ReviewPostProcessor` anywhere the API process can reach would make
- * the API start posting replies to Google itself. The producer lives in
- * `ReviewPostQueueUIModule` instead, which both processes safely import.
- *
- * `ReviewProviderModule`, `DBModule` and `ConnectionsModule`'s DB services are `@Global()`
- * (confirmed the same way `ReviewSyncQueueModule`'s own doc comment reasons about its equivalent
- * dependencies), so `ReviewPostQueueService`'s constructor resolves without an explicit import
- * here beyond `DeadLetterQueueModule`. `ReviewPostQueueUIModule` (the producer half) is imported so
- * `ReviewPostQueueService` can reschedule itself after a transient failure.
+ * Consumer half, worker-only: Nest's Bull explorer turns any `@Processor` in the graph into a live
+ * worker, so the API process importing this would start posting replies to Google. The producer
+ * lives in `ReviewPostQueueUIModule`, which both import (so the service can reschedule itself after
+ * a transient failure). Other dependencies are `@Global()`.
  */
 const consumerProvider: Provider = isAws ? ReviewPostSqsConsumer : ReviewPostProcessor;
 

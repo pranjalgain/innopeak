@@ -1,3 +1,4 @@
+import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
@@ -6,7 +7,19 @@ import { SyncHealthStatus } from '@common/enums/sync-health-status.enum';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm';
 
 import type {
   LocationRow,
@@ -48,13 +61,9 @@ const LOCATION_COLUMNS = {
 } as const;
 
 /**
- * Mechanical Drizzle queries over `review_provider_connections`, `locations` and
- * `user_locations` — one tightly-related cluster, no composition and no transaction ownership
- * (that is ConnectionsDbService's job, per module-structure.md).
- *
- * `sync_runs`, `reviews` and `review_responses` deliberately live in the `review-sync` domain
- * instead, so exactly one repository writes each table — the connections overview calls out "do
- * not end up with two repositories writing the same table" specifically about `sync_runs`.
+ * Mechanical queries over connections, locations and user_locations, with no composition or
+ * transactions. `sync_runs`, `reviews` and `review_responses` live in `review-sync` so exactly one
+ * repository writes each table.
  */
 @Injectable()
 export class ConnectionsRepository {
@@ -65,14 +74,9 @@ export class ConnectionsRepository {
   }
 
   /**
-   * The tenant's *live* connection: a non-disconnected row wins over any disconnected one, then
-   * most recent first.
-   *
-   * MVP's one-connection rule means one **active** connection. A tenant who disconnects and then
-   * reconnects with a different Google account legitimately has two rows — the old one, kept as
-   * an inactive record so its locations and review history survive, and the new one. Ordering
-   * only by `created_at` would hand back the dead row forever and make switching accounts
-   * impossible.
+   * A non-disconnected row wins over a disconnected one, then most recent first. Reconnecting with
+   * a different Google account leaves two rows (the old one kept so its locations and history
+   * survive); ordering by `created_at` alone would return the dead row forever.
    */
   async findConnectionByTenant(tenantId: string): Promise<ProviderConnectionRow | null> {
     const rows = await this.dbService.db
@@ -80,7 +84,6 @@ export class ConnectionsRepository {
       .from(schema.reviewProviderConnections)
       .where(eq(schema.reviewProviderConnections.tenantId, tenantId))
       .orderBy(
-        // NULLS FIRST puts live connections (disconnected_at IS NULL) ahead of disconnected ones.
         sql`${schema.reviewProviderConnections.disconnectedAt} ASC NULLS FIRST`,
         desc(schema.reviewProviderConnections.createdAt)
       )
@@ -90,13 +93,8 @@ export class ConnectionsRepository {
   }
 
   /**
-   * Upsert on `(tenant_id, provider, provider_account_id)` — PLAN.md §8.8's requirement that a
-   * reconnect after `needs_reauth` be the *same* write as a first connect, not a blind insert
-   * that trips the unique index.
-   *
-   * `disconnected_at` is reset to null on conflict: reconnecting is precisely the act that
-   * withdraws a previous disconnect, and leaving it set would make a live connection read as
-   * disconnected forever.
+   * Upsert so a reconnect after `needs_reauth` is the same write as a first connect.
+   * `disconnected_at` resets to null on conflict: reconnecting withdraws the earlier disconnect.
    */
   async upsertConnection(
     tx: DrizzleTransaction,
@@ -125,7 +123,7 @@ export class ConnectionsRepository {
           connectedByUserId: sql`excluded.connected_by_user_id`,
           status: ReviewProviderConnectionStatus.ACTIVE,
           disconnectedAt: null,
-          // No `set_updated_at` trigger exists in this schema — every UPDATE writes it by hand.
+          // No `set_updated_at` trigger exists in this schema: every UPDATE writes it by hand.
           updatedAt: sql`now()`,
         },
       })
@@ -163,9 +161,8 @@ export class ConnectionsRepository {
   }
 
   /**
-   * Joined through `user_locations` rather than filtered on `locations.tenant_id` alone. Identical
-   * results while a tenant has one location and every user is attached to it, and already correct
-   * on the day a member is scoped to one store of several.
+   * Joined through `user_locations` rather than filtered on `locations.tenant_id`: identical today,
+   * and already correct once a member is scoped to one store of several.
    */
   async findLocationsForUser(userId: string, status?: LocationStatus): Promise<LocationRow[]> {
     const conditions = [eq(schema.userLocations.userId, userId)];
@@ -181,8 +178,10 @@ export class ConnectionsRepository {
       .orderBy(schema.locations.createdAt, schema.locations.id) as Promise<LocationRow[]>;
   }
 
-  /** Tenant-scoped by design — see LOCATION_NOT_FOUND in the API reference: another tenant's id
-   * must 404, not 403, so it cannot be used to probe whether an id exists elsewhere. */
+  /**
+   * Tenant-scoped by design: another tenant's id must 404, not 403, so it cannot probe whether an
+   * id exists.
+   */
   async findLocationByIdForTenant(
     locationId: string,
     tenantId: string
@@ -197,9 +196,8 @@ export class ConnectionsRepository {
   }
 
   /**
-   * `tx` is optional and only meant for a caller already inside `confirmLocation`'s transaction
-   * (see `acquireLocationConfirmLock`) — passing it there is what makes the read happen after
-   * this transaction's own advisory-lock wait, rather than against a separate pooled connection.
+   * `tx` only for a caller already inside `confirmLocation`'s transaction, so the read happens
+   * after its advisory-lock wait rather than on a separate pooled connection.
    */
   async findLocationsByTenant(
     tenantId: string,
@@ -219,17 +217,10 @@ export class ConnectionsRepository {
   }
 
   /**
-   * Serializes `ConnectionsService.confirmLocation` per tenant — closes a TOCTOU race the schema
-   * has no constraint for. `MAX_ACTIVE_LOCATIONS` (MVP's one-active-location rule) is enforced by
-   * counting existing rows before inserting, but under READ COMMITTED two concurrent confirms for
-   * *different* `externalLocationId`s each see zero active locations (there is nothing yet to
-   * lock against), both pass the count check, and both commit — silently doubling a tenant past
-   * the limit. An advisory lock closes it even with nothing to select `FOR UPDATE` against: the
-   * second transaction blocks here until the first commits or rolls back, so its own count check
-   * runs against the first one's already-committed result.
-   *
-   * Transaction-scoped (`_xact_`): released automatically on commit or rollback, never held past
-   * this transaction, so no separate unlock call is needed and a crash cannot leak it.
+   * Serializes `confirmLocation` per tenant, closing a TOCTOU race the schema has no constraint
+   * for: under READ COMMITTED, concurrent confirms each see zero active locations and both pass the
+   * count check. An advisory lock works with nothing to `FOR UPDATE` against. Transaction-scoped
+   * (`_xact_`), so it is released on commit/rollback and cannot leak.
    */
   async acquireLocationConfirmLock(tx: DrizzleTransaction, tenantId: string): Promise<void> {
     await tx.execute(
@@ -237,9 +228,10 @@ export class ConnectionsRepository {
     );
   }
 
-  /** Idempotent per the unique index `(provider_connection_id, external_location_id)`. Reactivates
-   * on conflict, which is what makes reconnect reuse the tenant's existing location row rather
-   * than creating a second one. */
+  /**
+   * Idempotent per the unique index `(provider_connection_id, external_location_id)`; reactivates
+   * on conflict so reconnect reuses the existing location row.
+   */
   async upsertLocation(tx: DrizzleTransaction, input: UpsertLocationInput): Promise<LocationRow> {
     const rows = await tx
       .insert(schema.locations)
@@ -259,8 +251,8 @@ export class ConnectionsRepository {
           address: sql`excluded.address`,
           status: LocationStatus.ACTIVE,
           updatedAt: sql`now()`,
-          // onboarding_backfill_completed_at is deliberately NOT reset: a location that has
-          // already been backfilled should not be re-gated out of live polling by a reconnect.
+          // onboarding_backfill_completed_at is deliberately NOT reset: an already-backfilled
+          // location should not be re-gated out of live polling by a reconnect.
         },
       })
       .returning(LOCATION_COLUMNS);
@@ -285,9 +277,8 @@ export class ConnectionsRepository {
   }
 
   /**
-   * Disconnect flips locations to `inactive`; it never DELETEs. `locations.provider_connection_id`
-   * cascades, and `reviews`/`sync_runs` cascade from `locations`, so a delete here would take the
-   * tenant's entire review history with it — PLAN.md §8.15.
+   * Never DELETEs: `locations.provider_connection_id` cascades and `reviews`/`sync_runs` cascade
+   * from `locations`, so a delete would take the tenant's whole review history.
    */
   async deactivateLocationsForConnection(
     tx: DrizzleTransaction,
@@ -308,15 +299,9 @@ export class ConnectionsRepository {
   }
 
   /**
-   * The reconnect counterpart to `deactivateLocationsForConnection` — a status flip only, same
-   * shape. `onboarding_backfill_completed_at` is left untouched, same reasoning as
-   * `upsertLocation`'s `ON CONFLICT` branch: a location already backfilled should not be re-gated
-   * out of live polling, or re-queued for another backfill, just because the owner reconnected.
-   *
-   * Returns full rows, not just ids: the caller (`ConnectionsDbService.restartIncompleteBackfills`)
-   * needs `onboardingBackfillCompletedAt` to tell which of these still need a fresh backfill
-   * acquired — `disconnect()` never touches `sync_runs`, so a location whose backfill was still in
-   * flight (or had failed) reactivates with no completion marker and no live job behind it.
+   * `onboarding_backfill_completed_at` is left untouched, as in `upsertLocation`. Returns full rows
+   * because `restartIncompleteBackfills` needs that column to tell which locations still need a
+   * fresh backfill.
    */
   async reactivateLocationsForConnection(
     tx: DrizzleTransaction,
@@ -365,11 +350,9 @@ export class ConnectionsRepository {
   }
 
   /**
-   * Every location a `review-poll` job may be enqueued for, per PLAN.md §8.2's gate: `active`,
-   * backfilled, and its connection not `needs_reauth` — the last one isn't in §8.2 itself, but
-   * without it a dead grant gets re-polled into a fresh 401 every 15 minutes until someone notices
-   * `last_sync_error` in the UI. `deactivateLocationsForConnection` already flips a disconnected
-   * connection's locations to `inactive`, so `disconnected_at` needs no separate check here.
+   * Locations a `review-poll` job may be enqueued for: `active`, backfilled, and connection not
+   * `needs_reauth` (a dead grant would be re-polled into a 401 every 15 minutes). A disconnected
+   * connection's locations are already `inactive`, so `disconnected_at` needs no check.
    */
   async findLocationsDueForPoll(): Promise<PollableLocationRow[]> {
     const rows = await this.dbService.db
@@ -385,14 +368,16 @@ export class ConnectionsRepository {
         schema.reviewProviderConnections,
         eq(schema.reviewProviderConnections.id, schema.locations.providerConnectionId)
       )
+      .innerJoin(schema.tenants, eq(schema.tenants.id, schema.locations.tenantId))
       .where(
         and(
           eq(schema.locations.status, LocationStatus.ACTIVE),
           isNotNull(schema.locations.onboardingBackfillCompletedAt),
           eq(schema.reviewProviderConnections.status, ReviewProviderConnectionStatus.ACTIVE),
-          // Billing-paused locations (over the tenant's plan `max_locations` cap) are excluded from
-          // the poll the same way a disconnected/not-yet-backfilled one is — see
-          // `0011_billing.sql`'s column comment and `BillingEntitlementsService`.
+          // A suspended (including erasure grace) or erased tenant must not keep producing reviews,
+          // AI drafts and notification emails.
+          notInArray(schema.tenants.status, [TenantStatus.SUSPENDED, TenantStatus.ERASED]),
+          // Billing-paused locations (over the plan's `max_locations`) are excluded from polling.
           isNull(schema.locations.billingPausedAt)
         )
       );
@@ -400,9 +385,11 @@ export class ConnectionsRepository {
     return rows;
   }
 
-  /** `status = 'active' AND billing_paused_at IS NULL` — the count `BillingEntitlementsService`
-   *  compares against a plan's `max_locations`. A billing-paused location doesn't count against
-   *  the cap: it is already excluded from active use, which is the whole point of pausing it. */
+  /**
+   * `status = 'active' AND billing_paused_at IS NULL`: the count `BillingEntitlementsService`
+   * compares against `max_locations`. Paused locations don't count; they are already excluded from
+   * active use.
+   */
   async countActiveUnpausedLocations(tenantId: string): Promise<number> {
     const rows = await this.dbService.db
       .select({ value: count() })
@@ -418,9 +405,10 @@ export class ConnectionsRepository {
     return rows[0]?.value ?? 0;
   }
 
-  /** Flips `billing_paused_at` for a batch of locations in one statement — used both to pause the
-   *  losing side of a downgrade/manual swap and to unpause the winning side. A no-op call with an
-   *  empty array is left to the caller to skip (`IN ()` is invalid SQL). */
+  /**
+   * Batch flip for both sides of a downgrade/manual swap. An empty array must be skipped by the
+   * caller (`IN ()` is invalid SQL).
+   */
   async setLocationsBillingPaused(
     tx: DrizzleTransaction,
     locationIds: string[],
@@ -443,10 +431,8 @@ export class ConnectionsRepository {
   }
 
   /**
-   * Monotonic on purpose — `WHERE last_review_synced_at IS NULL OR < cursor` never lets the
-   * high-water mark move backward. Without the guard, a run whose own view of "newest seen" was
-   * computed from a partial page set (a crash mid-run, a reclaim) could regress the cursor and
-   * make a later poll re-walk pages a previous run already advanced past.
+   * Monotonic on purpose: a run whose view of "newest seen" came from a partial page set (crash
+   * mid-run, a reclaim) could otherwise regress the cursor and make a later poll re-walk pages.
    */
   async advanceLastReviewSyncedAt(locationId: string, cursor: string): Promise<void> {
     await this.dbService.db

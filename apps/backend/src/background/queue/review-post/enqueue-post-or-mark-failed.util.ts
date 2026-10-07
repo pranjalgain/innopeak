@@ -12,14 +12,9 @@ interface EnqueuePostDeps {
 }
 
 /**
- * Queues a post job for an `approved` response and, if the queue cannot be reached, moves the
- * response to `post_failed` instead of leaving it `approved` with no job behind it.
- *
- * `approved` is also the legitimate resting state of a reply nobody has chosen to post yet, so an
- * approved row with no job is indistinguishable from one that was never meant to post — nothing
- * could ever sweep it. `post_failed` is the one state the UI already surfaces with a retry control,
- * which makes a failed enqueue visible and recoverable with no new mechanism. Returns whether the
- * job was queued; never throws for a queue failure.
+ * On enqueue failure, marks the response `post_failed` rather than leaving it `approved` with no
+ * job: `approved` is also a legitimate resting state so nothing could sweep an orphan, while
+ * `post_failed` already has a UI retry control. Never throws for a queue failure.
  */
 export async function enqueuePostOrMarkFailed(
   deps: EnqueuePostDeps,

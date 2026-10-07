@@ -9,13 +9,7 @@ interface UsePaginationResult<T> {
   goToNextPage: () => void;
 }
 
-/**
- * Client-side pagination over an already-fully-loaded array — every list in
- * this app currently loads its whole mock array at once (no real backend
- * paging endpoint yet), so this just slices it for display. Swaps cleanly
- * for server-side paging later since the shape (`page`/`totalPages`/
- * `pageItems`) stays the same either way.
- */
+/** Slices an already-loaded array for display; the `page`/`totalPages`/`pageItems` shape would stay the same under server-side paging. */
 export function usePagination<T>(items: T[], pageSize: number): UsePaginationResult<T> {
   const [page, setPageState] = useState(1);
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));

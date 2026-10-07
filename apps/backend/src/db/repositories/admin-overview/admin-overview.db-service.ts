@@ -19,24 +19,14 @@ export class AdminOverviewDbService {
 
   constructor(
     private readonly adminOverviewRepository: AdminOverviewRepository,
-    // Cross-domain composition, not a layering violation: a DB Service's job is composing
-    // repository calls, and here that extends to composing sibling DB Services — reusing
-    // `AdminBusinessesDbService`/`AdminUsersDbService`'s own row-to-summary mapping rather than
-    // duplicating it, exactly as it stays if a tenant/user's owning-repository shape changes.
+    // Composing sibling DB Services reuses their row-to-summary mapping instead of duplicating it.
     private readonly adminBusinessesDbService: AdminBusinessesDbService,
     private readonly adminUsersDbService: AdminUsersDbService
   ) {}
 
   /**
-   * The three sources below (business count, user count, review stats) were three independent
-   * endpoints/hooks before being folded into this one `getStats()` call — each with its own
-   * zero-fallback on failure, so one source going down never blanked the other stat cards. Using
-   * `Promise.allSettled` instead of `Promise.all` restores exactly that per-source isolation:
-   * a rejection from any one of the three is logged and defaulted to zero rather than rejecting
-   * the whole response. `getReviewStats()`'s own internal `Promise.all` (reviews vs. replies) is
-   * left as-is — those two counts were always fetched together as a single source in the pre-split
-   * hook (one `PlatformReviewStatsService.get()` query backing both fields), so this matches the
-   * original granularity rather than introducing a finer one.
+   * `Promise.allSettled`, not `all`: a failing source is logged and defaulted to zero so it never blanks the other stat
+   * cards. `getReviewStats()` keeps its own `Promise.all`; reviews and replies are one source.
    */
   async getStats(): Promise<AdminOverviewStats> {
     const [businessCountResult, userCountResult, reviewStatsResult] = await Promise.allSettled([
@@ -56,13 +46,7 @@ export class AdminOverviewDbService {
     return { businessCount, userCount, ...reviewStats };
   }
 
-  /**
-   * Unwraps one `getStats()` source's settled outcome, logging and defaulting to `fallback` on
-   * rejection instead of letting it propagate — see `getStats()`'s doc comment for why. Logged at
-   * `warn` (not `error`, unlike `recordActivityBestEffort`'s catch) because this degrades a read
-   * to a stale/zero value rather than dropping a write the admin already believes succeeded; it's
-   * still surfaced, not silently swallowed, so an ops person can see a source is unhealthy.
-   */
+  /** Logs at `warn` (not `error`): this degrades a read to a fallback rather than dropping an acknowledged write, but stays visible to ops. */
   private resolveStatSource<T>(result: PromiseSettledResult<T>, fallback: T, source: string): T {
     if (result.status === 'fulfilled') {
       return result.value;
@@ -79,12 +63,7 @@ export class AdminOverviewDbService {
     return this.adminBusinessesDbService.findRecent(limit);
   }
 
-  /**
-   * The businesses the "Needs Attention" panel shows, already filtered to non-connected tenants,
-   * ordered most-urgent-first, and capped at `limit` — a plain passthrough to
-   * `AdminBusinessesDbService.findNeedingAttention()`, which does the actual filter/sort/limit in
-   * SQL rather than loading every tenant to derive this in JS.
-   */
+  /** Passthrough to `findNeedingAttention()`, which filters, sorts and limits in SQL. */
   async getBusinessesNeedingAttention(limit: number): Promise<AdminBusinessSummary[]> {
     return this.adminBusinessesDbService.findNeedingAttention(limit);
   }
@@ -93,23 +72,14 @@ export class AdminOverviewDbService {
     return this.adminOverviewRepository.getSignupTrend(monthsBack);
   }
 
-  /** Plain passthrough — exposed so `AdminStatisticsDbService` can reuse this query (cross-domain
-   *  DB Service composition, same reasoning as `getStats()`'s own doc comment above) instead of
-   *  duplicating it. */
+  /** Passthrough, exposed so `AdminStatisticsDbService` can reuse this query. */
   async getReviewStats(): Promise<PlatformReviewStats> {
     return this.adminOverviewRepository.getReviewStats();
   }
 
   /**
-   * Never throws. Every caller records activity *after* its primary write has already committed
-   * (suspending a business, creating or deleting an invite), and those two writes are not in one
-   * transaction — so letting a failure here propagate would answer a request that genuinely
-   * succeeded with a 500, telling the admin their action did not apply when it did. That is worse
-   * than losing a line of this display feed: this table is now the only record of the action (no
-   * generic audit trail behind it to fall back on), but failing a suspend/invite/disable that has
-   * already taken effect over a logging hiccup would be a strictly worse outcome for the admin —
-   * so a dropped entry is logged at error level, so it is still visible rather than silent, and
-   * swallowed rather than surfaced as a failure of the action itself.
+   * Never throws: callers record activity after their primary write committed (the two aren't in one transaction), so
+   * failing here would 500 a request that succeeded. A dropped entry is logged at error level instead.
    */
   async recordActivityBestEffort(input: RecordActivityInput): Promise<void> {
     try {

@@ -6,9 +6,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { ClientResponseStatus } from '../enums/client-response-status.enum';
 
-/** `POST .../retry-post`'s response shape, matching `apps/documentation/docs/backend/reviews/
- *  api-reference.md`'s documented contract exactly — `retryQueuedAt`, not a generic field name,
- *  since the spec names it and a client may already depend on it. */
+/** Field is `retryQueuedAt`, as named in the documented API contract a client may depend on. */
 export class RetryPostResponseDto {
   @ApiProperty({ example: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64' })
   id!: string;
@@ -23,10 +21,7 @@ export class RetryPostResponseDto {
   retryQueuedAt!: string;
 }
 
-/** `POST .../responses/:responseId/post`'s response — the manual trigger for the
- *  `auto_post_enabled = false` case, added on top of this module's originally documented spec
- *  (see that route's own Swagger description for why). Same shape as retry-post's response,
- *  renamed for its own route. */
+/** Response of the manual post trigger for the `auto_post_enabled = false` case; same shape as retry-post's. */
 export class PostQueuedResponseDto {
   @ApiProperty({ example: '0190f3c1-2b44-7d10-8a03-1e5c7f9b2d64' })
   id!: string;

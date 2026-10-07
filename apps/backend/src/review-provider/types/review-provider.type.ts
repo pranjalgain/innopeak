@@ -1,15 +1,6 @@
-/**
- * The normalized shapes every consumer of a review provider works in — the boundary at which
- * "Google's way of saying it" stops and "our way of saying it" starts. A second provider (Yelp,
- * Trustpilot) adds a mapper, not a new set of types here.
- */
-
 export interface ProviderTokenSet {
   accessToken: string;
-  /**
-   * Only present on a first consent. Google omits it on every refresh, so the credential store
-   * must keep the original rather than overwriting with `undefined` — see ProviderCredentialService.
-   */
+  /** Only on first consent; Google omits it on refresh, so the store must keep the original (see ProviderCredentialService). */
   refreshToken?: string;
   /** Absolute expiry, already resolved from the provider's relative `expires_in`. */
   expiresAt: Date;
@@ -17,7 +8,7 @@ export interface ProviderTokenSet {
 }
 
 export interface ProviderAccount {
-  /** The provider's own account identifier — stored as `review_provider_connections.provider_account_id`. */
+  /** Stored as `review_provider_connections.provider_account_id`. */
   externalAccountId: string;
   name?: string;
 }
@@ -38,7 +29,7 @@ export interface ProviderReview {
   externalReviewId: string;
   externalReviewerId: string | null;
   reviewerName: string | null;
-  /** 1–5. Never 0 — `reviews_rating_check` would reject it, so the mapper throws instead. */
+  /** 1-5, never 0: `reviews_rating_check` rejects it, so the mapper throws. */
   rating: number;
   text: string | null;
   reviewedAt: string;
@@ -50,15 +41,10 @@ export interface ProviderReviewPage {
   reviews: ProviderReview[];
   /** `null` when this was the last page. */
   nextPageToken: string | null;
-  /**
-   * Total across all pages when the provider reports one, else `null`. Deliberately not
-   * defaulted to `reviews.length` — a fabricated denominator produces a progress bar that
-   * reaches 100% on page one and then keeps going.
-   */
+  /** Not defaulted to `reviews.length`: a fabricated denominator makes the progress bar hit 100% on page one. */
   totalCount: number | null;
 }
 
-/** What the OAuth callback needs before it can write a connection row. */
 export interface ProviderConnectionResult {
   tokens: ProviderTokenSet;
   account: ProviderAccount;
@@ -66,14 +52,13 @@ export interface ProviderConnectionResult {
 
 export interface ListReviewsOptions {
   externalLocationId: string;
-  /** The provider account the location hangs off — Google's review path needs both. */
+  /** Google's review path needs both the account and the location. */
   externalAccountId: string;
   pageToken?: string | undefined;
   pageSize?: number | undefined;
 }
 
-/** What `getReviewReply`/`replyToReview` both need to address one specific review — the same
- *  account/location/review triple that identifies a single GBP review resource. */
+/** The account/location/review triple addressing one GBP review. */
 export interface GetReviewReplyInput {
   externalAccountId: string;
   externalLocationId: string;

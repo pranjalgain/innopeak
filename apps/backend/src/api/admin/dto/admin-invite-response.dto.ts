@@ -40,9 +40,7 @@ export class AdminInviteResponseDto {
     dto.email = row.email;
     dto.status = row.status;
     dto.invitedAt = toIsoString(row.invitedAt);
-    // Passed through as null rather than back-filled from `invitedAt`. The old fallback made the
-    // never-invited root admin report an expiry equal to its own creation time — a date in the
-    // past, indistinguishable from a genuinely lapsed invite by anything reading this field.
+    // Not back-filled from `invitedAt`: that made the never-invited root admin look like a lapsed invite.
     dto.expiresAt = toIsoStringOrNull(row.expiresAt);
     dto.isRoot = row.isRoot;
     return dto;

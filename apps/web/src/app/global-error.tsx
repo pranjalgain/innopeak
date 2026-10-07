@@ -18,12 +18,9 @@ interface GlobalErrorProps {
 }
 
 /**
- * This file replaces the root layout entirely when the root layout itself throws (Next's own
- * `global-error.tsx` contract — it must render its own `<html>`/`<body>`), so it renders with no
- * `NextIntlClientProvider` ancestor and `useTranslations` would throw here. A tiny, self-contained
- * dictionary — read directly from the `NEXT_LOCALE` cookie client-side, since there is no server
- * render pass to read it from — is deliberately simpler than pulling in the full i18n stack for a
- * boundary that exists precisely because something upstream already broke.
+ * Replaces the root layout when it throws, so there is no `NextIntlClientProvider` and
+ * `useTranslations` would throw. Uses a tiny dictionary keyed by the `NEXT_LOCALE` cookie read
+ * client-side instead of the full i18n stack.
  */
 const COPY: Record<AppLocale, {
   eyebrow: string;
@@ -61,9 +58,8 @@ function readLocaleCookie(): AppLocale {
 }
 
 export default function GlobalError({ error, reset }: GlobalErrorProps) {
-  // Starts at the default and corrects after mount — reading `document.cookie` during render
-  // would mismatch the server-rendered HTML (there is none here, but this component still runs
-  // through the same client render path) and trip a hydration warning for no benefit.
+  // Starts at the default and corrects after mount: reading `document.cookie` during render would
+  // trip a hydration mismatch.
   const [locale, setLocale] = useState<AppLocale>(DEFAULT_LOCALE);
   const t = COPY[locale];
 

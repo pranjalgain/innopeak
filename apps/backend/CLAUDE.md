@@ -11,6 +11,8 @@ pnpm start:dev              # Start API + Worker (concurrently)
 pnpm type-check             # TypeScript strict check (run before committing)
 pnpm lint                   # ESLint with auto-fix
 pnpm test                   # Unit tests (Jest)
+# Real-database specs (src/db/repositories/repositories.db.spec.ts) are skipped unless pointed at a
+# migrated, DISPOSABLE Postgres: TEST_DATABASE_URL=postgresql://… pnpm test -- repositories.db
 pnpm test:e2e               # E2E tests
 pnpm local:up               # Full local setup: docker + migrate + start
 pnpm db:migrate             # Apply SQL migrations

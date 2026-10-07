@@ -1,14 +1,10 @@
 /**
- * Google serves the two halves of this integration from **two different hosts**, and this is a
- * genuine trap rather than trivia: locations moved to the modern Business Information API, while
- * reviews were never migrated and still live on the legacy v4 `mybusiness` host. Calling
- * `.../v4/{location}/reviews` on the Business Information host returns a 404 that reads exactly
- * like "this location has no reviews".
+ * Google serves the two halves from two different hosts: locations moved to the Business
+ * Information API, but reviews still live on the legacy v4 `mybusiness` host. Calling
+ * `.../v4/{location}/reviews` on the wrong host returns a 404 that reads like "no reviews".
  */
 export const GBP_HOSTS = {
-  /** Locations. */
   BUSINESS_INFORMATION: 'https://mybusinessbusinessinformation.googleapis.com/v1',
-  /** Accounts. */
   ACCOUNT_MANAGEMENT: 'https://mybusinessaccountmanagement.googleapis.com/v1',
   /** Reviews only. Legacy, and there is no v1 replacement. */
   LEGACY_V4: 'https://mybusiness.googleapis.com/v4',
@@ -19,8 +15,8 @@ export const GOOGLE_OAUTH = {
   TOKEN_URL: 'https://oauth2.googleapis.com/token',
   REVOKE_URL: 'https://oauth2.googleapis.com/revoke',
   /**
-   * `business.manage` is the single scope the Business Profile APIs gate on — there is no
-   * narrower read-only variant, which is why partial-scope consent is worth watching for.
+   * `business.manage` is the only scope the Business Profile APIs gate on, with no read-only
+   * variant; watch for partial-scope consent.
    */
   SCOPES: ['https://www.googleapis.com/auth/business.manage'],
 } as const;
@@ -46,5 +42,4 @@ export const RATE_LIMIT_MAX_WAIT_SECONDS = 120;
  */
 export const TOKEN_REFRESH_SKEW_SECONDS = 300;
 
-/** How long a single credential refresh may hold its Redis lock. */
 export const CREDENTIAL_REFRESH_LOCK_TTL_SECONDS = 30;

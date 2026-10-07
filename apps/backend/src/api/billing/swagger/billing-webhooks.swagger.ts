@@ -1,11 +1,7 @@
 import { applyDecorators, HttpStatus } from '@nestjs/common';
 import { ApiExcludeEndpoint, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
-/**
- * `@ApiExcludeEndpoint()` — this route is never called by a browser/API client, only by Stripe
- * itself, so it has no place in the interactive Swagger UI a human explores. Still one composed
- * decorator per route per this repo's convention, not inline decorators on the controller method.
- */
+/** Excluded from Swagger: only Stripe calls this route, never a client. */
 export function ApiStripeWebhook(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
     ApiExcludeEndpoint(),

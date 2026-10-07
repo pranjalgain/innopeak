@@ -44,11 +44,17 @@ import type { ConfirmAvatarDto } from '../models';
 // @ts-ignore
 import type { ConfirmAvatarResponseDto } from '../models';
 // @ts-ignore
+import type { DeleteAccountDto } from '../models';
+// @ts-ignore
+import type { DeleteAccountResponseDto } from '../models';
+// @ts-ignore
 import type { LoginDto } from '../models';
 // @ts-ignore
 import type { MemberInvitePreviewDto } from '../models';
 // @ts-ignore
 import type { ResendOtpDto } from '../models';
+// @ts-ignore
+import type { RestoreAccountDto } from '../models';
 // @ts-ignore
 import type { SetPasswordDto } from '../models';
 // @ts-ignore
@@ -230,6 +236,65 @@ export const AuthApiAxiosParamCreator = function (
       };
       localVarRequestOptions.data = serializeDataIfNeeded(
         completeGoogleSignupDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Suspends the business immediately, stops billing (a live subscription is cancelled at period end, or at once when past due) and schedules permanent erasure after the grace period. `businessName` must match the business name exactly; the owner re-authenticates with `password`, or with the emailed `otp` when they have no password. Until the grace period ends the owner can undo it with POST /v1/auth/restore-account. Clears the caller\'s session cookies.
+     * @summary Schedule the whole business for deletion (owner only)
+     * @param {DeleteAccountDto} deleteAccountDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerDeleteAccountV1: async (
+      deleteAccountDto: DeleteAccountDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'deleteAccountDto' is not null or undefined
+      assertParamExists(
+        'authControllerDeleteAccountV1',
+        'deleteAccountDto',
+        deleteAccountDto,
+      );
+      const localVarPath = `/v1/auth/delete-account`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        deleteAccountDto,
         localVarRequestOptions,
         configuration,
       );
@@ -558,6 +623,51 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
+     * Step-up ahead of POST /v1/auth/delete-account for an owner who signed in with Google or Microsoft and so has no password to re-enter: emails a 6-digit code to their own address. A code minted here satisfies only account deletion (its own token purpose). Owner only; an owner who has a password gets 400 PASSWORD_REQUIRED and confirms with it instead.
+     * @summary Request the code that confirms deleting the business (owners without a password)
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerRequestDeleteAccountOtpV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/auth/delete-account/request-otp`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the caller\'s own address, proving live mailbox control rather than just possession of an access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the account already has a password.
      * @summary Request the OTP required to set a password on a passwordless account
      * @param {*} [options] Override http request option.
@@ -648,6 +758,61 @@ export const AuthApiAxiosParamCreator = function (
       };
       localVarRequestOptions.data = serializeDataIfNeeded(
         resendOtpDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Public. Undoes an erasure the **same owner** requested via POST /v1/auth/delete-account, inside the grace period — including resuming a subscription the erasure set to end. Everything that does not qualify (wrong password, unknown email, an erasure an admin requested, an erased business, a non-owner) is the same 401 INVALID_CREDENTIALS, so the route reveals nothing about who has a pending erasure. Shares the sign-in lockout.
+     * @summary Restore a business the owner scheduled for deletion
+     * @param {RestoreAccountDto} restoreAccountDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerRestoreAccountV1: async (
+      restoreAccountDto: RestoreAccountDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'restoreAccountDto' is not null or undefined
+      assertParamExists(
+        'authControllerRestoreAccountV1',
+        'restoreAccountDto',
+        restoreAccountDto,
+      );
+      const localVarPath = `/v1/auth/restore-account`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        restoreAccountDto,
         localVarRequestOptions,
         configuration,
       );
@@ -1142,6 +1307,40 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Suspends the business immediately, stops billing (a live subscription is cancelled at period end, or at once when past due) and schedules permanent erasure after the grace period. `businessName` must match the business name exactly; the owner re-authenticates with `password`, or with the emailed `otp` when they have no password. Until the grace period ends the owner can undo it with POST /v1/auth/restore-account. Clears the caller\'s session cookies.
+     * @summary Schedule the whole business for deletion (owner only)
+     * @param {DeleteAccountDto} deleteAccountDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerDeleteAccountV1(
+      deleteAccountDto: DeleteAccountDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<DeleteAccountResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerDeleteAccountV1(
+          deleteAccountDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.authControllerDeleteAccountV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/google/complete-signup`.
      * @summary Start Google sign-in or signup
      * @param {AuthControllerGoogleAuthorizeV1IntentEnum} intent Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/google/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
@@ -1348,6 +1547,34 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * Step-up ahead of POST /v1/auth/delete-account for an owner who signed in with Google or Microsoft and so has no password to re-enter: emails a 6-digit code to their own address. A code minted here satisfies only account deletion (its own token purpose). Owner only; an owner who has a password gets 400 PASSWORD_REQUIRED and confirms with it instead.
+     * @summary Request the code that confirms deleting the business (owners without a password)
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerRequestDeleteAccountOtpV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerRequestDeleteAccountOtpV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.authControllerRequestDeleteAccountOtpV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the caller\'s own address, proving live mailbox control rather than just possession of an access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the account already has a password.
      * @summary Request the OTP required to set a password on a passwordless account
      * @param {*} [options] Override http request option.
@@ -1396,6 +1623,37 @@ export const AuthApiFp = function (configuration?: Configuration) {
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
         operationServerMap['AuthApi.authControllerResendOtpV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Public. Undoes an erasure the **same owner** requested via POST /v1/auth/delete-account, inside the grace period — including resuming a subscription the erasure set to end. Everything that does not qualify (wrong password, unknown email, an erasure an admin requested, an erased business, a non-owner) is the same 401 INVALID_CREDENTIALS, so the route reveals nothing about who has a pending erasure. Shares the sign-in lockout.
+     * @summary Restore a business the owner scheduled for deletion
+     * @param {RestoreAccountDto} restoreAccountDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerRestoreAccountV1(
+      restoreAccountDto: RestoreAccountDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerRestoreAccountV1(
+          restoreAccountDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.authControllerRestoreAccountV1']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -1709,6 +1967,24 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Suspends the business immediately, stops billing (a live subscription is cancelled at period end, or at once when past due) and schedules permanent erasure after the grace period. `businessName` must match the business name exactly; the owner re-authenticates with `password`, or with the emailed `otp` when they have no password. Until the grace period ends the owner can undo it with POST /v1/auth/restore-account. Clears the caller\'s session cookies.
+     * @summary Schedule the whole business for deletion (owner only)
+     * @param {AuthApiAuthControllerDeleteAccountV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerDeleteAccountV1(
+      requestParameters: AuthApiAuthControllerDeleteAccountV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<DeleteAccountResponseDto> {
+      return localVarFp
+        .authControllerDeleteAccountV1(
+          requestParameters.deleteAccountDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/google/complete-signup`.
      * @summary Start Google sign-in or signup
      * @param {AuthApiAuthControllerGoogleAuthorizeV1Request} requestParameters Request parameters.
@@ -1806,6 +2082,19 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Step-up ahead of POST /v1/auth/delete-account for an owner who signed in with Google or Microsoft and so has no password to re-enter: emails a 6-digit code to their own address. A code minted here satisfies only account deletion (its own token purpose). Owner only; an owner who has a password gets 400 PASSWORD_REQUIRED and confirms with it instead.
+     * @summary Request the code that confirms deleting the business (owners without a password)
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerRequestDeleteAccountOtpV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .authControllerRequestDeleteAccountOtpV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the caller\'s own address, proving live mailbox control rather than just possession of an access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the account already has a password.
      * @summary Request the OTP required to set a password on a passwordless account
      * @param {*} [options] Override http request option.
@@ -1831,6 +2120,24 @@ export const AuthApiFactory = function (
     ): AxiosPromise<void> {
       return localVarFp
         .authControllerResendOtpV1(requestParameters.resendOtpDto, options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Public. Undoes an erasure the **same owner** requested via POST /v1/auth/delete-account, inside the grace period — including resuming a subscription the erasure set to end. Everything that does not qualify (wrong password, unknown email, an erasure an admin requested, an erased business, a non-owner) is the same 401 INVALID_CREDENTIALS, so the route reveals nothing about who has a pending erasure. Shares the sign-in lockout.
+     * @summary Restore a business the owner scheduled for deletion
+     * @param {AuthApiAuthControllerRestoreAccountV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerRestoreAccountV1(
+      requestParameters: AuthApiAuthControllerRestoreAccountV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .authControllerRestoreAccountV1(
+          requestParameters.restoreAccountDto,
+          options,
+        )
         .then((request) => request(axios, basePath));
     },
     /**
@@ -1986,6 +2293,18 @@ export interface AuthApiInterface {
   ): AxiosPromise<any>;
 
   /**
+   * Suspends the business immediately, stops billing (a live subscription is cancelled at period end, or at once when past due) and schedules permanent erasure after the grace period. `businessName` must match the business name exactly; the owner re-authenticates with `password`, or with the emailed `otp` when they have no password. Until the grace period ends the owner can undo it with POST /v1/auth/restore-account. Clears the caller\'s session cookies.
+   * @summary Schedule the whole business for deletion (owner only)
+   * @param {AuthApiAuthControllerDeleteAccountV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerDeleteAccountV1(
+    requestParameters: AuthApiAuthControllerDeleteAccountV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<DeleteAccountResponseDto>;
+
+  /**
    * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/google/complete-signup`.
    * @summary Start Google sign-in or signup
    * @param {AuthApiAuthControllerGoogleAuthorizeV1Request} requestParameters Request parameters.
@@ -2060,6 +2379,16 @@ export interface AuthApiInterface {
   ): AxiosPromise<TokenResponseDto>;
 
   /**
+   * Step-up ahead of POST /v1/auth/delete-account for an owner who signed in with Google or Microsoft and so has no password to re-enter: emails a 6-digit code to their own address. A code minted here satisfies only account deletion (its own token purpose). Owner only; an owner who has a password gets 400 PASSWORD_REQUIRED and confirms with it instead.
+   * @summary Request the code that confirms deleting the business (owners without a password)
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerRequestDeleteAccountOtpV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
+
+  /**
    * Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the caller\'s own address, proving live mailbox control rather than just possession of an access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the account already has a password.
    * @summary Request the OTP required to set a password on a passwordless account
    * @param {*} [options] Override http request option.
@@ -2078,6 +2407,18 @@ export interface AuthApiInterface {
    */
   authControllerResendOtpV1(
     requestParameters: AuthApiAuthControllerResendOtpV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
+
+  /**
+   * Public. Undoes an erasure the **same owner** requested via POST /v1/auth/delete-account, inside the grace period — including resuming a subscription the erasure set to end. Everything that does not qualify (wrong password, unknown email, an erasure an admin requested, an erased business, a non-owner) is the same 401 INVALID_CREDENTIALS, so the route reveals nothing about who has a pending erasure. Shares the sign-in lockout.
+   * @summary Restore a business the owner scheduled for deletion
+   * @param {AuthApiAuthControllerRestoreAccountV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerRestoreAccountV1(
+    requestParameters: AuthApiAuthControllerRestoreAccountV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<void>;
 
@@ -2186,6 +2527,13 @@ export interface AuthApiAuthControllerCompleteGoogleSignupV1Request {
 }
 
 /**
+ * Request parameters for authControllerDeleteAccountV1 operation in AuthApi.
+ */
+export interface AuthApiAuthControllerDeleteAccountV1Request {
+  readonly deleteAccountDto: DeleteAccountDto;
+}
+
+/**
  * Request parameters for authControllerGoogleAuthorizeV1 operation in AuthApi.
  */
 export interface AuthApiAuthControllerGoogleAuthorizeV1Request {
@@ -2217,6 +2565,13 @@ export interface AuthApiAuthControllerLoginV1Request {
  */
 export interface AuthApiAuthControllerResendOtpV1Request {
   readonly resendOtpDto: ResendOtpDto;
+}
+
+/**
+ * Request parameters for authControllerRestoreAccountV1 operation in AuthApi.
+ */
+export interface AuthApiAuthControllerRestoreAccountV1Request {
+  readonly restoreAccountDto: RestoreAccountDto;
 }
 
 /**
@@ -2326,6 +2681,25 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
+   * Suspends the business immediately, stops billing (a live subscription is cancelled at period end, or at once when past due) and schedules permanent erasure after the grace period. `businessName` must match the business name exactly; the owner re-authenticates with `password`, or with the emailed `otp` when they have no password. Until the grace period ends the owner can undo it with POST /v1/auth/restore-account. Clears the caller\'s session cookies.
+   * @summary Schedule the whole business for deletion (owner only)
+   * @param {AuthApiAuthControllerDeleteAccountV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerDeleteAccountV1(
+    requestParameters: AuthApiAuthControllerDeleteAccountV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .authControllerDeleteAccountV1(
+        requestParameters.deleteAccountDto,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
    * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/google/complete-signup`.
    * @summary Start Google sign-in or signup
    * @param {AuthApiAuthControllerGoogleAuthorizeV1Request} requestParameters Request parameters.
@@ -2422,6 +2796,20 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
+   * Step-up ahead of POST /v1/auth/delete-account for an owner who signed in with Google or Microsoft and so has no password to re-enter: emails a 6-digit code to their own address. A code minted here satisfies only account deletion (its own token purpose). Owner only; an owner who has a password gets 400 PASSWORD_REQUIRED and confirms with it instead.
+   * @summary Request the code that confirms deleting the business (owners without a password)
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerRequestDeleteAccountOtpV1(
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .authControllerRequestDeleteAccountOtpV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
    * Step-up verification ahead of POST /v1/auth/set-password: emails a 6-digit code to the caller\'s own address, proving live mailbox control rather than just possession of an access token. Same cooldown/attempt-budget shape as the signup/login OTP. 400s if the account already has a password.
    * @summary Request the OTP required to set a password on a passwordless account
    * @param {*} [options] Override http request option.
@@ -2448,6 +2836,25 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   ) {
     return AuthApiFp(this.configuration)
       .authControllerResendOtpV1(requestParameters.resendOtpDto, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Public. Undoes an erasure the **same owner** requested via POST /v1/auth/delete-account, inside the grace period — including resuming a subscription the erasure set to end. Everything that does not qualify (wrong password, unknown email, an erasure an admin requested, an erased business, a non-owner) is the same 401 INVALID_CREDENTIALS, so the route reveals nothing about who has a pending erasure. Shares the sign-in lockout.
+   * @summary Restore a business the owner scheduled for deletion
+   * @param {AuthApiAuthControllerRestoreAccountV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerRestoreAccountV1(
+    requestParameters: AuthApiAuthControllerRestoreAccountV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .authControllerRestoreAccountV1(
+        requestParameters.restoreAccountDto,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 

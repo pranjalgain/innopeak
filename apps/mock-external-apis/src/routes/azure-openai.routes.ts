@@ -12,19 +12,15 @@ interface ChatCompletionsRequestBody {
   messages?: ChatMessage[];
 }
 
-/** Rough token estimate — good enough for exercising `GenerateReplyResult`'s token fields, not a
- *  real tokenizer. */
+/** Rough estimate, not a real tokenizer. */
 function estimateTokens(text: string): number {
   return Math.max(1, Math.round(text.split(/\s+/).filter(Boolean).length * 1.3));
 }
 
 /**
- * The multi-snippet branch of the real `buildSystemPrompt` (`apps/backend/src/api/ai/utils/
- * prompt-template.util.ts`) asks for "exactly N distinct reply options" and a JSON-array
- * response — matched here by that exact phrase so this mock can honor the same contract and
- * actually exercise `AiReplyGenerationService`'s `parseMultiSnippetReplies` step locally, rather
- * than only ever returning the single-reply shape it did before escalated multi-snippet
- * generation existed. `null` means the ordinary single-reply instruction was sent instead.
+ * Matches the real `buildSystemPrompt` multi-snippet instruction ("exactly N distinct reply
+ * options", JSON-array response) so the mock exercises `parseMultiSnippetReplies`. `null` means the
+ * single-reply instruction was sent.
  */
 function extractRequestedSnippetCount(systemPrompt: string): number | null {
   const match = /write exactly (\d+) distinct reply options/i.exec(systemPrompt);
@@ -34,12 +30,8 @@ function extractRequestedSnippetCount(systemPrompt: string): number | null {
 export const azureOpenAiRouter = Router();
 
 /**
- * Mirrors Azure OpenAI's (and OpenRouter's — same OpenAI-SDK-compatible shape) chat-completions
- * contract closely enough for `AzureOpenAiProvider` to parse the response unmodified: the path
- * shape (`/deployments/:deployment/chat/completions`), the request body (`messages`), and the
- * response body (`choices[0].message.content`, `choices[0].finish_reason`, `usage.*_tokens`).
- * `:deployment` and any `api-version` query param are accepted but ignored — this mock serves one
- * canned "deployment" regardless of name.
+ * Mirrors the OpenAI-compatible chat-completions contract closely enough for `AzureOpenAiProvider`
+ * to parse it unmodified. `:deployment` and `api-version` are accepted but ignored.
  */
 azureOpenAiRouter.post(
   '/deployments/:deployment/chat/completions',

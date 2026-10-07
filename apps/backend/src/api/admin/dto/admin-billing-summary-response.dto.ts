@@ -3,6 +3,7 @@ import { toIsoString } from '@common/helpers/date.utils';
 import type {
   AdminBillingSummary,
   AtRiskSubscriptionRow,
+  PostErasureChargeRow,
   UpgradeTrendPoint,
 } from '@db/repositories/admin-billing/types/admin-billing.type';
 import { ApiProperty } from '@nestjs/swagger';
@@ -57,6 +58,47 @@ export class AtRiskSubscriptionResponseDto {
   }
 }
 
+export class PostErasureChargeResponseDto {
+  @ApiProperty({
+    example: '0190f3bb-1c2d-7e4f-8a9b-0c1d2e3f4a5b',
+    description: 'Pass to `resolve`.',
+  })
+  receiptId!: string;
+
+  @ApiProperty({ example: '0190f3aa-2a3e-7c1a-9b1e-8f2a1c3d4e5f' })
+  tenantId!: string;
+
+  @ApiProperty({ example: 'The Coastal Table' })
+  businessName!: string;
+
+  @ApiProperty({ example: '8E8B7F1-0007', nullable: true, type: String })
+  invoiceNumber!: string | null;
+
+  @ApiProperty({
+    example: 4900,
+    description: 'Smallest currency unit (cents), as Stripe charged it.',
+  })
+  amountPaid!: number;
+
+  @ApiProperty({ example: 'usd', description: 'Lowercase ISO 4217 code.' })
+  currency!: string;
+
+  @ApiProperty({ example: '2026-09-30T23:41:00.000Z' })
+  paidAt!: string;
+
+  static from(row: PostErasureChargeRow): PostErasureChargeResponseDto {
+    const dto = new PostErasureChargeResponseDto();
+    dto.receiptId = row.receiptId;
+    dto.tenantId = row.tenantId;
+    dto.businessName = row.businessName;
+    dto.invoiceNumber = row.invoiceNumber;
+    dto.amountPaid = row.amountPaid;
+    dto.currency = row.currency;
+    dto.paidAt = toIsoString(row.paidAt);
+    return dto;
+  }
+}
+
 export class AdminBillingSummaryResponseDto {
   @ApiProperty({ example: 121, description: 'Tenants on the Free plan.' })
   freeCount!: number;
@@ -102,6 +144,14 @@ export class AdminBillingSummaryResponseDto {
   })
   atRisk!: AtRiskSubscriptionResponseDto[];
 
+  @ApiProperty({
+    type: [PostErasureChargeResponseDto],
+    description:
+      'Payments that succeeded after the business asked to be deleted and have not been marked ' +
+      'handled — refund due, newest first, capped at 20.',
+  })
+  postErasureCharges!: PostErasureChargeResponseDto[];
+
   static from(summary: AdminBillingSummary): AdminBillingSummaryResponseDto {
     const dto = new AdminBillingSummaryResponseDto();
     dto.freeCount = summary.freeCount;
@@ -113,6 +163,9 @@ export class AdminBillingSummaryResponseDto {
     dto.cancelingCount = summary.cancelingCount;
     dto.upgradeTrend = summary.upgradeTrend.map(point => UpgradeTrendPointResponseDto.from(point));
     dto.atRisk = summary.atRisk.map(row => AtRiskSubscriptionResponseDto.from(row));
+    dto.postErasureCharges = summary.postErasureCharges.map(row =>
+      PostErasureChargeResponseDto.from(row)
+    );
     return dto;
   }
 }

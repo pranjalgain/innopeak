@@ -9,15 +9,9 @@ import {
   PASSWORD_UPPERCASE_REGEX,
 } from "@/app/_libs/constants/password-rules";
 
-/** Resolves one error-message key. Matches next-intl's `useTranslations` return shape. */
 type Translate = (key: string) => string;
 
-/**
- * Same password rules as the platform-admin accept screen's own schema, plus `name` — unlike
- * that flow, `users.name` is `NOT NULL` and the invite-send form is email-only, so the invitee
- * supplies their own name here (same rule `createAccountSchema` uses for tenant signup). No `otp`
- * field: the invite token in the URL is itself the proof.
- */
+// Same password rules as the platform-admin schema plus `name` (`users.name` is NOT NULL). No `otp`: the URL token is the proof.
 export function acceptMemberInviteSchema(t: Translate) {
   return z
     .object({

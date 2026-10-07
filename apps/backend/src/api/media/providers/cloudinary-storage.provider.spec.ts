@@ -8,11 +8,8 @@ import { StorageAssetNotFoundError } from '../types/storage-provider.type';
 
 const mockResource = jest.fn<Promise<unknown>, [string, Record<string, unknown>]>();
 
-// `api.resource` wraps `mockResource` in a closure rather than referencing it directly: the
-// factory below runs at import time (jest hoists `jest.mock` above this file's own `const`
-// declarations), before `mockResource` itself has been assigned — a direct reference would throw
-// "Cannot access 'mockResource' before initialization". Deferring the lookup to call time (well
-// after every test's `beforeEach` has run) sidesteps that.
+// Closure, not a direct reference: jest hoists `jest.mock` above the `const`, so a direct
+// reference would throw "Cannot access 'mockResource' before initialization".
 jest.mock('cloudinary', () => {
   return {
     v2: {
@@ -48,11 +45,7 @@ describe('CloudinaryStorageProvider', () => {
   });
 
   describe('verifyUpload', () => {
-    /**
-     * The regression this guards: a real-world avatar upload — an AVIF photo from a modern phone
-     * or browser — was rejected outright because the format allowlist only covered a handful of
-     * older formats, even though Cloudinary itself accepted and stored the upload fine.
-     */
+    // Regression: AVIF avatar uploads were rejected by an allowlist of older formats only.
     it.each(['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'heic', 'heif', 'bmp'])(
       'accepts a "%s" asset landed in the expected folder',
       async format => {
@@ -112,12 +105,7 @@ describe('CloudinaryStorageProvider', () => {
       await expect(target.delete('avatars/asset-1')).resolves.toBeUndefined();
     });
 
-    /**
-     * `uploader.destroy` *resolves* with `{result: 'not found'}` rather than rejecting — this
-     * must surface as the typed `StorageAssetNotFoundError`, not a generic `Error`, since
-     * `MediaService.deleteAvatarIfPresent` treats "already gone" differently from every other
-     * delete failure.
-     */
+    // `uploader.destroy` resolves (not rejects) with 'not found'; callers treat "already gone" differently from other failures.
     it('throws StorageAssetNotFoundError when the asset no longer exists', async () => {
       (cloudinary.uploader.destroy as jest.Mock).mockResolvedValue({ result: 'not found' });
 

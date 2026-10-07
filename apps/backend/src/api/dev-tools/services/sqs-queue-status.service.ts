@@ -8,11 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import { QueueDepthDto } from '../dto/queue-depth.dto';
 
 /**
- * Read-only DLQ/queue-depth visibility for 'aws' mode — Bull Board has no SQS equivalent, so this
- * powers the dev-tools "SQS Queues" panel instead (per the plan's decision #2). The DLQ queue URL
- * isn't stored anywhere explicitly; it's derived from the main queue's own RedrivePolicy
- * attribute, so no extra env vars/secrets are needed beyond the `<QUEUE>_QUEUE_URL` set already
- * used by `SqsQueuePublisher`/`SqsQueueConsumerBase`.
+ * Bull Board has no SQS equivalent. The DLQ URL is derived from the main queue's RedrivePolicy, so
+ * no extra env vars are needed beyond `<QUEUE>_QUEUE_URL`.
  */
 @Injectable()
 export class SqsQueueStatusService {

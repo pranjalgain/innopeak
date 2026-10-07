@@ -5,12 +5,8 @@ import type { AdminBusinessSummary } from '@db/repositories/admin-businesses/typ
 import type { PlatformActivityRow } from '@db/repositories/admin-overview/types/admin-overview.type';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-/** Not a real `platform_activity_type` — a business signing up has no platform-admin actor at all
- *  (`POST /v1/auth/signup` is the tenant's own action), which is exactly why it was never added to
- *  that enum (scoped to actions a platform admin takes on someone else). Synthesized from
- *  `AdminBusinessSummary.createdAt`, a column that already exists, and merged into the same feed
- *  `ApiGetRecentActivity` returns — see `buildActivityFeed`'s own comment for why that merge lives
- *  here now rather than as a second client-side fetch. */
+/** Not a real `platform_activity_type`: a signup has no platform-admin actor. Synthesized from
+ *  `AdminBusinessSummary.createdAt` and merged into the recent-activity feed. */
 export const BUSINESS_JOINED_TYPE = 'business_joined';
 
 export class PlatformActivityResponseDto {

@@ -1,4 +1,8 @@
-import type { IOtpEmailJob } from '@bg/interfaces/job.interface';
+import type {
+  IErasureNoticeEmailJob,
+  IErasurePurgeAlertEmailJob,
+  IOtpEmailJob,
+} from '@bg/interfaces/job.interface';
 import { EmailService } from '@email/email.service';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
@@ -26,6 +30,66 @@ describe('EmailQueueService', () => {
   });
 
   afterEach(() => jest.clearAllMocks());
+
+  describe('erasure emails', () => {
+    const notice: IErasureNoticeEmailJob = {
+      kind: 'scheduled',
+      email: 'owner@example.com',
+      customerName: 'Jane',
+      businessName: 'Acme <Dental>',
+      locale: 'de',
+      requestedBy: 'owner',
+      restore: 'you',
+      loginUrl: 'https://app.test/login',
+      scheduledFor: '2026-10-27T09:00:00.000Z',
+    };
+
+    it('renders an erasure notice through the shared template, in the recipient’s language', async () => {
+      emailService.sendTemplateEmail.mockResolvedValue({ success: true });
+
+      await target.sendErasureNoticeEmail(notice);
+
+      const [to, template, context, overrides] = emailService.sendTemplateEmail.mock.calls[0] as [
+        string,
+        string,
+        Record<string, unknown>,
+        { subject: string },
+      ];
+      expect(to).toBe('owner@example.com');
+      expect(template).toBe('erasure-notice');
+      expect(context).toMatchObject({ lang: 'de', actionUrl: 'https://app.test/login' });
+      expect(String(context['body'])).toContain('Acme &lt;Dental&gt;');
+      expect(overrides.subject).toBe('Acme <Dental> ist zur Löschung vorgemerkt');
+    });
+
+    it('sends the platform-admin purge alert through the same template', async () => {
+      emailService.sendTemplateEmail.mockResolvedValue({ success: true });
+      const alert: IErasurePurgeAlertEmailJob = {
+        email: 'root@innopeak.test',
+        locale: 'en',
+        skipped: [{ name: 'Acme', daysOverdue: 2, reason: 'stripe unreachable' }],
+      };
+
+      await target.sendErasurePurgeAlertEmail(alert);
+
+      const [to, template, context, overrides] = emailService.sendTemplateEmail.mock.calls[0] as [
+        string,
+        string,
+        Record<string, unknown>,
+        { subject: string },
+      ];
+      expect(to).toBe('root@innopeak.test');
+      expect(template).toBe('erasure-notice');
+      expect(String(context['body'])).toContain('stripe unreachable');
+      expect(overrides.subject).toContain('1 erasure could not be completed');
+    });
+
+    it('propagates a send failure so the queue can retry it', async () => {
+      emailService.sendTemplateEmail.mockRejectedValue(new Error('smtp down'));
+
+      await expect(target.sendErasureNoticeEmail(notice)).rejects.toThrow('smtp down');
+    });
+  });
 
   describe('sendOtpEmail', () => {
     it('sends the mfa-code template with the correct data and an OTP-free subject', async () => {

@@ -1,33 +1,22 @@
 import type { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import type { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 
-/** `PAYMENT_PROVIDER` env var — mirrors `StorageProviderType`'s shape in the media module. */
 export type PaymentProviderType = 'dummy' | 'stripe';
 
-/**
- * The tenant's plan entitlements plus their current usage against each — everything the four
- * `BillingEntitlementsService` checks and the §3a location-selection methods need in one read.
- * `null` on any `max*` field means unlimited, matching `billing_plans`'s own column semantics.
- */
+/** `null` on any `max*` field means unlimited. */
 export interface TenantEntitlements {
   planCode: BillingPlanCode;
   maxLocations: number | null;
   maxAiDraftsPerMonth: number | null;
   maxTeamMembers: number | null;
   customPromptsEnabled: boolean;
-  /** Locations where `status = 'active' AND billing_paused_at IS NULL` — see
-   *  `ConnectionsRepository.countActiveUnpausedLocations`. */
+  /** Locations with `status = 'active' AND billing_paused_at IS NULL`. */
   activeLocationCount: number;
-  /** Every roster row (owner + members, invited or active) — an invited-but-not-yet-accepted seat
-   *  still consumes the cap, since the owner has already committed it to someone. */
+  /** Includes invited-but-not-accepted seats, which still consume the cap. */
   teamMemberCount: number;
-  /** `review_responses` rows with `source = 'ai_generated'` since the start of the current
-   *  calendar month (UTC). See `BillingEntitlementsService.canGenerateAiDraft`'s own doc comment
-   *  for why nothing calls it yet. */
+  /** AI-generated `review_responses` since the start of the current calendar month (UTC). */
   aiDraftsUsedThisMonth: number;
 }
-
-// ─── Payment provider contracts ──────────────────────────────────────────────
 
 export interface CreateCustomerInput {
   tenantId: string;
@@ -47,11 +36,7 @@ export interface CreatePortalSessionInput {
   returnUrl: string;
 }
 
-/** What a live Stripe subscription looks like once retrieved directly from Stripe's API (as
- *  opposed to `PaymentWebhookEvent`'s shape, which is one Stripe event's worth of fields) — the
- *  common shape `BillingReconciliationService` applies via `TenantSubscriptionsDbService
- *  .setToPaidFromCheckout`, whether it came from a checkout session's expanded subscription or a
- *  direct subscription lookup. */
+/** A live subscription fetched from Stripe's API, as opposed to one webhook event's fields. */
 export interface SubscriptionSnapshot {
   stripeSubscriptionId: string;
   status: SubscriptionStatus;
@@ -60,19 +45,16 @@ export interface SubscriptionSnapshot {
   cancelAtPeriodEnd: boolean;
 }
 
-/** `PaymentProvider.retrieveCheckoutSession`'s result — `tenantId` is the session's own
- *  `metadata.tenantId` (set by `createCheckoutSession`), `null` only for a session this app never
- *  created (shouldn't happen for a real id, but checked rather than assumed). `subscription` is
- *  `null` when the session hasn't completed payment yet (an abandoned checkout, or the browser
- *  landing on `success_url` before Stripe has actually finished processing). */
+/**
+ * `tenantId` is null only for a session this app never created; `subscription` is null until payment
+ * completes (abandoned checkout, or `success_url` hit before Stripe finishes processing).
+ */
 export interface CheckoutSessionSnapshot {
   tenantId: string | null;
   subscription: SubscriptionSnapshot | null;
 }
 
-/** Card metadata only — never the PAN itself, so displaying this carries no PCI scope. Stripe
- *  (and `DummyPaymentProvider`'s fixture) already hand back exactly this shape; a provider maps
- *  its own representation into it rather than `BillingService` reaching into a raw Stripe type. */
+/** Card metadata only, never the PAN, so showing it carries no PCI scope. */
 export interface PaymentMethodSummary {
   brand: string;
   last4: string;
@@ -80,33 +62,23 @@ export interface PaymentMethodSummary {
   expYear: number;
 }
 
-/** Stripe's own `Customer.name`/`Customer.email` — the two billing-profile fields this app lets a
- *  tenant edit in-app (see `BillingService.updateBillingProfile`). `null` fields mean the Stripe
- *  customer has never had them set (e.g. `createCustomer` sets `email` but never `name`). */
+/** `null` means the Stripe customer never had it set (`createCustomer` sets email but never name). */
 export interface BillingProfile {
   name: string | null;
   email: string | null;
 }
 
-/** Both fields required — the in-app "billing profile" form always submits the whole thing, never
- *  a partial patch (unlike `TenantSubscriptionPatch`'s per-webhook-event partial shape). */
+/** Both fields required: the form always submits the whole profile, never a partial patch. */
 export interface UpdateBillingProfileInput {
   name: string;
   email: string;
 }
 
-/**
- * The normalized shape every concrete `PaymentProvider.constructWebhookEvent` maps its own raw
- * event format into, so `BillingWebhooksService` never touches a raw Stripe (or Dummy) type — see
- * `PaymentProvider`'s own doc comment. `status`/period fields are already narrowed to this app's
- * `SubscriptionStatus` (a deliberate subset of Stripe's own statuses — see
- * `0011_billing.sql`'s comment); a concrete provider is responsible for that mapping.
- */
+/** Normalized so `BillingWebhooksService` never touches a raw Stripe type; `status` is a deliberate subset of Stripe's (see `0011_billing.sql`). */
 type PaymentWebhookEventBody =
   | {
       id: string;
-      /** Every Stripe event type this app does not act on — logged and skipped. `rawType` carries
-       *  Stripe's own event type string for that log line. */
+      /** Event types this app does not act on; `rawType` is Stripe's own type string for the log line. */
       type: 'unhandled';
       rawType: string;
     }
@@ -144,8 +116,7 @@ type PaymentWebhookEventBody =
       id: string;
       type: 'invoice.payment_succeeded';
       customerId: string;
-      /** Stripe's own invoice id (`in_...`) — the idempotency key `BillingReceiptsRepository`
-       *  records a receipt under, distinct from `id` above (the webhook event id). */
+      /** Stripe's invoice id (`in_...`): the receipt's idempotency key, distinct from webhook event `id`. */
       invoiceId: string;
       subscriptionId: string | null;
       /** Smallest currency unit (e.g. cents), verbatim from Stripe's own `amount_paid`. */
@@ -156,21 +127,10 @@ type PaymentWebhookEventBody =
       paidAt: string;
     };
 
-/**
- * `createdAt` is when the provider says the event happened (ISO) — optional because the Dummy
- * provider's synthesized events have no meaningful one. `BillingWebhooksService` uses it to stop
- * retrying a delivery for an unknown customer once it is clearly not a transient miss.
- */
+/** `createdAt` is optional because Dummy-provider events have none; used to stop retrying deliveries for an unknown customer once it is clearly not transient. */
 export type PaymentWebhookEvent = PaymentWebhookEventBody & { createdAt?: string };
 
-/**
- * The 5 Stripe event types `BillingWebhooksService.handleEvent` actually acts on — every other
- * type Stripe can deliver arrives as `PaymentWebhookEvent`'s `'unhandled'` variant instead. Kept
- * as a real runtime value (not just `PaymentWebhookEvent`'s own type-level union) so the admin
- * Billing page's webhook-activity view can tell "this event changed state" apart from "Stripe
- * sent this, but nothing here acts on it" without hand-copying the literal list a second time.
- * Update this alongside `PaymentWebhookEvent` if a new event type is ever handled.
- */
+/** The 5 event types `handleEvent` acts on; a runtime value so the admin webhook view can tell handled from ignored events. Update alongside `PaymentWebhookEvent`. */
 export const StripeWebhookEventType = {
   CHECKOUT_SESSION_COMPLETED: 'checkout.session.completed',
   SUBSCRIPTION_UPDATED: 'customer.subscription.updated',
@@ -182,9 +142,7 @@ export const StripeWebhookEventType = {
 export type HandledStripeWebhookEventType =
   (typeof StripeWebhookEventType)[keyof typeof StripeWebhookEventType];
 
-/** `StripeWebhookEventType`'s own key names (`'CHECKOUT_SESSION_COMPLETED'`, etc.) — the public
- *  filter vocabulary `ListBillingWebhookEventsQueryDto.type` accepts, kept distinct from Stripe's
- *  own dotted wire format so that format never has to appear in a URL. */
+/** Public filter vocabulary, so Stripe's dotted wire format never appears in a URL. */
 export type StripeWebhookEventTypeKey = keyof typeof StripeWebhookEventType;
 
 export const HANDLED_STRIPE_EVENT_TYPES: readonly HandledStripeWebhookEventType[] =

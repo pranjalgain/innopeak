@@ -38,7 +38,7 @@ export async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     snapshot: false, // true - Enable Debugging
     bufferLogs: false, // true - Enable Debugging
-    rawBody: true, // Required for payment webhooks — populates req.rawBody, see below.
+    rawBody: true, // Required for payment webhooks
   });
 
   const configService = app.get(ConfigService<EnvConfig>);
@@ -48,67 +48,41 @@ export async function bootstrap(): Promise<void> {
   const logger = await app.resolve(LoggerService);
   app.useLogger(logger);
 
-  // Apply Helmet Middleware for setting security-related HTTP headers
   app.use(helmet());
 
-  /**
-   * How many reverse proxies sit in front of this app, so `req.ip` is the real client rather than
-   * the nearest hop.
-   *
-   * Every per-IP rate limit in the app keys on `req.ip` (`@nestjs/throttler`'s default tracker).
-   * Behind a load balancer with this unset, every request appears to come from the balancer: all
-   * callers share one bucket, so ten wrong logins a minute from anyone throttles login for
-   * everybody.
-   *
-   * A hop *count* rather than `true`: trusting the whole `X-Forwarded-For` chain lets a client
-   * prepend an arbitrary address and rotate it per request, which defeats the limiter more
-   * thoroughly than the shared-bucket bug does. The count must match the real topology — hence an
-   * env var with a default of 0 (trust nothing), correct for local dev and for any deployment
-   * where the app is directly exposed. Set it to the number of proxies you actually run.
-   */
+  // Number of reverse proxies in front of the app, so `req.ip` (the throttler's key) is the real
+  // client. Unset behind a load balancer, all callers share one rate-limit bucket. A count, not
+  // `true`: trusting the whole X-Forwarded-For chain lets a client spoof a rotating address.
+  // Must match the real topology; 0 (trust nothing) is right when directly exposed.
   const trustProxyHops = configService.get<number>('TRUST_PROXY_HOPS') ?? 0;
   if (trustProxyHops > 0) {
     app.set('trust proxy', trustProxyHops);
   }
 
-  // Apply response compression
   app.use(compression());
 
-  // Parses the refresh_token cookie into req.cookies for POST /v1/auth/refresh and logout —
-  // see AuthController.
+  // Populates req.cookies (refresh_token for refresh/logout).
   app.use(cookieParser());
 
-  // Platform-admin gate for the operational surfaces that live outside the Nest route layer —
-  // Bull Board (`/admin/queues`) especially, which is an Express sub-app the global guards and any
-  // MiddlewareConsumer binding never reach. Registered here, after cookieParser (so the token
-  // cookie is parsed) and before routing, so it runs ahead of the sub-app. Without it, Bull
-  // Board's email-OTP job payloads were world-readable — an account-takeover path.
+  // Platform-admin gate for ops surfaces outside the Nest route layer (Bull Board is an Express
+  // sub-app the global guards never reach). Must follow cookieParser and precede routing; without
+  // it Bull Board's email-OTP job payloads are world-readable (account takeover).
   app.use(createOpsToolsGuard(app.get(JwtService), configService));
 
   const corsOrigins = configService.get<string>('CORS_ORIGINS')?.split(',') ?? [];
 
-  // Enable CORS with specific settings
   app.enableCors({
     origin: corsOrigins,
-    credentials: true, // Include credentials in CORS requests
+    credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders:
       'Content-Type, Accept, Authorization, x-forwarded-for, x-client-ip, x-real-ip, referer, user-agent, x-forwarded-host, x-forwarded-user-agent, referrer, x-forwarded-referer, x-forwarded-origin, origin, host',
   });
 
-  // Stripe's signature verification (`Stripe.webhooks.constructEvent`, called from
-  // `StripePaymentProvider.constructWebhookEvent`) is only meaningful against the *exact* raw
-  // request body bytes Stripe signed — never a re-serialized, parsed-then-stringified body. Express
-  // matches middleware in registration order, so this route-scoped `bodyParser.raw()` — registered
-  // *ahead of* the global `bodyParser.json()` below — is what keeps every other route's JSON body
-  // parsing completely untouched. The `rawBody: true` passed to `NestFactory.create` above only
-  // wires up *Nest's own* internal json/urlencoded parser instances to populate `req.rawBody` —
-  // it has no effect on a `bodyParser.raw()` called directly from the `body-parser` package here,
-  // which otherwise only sets `req.body` to the Buffer. The explicit `verify` callback below is
-  // what actually populates `req.rawBody`, exactly mirroring what Nest's own wrapper does
-  // internally. `/v1` is hardcoded rather than derived from `RouteNames`/versioning config: this
-  // line runs before `app.enableVersioning()` below, and the real client-facing path (what Express
-  // actually matches against) always carries the version prefix regardless.
+  // Stripe signature verification needs the exact raw bytes Stripe signed. This route-scoped raw
+  // parser must precede the global bodyParser.json() below. `rawBody: true` above only covers
+  // Nest's own parsers, so `verify` populates req.rawBody here. `/v1` is hardcoded because this
+  // runs before app.enableVersioning().
   app.use(
     `/v1/${RouteNames.BILLING}/${RouteNames.BILLING_WEBHOOKS_STRIPE}`,
     bodyParser.raw({
@@ -119,7 +93,6 @@ export async function bootstrap(): Promise<void> {
     })
   );
 
-  // Limit Request Size to 1MB
   app.use(bodyParser.json({ limit: '1mb' }));
   app.use(bodyParser.urlencoded({ limit: '1mb', extended: true }));
 
@@ -128,20 +101,9 @@ export async function bootstrap(): Promise<void> {
     defaultVersion: '1',
   });
 
-  // ─── Swagger: Per-Version API Docs ────────────────────────────────────────
-  // Each API version gets its own Swagger UI at /api/v{n}.
-  // Infrastructure endpoints (health, metrics, tracing, dev-tools) are excluded
-  // since they use VERSION_NEUTRAL and are not part of the versioned API contract.
-  //
-  // To add a new version:
-  //   1. Create v{n} controllers (e.g., UsersV2Controller with version: '2')
-  //   2. Add a new Swagger document block below with the relevant modules
-  //   3. The new docs will be available at /api/v{n}
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  // Every business module registered in AppModule belongs here — `include` is an allowlist, so a
-  // module missing from it serves its routes normally but is invisible in /api/v1. Nothing fails
-  // loudly when one is forgotten; the endpoints simply do not appear.
+  // Every business module registered in AppModule belongs here: `include` is an allowlist, so a
+  // forgotten module serves its routes but is silently missing from /api/v1. Infrastructure
+  // (VERSION_NEUTRAL) modules are excluded on purpose.
   const V1_MODULES = [
     AdminModule,
     AiModule,
@@ -157,7 +119,6 @@ export async function bootstrap(): Promise<void> {
   ];
 
   if (!isProd) {
-    // V1 API docs at /api/v1
     const v1Config = new DocumentBuilder()
       .setTitle('InnoPeak APIs — v1')
       .setDescription('API v1 documentation for the InnoPeak backend services')
@@ -169,38 +130,33 @@ export async function bootstrap(): Promise<void> {
     });
     SwaggerModule.setup(`${RouteNames.API_DOCS}/v1`, app, v1Document);
 
-    // V2 API docs (add versioned modules here once a v2 endpoint actually exists)
-
-    // Default /api redirects to latest stable version
+    // /api redirects to the latest version
     const expressInstance = app.getHttpAdapter().getInstance();
     expressInstance.get(`/${RouteNames.API_DOCS}`, (_req: Request, res: Response) => {
       res.redirect(`/${RouteNames.API_DOCS}/v1`);
     });
   }
 
-  // Use global filters and pipes
   const errorHandler = app.get(ErrorHandlerService);
   app.useGlobalFilters(new HttpExceptionFilter(errorHandler));
   app.useGlobalInterceptors(new TraceIdInterceptor(), new TracingInterceptor(configService));
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true, // Automatically remove non-whitelisted properties
-      forbidNonWhitelisted: true, // Return an error for non-whitelisted properties
-      transform: true, // Transform plain input objects to class instances
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
       transformOptions: {
         enableImplicitConversion: true,
       },
     })
   );
 
-  // Serve static assets
   app.useStaticAssets(path.join(__dirname, '..', 'assets'), {
     prefix: '/assets/',
   });
   app.setBaseViewsDir(path.join(__dirname, '..', 'views'));
   app.setViewEngine('pug');
 
-  // Default Route - Show Friendly Info Page
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.get(
     ['/', '/v1', `/${RouteNames.DEV_TOOLS}`, `/${RouteNames.QUEUES_UI}`],
@@ -221,7 +177,7 @@ export async function bootstrap(): Promise<void> {
     );
   }
 
-  // Enable graceful shutdown hooks (SIGTERM/SIGINT trigger onModuleDestroy)
+  // SIGTERM/SIGINT trigger onModuleDestroy
   app.enableShutdownHooks();
 
   const port = configService.get<number>('PORT') ?? 3000;

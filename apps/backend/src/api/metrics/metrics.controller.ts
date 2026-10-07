@@ -1,4 +1,5 @@
 import { Public } from '@auth/decorators/public.decorator';
+import { SKIP_ALL_THROTTLERS } from '@common/constants/throttle.constants';
 import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';
 import { Controller, Get, Header, Logger, Res, VERSION_NEUTRAL } from '@nestjs/common';
@@ -9,9 +10,8 @@ import { register } from 'prom-client';
 
 @Controller({ path: RouteNames.METRICS, version: VERSION_NEUTRAL })
 @ApiTags('Metrics')
-@SkipThrottle()
+@SkipThrottle(SKIP_ALL_THROTTLERS)
 @Public()
-// @ApiExcludeController()
 export class MetricsController {
   private readonly logger = new Logger(MetricsController.name);
 

@@ -5,10 +5,7 @@ import { AsyncHooksContextManager } from '@opentelemetry/context-async-hooks';
 import { getTraceContext } from './trace-context.util';
 
 describe('getTraceContext', () => {
-  // The default no-op context manager doesn't actually track active context, so
-  // `context.with(...)` would be a no-op and every span lookup would return
-  // undefined. Registering a real context manager lets us exercise the
-  // "active span present" branch faithfully.
+  // The default no-op context manager doesn't track active context, so `context.with(...)` would be a no-op; a real one exercises the "active span present" branch.
   let contextManager: AsyncHooksContextManager;
 
   beforeEach(() => {
@@ -65,7 +62,6 @@ describe('getTraceContext', () => {
       });
     });
 
-    // Outside the `with` callback, the previous (empty) context is restored.
     expect(getTraceContext()).toEqual({});
   });
 });

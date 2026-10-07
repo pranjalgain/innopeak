@@ -1,7 +1,4 @@
-/**
- * Server-side view model rendered by `views/dev-tools-queues.pug` (not a JSON API response,
- * so it isn't decorated with `@ApiProperty`/exposed via Swagger).
- */
+/** View model for `views/dev-tools-queues.pug`, not a Swagger-exposed API response. */
 export class QueueDepthDto {
   queueName!: string;
   mainDepth!: number;

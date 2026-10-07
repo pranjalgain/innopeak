@@ -22,10 +22,9 @@ interface SeedExternalReplyRequestBody {
 export const gbpRouter = Router();
 
 /**
- * Mirrors the legacy `mybusiness.googleapis.com/v4` review resource's `reviewReply` sub-field —
- * `GoogleBusinessProfileProvider.getReviewReply`'s freshness check reads this immediately before
- * posting. Returns `{ reviewReply: null }` (not a 404) when nothing has been posted yet, matching
- * a real review that has no reply — a missing reply is a normal state, not an error.
+ * Mirrors the v4 review resource's `reviewReply`, which the provider's freshness check reads before
+ * posting. Returns `{ reviewReply: null }`, not a 404, when nothing is posted: a missing reply is a
+ * normal state.
  */
 gbpRouter.get(
   '/v4/accounts/:accountId/locations/:locationId/reviews/:reviewId',
@@ -36,9 +35,8 @@ gbpRouter.get(
 );
 
 /**
- * Mirrors `PUT .../reviews/{reviewId}/reply` — the actual post. Honors a one-shot forced failure
- * (`/gbp/__force-failure`) so a test can exercise `post_failed` + `retry-post` without the mock
- * server needing to stay broken afterward.
+ * Honors a one-shot forced failure (`/gbp/__force-failure`) so a test can exercise `post_failed` +
+ * `retry-post`.
  */
 gbpRouter.put(
   '/v4/accounts/:accountId/locations/:locationId/reviews/:reviewId/reply',
@@ -55,10 +53,10 @@ gbpRouter.put(
   }
 );
 
-/** Debug-only: pre-seeds a review as "already replied to on Google" — the only way to locally
- *  reproduce the freshness-check abort-and-supersede path (PLAN.md §8.12) without a real GBP
- *  account, since that path depends on an external reply existing that our own system never
- *  wrote. */
+/**
+ * Debug-only: the only local way to reproduce the freshness-check abort-and-supersede path, which
+ * depends on a reply our system never wrote.
+ */
 gbpRouter.post('/gbp/__seed-external-reply', (req: { body: SeedExternalReplyRequestBody }, res) => {
   const { reviewId, comment, updateTime } = req.body;
   if (!reviewId || !comment) {
@@ -69,20 +67,16 @@ gbpRouter.post('/gbp/__seed-external-reply', (req: { body: SeedExternalReplyRequ
   res.status(201).json({ reviewId, comment, updateTime: updateTime ?? new Date().toISOString() });
 });
 
-/** Debug-only: arms the next `PUT .../reply` call to fail once. */
 gbpRouter.post('/gbp/__force-failure', (_req, res) => {
   armNextReplyFailure();
   res.status(204).end();
 });
 
-/** Debug-only: clears every seeded/posted reply and any armed failure, for a clean slate between
- *  test runs without restarting the process. */
 gbpRouter.post('/gbp/__reset', (_req, res) => {
   reset();
   res.status(204).end();
 });
 
-/** Debug-only: removes one review's reply state, for a narrower reset than `__reset`. */
 gbpRouter.delete('/gbp/__reply/:reviewId', (req, res) => {
   deleteReply(req.params.reviewId);
   res.status(204).end();

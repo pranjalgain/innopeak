@@ -10,14 +10,8 @@ export interface ListPlatformActivityParams {
   type?: PlatformActivityType;
 }
 
-/** The SDK's generated response DTO carries `actorEmail`/`businessName`/`email` as `string | null`
- * (every entry has all three keys, only the ones relevant to `type` populated — a `business_joined`
- * entry has no actor at all). `actorEmail` passes straight through as `string | null`, matching the
- * DTO exactly — `PlatformActivityEntry.actorEmail` declares the same nullable type, not an optional
- * one, since `null` is a real, always-present value here (a `business_joined` entry sends it
- * explicitly), not an absent key. `businessName`/`email` are still coalesced to `undefined`, since
- * those two genuinely are absent-vs-present depending on `type` and the rest of this admin domain's
- * types already read that way. */
+// `actorEmail` stays `string | null` (always present; null for `business_joined`). `businessName`/`email` are
+// coalesced to `undefined` because they are genuinely absent depending on `type`.
 function toDomain(dto: {
   id: string;
   type: PlatformActivityEntry["type"];
@@ -36,12 +30,6 @@ function toDomain(dto: {
   };
 }
 
-/**
- * A log of platform-admin actions (business suspend/reactivate, admin invite send/revoke,
- * admin enable/disable, tenant-user activate/deactivate), against the real
- * `GET /v1/admin/overview/activity` endpoint. Hooks/components only ever call
- * `useAdminOverview`, never this class directly.
- */
 export class AdminActivityService {
   static async getRecentActivity(): Promise<PlatformActivityEntry[]> {
     const response = await adminOverviewApi.adminOverviewControllerGetRecentActivityV1();
@@ -58,14 +46,12 @@ export class AdminActivityService {
     return rows.map(toDomain);
   }
 
-  /** `GET /v1/admin/overview/activity-log` — paginated, filterable, independent of the bounded
-   *  top-N read above. */
+  /** Paginated and filterable, independent of the bounded top-N read above. */
   static async listActivity(params: ListPlatformActivityParams): Promise<PlatformActivityList> {
     const response = await adminOverviewApi.adminOverviewControllerListActivityV1({
       page: params.page,
       pageSize: params.pageSize,
-      // The SDK's generated enum is structurally identical to `PlatformActivityType` (same string
-      // literal set) but a distinct nominal type — safe to cast rather than re-declare it.
+      // Same string-literal set as `PlatformActivityType` but a distinct nominal type; safe to cast.
       type: params.type as AdminOverviewControllerListActivityV1TypeEnum,
     });
     const dto = unwrap<{

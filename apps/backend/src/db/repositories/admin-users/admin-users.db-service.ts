@@ -11,17 +11,11 @@ export class AdminUsersDbService {
     return this.adminUsersRepository.findAll(search);
   }
 
-  /** Total non-anonymized user count — passed straight through, there is no row to map. */
   async count(): Promise<number> {
     return this.adminUsersRepository.count();
   }
 
-  /**
-   * Toggles the user's active status and returns the updated row (joined with `businessName`/
-   * `lastLoginAt`) — the CAS in `toggleActive` and the re-read in `findById` are two round trips,
-   * but a toggle happens at most a few times a day from one admin console, not a hot path worth
-   * collapsing into one query.
-   */
+  // Two round trips (toggle, then re-read for the joined columns); a rare admin action, not worth one query.
   async toggleActive(userId: string): Promise<ToggleActiveResult> {
     const outcome = await this.adminUsersRepository.toggleActive(userId);
     if (outcome.outcome !== 'toggled') {

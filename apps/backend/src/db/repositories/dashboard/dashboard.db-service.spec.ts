@@ -63,11 +63,8 @@ describe('DashboardDbService', () => {
       });
     });
 
-    /**
-     * `findActiveLocationIds` excludes a paused (over-cap) location — see that method's own doc
-     * comment. Naming one explicitly must not bypass that: metrics for it come back all-zero
-     * (`inArray` over `[]` matches nothing), the same as if it didn't exist.
-     */
+    // A paused (over-cap) location named explicitly must not bypass `findActiveLocationIds`: its
+    // metrics come back all-zero, as if it didn't exist.
     it('returns no results for a named location that is paused or not the tenant’s own', async () => {
       repository.findActiveLocationIds.mockResolvedValue(['loc-1']);
       repository.getMetrics.mockResolvedValue({
@@ -87,10 +84,8 @@ describe('DashboardDbService', () => {
       });
     });
 
-    /**
-     * The regression this guards: the rating chart renders five bars unconditionally, so a bucket
-     * with zero reviews still has to come back as `0`, not be absent from the object.
-     */
+    // Guards the rating chart, which renders five bars unconditionally: an empty bucket must be
+    // `0`, not absent.
     it('zero-fills every rating 1-5 before overlaying the rows that came back', async () => {
       repository.findActiveLocationIds.mockResolvedValue(['loc-1']);
       repository.getMetrics.mockResolvedValue({

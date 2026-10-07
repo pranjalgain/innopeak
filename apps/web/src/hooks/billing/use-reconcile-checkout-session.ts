@@ -5,14 +5,11 @@ import { subscriptionQueryKey } from "@/hooks/billing/use-subscription";
 import type { Subscription } from "@/types/domain";
 
 /**
- * `POST /v1/billing/checkout/reconcile` — see `BillingService.reconcileCheckoutSession`'s own doc
- * comment. On success, writes the refreshed subscription straight into the query cache (the
- * response already carries it) rather than merely invalidating — the Billing tab reflects "Paid"
- * on the very next render instead of waiting on a refetch round trip.
+ * Writes the returned subscription straight into the cache instead of invalidating, so the Billing
+ * tab shows "Paid" without a refetch round trip.
  *
- * `retry: 2` (react-query's default backoff: 1s, then 2s) because the caller strips the success-URL
- * params once the request settles — a transient network/5xx failure should not cost the user their
- * only chance to reconcile from this page.
+ * `retry: 2` because the caller strips the success-URL params once the request settles: a transient
+ * failure must not cost the user their only chance to reconcile.
  */
 export function useReconcileCheckoutSession(): UseMutationResult<Subscription, unknown, string> {
   const queryClient = useQueryClient();

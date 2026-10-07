@@ -11,11 +11,7 @@ import type { ListNotificationsInput } from '../../../api/notifications/types/no
 export class NotificationsRepository {
   constructor(private readonly dbService: DBService) {}
 
-  /**
-   * One extra row beyond `limit` (`limit + 1`), not a separate `COUNT(*)` — the DB service uses
-   * its presence to derive `hasMore` and drops it before returning, matching the offset/limit
-   * contract `notification.service.ts` already implements on the frontend.
-   */
+  /** Fetches `limit + 1` rows; the DB service uses the extra one to derive `hasMore` and drops it. */
   async listPage(input: ListNotificationsInput): Promise<RawNotificationRow[]> {
     const { tenantId, userId, offset, limit } = input;
 
@@ -42,11 +38,9 @@ export class NotificationsRepository {
   }
 
   /**
-   * Stamps one row read, scoped to the caller. `COALESCE(read_at, now())` rather than a plain
-   * assignment plus a `read_at IS NULL` guard: re-marking an already-read notification has to stay
-   * a success (the frontend fires this on every click, not only the first), but it must not move
-   * the original timestamp. Returning the id lets the caller tell "yours, updated" from "not
-   * yours or no such row", which is the 404.
+   * `COALESCE(read_at, now())` rather than a `read_at IS NULL` guard: re-marking a read row must
+   * still succeed (the frontend fires on every click) without moving the original timestamp. A
+   * false result means not the caller's row or no such row.
    */
   async markRead(input: {
     tenantId: string;
@@ -71,8 +65,7 @@ export class NotificationsRepository {
     return rows.length > 0;
   }
 
-  /** Every unread row in the caller's own feed. Already-read rows are left alone, so their
-   *  original timestamps survive and the statement stays cheap on a mostly-read feed. */
+  /** Only unread rows are touched, so original read timestamps survive. */
   async markAllRead(tenantId: string, userId: string): Promise<void> {
     await this.dbService.db
       .update(schema.inAppNotifications)
@@ -86,8 +79,7 @@ export class NotificationsRepository {
       );
   }
 
-  /** Unread across the caller's whole feed — recomputed on every call, not just the first page,
-   *  since `unreadTotal` is embedded on every response the frontend reads. */
+  /** Counts the whole feed, not just the current page. */
   async countUnread(tenantId: string, userId: string): Promise<number> {
     const rows = await this.dbService.db
       .select({ value: count() })

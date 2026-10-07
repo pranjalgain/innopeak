@@ -9,6 +9,7 @@ import type {
   BlocklistTermRecord,
   CreateBlocklistTermInput,
   DeleteBlocklistTermInput,
+  InsertBlocklistTermResult,
 } from '../../../api/settings/types/settings.type';
 
 @Injectable()
@@ -30,32 +31,55 @@ export class BlocklistTermsRepository {
   }
 
   /**
-   * Returns null when the tenant already has this term — `idx_blocklist_terms_tenant_id_lower_term`
-   * is unique on `(tenant_id, lower(term))`, so the conflict is case-insensitive and DO NOTHING
-   * yields no row. Removal is a hard DELETE with no history kept — `reviews.matched_keywords`
-   * stores matched terms as text with no FK, so deleting one never orphans the escalation it
-   * caused.
+   * `duplicate` if the tenant already has the term (case-insensitive unique index, so DO NOTHING yields no row); checked before `limit_reached`.
+   * Count and insert share one transaction behind a per-tenant advisory lock, or concurrent requests would each see room for one more.
+   * Removal is a hard DELETE: `reviews.matched_keywords` stores terms as text with no FK, so it never orphans an escalation.
    */
-  async insertTerm(input: CreateBlocklistTermInput): Promise<BlocklistTermRecord | null> {
-    const { tenantId, term } = input;
-    const result = await this.dbService.db.execute(sql`
-      INSERT INTO blocklist_terms (tenant_id, term)
-      VALUES (${tenantId}::uuid, ${term})
-      ON CONFLICT (tenant_id, lower((term)::text)) DO NOTHING
-      RETURNING id, term, created_at
-    `);
+  async insertTerm(input: CreateBlocklistTermInput): Promise<InsertBlocklistTermResult> {
+    const { tenantId, term, maxTerms } = input;
 
-    const row = result.rows[0] as InsertedBlocklistTermRow | undefined;
-    if (row === undefined) {
-      return null;
-    }
+    return this.dbService.db.transaction(async tx => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`blocklist_terms:${tenantId}`}, 0))`
+      );
 
-    return {
-      id: row.id,
-      term: row.term,
-      createdAt:
-        row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-    };
+      const counted = await tx.execute(
+        sql`SELECT count(*)::int AS n FROM blocklist_terms WHERE tenant_id = ${tenantId}::uuid`
+      );
+      const existing = (counted.rows[0] as { n: number } | undefined)?.n ?? 0;
+
+      if (existing >= maxTerms) {
+        const already = await tx.execute(sql`
+          SELECT 1 FROM blocklist_terms
+          WHERE tenant_id = ${tenantId}::uuid AND lower(term::text) = lower(${term})
+        `);
+        return already.rows.length > 0
+          ? { outcome: 'duplicate' as const }
+          : { outcome: 'limit_reached' as const };
+      }
+
+      const result = await tx.execute(sql`
+        INSERT INTO blocklist_terms (tenant_id, term)
+        VALUES (${tenantId}::uuid, ${term})
+        ON CONFLICT (tenant_id, lower((term)::text)) DO NOTHING
+        RETURNING id, term, created_at
+      `);
+
+      const row = result.rows[0] as InsertedBlocklistTermRow | undefined;
+      if (row === undefined) {
+        return { outcome: 'duplicate' as const };
+      }
+
+      return {
+        outcome: 'created' as const,
+        record: {
+          id: row.id,
+          term: row.term,
+          createdAt:
+            row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+        },
+      };
+    });
   }
 
   async deleteForTenant(input: DeleteBlocklistTermInput): Promise<boolean> {

@@ -10,12 +10,8 @@ import { ConnectionsService } from './services/connections.service';
 import { OAuthStateService } from './services/oauth-state.service';
 
 /**
- * `ReviewProviderModule` and `DBModule` are both `@Global()`, so the Google client, credential
- * store and both DB services resolve without being imported here. `ReviewSyncQueueUIModule` is
- * imported for its producer (`ReviewSyncQueue`) — the API process publishes the backfill job, the
- * worker process consumes it. `BillingModule` is imported for `BillingEntitlementsService` —
- * unlike the DB services above, that's real business logic living in its own module, so (unlike
- * the `@Global()` ones) it has to be imported explicitly.
+ * `ReviewProviderModule` and `DBModule` are `@Global()`, so they resolve without import; `BillingModule` is not.
+ * `ReviewSyncQueueUIModule` provides the producer: the API publishes the backfill job, the worker consumes it.
  */
 @Module({
   imports: [RedisModule, ReviewSyncQueueUIModule, BillingModule],

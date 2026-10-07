@@ -35,9 +35,7 @@ const EMPTY_CONNECTION_HEALTH: ConnectionHealth = {
   neverConnected: 0,
 };
 
-/** One query, one endpoint (`GET /v1/admin/statistics/summary`) — every figure on the Statistics
- *  page is composed server-side into a single payload, unlike Overview's five independent queries,
- *  since none of these figures is ever fetched or refreshed independently of the others. */
+/** One query for the whole page, composed server-side, unlike Overview's independent per-panel queries. */
 export function useAdminStatistics(): UseAdminStatisticsResult {
   const t = useTranslations("adminStatistics.toasts");
 

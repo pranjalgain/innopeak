@@ -12,9 +12,6 @@ const users = [
   { id: "2", name: "Jane Smith", email: "jane@example.com", initials: "JS" },
 ] as const;
 
-/**
- * Demonstrates stable data and semantic queries used by integration tests.
- */
 export default function UsersPage() {
   return (
     <main className="relative overflow-hidden px-4 py-16 sm:px-6 sm:py-24 lg:px-8">

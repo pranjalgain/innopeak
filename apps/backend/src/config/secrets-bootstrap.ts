@@ -3,10 +3,8 @@ import { createStandaloneConfigService } from '@config/deployment-target.util';
 import type { EnvConfig } from '@config/env.config';
 
 /**
- * Runs before `AppModule`/`WorkerModule` are ever `require()`'d (see `src/main.ts` /
- * `src/worker.main.ts`). `app.module.ts` constructs a `new ConfigService()` at module-evaluation
- * time, so `process.env` must already be fully populated by the time that `require()` happens —
- * a dynamic `import()` gate is what makes that ordering possible under CommonJS.
+ * Must run before `AppModule`/`WorkerModule` are `require()`'d: `app.module.ts` builds a `ConfigService` at
+ * module-eval time, so `process.env` must already be populated; a dynamic `import()` gate gives that ordering under CommonJS.
  */
 export async function hydrateSecretsIfNeeded(): Promise<void> {
   const configService = createStandaloneConfigService();
@@ -32,8 +30,7 @@ export async function hydrateSecretsIfNeeded(): Promise<void> {
     return;
   }
 
-  // Terraform seeds this secret as a single flat JSON object of string values (see
-  // infra/floci/secrets-manager.tf) — every key becomes an env var, same as `.env` today.
+  // Terraform seeds one flat JSON object of string values (infra/floci/secrets-manager.tf); every key becomes an env var.
   const secrets = JSON.parse(SecretString) as Record<string, string>;
   for (const [key, value] of Object.entries(secrets)) {
     process.env[key] = value;

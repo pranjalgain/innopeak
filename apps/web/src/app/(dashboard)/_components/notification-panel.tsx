@@ -15,7 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useNotifications } from "@/hooks/notifications/use-notifications";
 import type { Notification, NotificationType } from "@/types/domain";
 
-/** How close to the bottom edge counts as "time to load more". */
+/** Distance from the bottom edge that triggers loading more. */
 const NEAR_BOTTOM_PX = 80;
 
 const TYPE_ICON: Record<NotificationType, ComponentType<{ className?: string }>> = {
@@ -102,10 +102,7 @@ export function NotificationPanel() {
     markAllAsRead,
   } = useNotifications();
 
-  // The scroll container is held in *state*, not a ref, and attached with a callback ref: Radix
-  // mounts PopoverContent a commit after `open` flips, so an effect keyed on open-state ran while
-  // the element did not exist yet and had nothing to re-trigger it. Storing the node re-renders at
-  // the moment it actually attaches, which is when there is something to measure.
+  // State plus a callback ref, not a ref: Radix mounts PopoverContent a commit after `open` flips, so an effect keyed on open ran before the element existed.
   const [listEl, setListEl] = useState<HTMLDivElement | null>(null);
 
   const isNearBottom = (el: HTMLDivElement) =>
@@ -116,17 +113,10 @@ export function NotificationPanel() {
   };
 
   /**
-   * Tops the list up whenever the loaded rows don't actually overflow the container.
-   *
-   * A scroll handler alone was unreachable in exactly the common case: three short rows inside a
-   * 320px box leave nothing to scroll, so no scroll event ever fired, `fetchNextPage` was never
-   * called, and every notification past the first page was permanently unloadable behind a
-   * spinner that never resolved. Re-runs as rows arrive and as the popover mounts, so it keeps
-   * pulling pages until the list either overflows or runs out.
-   *
-   * `isLoading` is a dependency, not just a guard: the hook clears its in-flight latch in the same
-   * tick it flips `isLoading` to false, and without that dependency this effect's one run landed
-   * while the latch was still set, bailed, and had nothing left to wake it.
+   * Tops the list up while the rows don't overflow the container: a scroll handler alone never fires
+   * when a few short rows leave nothing to scroll, so later pages would be unloadable.
+   * `isLoading` is a dependency because the hook clears its in-flight latch in the same tick, so a
+   * run without it bails on the still-set latch and nothing wakes it.
    */
   useEffect(() => {
     if (listEl === null || isLoading || !hasMore || isFetchingNextPage || nextPageFailed) return;

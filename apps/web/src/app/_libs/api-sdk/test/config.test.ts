@@ -2,8 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const post = vi.fn();
 
-// The module installs interceptors on the global axios at import time, so the mock has to carry
-// an `interceptors` shape even though nothing here inspects the request interceptor anymore.
+// The module installs interceptors on the global axios at import time, so the mock must carry an `interceptors` shape.
 vi.mock("axios", () => {
   const instance = {
     post,
@@ -19,11 +18,7 @@ const { refreshSession } = await import("../config");
 const { TokenService } = await import("@/app/_libs/services/token.service");
 const { ApiError } = await import("@/app/_libs/services/api-error");
 
-/**
- * `TokenService.getTokenType()`/`hasSession()` read the non-credential `session` cookie the
- * backend sets on every sign-in — seeding it directly here is the jsdom equivalent of the
- * backend's `res.cookie("session", ...)`.
- */
+/** Seeds the non-credential `session` cookie the backend sets on sign-in, which `TokenService.getTokenType()`/`hasSession()` read. */
 function setSessionCookie(value: "tenant" | "admin" | null): void {
   document.cookie =
     value === null
@@ -31,9 +26,7 @@ function setSessionCookie(value: "tenant" | "admin" | null): void {
       : `session=${value}; path=/`;
 }
 
-// The httpOnly access/refresh cookies this response also sets are invisible to this test (as they
-// would be to the real browser) — only `user.name` is ever read out of the body, the one thing a
-// Google sign-in has no other way to get. See `attemptRefresh`'s own doc comment.
+// Only `user.name` is read from the body (a Google sign-in has no other way to get it); the httpOnly cookies are invisible here.
 const ok = { data: { data: { user: { name: "Jane Doe" } } } };
 
 /** The real thing the response interceptor would have thrown. */
@@ -54,13 +47,8 @@ describe("refreshSession", () => {
     expect(TokenService.getName()).toBe("Jane Doe");
   });
 
-  /**
-   * The concurrent-rotation case. Refresh tokens are single-use, so when two tabs wake from the
-   * same idle period the backend serves one and 401s the other while deliberately leaving the
-   * loser's cookies intact — its 401 is byte-identical to a dead session's. Retrying is the only
-   * way to tell them apart, and the loser's second attempt presents the successor the winner just
-   * issued. Without the retry the loser cleared a live session and bounced its tab through /login.
-   */
+  // Regression: the loser of a two-tab refresh race (backend 401s it, byte-identical to a dead session's) cleared a
+  // live session; its retry presents the successor the winner issued and succeeds.
   test("retries once and recovers when the first attempt loses a rotation race", async () => {
     setSessionCookie("tenant");
     post.mockRejectedValueOnce(apiError(401));
@@ -79,11 +67,7 @@ describe("refreshSession", () => {
     expect(post).toHaveBeenCalledTimes(2);
   });
 
-  /**
-   * An anonymous visitor has no session hint *because they are anonymous*, so they cannot have
-   * lost a race. Retrying for them would double every landing-page view's cost against the per-IP
-   * refresh throttle that real sessions share.
-   */
+  // An anonymous visitor cannot have lost a race; retrying would double their cost against the shared per-IP refresh throttle.
   test("does not retry when there was never a session", async () => {
     post.mockRejectedValue(apiError(401));
 
@@ -91,11 +75,7 @@ describe("refreshSession", () => {
     expect(post).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * Only a 401 is the lost-race signature. `POST /v1/auth/refresh` is throttled to 20/min per IP,
-   * so retrying a 429 spends the next slot re-earning the same rejection; a 5xx or a dropped
-   * connection means the thing is already unwell.
-   */
+  // Only a 401 is the lost-race signature; retrying a 429 (throttle) or a 5xx just adds load.
   test.each([
     ["429 (throttled)", 429],
     ["500 (server error)", 500],

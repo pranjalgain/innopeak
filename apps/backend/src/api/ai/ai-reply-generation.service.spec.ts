@@ -119,10 +119,7 @@ describe('AiReplyGenerationService', () => {
     );
     expect(aiProvider.generateReply).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining('professional tone'),
-      // Trailing ".." is real, not a typo: the template's own punctuation ("... {{reviewer_name}}.")
-      // runs straight into "Jamie L." already ending in a period — a template author can't see this
-      // collision coming, which is exactly the kind of thing a dry run against realistic mock data
-      // is for.
+      // Trailing ".." is real: the template's final "." runs into "Jamie L.", which already ends in one.
       userPrompt:
         'You are replying on behalf of Acme Cafe to a 5-star review from Jamie L..\n\nReview: "Loved it, thank you!"',
     });
@@ -175,11 +172,8 @@ describe('AiReplyGenerationService', () => {
   });
 
   it("uses the tenant's saved tone (not the platform default) when templateOverride is given without toneOverride", async () => {
-    // Regression test: an earlier version of resolveTemplateAndTone only looked up the tenant's
-    // saved prompt in the non-override branch, so a templateOverride-only dry run silently reset
-    // to DEFAULT_PROMPT_TONE ('professional') instead of previewing the tenant's actual saved tone
-    // — the tenant here has 'professional' saved by default, so use a distinct tone to prove it's
-    // actually read, not merely coinciding with the default.
+    // Regression: a templateOverride-only dry run used to reset to DEFAULT_PROMPT_TONE instead of the
+    // tenant's saved tone; a non-default tone here proves it is actually read.
     promptsDbService.findCurrentForCategory.mockResolvedValue({
       promptId: 'prompt-1',
       tone: 'empathetic',
@@ -305,8 +299,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
     };
     billingEntitlementsService = {
       canGenerateAiDraft: jest.fn().mockResolvedValue(true),
-      // Paid plan by default: null means unlimited, so quota never constrains a test that
-      // isn't specifically about quota.
+      // Paid plan by default (null = unlimited) so quota never constrains tests not about quota.
       getEntitlements: jest
         .fn()
         .mockResolvedValue({ maxAiDraftsPerMonth: null, aiDraftsUsedThisMonth: 0 }),
@@ -320,8 +313,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
       reclaimStaleGenerationClaims: jest.fn().mockResolvedValue(0),
       approveResponse: jest.fn().mockResolvedValue(null),
     };
-    // Defaults to 1 snippet per escalated review — individual tests override this to exercise the
-    // multi-snippet / quota-clamping behavior specifically.
+    // 1 snippet per escalated review by default; tests override this to exercise multi-snippet clamping.
     settingsDbService = {
       findAiReplyCount: jest.fn().mockResolvedValue(1),
       findAutoPostEnabled: jest.fn().mockResolvedValue(false),
@@ -357,9 +349,8 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
   });
 
   it('still reclaims stale claims for a tenant already at its monthly quota', async () => {
-    // Regression: the reclaim used to sit after the quota check, so a review a dead worker
-    // stranded at 'in_review' stayed stuck until the cap reset next calendar month — even though
-    // recovering it costs the quota nothing (it's a plain UPDATE, not a generation call).
+    // Regression: the reclaim used to sit after the quota check, so a review stranded at 'in_review'
+    // stayed stuck until the cap reset, though recovering it costs no quota.
     billingEntitlementsService.getEntitlements.mockResolvedValue({
       maxAiDraftsPerMonth: 20,
       aiDraftsUsedThisMonth: 20,
@@ -387,8 +378,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
     expect(promptsDbService.findCurrentForCategory).toHaveBeenCalledWith(tenantId, 'positive');
     expect(aiProvider.generateReply).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining('professional tone'),
-      // Trailing ".." is real, not a typo — see the identical case in generateDryRunReply's own
-      // spec: the template's own punctuation runs straight into "Jamie L." already ending in one.
+      // Trailing ".." is real; see the identical case in generateDryRunReply's spec.
       userPrompt:
         'You are replying on behalf of Acme Cafe to a 5-star review from Jamie L..\n\nReview: "Loved it, thank you!"',
     });
@@ -517,8 +507,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
 
     const result = await target.generateForClassifiedReviews({ tenantId, locationId });
 
-    // Two rows exist and count against the quota; reporting this review as a failure with zero
-    // drafts would hide them from the caller's quota accounting.
+    // Two rows exist and count against the quota; reporting failure with zero drafts would hide them.
     expect(result).toEqual({ generated: 2, skipped: 0, failed: 0, quotaReached: false });
     expect(reviewSyncDbService.releaseGenerationClaim).not.toHaveBeenCalled();
   });
@@ -561,9 +550,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
 
     const result = await target.generateForClassifiedReviews({ tenantId, locationId });
 
-    // One provider call for all 3 snippets, not one call per snippet — see
-    // generateAndPersistForCandidate's own doc comment for why a single multi-option completion
-    // (not a loop of identical single-reply calls) is what this is for.
+    // One provider call for all 3 snippets, not one per snippet.
     expect(aiProvider.generateReply).toHaveBeenCalledTimes(1);
     expect(reviewSyncDbService.insertGeneratedResponse).toHaveBeenCalledTimes(3);
     const insertedContents = reviewSyncDbService.insertGeneratedResponse.mock.calls.map(
@@ -722,9 +709,8 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
   });
 
   it('clamps the batch to the remaining monthly quota, not just the per-tick cap', async () => {
-    // Regression: the quota used to be a boolean gate asked once. A tenant 1 draft below its cap
-    // passed that gate and then generated a full 20-review batch — 19 billable drafts past a cap
-    // the billing module exists to enforce.
+    // Regression: quota used to be a boolean gate asked once, so a tenant 1 draft under its cap
+    // generated a full 20-review batch, 19 billable drafts past it.
     billingEntitlementsService.getEntitlements.mockResolvedValue({
       maxAiDraftsPerMonth: 20,
       aiDraftsUsedThisMonth: 19,
@@ -755,9 +741,8 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
   });
 
   it('sweeps stale claims before reading candidates, so a dead worker strands nothing permanently', async () => {
-    // Nothing else in the codebase moves a review off `in_review`, so without this sweep running
-    // *before* the (status = 'new'-only) candidate query, a review claimed by a worker that then
-    // died is invisible to every later tick forever.
+    // Nothing else moves a review off `in_review`; the sweep must run before the `new`-only candidate
+    // query or a review claimed by a dead worker is invisible forever.
     reviewSyncDbService.reclaimStaleGenerationClaims.mockResolvedValue(2);
 
     await target.generateForClassifiedReviews({ tenantId, locationId });
@@ -771,9 +756,8 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
   });
 
   it('keeps processing the batch when releasing a claim itself fails', async () => {
-    // The release runs in the catch block. Unguarded, its rejection escapes the whole method and
-    // abandons every remaining candidate — and it rejects precisely when the DB is already
-    // degraded, which is when losing the rest of the batch hurts most.
+    // Release runs in the catch block; unguarded, its rejection (likely when the DB is degraded)
+    // would abandon every remaining candidate.
     const second: GenerationCandidateRow = { ...autoReplyCandidate, id: 'review-3' };
     reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([
       autoReplyCandidate,
@@ -790,8 +774,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
   });
 
   it('abandons the batch immediately when the provider is not configured', async () => {
-    // Every remaining candidate would fail identically — each costing a claim write, a release
-    // write and (for a reachable-but-broken provider) a full 30s timeout.
+    // Every remaining candidate would fail identically, each costing a claim, a release and a full 30s timeout.
     const candidates = Array.from({ length: 5 }, (_, index) => ({
       ...autoReplyCandidate,
       id: `review-${index}`,

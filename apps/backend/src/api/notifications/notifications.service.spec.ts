@@ -119,11 +119,7 @@ describe('NotificationsService', () => {
       });
     });
 
-    /**
-     * The scoping above is what makes this a 404 rather than a silent cross-user write: the
-     * update matches nothing, so there is no row to report. A distinct "forbidden" would confirm
-     * the id exists in someone else's feed.
-     */
+    /** The update matches nothing, so it is a 404; a "forbidden" would confirm the id exists in someone else's feed. */
     it('raises 404 for a notification that is not the caller’s', async () => {
       notificationsDbService.markRead.mockResolvedValue(null);
 

@@ -5,7 +5,16 @@ import type { AuthUser } from '@auth/types/auth.type';
 import { ApiResponse as ApiResponseDto } from '@common/dto/api-response';
 import { ResponseUtil } from '@common/helpers/response.utils';
 import { RouteNames } from '@common/route-names';
-import { Controller, Get, HttpStatus, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 import { AdminBillingSummaryQueryDto } from '../dto/admin-billing-summary-query.dto';
@@ -18,12 +27,10 @@ import {
   ApiGetBillingSummary,
   ApiGetHasPaidTenants,
   ApiListBillingWebhookEvents,
+  ApiResolvePostErasureCharge,
 } from '../swagger/admin-billing.swagger';
 
-/** Platform-admin visibility into `billing_plans`/`tenant_subscriptions`/`stripe_webhook_events` —
- *  see `ApiGetBillingSummary`'s own doc comment for what this covers. Deliberately separate from
- *  the tenant-facing `BillingController`/`BillingWebhooksController` (`src/api/billing/`): this
- *  reads across every tenant rather than acting on the caller's own one. */
+/** Separate from the tenant-facing billing controllers: this reads across every tenant. */
 @Controller({ path: RouteNames.ADMIN_BILLING, version: '1' })
 @ApiTags('Admin — Billing')
 @Roles(JwtTokenType.PLATFORM_ADMIN)
@@ -47,6 +54,17 @@ export class AdminBillingController {
   ): Promise<ApiResponseDto<AdminBillingSummaryResponseDto>> {
     const result = await this.adminBillingService.getSummary(user, query.months);
     return ResponseUtil.success(result, undefined, HttpStatus.OK);
+  }
+
+  @Post(RouteNames.ADMIN_BILLING_RESOLVE_POST_ERASURE_CHARGE)
+  @HttpCode(HttpStatus.OK)
+  @ApiResolvePostErasureCharge()
+  async resolvePostErasureCharge(
+    @CurrentUser() user: AuthUser,
+    @Param('receiptId', ParseUUIDPipe) receiptId: string
+  ): Promise<ApiResponseDto<{ message: string }>> {
+    const result = await this.adminBillingService.resolvePostErasureCharge(user, receiptId);
+    return ResponseUtil.success(result, result.message, HttpStatus.OK);
   }
 
   @Get(RouteNames.ADMIN_BILLING_WEBHOOK_EVENTS)

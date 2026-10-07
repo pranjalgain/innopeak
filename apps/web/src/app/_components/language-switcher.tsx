@@ -7,23 +7,9 @@ import { cn } from "@/app/_libs/utils/cn";
 import { useLanguageSwitcher } from "@/hooks/common/use-language-switcher";
 
 /**
- * Standalone, always-visible language toggle — same "always in chrome, never nested inside a
- * menu a user has to open first" reasoning the previous Light/Dark/System-style dropdown draft
- * had, and the same reason `ThemeToggle` exists as one. Rebuilt as a binary switch (this
- * codebase supports exactly two locales — `SUPPORTED_LOCALES` — so there is no third option a
- * toggle would have nowhere to put, unlike theme's dropped "System"), sharing `ThemeToggle`'s
- * exact sliding-thumb mechanics: the outgoing locale code shrinks/fades out while the incoming
- * one grows/fades in, so the swap reads as one continuous motion. `prefers-reduced-motion` still
- * gets a plain, instant swap via `motion-reduce:transition-none` on every animated piece.
- *
- * `checked` is driven by `useLanguageSwitcher`'s `locale` (itself `useLocale()`), not by local
- * state that flips optimistically — see that hook's own comment for why.
- *
- * `compact`: the marketing header (`SiteHeader`) has no width to spare — its own comment already
- * measured this row as fitting the *previous* icon-only trigger with only a few pixels left at
- * ~360px, and this switch's default size is wider than that trigger was. `compact` trims the
- * track/thumb down (48px vs 56px) to fit there instead of shrinking the switch everywhere,
- * which would make it feel like a different, smaller control on the pages that have room.
+ * Always-visible binary switch (exactly two `SUPPORTED_LOCALES`) sharing `ThemeToggle`'s sliding-thumb mechanics. `checked`
+ * comes from `useLanguageSwitcher`'s `locale`, not optimistic local state (see that hook). `compact` (48px vs 56px track)
+ * fits the marketing header, which has only a few pixels to spare at ~360px, without shrinking the switch everywhere.
  */
 export function LanguageSwitcher({ compact = false }: { compact?: boolean } = {}) {
   const t = useTranslations("languageSwitcher");
@@ -35,10 +21,8 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean } = {}
       checked={isGerman}
       disabled={isDisabled}
       onCheckedChange={(checked) => selectLocale(checked ? "de" : "en")}
-      // Names what the switch controls, not the action it would perform. Radix emits
-      // `role="switch"` plus `aria-checked`, so "Switch to English" while German is active would
-      // be announced as "switch to English, switch, on" — stating that English is on when it is
-      // precisely what is off.
+      // Names what the switch controls, not the action: Radix emits `role="switch"` + `aria-checked`, so "Switch to English"
+      // while German is active would announce English as on.
       aria-label={t("label")}
       className={cn(
         "focus-visible:ring-ring/50 relative inline-flex shrink-0 items-center rounded-full",

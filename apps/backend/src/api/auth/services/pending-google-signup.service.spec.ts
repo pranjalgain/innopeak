@@ -53,9 +53,8 @@ describe('PendingGoogleSignupService', () => {
   });
 
   /**
-   * At 256 bits of randomness this never happens in practice, but a silent overwrite-miss here
-   * would hand the caller a nonce whose Redis record belongs to someone else's in-flight signup —
-   * surfacing later as a generic, unexplained consume failure. `mint` must fail loudly instead.
+   * `mint` must fail loudly on a nonce collision rather than hand back a nonce whose Redis record
+   * belongs to another signup.
    */
   it('throws rather than silently minting a nonce whose record write lost the NX race', async () => {
     redis.set.mockResolvedValueOnce(null);

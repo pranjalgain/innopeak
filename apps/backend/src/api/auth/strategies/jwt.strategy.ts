@@ -35,36 +35,25 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     private readonly platformAdminDbService: PlatformAdminDbService
   ) {
     super({
-      // Cookie first: it's what a same-origin browser request actually carries automatically
-      // (the frontend's fetch already sends `credentials: "include"`). The Bearer header stays
-      // as a fallback for callers that can't rely on cookies — Swagger UI, a future mobile app,
-      // service-to-service calls — same access token, just read from wherever it's carried.
+      // Cookie first (what same-origin browser requests carry); Bearer header is the fallback for
+      // Swagger UI, mobile and service-to-service callers.
       jwtFromRequest: ExtractJwt.fromExtractors([
         fromAccessTokenCookie,
         ExtractJwt.fromAuthHeaderAsBearerToken(),
       ]),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('JWT_SECRET') ?? '',
-      // Pinned so a token cannot dictate how it is verified — the algorithm-confusion shape.
-      // `jsonwebtoken` 9 already refuses an asymmetric alg against a string secret, so this is
-      // defence in depth; it is what keeps that true if the secret ever becomes a key object.
+      // Pinned so a token cannot dictate how it is verified (algorithm confusion); defence in
+      // depth that stays true if the secret ever becomes a key object.
       algorithms: [JWT_SIGNING_ALGORITHM],
     });
   }
 
   /**
-   * Fails closed: only the two principal types are ever turned into a request user, and only
-   * when their identifying claims are all present. Previously anything that wasn't
-   * `platform_admin` fell through to the tenant-user branch — so a payload with no `type` (or a
-   * refresh token, when JWT_REFRESH_SECRET falls back to JWT_SECRET in dev) became a tenant user
-   * with an undefined `tenantId`.
-   *
-   * Async because a platform-admin token is re-checked against the DB on every request: the JWT
-   * carries no status, so without this a disabled or deleted admin kept full access for the
-   * token's whole 15-minute life. Only the platform-admin branch pays for the lookup — it is a
-   * single indexed-PK read, and admins are few and low-traffic. Tenant users are deliberately not
-   * re-checked here: their suspension/disable is enforced at the (far less frequent) refresh
-   * boundary, and adding a DB read to every tenant request would be a real hot-path cost.
+   * Fails closed: only the two principal types become a request user, and only with all their
+   * identifying claims. Platform-admin tokens are re-checked against the DB on every request (the
+   * JWT carries no status) so a disabled admin loses access at once; tenant users are not, since
+   * their suspension is enforced at refresh and a per-request read would be a hot-path cost.
    */
   async validate(payload: UnverifiedClaims): Promise<AuthUser> {
     if (typeof payload.sub !== 'string' || typeof payload.email !== 'string') {
@@ -73,20 +62,18 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
     if (payload.type === JwtTokenType.PLATFORM_ADMIN) {
       const status = await this.platformAdminDbService.findStatusById(payload.sub);
-      // null = the admin row was deleted; disabled/invited = must not hold a live session.
+      // null = the admin row was deleted; disabled/invited must not hold a live session.
       if (status !== PlatformAdminStatus.ACTIVE) {
         throw new PlatformAdminAccountDisabledException();
       }
-      // Same fallback as the tenant branch below: a token signed before this claim existed has
-      // no `locale` at all — falls through to `Accept-Language`, same as `null` (never chosen).
+      // Same legacy-token fallback as the tenant branch below.
       const locale: Locale | null = isSupportedLocale(payload.locale) ? payload.locale : null;
       return {
         type: JwtTokenType.PLATFORM_ADMIN,
         id: payload.sub,
         email: payload.email,
         locale,
-        // Carried so a mid-session claim refresh can re-sign to this same deadline instead of
-        // granting a fresh TTL — see `PlatformAdminAuthUser.sessionExpiresAt`.
+        // Lets a mid-session claim refresh re-sign to the same deadline instead of granting a fresh TTL.
         ...(typeof payload.exp === 'number' ? { sessionExpiresAt: payload.exp } : {}),
       };
     }
@@ -96,8 +83,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       typeof payload.tenantId === 'string' &&
       (payload.role === UserRole.MEMBER || payload.role === UserRole.OWNER)
     ) {
-      // A token signed before this claim existed has no `locale` at all — falls through to
-      // `Accept-Language` at the resolution call sites, same as `null` (never chosen).
+      // A token signed before the claim existed has no `locale`; treated like `null` (never chosen),
+      // so resolution falls through to `Accept-Language`.
       const locale: Locale | null = isSupportedLocale(payload.locale) ? payload.locale : null;
 
       return {

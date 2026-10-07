@@ -20,7 +20,9 @@ interface OtpVerificationStageProps {
   isLoading: boolean;
   onVerify: (code: string) => void;
   onResend: () => void;
-  /** Which copy to render — defaults to the signup wizard's own strings; pass a different namespace (same key shape) for a context with its own wording, e.g. a login-specific one. */
+  /** Offered only where starting over is meaningful (the signup wizard) — renders a "use a different email" link. */
+  onChangeEmail?: () => void;
+  /** Which copy to render; defaults to the signup wizard's strings, pass another namespace (same key shape) for e.g. login wording. */
   translationNamespace?: string;
 }
 
@@ -28,19 +30,13 @@ const CODE_LENGTH = 6;
 const RESEND_COOLDOWN_SECONDS = 30;
 const DEFAULT_TRANSLATION_NAMESPACE = "onboardingSignup.otp";
 
-/**
- * Shared OTP entry — reached from both the signup wizard's own "otp" step
- * (a brand-new account verifying for the first time) and the login screen's
- * "otp" step (an existing account that never finished verifying, reached
- * after login resends a fresh code). Microsoft/Google already assert a
- * verified email as part of their OAuth handshake, so those skip this step
- * entirely in both flows.
- */
+/** Shared by the signup wizard's "otp" step and login's (an existing account that never finished verifying). Microsoft/Google assert a verified email, so they skip it. */
 export function OtpVerificationStage({
   email,
   isLoading,
   onVerify,
   onResend,
+  onChangeEmail,
   translationNamespace = DEFAULT_TRANSLATION_NAMESPACE,
 }: OtpVerificationStageProps) {
   const t = useTranslations(translationNamespace);
@@ -137,6 +133,12 @@ export function OtpVerificationStage({
         onClick={handleResend}>
         {cooldown > 0 ? t("resendIn", { seconds: cooldown }) : t("resend")}
       </Button>
+
+      {onChangeEmail ? (
+        <Button type="button" variant="link" size="sm" disabled={isLoading} onClick={onChangeEmail}>
+          {t("changeEmail")}
+        </Button>
+      ) : null}
     </form>
   );
 }

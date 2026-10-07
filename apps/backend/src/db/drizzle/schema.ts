@@ -105,6 +105,10 @@ export const subscriptionStatus = pgEnum('subscription_status', [
   'canceled',
   'incomplete',
 ]);
+export const subscriptionCancellationSource = pgEnum('subscription_cancellation_source', [
+  'owner',
+  'erasure',
+]);
 export const syncHealthStatus = pgEnum('sync_health_status', ['ok', 'error']);
 export const syncRunStatus = pgEnum('sync_run_status', ['running', 'ok', 'error']);
 export const syncTrigger = pgEnum('sync_trigger', ['scheduled', 'backfill']);
@@ -123,6 +127,7 @@ export const tokenPurpose = pgEnum('token_purpose', [
   'invite',
   'reset',
   'set_password',
+  'delete_account',
 ]);
 export const userIdentityProvider = pgEnum('user_identity_provider', ['entra_id', 'google']);
 export const userLocale = pgEnum('user_locale', ['en', 'de']);
@@ -266,18 +271,23 @@ export const tenants = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
-    // A single shared value for the whole tenant — every member sees the same currently-selected
-    // business; only an owner may change it (enforced at the API layer, not here). `ON DELETE SET
-    // NULL`, not NOT NULL — removing/deactivating the currently-selected location must not fail,
-    // and NULL reads correctly as "no selection yet."
-    //
-    // Column-level `.references()` (a lazy thunk), not a `foreignKey()` entry in the array below
-    // — `tenants` -> `locations` (via this column) -> `tenants` (via `locations.tenant_id`) is a
-    // genuine 2-table reference cycle, and `foreignKey()`'s array lives inside the same
-    // object-literal TypeScript structurally infers `tenants`'s own type from, so a forward
-    // reference to `locations` there makes that inference circular ('tenants' implicitly has type
-    // 'any' because it is referenced in its own initializer). The lazy callback here sidesteps
-    // that: the column's own type doesn't depend on resolving `tenants`'s full table type first.
+    erasureRequestedByUserId: uuid('erasure_requested_by_user_id'),
+    erasureReminderSentAt: timestamp('erasure_reminder_sent_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    lastErasureRequestedAt: timestamp('last_erasure_requested_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    lastErasureCancelledAt: timestamp('last_erasure_cancelled_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    // One value shared by the whole tenant; only an owner may change it (enforced in the API layer).
+    // ON DELETE SET NULL so removing the selected location does not fail; NULL means no selection yet.
+    // Column-level lazy `.references()`: tenants <-> locations is a cycle, and a `foreignKey()` in the
+    // array below would make TypeScript's inference of `tenants` circular.
     activeLocationId: uuid('active_location_id').references((): AnyPgColumn => locations.id, {
       onDelete: 'set null',
     }),
@@ -343,8 +353,7 @@ export const users = pgTable(
       .primaryKey()
       .notNull(),
     tenantId: uuid('tenant_id').notNull(),
-    // Nullable, not NOT NULL — GDPR anonymize-in-place nulls this rather than deleting the row,
-    // so review_responses.approved_by_user_id/created_by_user_id keep a valid FK target.
+    // Nullable: GDPR anonymize-in-place nulls this, so review_responses approved_by/created_by keep a valid FK target.
     name: varchar({ length: 255 }),
     email: varchar({ length: 255 }),
     passwordHash: varchar('password_hash', { length: 255 }),
@@ -1371,6 +1380,7 @@ export const tenantSubscriptions = pgTable(
     currentPeriodStart: timestamp('current_period_start', { withTimezone: true, mode: 'string' }),
     currentPeriodEnd: timestamp('current_period_end', { withTimezone: true, mode: 'string' }),
     cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false).notNull(),
+    cancellationSource: subscriptionCancellationSource('cancellation_source'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -1438,6 +1448,9 @@ export const billingReceipts = pgTable(
     currency: varchar({ length: 3 }).notNull(),
     invoiceNumber: varchar('invoice_number', { length: 255 }),
     paidAt: timestamp('paid_at', { withTimezone: true, mode: 'string' }).notNull(),
+    paidAfterErasureRequest: boolean('paid_after_erasure_request').default(false).notNull(),
+    refundResolvedAt: timestamp('refund_resolved_at', { withTimezone: true, mode: 'string' }),
+    refundResolvedByAdminId: uuid('refund_resolved_by_admin_id'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -1451,10 +1464,18 @@ export const billingReceipts = pgTable(
       'btree',
       table.tenantId.asc().nullsLast().op('uuid_ops')
     ),
+    index('idx_billing_receipts_unresolved_post_erasure')
+      .using('btree', table.paidAt.desc().nullsFirst().op('timestamptz_ops'))
+      .where(sql`(paid_after_erasure_request AND (refund_resolved_at IS NULL))`),
     foreignKey({
       columns: [table.tenantId],
       foreignColumns: [tenants.id],
       name: 'billing_receipts_tenant_id_fkey',
     }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.refundResolvedByAdminId],
+      foreignColumns: [platformAdmins.id],
+      name: 'billing_receipts_refund_resolved_by_admin_id_fkey',
+    }).onDelete('set null'),
   ]
 );

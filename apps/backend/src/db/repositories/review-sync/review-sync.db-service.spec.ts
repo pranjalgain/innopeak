@@ -63,12 +63,6 @@ describe('ReviewSyncDbService.importPage', () => {
     return (upsertReview.mock.calls[0]?.[1] as { status: string } | undefined)?.status;
   }
 
-  /**
-   * PLAN.md §7 says every backfilled review gets `status = 'responded'` unconditionally. This
-   * repo deviates on that point twice over: an unreplied review isn't `responded` (nothing was
-   * answered), and an unreplied *recent* review isn't permanently closed either (it's genuine
-   * backlog worth surfacing) — see `resolveBackfillStatus`'s doc comment for the full reasoning.
-   */
   describe('a review with an approved public reply', () => {
     it("is 'responded' when recent", async () => {
       const status = await importOne({
@@ -179,11 +173,6 @@ describe('ReviewSyncDbService.importPollPage', () => {
     ...overrides,
   });
 
-  /**
-   * The deliberate difference from `resolveBackfillStatus`: no age-based write-off.
-   * `resolveBackfillStatus`'s `dismissed` branch exists for one-time historical import; a review
-   * the poller just saw for the first time is live backlog however old it is.
-   */
   it("writes an unreplied review as 'new' no matter how old it is — no age-based dismissal", async () => {
     await service.importPollPage({
       tenantId: 'tenant-1',
@@ -194,14 +183,7 @@ describe('ReviewSyncDbService.importPollPage', () => {
     expect((upsertReview.mock.calls[0]?.[1] as { status: string }).status).toBe(ReviewStatus.NEW);
   });
 
-  /**
-   * Reply presence *is* honoured, unlike an earlier revision that wrote `new` unconditionally.
-   * A first-sighted review can legitimately arrive already answered — the owner replied on Google
-   * inside one poll interval, or the poller was behind — and `new` there queues a review the owner
-   * has already answered for classification and, once generation exists, an AI draft that PLAN.md
-   * §8.12 says must never overwrite the owner's own words. Caught by a live poll against real
-   * data, which produced rows holding `status='new'` *and* a `posted` imported reply at once.
-   */
+  // Regression: a live poll produced rows with `status='new'` and a `posted` imported reply at once.
   it("writes a first-sighted review that already carries the owner's reply as 'responded'", async () => {
     await service.importPollPage({
       tenantId: 'tenant-1',
@@ -275,11 +257,6 @@ describe('ReviewSyncDbService.acquireSyncRun', () => {
     expect(result).toBe(run);
   });
 
-  /**
-   * PLAN.md §8.1: a second poll finding its own location already mid-run is expected and benign,
-   * not a failure — `runPoll` treats `null` as a clean no-op rather than a thrown error a job
-   * retry or DLQ entry would be the wrong response to.
-   */
   it('returns null, not a thrown error, when a run is already genuinely active for the location', async () => {
     acquireSyncRun.mockRejectedValue({
       code: '23505',
@@ -334,10 +311,7 @@ describe('ReviewSyncDbService.reopenRunForRetry', () => {
   });
 
   it('returns false, not a thrown error, when reopening the row loses the same unique-index race acquireSyncRun guards', async () => {
-    // A concurrent poll or second backfill for the same location can genuinely hold `running` on
-    // idx_sync_runs_location_id_running while this retry tries to flip the errored row back to
-    // it — this must come back as the same benign `false` the caller already checks, rather than
-    // a raw 23505 escaping to become an unhandled job failure.
+    // A concurrent poll/backfill can hold `running` on the index; this must be a benign `false`, not a raw 23505.
     reopenSyncRunForRetry.mockRejectedValue({
       code: '23505',
       constraint: 'idx_sync_runs_location_id_running',
@@ -443,13 +417,7 @@ describe('ReviewSyncDbService.completeRun', () => {
     expect(advanceLastReviewSyncedAt).not.toHaveBeenCalled();
   });
 
-  /**
-   * `reviews_total` is written mid-run from the provider's lifetime review count, but backfill
-   * deliberately stops early (reply target / page cap). Without this, a run that completed
-   * exactly as designed reports `reviews_fetched / reviews_total` well under 100% forever. Only a
-   * clean, fully-finished backfill (`status: OK` and `markBackfillComplete: true`) should
-   * overwrite it with the run's own final count — see `ReviewSyncRepository.completeSyncRun`.
-   */
+  // Backfill stops early by design, so without finalizing, `reviews_total` (lifetime count) never reaches 100%.
   it('finalizes reviewsTotal to the actual count on a completed backfill', async () => {
     await service.completeRun({
       syncRunId: 'run-1',

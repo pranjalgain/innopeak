@@ -37,29 +37,16 @@ import type {
 
 import { ConnectionsRepository } from '../connections/connections.repository';
 
-/** The *other* partial unique index on review_responses.review_id — see importPage's catch. */
+/** The other partial unique index on review_responses.review_id; see writeReviewPage's catch. */
 const LIVE_REPLY_INDEX = 'idx_review_responses_review_id_live_reply';
 
-/** `UNIQUE (location_id) WHERE status = 'running'` — the index Postgres names on the 23505 a
- * concurrent second run raises. `ConnectionsDbService.confirmLocation` guards the same index for
- * backfill; `acquireSyncRun` below guards it for poll. */
+/** `UNIQUE (location_id) WHERE status = 'running'` — named by the 23505 a concurrent second run raises. */
 const SYNC_RUN_RUNNING_INDEX = 'idx_sync_runs_location_id_running';
 
-/**
- * How recent an unreplied review must be to enter the live pipeline as actionable backlog,
- * rather than being written off as closed history. See `resolveBackfillStatus`'s doc comment for
- * the full reasoning. A fixed constant for now — the same shape as `tenant_settings
- * .escalation_rating_threshold` would make this a per-tenant choice, which is a reasonable
- * follow-up once someone actually asks for it, not a speculative addition here.
- */
+/** How recent an unreplied review must be to enter the live pipeline as backlog rather than closed history. */
 const BACKFILL_ACTIONABLE_WINDOW_DAYS = 60;
 
-/**
- * `sync_runs.status` and `locations.last_sync_status` are different columns with different value
- * sets — `SyncHealthStatus` has no `running` by design. Mapped explicitly rather than cast so
- * widening the source union here becomes a compile error instead of writing `running` into a
- * column that has no such value.
- */
+/** `SyncHealthStatus` has no `running`; mapped rather than cast so widening the source union fails to compile. */
 const RUN_STATUS_TO_HEALTH: Record<SyncRunStatus.ERROR | SyncRunStatus.OK, SyncHealthStatus> = {
   [SyncRunStatus.OK]: SyncHealthStatus.OK,
   [SyncRunStatus.ERROR]: SyncHealthStatus.ERROR,
@@ -76,15 +63,8 @@ export class ReviewSyncDbService {
   ) {}
 
   /**
-   * Acquires a `sync_runs` row for a poll — the same CAS-and-reclaim `ReviewSyncRepository`
-   * method (`acquireSyncRun`, PLAN.md §8.1) `ConnectionsDbService.confirmLocation` already uses
-   * for backfill, wrapped here so `ReviewSyncQueueService.runPoll` can call it without reaching
-   * into a Repository directly.
-   *
-   * Returns `null`, not a thrown error, when a run is already genuinely active for this location.
-   * That is an expected, benign outcome for a 15-minute cron fan-out — the previous poll (or a
-   * still-running backfill) simply hasn't finished yet — not a failure worth a job retry or a DLQ
-   * entry the way an unexpected exception would be.
+   * Returns `null`, not an error, when a run is already active for this location: the previous poll
+   * or a backfill simply hasn't finished, which is benign and not worth a retry or DLQ entry.
    */
   async acquireSyncRun(input: {
     tenantId: string;
@@ -103,36 +83,15 @@ export class ReviewSyncDbService {
     }
   }
 
-  /**
-   * Writes one provider page from backfill. Each review and its imported reply go in together, so
-   * a crash mid-page leaves whole reviews behind rather than reviews whose replies vanished.
-   *
-   * **Status deviates from PLAN.md §7 on purpose — see `resolveBackfillStatus`.** §7 specifies
-   * `status = 'responded'` unconditionally for every backfilled review, which is right that
-   * historical review should not flood a new owner with drafts, but wrong that a review nobody
-   * ever answered should display as "Responded." The resolution here is recency, not
-   * reply-presence alone: a genuinely unanswered *recent* review is exactly the backlog this
-   * product exists to help clear, so it enters the live pipeline as `new` like anything the
-   * poller would bring in; an unanswered *old* review is closed history, same as before.
-   */
+  /** Each review and its imported reply are written together, so a crash leaves no review without its reply. */
   importPage(input: ImportPageInput): Promise<ImportPageResult> {
     return this.writeReviewPage(input, review => this.resolveBackfillStatus(review));
   }
 
   /**
-   * The poll counterpart to `importPage`. Differs from `resolveBackfillStatus` on exactly one
-   * dimension and matches it on the other:
-   *
-   *  - **No age-based write-off.** `resolveBackfillStatus`'s `dismissed` branch exists to stop
-   *    years of historical import flooding a new owner with drafts; a review the poller just saw
-   *    for the first time is live backlog no matter how long ago it was written, so it is `new`.
-   *  - **Reply presence is still honoured.** A first-sighted review can legitimately arrive with
-   *    the owner's reply already on it — they replied on Google within one poll interval, or the
-   *    poller was behind. Writing `new` there would queue a review the owner has already answered
-   *    for classification and (once generation exists) an AI draft, and PLAN.md §8.12 is explicit
-   *    that posting over an owner's own words is the worst outcome in this system. The imported
-   *    reply is written alongside it either way, so `new` + a `posted` imported reply is a
-   *    contradiction the row should never hold.
+   * No age-based write-off (a review first seen by the poller is live backlog however old), but a
+   * reply already on it still yields `responded`: queueing an answered review would risk an AI
+   * draft posted over the owner's own words, and `new` + a `posted` imported reply is contradictory.
    */
   importPollPage(input: ImportPageInput): Promise<ImportPageResult> {
     return this.writeReviewPage(input, review => {
@@ -178,12 +137,9 @@ export class ReviewSyncDbService {
 
           return { inserted, replyImported, replyConflict: false };
         } catch (error) {
-          // `review_responses` carries TWO partial unique indexes on `review_id`: one for
-          // `source = 'imported'` and one for `status IN ('approved','posted')`. An imported
-          // reply is `status = 'posted'`, so it matches both — but ON CONFLICT names only one
-          // arbiter, so a row written by the live pipeline can raise a 23505 on the *other*
-          // index that the ON CONFLICT clause cannot absorb. Counting it keeps the outcome
-          // visible; swallowing it silently would be data loss the run still reports as `ok`.
+          // `review_responses` has two partial unique indexes on `review_id` (imported, and
+          // approved/posted); ON CONFLICT names only one arbiter, so a live-pipeline row can raise
+          // a 23505 on the other. Count it: swallowing it would be silent data loss in an `ok` run.
           if (isUniqueViolation(error, LIVE_REPLY_INDEX)) {
             return { inserted, replyImported: false, replyConflict: true };
           }
@@ -207,29 +163,9 @@ export class ReviewSyncDbService {
   }
 
   /**
-   * The backfill's status rule, and the one deliberate deviation from PLAN.md §7 in this module.
-   *
-   * §7 says every backfilled review is `status = 'responded'`, full stop — "historical record …
-   * not items that need routing or approval." That protects against the real failure mode it
-   * names (a day-one owner flooded with drafts for a decade of old reviews), but it also means a
-   * genuinely unanswered review from last week is written off identically to one from four years
-   * ago — and an unanswered *recent* review is precisely the backlog this product exists to help
-   * clear, not dead weight to hide.
-   *
-   * Three-way split instead of two:
-   *  - has an approved public reply → `responded`, any age. Nothing to draft; the tenant already
-   *    answered it.
-   *  - no reply (or one Google rejected) but **within** `BACKFILL_ACTIONABLE_WINDOW_DAYS` →
-   *    `new`. Enters the live pipeline exactly like a review the poller just brought in — it will
-   *    be classified and drafted once that stage exists, same as any other `new` row.
-   *  - no reply and **older** than the window → `dismissed`. Closed history, same as before;
-   *    excluded from classification/drafting because it never reaches `new`, not by any special
-   *    case elsewhere in the pipeline.
-   *
-   * `dismissed` here still carries the caveat recorded in `reviews/overview.md`: elsewhere in this
-   * system it means a human explicitly dismissed the review, and these rows reach it with no
-   * human action at all. That tradeoff is now scoped to genuinely old history rather than every
-   * unreplied review, which is the whole point of adding the window.
+   * Replied (any age) -> `responded`. Unreplied within the window -> `new`, real backlog. Older ->
+   * `dismissed`, which keeps it out of classification/drafting without a special case elsewhere;
+   * note that elsewhere `dismissed` means a human did it, here no human acted.
    */
   private resolveBackfillStatus(review: ImportReviewInput): ReviewStatus {
     if (review.reply) {
@@ -250,17 +186,9 @@ export class ReviewSyncDbService {
   }
 
   /**
-   * See `ReviewSyncRepository.reopenSyncRunForRetry` for why a BullMQ retry needs this at all.
-   * `false` means the row was not in `error` — most likely it does not exist, which should not
-   * happen for a job carrying an id it was published with; the caller fails the attempt outright
-   * rather than proceeding to write completion state against a run it cannot prove it still owns.
-   *
-   * Also `false` on a 23505 against `idx_sync_runs_location_id_running`: reopening flips the row
-   * back to `running`, the same transition every other writer of this partial unique index has to
-   * guard (`acquireSyncRun` above, `ConnectionsDbService.confirmLocation`) — a poll or a second
-   * backfill can genuinely be running for this location while this retry fires. Left unguarded,
-   * this call was the one writer of that index that let the raw 23505 escape instead of the clear
-   * "not in a reopenable state" the caller already throws for the same condition.
+   * `false` means the row was not in `error` (the caller then fails the attempt rather than write
+   * completion state for a run it cannot prove it owns), or a 23505 on the running index: reopening
+   * flips the row to `running`, and a poll or second backfill may already be running.
    */
   async reopenRunForRetry(syncRunId: string): Promise<boolean> {
     try {
@@ -274,23 +202,18 @@ export class ReviewSyncDbService {
   }
 
   /**
-   * Completes the run, and only on a genuine win writes the location's rolled-up sync snapshot,
-   * the poller's high-water mark, and — for a successful backfill — `onboarding_backfill_completed_at`,
-   * the column that un-gates live polling. A lost CAS means this run was reclaimed as stale
-   * mid-flight and a second run is now redoing the work; letting it stamp completion would tell
-   * the owner "all set" for an import still in progress.
+   * Snapshot, cursor and `onboarding_backfill_completed_at` (which un-gates polling) are written
+   * only on a won CAS: a lost one means the run was reclaimed as stale and another is redoing the
+   * work, so stamping completion would tell the owner "all set" mid-import.
    *
-   * `lastReviewSyncedAt` seeds/advances from **both** triggers: backfill writes it too (not just
-   * `onboarding_backfill_completed_at`), so the location's very first poll only fetches what's
-   * newer than backfill's own cutoff instead of re-walking history backfill already imported.
-   * `null` (nothing fetched this run, or the run failed) leaves the existing cursor untouched —
-   * `ConnectionsRepository.advanceLastReviewSyncedAt` is itself monotonic on top of that.
+   * `lastReviewSyncedAt` advances from both triggers so the first poll only fetches what is newer
+   * than backfill's cutoff. `null` leaves the cursor untouched.
    */
   async completeRun(input: {
     syncRunId: string;
     locationId: string;
     status: SyncRunStatus.ERROR | SyncRunStatus.OK;
-    /** See `ReviewSyncRepository.completeSyncRun` — omit rather than pass a stale count when the caller does not have an authoritative one (a mid-import failure). */
+    /** Omit rather than pass a stale count when none is authoritative (a mid-import failure). */
     reviewsFetched?: number;
     errorMessage: string | null;
     markBackfillComplete: boolean;
@@ -300,8 +223,7 @@ export class ReviewSyncDbService {
       status: input.status,
       ...(input.reviewsFetched !== undefined ? { reviewsFetched: input.reviewsFetched } : {}),
       errorMessage: input.errorMessage,
-      // See `ReviewSyncRepository.completeSyncRun` — only a clean, fully-finished backfill
-      // should overwrite `reviews_total` with its own final count.
+      // Only a clean, fully-finished backfill overwrites `reviews_total` with its final count.
       finalizeReviewsTotal: input.status === SyncRunStatus.OK && input.markBackfillComplete,
     });
 
@@ -352,12 +274,8 @@ export class ReviewSyncDbService {
   }
 
   /**
-   * Approves a pending draft and, on success, supersedes every other still-pending sibling on the
-   * same review — one transaction, so a crash between the two never leaves a review with both a
-   * decided approval and a stale pending sibling. `isUniqueViolation` on the live-reply index is
-   * deliberately left to propagate uncaught: `ReviewsService.approveReply` is where it's turned
-   * into `ReviewResponseAlreadyLiveException`, the same service-not-DB-service split
-   * `PromptsService.createVersion` already established for the equivalent prompt-version conflict.
+   * One transaction, so a crash never leaves both an approval and a stale pending sibling. The
+   * live-reply unique violation deliberately propagates: `ReviewsService.approveReply` maps it.
    */
   async approveResponse(input: ApproveResponseInput): Promise<ReviewResponseRow | null> {
     return this.reviewSyncRepository.transaction(async tx => {
@@ -389,17 +307,18 @@ export class ReviewSyncDbService {
     return this.reviewsReadRepository.getPromptVersionStatsBatch(input);
   }
 
-  /** `PLAN.md` §6's nightly reviewer-retention purge — see `ReviewSyncRepository.purgeExpiredReviewerPii`. */
   purgeExpiredReviewerPii(): Promise<number> {
     return this.reviewSyncRepository.purgeExpiredReviewerPii();
   }
 
-  /** See `ReviewsReadRepository.countAiGeneratedResponsesThisMonth`. */
+  anonymizeReviewerPiiForTenant(tenantId: string): Promise<number> {
+    return this.reviewSyncRepository.anonymizeReviewerPiiForTenant(tenantId);
+  }
+
   countAiGeneratedResponsesThisMonth(tenantId: string, monthStart: string): Promise<number> {
     return this.reviewsReadRepository.countAiGeneratedResponsesThisMonth(tenantId, monthStart);
   }
 
-  /** See `ReviewSyncRepository.findClassifiedNeedingGeneration`. */
   findClassifiedNeedingGeneration(
     tenantId: string,
     locationId: string,
@@ -408,43 +327,34 @@ export class ReviewSyncDbService {
     return this.reviewSyncRepository.findClassifiedNeedingGeneration(tenantId, locationId, limit);
   }
 
-  /** See `ReviewSyncRepository.claimForGeneration`. */
   claimForGeneration(reviewId: string): Promise<boolean> {
     return this.reviewSyncRepository.claimForGeneration(reviewId);
   }
 
-  /** See `ReviewSyncRepository.releaseGenerationClaim`. */
   releaseGenerationClaim(reviewId: string): Promise<void> {
     return this.reviewSyncRepository.releaseGenerationClaim(reviewId);
   }
 
-  /** See `ReviewSyncRepository.reclaimStaleGenerationClaims`. */
   reclaimStaleGenerationClaims(locationId: string): Promise<number> {
     return this.reviewSyncRepository.reclaimStaleGenerationClaims(locationId);
   }
 
-  /** See `ReviewSyncRepository.insertGeneratedResponse`. */
   insertGeneratedResponse(input: InsertGeneratedResponseInput): Promise<string> {
     return this.reviewSyncRepository.insertGeneratedResponse(input);
   }
 
-  /** See `ReviewSyncRepository.claimResponseForPosting`. */
   claimResponseForPosting(input: ClaimResponseForPostingInput): Promise<ReviewResponseRow | null> {
     return this.reviewSyncRepository.claimResponseForPosting(input);
   }
 
-  /** See `ReviewSyncRepository.releaseResponseClaim`. */
   releaseResponseClaim(input: ClaimResponseForPostingInput): Promise<boolean> {
     return this.reviewSyncRepository.releaseResponseClaim(input);
   }
 
   /**
-   * Records a reply that is demonstrably live on Google when the response that was meant to post it
-   * can no longer be marked `posted` (it stopped being `approved` mid-flight — a human rejected or
-   * edited it while the worker was talking to Google). Imports what Google actually has, as
-   * `insertImportedReply` would, and advances the review to `responded`, so the record matches
-   * what is public. Returns `false` when the review already has a live reply on record (the
-   * `idx_review_responses_review_id_live_reply` index) — in which case there is nothing to add.
+   * For a reply live on Google whose response can no longer be marked `posted` (a human rejected or
+   * edited it mid-flight): imports what Google has so the record matches what is public. `false`
+   * when a live reply is already on record.
    */
   async importLiveReply(input: ImportLiveReplyInput): Promise<boolean> {
     try {
@@ -461,33 +371,27 @@ export class ReviewSyncDbService {
     }
   }
 
-  /** See `ReviewSyncRepository.markResponsePosted`. */
   markResponsePosted(input: MarkResponsePostedInput): Promise<ReviewResponseRow | null> {
     return this.reviewSyncRepository.transaction(tx =>
       this.reviewSyncRepository.markResponsePosted(tx, input)
     );
   }
 
-  /** See `ReviewSyncRepository.markResponsePostFailed`. */
   markResponsePostFailed(input: MarkResponsePostFailedInput): Promise<ReviewResponseRow | null> {
     return this.reviewSyncRepository.markResponsePostFailed(input);
   }
 
-  /** See `ReviewSyncRepository.supersedeForExternalReply`. */
   supersedeForExternalReply(input: SupersedeForExternalReplyInput): Promise<boolean> {
     return this.reviewSyncRepository.transaction(tx =>
       this.reviewSyncRepository.supersedeForExternalReply(tx, input)
     );
   }
 
-  /** See `ReviewSyncRepository.retryPostableResponse`. */
   retryPostableResponse(input: RetryPostableResponseInput): Promise<ReviewResponseRow | null> {
     return this.reviewSyncRepository.retryPostableResponse(input);
   }
 
-  /** See `ReviewSyncRepository.insertManualReply` — wrapped in the same transaction as
-   *  `supersedeSiblingDrafts`, mirroring `approveResponse`'s own shape, so a crash between the two
-   *  never leaves a review with both a new live reply and a stale pending sibling. */
+  /** Same transaction as `supersedeSiblingDrafts`, so a crash never leaves a live reply plus a stale pending sibling. */
   async insertManualReply(
     input: InsertManualReplyInput
   ): Promise<{ response: ReviewResponseRow; supersededResponseIds: string[] }> {

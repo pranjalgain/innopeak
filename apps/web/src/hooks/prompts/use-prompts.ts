@@ -29,7 +29,6 @@ interface UsePromptsResult {
   updateTone: (id: string, tone: PromptTone) => Promise<void>;
 }
 
-/** Load failures, save outcomes, and tone changes all surface via toast. */
 export function usePrompts(): UsePromptsResult {
   const t = useTranslations("promptManagement.toasts");
   const queryClient = useQueryClient();
@@ -41,13 +40,10 @@ export function usePrompts(): UsePromptsResult {
 
   useEffect(() => {
     if (!promptsQuery.isError) return;
-    // A Member can reach this page (prompts aren't route-guarded), but the list endpoint is
-    // owner-only (`@Roles(UserRole.OWNER)`) — a 403 here isn't a transient failure a retry would
-    // fix, so "Could not load prompts, please try again" is actively misleading.
+    // A Member can reach this page but the list endpoint is owner-only, so a 403 isn't transient and "try again" would mislead.
     const isForbidden = promptsQuery.error instanceof PromptApiError && promptsQuery.error.statusCode === 403;
     toast.error(isForbidden ? t("accessDenied") : t("loadFailed"));
-    // react-query v5 dropped useQuery's onError — this is its recommended replacement, firing
-    // once per isError transition rather than on every render.
+    // react-query v5 dropped `useQuery`'s onError; this fires once per isError transition.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promptsQuery.isError]);
 
@@ -87,10 +83,8 @@ export function usePrompts(): UsePromptsResult {
     async (id: string, template: string) => {
       const prompt = promptsQuery.data?.find((p) => p.id === id);
       if (!prompt) return;
-      // `mutateAsync` rejects even after its own `onError` toast fires — caught and swallowed
-      // here so a failed save surfaces only as that toast, not as a rejection the caller must
-      // also handle. `prompt-editor-dialog.tsx` relies on this: it awaits this call and then
-      // closes the dialog, and an uncaught rejection would skip that close on every failure.
+      // Swallows the rejection after the onError toast so a failed save surfaces only as that toast; `prompt-editor-dialog` awaits
+      // this and would skip closing on an uncaught rejection.
       try {
         await saveVersionMutation.mutateAsync({ prompt, template });
       } catch {
@@ -104,8 +98,7 @@ export function usePrompts(): UsePromptsResult {
     async (id: string, tone: PromptTone) => {
       const prompt = promptsQuery.data?.find((p) => p.id === id);
       if (!prompt) return;
-      // See `saveNewVersion` above — `prompt-tone-select.tsx` fires this from `onValueChange`
-      // without awaiting it at all, so an uncaught rejection here would be unhandled outright.
+      // Fired without await from `prompt-tone-select`'s `onValueChange`, so a rejection would otherwise be unhandled.
       try {
         await updateToneMutation.mutateAsync({ prompt, tone });
       } catch {

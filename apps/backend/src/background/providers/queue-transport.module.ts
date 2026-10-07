@@ -27,11 +27,7 @@ const queuePublisherProvider: Provider = isAws
       inject: QUEUE_LIST.map(name => getQueueToken(name)),
     };
 
-/**
- * Provides `QueuePublisherProvider`, bound to BullMQ (local) or SQS (aws) based on
- * DEPLOYMENT_TARGET — imported by both `BackgroundModule` (worker) and `QueueUIModule` (API) so
- * the factory-selection logic lives in exactly one place.
- */
+/** Single place that binds `QueuePublisherProvider` to BullMQ or SQS, shared by the worker and API modules. */
 @Module({
   imports: isAws ? [] : [BullModule.registerQueue(...QUEUE_LIST.map(name => ({ name })))],
   providers: [queuePublisherProvider],

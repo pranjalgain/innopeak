@@ -96,11 +96,7 @@ describe('ReviewClassificationService.classifyPendingReviews', () => {
     expect(loadClassificationContext).toHaveBeenCalledWith('tenant-1');
   });
 
-  /**
-   * The path that made a swallowed failure dangerous: the caller has to see this throw to know it
-   * must withhold `markBackfillComplete`. If this ever resolves instead, a partial classification
-   * silently reports a finished backfill again.
-   */
+  // The caller must see this throw to withhold `markBackfillComplete`; resolving would let a partial classification report a finished backfill.
   it('propagates a mid-batch claim failure instead of resolving with a partial count', async () => {
     findPendingReviews.mockResolvedValue([
       { id: 'review-1', rating: 5, reviewText: 'Great service.' },

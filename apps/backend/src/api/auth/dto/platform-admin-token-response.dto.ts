@@ -3,10 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { PlatformAdminSummaryDto } from './platform-admin-summary.dto';
 
 /**
- * Login's platform-admin branch. Deliberately narrower than `TokenResponseDto`: no `refreshToken`
- * cookie is set for this principal type (see `TokenService.signPlatformAdminAccessToken`'s doc
- * comment for why v1 ships access-token-only), and no `hasConnectedBusiness` — that concept is
- * scoped to a tenant, and a platform admin has none.
+ * Narrower than `TokenResponseDto`: no `refreshToken` cookie (admin sessions are access-token-only)
+ * and no `hasConnectedBusiness` (a tenant concept).
  */
 export class PlatformAdminTokenResponseDto {
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIs...' })

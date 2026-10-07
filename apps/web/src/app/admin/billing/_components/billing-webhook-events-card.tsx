@@ -28,19 +28,14 @@ const EVENT_TYPE_LABEL_KEYS: Record<(typeof HANDLED_STRIPE_WEBHOOK_EVENT_TYPES)[
 const PAYMENT_SUCCEEDED_TYPE = "invoice.payment_succeeded";
 const PAYMENT_FAILED_TYPE = "invoice.payment_failed";
 
-/** A curated, translated label for the event's type — every event this endpoint returns is one of
- *  the 5 `BillingWebhooksService` acts on (see `BillingWebhookEvent`'s own comment), so the lookup
- *  always has a match; `humanizeStripeEventType` is a defensive fallback only, not a path this app
- *  expects to take. */
+/** Every returned event is one of the 5 types `BillingWebhooksService` handles, so `humanizeStripeEventType` is only a defensive fallback. */
 function eventTypeLabel(event: BillingWebhookEvent, t: ReturnType<typeof useTranslations>): string {
   const labelKey = EVENT_TYPE_LABEL_KEYS[event.type as (typeof HANDLED_STRIPE_WEBHOOK_EVENT_TYPES)[number]];
   if (labelKey) return t(`filters.eventTypes.${labelKey}`);
   return humanizeStripeEventType(event.type);
 }
 
-/** Only the two payment-outcome event types get a success/failure icon — every other handled type
- *  keeps the neutral webhook icon (e.g. an orphan `checkout.session.completed`, handled but
- *  nothing happened, would be misrepresented as a success by any broader rule). */
+/** Only payment-outcome types get a success/failure icon; a broader rule would show an orphan `checkout.session.completed` (handled, nothing happened) as a success. */
 function EventIcon({ type }: { type: string }) {
   if (type === PAYMENT_SUCCEEDED_TYPE) {
     return (
@@ -104,10 +99,7 @@ export function BillingWebhookEventsCard() {
         </Select>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
-        {/* Reserves a fixed height on larger screens so the pagination footer sits at a
-            consistent spot regardless of how many rows the current page actually has (the last
-            page of a filtered result is often shorter than a full page) — on mobile it hugs the
-            content instead, since there's no room to spare for reserved whitespace there. */}
+        {/* Fixed height on larger screens keeps the pagination footer in place on a short last page; mobile hugs the content. */}
         <div className="flex flex-1 flex-col gap-1 sm:min-h-[600px]">
           {isError ? (
             <LoadErrorState onRetry={retry} />

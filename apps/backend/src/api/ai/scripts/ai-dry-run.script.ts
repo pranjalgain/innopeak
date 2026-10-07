@@ -11,13 +11,8 @@ import { MOCK_REVIEW_FIXTURES } from '../constants/mock-review-fixtures.constant
 import { OpenRouterAiProvider } from '../providers/openrouter-ai.provider';
 import { buildSystemPrompt, fillPromptTemplate } from '../utils/prompt-template.util';
 
-/**
- * `AiPromptNotConfiguredException`/`AiProviderNotConfiguredException`/etc. carry a `message` that
- * is a locale-tagged proxy object (`@common/i18n/message-registry`), only ever resolved to real
- * text by `HttpExceptionFilter` inside a live request — which this standalone script never goes
- * through. Left unhandled, `error.message` prints that proxy's own debug `toString()`
- * (`"i18n AI.PROVIDER_NOT_CONFIGURED"`) instead of readable English, so this resolves it by hand.
- */
+// Exception messages are locale-tagged proxies resolved only by HttpExceptionFilter inside a request;
+// outside one they print a debug toString, so resolve by hand.
 function describeError(error: unknown): string {
   if (error instanceof HttpException) {
     const response = error.getResponse();
@@ -28,20 +23,9 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * A quick, DB-free dev loop for "what does OpenRouter actually send back" — run this instead of
- * `POST /v1/ai/dry-run` when you just want to see raw provider output/latency/token counts
- * without a running server, a signed-in tenant, or a real prompt saved in the database. Reads
- * `OPENROUTER_API_KEY`/`OPENROUTER_MODEL` straight from `.env` and runs every fixture in
- * `MOCK_REVIEW_FIXTURES` against that category's *default* template (`DEFAULT_PROMPTS` — the same
- * copy every new tenant is seeded with), not a tenant-specific one; the HTTP dry-run endpoint is
- * what exercises a real tenant's own saved template/tone instead.
- *
- * Usage: `pnpm ai:dry-run` (see package.json).
- */
-
 const MOCK_BUSINESS_NAME = 'The Coffee House';
 
+// Runs fixtures against DEFAULT_PROMPTS, not a tenant's saved template (the HTTP dry-run endpoint does that).
 async function main(): Promise<void> {
   const configService = new ConfigService<EnvConfig>(process.env);
   const provider = new OpenRouterAiProvider(configService);

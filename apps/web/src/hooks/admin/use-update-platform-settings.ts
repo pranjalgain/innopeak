@@ -12,13 +12,7 @@ interface UseUpdatePlatformSettingsResult {
   isUpdating: boolean;
 }
 
-/**
- * Platform-admin-only write side of `usePlatformSettings` — a Super Admin flips one switch at a
- * time (see `UpdatePlatformSettingsDto`'s own partial-by-design comment on the backend). Writes
- * straight into the shared `platformSettingsQueryKey` cache entry on success, so the same tab's
- * login/signup screens (and any other open Admin Settings panel) see the new value immediately
- * without a refetch.
- */
+/** Writes into the shared `platformSettingsQueryKey` cache on success so other open screens see the change without a refetch. */
 export function useUpdatePlatformSettings(): UseUpdatePlatformSettingsResult {
   const t = useTranslations("adminSettings.platform.toasts");
   const queryClient = useQueryClient();

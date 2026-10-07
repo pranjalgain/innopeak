@@ -724,6 +724,67 @@ code — one message for all three, per [Security
 considerations](#security-considerations)), `429 TOO_MANY_OTP_ATTEMPTS`, `403` platform-admin
 token, `400` validation, `401` missing/expired access token.
 
+### Delete the business (owner self-service)
+
+| Method | Path | Auth | Throttle |
+|---|---|---|---|
+| `POST` | `/v1/auth/delete-account/request-otp` | Bearer, `@Roles('owner')` | 5 / min |
+| `POST` | `/v1/auth/delete-account` | Bearer, `@Roles('owner')` | 5 / min |
+| `POST` | `/v1/auth/restore-account` | `@Public()` | 5 / min |
+
+Lets an **owner** schedule their own business's erasure — the same two-phase erasure a platform
+admin can request (see [Admin Management § Tenant
+erasure](../admin-management/overview.md#tenant-erasure-request-and-cancel-platform-admin-only-not-tenant-self-service)),
+now also reachable by the owner. Members cannot: removing a *member* is the owner's separate
+`request-removal`.
+
+**`POST /v1/auth/delete-account`** — body `{ businessName, password?, otp? }`. An owner an admin has
+disabled gets `403 ACCOUNT_DISABLED` even with a still-live access token.
+
+1. `businessName` must equal the tenant's name exactly (trimmed) — a typed confirmation, not a
+   checkbox.
+2. **Re-authentication.** An owner who has a password sends `password`; one who signed up with
+   Google/Microsoft (no password) sends the `otp` mailed by `request-otp` — the same step-up
+   `set-password` uses, under its own `delete_account` token purpose so a code minted for one can
+   never satisfy the other. A wrong password is `401 INVALID_CURRENT_PASSWORD`, counts against the
+   per-account login lockout, and a wrong code spends the per-account OTP budget.
+3. Effects, in order: the tenant is suspended and `erasure_requested_at` / `erasure_requested_by_user_id`
+   are set (every user's refresh is refused from now on, and an already-issued access token lapses within its 15 minutes — tenant tokens are deliberately not re-checked against the database per request); a live subscription is cancelled at period end (or
+   immediately when `past_due`); polling stops; the activity log records the request with the
+   owner's email as actor; every active owner is emailed (scheduled → reminder → cancelled/erased; see
+   [Admin Management § Erasure emails](../admin-management/overview.md)); the caller's session cookies are cleared.
+4. Success `200`: `{ scheduledFor, gracePeriodDays, canRestore }` — `canRestore` is `true` when the
+   owner has a password (see restore below).
+
+**`POST /v1/auth/delete-account/request-otp`** — mails the step-up code to an owner **without** a
+password (`400 PASSWORD_REQUIRED` for one who has one: they confirm with the password instead).
+Same generic acknowledgement and per-account cooldown as the other OTP routes.
+
+**`POST /v1/auth/restore-account`** — body `{ email, password }`. Undoes a **self-requested**
+erasure inside the grace period: the owner's credentials are checked (with the same lockout), the
+erasure is cancelled exactly as an admin's `cancel-erasure` is (including resuming a subscription
+the erasure ended), and `200` says they can sign in. Anything else — wrong password, unknown email,
+an erasure an admin requested, an already-erased tenant, a non-owner, an SSO-only owner — is the
+one generic `401 INVALID_CREDENTIALS`, so the route reveals nothing about who has a pending
+erasure. An SSO-only owner has no password to restore with and is told to contact support (an admin
+cancels the erasure); a member-initiated erasure does not exist.
+
+**Restore only works before the deadline** (`erasure_requested_at` + the grace period). Past it the
+nightly purge may already have deleted the Stripe customer, revoked the Google grant and wiped
+reviewer names, and restoring would revive a half-erased business — so the restore is refused (the
+same generic `401`) and sign-in falls back to the plain `403 TENANT_SUSPENDED`. A tenant stuck past
+its deadline is an operations problem (the platform admins are emailed nightly, see [Purge
+alerting](../admin-management/overview.md)), not something an owner can undo.
+
+**Only the requesting owner can restore.** `tenants.erasure_requested_by_user_id` must equal the
+owner restoring, so when one of several owners schedules the deletion the others cannot restore it
+with their own password — their email says so and points them at the requester or support.
+
+**Sign-in during the grace period.** A password sign-in by an owner whose own erasure is pending no
+longer fails with the generic `403 TENANT_SUSPENDED`: the password is already proven, so it answers
+`403 ACCOUNT_SCHEDULED_FOR_DELETION` (with the date), which the web turns into a "restore your
+business" prompt.
+
 ### Team / invite
 
 | Method | Path | Auth | Throttle |
@@ -945,6 +1006,14 @@ programmatic branching in the frontend.
 
 | `statusCode` | `error` | Applies to | Meaning |
 |---|---|---|---|
+| `400` | `Bad Request` (`BUSINESS_NAME_MISMATCH`) | delete-account | The typed business name does not match the tenant's. |
+| `400` | `Bad Request` (`PASSWORD_REQUIRED`) | delete-account/request-otp | The owner has a password — confirm deletion with it, not a code. |
+| `409` | `Conflict` (`ACCOUNT_DELETION_NOT_POSSIBLE`) | delete-account, request-otp | The caller is not an owner, or the business is not `active`/`pending_activation` (already scheduled, suspended or erased) — also what a double-click's second request gets. |
+| `400` | `Bad Request` (`INVALID_OTP`) | delete-account | An SSO-only owner sent no code, or a wrong, spent or expired one. |
+| `401` | `Unauthorized` (`INVALID_CURRENT_PASSWORD`) | delete-account | Wrong password (counts against the sign-in lockout). |
+| `429` | `Too Many Requests` (`TOO_MANY_OTP_ATTEMPTS`) | delete-account | The per-account OTP attempt budget is spent. |
+| `403` | `Forbidden` (`ACCOUNT_DISABLED`) | delete-account, request-otp | The owner has been disabled. |
+| `403` | `Forbidden` (`ACCOUNT_SCHEDULED_FOR_DELETION`) | login (password) | The owner's own erasure is pending; the password was correct. Carries the scheduled date. |
 | `400` | `Validation Error` | Any endpoint with a body | One or more `class-validator` rules failed — `message` is a comma-joined list of the specific violations. |
 | `400` | `Bad Request` (`INVALID_OR_EXPIRED_OTP`) | verify-email | Code not found, already used, past `expires_at`, or the account is no longer `pending_verification`. Same message for all causes — see [Security considerations](#security-considerations). |
 | `400` | `Bad Request` (`INVALID_OR_EXPIRED_TOKEN`) | reset-password, invite preview/accept, invite SSO entry | Token not found, already used, or past `expires_at`. Same message for all three causes — see [Security considerations](#security-considerations). |

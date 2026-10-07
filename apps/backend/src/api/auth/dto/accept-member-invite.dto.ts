@@ -6,9 +6,8 @@ import { PASSWORD_PATTERN } from '../constants/auth.constants';
 import { trimStringInput } from '../utils/string.utils';
 
 /**
- * Unlike `AcceptAdminInviteDto`, this carries `name` — `platform_admins` has no `name` column at
- * all, but `users.name` is `NOT NULL`, and the invite-send form (`InviteMemberDto`) is email-only,
- * same as admin's. The invitee supplies their own name here, the same as tenant signup does.
+ * Unlike `AcceptAdminInviteDto`, carries `name`: `users.name` is NOT NULL and the invite-send form
+ * is email-only.
  */
 export class AcceptMemberInviteDto {
   @ApiProperty({

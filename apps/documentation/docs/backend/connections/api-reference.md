@@ -322,8 +322,9 @@ Success `200`:
 }
 ```
 
-Errors: `401`, `403`, `404 CONNECTION_NOT_FOUND` (no connection for this tenant),
-`409 CONNECTION_NEEDS_REAUTH`, `502 PROVIDER_UNAVAILABLE`, `429`.
+Errors: `401`, `403`, `404 CONNECTION_NOT_FOUND` (no connection for this tenant, **or one that has
+been disconnected** — a disconnected connection no longer lists or confirms locations; the owner has
+to reconnect first), `409 CONNECTION_NEEDS_REAUTH`, `502 PROVIDER_UNAVAILABLE`, `429`.
 
 ### `GET /v1/connections/locations`
 
@@ -435,7 +436,7 @@ Success `201`:
 ```
 
 Errors: `400` validation, `401`, `403` (a `member` cannot confirm a location),
-`404 CONNECTION_NOT_FOUND`, `404 EXTERNAL_LOCATION_NOT_FOUND` (the id isn't visible to this
+`404 CONNECTION_NOT_FOUND` (none, or disconnected), `404 EXTERNAL_LOCATION_NOT_FOUND` (the id isn't visible to this
 connection), `409 CONNECTION_NEEDS_REAUTH`, `409 LOCATION_LIMIT_REACHED` (MVP's one-active-location
 rule — an application rule, not a database constraint, see the overview's
 [MVP scope](./overview.md#mvp-scope)), `429`. An already-running backfill is **not** an error —

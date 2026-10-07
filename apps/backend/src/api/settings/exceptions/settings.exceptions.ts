@@ -55,6 +55,12 @@ export class BlocklistTermExistsException extends ConflictException {
   }
 }
 
+export class BlocklistLimitReachedException extends ConflictException {
+  constructor(message: string = MESSAGES.SETTINGS.BLOCKLIST_LIMIT_REACHED) {
+    super({ message, code: 'BLOCKLIST_LIMIT_REACHED' });
+  }
+}
+
 export class BlocklistTermNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.SETTINGS.BLOCKLIST_TERM_NOT_FOUND) {
     super({ message, code: 'BLOCKLIST_TERM_NOT_FOUND' });
@@ -79,9 +85,7 @@ export class TenantSettingsMissingException extends NotFoundException {
   }
 }
 
-/** The platform-wide settings singleton row is missing entirely — only reachable if it was
- *  manually deleted out from under a running deployment, hence 500. See `PlatformConfigNotFoundException`
- *  (`src/api/admin/exceptions/admin.exceptions.ts`) for the 404 raised on the admin write path. */
+/** Singleton row missing — only if manually deleted from a running deployment, hence 500 (the admin write path raises a 404 instead). */
 export class PlatformConfigMissingException extends InternalServerErrorException {
   constructor(message: string = MESSAGES.SETTINGS.PLATFORM_CONFIG_MISSING) {
     super({ message, code: 'PLATFORM_CONFIG_MISSING' });

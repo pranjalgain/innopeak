@@ -66,9 +66,12 @@ models/connection-location-dto.ts
 models/connection-status-response-dto.ts
 models/connection-summary-dto.ts
 models/create-blocklist-term-dto.ts
+models/create-manual-reply-dto.ts
 models/create-prompt-version-dto.ts
 models/create-prompt-version-response-dto.ts
 models/current-run-dto.ts
+models/delete-account-dto.ts
+models/delete-account-response-dto.ts
 models/delete-blocklist-term-response-dto.ts
 models/disconnect-response-dto.ts
 models/generate-reply-dry-run-dto.ts
@@ -81,6 +84,7 @@ models/latest-response-dto.ts
 models/location-dto.ts
 models/location-list-response-dto.ts
 models/login-dto.ts
+models/manual-reply-response-dto.ts
 models/member-invite-preview-dto.ts
 models/metrics-dto.ts
 models/mock-review-dto.ts
@@ -94,6 +98,9 @@ models/payment-method-response-dto.ts
 models/platform-activity-list-response-dto.ts
 models/platform-activity-response-dto.ts
 models/platform-settings-response-dto.ts
+models/post-erasure-charge-response-dto.ts
+models/post-queued-response-dto.ts
+models/post-status-response-dto.ts
 models/prompt-created-by-dto.ts
 models/prompt-current-version-dto.ts
 models/prompt-dto.ts
@@ -110,6 +117,8 @@ models/recent-escalated-dto.ts
 models/reconcile-checkout-session-dto.ts
 models/redirect-url-response-dto.ts
 models/resend-otp-dto.ts
+models/restore-account-dto.ts
+models/retry-post-response-dto.ts
 models/review-detail-response-dto.ts
 models/review-list-item-dto.ts
 models/review-list-response-dto.ts

@@ -31,11 +31,8 @@ describe('fromAccessTokenCookie', () => {
   });
 
   /**
-   * Regression target: giving admin sessions their own cookie name means a browser CAN hold both
-   * at once (a tenant owner and a platform admin signed in together) — a fixed preference order
-   * that always picked `access_token` first 403'd every admin-route request the moment a tenant
-   * session was also live, since the wrong JWT reached `RolesGuard`. Which cookie is present is not
-   * enough to prove which one is the right one — the request path decides.
+   * Regression: with a tenant and an admin session both live, always preferring `access_token`
+   * 403'd admin-route requests.
    */
   it('prefers admin_access_token on an admin route even when access_token is also present', () => {
     const req = requestWith('/v1/admin/overview/review-stats', {
@@ -82,13 +79,9 @@ describe('fromAccessTokenCookie', () => {
   });
 
   /**
-   * The extractor recognizes the admin area by URL shape, because passport runs before Nest has
-   * resolved the handler and so cannot read `@Roles`. That makes the mapping drift-prone: an
-   * admin-only controller mounted outside `admin/` would silently authenticate as the tenant
-   * principal for any browser holding both cookies, surfacing as an unexplained 403.
-   *
-   * This pins the coupling. If a new admin route slug lands somewhere else, this fails here —
-   * loudly, in a file that explains the problem — instead of in production as a broken login.
+   * Pins the URL-shape coupling: passport runs before handler resolution so it cannot read
+   * `@Roles`, and an admin controller mounted outside `admin/` would silently authenticate as the
+   * tenant principal.
    */
   describe('every admin-gated controller mounts under the prefix the extractor keys on', () => {
     /** Reads the real controllers rather than a hand-maintained list, so a new one is covered the day it lands. */

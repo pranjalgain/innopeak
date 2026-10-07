@@ -3,10 +3,8 @@ import { Global, Module } from '@nestjs/common';
 import { ReviewClassificationService } from './review-classification.service';
 
 /**
- * `@Global()` for the same reason `ReviewProviderModule` is: the backfill job that calls
- * `ReviewClassificationService` runs inside `WorkerModule`, which never imports API modules, so
- * both `AppModule` and `WorkerModule` import this once. Its DB access
- * (`ReviewPipelineDbService`) is registered in the already-global `DBModule`, not here.
+ * `@Global()` like `ReviewProviderModule`: the backfill job calling `ReviewClassificationService` runs in `WorkerModule`,
+ * which never imports API modules. Its DB access (`ReviewPipelineDbService`) lives in the already-global `DBModule`.
  */
 @Global()
 @Module({

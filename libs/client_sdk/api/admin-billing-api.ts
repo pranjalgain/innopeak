@@ -201,6 +201,63 @@ export const AdminBillingApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
+    /**
+     * Removes one entry from the billing summary\'s `postErasureCharges` queue once an admin has refunded the invoice in Stripe (or decided not to). Records who and when. Does not call Stripe. A repeat, an unknown id and a never-flagged receipt are all 404.
+     * @summary Mark a charged-after-deletion-request payment as handled
+     * @param {string} receiptId The &#x60;receiptId&#x60; from &#x60;postErasureCharges&#x60;.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminBillingControllerResolvePostErasureChargeV1: async (
+      receiptId: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'receiptId' is not null or undefined
+      assertParamExists(
+        'adminBillingControllerResolvePostErasureChargeV1',
+        'receiptId',
+        receiptId,
+      );
+      const localVarPath =
+        `/v1/admin/billing/post-erasure-charges/{receiptId}/resolve`.replace(
+          '{receiptId}',
+          encodeURIComponent(String(receiptId)),
+        );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
   };
 };
 
@@ -316,6 +373,37 @@ export const AdminBillingApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
+    /**
+     * Removes one entry from the billing summary\'s `postErasureCharges` queue once an admin has refunded the invoice in Stripe (or decided not to). Records who and when. Does not call Stripe. A repeat, an unknown id and a never-flagged receipt are all 404.
+     * @summary Mark a charged-after-deletion-request payment as handled
+     * @param {string} receiptId The &#x60;receiptId&#x60; from &#x60;postErasureCharges&#x60;.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async adminBillingControllerResolvePostErasureChargeV1(
+      receiptId: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.adminBillingControllerResolvePostErasureChargeV1(
+          receiptId,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminBillingApi.adminBillingControllerResolvePostErasureChargeV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
   };
 };
 
@@ -377,6 +465,24 @@ export const AdminBillingApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
+    /**
+     * Removes one entry from the billing summary\'s `postErasureCharges` queue once an admin has refunded the invoice in Stripe (or decided not to). Records who and when. Does not call Stripe. A repeat, an unknown id and a never-flagged receipt are all 404.
+     * @summary Mark a charged-after-deletion-request payment as handled
+     * @param {AdminBillingApiAdminBillingControllerResolvePostErasureChargeV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    adminBillingControllerResolvePostErasureChargeV1(
+      requestParameters: AdminBillingApiAdminBillingControllerResolvePostErasureChargeV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .adminBillingControllerResolvePostErasureChargeV1(
+          requestParameters.receiptId,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
   };
 };
 
@@ -417,6 +523,18 @@ export interface AdminBillingApiInterface {
     requestParameters?: AdminBillingApiAdminBillingControllerListWebhookEventsV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<BillingWebhookEventListResponseDto>;
+
+  /**
+   * Removes one entry from the billing summary\'s `postErasureCharges` queue once an admin has refunded the invoice in Stripe (or decided not to). Records who and when. Does not call Stripe. A repeat, an unknown id and a never-flagged receipt are all 404.
+   * @summary Mark a charged-after-deletion-request payment as handled
+   * @param {AdminBillingApiAdminBillingControllerResolvePostErasureChargeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  adminBillingControllerResolvePostErasureChargeV1(
+    requestParameters: AdminBillingApiAdminBillingControllerResolvePostErasureChargeV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
 }
 
 /**
@@ -441,6 +559,16 @@ export interface AdminBillingApiAdminBillingControllerListWebhookEventsV1Request
    * One of StripeWebhookEventType\&#39;s own key names, not Stripe\&#39;s raw dotted wire format — this app\&#39;s own filter vocabulary never leaks Stripe\&#39;s internal naming into a URL. Mapped to the matching raw type internally before it reaches the repository.
    */
   readonly type?: AdminBillingControllerListWebhookEventsV1TypeEnum;
+}
+
+/**
+ * Request parameters for adminBillingControllerResolvePostErasureChargeV1 operation in AdminBillingApi.
+ */
+export interface AdminBillingApiAdminBillingControllerResolvePostErasureChargeV1Request {
+  /**
+   * The &#x60;receiptId&#x60; from &#x60;postErasureCharges&#x60;.
+   */
+  readonly receiptId: string;
 }
 
 /**
@@ -496,6 +624,25 @@ export class AdminBillingApi
         requestParameters.page,
         requestParameters.pageSize,
         requestParameters.type,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Removes one entry from the billing summary\'s `postErasureCharges` queue once an admin has refunded the invoice in Stripe (or decided not to). Records who and when. Does not call Stripe. A repeat, an unknown id and a never-flagged receipt are all 404.
+   * @summary Mark a charged-after-deletion-request payment as handled
+   * @param {AdminBillingApiAdminBillingControllerResolvePostErasureChargeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public adminBillingControllerResolvePostErasureChargeV1(
+    requestParameters: AdminBillingApiAdminBillingControllerResolvePostErasureChargeV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminBillingApiFp(this.configuration)
+      .adminBillingControllerResolvePostErasureChargeV1(
+        requestParameters.receiptId,
         options,
       )
       .then((request) => request(this.axios, this.basePath));

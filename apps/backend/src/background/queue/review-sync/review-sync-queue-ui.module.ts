@@ -18,14 +18,8 @@ const reviewSyncQueueUIConfig = BullBoardModule.forFeature({
 });
 
 /**
- * Unconditionally registered, with no `isAws` branch — this queue is BullMQ in every environment
- * (see ReviewSyncQueueModule), so its Bull Board panel is always the right place to inspect it.
- *
- * API-only, and only additive: the Bull Board panel and its events listener on top of
- * `ReviewSyncQueueProducerModule`, which owns the queue registration and the producer. Re-exported
- * so this module's own importers (`ConnectionsModule`) keep resolving `ReviewSyncQueue` unchanged.
- * Deliberately does **not** reach `ReviewSyncQueueModule` — that one carries the `@Processor`, and
- * pulling it into the API graph would start a second review-sync worker inside the HTTP process.
+ * API-only; no `isAws` branch since this queue is BullMQ everywhere. Deliberately does not import
+ * `ReviewSyncQueueModule`: its `@Processor` would start a review-sync worker inside the HTTP process.
  */
 @Module({
   imports: [QueueTransportModule, ReviewSyncQueueProducerModule, reviewSyncQueueUIConfig],

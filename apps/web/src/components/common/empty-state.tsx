@@ -7,17 +7,12 @@ interface EmptyStateProps {
   icon: ComponentType<{ className?: string }>;
   title: string;
   description: string;
-  /** An optional recovery action — e.g. "Clear filters" for a filtered-to-nothing list. Omit for a
-   *  genuinely empty list with nothing to undo. */
+  /** Omit for a genuinely empty list with nothing to undo. */
   action?: { label: string; onClick: () => void };
   className?: string;
 }
 
-/**
- * Shown when a query **succeeded** and genuinely has nothing to show — distinct from
- * `LoadErrorState`, which is for a **failed** query. Conflating the two (as every admin hook used
- * to, via `?? []`) makes an outage indistinguishable from an empty platform.
- */
+/** For a query that succeeded with nothing to show; `LoadErrorState` is for failures, which must not read as empty. */
 export function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
   return (
     <div

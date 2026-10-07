@@ -132,10 +132,8 @@ describe('EmailProcessor', () => {
     });
 
     /**
-     * The regression this guards: BullMQ fires `failed` after every failed attempt, not only the
-     * last one. A job configured for 3 attempts that fails once used to land in the DLQ on that
-     * first failure too — even though it goes on to retry and can still succeed — corrupting the
-     * DLQ's signal with failures that self-healed.
+     * Guards: BullMQ fires `failed` after every attempt, so a job that fails once but later succeeds must
+     * not land in the DLQ.
      */
     it('does not push to the DLQ when more retry attempts remain', async () => {
       const job = buildJob({ attemptsMade: 1, opts: { attempts: 3 } });

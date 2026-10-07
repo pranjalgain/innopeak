@@ -182,7 +182,13 @@
       "ssoUnavailable": "Couldn't check for additional sign-in options.",
       "ssoUnavailableRetry": "Try again",
       "platformAdmin": "Platform admin?",
-      "adminSignIn": "Sign in here"
+      "adminSignIn": "Sign in here",
+      "scheduledForDeletion": {
+        "title": "This business is scheduled for deletion",
+        "restore": "Restore my business",
+        "restoring": "Restoring…",
+        "back": "Back"
+      }
     },
     "adminLogin": {
       "title": "Admin sign in",
@@ -269,7 +275,9 @@
     "toasts": {
       "signInFailed": "Something went wrong signing in. Please try again.",
       "signUpFailed": "Something went wrong creating your account. Please try again.",
-      "signOutFailed": "Something went wrong signing out. Please try again."
+      "signOutFailed": "Something went wrong signing out. Please try again.",
+      "restoreFailed": "We couldn't restore this business. Check your password and try again.",
+      "restored": "Your business has been restored."
     },
     "googleErrors": {
       "NO_ACCOUNT": "No account found for that Google address. Sign up first.",
@@ -313,6 +321,7 @@
     "done": {
       "title": "You're all set",
       "description": "We imported {count} historical reviews and will start checking for new ones every 15 minutes.",
+      "descriptionNoCount": "Your reviews are set up. We'll check for new ones every 15 minutes.",
       "button": "Go to Dashboard"
     },
     "errors": {
@@ -379,6 +388,7 @@
       "incompleteCode": "Enter the 6-digit code.",
       "resend": "Resend code",
       "resendIn": "Resend code in {seconds}s",
+      "changeEmail": "Use a different email",
       "toasts": {
         "resent": "Code resent.",
         "resendFailed": "Could not resend the code. Please try again in a moment.",
@@ -446,7 +456,10 @@
       "reviewCta": "Review"
     },
     "businessProfile": {
-      "googleReviewCount": "({count, plural, one {# Google review} other {# Google reviews}})"
+      "lastSynced": "Last synced {date}",
+      "neverSynced": "Not synced yet",
+      "noAddress": "No address on file",
+      "noLocation": "No Google Business Profile location is connected."
     }
   },
   "reviewQueue": {
@@ -486,11 +499,18 @@
       "loadFailed": "Could not load this review.",
       "approved": "Reply approved.",
       "rejected": "Reply rejected.",
-      "saveFailed": "Could not save the change. Please try again."
+      "saveFailed": "Could not save the change. Please try again.",
+      "posted": "Reply posted to Google.",
+      "postFailed": "Google didn't accept the reply. You can retry.",
+      "postQueued": "Posting to Google…",
+      "postQueueFailed": "Could not queue the post. Please try again.",
+      "manualReplyCreated": "Reply saved.",
+      "postStillPending": "Still posting to Google. Check back in a moment before trying again."
     },
     "replies": {
       "title": "Suggested replies",
-      "description": "Two AI-drafted responses were generated for this escalation. Approving one automatically supersedes the other — only one reply can ever be posted per review.",
+      "descriptionOne": "An AI-drafted response was generated for this review. Approve it as written, edit it first, or reject it.",
+      "descriptionMany": "{count} AI-drafted responses were generated for this review. Approving one automatically supersedes the others — only one reply can ever be posted per review.",
       "snippetLabel": "Snippet {label}",
       "approve": "Approve",
       "edit": "Edit",
@@ -500,12 +520,28 @@
         "pending_approval": "Pending approval",
         "approved": "Approved",
         "rejected": "Rejected",
-        "superseded": "Superseded"
+        "superseded": "Superseded",
+        "posted": "Posted",
+        "post_failed": "Posting failed"
       },
       "confirmation": {
-        "approved": "Approved — will post to Google Business Profile.",
+        "approved": "Approved — not posted to Google yet.",
         "rejected": "Rejected — this snippet will not be used.",
-        "superseded": "Superseded — another reply was approved for this review."
+        "superseded": "Superseded — another reply was approved for this review.",
+        "posted": "Posted to your Google Business Profile.",
+        "post_failed": "Approved, but Google didn't accept the reply."
+      },
+      "post": "Post to Google",
+      "retryPost": "Retry posting",
+      "posting": "Posting…",
+      "postErrorDetail": "Reason: {message}",
+      "retryUnavailable": "Another reply is already live for this review, so this one can't be retried.",
+      "manual": {
+        "title": "Write your own reply",
+        "description": "Prefer your own wording? Write a reply from scratch. It's approved as soon as you save, and replaces any draft still waiting.",
+        "placeholder": "Write your reply…",
+        "submit": "Save reply",
+        "submitting": "Saving…"
       }
     }
   },
@@ -546,7 +582,44 @@
       },
       "save": "Save",
       "saving": "Saving…",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "deleteBusiness": {
+        "title": "Delete this business",
+        "description": "Permanently remove this business, its reviews, replies and settings. You can undo it during the grace period.",
+        "open": "Delete business…",
+        "dialog": {
+          "title": "Delete this business?",
+          "description": "This signs your whole team out now and schedules everything for permanent deletion.",
+          "consequences": {
+            "suspended": "Everyone on your team loses access within minutes.",
+            "billing": "Any paid subscription stops renewing — it ends at the close of the period you've already paid for.",
+            "erased": "After {days} days the business, its reviews and connection are erased for good.",
+            "restore": "Until then, sign in with your password to restore everything.",
+            "noRestore": "You signed in without a password, so restoring it means contacting support before that date."
+          },
+          "nameLabel": "Type \"{name}\" to confirm",
+          "passwordLabel": "Your password",
+          "otpLabel": "Verification code",
+          "otpHint": "We'll email a 6-digit code to confirm it's you.",
+          "sendCode": "Email me a code",
+          "sendingCode": "Sending…",
+          "resendCode": "Resend code",
+          "resendCodeIn": "Resend code in {seconds}s",
+          "cancel": "Cancel",
+          "confirm": "Delete business",
+          "deleting": "Deleting…",
+          "exportHint": "Deleting is permanent once the grace period ends. Want a copy of your data first?",
+          "exportFirst": "Download a copy of my data",
+          "exporting": "Preparing…"
+        },
+        "done": {
+          "title": "Deletion scheduled",
+          "description": "Your business will be permanently erased on {date} ({days} days from now). You've been signed out.",
+          "canRestore": "Changed your mind? Sign in with your email and password before then and choose Restore.",
+          "contactSupport": "To undo this before then, contact support.",
+          "backToSignIn": "Back to sign in"
+        }
+      }
     },
     "blocklist": {
       "title": "Blocklist",
@@ -731,6 +804,14 @@
         "checkoutReconcilePending": "Your payment is still processing — your plan will update shortly.",
         "checkoutReconcileFailed": "We couldn't confirm your payment right now. Refresh this page to try again — if you were charged, your plan will update shortly."
       },
+      "checkoutStatus": {
+        "pendingTitle": "Your payment is still processing",
+        "pendingDescription": "We haven't received confirmation from Stripe yet. This can take a minute. Check again, or come back later — if you were charged, your plan updates on its own.",
+        "failedTitle": "We couldn't confirm your payment",
+        "failedDescription": "Stripe couldn't be reached just now. Check again in a moment — if you were charged, your plan updates on its own.",
+        "checkAgain": "Check again",
+        "checking": "Checking…"
+      },
       "chooseLocation": {
         "title": "Choose your active location",
         "proactiveDescription": "Your plan is moving to Free, which allows {count, plural, one {# location} other {# locations}}. Choose which one should stay active — you can change this any time before then.",
@@ -808,6 +889,18 @@
           "securedByStripe": "Secured by Stripe",
           "expires": "Expires {month}/{year}"
         }
+      }
+    },
+    "exportData": {
+      "title": "Export your data",
+      "description": "Download a copy of your business's data — team, settings, locations, reviews and replies, and billing receipts — as one file. Passwords, connection credentials and payment-provider ids are never included.",
+      "download": "Download my data",
+      "downloading": "Preparing…",
+      "toasts": {
+        "downloaded": "Your data export is ready.",
+        "failed": "Could not prepare the export. Please try again.",
+        "forbidden": "Only the business owner can export its data.",
+        "tooManyRequests": "Too many exports. Please wait a minute and try again."
       }
     }
   },
@@ -1019,7 +1112,18 @@
       }
     },
     "toasts": {
-      "loadFailed": "Could not load billing."
+      "loadFailed": "Could not load billing.",
+      "chargeHandled": "Marked as handled.",
+      "chargeAlreadyHandled": "Already handled.",
+      "chargeHandleFailed": "Could not mark this as handled."
+    },
+    "postErasureCharges": {
+      "title": "Charged after a deletion request",
+      "subtitle": "These businesses asked to be deleted, then were charged anyway. Refund the invoice in Stripe, then mark it handled.",
+      "detail": "Invoice {invoice} · {amount} · paid {date}",
+      "noInvoiceNumber": "(no number)",
+      "resolve": "Mark handled",
+      "resolving": "Saving…"
     }
   },
   "adminBusinesses": {
@@ -1053,11 +1157,11 @@
     },
     "confirmRequestErasure": {
       "title": "Request erasure of {name}?",
-      "description": "Every user in this business loses access now. Their data is permanently erased after the grace period unless you cancel before then."
+      "description": "Every user in this business loses access now and its Google connection stops syncing. A paid subscription is set to end when the current billing period does. After the grace period the business's data is permanently erased, and its Stripe customer and Google access are removed — unless you cancel before then."
     },
     "confirmCancelErasure": {
       "title": "Cancel erasure of {name}?",
-      "description": "This business is restored to active — nothing was erased yet."
+      "description": "This business is restored to active and syncing resumes — nothing was erased yet. A subscription the erasure set to end is resumed; one the owner cancelled themselves stays cancelled, and they can re-subscribe from Billing."
     },
     "emptyState": {
       "title": "No businesses yet",

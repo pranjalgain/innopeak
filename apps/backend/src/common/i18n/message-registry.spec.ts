@@ -2,12 +2,6 @@ import { MESSAGES, renderMessage, renderNestedMessage } from './message-registry
 import { messagesDe } from './messages.de';
 import { messagesEn } from './messages.en';
 
-/**
- * The "translate at the edge" mechanism: `MESSAGES.X.Y` (what every throw site and
- * `ResponseUtil.success` call already uses) must keep behaving as a plain string/function to
- * every existing caller, while carrying enough information for `renderMessage` to resolve the
- * *same* key in either locale later — the entire point of not having to touch ~85 call sites.
- */
 describe('MESSAGES / renderMessage', () => {
   it('MESSAGES leaves are strings/functions, not the rendered English text', () => {
     expect(typeof MESSAGES.AUTH.INVALID_CREDENTIALS).toBe('string');
@@ -44,17 +38,13 @@ describe('MESSAGES / renderMessage', () => {
   });
 
   it('passes through any string that never went through MESSAGES, unchanged', () => {
-    // The class-validator / Postgres-driver / third-party-library case: text this mechanism does
-    // not (yet) cover must never be mangled or dropped.
+    // class-validator, Postgres and third-party text must never be mangled.
     const ordinaryValidationMessage = 'escalationRatingThreshold must not be less than 1';
     expect(renderMessage(ordinaryValidationMessage, 'de')).toBe(ordinaryValidationMessage);
     expect(renderMessage('', 'de')).toBe('');
   });
 
   it('falls back to the raw tag rather than throwing on an unrecognized key path', () => {
-    // Same shape a real tag has, but for a path absent from the catalog — should never happen in
-    // practice (every real tag is generated from the catalog's own shape), but a malformed or
-    // stale tag must degrade to "visibly wrong", not crash the response.
     const realTag = MESSAGES.AUTH.INVALID_CREDENTIALS;
     const malformedTag = realTag.replace('AUTH.INVALID_CREDENTIALS', 'AUTH.NOT_A_REAL_KEY');
 
@@ -62,24 +52,14 @@ describe('MESSAGES / renderMessage', () => {
     expect(renderMessage(malformedTag, 'en')).toBe(malformedTag);
   });
 
-  /**
-   * `@Catch()` (no argument) in HttpExceptionFilter catches literally anything a service can
-   * throw, not just real Error/HttpException instances — `renderMessage` sits inside that filter,
-   * so it is the last thing standing between an arbitrary thrown value and a raw HTML 500 with no
-   * ApiResponse envelope, no traceId, no log line.
-   */
+  // `@Catch()` receives anything thrown; a throw here would yield a raw HTML 500 with no envelope or traceId.
   it('never throws on a non-string input, converting instead of crashing', () => {
     expect(renderMessage(undefined, 'en')).toBe('');
     expect(renderMessage(null, 'en')).toBe('');
     expect(renderMessage(42, 'en')).toBe('42');
   });
 
-  /**
-   * A tag whose path segment names an inherited member of Object.prototype (`constructor`,
-   * `toString`, `hasOwnProperty`, …) must resolve to "not found", the same as any other
-   * unrecognized path — never to the real `Object.prototype` member, which is neither a string nor
-   * safe to invoke with attacker-controlled JSON args.
-   */
+  // An inherited member like `constructor` is neither a string nor safe to call with attacker-controlled JSON args.
   it('does not resolve a path segment to an inherited Object.prototype member', () => {
     const NUL = String.fromCharCode(0);
     expect(renderMessage(`${NUL}i18n${NUL}constructor${NUL}[1]`, 'de')).toBe(
@@ -95,20 +75,13 @@ describe('MESSAGES / renderMessage', () => {
     expect(() => renderMessage(badJson, 'en')).not.toThrow();
     expect(renderMessage(badJson, 'en')).toBe(badJson);
 
-    // Valid JSON, wrong shape for the target function (an array of strings expected, a number
-    // supplied) — throws from inside the catalog function itself (`names.join is not a function`).
+    // Valid JSON of the wrong shape throws inside the catalog function itself.
     const wrongArgType = `${NUL}i18n${NUL}PROMPTS.UNKNOWN_VARIABLE${NUL}[123]`;
     expect(() => renderMessage(wrongArgType, 'en')).not.toThrow();
     expect(renderMessage(wrongArgType, 'en')).toBe(wrongArgType);
   });
 
-  /**
-   * `AuthController.resendOtp`/`logout` and a few others return the exact same `MESSAGES.X.Y`
-   * value both as the envelope's `message` and nested inside `data` (e.g.
-   * `ResponseUtil.success({ message: MESSAGES.AUTH.RESEND_OTP_ACK }, response.message)`). Found
-   * live against the running dev server: without this, a real German-locale response rendered
-   * the envelope's `message` correctly but left the identical raw tag sitting in `data.message`.
-   */
+  // Regression: a German response rendered the envelope `message` but left a raw tag in `data.message`.
   describe('renderNestedMessage', () => {
     it('renders a message field nested inside data, alongside the envelope message', () => {
       const data = { message: MESSAGES.AUTH.RESEND_OTP_ACK };
@@ -139,13 +112,7 @@ describe('MESSAGES / renderMessage', () => {
     });
   });
 
-  /**
-   * The multilingual design doc's own trap: several English messages are *deliberately* identical
-   * across keys to avoid leaking which specific case applied (see each key's comment in
-   * `messages.en.ts`). A translator working key-by-key has no way to know that, and a German
-   * synonym for one but not the other would reintroduce exactly the oracle the English wording was
-   * chosen to avoid. This is the CI-enforced version of that constraint the design doc asks for.
-   */
+  // A translator working key-by-key can't know these are deliberately identical to avoid an enumeration oracle.
   describe('anti-enumeration parity', () => {
     it('keeps SIGNUP_OTP_SENT and LOGIN_OTP_SENT identical in German, as they are in English', () => {
       const email = 'owner@example.com';

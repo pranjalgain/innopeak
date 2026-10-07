@@ -21,33 +21,15 @@ import { useAuth } from "@/hooks/auth/use-auth";
 interface AppHeaderProps {
   title: string;
   identity: ShellIdentity;
-  /** Where the account menu's owner-details row links to — see `AppShellProps.profileHref`. */
   profileHref: string;
   /** Off for the Super Admin shell — review-escalation notifications are a tenant concept. */
   showNotifications?: boolean;
-  /**
-   * Off for the Super Admin shell, for the same reason as `showNotifications`: the switcher reads
-   * `GET /v1/connections`, which is tenant-scoped and 403s for a platform-admin token. It renders
-   * nothing either way, so this isn't visible — it just stops a guaranteed failed request on every
-   * `/admin/*` page load.
-   */
+  /** Off for the Super Admin shell: the switcher reads the tenant-scoped `GET /v1/connections`, which 403s for a platform-admin token. */
   showBusinessSwitcher?: boolean;
-  /**
-   * Off whenever a sidebar is also on screen — its footer already shows this
-   * same avatar/name/role with the same sign-out menu, so showing it again
-   * here would just be the identical control twice. Only mobile (no sidebar)
-   * needs the header's own account menu.
-   */
+  /** Off whenever a sidebar is on screen, since its footer already has this menu; only mobile needs it here. */
   showAccountMenu?: boolean;
 }
 
-/**
- * Top bar shared by every dashboard-shell screen: page title, the business switcher (only renders
- * once there's more than one confirmed location to choose between — see `BusinessSwitcher`), the
- * language switcher and theme toggle (always here — the one pair of controls on screen regardless
- * of breakpoint, see `AppShell`, unlike the account menu below it), notifications, and — on mobile
- * only — the account menu (the sidebar's footer covers it everywhere else, see `showAccountMenu`).
- */
 export function AppHeader({
   title,
   identity,

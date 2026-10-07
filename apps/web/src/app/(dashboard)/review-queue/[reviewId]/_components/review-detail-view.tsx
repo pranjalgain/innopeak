@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { LuArrowLeft, LuSearch } from "react-icons/lu";
 
+import { ManualReplyForm } from "@/app/(dashboard)/review-queue/[reviewId]/_components/manual-reply-form";
 import { ReplyDraftCard } from "@/app/(dashboard)/review-queue/[reviewId]/_components/reply-draft-card";
 import { ReviewSummaryCard } from "@/app/(dashboard)/review-queue/[reviewId]/_components/review-summary-card";
 import { ROUTES } from "@/app/_libs/constants/routes";
+import { getReplyDeliveryState } from "@/app/_libs/utils/reply-delivery";
 import { BackLink } from "@/components/common/back-link";
 import { ReviewStatusBadge } from "@/components/common/review-status-badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +34,18 @@ function ReviewDetailSkeleton() {
 
 export function ReviewDetailView({ reviewId }: ReviewDetailViewProps) {
   const t = useTranslations("reviewDetail");
-  const { review, isLoading, approveDraft, rejectDraft } = useReviewDetail(reviewId);
+  const {
+    review,
+    isLoading,
+    approveDraft,
+    rejectDraft,
+    postDraft,
+    retryDraft,
+    postingDraftIds,
+    decidingDraftIds,
+    createManualReply,
+    isCreatingManualReply,
+  } = useReviewDetail(reviewId);
 
   if (isLoading) return <ReviewDetailSkeleton />;
 
@@ -53,6 +66,18 @@ export function ReviewDetailView({ reviewId }: ReviewDetailViewProps) {
     );
   }
 
+  const pendingCount = review.replyDrafts.filter(
+    (draft) => draft.status === "pending_approval",
+  ).length;
+  // One live reply per review. "Live" is an approved draft whose posting has not *failed*: a failed post reads as
+  // approved too but holds no live slot, so a reply Google keeps rejecting must not lock the owner out of writing their own.
+  const hasLiveReply = review.replyDrafts.some((draft) => {
+    const delivery = getReplyDeliveryState(draft);
+    return delivery === "not_posted" || delivery === "posted";
+  });
+  const canWriteManualReply =
+    review.status !== "responded" && review.status !== "dismissed" && !hasLiveReply;
+
   return (
     <div className="flex flex-col gap-6 p-fluid-page">
       <BackLink href={ROUTES.REVIEW_QUEUE} label={t("backToQueue")} />
@@ -68,7 +93,13 @@ export function ReviewDetailView({ reviewId }: ReviewDetailViewProps) {
         <div className="flex flex-col gap-4">
           <div>
             <h2 className="text-fluid-heading font-semibold">{t("replies.title")}</h2>
-            <p className="text-[13px] text-muted-foreground">{t("replies.description")}</p>
+            {pendingCount > 0 ? (
+              <p className="text-[13px] text-muted-foreground">
+                {pendingCount === 1
+                  ? t("replies.descriptionOne")
+                  : t("replies.descriptionMany", { count: pendingCount })}
+              </p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -78,11 +109,24 @@ export function ReviewDetailView({ reviewId }: ReviewDetailViewProps) {
                 className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards h-full duration-500 ease-fluid"
                 style={{ animationDelay: `${index * 60}ms` }}
               >
-                <ReplyDraftCard draft={draft} onApprove={approveDraft} onReject={rejectDraft} />
+                <ReplyDraftCard
+                  draft={draft}
+                  onApprove={approveDraft}
+                  onReject={rejectDraft}
+                  onPost={postDraft}
+                  onRetry={retryDraft}
+                  isPosting={postingDraftIds.has(draft.id)}
+                  isDeciding={decidingDraftIds.has(draft.id)}
+                  canRetry={!hasLiveReply}
+                />
               </div>
             ))}
           </div>
         </div>
+      ) : null}
+
+      {canWriteManualReply ? (
+        <ManualReplyForm onSubmit={createManualReply} isSubmitting={isCreatingManualReply} />
       ) : null}
     </div>
   );

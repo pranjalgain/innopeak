@@ -15,7 +15,7 @@ const NAV_ITEMS = [
   { key: "howItWorks", href: "/#how-it-works" },
 ] as const;
 
-/** The two labels whose width is reserved across locales — see `StableWidthLabel`. */
+/** The two labels whose width is reserved across locales (`StableWidthLabel`). */
 type ActionKey = "signIn" | "getStarted";
 
 interface LocaleLabel {
@@ -23,10 +23,6 @@ interface LocaleLabel {
   text: string;
 }
 
-/**
- * Shared navigation for public (unauthenticated) routes — currently just
- * the marketing landing page.
- */
 export async function SiteHeader() {
   const activeLocale = (await getLocale()) as AppLocale;
   const t = await getTranslations("marketing.nav");
@@ -47,27 +43,9 @@ export async function SiteHeader() {
           ))}
         </nav>
 
-        {/* `gap-1` below `sm` only — German's longer "Anmelden"/"Jetzt starten" already left this
-            row a few pixels short of fitting at the narrowest real phone widths (~360px) before
-            `ThemeToggle` existed; `sm:gap-2` restores the original spacing the moment there's room
-            for it. `compact` on both switches buys back some of the width their default size
-            (tuned for pages with room to spare) would otherwise cost here — see that prop's own
-            comment on each.
-
-            `ThemeToggle` used to be left out of this row entirely on the theory that a marketing
-            visitor could always reach it one click away at sign-in — but an unauthenticated
-            visitor who only ever looks at the landing page never gets that click, so the row
-            carries both controls now. There simply isn't 48px more to spare below `sm` on top of
-            an already-tight row, verified by measuring the layout viewport a real ~360px phone is
-            forced to at each step: `Sign in` is what goes to make room, hidden below `sm` rather
-            than shrunk further (no smaller `Button` size exists) or dropped for everyone. It's a
-            redundant path at that width, not a lost one — `getStarted` already leads to a signup
-            screen with its own "Already have an account? Sign in" link.
-
-            Both action labels reserve the widest locale's width (`StableWidthLabel`) so that this
-            row's total width — and therefore where the two switches sit — doesn't change when the
-            locale does. That costs nothing at ~360px: the reserved width is German's, which is
-            what the measurements above already had to fit. */}
+        {/* `gap-1` below `sm`: German's longer labels leave the row short of fitting at ~360px, so `Sign in` is also
+            hidden there (`getStarted` leads to a signup screen with its own sign-in link). Both labels reserve the
+            widest locale's width (`StableWidthLabel`) so the switches do not move when the locale changes. */}
         <div className="flex items-center gap-1 sm:gap-2">
           <LanguageSwitcher compact />
           <ThemeToggle compact />
@@ -87,12 +65,7 @@ export async function SiteHeader() {
   );
 }
 
-/**
- * Each action label in *every* supported locale, not just the active one — `StableWidthLabel`
- * needs the alternatives to reserve room for them. `getTranslations({ locale })` reads the same
- * `messages/<locale>.json` the active locale is served from, so nothing here has to be kept in
- * sync by hand as copy changes.
- */
+/** Each action label in every locale, from the same messages JSON, so `StableWidthLabel` can reserve the widest. */
 async function actionLabelsByLocale(): Promise<Record<ActionKey, LocaleLabel[]>> {
   const translators = await Promise.all(
     SUPPORTED_LOCALES.map(async (locale) => ({
@@ -108,20 +81,9 @@ async function actionLabelsByLocale(): Promise<Record<ActionKey, LocaleLabel[]>>
 }
 
 /**
- * Shows the active locale's label while still occupying the width of the widest locale's copy of
- * it, by stacking every translation in one grid cell and hiding all but the active one.
- *
- * Without this, switching to German widened "Sign in"/"Get started" into "Anmelden"/"Jetzt
- * starten" (+24px and +10px at the header's type size) and the whole right-hand cluster — which
- * is right-aligned, so it grows leftward — dragged `LanguageSwitcher` and `ThemeToggle` 34px to
- * the left with it. Those two are the only things in the row whose own content is identical in
- * both locales, which is exactly why they were the parts that read as *moving* rather than as
- * text simply being longer: the switch a visitor just clicked slid out from under their cursor.
- *
- * `invisible` (`visibility: hidden`) rather than `hidden` or `sr-only` is the whole mechanism —
- * it keeps the box in the layout, which is the width being reserved, while dropping the text from
- * both the rendering and the accessibility tree, so the link's accessible name stays the single
- * active label.
+ * Shows the active label while reserving the widest locale's width: German "Anmelden"/"Jetzt starten" otherwise shifted
+ * the right-aligned cluster, sliding `LanguageSwitcher` out from under the cursor. `invisible` (not `hidden`/`sr-only`)
+ * keeps the box in layout but out of the accessibility tree, so the accessible name stays the active label.
  */
 function StableWidthLabel({
   labels,

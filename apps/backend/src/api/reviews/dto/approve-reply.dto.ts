@@ -1,5 +1,9 @@
+import {
+  HAS_VISIBLE_TEXT,
+  REPLY_NEEDS_TEXT_MESSAGE,
+} from '@common/constants/visible-text.constants';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class ApproveReplyDto {
   @ApiPropertyOptional({
@@ -13,5 +17,6 @@ export class ApproveReplyDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(5000)
+  @Matches(HAS_VISIBLE_TEXT, { message: REPLY_NEEDS_TEXT_MESSAGE })
   content?: string;
 }

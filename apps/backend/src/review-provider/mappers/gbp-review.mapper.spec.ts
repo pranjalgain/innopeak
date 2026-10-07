@@ -13,9 +13,7 @@ const BASE: GbpReview = {
 
 describe('mapGbpReview', () => {
   it('takes the review id from the last segment of the resource path', () => {
-    // Not the full path: it embeds the account and location, so the same review re-fetched through
-    // a reconnected account would look like a different review and import twice —
-    // (location_id, external_review_id) would not catch it.
+    // The full path embeds account and location, so a reconnected account would import the same review twice.
     expect(mapGbpReview(BASE).externalReviewId).toBe('abc123');
   });
 
@@ -34,8 +32,7 @@ describe('mapGbpReview', () => {
   });
 
   it('maps a rating-only review to null text, not an empty string', () => {
-    // Google omits `comment` entirely. Null keeps "left no text" distinguishable from "left an
-    // empty string" for the classifier, which has to decide whether there is anything to read.
+    // null keeps "left no text" distinguishable from "left an empty string" for the classifier.
     expect(mapGbpReview(BASE).text).toBeNull();
   });
 
@@ -73,8 +70,7 @@ describe('mapGbpReview', () => {
     });
 
     it('drops a REJECTED reply rather than importing a policy violation as "posted"', () => {
-      // The backfill writes replies as status='posted' and the AI later imitates them as the
-      // owner's voice. A reply Google rejected was never public and must not become an example.
+      // The AI imitates posted replies as the owner's voice; a rejected reply was never public.
       expect(
         mapGbpReview({ ...BASE, reviewReply: { ...reply, reviewReplyState: 'REJECTED' } }).reply
       ).toBeNull();
@@ -112,8 +108,7 @@ describe('mapGbpReviewPage', () => {
   });
 
   it('reports a null total rather than substituting the page length', () => {
-    // A per-page count masquerading as a total gives a progress bar that reaches 100% on page one
-    // and then keeps counting.
+    // A per-page count posing as a total makes progress hit 100% on page one.
     const page = mapGbpReviewPage({ reviews: [BASE] });
     expect(page.totalCount).toBeNull();
     expect(page.reviews).toHaveLength(1);
@@ -143,18 +138,12 @@ describe('mapGbpReviewPage', () => {
     expect(all.some(review => review.text === null)).toBe(true);
     expect(all.some(review => review.reviewerName === null)).toBe(true);
     expect(all.some(review => review.rating === 1)).toBe(true);
-    // Exactly the approved replies — the fixture set carries one REJECTED reply that must be
-    // dropped, so this count is one short of the raw number of reviewReply objects on the wire.
+    // The fixtures carry one REJECTED reply that must be dropped.
     expect(all.filter(review => review.reply !== null)).toHaveLength(MOCK_REVIEWS_WITH_REPLIES);
     expect(all.find(review => review.externalReviewId === 'ptl-008')?.reply).toBeNull();
   });
 
-  /**
-   * Both fields are real — Google's own schema lists them alongside `reviewId`,
-   * `reviewReply`, etc. This product has no review-media feature and never links out to
-   * Google's own reply UI, so they must never reach `ProviderReview`, however the wire happens
-   * to send them.
-   */
+  // Real Google fields, but this product has no review-media feature and never links to Google's reply UI.
   it('discards reviewMediaItems and reviewReplyUrl rather than carrying them through', () => {
     const mapped = mapGbpReview({
       ...BASE,

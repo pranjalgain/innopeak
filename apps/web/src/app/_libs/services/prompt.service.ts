@@ -58,11 +58,7 @@ interface ApiPromptStatsBatchResponse {
   results: PromptVersionStatsBatchItem[];
 }
 
-/**
- * Shown as the author of a version nobody edited. Hardcoded here rather than translated because
- * this layer has no translator — the surrounding strings in this file are the same, so pulling
- * i18n in for one label would be inconsistent. Worth revisiting if the service ever gets a `t`.
- */
+/** Hardcoded, not translated: this layer has no translator and the surrounding strings in this file are the same. */
 const SYSTEM_AUTHOR_LABEL = "InnoPeak default";
 
 function mapVersion(version: ApiPromptVersion): PromptVersion {
@@ -70,9 +66,7 @@ function mapVersion(version: ApiPromptVersion): PromptVersion {
     version: version.version,
     template: version.template,
     updatedAt: version.createdAt,
-    // A null author means nobody edited it — `created_by_user_id` is NULL on the default
-    // templates the tenant starts with, so every tenant's v1 lands here. "Unknown" read
-    // like a bug for those.
+    // null author = nobody edited: `created_by_user_id` is NULL on the default templates, so every tenant's v1 lands here.
     updatedByName: version.createdBy?.name ?? SYSTEM_AUTHOR_LABEL,
   };
 }
@@ -88,10 +82,6 @@ function mapPrompt(prompt: ApiPrompt): AiPrompt {
   };
 }
 
-/**
- * Prompt management against the NestJS prompts API. Hooks call this class, never the generated
- * SDK directly.
- */
 export class PromptService {
   static async getPrompts(): Promise<AiPrompt[]> {
     const response = await promptsApi.promptsControllerListV1({ includeHistory: true });
@@ -127,11 +117,7 @@ export class PromptService {
     return unwrap<ApiPromptVersionStats>(response.data);
   }
 
-  /**
-   * One request for every (promptId, version) pair given — the batch counterpart to
-   * `getVersionStats`, used by `usePromptAnalytics` so rendering a prompt list's current-version
-   * stats costs one round trip instead of one per prompt.
-   */
+  /** Batch counterpart to `getVersionStats`: one round trip for a whole prompt list instead of one per prompt. */
   static async getVersionStatsBatch(pairs: PromptStatsPair[]): Promise<PromptVersionStatsBatchItem[]> {
     if (pairs.length === 0) return [];
 

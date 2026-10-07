@@ -48,12 +48,6 @@ describe('TransformInterceptor', () => {
     });
   });
 
-  /**
-   * The success-response edge of the "translate at the edge" mechanism: a controller/service
-   * message built from `MESSAGES.X.Y` (a locale-agnostic tag, not rendered text — see
-   * `message-registry.spec.ts`) must come out the other side rendered in whatever locale the
-   * request asked for, without the controller ever knowing a locale exists.
-   */
   it('renders a MESSAGES-derived message in German when Accept-Language asks for it', async () => {
     const context = buildHttpContext('/v1/settings', 200, { 'accept-language': 'de' });
     const callHandler: CallHandler = {
@@ -107,13 +101,7 @@ describe('TransformInterceptor', () => {
     });
   });
 
-  /**
-   * Regression test: `partial.data ?? data` cannot tell "the payload already carries `data: null`"
-   * from "the payload has no `data` key at all" — `??` treats both as absent and falls back to
-   * `data` (the whole envelope), double-wrapping it. A void mutation that legitimately answers
-   * `ResponseUtil.success(null, ...)` (e.g. `POST /v1/billing/dummy/complete-checkout`) must come
-   * out with `data: null`, not the envelope nested inside itself.
-   */
+  /** Regression: `partial.data ?? data` double-wrapped an envelope whose own `data` is null (void mutations). */
   it('preserves an explicit null data payload instead of double-wrapping the envelope', async () => {
     const context = buildHttpContext('/v1/billing/dummy/complete-checkout');
     const callHandler: CallHandler = {

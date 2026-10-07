@@ -181,9 +181,8 @@ export class BackfillSummaryDto {
   status!: SyncRunStatus;
 
   /**
-   * Usually `backfill`, but not always: when a run was already in flight for this location the
-   * response describes *that* run, which on an already-live location is the 15-minute
-   * `scheduled` sync. Pinning this to the `backfill` literal made the contract claim otherwise.
+   * Not always `backfill`: if a run was already in flight for the location, this describes that run
+   * (on a live location, the 15-minute `scheduled` sync).
    */
   @ApiProperty({ example: SyncTrigger.BACKFILL, enum: SyncTrigger })
   trigger!: SyncTrigger;

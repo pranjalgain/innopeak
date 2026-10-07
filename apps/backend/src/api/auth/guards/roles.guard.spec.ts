@@ -58,12 +58,7 @@ describe('RolesGuard', () => {
     expect(guard.canActivate(context)).toBe(false);
   });
 
-  /**
-   * The regression this guards against: widening `@Roles()` to also accept
-   * `JwtTokenType.PLATFORM_ADMIN` must not weaken any *existing* tenant-role-only route. A route
-   * whose @Roles() list is all UserRole values must keep rejecting a platform-admin token exactly
-   * as it did before the widening.
-   */
+  /** Widening @Roles() to accept PLATFORM_ADMIN must not let a platform-admin token through tenant-role-only routes. */
   it('rejects a platform-admin token on a route that only lists UserRole values', () => {
     const { guard, context } = contextWithUser(platformAdmin, [UserRole.OWNER, UserRole.MEMBER]);
     expect(guard.canActivate(context)).toBe(false);

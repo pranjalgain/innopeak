@@ -63,16 +63,8 @@ export function NotificationsSettingsSection({
                     <ToggleGroupItem
                       key={channel}
                       value={channel}
-                      // The base `Toggle`/`ToggleGroupItem` primitive's `hover:bg-accent`/
-                      // `data-[state=on]:bg-accent` reads fine in light mode, but dark mode's
-                      // `--accent` sits too close in lightness to `--card`/`--background` to read as
-                      // a visible hover/selected state. A plain white overlay for hover (tried first)
-                      // was too faint on a near-black background to register as "there's an effect
-                      // here" at all, and read as barely different from resting. Using a translucent
-                      // `primary` tint for hover instead — same hue family as the solid `primary` fill
-                      // used for the selected state, just much lower intensity — reads as "a preview
-                      // of what selecting this would look like" rather than an unrelated color, so
-                      // hover and selected stay visually connected but clearly different in strength.
+                      // Dark mode's `--accent` is too close to `--card` to show hover/selected; a translucent `primary` tint keeps hover
+                      // visibly related to, but weaker than, the selected fill.
                       className="px-3 text-xs dark:data-[state=off]:hover:bg-primary/25 dark:data-[state=off]:hover:text-foreground dark:data-[state=on]:bg-primary dark:data-[state=on]:text-primary-foreground"
                     >
                       {t(`channels.${channel}`)}

@@ -45,10 +45,8 @@ import {
 } from './swagger/reviews.swagger';
 
 /**
- * `approve`/`reject` persist a decision on an AI-generated (or imported/manual) draft — who
- * decided it, and when. They do NOT post the reply to Google Business Profile: actually publishing
- * is a distinct, not-yet-built step (blocked on GBP write-API access), so an approved response
- * lands at `status = 'approved'`, never `'posted'`, here.
+ * `approve`/`reject` only persist a decision; they do not post to Google Business Profile (blocked on
+ * GBP write-API access), so an approved response lands at `approved`, never `posted`.
  */
 @Controller({ path: RouteNames.REVIEWS, version: '1' })
 @ApiTags('Reviews')

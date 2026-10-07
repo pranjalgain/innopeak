@@ -4,33 +4,23 @@ import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, count, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 
 import type {
   AtRiskSubscriptionRow,
   PlanSplitCounts,
+  PostErasureChargeRow,
   SubscriptionStatusCounts,
   UpgradeTrendPoint,
   WebhookEventRow,
 } from './types/admin-billing.type';
 
-/**
- * `billing_plans`/`tenant_subscriptions`/`stripe_webhook_events` aggregated platform-wide for the
- * admin Billing page — the one place any of these three tables gets an admin-facing read; every
- * other reader is tenant-scoped (`BillingService`/`BillingWebhooksService`).
- */
+/** Platform-wide aggregates for the admin Billing page; every other reader of these tables is tenant-scoped. */
 @Injectable()
 export class AdminBillingRepository {
   constructor(private readonly dbService: DBService) {}
 
-  /**
-   * A cheap existence check, not `getPlanSplit()` with the count discarded — that one does a full
-   * `GROUP BY count()` over every tenant, real overhead for what the admin frontend calls on
-   * every `/admin/*` page load just to decide whether the Billing nav item should still show
-   * while `PAYMENT_FEATURE_ENABLED` is off (see `AdminBillingService.hasPaidTenants`'s own
-   * comment for why that matters). `LIMIT 1` on an indexed equality lookup is effectively free
-   * regardless of how many tenants exist.
-   */
+  /** Cheap LIMIT 1 existence check instead of getPlanSplit(), since the admin frontend calls it on every /admin/* page load. */
   async hasPaidTenants(): Promise<boolean> {
     const rows = await this.dbService.db
       .select({ id: schema.tenantSubscriptions.id })
@@ -61,9 +51,7 @@ export class AdminBillingRepository {
     return counts;
   }
 
-  /** `status` is `NULL` for a pure-Free tenant that has never started a Stripe checkout — those
-   *  rows are excluded here rather than folded into any bucket, since "no subscription object
-   *  yet" isn't any of the four real Stripe statuses. */
+  /** Rows with NULL `status` (Free tenants that never started checkout) are excluded rather than bucketed. */
   async getSubscriptionStatusCounts(): Promise<SubscriptionStatusCounts> {
     const rows = await this.dbService.db
       .select({ status: schema.tenantSubscriptions.status, value: count() })
@@ -130,6 +118,46 @@ export class AdminBillingRepository {
     return rows.map(row => ({ year: row.year, month: row.month, count: row.value }));
   }
 
+  async getUnresolvedPostErasureCharges(limit: number): Promise<PostErasureChargeRow[]> {
+    return this.dbService.db
+      .select({
+        receiptId: schema.billingReceipts.id,
+        tenantId: schema.billingReceipts.tenantId,
+        businessName: schema.tenants.name,
+        invoiceNumber: schema.billingReceipts.invoiceNumber,
+        amountPaid: schema.billingReceipts.amountPaid,
+        currency: schema.billingReceipts.currency,
+        paidAt: schema.billingReceipts.paidAt,
+      })
+      .from(schema.billingReceipts)
+      .innerJoin(schema.tenants, eq(schema.billingReceipts.tenantId, schema.tenants.id))
+      .where(
+        and(
+          eq(schema.billingReceipts.paidAfterErasureRequest, true),
+          isNull(schema.billingReceipts.refundResolvedAt)
+        )
+      )
+      .orderBy(desc(schema.billingReceipts.paidAt))
+      .limit(limit);
+  }
+
+  /** The WHERE carries the whole rule (flagged and unresolved), so repeats, unknown ids and never-flagged receipts return false and the first resolver's stamp is kept. */
+  async resolvePostErasureCharge(input: { receiptId: string; adminId: string }): Promise<boolean> {
+    const rows = await this.dbService.db
+      .update(schema.billingReceipts)
+      .set({ refundResolvedAt: sql`now()`, refundResolvedByAdminId: input.adminId })
+      .where(
+        and(
+          eq(schema.billingReceipts.id, input.receiptId),
+          eq(schema.billingReceipts.paidAfterErasureRequest, true),
+          isNull(schema.billingReceipts.refundResolvedAt)
+        )
+      )
+      .returning({ id: schema.billingReceipts.id });
+
+    return rows.length > 0;
+  }
+
   async getAtRiskSubscriptions(limit: number): Promise<AtRiskSubscriptionRow[]> {
     const rows = await this.dbService.db
       .select({
@@ -148,17 +176,9 @@ export class AdminBillingRepository {
   }
 
   /**
-   * `stripe_customer_id` is only ever set for a delivery this app could attribute to a real
-   * customer id (see `BillingWebhooksService.handleEvent`) — left joins throughout, so an orphan
-   * event (no matching `tenant_subscriptions` row) or an event predating this column still comes
-   * back as its own row with `tenantId`/`businessName` both `null`, rather than being dropped.
-   *
-   * Always scoped to `HANDLED_STRIPE_EVENT_TYPES` — the raw Stripe events this app receives and
-   * ignores are never surfaced on this admin view at all (an engineering debugging concern for
-   * Stripe's own Dashboard event log or backend logs, not something a platform admin needs).
-   * Filtered via `IN` rather than a stored column — that list is small and changes only when
-   * `BillingWebhooksService` itself grows a new branch, so a derived filter stays correct by
-   * construction instead of needing a migration/backfill every time it does.
+   * Left joins keep orphan events (no matching subscription) and ones predating `stripe_customer_id`, with null
+   * tenantId/businessName. Scoped to HANDLED_STRIPE_EVENT_TYPES via IN rather than a stored column, so a new
+   * handler branch needs no backfill.
    */
   async listWebhookEvents(input: {
     page: number;

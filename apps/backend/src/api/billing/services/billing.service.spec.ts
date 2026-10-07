@@ -3,6 +3,7 @@ import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import type { TenantAuthUser } from '@auth/types/auth.type';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
+import { SubscriptionCancellationSource } from '@common/enums/subscription-cancellation-source.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import type { EnvConfig } from '@config/env.config';
 import type { DrizzleTransaction } from '@db/db.service';
@@ -28,7 +29,6 @@ import {
 } from '../exceptions/billing.exceptions';
 import type { PaymentProvider } from '../providers/payment.provider';
 
-/** Opaque stand-in for the real Drizzle transaction handle `withCheckoutLock` threads through. */
 const fakeTx = { __fakeTx: true } as unknown as DrizzleTransaction;
 
 const tenantUser: TenantAuthUser = {
@@ -50,13 +50,11 @@ const baseSubscription: TenantSubscriptionRow = {
   currentPeriodStart: null,
   currentPeriodEnd: null,
   cancelAtPeriodEnd: false,
+  cancellationSource: null,
   stripeLastVerifiedAt: null,
   checkoutStartedAt: null,
 };
 
-/** Matches `EnvConfig`'s real key set closely enough for `ConfigService.get()` to answer the two
- *  keys `BillingService` actually reads (`FRONTEND_URL`, `PAYMENT_FEATURE_ENABLED`) — everything
- *  else resolves to `undefined`, same as a real `ConfigService` would for an unset var. */
 function buildConfigService(
   overrides: Partial<Record<string, string>> = {}
 ): ConfigService<EnvConfig> {
@@ -74,7 +72,12 @@ describe('BillingService', () => {
   let tenantSubscriptionsDbService: jest.Mocked<
     Pick<
       TenantSubscriptionsDbService,
-      'attachStripeCustomerId' | 'findByTenantId' | 'touchCheckoutStartedAt' | 'withCheckoutLock'
+      | 'attachStripeCustomerId'
+      | 'clearCancellationScheduled'
+      | 'findByTenantId'
+      | 'markCancellationScheduled'
+      | 'touchCheckoutStartedAt'
+      | 'withCheckoutLock'
     >
   >;
   let billingEntitlementsService: jest.Mocked<
@@ -88,8 +91,7 @@ describe('BillingService', () => {
     Pick<BillingReceiptsDbService, 'findByIdForTenant' | 'listByTenantId'>
   >;
   let authDbService: jest.Mocked<Pick<AuthDbService, 'findTenantStatus'>>;
-  // `type` is `readonly` on the real `PaymentProvider` — mutable here so tests can flip it to
-  // simulate the active provider changing, which a plain `Pick<PaymentProvider, ...>` would forbid.
+  // `type` is readonly on the real PaymentProvider; mutable here so tests can flip the active provider.
   let paymentProvider: {
     type: PaymentProvider['type'];
     createCustomer: jest.Mock;
@@ -107,13 +109,11 @@ describe('BillingService', () => {
     billingPlansDbService = { findByCode: jest.fn() };
     tenantSubscriptionsDbService = {
       findByTenantId: jest.fn(),
+      markCancellationScheduled: jest.fn().mockResolvedValue(undefined),
+      clearCancellationScheduled: jest.fn().mockResolvedValue(undefined),
       touchCheckoutStartedAt: jest.fn().mockResolvedValue(undefined),
       attachStripeCustomerId: jest.fn().mockResolvedValue(baseSubscription),
-      // Mirrors the real `TenantSubscriptionsDbService.withCheckoutLock`: resolves the tenant's
-      // current row (via this same mock's own `findByTenantId`, so existing
-      // `findByTenantId.mockResolvedValue(...)` setups keep working) and hands it to the callback
-      // along with a fake tx handle — there's no real transaction/lock to simulate here, only the
-      // shape `BillingService.createCheckoutSession` depends on.
+      // Fake lock: resolves the row via findByTenantId and hands it, with a fake tx, to the callback.
       withCheckoutLock: jest.fn(),
     };
     tenantSubscriptionsDbService.withCheckoutLock.mockImplementation(
@@ -375,6 +375,29 @@ describe('BillingService', () => {
       expect(paymentProvider.cancelSubscription).toHaveBeenCalledWith('sub_1', true);
     });
 
+    // Regression: an owner's cancellation must be distinguishable from an erasure's, or cancelling the erasure would resume (and charge) it.
+    it("records the owner as the cancellation's source before calling the provider", async () => {
+      await target.cancelSubscription(tenantUser);
+
+      expect(tenantSubscriptionsDbService.markCancellationScheduled).toHaveBeenCalledWith(
+        'tenant-1',
+        SubscriptionCancellationSource.OWNER
+      );
+      expect(
+        tenantSubscriptionsDbService.markCancellationScheduled.mock.invocationCallOrder[0]
+      ).toBeLessThan(paymentProvider.cancelSubscription.mock.invocationCallOrder[0] ?? 0);
+    });
+
+    it('reverts the recorded source and rethrows when the provider refuses', async () => {
+      paymentProvider.cancelSubscription.mockRejectedValue(new Error('stripe down'));
+
+      await expect(target.cancelSubscription(tenantUser)).rejects.toThrow('stripe down');
+
+      expect(tenantSubscriptionsDbService.clearCancellationScheduled).toHaveBeenCalledWith(
+        'tenant-1'
+      );
+    });
+
     it('does not touch BillingWebhooksService for a real provider — its own webhook applies the change', async () => {
       paymentProvider.type = 'stripe';
 
@@ -449,8 +472,6 @@ describe('BillingService', () => {
     });
 
     it('scopes the lookup to the caller’s own tenant, at the query itself', async () => {
-      // A cross-tenant id has nothing to find — the query is scoped by tenantId, not a
-      // fetch-then-compare in the service — so this resolves the same as "doesn't exist".
       billingReceiptsDbService.findByIdForTenant.mockResolvedValue(null);
 
       await expect(target.downloadReceiptPdf(tenantUser, 'receipt-1')).rejects.toBeInstanceOf(

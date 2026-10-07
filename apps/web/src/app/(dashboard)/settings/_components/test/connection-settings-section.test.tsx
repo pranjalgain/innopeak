@@ -64,18 +64,10 @@ describe("ConnectionSettingsSection", () => {
     vi.spyOn(ConnectionService, "getState").mockResolvedValue(state);
   }
 
-  /**
-   * Regression: the tile's name came from the `["settings"]` query while the "other locations"
-   * list excluded by id from `["connection"]` — two separate cached copies of the same server
-   * state. Switching business from the header's BusinessSwitcher writes only `["connection"]`, so
-   * until Settings happened to refetch (5-minute staleTime, no refetch on focus) the tile still
-   * named the location that had just been deselected — which the list, now excluding the NEW
-   * active one, also listed. The same store rendered twice, and the genuinely active one nowhere.
-   */
+  /** Regression: after a header business switch the tile named the deselected location (stale ["settings"] copy) while the "other" list also showed it, and the active one appeared nowhere. */
   test("names the live active location, even when the settings copy is stale", async () => {
     mockActiveLocation(UPTOWN);
 
-    // What the stale `["settings"]` cache still says: the previously-active location.
     renderSection({
       businessName: DOWNTOWN.businessName,
       lastSyncedAt: "2026-01-01T00:00:00.000Z",

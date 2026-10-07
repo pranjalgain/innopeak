@@ -1,7 +1,6 @@
 import type { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
+import type { SubscriptionCancellationSource } from '@common/enums/subscription-cancellation-source.enum';
 import type { SubscriptionStatus } from '@common/enums/subscription-status.enum';
-
-// ─── BillingPlansRepository ──────────────────────────────────────────────────
 
 export interface BillingPlanRow {
   id: string;
@@ -17,8 +16,6 @@ export interface BillingPlanRow {
   customPromptsEnabled: boolean;
 }
 
-// ─── BillingReceiptsRepository ───────────────────────────────────────────────
-
 export interface BillingReceiptRow {
   id: string;
   tenantId: string;
@@ -28,6 +25,12 @@ export interface BillingReceiptRow {
   currency: string;
   invoiceNumber: string | null;
   paidAt: string;
+}
+
+/** Whether this delivery created the row (a replay of the same invoice does not), and whether payment landed after an erasure was requested. */
+export interface RecordReceiptOutcome {
+  inserted: boolean;
+  paidAfterErasureRequest: boolean;
 }
 
 export interface InsertBillingReceiptInput {
@@ -40,8 +43,6 @@ export interface InsertBillingReceiptInput {
   paidAt: string;
 }
 
-// ─── TenantSubscriptionsRepository ───────────────────────────────────────────
-
 export interface TenantSubscriptionRow {
   id: string;
   tenantId: string;
@@ -52,12 +53,10 @@ export interface TenantSubscriptionRow {
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
-  /** Last time this row was confirmed in sync with Stripe — by a webhook, the synchronous
-   *  checkout-redirect reconciliation, or the periodic reconciliation sweep. `null` means never
-   *  verified. A sweep confirming a tenant is still genuinely free stamps this too. */
+  cancellationSource: SubscriptionCancellationSource | null;
+  /** Last confirmed in sync with Stripe (webhook, checkout-redirect reconcile or sweep); `null` means never. */
   stripeLastVerifiedAt: string | null;
-  /** When this tenant last started a Checkout Session — bounds the reconciliation sweep, see
-   *  `0011_billing.sql`. `null` means no checkout was ever started. */
+  /** Bounds the reconciliation sweep; `null` means no checkout was ever started. */
   checkoutStartedAt: string | null;
 }
 
@@ -66,11 +65,8 @@ export interface InsertSubscriptionInput {
   planId: string;
 }
 
-/** Every field optional — callers (`TenantSubscriptionsDbService`) build a patch shaped for one
- *  webhook event at a time, never the whole row. */
+/** Every field optional: callers patch one webhook event's worth of fields, never the whole row. */
 export type TenantSubscriptionPatch = Partial<Omit<TenantSubscriptionRow, 'id' | 'tenantId'>>;
-
-// ─── TenantSubscriptionsDbService ────────────────────────────────────────────
 
 export interface SyncSubscriptionFieldsInput {
   status: SubscriptionStatus;

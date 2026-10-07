@@ -12,12 +12,7 @@ interface PromptToneSelectProps {
 
 const TONE_VALUES: PromptTone[] = ["friendly", "professional", "formal", "playful", "empathetic"];
 
-/**
- * The current owner's tone preference for one prompt/section. Separate from
- * the versioned template text — changing tone doesn't create a new prompt
- * version, it's a live per-owner dial layered on top of whichever version
- * is current.
- */
+/** Per-owner tone dial layered on the current version; changing it does not create a new prompt version. */
 export function PromptToneSelect({ promptId, tone, onToneChange }: PromptToneSelectProps) {
   const t = useTranslations("promptManagement.tone");
   const inputId = `prompt-tone-${promptId}`;

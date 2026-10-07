@@ -7,11 +7,7 @@ interface ReviewErrorStateProps {
   onRetry: () => void;
 }
 
-/**
- * Distinct from `ReviewEmptyState`: that one's "clear filters" copy is actively misleading when
- * the page/filter fetch never reached the server at all — this is what `ReviewResults` renders
- * instead of the empty state when `useReviewQueue().isError` is true.
- */
+/** Distinct from `ReviewEmptyState`, whose "clear filters" copy misleads when the fetch never reached the server. */
 export function ReviewErrorState({ onRetry }: ReviewErrorStateProps) {
   const t = useTranslations("reviewQueue.errorState");
 

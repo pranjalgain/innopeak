@@ -1,5 +1,6 @@
 import { MESSAGES } from '@common/constants/messages.constants';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
+import type { SubscriptionCancellationSource } from '@common/enums/subscription-cancellation-source.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import { DrizzleTransaction } from '@db/db.service';
 import { Injectable } from '@nestjs/common';
@@ -12,14 +13,7 @@ import type {
   TenantSubscriptionRow,
 } from './types/billing.type';
 
-/**
- * Composes `TenantSubscriptionsRepository` with `BillingPlansRepository` — every write here that
- * needs "the id of the free/paid plan" resolves it itself rather than pushing that lookup onto
- * `BillingWebhooksService`, per module-structure.md's "DB Service composes repository calls, no
- * business rules" split. The *decision* of which of these methods a given Stripe event calls is
- * still `BillingWebhooksService`'s job (see its own doc comment for the event -> method table) —
- * this class only knows how to perform each resulting state change, not when to.
- */
+/** Resolves the free/paid plan ids itself so BillingWebhooksService doesn't; that service decides which method to call, this only performs the state change. */
 @Injectable()
 export class TenantSubscriptionsDbService {
   constructor(
@@ -45,13 +39,7 @@ export class TenantSubscriptionsDbService {
     return this.tenantSubscriptionsRepository.findByStripeSubscriptionId(stripeSubscriptionId, tx);
   }
 
-  /**
-   * Opens one transaction for the whole checkout-session critical section, serialized per tenant
-   * via `acquireCheckoutLock` — see that repository method's own doc comment for the double-click/
-   * two-tab race this closes. `fn` receives the tx (to pass into any further tx-aware DbService
-   * call, e.g. `attachStripeCustomerId`) and the tenant's current row (`null` only if the tenant
-   * genuinely has none, which should never happen — every tenant gets one at signup).
-   */
+  /** One transaction serialized per tenant via acquireCheckoutLock (closes the double-click/two-tab race); `fn` gets the tx and the tenant's row. */
   withCheckoutLock<T>(
     tenantId: string,
     fn: (tx: DrizzleTransaction, subscription: TenantSubscriptionRow | null) => Promise<T>
@@ -63,36 +51,22 @@ export class TenantSubscriptionsDbService {
     });
   }
 
-  /**
-   * Called from inside `AuthDbService.signup`'s own transaction — `tx` is the caller's handle, not
-   * one opened here, so the free subscription row commits atomically with the tenant/user rows it
-   * belongs to (see that method's own doc comment for why: a tenant must never be observable
-   * without one).
-   */
+  /** Runs in AuthDbService.signup's transaction so a tenant is never observable without a subscription row. */
   async insertFreeSubscription(
     tx: DrizzleTransaction,
     tenantId: string
   ): Promise<TenantSubscriptionRow> {
     const freePlan = await this.billingPlansRepository.findByCode(BillingPlanCode.FREE, tx);
     if (!freePlan) {
-      // Never expected outside a broken/partial migration — 0011_billing.sql seeds both plans
-      // unconditionally before this code path can ever run.
+      // Only possible with a broken migration; 0011_billing.sql seeds both plans.
       throw new Error(MESSAGES.BILLING.FREE_PLAN_NOT_SEEDED);
     }
     return this.tenantSubscriptionsRepository.insert(tx, { tenantId, planId: freePlan.id });
   }
 
   /**
-   * Persists the Stripe customer created ahead of a tenant's first Checkout session — happens
-   * before any webhook fires, so `tenant_subscriptions.stripe_customer_id` is populated even
-   * while the tenant is still on `free`, letting a later webhook resolve the tenant by customer
-   * id no matter which event arrives first.
-   *
-   * Conditional (`WHERE stripe_customer_id IS NULL`, see
-   * `TenantSubscriptionsRepository.attachStripeCustomerIdIfAbsent`) — called from inside
-   * `BillingService.createCheckoutSession`'s per-tenant lock (`withCheckoutLock`), where it should
-   * never actually lose a race, but stays conditional anyway as a second, independent guard against
-   * ever silently overwriting an id some other write already attached.
+   * Persisted before any webhook fires so a later webhook can resolve the tenant by customer id regardless of event
+   * order. Conditional as a second guard against overwriting an id some other write already attached.
    */
   attachStripeCustomerId(
     tenantId: string,
@@ -106,9 +80,7 @@ export class TenantSubscriptionsDbService {
     );
   }
 
-  /** `checkout.session.completed` — the one write that moves `plan_id` to `paid`. `tx` threads
-   *  through so `BillingWebhooksService` can commit this atomically with the idempotency-ledger
-   *  insert that guards it — see that class's own doc comment. */
+  /** The one write that moves `plan_id` to paid; `tx` lets the webhook commit it with the idempotency-ledger insert. */
   async setToPaidFromCheckout(
     tenantId: string,
     input: SetToPaidInput,
@@ -127,17 +99,13 @@ export class TenantSubscriptionsDbService {
         currentPeriodStart: input.currentPeriodStart,
         currentPeriodEnd: input.currentPeriodEnd,
         cancelAtPeriodEnd: input.cancelAtPeriodEnd,
+        cancellationSource: null,
       },
       tx
     );
   }
 
-  /**
-   * `customer.subscription.updated` — status/period/cancel-flag sync only. Deliberately never
-   * touches `plan_id`: a tenant who canceled but is still inside their paid period arrives here
-   * with `cancelAtPeriodEnd: true` and must keep reading as `paid` with unlimited entitlements
-   * until `customer.subscription.deleted` actually ends it — see `BillingWebhooksService`.
-   */
+  /** Status/period/cancel-flag sync only; never touches `plan_id`, so a canceled tenant still inside their paid period stays paid until `customer.subscription.deleted`. */
   syncSubscriptionFields(
     tenantId: string,
     input: SyncSubscriptionFieldsInput,
@@ -150,16 +118,36 @@ export class TenantSubscriptionsDbService {
         currentPeriodStart: input.currentPeriodStart,
         currentPeriodEnd: input.currentPeriodEnd,
         cancelAtPeriodEnd: input.cancelAtPeriodEnd,
+        // Cleared once no longer ending (resumed, erasure cancelled); while ending the source stays as
+        // markCancellationScheduled wrote it, since a webhook can't know who asked.
+        ...(input.cancelAtPeriodEnd ? {} : { cancellationSource: null }),
       },
       tx
     );
   }
 
-  /** `customer.subscription.deleted` — the one write that restores Free's limits. Clears every
-   *  Stripe-specific field: a fresh future upgrade starts a brand new Checkout Session / Stripe
-   *  subscription, not a resumed one. `stripe_customer_id` is deliberately left alone — the
-   *  customer object itself still exists in Stripe and a future re-upgrade should reuse it rather
-   *  than mint a second one for the same tenant. */
+  /**
+   * Records that we asked the provider to end this at period end, and why. Written before the provider call (reverted on
+   * failure) so the following webhook always finds a source; also sets the flag since the Dummy provider sends no webhook.
+   */
+  markCancellationScheduled(
+    tenantId: string,
+    source: SubscriptionCancellationSource
+  ): Promise<TenantSubscriptionRow | null> {
+    return this.tenantSubscriptionsRepository.updateByTenantId(tenantId, {
+      cancelAtPeriodEnd: true,
+      cancellationSource: source,
+    });
+  }
+
+  clearCancellationScheduled(tenantId: string): Promise<TenantSubscriptionRow | null> {
+    return this.tenantSubscriptionsRepository.updateByTenantId(tenantId, {
+      cancelAtPeriodEnd: false,
+      cancellationSource: null,
+    });
+  }
+
+  /** Restores Free's limits and clears Stripe-specific fields (a re-upgrade starts a new subscription); keeps `stripe_customer_id` so the customer is reused. */
   async setToFreeFromSubscriptionDeleted(
     tenantId: string,
     tx?: DrizzleTransaction
@@ -177,13 +165,13 @@ export class TenantSubscriptionsDbService {
         currentPeriodStart: null,
         currentPeriodEnd: null,
         cancelAtPeriodEnd: false,
+        cancellationSource: null,
       },
       tx
     );
   }
 
-  /** `invoice.payment_failed` / `invoice.payment_succeeded` — status only, per the plan's v1 scope
-   *  (no email queuing on invoice events). */
+  /** Status only; no email queuing on invoice events. */
   updateStatus(
     tenantId: string,
     status: SubscriptionStatus,
@@ -192,17 +180,14 @@ export class TenantSubscriptionsDbService {
     return this.tenantSubscriptionsRepository.updateByTenantId(tenantId, { status }, tx);
   }
 
-  /** See `TenantSubscriptionsRepository.touchStripeVerifiedAt`. */
   touchStripeVerifiedAt(tenantId: string, tx?: DrizzleTransaction): Promise<void> {
     return this.tenantSubscriptionsRepository.touchStripeVerifiedAt(tenantId, tx);
   }
 
-  /** See `TenantSubscriptionsRepository.touchCheckoutStartedAt`. */
   touchCheckoutStartedAt(tenantId: string, tx?: DrizzleTransaction): Promise<void> {
     return this.tenantSubscriptionsRepository.touchCheckoutStartedAt(tenantId, tx);
   }
 
-  /** See `TenantSubscriptionsRepository.findStaleFreeWithStripeCustomer`. */
   findStaleFreeWithStripeCustomer(): Promise<{ tenantId: string; stripeCustomerId: string }[]> {
     return this.tenantSubscriptionsRepository.findStaleFreeWithStripeCustomer();
   }

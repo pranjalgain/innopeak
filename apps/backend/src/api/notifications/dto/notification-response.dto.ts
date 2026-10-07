@@ -51,9 +51,7 @@ export class NotificationDto {
   }
 }
 
-/** Flat — no `meta` wrapper — matching the web app's own `NotificationPage`
- *  (`notification.service.ts`), not this app's usual `{ data, meta }` list shape. See the
- *  overview's MVP scope for why this route is a deliberate exception. */
+/** Flat, no `meta` wrapper, to match the web app's `NotificationPage`; a deliberate exception to the usual `{ data, meta }` list shape. */
 export class NotificationListResponseDto {
   @ApiProperty({
     type: [NotificationDto],
@@ -93,8 +91,7 @@ export class NotificationListResponseDto {
   }
 }
 
-/** What both mark-read routes answer with. Only the unread count, because that is the single
- *  thing the caller cannot derive for itself: the row it just marked is one it already holds. */
+/** Only the unread count: the one thing the caller cannot derive, since it already holds the row it marked. */
 export class NotificationReadResponseDto {
   @ApiProperty({
     example: 4,

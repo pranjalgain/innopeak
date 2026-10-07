@@ -1,4 +1,5 @@
 import { QueueUIModule } from '@bg/queue-ui.module';
+import { BillingReconciliationModule } from '@billing/billing-reconciliation.module';
 import { BcryptService } from '@common/hashing/bcrypt.service';
 import { HashingService } from '@common/hashing/hashing.service';
 import { isProduction } from '@config/deployment-target.util';
@@ -20,7 +21,9 @@ import { MockGoogleIdentityProvider } from './providers/mock-google-identity.pro
 import { RandomVerifyEmailTokenProvider } from './providers/random-verify-email-token.provider';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
 import { AccountAnonymizationService } from './services/account-anonymization.service';
+import { AccountDeletionService } from './services/account-deletion.service';
 import { AuthService } from './services/auth.service';
+import { ErasureNoticeService } from './services/erasure-notice.service';
 import { GoogleOAuthStateService } from './services/google-oauth-state.service';
 import { LoginAttemptService } from './services/login-attempt.service';
 import { OtpAttemptService } from './services/otp-attempt.service';
@@ -29,9 +32,8 @@ import { PlatformAdminAuthService } from './services/platform-admin-auth.service
 import { TokenService } from './services/token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
-// Non-production swaps in the fixed dev bypass code when DEV_VERIFY_EMAIL_TOKEN is set — same
-// DI-swap pattern EmailModule uses for NoopEmailProvider, so AuthService itself never branches on
-// environment. Forbidden in production by env-config.module.ts's Joi schema regardless.
+// Non-production swaps in the fixed dev bypass code when DEV_VERIFY_EMAIL_TOKEN is set, so AuthService
+// never branches on environment. Joi forbids it in production.
 const verifyEmailTokenProviderFactory = {
   provide: VerifyEmailTokenProvider,
   useFactory: (configService: ConfigService<EnvConfig>): VerifyEmailTokenProvider => {
@@ -46,9 +48,8 @@ const verifyEmailTokenProviderFactory = {
   inject: [ConfigService],
 };
 
-// Same DI-swap as above: DEV_GOOGLE_AUTH_MOCK routes the whole sign-in through the real callback
-// against a fabricated profile, so the flow is exercisable before an OAuth client exists. Joi
-// forbids the flag in production.
+// Same DI swap: DEV_GOOGLE_AUTH_MOCK runs the real callback against a fabricated profile before an
+// OAuth client exists. Joi forbids it in production.
 const googleIdentityProviderFactory = {
   provide: GoogleIdentityProvider,
   useFactory: (configService: ConfigService<EnvConfig>): GoogleIdentityProvider => {
@@ -69,16 +70,14 @@ const googleIdentityProviderFactory = {
     JwtModule.registerAsync({
       useFactory: (configService: ConfigService<EnvConfig>) => ({
         secret: configService.get<string>('JWT_SECRET') ?? '',
-        // Refresh tokens override `secret`/`expiresIn` per-call (TokenService) rather than a
-        // second JwtModule registration — @nestjs/jwt's JwtService.sign()/verify() already accept
-        // both as call-level overrides, so a second registered instance would just be unused
-        // duplication.
-        signOptions: { expiresIn: ACCESS_TOKEN_TTL_SECONDS }, // see the auth API reference's Session / token model
+        // Refresh tokens override `secret`/`expiresIn` per call (TokenService) instead of a second JwtModule.
+        signOptions: { expiresIn: ACCESS_TOKEN_TTL_SECONDS },
       }),
       inject: [ConfigService],
     }),
     QueueUIModule, // for AddingJobsToQueueManager — signup/login enqueue the verification OTP
     RedisModule, // OtpAttemptService's, GoogleOAuthStateService's, and PendingGoogleSignupService's stores
+    BillingReconciliationModule, // AccountDeletionService stops/resumes the subscription on a self-service erasure
     MediaModule, // AuthService.me/toTokenIssuanceResult read the caller's current avatarUrl
   ],
   controllers: [AuthController, PlatformAdminAuthController],
@@ -94,22 +93,21 @@ const googleIdentityProviderFactory = {
     GoogleOAuthStateService,
     PendingGoogleSignupService,
     AccountAnonymizationService,
+    AccountDeletionService,
+    ErasureNoticeService,
     { provide: HashingService, useClass: BcryptService },
   ],
-  // `TokenService`/`JwtModule` — `AdminSettingsService.updateLocale` needs
-  // `signPlatformAdminAccessToken` to reissue the caller's access token with its fresh `locale`
-  // claim, the same reissue-not-relogin shape `AuthService.updateLocale` already uses for a
-  // tenant user. `OtpAttemptService`/`VerifyEmailTokenProvider` are the admin-side add-password
-  // flow's step-up OTP machinery (`AdminSettingsService.requestSetPasswordOtp`/`setPassword`) —
-  // the exact same generic, email-keyed services the tenant flow uses, reused rather than
-  // duplicated. `AccountAnonymizationService` is exported for `CronModule`'s nightly erasure-purge
-  // job. Nothing else here is meant for use outside this module.
+  // TokenService/JwtModule: AdminSettingsService reissues the access token with a fresh `locale` claim.
+  // OtpAttemptService/VerifyEmailTokenProvider: the admin add-password flow reuses the tenant step-up OTP.
+  // AccountAnonymizationService: CronModule's nightly erasure purge. ErasureNoticeService: that job's emails
+  // and AdminBusinessesService's request/cancel notices.
   exports: [
     TokenService,
     JwtModule,
     OtpAttemptService,
     VerifyEmailTokenProvider,
     AccountAnonymizationService,
+    ErasureNoticeService,
   ],
 })
 export class AuthModule {}

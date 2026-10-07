@@ -27,25 +27,9 @@ export class ConnectionsSyncController {
   constructor(private readonly connectionsSyncService: ConnectionsSyncService) {}
 
   /**
-   * The one route with a throttle override. At the global `short` tier (30/min) the onboarding
-   * screen's ~2.5-second poll exceeds the limit inside the first minute and the owner's progress
-   * bar dies with a 429 mid-onboarding.
-   *
-   * `ThrottlerGuard` evaluates **every** configured tier per request, and `@Throttle` overrides
-   * only the tiers it names — so raising `short` alone is not enough. At 24 requests/minute this
-   * poll blows through `medium` (100 per 5 min) in about four minutes, `long` (500 per 30 min) in
-   * about twenty, and `very-long` (1000 per hour) in about forty. Each of those would 429 an
-   * import that is still legitimately running.
-   *
-   * They are skipped rather than re-numbered per tier: this route's budget is fully expressed by
-   * `BACKFILL_POLL_THROTTLE`, and four hand-maintained numbers that all have to stay consistent
-   * with one poll interval is a worse invariant than one. The route is cheap (two indexed
-   * single-row reads) and requires a tenant-owned `locationId`, so its own per-minute ceiling is
-   * the meaningful limit.
-   *
-   * NOTE: this only became load-bearing when the global tiers' `ttl` was corrected from seconds
-   * to milliseconds. Before that they were 60-300ms windows that reset before they could ever
-   * bind, which is why a `short`-only override appeared to work.
+   * The onboarding poll (~2.5s) would 429 at the global `short` tier. `ThrottlerGuard` evaluates every tier
+   * and `@Throttle` overrides only those it names, so the other tiers are skipped (not re-numbered) to
+   * keep `BACKFILL_POLL_THROTTLE` the single budget; the route is cheap and tenant-scoped.
    */
   @Get(RouteNames.LOCATION_BACKFILL)
   @Throttle({ short: BACKFILL_POLL_THROTTLE })

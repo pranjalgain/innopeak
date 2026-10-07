@@ -6,16 +6,7 @@ import type { ReviewClassification } from "@/types/domain";
 
 interface ClassificationBadgeProps {
   classification: ReviewClassification | null;
-  /**
-   * Merged in after the classification's own colour classes — for a caller in a fixed-width
-   * container to bound the label instead of letting it spill past its box. `ReviewTable` is
-   * the reason this exists: its `table-fixed` columns don't grow for overflow the way an
-   * `auto`-layout table would, and a translated classification label can still be wider than
-   * the column it sits in. It passes `max-w-full whitespace-normal break-words` so the label
-   * **wraps** — deliberately
-   * not `truncate`, which hid half the text behind an ellipsis; classification is information
-   * someone is meant to read, not decoration.
-   */
+  /** Lets a fixed-width caller (`ReviewTable`'s `table-fixed` columns) wrap the label instead of `truncate`, which hid half the text. */
   className?: string;
 }
 
@@ -26,11 +17,7 @@ const CLASSNAME_BY_CLASSIFICATION: Record<ReviewClassification, string> = {
   pending_classification: "border-border text-muted-foreground",
 };
 
-/**
- * A review's classification chip. `unclassified`/`pending_classification`/
- * `null` all render as "Unclassified" — same as the design's own
- * `classificationInfo()` fallback.
- */
+/** `unclassified`, `pending_classification` and `null` all render as "Unclassified". */
 export function ClassificationBadge({ classification, className }: ClassificationBadgeProps) {
   const t = useTranslations("common.classification");
   const key = classification ?? "unclassified";

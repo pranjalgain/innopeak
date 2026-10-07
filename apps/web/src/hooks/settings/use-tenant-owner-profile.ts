@@ -4,8 +4,10 @@ import { useTranslations } from "next-intl";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
+import type { DeleteAccountInput, DeleteAccountResult } from "@/app/_libs/services/auth.service";
 import { AvatarUploadService } from "@/app/_libs/services/avatar-upload.service";
 import { TenantOwnerProfileService } from "@/app/_libs/services/tenant-owner-profile.service";
+import { isInitialLoad } from "@/hooks/common/is-initial-load";
 import { toastApiError } from "@/hooks/common/toast-api-error";
 import { useQueryErrorToast } from "@/hooks/common/use-query-error-toast";
 import type { TenantOwnerProfile } from "@/types/domain";
@@ -16,16 +18,26 @@ interface UseTenantOwnerProfileResult {
   profile: TenantOwnerProfile | null;
   isLoading: boolean;
   updateAvatar: (file: File) => Promise<void>;
-  /** In-flight flag for the avatar upload, so the picker can disable itself and show a spinner. */
   isUploadingAvatar: boolean;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
-  /** Step-up verification ahead of `setPassword` — mails a 6-digit code. Returns whether it was
-   *  acknowledged (network/unexpected failures only; the backend's own ack is always "success"
-   *  whether or not a fresh code actually went out, to avoid leaking cooldown state). */
+  /**
+   * Step-up verification ahead of `setPassword`. Returns whether it was acknowledged (false only on
+   * network/unexpected failures: the backend always acks "success" so cooldown state does not
+   * leak).
+   */
   requestSetPasswordOtp: () => Promise<boolean>;
-  /** For an account with no password yet — flips `profile.hasPassword` to true on success, so the
-   *  form swaps to the normal change-password one without a reload. */
+  /**
+   * For an account with no password yet; flips `profile.hasPassword` so the form swaps to change-
+   * password without a reload.
+   */
   setPassword: (newPassword: string, otp: string) => Promise<boolean>;
+  /** Mails the step-up code an owner without a password confirms deletion with. */
+  requestDeleteAccountOtp: () => Promise<boolean>;
+  /**
+   * Schedules erasure and ends the session. Resolves to the schedule, or null on failure (toast
+   * already shown).
+   */
+  deleteAccount: (input: DeleteAccountInput) => Promise<DeleteAccountResult | null>;
 }
 
 export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
@@ -37,10 +49,8 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
     queryFn: () => TenantOwnerProfileService.get(),
   });
 
-  // This hook is called from several simultaneously mounted components (the dashboard shell,
-  // ConnectionGuard, SettingsView, the Profile tab itself) that all share this one query key —
-  // see `useQueryErrorToast`'s own comment for why a plain `useEffect` here would show the same
-  // toast once per mounted instance instead of once per actual failure.
+  // Called from several simultaneously mounted components sharing one query key; see
+  // `useQueryErrorToast` for why a plain `useEffect` would toast once per instance.
   useQueryErrorToast(tenantOwnerProfileQueryKey, profileQuery, t("loadFailed"));
 
   const updateAvatarMutation = useMutation({
@@ -51,17 +61,16 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
     async (file: File) => {
       try {
         const avatarUrl = await updateAvatarMutation.mutateAsync(file);
-        // The confirm route only ever knows the avatar itself, not this tenant's full profile
-        // (see `TenantOwnerProfileService.updateAvatar`) — merge into what's already cached
-        // rather than replacing it.
+        // The confirm route only knows the avatar, not the full profile (see
+        // `TenantOwnerProfileService.updateAvatar`): merge into the cache rather than replace it.
         queryClient.setQueryData<TenantOwnerProfile>(tenantOwnerProfileQueryKey, (current) =>
           current ? { ...current, avatarUrl } : current,
         );
         toast.success(t("avatarUpdated"));
       } catch (error) {
-        // The provider's own refusal ("File size too large", "unsupported format") is the only
-        // thing that tells the user to pick a *different* file — collapsing it into the generic
-        // "could not save" left them retrying the same oversized photo forever.
+        // The provider's refusal ("File size too large", "unsupported format") is the only thing
+        // telling the user to pick a different file; the generic "could not save" left them
+        // retrying the same photo.
         toast.error(AvatarUploadService.errorMessage(error, t("updateFailed")));
       }
     },
@@ -98,10 +107,8 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
       toast.success(t("otpSent"));
       return true;
     } catch (error) {
-      // 429 is its own case, not a server fault: both set-password routes carry a 5/minute
-      // throttle (see the admin twin, `usePlatformAdminProfile`), and "Could not save this change"
-      // told an owner who had just clicked resend once too often to keep trying, which is exactly
-      // the wrong advice.
+      // 429 is not a server fault: both set-password routes are throttled 5/minute, and "Could not
+      // save this change" would tell an owner who clicked resend too often to keep trying.
       toastApiError(error, { 429: t("tooManyRequests"), 400: null }, t("updateFailed"));
       return false;
     }
@@ -122,9 +129,8 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
         toast.success(t("passwordSet"));
         return true;
       } catch (error) {
-        // Same three-way split as `requestSetPasswordOtp`: the backend answers 429 both for the
-        // route's own throttle and for a spent OTP attempt budget, and either one means "wait",
-        // not "something broke".
+        // Same three-way split as `requestSetPasswordOtp`: 429 means "wait" (route throttle or
+        // spent OTP budget), not "something broke".
         toastApiError(error, { 429: t("tooManyRequests"), 400: null }, t("updateFailed"));
         return false;
       }
@@ -132,13 +138,55 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
     [t, setPasswordMutation, queryClient],
   );
 
+  const requestDeleteAccountOtpMutation = useMutation({
+    mutationFn: () => TenantOwnerProfileService.requestDeleteAccountOtp(),
+  });
+
+  const requestDeleteAccountOtp = useCallback(async () => {
+    try {
+      await requestDeleteAccountOtpMutation.mutateAsync();
+      toast.success(t("otpSent"));
+      return true;
+    } catch (error) {
+      toastApiError(error, { 429: t("tooManyRequests"), 400: null }, t("updateFailed"));
+      return false;
+    }
+  }, [t, requestDeleteAccountOtpMutation]);
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: (input: DeleteAccountInput) => TenantOwnerProfileService.deleteAccount(input),
+  });
+
+  const deleteAccount = useCallback(
+    async (input: DeleteAccountInput) => {
+      try {
+        // The cache is left alone: the confirmation screen still reads the profile, and "Back to
+        // sign in" is a full page load that drops it anyway.
+        return await deleteAccountMutation.mutateAsync(input);
+      } catch (error) {
+        // 400 = wrong business name / bad or missing code, 401 = wrong password, 409 = no longer
+        // possible, 429 = throttle or spent code budget; each carries server-authored copy except
+        // 401, whose generic wording is the profile form's.
+        toastApiError(
+          error,
+          { 400: null, 401: t("currentPasswordIncorrect"), 409: null, 429: t("tooManyRequests") },
+          t("updateFailed"),
+        );
+        return null;
+      }
+    },
+    [t, deleteAccountMutation],
+  );
+
   return {
     profile: profileQuery.data ?? null,
-    isLoading: profileQuery.isLoading,
+    isLoading: isInitialLoad(profileQuery),
     updateAvatar,
     isUploadingAvatar: updateAvatarMutation.isPending,
     changePassword,
     requestSetPasswordOtp,
     setPassword,
+    requestDeleteAccountOtp,
+    deleteAccount,
   };
 }

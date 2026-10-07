@@ -4,12 +4,7 @@ interface ConfigServiceLike {
   get: <T = string>(key: keyof EnvConfig) => T | undefined;
 }
 
-/**
- * Shared by every AWS SDK client construction (S3, SES, SNS, SQS, Secrets Manager) so pointing
- * at Floci instead of real AWS is a one-line addition per provider rather than duplicated env-var
- * logic. Returns `undefined` outside `DEPLOYMENT_TARGET=aws`, which leaves the AWS SDK's default
- * endpoint resolution (real AWS) untouched.
- */
+/** Returns `undefined` outside `DEPLOYMENT_TARGET=aws`, leaving the AWS SDK's default endpoint resolution untouched. */
 export function getAwsEndpointOverride(configService: ConfigServiceLike): string | undefined {
   if (configService.get<string>('DEPLOYMENT_TARGET') !== 'aws') {
     return undefined;
@@ -18,11 +13,8 @@ export function getAwsEndpointOverride(configService: ConfigServiceLike): string
 }
 
 /**
- * Floci accepts any credentials, but the AWS SDK v3's default credential provider chain still
- * throws `CredentialsProviderError` if none are configured (env vars, shared config, IMDS, etc.)
- * — so every client construction needs an explicit static-credentials fallback while pointed at
- * Floci. Returns `undefined` outside `DEPLOYMENT_TARGET=aws`, leaving the default chain untouched
- * for real AWS.
+ * Floci accepts any credentials, but the SDK v3 default chain still throws `CredentialsProviderError`
+ * when none are configured, so a static fallback is needed while pointed at Floci. `undefined` outside `DEPLOYMENT_TARGET=aws`.
  */
 export function getFlociCredentials(
   configService: ConfigServiceLike

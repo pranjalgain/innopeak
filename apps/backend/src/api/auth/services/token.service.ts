@@ -32,20 +32,10 @@ import { isTenantLoginBlocked } from '../utils/tenant-status.util';
 import { hashToken } from '../utils/token.utils';
 
 /**
- * Owns issuing/rotating/revoking the access+refresh token pair — the one thing every success
- * path in this module (signup's verify-email step, login, refresh) needs, so it's a shared
- * service rather than duplicated logic in `AuthService`. "Basic rotation" only (see
- * `refresh_tokens` migration comment): single-use rotation and revocation, not the fuller
- * reuse-grace-window replay tolerance / token-family theft detection the docs describe as a
- * follow-up.
- *
- * The refresh token is itself a signed JWT (bound to JWT_REFRESH_SECRET, distinct from the
- * access token's JWT_SECRET) purely so a garbage/expired token can be rejected cheaply before
- * ever touching the DB — the actual source of truth for validity/revocation is always the
- * `refresh_tokens` row, looked up by `sha256(token)`. A `jti` claim guarantees two tokens issued
- * for the same user in the same second are never byte-identical (they'd otherwise collide on
- * `refresh_tokens.token_hash`'s unique index). Depends on `AuthDbService`, not `AuthRepository`
- * directly — same layering rule every Service in this module follows.
+ * The refresh token is a signed JWT (separate secret) only so garbage or expired tokens are
+ * rejected before touching the DB; the source of truth is the `refresh_tokens` row, looked up by
+ * `sha256(token)`. A `jti` claim keeps two tokens issued for the same user in the same second from
+ * colliding on `token_hash`'s unique index.
  */
 @Injectable()
 export class TokenService {
@@ -69,35 +59,26 @@ export class TokenService {
   }
 
   /**
-   * Verifies the JWT, then re-checks the principal's standing before honoring it (a valid
-   * refresh token only proves the caller *had* a session, not that they still should) — a
-   * disabled user or suspended tenant gets every one of their refresh tokens revoked, the
-   * closest "basic rotation" gets to the docs' token-family revocation.
-   *
-   * The revoke of the spent token and the insert of its replacement are one atomic DB step
-   * (`AuthDbService.rotateRefreshToken`), and a revoke that changed nothing means someone else
-   * already spent this token — that caller is rejected, not handed a second live session.
-   *
-   * Two ways to fail to find an active token, and they are NOT interchangeable to the caller:
-   * the session may be genuinely gone (revoked on logout, expired, or the row deleted by a dev
-   * DB reset), or the token may simply have lost a race to a concurrent refresh that already
-   * minted a valid successor. Both are a 401 with the same message, but only the first should
-   * clear the browser's session cookies — see `RefreshTokenSupersededException` and
-   * `AuthController.refresh`. `hasActiveRefreshToken` is what tells the two apart.
+   * Re-checks the principal's standing before honoring the token (a valid refresh token only proves
+   * the caller had a session): a disabled user or suspended tenant gets every refresh token
+   * revoked. Revoking the spent token and inserting its replacement is one atomic step; a revoke
+   * that changed nothing means someone else already spent it, so the caller is rejected. Failing to
+   * find an active token has two causes that are NOT interchangeable: the session is gone (clear
+   * cookies), or the token lost a race to a concurrent refresh that minted a valid successor (keep
+   * cookies). `hasActiveRefreshToken` tells them apart; see `RefreshTokenSupersededException`.
    */
   async rotate(rawRefreshToken: string): Promise<{
     tokens: TokenResponse;
     user: TokenSubject & { name: string; passwordHash: string | null };
-    /** Handed back so `AuthService.refresh` doesn't re-query the row this method already read. */
     tenant: TenantRow | null;
   }> {
     const payload = this.verifyRefreshToken(rawRefreshToken);
 
     const existing = await this.authDbService.findRefreshTokenByHash(hashToken(rawRefreshToken));
     if (existing?.userId !== payload.sub) {
-      // No row at all: revoked-and-purged, expired, or a DB reset took it. Nothing to infer, and
-      // the session is genuinely gone. The JWT's signature already verified, so `payload.sub` is
-      // trustworthy enough to ask whether this user still holds a live session somewhere.
+      // No row at all: revoked-and-purged, expired, or a DB reset took it, so the session is gone.
+      // The signature already verified, so `payload.sub` is trustworthy enough to ask whether this
+      // user holds a live session elsewhere.
       throw (await this.authDbService.hasActiveRefreshToken(payload.sub))
         ? new RefreshTokenSupersededException()
         : new InvalidRefreshTokenException();
@@ -134,9 +115,8 @@ export class TokenService {
       expiresAt: signed.refreshExpiresAt,
     });
     if (!rotated) {
-      // The row was active when we read it and isn't now: a concurrent refresh spent it between
-      // the read and this compare-and-swap, and that winner's successor is live. Definitionally
-      // a lost race, so never clear the caller's cookies over it.
+      // Active when read, spent by a concurrent refresh before this compare-and-swap: a lost race,
+      // so never clear the caller's cookies.
       throw new RefreshTokenSupersededException();
     }
 
@@ -148,27 +128,13 @@ export class TokenService {
   }
 
   /**
-   * A refresh token was presented that had already been spent. Always throws.
-   *
-   * Two very different situations reach here, told apart by *how long ago* the token was revoked:
-   *
-   * - **Within the grace window** — a lost rotation race. Two tabs waking from the same idle
-   *   period both refresh; the loser presents a token the winner revoked milliseconds ago, whose
-   *   successor is already in the shared cookie jar. Benign, and clearing the session over it
-   *   would sign the user out of every tab (`RefreshTokenSupersededException` keeps cookies).
-   *
-   * - **Older than that** — reuse of a spent token. The legitimate holder moved on to the
-   *   successor long ago, so a still-circulating copy most likely leaked. The whole family is
-   *   revoked: the thief and the victim both lose their sessions, and only the victim can sign in
-   *   again with credentials. Losing a session is the cheap outcome; leaving a thief holding a
-   *   self-renewing 7-day chain is not.
-   *
-   * Note the daily `purgeStaleTokens` cron eventually deletes revoked rows too — not immediately
-   * on revocation, but only once a row has been revoked for at least
-   * `REFRESH_TOKEN_REVOKED_RETENTION_HOURS`, so this detection window is a consistent floor rather
-   * than however long happened to remain until the cron's next fixed run. A replay older than that
-   * floor finds no row and lands in the "session gone" branch above instead — the same 401, just
-   * without the family revoke.
+   * Always throws. Told apart by how long ago the token was revoked. Within the grace window it is
+   * a lost rotation race (two tabs waking from idle): benign, and clearing the session would sign
+   * the user out of every tab (`RefreshTokenSupersededException` keeps cookies). Older, it is reuse
+   * of a spent token that likely leaked, so the whole family is revoked: thief and victim both lose
+   * their sessions, and only the victim can sign back in. The daily `purgeStaleTokens` cron deletes
+   * rows revoked for at least `REFRESH_TOKEN_REVOKED_RETENTION_HOURS`, so an older replay finds no
+   * row and gets the same 401 without the family revoke.
    */
   private async handleSpentToken(input: SpentTokenInput): Promise<never> {
     const { revokedAt, userId } = input;
@@ -190,20 +156,15 @@ export class TokenService {
   }
 
   /**
-   * Logout path: revoke every session belonging to whoever this refresh token was issued to.
-   * Only the signature is required, not a live `refresh_tokens` row — an already-rotated or
-   * expired token still proves (cryptographically) which user it was minted for, and on logout
-   * the right response to "this token is spent" is still to clear out that user's other sessions
-   * rather than to do nothing. A token we didn't sign is ignored silently: logout is idempotent
-   * and must not become an oracle for which tokens are valid.
+   * Needs only the signature, not a live row: a spent or expired token still proves which user it
+   * was minted for, and that user's other sessions should still be cleared. A token we didn't sign
+   * is ignored silently so logout is not an oracle for valid tokens.
    */
   async revokeBySessionToken(rawRefreshToken: string): Promise<void> {
     let payload: RefreshJwtPayload;
     try {
-      // `ignoreExpiration` so the comment above holds literally: an *expired* refresh token still
-      // proves cryptographically which user it was minted for, and on logout the right response to
-      // "this token is past its TTL" is still to clear that user's other sessions rather than to
-      // do nothing. Signature and the `type` claim are still enforced.
+      // `ignoreExpiration`: an expired token still identifies the user. Signature and the `type`
+      // claim are still enforced.
       payload = this.verifyRefreshToken(rawRefreshToken, { ignoreExpiration: true });
     } catch {
       return;
@@ -212,7 +173,6 @@ export class TokenService {
     await this.revokeAll(payload.sub);
   }
 
-  /** Just the access token — shared by `signTokenPair` and `reissueAccessToken`, the latter never touching `refresh_tokens` at all. */
   private signAccessToken(user: TokenSubject): string {
     const accessPayload: TenantJwtPayload = {
       sub: user.id,
@@ -226,35 +186,20 @@ export class TokenService {
   }
 
   /**
-   * Re-signs the access token alone, with no refresh token and no `refresh_tokens` write — for a
-   * claim update (today: `locale`) that must be visible on the caller's *current* token without
-   * minting a new 7-day session from a bare access token. `issueTokenPair`/`signTokenPair` always
-   * mint a refresh token together with the access token because every one of their callers
-   * (login, verify-email, refresh, the Google callback) is already establishing or rotating a real
-   * session; this method is for the narrower case of refreshing a claim mid-session. Reusing
-   * `issueTokenPair` here would let anyone holding only a leaked access token (which travels in
-   * the JSON body for `Bearer` clients, unlike the httpOnly refresh cookie) call this route to
-   * mint themselves a fresh, indefinitely-rotatable 7-day refresh token — turning a credential
-   * whose worst case was a 15-minute window into one worth 7+ days, with no proof beyond what an
-   * XSS or a stray log line could already have exposed.
+   * Re-signs the access token alone for a mid-session claim update (e.g. `locale`). Must not use
+   * `issueTokenPair`: anyone holding only a leaked access token (it travels in the JSON body for
+   * Bearer clients) could mint an indefinitely-rotatable 7-day refresh token.
    */
   reissueAccessToken(user: TokenSubject): { accessToken: string; expiresIn: number } {
     return { accessToken: this.signAccessToken(user), expiresIn: ACCESS_TOKEN_TTL_SECONDS };
   }
 
   /**
-   * Access-token only, same as `reissueAccessToken` and for the same reason — no `refresh_tokens`
-   * row exists for this principal type at all yet (that table's `user_id` FKs to `users`, not
-   * `platform_admins`), so there is nothing to rotate. A platform admin simply re-authenticates
-   * with `login` once this token's 15-minute TTL lapses. Worth revisiting if admin sessions turn
-   * out to need to outlive that without repeated logins.
-   *
-   * `expiresInSeconds` exists for the one caller that re-signs an *already authenticated* admin's
-   * token to refresh a claim mid-session (`AdminSettingsService.updateLocale`). It must pass the
-   * lifetime remaining on the presenting token, so the replacement dies at the same moment the
-   * original would have. Defaulting it to the full TTL instead would quietly turn that route into
-   * a session-extension primitive — the one thing the "admins hold no refresh token" design is
-   * meant to prevent. Sign-in paths omit it: they are establishing a session, not continuing one.
+   * Access token only: no `refresh_tokens` row exists for platform admins (`user_id` FKs to
+   * `users`), so an admin re-authenticates when the 15-minute TTL lapses. `expiresInSeconds` is for
+   * re-signing an already-authenticated admin's token mid-session
+   * (`AdminSettingsService.updateLocale`): it must be the remaining lifetime of the presenting
+   * token, or the route becomes a session-extension primitive. Sign-in paths omit it.
    */
   signPlatformAdminAccessToken(
     admin: PlatformAdminTokenSubject,
@@ -275,7 +220,10 @@ export class TokenService {
     };
   }
 
-  /** Pure signing, no I/O — `expiresIn` is the *access* token's lifetime (what the client schedules its refresh around), not the refresh token's. */
+  /**
+   * `expiresIn` is the access token's lifetime (what the client schedules its refresh around), not
+   * the refresh token's.
+   */
   private signTokenPair(user: TokenSubject): SignedTokenPair {
     const accessToken = this.signAccessToken(user);
 
@@ -296,7 +244,10 @@ export class TokenService {
     };
   }
 
-  /** Signature + expiry via the refresh secret, then the `type` claim — an access token (or anything else) signed with the same secret is not a refresh token. */
+  /**
+   * Anything else signed with this secret (an access token) is not a refresh token, hence the
+   * `type` check.
+   */
   private verifyRefreshToken(
     rawRefreshToken: string,
     options: { ignoreExpiration?: boolean } = {}
@@ -305,9 +256,8 @@ export class TokenService {
     try {
       payload = this.jwtService.verify<Partial<RefreshJwtPayload>>(rawRefreshToken, {
         secret: this.refreshSecret(),
-        // Pinned so a token cannot dictate how it is verified. `jsonwebtoken` already refuses an
-        // asymmetric alg against a string secret, so this is defence in depth rather than a live
-        // hole — but the pin is what keeps it that way if the secret ever becomes a key object.
+        // Pinned so a token cannot dictate how it is verified; defence in depth if the secret ever
+        // becomes a key object.
         algorithms: [JWT_SIGNING_ALGORITHM],
         ...(options.ignoreExpiration === true ? { ignoreExpiration: true } : {}),
       });

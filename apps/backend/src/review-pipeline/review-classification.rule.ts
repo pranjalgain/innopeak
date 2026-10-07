@@ -8,15 +8,9 @@ import type {
 } from './types/classification-result.type';
 
 /**
- * PLAN.md §3's classification rule, exactly as its flowchart orders it: a blocklist match
- * escalates before the rating is even looked at. That order is load-bearing, not incidental —
- * §8.17 accepts that a review which is *both* low-rated and blocklist-matched only ever records
- * `blocklist_match`, because this check runs first and `escalationReason` has room for one value.
- *
- * Pure and synchronous on purpose: nothing here reads the database or a clock, so a caller can
- * evaluate it for a fixture review with a fixture context and get a deterministic answer — the
- * classification decision is exactly this function, nothing more. Sentiment is deliberately never
- * read here — §3 marks it informational-only, not a routing input.
+ * A blocklist match escalates before the rating is looked at, and that order is load-bearing: a review that is both
+ * low-rated and blocklist-matched only records `blocklist_match`, since `escalationReason` holds one value.
+ * Pure and synchronous (no DB or clock) so fixtures give deterministic answers. Sentiment is deliberately never read: it is informational only.
  */
 export function classifyReview(
   review: ClassifiableReview,
@@ -47,10 +41,8 @@ export function classifyReview(
 }
 
 /**
- * Case-insensitive substring containment — PLAN.md's own `blocklist_terms` notes defer a
- * `match_type` (`exact`/`contains`/`regex`) enum as "a possible fast-follow, not required for
- * MVP," so `contains` is the one mode this deliberately implements. A review with no text (Google
- * allows a star rating alone) can never match, same as an empty blocklist.
+ * Case-insensitive substring containment; the only match mode implemented (an `exact`/`regex` `match_type` is a possible follow-up).
+ * A review with no text (Google allows a rating alone) never matches.
  */
 function findMatchedKeywords(reviewText: string | null, blocklistTerms: string[]): string[] {
   if (reviewText === null || blocklistTerms.length === 0) {

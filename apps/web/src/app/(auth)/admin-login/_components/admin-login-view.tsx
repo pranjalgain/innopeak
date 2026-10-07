@@ -16,29 +16,11 @@ import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 
 /**
- * Platform-admin sign-in — its own screen against its own route
- * (`POST /v1/admin/auth/login`), separate from the tenant `LoginView`. No signup link and no OTP
- * step: admins can't self-register, they're invited at `(auth)/invite/[token]`. See
- * `separate-admin-login-design.md`.
- *
- * Carries the same small link back that `LoginView` carries forward to here, so a tenant user who
- * lands on this screen — a stale bookmark, a link shared out of context — has a way off it besides
- * guessing `/login`. "Invalid email or password" reads identically whether the account doesn't
- * exist here at all or the password is genuinely wrong, so without this the only way out is
- * already knowing the tenant route exists.
- *
- * The Google button is not optional decoration. An admin who accepted their invite through Google
- * has no `password_hash` at all, so the form above can never sign them in — Google is their only
- * way back, which is exactly why `AdminSettingsService.updatePlatformSettings` refuses to turn
- * `socialLoginEnabled` off while any such admin exists. It is gated on that same setting, so the
- * button and the backend guard protecting it agree.
- *
- * It points at `/v1/admin/auth/google`, not the tenant button's route: that one falls through to
- * the tenant tables when no admin identity matches (so this screen could hand back a *tenant*
- * session) and sends failures to `/login`, which carries no admin path.
- *
- * Reuses `PasswordAuthForm`/`AuthLogo`/`SocialAuthButtons` so this screen inherits the `(auth)`
- * route group's chrome unchanged rather than duplicating it.
+ * Platform-admin sign-in (`POST /v1/admin/auth/login`), separate from the tenant `LoginView`: no signup link or OTP,
+ * admins are invited. The link back to the tenant login gives a stray tenant user a way off this screen.
+ * The Google button is required: an admin who accepted via Google has no `password_hash`, so it is their only way in
+ * (hence `AdminSettingsService.updatePlatformSettings` refuses to disable `socialLoginEnabled` while one exists).
+ * It points at `/v1/admin/auth/google`, not the tenant route, which falls through to tenant tables and sends failures to `/login`.
  */
 export function AdminLoginView() {
   const t = useTranslations("auth.adminLogin");
@@ -47,19 +29,15 @@ export function AdminLoginView() {
   const { loginAsAdmin, startAdminGoogleLogin, isLoading } = useAdminLogin();
   const { data: platformSettings } = usePlatformSettings();
 
-  // Hidden while the setting is still loading, same trade-off the tenant screen makes: the
-  // password form is always there, so a button appearing a beat later is a non-issue.
+  // Hidden while the setting loads; the password form is always there, so a late button is fine.
   const socialEnabled = platformSettings?.socialLoginEnabled ?? false;
 
   const handleSubmit = async (email: string, password: string) => {
     const succeeded = await loginAsAdmin(email, password);
     if (!succeeded) return;
 
-    // Sign-in may have just restored this admin's saved language into the locale cookie
-    // (`AuthService.loginAsAdmin`). That cookie is read on the server, so without dropping the
-    // router cache the next screen renders from a payload produced before it existed — an admin
-    // whose preference is German lands on one English page and only gets German on the navigation
-    // after that.
+    // Sign-in may restore the admin's saved language into the locale cookie, which the server reads; without dropping
+    // the router cache the next screen renders from a stale payload (German only after the navigation after that).
     router.refresh();
     router.push(ROUTES.ADMIN);
   };

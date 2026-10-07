@@ -37,13 +37,7 @@ function member(overrides: Partial<TenantMember> = {}): TenantMember {
 }
 
 describe("useTenantMembers", () => {
-  /**
-   * Regression: `[...(prev ?? []), member]` looked equivalent to appending, but silently replaced
-   * the whole cache with a one-element array whenever the roster query had failed or not yet
-   * loaded — every other member vanished from the screen until a refetch. The fixed version only
-   * appends when there is a real list to append to, and lets `invalidateQueries` fetch the truth
-   * otherwise.
-   */
+  /** Regression: `[...(prev ?? []), member]` replaced the whole cache with one element when the roster hadn't loaded, hiding every other member. */
   test("does not clobber the roster with a single row when the list query hasn't loaded yet", async () => {
     // Never resolves — the roster query stays pending for the life of this test.
     vi.spyOn(TenantMemberService, "getMembers").mockReturnValue(new Promise(() => undefined));
@@ -71,9 +65,7 @@ describe("useTenantMembers", () => {
     const { result } = renderHook(() => useTenantMembers(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    // Reflects what a real backend would now return, so the background refetch this hook
-    // triggers on success (see the `invalidateQueries` test below) settles on the same answer
-    // as the optimistic update above it, rather than a stale mock overwriting it back.
+    // Mirrors the backend so the background refetch settles on the optimistic answer, not a stale mock.
     getMembers.mockResolvedValue([existing, invited]);
 
     await act(async () => {
@@ -83,11 +75,7 @@ describe("useTenantMembers", () => {
     await waitFor(() => expect(result.current.members).toEqual([existing, invited]));
   });
 
-  /**
-   * Nothing pushes an invitee's acceptance to the owner's open tab — invalidating on every
-   * invite/revoke is the only way the roster ever picks up a status change made elsewhere before
-   * the query's own 5-minute `staleTime` lapses.
-   */
+  /** Nothing pushes an invitee's acceptance to the owner's tab, so every invite/revoke invalidates rather than wait out the 5-minute `staleTime`. */
   test("invalidates the roster query after a successful invite, so a background refetch can reconcile it", async () => {
     const getMembers = vi.spyOn(TenantMemberService, "getMembers").mockResolvedValue([]);
     vi.spyOn(TenantMemberService, "inviteMember").mockResolvedValue(member());
@@ -111,8 +99,7 @@ describe("useTenantMembers", () => {
     const { result } = renderHook(() => useTenantMembers(), { wrapper });
     await waitFor(() => expect(result.current.members).toEqual([target]));
     getMembers.mockClear();
-    // Reflects what a real backend would now return, so the invalidated background refetch
-    // settles on the same answer the optimistic filter below already produced.
+    // Mirrors the backend so the refetch settles on what the optimistic filter produced.
     getMembers.mockResolvedValue([]);
 
     await act(async () => {

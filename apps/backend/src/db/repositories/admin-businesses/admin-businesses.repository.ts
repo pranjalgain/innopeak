@@ -17,16 +17,9 @@ import type {
 } from './types/admin-businesses.type';
 
 /**
- * The two columns `toConnectionStatus` (`admin-businesses.db-service.ts`) reads, extracted so the
- * full business list and the lean `findConnectionStates` projection below share one definition of
- * "the tenant's latest connection" rather than drifting into two.
- *
- * These two must resolve to the SAME connection row, for the same reason the owner pair below
- * must: `review_provider_connections` is unique on (tenant_id, provider, provider_account_id), so
- * one tenant can hold several. Ordering by `created_at` alone left the tie unbroken — two rows
- * written in one transaction share a timestamp — and each `LIMIT 1` could then legally pick a
- * different one, rendering a live connection's status beside another row's `disconnected_at`.
- * `id` is the unique tiebreaker that makes the two provably agree.
+ * Shared by the full list and the lean `findConnectionStates`. Both subqueries must resolve to the SAME
+ * connection row (a tenant can hold several): `id` breaks `created_at` ties so a live status is never
+ * rendered beside another row's `disconnected_at`.
  */
 const LATEST_CONNECTION_COLUMNS = {
   latestConnectionStatus: sql<ReviewProviderConnectionStatus | null>`(
@@ -44,24 +37,12 @@ const LATEST_CONNECTION_COLUMNS = {
 } as const;
 
 /**
- * "Who counts as a tenant's owner" — every correlated subquery in this file that needs to find
- * one shares this single definition, so a future change to the rule (e.g. supporting co-owners)
- * can't update some call sites and silently miss another. Used by `ownerName`/`ownerEmail` below
- * (each adds its own `ORDER BY ... LIMIT 1` to pick one row) and by `businessSearchCondition`'s
- * `EXISTS` subquery (no `ORDER BY`/`LIMIT` needed there — existence, not a single value, is all it
- * asks for).
+ * Single definition of "a tenant's owner" for every correlated subquery here (`ownerName`/`ownerEmail`, which
+ * add their own ORDER BY ... LIMIT 1, and `businessSearchCondition`'s EXISTS).
  *
- * The correlation is written as the literal `tenants.id`, not `${schema.tenants.id}`: interpolating
- * a Column inside a `sql` template renders its BARE column name (Drizzle has no notion of "which
- * query" it belongs to here), not a table-qualified one. Since every caller of this function
- * selects/checks existence FROM a table (`users`) that also has its own `id` column, an
- * interpolated `${schema.tenants.id}` would resolve to that INNER table's `id` instead of the outer
- * tenant's — `WHERE tenant_id = id` inside `FROM users` silently becomes `users.tenant_id =
- * users.id`, which is never true, so every caller would come back null/zero/empty for every
- * tenant. Confirmed via `query.toSQL()` showing the bare unqualified `"id"` in the generated SQL,
- * and by comparing against the exact same query run by hand in psql (which returned the correct
- * values) — see `admin-businesses.repository.spec.ts` for a regression test asserting this stays
- * the literal, correlated form.
+ * The correlation is the literal `tenants.id`, not `${schema.tenants.id}`: a Column interpolated into `sql`
+ * renders its bare name, which inside `FROM users` resolves to `users.id` (never true), so every caller would
+ * come back empty. Guarded by `admin-businesses.repository.spec.ts`.
  */
 function ownerPredicate(): SQL {
   return sql`${schema.users.tenantId} = tenants.id
@@ -75,18 +56,12 @@ const ADMIN_BUSINESS_COLUMNS = {
   status: schema.tenants.status,
   createdAt: schema.tenants.createdAt,
   erasureRequestedAt: schema.tenants.erasureRequestedAt,
-  // Three correlated scalar subqueries rather than joins: each returns at most one value per
-  // tenant, so a JOIN here would either need its own DISTINCT ON/window-function dance (the owner
-  // and latest-connection joins) or silently multiply the users join (the count) — a scalar
-  // subquery per column keeps each one unambiguous on its own terms.
+  // Scalar subqueries rather than joins: each yields at most one value per tenant, avoiding DISTINCT ON
+  // gymnastics and a multiplied users join.
   //
-  // `ORDER BY created_at, id` is load-bearing on both, and must stay identical between them:
-  // nothing in the schema restricts a tenant to a single `role = 'owner'` row (there is no partial
-  // unique index for it), so with two owners an unordered `LIMIT 1` in each of these two separate
-  // subqueries could legally resolve to *different* rows — rendering one owner's name beside
-  // another's email. Ordering both the same way, with `id` as a unique tiebreaker, makes them
-  // provably pick the same row, and picks the founding owner (earliest created) rather than an
-  // arbitrary one.
+  // `ORDER BY created_at, id` must stay identical for owner name and email: nothing restricts a tenant to one
+  // `role = 'owner'` row, so unordered LIMIT 1s could pick different owners (one's name beside another's email).
+  // `id` is the tiebreaker; this also picks the founding owner.
   ownerName: sql<string | null>`(
     SELECT ${schema.users.name} FROM ${schema.users}
     WHERE ${ownerPredicate()}
@@ -104,23 +79,13 @@ const ADMIN_BUSINESS_COLUMNS = {
     WHERE ${schema.users.tenantId} = tenants.id
       AND ${schema.users.anonymizedAt} IS NULL
   )`.as('user_count'),
-  // The latest-connection pair — see `LATEST_CONNECTION_COLUMNS` above for why the two subqueries
-  // must be ordered identically to resolve to the same row.
   ...LATEST_CONNECTION_COLUMNS,
 } as const;
 
 /**
- * `search` matches against the tenant's own name OR its founding owner's name — the same two
- * fields the Businesses screen's search box has always searched (previously client-side via
- * `useSearchFilter`'s `BUSINESS_SEARCH_FIELDS`). Matching only the owner, not any other team
- * member, is a preserved limitation carried over unchanged from that client-side search — it never
- * had any other member's name to filter against either, since `ownerName` was always this same
- * "founding owner only" subquery.
- *
- * The owner check is an `EXISTS` rather than a second `ilike` column, because `ownerName` isn't a
- * real column on `tenants` — it's the correlated scalar subquery in `ADMIN_BUSINESS_COLUMNS`
- * above, which can't be referenced from a WHERE clause the same query builds it in. Exported for
- * `admin-businesses.repository.spec.ts`'s own regression test on the `ownerPredicate()` correlation.
+ * Matches the tenant name OR its founding owner's name (not other members). The owner check is an EXISTS because
+ * `ownerName` is a SELECT-list subquery that a WHERE in the same query cannot reference.
+ * Exported for the correlation regression test in `admin-businesses.repository.spec.ts`.
  */
 export function businessSearchCondition(search: string): SQL {
   const pattern = `%${escapeLikePattern(search)}%`;
@@ -134,18 +99,11 @@ export function businessSearchCondition(search: string): SQL {
   )`;
 }
 
-/**
- * Cross-tenant reads/writes over `tenants` — the Super Admin "Businesses" list. Distinct from
- * `AuthRepository.findTenantStatusById` (single-row, by id, for a signed-in tenant's own login
- * flow) and from `ConnectionsRepository` (a signed-in tenant's own connection).
- */
 @Injectable()
 export class AdminBusinessesRepository {
   constructor(private readonly dbService: DBService) {}
 
-  /** Every tenant, newest first, optionally narrowed by `search` (tenant name or owner name
-   *  substring, case-insensitive) — see `businessSearchCondition`. No pagination yet; the
-   *  Businesses screen still pages the result client-side. */
+  /** No pagination: the Businesses screen pages the result client-side. */
   async findAll(search?: string): Promise<AdminBusinessRow[]> {
     const where = search ? businessSearchCondition(search) : undefined;
 
@@ -159,30 +117,21 @@ export class AdminBusinessesRepository {
   }
 
   /**
-   * Every tenant's latest-connection pair and nothing else — what the admin Statistics page's
-   * connection-health tally needs. Deliberately not `findAll()`: that drags three correlated
-   * per-tenant subqueries (owner name, owner email, user count) along for columns the tally never
-   * reads, so the cost of a headline of four integers grew with both tenant count and their user
-   * counts. Still one row per tenant rather than a `GROUP BY`, because the bucketing rule lives in
-   * `toConnectionStatus` (TS) — reproducing it as a third SQL `CASE` is exactly the drift hazard
-   * `findNeedingAttention` already documents.
+   * Only the latest-connection pair, for the Statistics connection-health tally: `findAll()` would drag the
+   * owner/user-count subqueries along for nothing. One row per tenant rather than a GROUP BY, because the
+   * bucketing rule lives in `toConnectionStatus` (TS) and a third SQL CASE is the drift hazard
+   * `findNeedingAttention` documents.
    */
   async findConnectionStates(): Promise<ConnectionStateRow[]> {
     const rows = await this.dbService.db.select(LATEST_CONNECTION_COLUMNS).from(schema.tenants);
     return rows;
   }
 
-  /** Total tenant count, across the whole platform — the Overview page's "Businesses" stat card. */
   async count(): Promise<number> {
     const rows = await this.dbService.db.select({ value: count() }).from(schema.tenants);
     return rows[0]?.value ?? 0;
   }
 
-  /**
-   * The most recently created tenants, capped at `limit` — same columns and correlated subqueries
-   * as `findAll`, for the Overview page's "Recent Businesses" card, which needs a small page
-   * rather than the full list `findAll` returns for the Businesses management screen.
-   */
   async findRecent(limit: number): Promise<AdminBusinessRow[]> {
     const rows = await this.dbService.db
       .select(ADMIN_BUSINESS_COLUMNS)
@@ -194,30 +143,15 @@ export class AdminBusinessesRepository {
   }
 
   /**
-   * The tenants the "Needs Attention" panel shows: every non-connected tenant, most urgent first
-   * (a broken connection on a live customer outranks one that never onboarded), capped at `limit`
-   * — same columns as `findAll`/`findRecent`, but filtered, ordered and limited in SQL instead of
-   * loading every tenant to filter/sort/slice in JS (the deleted `selectBusinessesNeedingAttention`
-   * did that over `findAll()`'s full result). `toConnectionStatus` (`admin-businesses.db-service.ts`)
-   * remains the one source of truth for what `BusinessConnectionStatus` a tenant has for display;
-   * the CASE below independently reproduces its "is it connected, how urgent" predicate to filter
-   * and rank in SQL, since Postgres can't call a TS function mid-query. There is no shared
-   * definition and no test asserting the two agree — if `BusinessConnectionStatus` ever gains a
-   * new state, `toConnectionStatus` can be updated without anyone noticing this CASE also needs to
-   * change, and the panel would silently mis-filter or mis-order with no compiler/test signal.
+   * Non-connected tenants, most urgent first (a broken live connection outranks one that never onboarded),
+   * filtered, ordered and limited in SQL. The CASE below reproduces `toConnectionStatus`'s predicate independently
+   * (Postgres cannot call TS) with no shared definition or test: a new `BusinessConnectionStatus` state could be
+   * added there without this CASE noticing, silently mis-filtering the panel.
    *
-   * Wrapped as a subquery because `latestConnectionStatus`/`latestConnectionDisconnectedAt` are
-   * themselves correlated-subquery columns — Postgres can't reference a SELECT-list alias in that
-   * same query's own WHERE/ORDER BY, only a query built on top of it can.
-   *
-   * The inner subquery only projects what's needed to filter/rank/limit (`id`, `createdAt`, and
-   * the two connection columns) rather than all of `ADMIN_BUSINESS_COLUMNS`. The other three
-   * columns (`ownerName`/`ownerEmail`/`userCount`) are each a correlated scalar subquery — if they
-   * were included here, the outer WHERE/ORDER BY/LIMIT referencing this subquery's own columns
-   * would likely stop Postgres from deferring their evaluation past the filter, so every tenant in
-   * the table (including the majority excluded for already being connected) would pay for those
-   * three subqueries just to be filtered out. Instead, the full `ADMIN_BUSINESS_COLUMNS` shape is
-   * only re-fetched for the handful of tenant ids that actually survive the filter/limit.
+   * Wrapped as a subquery because Postgres cannot reference a SELECT-list alias in its own WHERE/ORDER BY.
+   * The inner query projects only what filter/rank/limit need; including the owner/user-count scalar subqueries
+   * would likely make every tenant pay for them before being filtered out, so the full `ADMIN_BUSINESS_COLUMNS`
+   * shape is re-fetched only for the surviving ids.
    */
   async findNeedingAttention(limit: number): Promise<AdminBusinessRow[]> {
     const sub = this.dbService.db
@@ -230,8 +164,7 @@ export class AdminBusinessesRepository {
       .from(schema.tenants)
       .as('sub');
 
-    // Lower sorts first: disconnected outranks needs-reauth outranks never-connected. `NULL` (the
-    // connected case, excluded by the WHERE below) never reaches the ORDER BY.
+    // Lower sorts first: disconnected, needs-reauth, never-connected. NULL (connected) is excluded by the WHERE.
     const priorityExpr = sql<number | null>`
       CASE
         WHEN ${sub.latestConnectionDisconnectedAt} IS NOT NULL THEN 0
@@ -280,30 +213,16 @@ export class AdminBusinessesRepository {
   }
 
   /**
-   * Refuses to run while the tenant has a pending erasure request (`erasure_requested_at` set) —
-   * plain suspend/reactivate and the erasure request/cancel flow must never both touch
-   * `tenants.status` on the same tenant, or a status change made through this route leaves
-   * `erasure_requested_at` stale: reactivating here (instead of through `cancelErasure`) would
-   * leave the timestamp set on an ACTIVE tenant, and a later unrelated suspend through this same
-   * route would then read as "grace period elapsed, due for purge" to the nightly cron with no new
-   * warning. The caller must cancel the pending erasure first.
+   * Refuses while an erasure request is pending: reactivating here would leave `erasure_requested_at` set on an
+   * ACTIVE tenant, and a later suspend would read as "grace period elapsed, due for purge" to the nightly cron.
+   * The caller must cancel the erasure first.
    *
-   * Also refuses — reporting `not_found`, not `erasure_pending` — on a tenant that's already fully
-   * `erased`. `erasure_requested_at` intentionally survives as a historical record even after
-   * erasure completes (see `markTenantErased`), so without this distinction an already-erased
-   * tenant would be told "cancel the pending erasure first" even though `cancelErasure` is
-   * guaranteed to refuse on that same tenant (it excludes `erased` too) — a dead-end response with
-   * no way forward. Collapsing it into `not_found` matches `requestErasure`'s own convention for an
-   * already-erased tenant.
+   * An already `erased` tenant reports `not_found`, not `erasure_pending`: `erasure_requested_at` survives erasure
+   * (see `markTenantErased`) and `cancelErasure` refuses it too, so "cancel first" would be a dead end.
    *
-   * Runs inside a transaction holding the same per-tenant `gdpr:tenant-erasure` advisory lock
-   * `cancelErasure` takes, so a concurrent `cancelErasure` can't land between this method's update
-   * attempt and its fallback read and produce a stale `erasure_pending` report for erasure that was
-   * already cancelled by the time this method answered.
-   *
-   * One round trip either way: a CTE reads the tenant's current `status` alongside attempting the
-   * guarded update, so a failed update doesn't need a second, separate existence query to tell
-   * `not_found` apart from `erasure_pending`. The caller re-reads via `findById` on `'updated'`.
+   * Runs under the same per-tenant `gdpr:tenant-erasure` advisory lock as `cancelErasure`, so a concurrent cancel
+   * cannot produce a stale `erasure_pending`. A CTE reads `status` alongside the guarded update, so a failed update
+   * needs no second query to tell the outcomes apart.
    */
   async setStatus(input: SetBusinessStatusInput): Promise<SetBusinessStatusOutcome> {
     return this.dbService.db.transaction(async tx => {
@@ -340,11 +259,8 @@ export class AdminBusinessesRepository {
   }
 
   /**
-   * Suspends the tenant immediately and starts its grace period — mirrors `setStatus`'s exact
-   * shape. Reads as `suspended` (not a fourth in-between status) for the whole grace period, so
-   * every existing suspend-check keeps working unmodified; only the nightly erasure-purge job
-   * flips it to the terminal `erased`. Scoped off an already-erased tenant — nothing left to
-   * request there. Returns whether a row was actually updated — the caller re-reads via `findById`.
+   * Suspends immediately and starts the grace period. Stays `suspended` (no in-between status) so existing
+   * suspend-checks keep working; only the nightly purge flips it to `erased`. Skips an already-erased tenant.
    */
   async requestErasure(tenantId: string): Promise<boolean> {
     const rows = await this.dbService.db
@@ -352,6 +268,9 @@ export class AdminBusinessesRepository {
       .set({
         status: TenantStatus.SUSPENDED,
         erasureRequestedAt: sql`now()`,
+        // An admin's request is not the owner's: it removes the owner's right to restore by signing in.
+        erasureRequestedByUserId: null,
+        erasureReminderSentAt: null,
         updatedAt: sql`now()`,
       })
       .where(and(eq(schema.tenants.id, tenantId), ne(schema.tenants.status, TenantStatus.ERASED)))
@@ -361,22 +280,13 @@ export class AdminBusinessesRepository {
   }
 
   /**
-   * Undoes `requestErasure` — a clean, full undo, since nothing is anonymized until the grace
-   * period actually elapses. Scoped to a tenant that still has `erasure_requested_at` set AND is
-   * not already `erased` — without the latter guard, cancelling an already-fully-erased tenant
-   * (whose `erasure_requested_at` intentionally survives as a historical record, per
-   * `markTenantErased`) would silently un-erase it, reactivating a tenant every one of whose users
-   * has already been anonymized.
+   * A full undo, since nothing is anonymized until the grace period elapses. Skips an `erased` tenant: its
+   * `erasure_requested_at` survives as history, so cancelling would silently un-erase a tenant whose users are
+   * already anonymized.
    *
-   * Holds a per-tenant advisory lock (`hashtext('gdpr:tenant-erasure'), hashtext(tenantId)`) for
-   * the same reason `AuthRepository.requestMemberRemoval`'s owner-guard lock is per-tenant: the
-   * nightly erasure-purge cron job (`CronService.purgeErasureRequests`, via the `acquireLock`
-   * callback `AuthRepository.runWithErasurePurgeLock` hands it) takes the identical lock, scoped to
-   * the same tenant, before anonymizing that tenant's users — without sharing this lock, an admin
-   * calling cancelErasure while the cron is mid-loop for the same tenant could "succeed" here while
-   * the cron, already holding a stale in-memory user list, keeps anonymizing users regardless.
-   * Whoever loses the race for the lock re-reads the tenant's true current state afterward instead
-   * of racing past it. `setStatus` takes this same lock too, for the identical reason.
+   * Takes the per-tenant advisory lock the nightly purge (`CronService.purgeErasureRequests`, via
+   * `AuthRepository.runWithErasurePurgeLock`) also takes, so a cancel cannot "succeed" while the cron, holding a
+   * stale user list, keeps anonymizing. `setStatus` shares it.
    */
   async cancelErasure(tenantId: string): Promise<boolean> {
     return this.dbService.db.transaction(async tx => {
@@ -384,7 +294,15 @@ export class AdminBusinessesRepository {
 
       const rows = await tx
         .update(schema.tenants)
-        .set({ status: TenantStatus.ACTIVE, erasureRequestedAt: null, updatedAt: sql`now()` })
+        .set({
+          status: TenantStatus.ACTIVE,
+          erasureRequestedAt: null,
+          erasureRequestedByUserId: null,
+          erasureReminderSentAt: null,
+          lastErasureRequestedAt: sql`${schema.tenants.erasureRequestedAt}`,
+          lastErasureCancelledAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
         .where(
           and(
             eq(schema.tenants.id, tenantId),

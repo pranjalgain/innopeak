@@ -3,9 +3,11 @@ import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 export const DASHBOARD_WINDOW_DAYS_DEFAULT = 7;
-/** A year of history is the widest window the dashboard's range selector offers (90d) plus room to
- * grow. The cap exists because `days` reaches `make_interval()`, which raises "integer out of
- * range" on an unbounded value — a 500 where a 400 belongs. */
+/**
+ * The widest window the range selector offers (90d) plus room to grow. The cap exists because
+ * `days` reaches `make_interval()`, which raises "integer out of range" on an unbounded value: a
+ * 500 where a 400 belongs.
+ */
 export const DASHBOARD_WINDOW_DAYS_MAX = 365;
 
 export const DASHBOARD_ESCALATED_LIMIT_DEFAULT = 4;

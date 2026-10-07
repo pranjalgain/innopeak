@@ -1,7 +1,4 @@
-/** Mirrors the web app's own `getInitials` (`apps/web/src/app/_libs/utils/initials.ts`) exactly —
- *  the Settings screen's recipient list needs the same derivation server-side, since
- *  `notification_recipients` has no `initials` column and never should: it's a display detail
- *  computed from `users.name`, not a fact worth storing redundantly. */
+/** Mirrors the web app's `getInitials`; derived server-side because `notification_recipients` deliberately has no `initials` column. */
 export function getInitials(name: string): string {
   return name
     .split(' ')

@@ -57,12 +57,8 @@ describe("useOAuthErrorToast", () => {
   });
 
   it("shows the error only once even if the effect re-runs while the same error is still present", () => {
-    // StrictMode deliberately mounts, tears down, and remounts every component once in
-    // development specifically to surface effects that aren't safe to run twice — which this one
-    // wasn't: `history.replaceState` tidies up the *browser's* URL bar, but nothing here re-renders
-    // in response to it, so a second effect run (StrictMode's remount here; in the app, any
-    // unrelated re-render of `LoginView` before that URL change is otherwise observed) still saw
-    // the original `error` and fired a second toast for it.
+    // Regression: StrictMode's remount (in the app, any re-render before the URL change is observed) re-ran the effect, saw the
+    // original `error` still, and fired a second toast; `history.replaceState` triggers no re-render.
     params = new URLSearchParams("error=NO_ACCOUNT");
     render(
       <StrictMode>

@@ -40,11 +40,8 @@ export class ListBillingWebhookEventsQueryDto {
       'matching raw type internally before it reaches the repository.',
   })
   @IsOptional()
-  // Maps a valid key ("CHECKOUT_SESSION_COMPLETED") to its raw Stripe value
-  // ("checkout.session.completed") before validation, so everything downstream of this DTO keeps
-  // working with the raw type strings it already expects — only this one boundary knows about
-  // the key/value split. Anything that isn't a recognized key (including an already-raw value,
-  // harmlessly) passes through unchanged for `@IsIn` below to accept or reject on its own terms.
+  // Maps a key to its raw Stripe value before validation so downstream code keeps using raw types;
+  // anything else passes through unchanged for `@IsIn` to judge.
   @Transform(({ value }: { value: unknown }) => {
     if (typeof value === 'string' && value in StripeWebhookEventType) {
       return StripeWebhookEventType[value as keyof typeof StripeWebhookEventType];

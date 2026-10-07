@@ -5,25 +5,12 @@ import { ReviewSyncQueueService } from '@review-sync-queue/review-sync-queue.ser
 import { ReviewSyncProcessor } from '@review-sync-queue/review-sync.processor';
 
 /**
- * BullMQ only — unlike the email/cron/dead-letter queues, this one has no SQS consumer. Review
- * sync runs on BullMQ in every environment.
+ * BullMQ only (no SQS consumer). Worker-only: importing it from anything the API reaches would make
+ * the API run backfills and polls itself, since `@Processor` becomes a live worker. No
+ * `registerQueue` here; only the producer's `@InjectQueue` needs it.
  *
- * The **consumer half**, and worker-only for that reason: NestJS's Bull explorer turns the
- * `@Processor` in `ReviewSyncProcessor` into a live BullMQ worker wherever this module is imported,
- * so importing it from anything the API process reaches would make the API start running backfills
- * and polls itself. The producer lives in `ReviewSyncQueueProducerModule` instead, which both
- * processes may safely import — same separation `EmailQueueModule`/`EmailQueueUIModule` keep.
- *
- * No `registerQueue` here: `@Processor` binds off `BullModule.forRootAsync`'s connection on its
- * own, and only `@InjectQueue` (the producer) needs a registered queue.
- *
- * `ReviewProviderModule` and `DBModule` are both `@Global()`, so `ReviewSyncQueueService`'s
- * provider + repository dependencies resolve without importing them here. `AiModule` is not
- * global (see its own doc comment for why), so it needs the explicit import below — without it,
- * the worker process fails to boot with a DI resolution error the moment
- * `ReviewSyncQueueService`'s constructor asks for `AiReplyGenerationService`, since
- * `WorkerModule` itself never imports API modules and this is the one module in that chain that
- * actually declares the provider needing it.
+ * `AiModule` is not global and `WorkerModule` imports no API modules, so without the explicit
+ * import the worker fails to boot resolving `AiReplyGenerationService`.
  */
 @Module({
   imports: [DeadLetterQueueModule, AiModule],

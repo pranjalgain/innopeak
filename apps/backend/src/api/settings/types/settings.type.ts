@@ -1,7 +1,5 @@
 import type { NotificationChannelPref } from '@common/enums/notification-channel-pref.enum';
 
-// ─── Blocklist terms ──────────────────────────────────────────────
-
 export interface BlocklistTermRecord {
   id: string;
   term: string;
@@ -11,14 +9,19 @@ export interface BlocklistTermRecord {
 export interface CreateBlocklistTermInput {
   tenantId: string;
   term: string;
+  /** Checked in the insert's transaction so two concurrent adds can't both slip under it. */
+  maxTerms: number;
 }
+
+export type InsertBlocklistTermResult =
+  | { outcome: 'created'; record: BlocklistTermRecord }
+  | { outcome: 'duplicate' }
+  | { outcome: 'limit_reached' };
 
 export interface DeleteBlocklistTermInput {
   id: string;
   tenantId: string;
 }
-
-// ─── Notification recipients ──────────────────────────────────────────────
 
 export interface NotificationRecipientRecord {
   id: string;
@@ -34,8 +37,6 @@ export interface UpdateNotificationRecipientInput {
   channel?: NotificationChannelPref;
   isActive?: boolean;
 }
-
-// ─── Tenant settings ──────────────────────────────────────────────
 
 export interface TenantSettingsRecord {
   id: string;

@@ -56,6 +56,7 @@ describe('AuthService', () => {
       findUserForLogin: jest.fn(),
       findUserById: jest.fn(),
       findTenantStatus: jest.fn(),
+      findTenantErasureState: jest.fn().mockResolvedValue(null),
       hasConnectedBusiness: jest.fn().mockResolvedValue(false),
       updatePasswordAndRevokeSessions: jest.fn(),
       updateLocale: jest.fn(),
@@ -63,9 +64,8 @@ describe('AuthService', () => {
       consumeSetPasswordOtp: jest.fn().mockResolvedValue(true),
       insertRefreshToken: jest.fn(),
       findGoogleIdentityBySub: jest.fn(),
-      // Defaults to "no tenant user holds this address" so the many tests that only care about
-      // the sub lookup don't have to stub the fallback too. The tests that exercise the linking
-      // branch itself override it.
+      // Defaults to "no tenant user holds this address" so tests that only care about the sub
+      // lookup need not stub the fallback.
       linkGoogleIdentityByEmail: jest.fn().mockResolvedValue({ kind: 'unknown' }),
       completeGoogleSignup: jest.fn(),
       findMemberInviteEmailByTokenHash: jest.fn(),
@@ -96,7 +96,6 @@ describe('AuthService', () => {
     otpAttemptService = {
       consumeAttempt: jest.fn().mockResolvedValue(true),
       reset: jest.fn(),
-      // Defaults to "claim granted" so existing OTP-issuing tests are unaffected by the cooldown.
       claimResend: jest.fn().mockResolvedValue(true),
     } as unknown as jest.Mocked<OtpAttemptService>;
 
@@ -110,8 +109,6 @@ describe('AuthService', () => {
       addRegisterationOtpEmailJob: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<AddingJobsToQueueManager>;
 
-    // Defaults to "not a returning admin" so every plain tenant login/signup callback test below
-    // is unaffected by this lookup now running ahead of tenant resolution.
     platformAdminAuthService = {
       findLinkedAdmin: jest.fn().mockResolvedValue({ linked: false }),
       completeAdminInviteGoogle: jest.fn(),
@@ -145,9 +142,6 @@ describe('AuthService', () => {
       consume: jest.fn(),
     } as unknown as jest.Mocked<PendingGoogleSignupService>;
 
-    // No avatar by default — AuthService only ever reads it (getAvatarUploadAuthorization/
-    // confirmUserAvatar now live behind MediaService's own actor-checked methods, called from
-    // TenantAvatarController — see media.service.spec.ts for those).
     mediaService = {
       getUserAvatarUrl: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<MediaService>;
@@ -216,11 +210,8 @@ describe('AuthService', () => {
     });
 
     /**
-     * Regression for the dual-identity relaxation: since `POST /v1/admin/auth/login` split off
-     * into its own route, tenant signup no longer needs to know or care whether this email also
-     * belongs to a platform admin — that used to be a hard 409 (`assertEmailNotAPlatformAdmin`).
-     * `signup` doesn't even depend on anything admin-domain any more, so there's nothing to mock
-     * to prove this beyond "it succeeds."
+     * Regression: tenant signup must not 409 when the email also belongs to a platform admin (dual
+     * identity).
      */
     it('allows a tenant signup for an email that also belongs to a platform admin', async () => {
       authDbService.signup.mockResolvedValue({
@@ -359,10 +350,8 @@ describe('AuthService', () => {
       await expect(target.login({ email: activeUser.email, password: 'x' })).rejects.toThrow(
         UnauthorizedException
       );
-      // Deliberately still compares (against the decoy): an SSO-only account must be
-      // indistinguishable by response time from a password account with a wrong password,
-      // otherwise latency reveals which addresses are SSO-only. It just can never match, since
-      // the decoy hashes a value nobody knows.
+      // Deliberately still compares (against the decoy): an SSO-only account must not be
+      // distinguishable by response time from a wrong-password account.
       expect(hashingService.compare).toHaveBeenCalledTimes(1);
     });
 
@@ -400,8 +389,74 @@ describe('AuthService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    /** Defense-in-depth: an already-issued session must be explicitly rejected once every user in
-     *  a tenant has been anonymized, not merely rely on each individual user's own row. */
+    it('names an erasure this very user requested, with the deadline, after the password is proven', async () => {
+      authDbService.findUserForLogin.mockResolvedValue(activeUser);
+      hashingService.compare.mockResolvedValue(true);
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'Test Tenant',
+      });
+      authDbService.findTenantErasureState.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'Test Tenant',
+        erasureRequestedAt: '2026-10-06T00:00:00.000Z',
+        erasureRequestedByUserId: activeUser.id,
+      });
+
+      await expect(
+        target.login({ email: activeUser.email, password: 'StrongP@ss1' })
+      ).rejects.toMatchObject({
+        response: {
+          code: 'ACCOUNT_SCHEDULED_FOR_DELETION',
+          // the spec's ConfigService answers 10 for every numeric key: 2026-10-06 + 10 days
+          message: expect.stringContaining('2026-10-16'),
+        },
+      });
+    });
+
+    it('offers no restore once the deadline has passed — the purge may already have released resources', async () => {
+      authDbService.findUserForLogin.mockResolvedValue(activeUser);
+      hashingService.compare.mockResolvedValue(true);
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'Test Tenant',
+      });
+      authDbService.findTenantErasureState.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'Test Tenant',
+        // the spec's ConfigService answers 10 days of grace
+        erasureRequestedAt: new Date(Date.now() - 11 * 86_400_000).toISOString(),
+        erasureRequestedByUserId: activeUser.id,
+      });
+
+      await expect(
+        target.login({ email: activeUser.email, password: 'StrongP@ss1' })
+      ).rejects.toMatchObject({ response: { code: 'TENANT_SUSPENDED' } });
+    });
+
+    it('keeps the generic suspension for an erasure someone else requested', async () => {
+      authDbService.findUserForLogin.mockResolvedValue(activeUser);
+      hashingService.compare.mockResolvedValue(true);
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'Test Tenant',
+      });
+      authDbService.findTenantErasureState.mockResolvedValue({
+        status: TenantStatus.SUSPENDED,
+        name: 'Test Tenant',
+        erasureRequestedAt: '2026-10-06T00:00:00.000Z',
+        erasureRequestedByUserId: null,
+      });
+
+      await expect(
+        target.login({ email: activeUser.email, password: 'StrongP@ss1' })
+      ).rejects.toMatchObject({ response: { code: 'TENANT_SUSPENDED' } });
+    });
+
+    /**
+     * Defense in depth: an already-issued session is rejected once every user in the tenant is
+     * anonymized.
+     */
     it('throws 403 for an erased tenant', async () => {
       authDbService.findUserForLogin.mockResolvedValue(activeUser);
       hashingService.compare.mockResolvedValue(true);
@@ -619,10 +674,8 @@ describe('AuthService', () => {
     };
 
     /**
-     * The regression this guards: a stolen access token alone used to be sufficient to call
-     * `setPassword` on a Google-only account, turning a 15-minute credential into a permanent
-     * one. `otp` must now be checked against a freshly-issued, purpose-scoped code before the
-     * password is ever hashed or written.
+     * Regression: a stolen access token alone could call `setPassword` on a Google-only account;
+     * `otp` must be checked before the password is hashed or written.
      */
     it('rejects when the OTP does not match a live set-password code', async () => {
       authDbService.findUserById.mockResolvedValue(passwordlessUser);
@@ -765,10 +818,8 @@ describe('AuthService', () => {
     });
 
     /**
-     * The regression this guards: `updateLocale` must re-sign only the access token, never mint a
-     * refresh token, from a route authenticated by nothing more than the caller's existing access
-     * token — `issueTokenPair` (used by every real sign-in event) would otherwise let anyone
-     * holding a leaked access token turn it into a fresh, indefinitely-rotatable 7-day session.
+     * Regression: `updateLocale` must re-sign only the access token; `issueTokenPair` would turn a
+     * leaked access token into a rotatable 7-day session.
      */
     it('persists the locale and reissues only the access token — never a refresh token', async () => {
       authDbService.findUserById.mockResolvedValue(storedUser);
@@ -792,10 +843,8 @@ describe('AuthService', () => {
     });
 
     /**
-     * The regression this guards: a disabled user renewing their access token forever by hitting
-     * this route every 14 minutes instead of `/v1/auth/refresh` (which does revoke). Before this
-     * check, `updateLocale` fetched the tenant row and reissued a token without ever reading
-     * `user.status`.
+     * Regression: a disabled user renewing their access token forever through this route; it must
+     * check `user.status`.
      */
     it('rejects a disabled user rather than reissuing a token', async () => {
       authDbService.findUserById.mockResolvedValue({
@@ -987,8 +1036,8 @@ describe('AuthService', () => {
           sid: 'sid',
         });
 
-        // Keeps the signup-page redirect so the caller can send an abandoned *signup* back there
-        // rather than to /login, and spends the state either way — it is single-use.
+        // Keeps the signup-page redirect for an abandoned signup, and spends the state either way
+        // (single-use).
         expect(outcome).toEqual({
           ok: false,
           failure: GoogleAuthFailure.ACCESS_DENIED,
@@ -1188,10 +1237,8 @@ describe('AuthService', () => {
     });
 
     /**
-     * Refused before `acceptMemberInviteWithPassword` ever runs — not after, the way
-     * `buildTokenIssuanceResult`'s own `assertGoodStanding` would catch it. Reaching the check
-     * only after redemption commits leaves the member activated and the token consumed on a join
-     * that was never allowed to happen; the invite must survive a refused attempt.
+     * Refused before `acceptMemberInviteWithPassword` runs, so the invite survives a refused
+     * attempt.
      */
     it("refuses a suspended tenant's invite before the invite is consumed", async () => {
       authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
@@ -1258,12 +1305,6 @@ describe('AuthService', () => {
     });
   });
 
-  /**
-   * `handleGoogleCallback`'s dispatch for `OAuthIntent.INVITE` — the tenant-member counterpart to
-   * the admin-dispatch tests below. Unlike the admin flow, this logic lives directly on
-   * `AuthService` (`completeMemberInviteGoogle`), not a separate service, so these exercise the
-   * real behaviour rather than a delegation boundary.
-   */
   describe('Google sign-in — member invite dispatch', () => {
     const identity = {
       providerUserId: 'google-sub-1',
@@ -1336,9 +1377,8 @@ describe('AuthService', () => {
     });
 
     /**
-     * The check that stops someone other than the invited person from redeeming this link with
-     * their own unrelated Google account — the invite token alone proves nothing about *whose*
-     * Google account is completing it.
+     * Stops someone other than the invited person redeeming the link with an unrelated Google
+     * account.
      */
     it('rejects a Google account whose email does not match the invited address, leaving the token unconsumed', async () => {
       consumeInviteState();
@@ -1363,11 +1403,8 @@ describe('AuthService', () => {
     });
 
     /**
-     * Refused as a redirect, before `acceptMemberInviteWithGoogleIdentity` ever runs — never by
-     * letting `buildTokenIssuanceResult`'s own `assertGoodStanding` throw. This runs from the
-     * shared callback with the browser mid-navigation, so a thrown `ForbiddenException` would
-     * paint a raw JSON 403 as a document instead of returning to the accept screen. The invite
-     * must also survive a refused attempt, same as the password path.
+     * Refused as a redirect before `acceptMemberInviteWithGoogleIdentity` runs, never as a thrown
+     * 403 (browser is mid-navigation); the invite must survive.
      */
     it("redirects with ACCOUNT_UNAVAILABLE for a suspended tenant's invite, leaving it unconsumed", async () => {
       consumeInviteState();
@@ -1440,13 +1477,7 @@ describe('AuthService', () => {
     });
   });
 
-  /**
-   * `AuthService` no longer owns the actual admin-invite/linked-admin business logic — that moved
-   * to `PlatformAdminAuthService` (see its own spec for the deep cases: email mismatch,
-   * already-linked identity, disabled admin, etc.). What's tested here is only the *dispatch*:
-   * `handleGoogleCallback` calls the right method for the right intent, and maps whatever it gets
-   * back into the right `GoogleCallbackOutcome` shape.
-   */
+  /** Dispatch only; the business logic is covered in `PlatformAdminAuthService`'s own spec. */
   describe('Google sign-in — admin dispatch', () => {
     const identity = {
       providerUserId: 'google-sub-1',
@@ -1491,9 +1522,8 @@ describe('AuthService', () => {
     });
 
     /**
-     * The reason ADMIN_LOGIN is its own intent rather than a reuse of LOGIN: the admin sign-in
-     * screen must never resolve to a *tenant* session just because the Google account that
-     * answered happens to own one. NO_ACCOUNT is the right dead end.
+     * ADMIN_LOGIN is its own intent so the admin sign-in screen never resolves to a tenant session;
+     * NO_ACCOUNT is the dead end.
      */
     it('never falls through to the tenant tables when the Google account is not a linked admin', async () => {
       consumeAdminLoginState();
@@ -1533,9 +1563,8 @@ describe('AuthService', () => {
     });
 
     /**
-     * Intent-agnostic failures (declined consent, provider error, unverified email) resolve before
-     * the per-intent dispatch, so they come through `googleFailureRedirect` instead. They must
-     * still land somewhere an admin can act on — `/login` carries no admin path since the split.
+     * Intent-agnostic failures resolve before per-intent dispatch but must still land somewhere an
+     * admin can act on; `/login` carries no admin path.
      */
     it('sends an intent-agnostic ADMIN_LOGIN failure to the admin page, not the tenant login', async () => {
       googleOAuthStateService.consume.mockResolvedValue({
@@ -1616,10 +1645,8 @@ describe('AuthService', () => {
     });
 
     /**
-     * Every intent-agnostic failure (bad state, missing code, unverified email) reaches
-     * `googleFailureRedirect` before `handleGoogleCallback` ever branches on `ADMIN_INVITE` — so
-     * these still have to target the accept-invite page, not `/login`, and still go through
-     * `PlatformAdminAuthService.adminInviteFailureUrl` to build that URL.
+     * Intent-agnostic failures must still target the accept-invite page, not `/login`, via
+     * `PlatformAdminAuthService.adminInviteFailureUrl`.
      */
     it('targets the accept-invite page, not /login, for an intent-agnostic failure under ADMIN_INVITE', async () => {
       googleOAuthStateService.consume.mockResolvedValue({
@@ -1675,9 +1702,8 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      // Tenant resolution is tried first — an admin-only account (no tenant identity) falls back
-      // to its admin session rather than failing outright, but only once the `sub` lookup has
-      // actually come back empty.
+      // Tenant resolution first; an admin-only account falls back to its admin session only once
+      // the `sub` lookup comes back empty.
       expect(authDbService.findGoogleIdentityBySub).toHaveBeenCalled();
       expect(platformAdminAuthService.findLinkedAdmin).toHaveBeenCalledWith('google-sub-1');
       // And the email fallback is never reached: see the seeded-tenant regression test below.
@@ -1686,12 +1712,9 @@ describe('AuthService', () => {
     });
 
     /**
-     * Regression, the other direction: `linkGoogleIdentityByEmail` matches on address alone and
-     * *writes* — it links the identity, activates the user and tenant and drops the password
-     * hash. Anyone can start a signup under an address they don't own (nothing proves a mailbox
-     * before the OTP), so reaching that branch with an admin's Google account would enrol the
-     * admin as owner of a tenant someone else seeded and named. The admin-identity check has to
-     * come first, and the admin session is the answer.
+     * Regression: `linkGoogleIdentityByEmail` matches on address alone and writes, and anyone can
+     * seed a signup under an address they don't own, so an admin's Google account would be enrolled
+     * as owner of someone else's tenant. The admin check must come first.
      */
     it('never adopts a tenant row seeded under an admin’s address on a login round trip', async () => {
       googleOAuthStateService.consume.mockResolvedValue({
@@ -1748,17 +1771,9 @@ describe('AuthService', () => {
     });
 
     /**
-     * Regression: an earlier version of this method checked `findLinkedAdmin` unconditionally and
-     * returned an admin session from it, for both `login` and `signup` — so a platform admin who
-     * accepted their invite through Google could never sign up their own separate tenant business
-     * with that same Google account. Every signup landed them back in the admin console with no
-     * tenant ever created.
-     *
-     * The admin identity *is* consulted on signup now (it has to be — see the seeded-tenant test
-     * above), but what it decides is different: a linked admin on a signup round trip gets a
-     * brand-new tenant, never an admin session and never an adopted pre-existing row. Admin
-     * status is deliberately not consulted either, so a disabled admin can still become a
-     * customer.
+     * Regression: a linked admin on a signup round trip must get a brand-new tenant, never an admin
+     * session or an adopted existing row, otherwise an admin could never sign up their own tenant.
+     * Admin status is not consulted, so a disabled admin can still become a customer.
      */
     it('creates a new tenant on signup even when the Google account is a linked admin', async () => {
       googleOAuthStateService.consume.mockResolvedValue({
@@ -1818,8 +1833,8 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      // The tenant identity wins without ever having to ask whether this Google account is also
-      // an admin — the admin fallback only runs once tenant resolution comes back unknown.
+      // Tenant identity wins without asking whether the account is also an admin; the admin
+      // fallback only runs once tenant resolution comes back unknown.
       expect(platformAdminAuthService.findLinkedAdmin).not.toHaveBeenCalled();
       expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
     });

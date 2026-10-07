@@ -7,9 +7,7 @@ export class AdminUserNotFoundException extends NotFoundException {
   }
 }
 
-/** The platform-wide settings singleton row could not be found on the admin write path — see
- *  `PlatformConfigMissingException` (`src/api/settings/exceptions/settings.exceptions.ts`) for the
- *  public read path's 500 for the same underlying row. */
+/** Admin write path; the public read path raises `PlatformConfigMissingException` (500) for the same row. */
 export class PlatformConfigNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.SETTINGS.PLATFORM_CONFIG_MISSING) {
     super({ message, code: 'PLATFORM_CONFIG_NOT_FOUND' });
@@ -70,9 +68,7 @@ export class PlatformSettingsNoMethodEnabledException extends BadRequestExceptio
   }
 }
 
-/** No fixed default: `message` always carries the affected admin count
- *  (`MESSAGES.ADMIN.CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN(count)`), so every call site
- *  supplies it explicitly. */
+/** No default message: it always carries the affected admin count. */
 export class SocialLoginDisallowedGoogleOnlyAdminException extends BadRequestException {
   constructor(message: string) {
     super({ message, code: 'SOCIAL_LOGIN_DISALLOWED_GOOGLE_ONLY_ADMIN' });
@@ -85,21 +81,24 @@ export class BusinessNotFoundException extends NotFoundException {
   }
 }
 
-/** `AdminBusinessesRepository.setStatus` refuses to run while a tenant has a pending erasure
- *  request — plain suspend/reactivate and the erasure request/cancel flow must never both touch
- *  `tenants.status` at once, or a later unrelated suspend/reactivate leaves `erasure_requested_at`
- *  stale and the next nightly purge treats it as a still-pending, now-overdue erasure. */
+/** Suspend/reactivate must not run during a pending erasure, or it leaves `erasure_requested_at`
+ *  stale and the nightly purge treats the tenant as overdue. */
 export class BusinessErasurePendingException extends ConflictException {
   constructor(message: string = MESSAGES.ADMIN.BUSINESS_ERASURE_PENDING) {
     super({ message, code: 'BUSINESS_ERASURE_PENDING' });
   }
 }
 
-/** `AdminUsersRepository.toggleActive` refuses to run while a user has a pending team-member
- *  removal request — same reasoning as `BusinessErasurePendingException`, at the user level: an
- *  unrelated reactivation must never leave `erasure_requested_at` stale on a now-"active" user. */
+/** Same reasoning as `BusinessErasurePendingException`, at the user level. */
 export class UserRemovalPendingException extends ConflictException {
   constructor(message: string = MESSAGES.ADMIN.USER_REMOVAL_PENDING) {
     super({ message, code: 'USER_REMOVAL_PENDING' });
+  }
+}
+
+/** Unknown, never flagged, or already handled. */
+export class PostErasureChargeNotFoundException extends NotFoundException {
+  constructor(message: string = MESSAGES.ADMIN.POST_ERASURE_CHARGE_NOT_FOUND) {
+    super({ message, code: 'POST_ERASURE_CHARGE_NOT_FOUND' });
   }
 }

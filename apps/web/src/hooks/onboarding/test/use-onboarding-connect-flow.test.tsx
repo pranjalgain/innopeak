@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { BillingService } from "@/app/_libs/services/billing.service";
 import {
   type BackfillProgress,
   type ConnectedLocation,
@@ -62,7 +63,6 @@ function connectedWithBackfill(): ConnectionState {
   };
 }
 
-/** The common single-location resume path: one active, unbackfilled location. */
 function mockSingleLocationResume() {
   vi.spyOn(ConnectionService, "getState").mockResolvedValue(connectedWithBackfill());
   vi.spyOn(ConnectionService, "listLocations").mockResolvedValue([persistedLocation()]);
@@ -85,8 +85,7 @@ describe("useOnboardingConnectFlow", () => {
 
     const { result } = renderHook(() => useOnboardingConnectFlow());
 
-    // Refresh-durability: the previous flow always restarted at "connect", so reloading mid-import
-    // looked like the import had never been started.
+    // Refresh-durability: reloading mid-import must resume, not restart at "connect".
     await waitFor(() => expect(result.current.stage).toBe("backfilling"));
     expect(result.current.reviewsFetched).toBe(5);
   });
@@ -103,7 +102,7 @@ describe("useOnboardingConnectFlow", () => {
 
     const { result } = renderHook(() => useOnboardingConnectFlow());
     await waitFor(() => expect(result.current.stage).toBe("connect"));
-    // Short-circuits before asking what's persisted — there is no connection to have locations at all.
+    // Short-circuits: with no connection there are no locations to ask about.
     expect(listLocations).not.toHaveBeenCalled();
   });
 
@@ -118,8 +117,7 @@ describe("useOnboardingConnectFlow", () => {
   });
 
   test("does NOT advance to done on status 'ok' alone", async () => {
-    // `ok` means the import job finished; `onboardingBackfillCompletedAt` is what un-gates live
-    // polling. Advancing on `ok` shows "you're all set" for a location the scheduler still refuses.
+    // `ok` only means the import job finished; `onboardingBackfillCompletedAt` un-gates live polling.
     mockSingleLocationResume();
     vi.spyOn(ConnectionService, "getBackfillProgress").mockResolvedValue(
       progress({ status: "ok", livePollingEnabled: false, progress: 100, reviewsFetched: 20 }),
@@ -150,7 +148,7 @@ describe("useOnboardingConnectFlow", () => {
     const { result } = renderHook(() => useOnboardingConnectFlow());
 
     await waitFor(() => expect(result.current.reviewsFetched).toBe(7));
-    // Drives the indeterminate bar — `reviewsFetched` is still real, so "7 imported" is shown.
+    // Indeterminate bar, but `reviewsFetched` is real so "7 imported" shows.
     expect(result.current.progress).toBeNull();
     expect(result.current.totalToImport).toBeNull();
   });
@@ -160,8 +158,7 @@ describe("useOnboardingConnectFlow", () => {
     const poll = vi
       .spyOn(ConnectionService, "getBackfillProgress")
       .mockResolvedValueOnce(progress({ progress: 80, reviewsFetched: 16, totalToImport: 20 }))
-      // The provider revising its total between pages makes a smaller percentage legitimate — but
-      // a bar that jumps backwards reads as the import undoing itself.
+      // The provider may revise its total between pages; the bar must still never jump backwards.
       .mockResolvedValue(progress({ progress: 40, reviewsFetched: 16, totalToImport: 40 }));
 
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -208,8 +205,7 @@ describe("useOnboardingConnectFlow", () => {
     const { result } = renderHook(() => useOnboardingConnectFlow());
 
     await waitFor(() => expect(result.current.isSlow).toBe(true));
-    // Still importing — the backend's acquisition reclaims a genuinely dead run, and giving up
-    // here would abandon a slow-but-alive one.
+    // Still importing: the backend reclaims a genuinely dead run, so giving up would abandon a slow-but-alive one.
     expect(result.current.stage).toBe("backfilling");
   });
 
@@ -235,13 +231,7 @@ describe("useOnboardingConnectFlow", () => {
   });
 
   describe("multiple locations confirmed in one go", () => {
-    /**
-     * Regression: pre-selection used to be `available.filter(l => !l.alreadyConnected)` with no
-     * fallback. `alreadyConnected` is true for any persisted row *including a deactivated one*, so
-     * a tenant who disconnected and came back saw every location flagged as connected, selected
-     * nothing, and hit a disabled Continue — and in the single-location case the card renders with
-     * no checkbox at all, leaving no control on screen to recover with.
-     */
+    /** Regression: `alreadyConnected` is true for deactivated rows too, so a returning tenant had nothing pre-selected and a disabled Continue. */
     test("falls back to selecting everything when every location reads as already connected", async () => {
       vi.spyOn(ConnectionService, "getState").mockResolvedValue(connectedWithBackfill());
       vi.spyOn(ConnectionService, "listLocations").mockResolvedValue([]);
@@ -268,6 +258,54 @@ describe("useOnboardingConnectFlow", () => {
 
       await waitFor(() => expect(result.current.stage).toBe("confirm_location"));
       expect(result.current.selectedLocationIds).toEqual(["locations/2"]);
+    });
+
+    describe("plan capacity", () => {
+      const TWO_LOCATIONS = [
+        { externalLocationId: "locations/1", name: "Downtown", address: null, alreadyConnected: false },
+        { externalLocationId: "locations/2", name: "Uptown", address: null, alreadyConnected: false },
+      ];
+
+      function mockPlan(maxLocations: number | null, activeLocationCount = 0) {
+        vi.spyOn(BillingService, "getSubscription").mockResolvedValue({
+          maxLocations,
+          activeLocationCount,
+        } as Awaited<ReturnType<typeof BillingService.getSubscription>>);
+      }
+
+      beforeEach(() => {
+        vi.spyOn(ConnectionService, "getState").mockResolvedValue(connectedWithBackfill());
+        vi.spyOn(ConnectionService, "listLocations").mockResolvedValue([]);
+        vi.spyOn(ConnectionService, "listAvailableLocations").mockResolvedValue(TWO_LOCATIONS);
+      });
+
+      /** Regression: a Free tenant with two locations landed with both ticked and hit the plan's location limit on first Continue. */
+      test("preselects only as many locations as the plan has room for", async () => {
+        mockPlan(1);
+
+        const { result } = renderHook(() => useOnboardingConnectFlow());
+
+        await waitFor(() => expect(result.current.stage).toBe("confirm_location"));
+        expect(result.current.selectedLocationIds).toEqual(["locations/1"]);
+      });
+
+      test("preselects everything on an unlimited plan", async () => {
+        mockPlan(null);
+
+        const { result } = renderHook(() => useOnboardingConnectFlow());
+
+        await waitFor(() => expect(result.current.stage).toBe("confirm_location"));
+        expect(result.current.selectedLocationIds).toEqual(["locations/1", "locations/2"]);
+      });
+
+      test("falls back to preselecting everything when the plan cannot be read", async () => {
+        vi.spyOn(BillingService, "getSubscription").mockRejectedValue(new Error("down"));
+
+        const { result } = renderHook(() => useOnboardingConnectFlow());
+
+        await waitFor(() => expect(result.current.stage).toBe("confirm_location"));
+        expect(result.current.selectedLocationIds).toEqual(["locations/1", "locations/2"]);
+      });
     });
 
     test("confirms every selected location and only finishes once all of them are live", async () => {
@@ -303,9 +341,7 @@ describe("useOnboardingConnectFlow", () => {
         .spyOn(ConnectionService, "getBackfillProgress")
         .mockImplementation(async (id) => progressByLocation[id] ?? progress());
 
-      // Installed before the first render — a fake-timers switch partway through a test does not
-      // retroactively adopt a setTimeout a real clock already scheduled, so the loc-2 re-poll
-      // below would never fire if this were installed only right before advancing time.
+      // Installed before the first render: fake timers don't adopt a setTimeout a real clock already scheduled.
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const { result } = renderHook(() => useOnboardingConnectFlow());
       await waitFor(() => expect(result.current.stage).toBe("confirm_location"));
@@ -337,12 +373,7 @@ describe("useOnboardingConnectFlow", () => {
       expect(result.current.reviewsFetched).toBe(20);
     });
 
-    /**
-     * Regression: the aggregate treated "every location that has answered so far" as "every
-     * location", so whichever one replied first defined the denominator. A small store that
-     * finished instantly put the combined bar at 100% — and, the bar being monotonic, pinned it
-     * there — while its siblings were still importing thousands of reviews.
-     */
+    /** Regression: the aggregate treated locations answered so far as all locations, so a small store finishing first pinned the monotonic bar at 100%. */
     test("does not report a complete bar while a confirmed location has not reported yet", async () => {
       vi.spyOn(ConnectionService, "getState").mockResolvedValue(connectedWithBackfill());
       vi.spyOn(ConnectionService, "listLocations").mockResolvedValue([]);

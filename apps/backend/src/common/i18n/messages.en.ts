@@ -1,29 +1,19 @@
 import type { MessageCatalog } from './message-catalog.type';
 
-/**
- * The English catalog — canonical content, moved here unchanged from what
- * `messages.constants.ts` held directly before this file existed. `messages.constants.ts` now
- * re-exports `MESSAGES`, built from this catalog by `message-registry.ts`; every existing call
- * site (`MESSAGES.AUTH.INVALID_CREDENTIALS`, etc.) is unaffected by that split.
- */
 export const messagesEn: MessageCatalog = {
   AUTH: {
     SIGNUP_OTP_SENT: (email: string): string => `Verification code sent to ${email}`,
     LOGIN_OTP_SENT: (email: string): string => `Verification code sent to ${email}`,
-    // Deliberately the same message whether or not this email actually matches a
-    // pending_verification account — see Security considerations (no enumeration).
+    // Same message whether or not the email matches a pending_verification account (no enumeration).
     RESEND_OTP_ACK: 'If this account is awaiting verification, a code has been sent.',
     EMAIL_VERIFIED: 'Email verified.',
     EMAIL_ALREADY_REGISTERED: 'An account with this email already exists.',
-    // Deliberately the same message whether the code never existed, was already used, or is
-    // expired — see the auth API reference's Security considerations (no enumeration).
+    // Same message whether the code never existed, was used, or expired (no enumeration).
     INVALID_OR_EXPIRED_OTP: 'Invalid or expired verification code.',
-    // Says "too many attempts" without saying whether the email matches an account — the counter
-    // is keyed on the submitted address either way, so this leaks nothing an attacker can use.
+    // The counter is keyed on the submitted address either way, so this doesn't reveal whether an account matches.
     TOO_MANY_OTP_ATTEMPTS:
       'Too many verification attempts. Request a new code and try again shortly.',
-    // Deliberately the same message for a wrong password, an unknown email, and an SSO-only
-    // account attempting password login — see Security considerations.
+    // Same message for wrong password, unknown email, and SSO-only account (no enumeration).
     INVALID_CREDENTIALS: 'Invalid email or password.',
     ACCOUNT_DISABLED: 'This account has been disabled.',
     TENANT_SUSPENDED: 'This account is currently suspended.',
@@ -34,30 +24,29 @@ export const messagesEn: MessageCatalog = {
     NO_PASSWORD_SET:
       'This account has no password. Sign in with the identity provider used to create it.',
     PASSWORD_ALREADY_SET: 'This account already has a password. Use change password instead.',
-    // "Signing out" rather than "signed out": the change revokes every other refresh token
-    // immediately, but an access token already issued elsewhere stays valid until it expires (up
-    // to 15 minutes). Claiming the sessions are already gone overstates what happened.
+    // "Signing out", not "signed out": already-issued access tokens stay valid up to 15 minutes.
     PASSWORD_CHANGED: 'Password changed. Other sessions are being signed out.',
     PASSWORD_SET: 'Password set. You can now sign in with a password too.',
-    // Same enumeration-shape reasoning as RESEND_OTP_ACK: the caller is already authenticated, so
-    // this doesn't need to hide whether the account exists, but it does hide whether a code was
-    // actually re-sent or the previous one is still live within its cooldown.
+    // Like RESEND_OTP_ACK: hides whether a code was re-sent or the previous one is still live in its cooldown.
     SET_PASSWORD_OTP_ACK: 'Verification code sent. Check your email to continue.',
+    BUSINESS_NAME_MISMATCH: "The business name you typed doesn't match.",
+    PASSWORD_REQUIRED_TO_DELETE: 'Confirm with your password instead of a code.',
+    DELETE_ACCOUNT_OTP_ACK: 'Confirmation code sent. Check your email to continue.',
+    ACCOUNT_DELETION_NOT_POSSIBLE: "This business can't be scheduled for deletion right now.",
+    ACCOUNT_DELETION_SCHEDULED: "Deletion scheduled. You've been signed out.",
+    ACCOUNT_SCHEDULED_FOR_DELETION: (date: string): string =>
+      `This business is scheduled for deletion on ${date}. You can restore it until then.`,
+    ACCOUNT_RESTORED: 'Your business has been restored. You can sign in now.',
     LOCALE_UPDATED: 'Language preference updated.',
     AVATAR_UPDATED: 'Avatar updated.',
     TENANT_ONLY: 'This action is only available to tenant users.',
-    // Thrown by requireTenantUser() when a platform-admin token reaches a tenant-scoped route.
-    // Says "not available" rather than "you are a platform admin" — the caller already knows what
-    // it authenticated as, and naming the token type in the response tells an attacker which
-    // half of the token space they landed in.
+    // A platform-admin token reached a tenant route; deliberately doesn't name the token type.
     GOOGLE_NOT_CONFIGURED:
       'Google sign-in is not configured on this server. Contact support or use email and password.',
-    // Missing, expired, already-consumed, or the visitor never went through the Google callback.
     GOOGLE_PENDING_SIGNUP_EXPIRED:
       'This signup has expired. Start again with "Continue with Google".',
     TENANT_CONTEXT_REQUIRED: 'This endpoint is not available for this account type.',
-    // Deliberately the same message whether the token never existed, was already used, or is
-    // expired — see the auth API reference's Security considerations (no enumeration).
+    // Same message whether the token never existed, was used, or expired (no enumeration).
     INVALID_OR_EXPIRED_INVITE: 'This invite link is invalid or has expired.',
     INVITE_ACCEPTED: "Invite accepted. You're signed in.",
     FAILED_TO_CREATE_TENANT: 'Failed to create tenant',
@@ -73,24 +62,20 @@ export const messagesEn: MessageCatalog = {
   },
   NOTIFICATIONS: {
     LISTED: 'Notifications retrieved successfully',
-    // Same message whether the row doesn't exist or belongs to another user — a distinct
-    // "forbidden" would confirm the id exists somewhere, the same enumeration-oracle reasoning
-    // CONNECTIONS.LOCATION_NOT_FOUND spells out below.
+    // Same message whether missing or another user's: "forbidden" would confirm the id exists.
     NOT_FOUND: 'Notification not found.',
     MARKED_READ: 'Notification marked as read',
     MARKED_ALL_READ: 'All notifications marked as read',
   },
   CONNECTIONS: {
     CONNECTION_NOT_FOUND: 'No Google Business Profile connection found for this account.',
-    // Deliberately the same message whether the location belongs to no one or to another tenant —
-    // a distinct "forbidden" would confirm the id exists somewhere, which is a tenant-enumeration
-    // oracle. The status code is 404 in both cases for the same reason.
+    // Same message and 404 whether it belongs to no one or another tenant: "forbidden" would confirm the id exists.
     LOCATION_NOT_FOUND: 'Location not found.',
     EXTERNAL_LOCATION_NOT_FOUND:
       'That location is not visible to the connected Google account. Reconnect and try again.',
     CONNECTION_NEEDS_REAUTH:
       'The Google connection has expired. Reconnect your Google Business Profile to continue.',
-    LOCATION_LIMIT_REACHED: 'Too many locations for this account.',
+    LOCATION_LIMIT_REACHED: "You've reached your plan's location limit. Upgrade to add more.",
     BACKFILL_ENQUEUE_FAILED:
       'Location connected, but the review import could not be started. Please try confirming this location again.',
     PROVIDER_UNAVAILABLE: 'Google Business Profile is unavailable right now. Please try again.',
@@ -196,6 +181,8 @@ export const messagesEn: MessageCatalog = {
     STRIPE_ONLY_FEATURE: "This isn't available in this environment.",
     STRIPE_WEBHOOK_TENANT_NOT_FOUND: 'No matching tenant for this Stripe event',
     CHECKOUT_SESSION_TENANT_MISMATCH: 'Checkout session not found',
+    PAYMENT_METHOD_NOT_USABLE:
+      "That payment method can't be used for this account. Add the card again.",
     CHECKOUT_RECONCILED: 'Billing status refreshed',
   },
   SETTINGS: {
@@ -203,6 +190,8 @@ export const messagesEn: MessageCatalog = {
     BLOCKLIST_TERM_CREATED: 'Blocklist term added',
     BLOCKLIST_TERM_REMOVED: 'Blocklist term removed',
     BLOCKLIST_TERM_EXISTS: 'This term is already on the blocklist',
+    BLOCKLIST_LIMIT_REACHED:
+      "You've reached the limit of 100 blocklist terms. Remove one to add another.",
     BLOCKLIST_TERM_NOT_FOUND: 'Blocklist term not found',
     TENANT_ONLY: 'Settings are only available to tenant users.',
     RETRIEVED: 'Settings retrieved successfully',
@@ -233,6 +222,8 @@ export const messagesEn: MessageCatalog = {
     USER_NOT_FOUND: 'User not found.',
     USER_STATUS_UPDATED: 'User status updated.',
     BUSINESS_NOT_FOUND: 'Business not found.',
+    POST_ERASURE_CHARGE_NOT_FOUND: 'That charge was not found, or has already been handled.',
+    POST_ERASURE_CHARGE_RESOLVED: 'Marked as handled.',
     BUSINESS_STATUS_UPDATED: 'Business status updated.',
     BUSINESS_ERASURE_REQUESTED: (days: number): string =>
       `Erasure requested. Every user in this business loses access now, and their data is permanently erased in ${days} days unless you cancel first.`,

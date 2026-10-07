@@ -37,16 +37,9 @@ import { normalizeEmail } from '../utils/email.utils';
 import { hashToken } from '../utils/token.utils';
 
 /**
- * Platform-admin authentication — login, and both invite-acceptance paths (password and Google).
- * Split out from the tenant `AuthService` so `POST /v1/admin/auth/login` has nothing left to
- * disambiguate: it queries `platform_admins` directly and nothing else, rather than sharing a
- * lookup-and-branch with tenant login the way the pre-split `AuthService.login` did. See
- * `apps/documentation/docs/backend/auth/separate-admin-login-design.md` for why.
- *
- * `AuthService` still owns the shared Google *callback* (`GET /v1/auth/google/callback`, one
- * route registered once with Google, dispatching on signed `state` — splitting that apart was
- * tried once already in this codebase's design history and abandoned), and calls into this
- * service for its two admin-touching branches: `completeAdminInviteGoogle` and `findLinkedAdmin`.
+ * Split from the tenant `AuthService` so admin login queries only `platform_admins`. `AuthService`
+ * still owns the shared Google callback (one route registered with Google, dispatching on signed
+ * `state`) and calls in here for its admin branches.
  */
 @Injectable()
 export class PlatformAdminAuthService {
@@ -60,11 +53,10 @@ export class PlatformAdminAuthService {
     private readonly configService: ConfigService<EnvConfig>
   ) {}
 
-  /** Same purpose as `AuthService`'s own copy: a real hash of a value nobody knows, so a miss
-   *  costs the same bcrypt work as a hit and the timing never reveals which happened. Its own
-   *  instance rather than sharing `AuthService`'s — the two services no longer share any state,
-   *  and this one is cheap enough (computed once, cached) that duplicating it beats introducing a
-   *  dependency between them just for a decoy value. */
+  /**
+   * Decoy hash so a miss costs the same bcrypt work as a hit. Not shared with `AuthService`, to
+   * avoid a dependency between the services for a cached value.
+   */
   private decoyHash?: Promise<string>;
 
   private decoyPasswordHash(): Promise<string> {
@@ -73,11 +65,9 @@ export class PlatformAdminAuthService {
   }
 
   /**
-   * `POST /v1/admin/auth/login`. Queries `platform_admins` directly — there is no tenant table
-   * left to fall through to, unlike the pre-split shared `login`, since this route only ever
-   * means "I am a platform admin." Same timing discipline as tenant login: the bcrypt compare
-   * always runs, so a wrong password, an unknown email, and an `invited` admin with no password
-   * yet all resolve in the same time and with the same generic message.
+   * Same timing discipline as tenant login: the bcrypt compare always runs, so a wrong password, an
+   * unknown email and an `invited` admin with no password yet take the same time and give the same
+   * generic message.
    */
   async login(dto: LoginDto): Promise<PlatformAdminLoginResult> {
     const email = normalizeEmail(dto.email);
@@ -108,11 +98,7 @@ export class PlatformAdminAuthService {
     return this.buildPlatformAdminLoginResult(admin);
   }
 
-  /**
-   * `GET /v1/admin/auth/invite/:token` — read-only preview so the accept screen can show "You've
-   * been invited as `<email>`" before ever asking for a password. Same generic 404 for a token
-   * that never existed, was already used, or has expired.
-   */
+  /** Same generic 404 for a token that never existed, was used, or expired. */
   async validateAdminInvite(rawToken: string): Promise<AdminInvitePreviewDto> {
     const invite = await this.platformAdminDbService.findInviteEmailByTokenHash(
       hashToken(rawToken)
@@ -123,11 +109,7 @@ export class PlatformAdminAuthService {
     return AdminInvitePreviewDto.from(invite);
   }
 
-  /**
-   * `POST /v1/admin/auth/invite/accept` — the password path. Mirrors `login`'s token issuance
-   * exactly, since accepting an invite signs the admin in immediately, same as a normal login.
-   * See `completeAdminInviteGoogle` for the Google alternative.
-   */
+  /** Signs the admin in immediately, mirroring `login`'s token issuance. */
   async acceptAdminInvite(dto: AcceptAdminInviteDto): Promise<PlatformAdminLoginResult> {
     const passwordHash = await this.hashingService.hash(dto.password);
     const result = await this.platformAdminDbService.acceptInviteWithPassword({
@@ -143,11 +125,8 @@ export class PlatformAdminAuthService {
   }
 
   /**
-   * `GET /v1/admin/auth/invite/:token/google` — the same read-only shape
-   * `AuthService.buildGoogleAuthorizeRedirect` uses (never throws for an expected failure, since
-   * the browser is mid-navigation): validates the token before ever redirecting to Google, so a
-   * dead link fails fast on the accept screen rather than after a round trip that can only fail
-   * there anyway.
+   * Never throws for an expected failure (the browser is mid-navigation); validates the token
+   * before redirecting so a dead link fails fast.
    */
   async buildAdminInviteGoogleRedirect(inviteToken: string): Promise<GoogleAuthorizeRedirect> {
     const invite = await this.platformAdminDbService.findInviteEmailByTokenHash(
@@ -183,18 +162,9 @@ export class PlatformAdminAuthService {
   }
 
   /**
-   * `GET /v1/admin/auth/google` — the Google button on the admin sign-in screen. Same read-only
-   * shape as `buildAdminInviteGoogleRedirect` (never throws; the browser is mid-navigation).
-   *
-   * Exists because an admin who accepted their invite through Google has no `password_hash` at
-   * all, so the password form on that screen can never sign them in — Google is their only way
-   * back, and `AdminSettingsService.updatePlatformSettings` already refuses to disable
-   * `socialLoginEnabled` while any such admin exists, on the stated grounds that the button is
-   * "the only thing standing between them and no way in." Before this route that button lived
-   * solely on the *tenant* login screen.
-   *
-   * `OAuthIntent.ADMIN_LOGIN`, not `LOGIN`: see the enum's own comment for why reusing the tenant
-   * intent here would have been wrong in both directions.
+   * An admin who accepted their invite through Google has no `password_hash`, so Google is their
+   * only way back in. Uses `OAuthIntent.ADMIN_LOGIN`, not `LOGIN` (see the enum). Never throws; the
+   * browser is mid-navigation.
    */
   async buildAdminLoginGoogleRedirect(): Promise<GoogleAuthorizeRedirect> {
     if (!this.googleIdentityProvider.isConfigured()) {
@@ -216,15 +186,9 @@ export class PlatformAdminAuthService {
   }
 
   /**
-   * Resolves a Google identity against `platform_admin_identities` for the shared callback's
-   * ordinary login/signup branches — called from `AuthService.handleGoogleCallback` before it
-   * ever consults the tenant tables, the same way password `login` used to check `platform_admins`
-   * first. `{ linked: false }` means "not a returning admin," which is the common case and lets
-   * the caller fall through to tenant resolution.
-   *
-   * Checked for both the `login` and `signup` tenant intents, not just `login`: the signup button
-   * reaching here with an admin-linked Google account is someone clicking the wrong button, and
-   * the right answer is their admin session — not a tenant account.
+   * `{ linked: false }` means not a returning admin and lets the caller fall through to tenant
+   * resolution. Checked for `signup` too: an admin-linked Google account on the signup button is
+   * someone clicking the wrong button, and the right answer is their admin session.
    */
   async findLinkedAdmin(providerUserId: string): Promise<LinkedAdminLookup> {
     const linkedAdmin = await this.platformAdminDbService.findByGoogleIdentity(providerUserId);
@@ -238,15 +202,9 @@ export class PlatformAdminAuthService {
   }
 
   /**
-   * Completes an `OAuthIntent.ADMIN_INVITE` round trip: re-validates the invite, confirms the
-   * IdP-verified email matches the invited address, links the Google identity, and signs the
-   * admin in. Never throws — called from the shared callback, which is mid-navigation the same
-   * way every other branch there is.
-   *
-   * `inviteToken` is only `undefined` if the state record somehow lost it, which never happens in
-   * practice (`buildAdminInviteGoogleRedirect` always mints it alongside `intent`) — handled
-   * defensively rather than asserted, since there is no token to build a targeted redirect from
-   * either way.
+   * Never throws: called from the shared callback, with the browser mid-navigation. `inviteToken`
+   * is only undefined if the state record lost it; handled defensively since there is no token to
+   * build a targeted redirect from.
    */
   async completeAdminInviteGoogle(
     inviteToken: string | undefined,
@@ -259,9 +217,8 @@ export class PlatformAdminAuthService {
       return {
         ok: false,
         failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
-        // No token to build an invite-page URL from, so this is the one admin failure that can't
-        // land back on the accept screen. The admin sign-in page, not the tenant `/login` the
-        // pre-split version used — that page has no admin path on it any more.
+        // No token to build an invite-page URL from, so this failure lands on the admin sign-in
+        // page; the tenant `/login` has no admin path.
         redirectUrl: `${GOOGLE_AUTH_REDIRECT.ADMIN_LOGIN}?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
       };
     }
@@ -280,9 +237,8 @@ export class PlatformAdminAuthService {
       };
     }
 
-    // The check that stops someone other than the invited person from redeeming this link with
-    // their own unrelated Google account — the invite token alone proves nothing about *whose*
-    // Google account is completing it. Token is left unconsumed on a mismatch.
+    // Stops someone else from redeeming this link with their own Google account: the token alone
+    // proves nothing about whose account completes it. Token is left unconsumed on a mismatch.
     if (normalizeEmail(identity.email) !== normalizeEmail(invite.email)) {
       return {
         ok: false,
@@ -323,16 +279,15 @@ export class PlatformAdminAuthService {
     return { ok: true, tokens: this.buildPlatformAdminLoginResult(result) };
   }
 
-  /** `${FRONTEND_URL}/invite/:token?error=<code>` — shared by every failure branch above that
-   *  has an invite token to target. Public: `AuthService.googleFailureRedirect` also calls this
-   *  for the `ADMIN_INVITE` intent, since that dispatch stays on the shared callback. */
+  /**
+   * `${FRONTEND_URL}/invite/:token?error=<code>`. Public: `AuthService.googleFailureRedirect` calls
+   * it for `ADMIN_INVITE` too.
+   */
   adminInviteFailureUrl(inviteToken: string, failure: GoogleAuthFailure): string {
     const link = buildAdminInviteLink(this.configService.get<string>('FRONTEND_URL'), inviteToken);
     return `${link}?error=${failure}`;
   }
 
-  /** Shared by `login`, `acceptAdminInvite`, `findLinkedAdmin`, and `completeAdminInviteGoogle` —
-   *  every path that ends in "sign this platform admin in" builds the same token + DTO shape. */
   private buildPlatformAdminLoginResult(admin: {
     id: string;
     email: string;

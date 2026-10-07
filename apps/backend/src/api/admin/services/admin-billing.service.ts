@@ -12,20 +12,13 @@ import {
 } from '../dto/billing-webhook-event-response.dto';
 import { HasPaidTenantsResponseDto } from '../dto/has-paid-tenants-response.dto';
 import type { ListBillingWebhookEventsQueryDto } from '../dto/list-billing-webhook-events-query.dto';
+import { PostErasureChargeNotFoundException } from '../exceptions/admin.exceptions';
 
 @Injectable()
 export class AdminBillingService {
   constructor(private readonly adminBillingDbService: AdminBillingDbService) {}
 
-  /**
-   * Backs the admin frontend's Billing nav item / dashboard-route guard, which otherwise hides
-   * entirely whenever `PAYMENT_FEATURE_ENABLED` is off — that flag only ever gates *starting a
-   * new checkout*, never a platform admin's ability to see billing they're still actively
-   * responsible for. A tenant already on Paid keeps being charged by Stripe regardless of the
-   * flag (see `BillingService.createCheckoutSession`'s own doc comment), so an admin needs to
-   * keep being able to see that, look up who it is, and act on it, for as long as any such
-   * tenant exists — independent of whether new signups are currently allowed.
-   */
+  /** Visible even with `PAYMENT_FEATURE_ENABLED` off: that flag only gates new checkouts, and tenants already on Paid keep being charged. */
   async hasPaidTenants(actor: AuthUser): Promise<HasPaidTenantsResponseDto> {
     requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const hasPaidTenants = await this.adminBillingDbService.hasPaidTenants();
@@ -36,6 +29,19 @@ export class AdminBillingService {
     requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const summary = await this.adminBillingDbService.getSummary(months);
     return AdminBillingSummaryResponseDto.from(summary);
+  }
+
+  /** Does not touch Stripe (the admin already refunded there). Anything but an unresolved flagged receipt is 404. */
+  async resolvePostErasureCharge(actor: AuthUser, receiptId: string): Promise<{ message: string }> {
+    const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
+    const resolved = await this.adminBillingDbService.resolvePostErasureCharge({
+      receiptId,
+      adminId: admin.id,
+    });
+    if (!resolved) {
+      throw new PostErasureChargeNotFoundException();
+    }
+    return { message: MESSAGES.ADMIN.POST_ERASURE_CHARGE_RESOLVED };
   }
 
   async listWebhookEvents(

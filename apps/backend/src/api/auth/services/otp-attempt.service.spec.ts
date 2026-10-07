@@ -7,11 +7,8 @@ import { createHash } from 'crypto';
 import { OtpAttemptService } from './otp-attempt.service';
 
 /**
- * `LoginAttemptService` hashes the submitted email before using it as a Redis key specifically so
- * "anyone with Redis read access sees no list of registered emails" (its own doc comment). This
- * service used to build its keys from the raw email instead — a plaintext `SCAN auth:otp-*` would
- * hand out every address that recently attempted OTP verification, exactly what the sibling
- * service was designed to prevent. Both key builders now hash the same way.
+ * Keys are built from a hash of the email, not the raw address: a plaintext `SCAN auth:otp-*` would
+ * list every address that attempted OTP verification.
  */
 describe('OtpAttemptService', () => {
   let target: OtpAttemptService;

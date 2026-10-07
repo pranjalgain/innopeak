@@ -19,34 +19,19 @@ import {
 } from '../exceptions/ai.exceptions';
 import type { GenerateReplyInput, GenerateReplyResult } from '../types/ai-provider.type';
 
-/** Region the Azure OpenAI resource must be provisioned in — PLAN.md §5 treats this as a GDPR
- *  requirement for this engagement, not a preference, so it's validated here rather than left to
- *  convention. */
+/** GDPR requirement, not a preference, so it is validated rather than left to convention. */
 const REQUIRED_AZURE_REGION = 'westeurope';
 
-/** `apps/mock-external-apis`'s mock Azure deployment name — only ever used as a path segment the
- *  mock server itself ignores, never sent anywhere real. */
+/** Mock deployment name; only a path segment the mock server ignores, never sent anywhere real. */
 const MOCK_DEPLOYMENT_FALLBACK = 'mock-deployment';
 
 /**
- * The default `AiProvider` (`AI_PROVIDER=azure`, `AiModule`'s factory) — PLAN.md §5's GDPR
- * requirement for this engagement is an Azure OpenAI resource provisioned in `westeurope`, so this
- * is the intended production provider; `OpenRouterAiProvider` remains available as a secondary
- * option. Built on the same `openai` SDK that provider uses, pointed at Azure's own completions
- * path rather than OpenRouter's — Azure speaks the same chat-completions request/response shape
- * through that SDK, so this file differs from `OpenRouterAiProvider` mainly in how the client's
- * `baseURL`/auth are constructed, not in how a completion is requested or parsed.
+ * Default `AiProvider` (`AI_PROVIDER=azure`). When `getLocalMockServerUrl` is set, calls go to the
+ * mock server and none of the real `AZURE_OPENAI_*` config is needed or validated.
  *
- * Also checks `getLocalMockServerUrl` before building the real client — when set, every call is
- * redirected at `apps/mock-external-apis`'s `/azure-openai/...` endpoint instead of a real Azure
- * resource, for use while real credentials aren't available yet. The mock path needs none of the
- * real `AZURE_OPENAI_*` config (no endpoint, key, api-version, or region to validate) — only the
- * deployment name is still used, purely as a path segment the mock server itself ignores.
- *
- * Deliberately reads config — and constructs the SDK client — on the first real call, not in the
- * constructor, mirroring `OpenRouterAiProvider`'s own reasoning: a missing/misconfigured value
- * fails the first generation attempt with a clear `AiProviderNotConfiguredException`, not app
- * startup.
+ * Config is read and the SDK client built on the first real call, not in the constructor, so a
+ * misconfigured value fails that generation attempt with `AiProviderNotConfiguredException`
+ * rather than app startup.
  */
 @Injectable()
 export class AzureOpenAiProvider extends AiProvider {
@@ -114,8 +99,7 @@ export class AzureOpenAiProvider extends AiProvider {
     };
   }
 
-  /** Memoized for the same reason `OpenRouterAiProvider.getClient` is — config values cannot
-   *  change without a process restart. */
+  /** Memoized: config cannot change without a process restart. */
   private getClient(): { client: OpenAI; deployment: string } {
     if (this.client !== null && this.deployment !== null) {
       return { client: this.client, deployment: this.deployment };

@@ -5,8 +5,6 @@ import type { SyncHealthStatus } from '@common/enums/sync-health-status.enum';
 
 import type { SyncRunRow } from '../../review-sync/types/review-sync.type';
 
-// ─── Connections repository rows ─────────────────────────────────────────────
-
 export interface ProviderConnectionRow {
   id: string;
   tenantId: string;
@@ -34,19 +32,17 @@ export interface LocationRow {
   lastSyncError: string | null;
   onboardingBackfillCompletedAt: string | null;
   lastReviewSyncedAt: string | null;
-  /** `null` = not paused. Set when a tenant is over their plan's `max_locations` — see
-   *  `0011_billing.sql`'s column comment and `BillingEntitlementsService`. Deliberately distinct
-   *  from `status = 'inactive'`: a billing-paused location is still a live, valid connection, just
-   *  excluded from the poll while over the cap. */
+  /**
+   * `null` = not paused. Set when over the plan's `max_locations`. Distinct from `status =
+   * 'inactive'`: a billing-paused location is still a valid connection, just excluded from polling.
+   */
   billingPausedAt: string | null;
   createdAt: string;
 }
 
 /**
- * A location the poller may enqueue a `review-poll` job for — exactly the fields `IReviewSyncJob`
- * needs. Deliberately excludes `lastReviewSyncedAt`: `runPoll` re-reads that cursor itself right
- * before paginating rather than trusting a value baked into the job payload at enqueue time,
- * since a BullMQ job can sit queued for a while before a worker picks it up.
+ * Exactly the fields `IReviewSyncJob` needs. Excludes `lastReviewSyncedAt` on purpose: `runPoll`
+ * re-reads the cursor before paginating because a job can sit queued before a worker picks it up.
  */
 export interface PollableLocationRow {
   tenantId: string;
@@ -55,8 +51,6 @@ export interface PollableLocationRow {
   externalAccountId: string;
   externalLocationId: string;
 }
-
-// ─── Repository inputs ────────────────────────────────────────────────────────
 
 export interface UpsertConnectionInput {
   tenantId: string;
@@ -76,8 +70,6 @@ export interface UpsertLocationInput {
   address: string | null;
 }
 
-// ─── ConnectionsDbService inputs/results ──────────────────────────────────────
-
 export interface ConfirmLocationMatch {
   externalLocationId: string;
   name: string;
@@ -89,9 +81,10 @@ export interface ConfirmLocationsInput {
   userId: string;
   connection: ProviderConnectionRow;
   locations: ConfirmLocationMatch[];
-  /** MVP's location-count ceiling (`MAX_ACTIVE_LOCATIONS`) — passed in rather than imported so
-   *  this data-layer transaction stays the one place that authoritatively enforces it, without
-   *  owning the business constant itself. See `acquireLocationConfirmLock`. */
+  /**
+   * Passed in rather than imported so this data-layer transaction is the one authoritative
+   * enforcement point without owning the business constant.
+   */
   maxActiveLocations: number;
 }
 

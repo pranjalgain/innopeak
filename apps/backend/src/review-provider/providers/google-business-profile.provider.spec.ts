@@ -6,15 +6,8 @@ import {
   ProviderRateLimitError,
 } from '../errors/provider.error';
 
-/**
- * `classifyTokenError` — the fix for a real misclassification: Google's token endpoint answers a
- * revoked/expired/reused refresh token with HTTP 400 and `{ "error": "invalid_grant" }`, not
- * 401/403 like every other call this client makes. Left to the generic 401/403-vs-429-vs-5xx
- * classifier, that 400 fell into "a 4xx that is not auth, not retryable" and came back as
- * `ProviderMappingError` — which `ConnectionsService.callProvider` answers with a 502 "try again",
- * not `needs_reauth`. An owner who revoked access in their Google account would see that 502
- * forever, on a connection with no way to recover except an unprompted reconnect.
- */
+// Regression: the token endpoint answers a revoked refresh token with 400 `invalid_grant`, which the
+// generic classifier turned into a retryable 502 instead of `needs_reauth`.
 describe('GoogleBusinessProfileProvider — token endpoint error classification', () => {
   const provider = new GoogleBusinessProfileProvider({
     clientId: 'client-id',
@@ -52,8 +45,7 @@ describe('GoogleBusinessProfileProvider — token endpoint error classification'
   });
 
   it('does not treat invalid_client as a per-tenant auth failure', async () => {
-    // A bad client id/secret is this server's misconfiguration, not this tenant's dead grant —
-    // every connection would fail identically, and prompting one owner to reconnect fixes nothing.
+    // A bad client id/secret is this server's misconfiguration, not a dead grant: reconnecting fixes nothing.
     mockTokenResponse(400, { error: 'invalid_client' });
 
     await expect(provider.refreshAccessToken('some-token')).rejects.toBeInstanceOf(
@@ -82,17 +74,8 @@ describe('GoogleBusinessProfileProvider — token endpoint error classification'
   });
 });
 
-/**
- * `classifyHttpError` — Google's Discovery-based APIs (GBP included) put some quota-exceeded
- * errors behind 403, not just 429. Grouping every 403 with 401 by default was a genuine
- * misclassification for those: a location running into a quota limit would have its otherwise
- * healthy connection permanently flipped to `needs_reauth`, prompting an owner to reconnect a
- * grant that was never actually broken — for a condition the bounded-retry path
- * (`ProviderRateLimitError`) already exists to handle correctly. `isQuotaExceeded403` narrows to
- * exactly the `errors[].reason` values Google's own docs name as quota-specific, so a genuine
- * permission failure (no recognizable reason, or no `errors` array at all) is unaffected and
- * still comes back as `ProviderAuthError`.
- */
+// Regression: Google puts some quota errors behind 403, which used to flip a healthy connection to
+// `needs_reauth`. Only documented quota `errors[].reason` values are reclassified; other 403s stay auth errors.
 describe('GoogleBusinessProfileProvider — 403 quota vs. auth classification', () => {
   const provider = new GoogleBusinessProfileProvider({
     clientId: 'client-id',
@@ -175,28 +158,20 @@ describe('GoogleBusinessProfileProvider — 403 quota vs. auth classification', 
   it('leaves a genuine 401 unaffected', async () => {
     mockTokenResponse(401, { error: { errors: [{ reason: 'rateLimitExceeded' }] } });
 
-    // 401 never goes through the 403-specific quota check at all — the reason string appearing
-    // in the body is irrelevant, only the status code gates it.
+    // The quota check is 403-only; a quota reason in a 401 body is irrelevant.
     await expect(provider.refreshAccessToken('some-token')).rejects.toBeInstanceOf(
       ProviderAuthError
     );
   });
 });
 
-/**
- * `getReviewReply`/`replyToReview` — the write path PLAN.md §8.12 requires: a freshness-check
- * read immediately before posting, and the post itself. Both share `request()`'s transport, so
- * the 401/403/429/5xx classification above is already covered; these tests cover the write
- * path's own concerns: URL/method construction, the `reviewReply`-vs-no-reply mapping, the
- * moderation-rejected-after-posting edge case, and the local-mock-server override.
- */
+// Both share `request()`'s transport, so error classification is covered above; these cover URL/method
+// construction, reply mapping, moderation-rejected-after-post, and the local-mock-server override.
 describe('GoogleBusinessProfileProvider — write path (getReviewReply / replyToReview)', () => {
   const input = {
     externalAccountId: 'accounts/123',
     externalLocationId: 'locations/456',
-    // Not path-prefixed — `extractReviewId` stores either Google's bare `reviewId` or the last
-    // segment of `name`, never the `reviews/{id}` resource path, matching the real shape of what
-    // `reviews.external_review_id` actually holds.
+    // Not path-prefixed: `reviews.external_review_id` holds the bare id, never the `reviews/{id}` path.
     externalReviewId: 'review-789',
   };
 
@@ -301,8 +276,7 @@ describe('GoogleBusinessProfileProvider — write path (getReviewReply / replyTo
     });
 
     it('throws ProviderMappingError when Google moderation rejects the reply it just accepted', async () => {
-      // Google returned 200 (the PUT itself succeeded) but the reply is not live — this is a
-      // mapping problem, not a transport failure, so it must not be classified as retryable.
+      // The PUT returned 200 but the reply is not live: a mapping problem, not retryable.
       mockJsonResponse(200, {
         comment: 'Thanks so much!',
         updateTime: '2026-01-02T00:00:00Z',
@@ -338,5 +312,48 @@ describe('GoogleBusinessProfileProvider — write path (getReviewReply / replyTo
         expect.any(Object)
       );
     });
+  });
+});
+
+describe('GoogleBusinessProfileProvider.revoke', () => {
+  const provider = new GoogleBusinessProfileProvider({
+    clientId: 'client-id',
+    clientSecret: 'client-secret',
+    callbackUrl: 'https://app.example.com/callback',
+  });
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  function respond(status: number, body: unknown): void {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(body),
+    });
+  }
+
+  it('is true when Google confirms', async () => {
+    respond(200, {});
+
+    await expect(provider.revoke('token')).resolves.toBe(true);
+  });
+
+  it('counts a token that is already revoked or expired as done (400 invalid_token)', async () => {
+    respond(400, { error: 'invalid_token' });
+
+    await expect(provider.revoke('token')).resolves.toBe(true);
+  });
+
+  it('is false for any other refusal and for a network failure', async () => {
+    respond(400, { error: 'invalid_request' });
+    await expect(provider.revoke('token')).resolves.toBe(false);
+
+    respond(503, {});
+    await expect(provider.revoke('token')).resolves.toBe(false);
+
+    global.fetch = jest.fn().mockRejectedValue(new Error('network down'));
+    await expect(provider.revoke('token')).resolves.toBe(false);
   });
 });

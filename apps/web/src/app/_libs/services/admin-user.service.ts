@@ -6,13 +6,8 @@ export interface ListAdminUsersParams {
   search?: string;
 }
 
-/**
- * Super Admin cross-tenant user management, against the real
- * `POST /v1/admin/users*` endpoints. Hooks/components only ever call
- * `useAdminUsers`, never this class directly.
- */
 export class AdminUserService {
-  /** `search` is applied server-side — see `ListAdminUsersQueryDto`'s own comment. */
+  /** `search` is applied server-side. */
   static async getUsers(params: ListAdminUsersParams = {}): Promise<AdminUser[]> {
     const response = await adminUsersApi.adminUsersControllerListV1({ search: params.search });
     return unwrap<AdminUser[]>(response.data);

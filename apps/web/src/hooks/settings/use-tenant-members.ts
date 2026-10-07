@@ -42,24 +42,20 @@ export function useTenantMembers(): UseTenantMembersResult {
     async (email: string) => {
       try {
         const member = await inviteMemberMutation.mutateAsync(email);
-        // Appended only when there is a list to append to. `[...(prev ?? []), member]` looked
-        // equivalent but silently replaced the whole cache with a one-element array whenever the
-        // roster query had failed or not yet loaded — every other member vanished from the screen
-        // until a refetch. `undefined` leaves the cache untouched and lets the invalidate below
-        // fetch the real list.
+        // Appended only when there is a list: `[...(prev ?? []), member]` would replace the cache
+        // with a one-element array if the roster query had failed or not loaded. `undefined` leaves
+        // the cache untouched and lets the invalidate fetch the real list.
         queryClient.setQueryData<TenantMember[]>(tenantMembersQueryKey, (prev) =>
           prev ? [...prev, member] : undefined,
         );
-        // Also the only path back to a fresh roster after an invitee accepts elsewhere: nothing
-        // pushes that update to the owner's open tab, so without this, the owner's list keeps
-        // reading "invited" until `staleTime` (5 min) passes and something else happens to
-        // trigger a refetch.
+        // Also the only way to refresh after an invitee accepts elsewhere: nothing pushes that to
+        // the owner's open tab, so the list would read "invited" until `staleTime` (5 min) passes.
         void queryClient.invalidateQueries({ queryKey: tenantMembersQueryKey });
         toast.success(t("invited", { email }));
         return true;
       } catch (error) {
-        // A 4xx here carries copy worth showing as-is — "This email already has a pending
-        // invite." tells the owner something actionable that the generic fallback below does not.
+        // A 4xx carries actionable copy ("This email already has a pending invite.") worth showing
+        // as-is, unlike the generic fallback below.
         toast.error(authErrorMessage(error, t("inviteFailed")));
         return false;
       }
@@ -92,8 +88,10 @@ export function useTenantMembers(): UseTenantMembersResult {
     mutationFn: (id: string) => TenantMemberService.requestRemoval(id),
   });
 
-  /** The success toast uses the server's own message — it interpolates the actual configured
-   *  grace-period day count, which this hook has no other way to know. */
+  /**
+   * The success toast uses the server's message: it interpolates the configured grace-period day
+   * count, which this hook cannot know.
+   */
   const requestRemoval = useCallback(
     async (id: string) => {
       try {

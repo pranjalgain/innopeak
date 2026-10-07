@@ -1,16 +1,11 @@
-// ─── PlatformSettingsRepository ──────────────────────────────────────────────
-
 export interface PlatformSettingsRow {
   ssoLoginEnabled: boolean;
   passwordLoginEnabled: boolean;
   socialLoginEnabled: boolean;
   inviteMembersEnabled: boolean;
-  /** Which platform admin's `update()` call most recently changed this row — null on the seeded
-   *  row, before anyone has touched it. Never part of a caller-supplied patch (see
-   *  `PlatformSettingsPatch`): `update()` sets it itself, from whoever is actually calling. */
+  /** The platform admin whose `update()` last changed the row; null on the seeded row. Set by `update()`, never by the patch. */
   updatedByPlatformAdminId: string | null;
 }
 
-/** What a caller may actually toggle — excludes `updatedByPlatformAdminId`, which `update()`
- *  derives from its own `actorPlatformAdminId` argument rather than trusting the patch to supply. */
+/** What a caller may toggle; `updatedByPlatformAdminId` is derived from `actorPlatformAdminId`, not trusted from the patch. */
 export type PlatformSettingsPatch = Partial<Omit<PlatformSettingsRow, 'updatedByPlatformAdminId'>>;

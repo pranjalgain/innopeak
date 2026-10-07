@@ -5,6 +5,7 @@ import type { StripeWebhookEventsDbService } from '@db/repositories/billing/stri
 import type { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
 import type { TenantSubscriptionRow } from '@db/repositories/billing/types/billing.type';
 import type { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
+import { Logger } from '@nestjs/common';
 
 import type { BillingEntitlementsService } from './billing-entitlements.service';
 import { BillingWebhooksService } from './billing-webhooks.service';
@@ -12,9 +13,7 @@ import { BillingWebhooksService } from './billing-webhooks.service';
 import { StripeWebhookTenantNotFoundException } from '../exceptions/billing.exceptions';
 import type { PaymentWebhookEvent } from '../types/billing.type';
 
-/** Opaque stand-in for the real Drizzle transaction handle — `handleEvent` opens exactly one via
- *  `dbService.db.transaction(fn)` and threads it through every DbService call, so every assertion
- *  below expects it as the trailing argument. */
+/** `handleEvent` threads its single transaction through every DbService call, so assertions expect it as the trailing argument. */
 const fakeTx = { __fakeTx: true } as unknown as DrizzleTransaction;
 
 const subscriptionRow: TenantSubscriptionRow = {
@@ -27,6 +26,7 @@ const subscriptionRow: TenantSubscriptionRow = {
   currentPeriodStart: '2026-08-01T00:00:00.000Z',
   currentPeriodEnd: '2026-09-01T00:00:00.000Z',
   cancelAtPeriodEnd: false,
+  cancellationSource: null,
   stripeLastVerifiedAt: null,
   checkoutStartedAt: null,
 };
@@ -69,7 +69,9 @@ describe('BillingWebhooksService', () => {
     };
     connectionsDbService = { clearBillingPauseForTenant: jest.fn() };
     billingEntitlementsService = { enforceLocationLimitOnDowngrade: jest.fn() };
-    billingReceiptsDbService = { recordIfNew: jest.fn() };
+    billingReceiptsDbService = {
+      recordIfNew: jest.fn().mockResolvedValue({ inserted: true, paidAfterErasureRequest: false }),
+    };
 
     target = new BillingWebhooksService(
       dbService as unknown as DBService,
@@ -159,11 +161,7 @@ describe('BillingWebhooksService', () => {
   });
 
   describe('customer.subscription.updated', () => {
-    /**
-     * The trickiest correctness requirement in the plan: a canceled-but-still-in-grace-period
-     * tenant must keep reading as `paid` with unlimited entitlements. `plan_id` must never be
-     * touched by this branch.
-     */
+    // A canceled-but-in-grace-period tenant must keep reading as paid, so plan_id is never touched here.
     it('syncs status/period/cancel_at_period_end but leaves plan_id untouched when cancel_at_period_end is true', async () => {
       tenantSubscriptionsDbService.findByStripeSubscriptionId.mockResolvedValue(subscriptionRow);
 
@@ -290,12 +288,7 @@ describe('BillingWebhooksService', () => {
       expect(billingEntitlementsService.enforceLocationLimitOnDowngrade).not.toHaveBeenCalled();
     });
 
-    /**
-     * The critical race this guards against: Stripe doesn't order webhook delivery, so a
-     * `.deleted` for a subscription the tenant has already replaced (canceled, then resubscribed
-     * before this stale event arrived) must not resolve by customer id and wipe out the tenant's
-     * current, active subscription.
-     */
+    // Regression: webhooks are unordered, so a stale .deleted must not wipe a tenant's newer subscription.
     it('ignores a stale .deleted event for a subscription the tenant has since replaced', async () => {
       tenantSubscriptionsDbService.findByStripeSubscriptionId.mockResolvedValue(null);
       tenantSubscriptionsDbService.findByStripeCustomerId.mockResolvedValue({
@@ -377,6 +370,49 @@ describe('BillingWebhooksService', () => {
         },
         fakeTx
       );
+    });
+
+    describe('a payment that lands after an erasure was requested', () => {
+      const paid = {
+        id: 'evt_8',
+        type: 'invoice.payment_succeeded' as const,
+        customerId: 'cus_1',
+        invoiceId: 'in_late',
+        subscriptionId: 'sub_1',
+        amountPaid: 4900,
+        currency: 'usd',
+        invoiceNumber: 'INV-0009',
+        paidAt: '2026-09-30T23:41:00.000Z',
+      };
+
+      it('raises the refund-due alarm once, naming the invoice and tenant', async () => {
+        const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+        billingReceiptsDbService.recordIfNew.mockResolvedValue({
+          inserted: true,
+          paidAfterErasureRequest: true,
+        });
+
+        await target.handleEvent(paid);
+
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Refund due: invoice INV-0009')
+        );
+        expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('tenant-1'));
+      });
+
+      it('stays quiet for an ordinary payment and for a replay of an already-recorded one', async () => {
+        const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+        errorSpy.mockClear(); // the spy is shared with the test above
+
+        await target.handleEvent(paid);
+        billingReceiptsDbService.recordIfNew.mockResolvedValue({
+          inserted: false,
+          paidAfterErasureRequest: false,
+        });
+        await target.handleEvent({ ...paid, id: 'evt_9' });
+
+        expect(errorSpy).not.toHaveBeenCalled();
+      });
     });
 
     it('throws (and records no receipt) when the tenant cannot be resolved', async () => {

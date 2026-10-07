@@ -1,15 +1,22 @@
-import { MOCK_TENANT } from "@/app/_libs/mock-data/tenant";
+import { ConnectionService } from "@/app/_libs/services/connection.service";
+import { TenantOwnerProfileService } from "@/app/_libs/services/tenant-owner-profile.service";
 import type { Tenant } from "@/types/domain";
 
-/**
- * Tenant service. Mock implementation — `getCurrentTenant` becomes a real
- * `GET /v1/auth/me`-backed call once the auth module exists (see
- * apps/documentation/docs/backend/auth/api-reference.md). Hooks/components
- * never change when that happens, only this file does.
- */
+/** Both reads are open to team members as well as owners, so the dashboard header works for either role. */
 export class TenantService {
   static async getCurrentTenant(): Promise<Tenant> {
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    return MOCK_TENANT;
+    const [profile, connection] = await Promise.all([
+      TenantOwnerProfileService.get(),
+      ConnectionService.getState(),
+    ]);
+
+    const location = connection.location;
+    return {
+      name: profile.businessName,
+      location:
+        location && location.status === "active"
+          ? { name: location.businessName, address: location.address, lastSyncedAt: location.lastSyncedAt }
+          : null,
+    };
   }
 }

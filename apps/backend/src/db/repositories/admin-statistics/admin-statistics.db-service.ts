@@ -16,14 +16,6 @@ import type {
 const ALL_RATINGS = [1, 2, 3, 4, 5] as const;
 const ALL_CLASSIFICATIONS = Object.values(ReviewClassification);
 
-/**
- * Composes `AdminStatisticsRepository`'s own queries with two sibling DB Services — cross-domain
- * composition, not a layering violation, same reasoning as `AdminOverviewDbService`'s own doc
- * comment: `getReviewStats()` is reused from `AdminOverviewDbService` rather than duplicated, and
- * connection health reuses `AdminBusinessesDbService.findAll()`'s already-correct per-tenant
- * latest-connection resolution (`toConnectionStatus`) rather than re-deriving that same
- * most-recent-connection-row logic here.
- */
 @Injectable()
 export class AdminStatisticsDbService {
   constructor(
@@ -93,9 +85,7 @@ export class AdminStatisticsDbService {
     };
   }
 
-  /** Same zero-fill reasoning as `fillSignupTrendWindow` (`admin-overview`'s own util) — a month
-   *  with no reviews/replies must render as a real zero, not be silently skipped and drawn as if
-   *  adjacent to the next month that does have data. */
+  /** Zero-fills so an empty month renders as a real zero rather than being skipped. */
   private fillReviewsTrendWindow(
     points: ReviewsTrendPoint[],
     monthsBack: number
@@ -117,8 +107,7 @@ export class AdminStatisticsDbService {
     return window;
   }
 
-  /** The repository only returns ratings that appear at least once — every 1-5 star value must
-   *  still render on the histogram, at zero, rather than the bar being absent entirely. */
+  /** The repository omits unused ratings; the histogram needs every 1-5 bar, at zero. */
   private fillRatingDistribution(rows: RatingDistributionRow[]): RatingDistributionRow[] {
     const byRating = new Map(rows.map(row => [row.rating, row.count]));
     return ALL_RATINGS.map(rating => ({ rating, count: byRating.get(rating) ?? 0 }));

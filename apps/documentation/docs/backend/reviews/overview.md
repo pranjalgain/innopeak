@@ -459,6 +459,31 @@ unreachable queue — lands the response at `post_failed` for the user-triggered
 route](./api-reference.md#post-v1reviewsreviewidresponsesresponseidretry-post). See [Posting back to
 Google](../review-pipeline/overview.md#posting-back-to-google--implemented) for every failure mode.
 
+### How the review-detail screen shows delivery
+
+The review-detail API folds `posted` and `post_failed` into the client status `approved`, so the
+screen tells the three apparent "approved" states apart from two fields every response already
+carries — `postedAt` and `errorMessage` — rather than a fifth status value:
+
+| `status` | `postedAt` | `errorMessage` | The card shows | Action offered |
+|---|---|---|---|---|
+| `approved` | `null` | `null` | "Approved — not posted to Google yet." | **Post to Google** (`POST …/post`) |
+| `approved` | set | `null` | "Posted to your Google Business Profile." | none |
+| `approved` | `null` | set | "Approved, but Google didn't accept the reply." plus the reason | **Retry posting** (`POST …/retry-post`) |
+
+`retryPostableResponse` clears `error_message`, so a retried reply drops back into the first row
+until the job reports. Delivery is asynchronous, so after an approve, a manual reply, or a Post /
+Retry click the screen polls `GET …/post-status` every 3 seconds for up to 10 attempts: it reports
+the outcome by toast and refetches the review, and a reply that is still waiting when the polling
+window closes (auto-post off) simply stays at the first row with its Post button. A click on Post
+or Retry shows a disabled "Posting…" button for as long as it is being polled; right after an
+approve the button stays usable, since the screen cannot know whether auto-post will pick it up.
+
+The screen also offers **Write your own reply** (`POST …/responses`) whenever the review is not
+`responded`/`dismissed` and no draft is approved — the API would reject a second live reply, so
+the form is withheld rather than offered and refused. The "N AI-drafted responses" line above the
+drafts counts only drafts still pending approval and is hidden when there are none.
+
 ### Prompt-analytics linkage
 
 `0006_prompts.sql` adds exactly three columns to `review_responses`:

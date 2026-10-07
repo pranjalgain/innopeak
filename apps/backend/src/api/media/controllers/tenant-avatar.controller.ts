@@ -17,12 +17,6 @@ import {
   ApiGetAvatarUploadAuthorization,
 } from '../swagger/tenant-avatar.swagger';
 
-/**
- * The tenant-user half of the avatar upload flow — mounted at the same `RouteNames.AUTH` prefix
- * `AuthController` uses, since an avatar is Settings → Profile's picture, not its own resource a
- * client would discover separately. Not `@Public()`: the global `JwtAuthGuard` supplies
- * `@CurrentUser()` the same way it does for every other authenticated `/v1/auth/*` route.
- */
 @Controller({ path: RouteNames.AUTH, version: '1' })
 @ApiTags('Auth')
 export class TenantAvatarController {

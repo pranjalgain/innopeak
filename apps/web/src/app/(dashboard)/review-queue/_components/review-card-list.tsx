@@ -14,12 +14,7 @@ interface ReviewCardListProps {
 
 const DATE_FORMAT = { month: "short", day: "numeric" } as const;
 
-/**
- * Mobile/narrow-viewport counterpart to `ReviewTable` — the design switches
- * from a table to a card list below the tablet breakpoint rather than
- * squeezing table columns, so both are rendered and toggled with responsive
- * visibility classes (see `review-results.tsx`).
- */
+/** Narrow-viewport counterpart to `ReviewTable`; both are rendered and toggled by responsive classes (see `review-results.tsx`). */
 export function ReviewCardList({ reviews }: ReviewCardListProps) {
   const t = useTranslations("reviewQueue");
   const format = useFormatter();

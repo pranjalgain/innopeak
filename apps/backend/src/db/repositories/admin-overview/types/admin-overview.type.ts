@@ -1,14 +1,11 @@
 import type { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 
-// ─── Repository ───────────────────────────────────────────────────────────
-
 export interface PlatformReviewStats {
   totalReviewsFetched: number;
   totalRepliesSent: number;
 }
 
-/** One calendar month's tenant-signup count. Only months with at least one signup are returned —
- * `AdminOverviewService.getSignupTrend` fills the zero-count months in the window before responding. */
+/** Only months with signups are returned; `AdminOverviewService.getSignupTrend` fills in the zero months. */
 export interface SignupTrendPoint {
   year: number;
   /** 1-12. */
@@ -27,29 +24,16 @@ export interface PlatformActivityRow {
 
 export interface RecordActivityInput {
   type: PlatformActivityType;
-  /**
-   * Null for the one system-initiated entry this log carries — `PlatformActivityType.BUSINESS_ERASED`,
-   * written by the nightly erasure-purge cron job, which has no human admin behind it. Every other
-   * type is genuinely platform-admin-initiated and always supplies a real id; the column itself is
-   * nullable (`ON DELETE SET NULL`) for exactly this reason, not only for an admin row later deleted.
-   */
+  /** Null for the one system-initiated entry, `BUSINESS_ERASED` (nightly purge cron, no human admin); the column is nullable (`ON DELETE SET NULL`) for that too. */
   actorPlatformAdminId: string | null;
-  /** What the entry renders as its actor, snapshotted for the same reason `businessName` is — the
-   * admin row it points at can be deleted, and "who did this" is the one field a log of admin
-   * actions cannot afford to lose. Comes straight off the request's `AuthUser`, or a literal
-   * system-actor string for the one cron-initiated entry above. */
+  /** Snapshotted like `businessName`, since the admin row can be deleted. From the request's `AuthUser`, or a literal system-actor string for the cron entry. */
   actorEmail: string;
   tenantId?: string;
-  /** Required for `business_*` types (the table's CHECK enforces it) — this is what the entry
-   * renders, snapshotted so it survives the tenant being deleted or renamed. */
+  /** Required for `business_*` types (table CHECK); snapshotted so it survives the tenant being deleted or renamed. */
   businessName?: string;
   targetEmail?: string;
 }
 
-// ─── DB Service ───────────────────────────────────────────────────────────
-
-/** The Overview page's four stat cards, composed from three otherwise-unrelated sources — none of
- * which has its own reason to expose this particular grouping. */
 export interface AdminOverviewStats {
   businessCount: number;
   userCount: number;

@@ -3,10 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { AuthenticatedUserDto } from './authenticated-user.dto';
 
 /**
- * Shared success shape for verify-email, login, refresh, and change-password — all end in a fully authenticated
- * session. Deliberately has NO `refreshToken` field — it travels only in an httpOnly
- * `refresh_token` cookie (see `AuthController`'s cookie helpers), never in a JSON body a script
- * on the page could read.
+ * No `refreshToken` field on purpose: it travels only in an httpOnly cookie, never in a JSON body a
+ * script could read.
  */
 export class TokenResponseDto {
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIs...' })

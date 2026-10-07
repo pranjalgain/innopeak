@@ -146,8 +146,6 @@ export class EnvConfig {
   @IsString()
   SERVICES_HEALTH_URL!: string;
 
-  // ─── JWT ────────────────────────────────────────────────────────────────────
-
   @IsNotEmpty()
   @IsString()
   JWT_SECRET!: string;
@@ -155,8 +153,6 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   JWT_REFRESH_SECRET?: string;
-
-  // ─── Auth (signup / verification) ────────────────────────────────────────
 
   @IsOptional()
   @IsString()
@@ -166,24 +162,15 @@ export class EnvConfig {
   @IsNumber()
   VERIFY_EMAIL_OTP_TTL_MINUTES?: number;
 
-  /**
-   * Number of reverse proxies in front of this app, so `req.ip` resolves to the real client and
-   * the per-IP rate limits key on it. Default 0 (trust nothing) — correct for local dev and for a
-   * directly-exposed app; set it to the real hop count behind a load balancer. See `bootstrap.ts`
-   * for why this is a count rather than a boolean.
-   */
+  /** Reverse proxies in front of the app, so `req.ip` resolves to the real client for per-IP rate limits. Default 0 (trust nothing); see `bootstrap.ts` for why it's a count, not a boolean. */
   @IsOptional()
   @IsNumber()
   TRUST_PROXY_HOPS?: number;
 
-  // Dev-only signup bypass: when set, signup's emailed verification token is this fixed value
-  // instead of a random one, so it can be exercised without reading a real email. Forbidden in
-  // production by the Joi schema below — never valid to set outside local/dev.
+  // Dev-only: fixed signup verification token instead of a random one. Forbidden in production by the Joi schema.
   @IsOptional()
   @IsString()
   DEV_VERIFY_EMAIL_TOKEN?: string;
-
-  // ─── Google OAuth ───────────────────────────────────────────────────────────
 
   @IsOptional()
   @IsString()
@@ -212,11 +199,7 @@ export class EnvConfig {
   @IsString()
   DEV_GOOGLE_AUTH_MOCK_EMAIL?: string;
 
-  // ─── Google Business Profile (review data — NOT login) ──────────────────────
-
-  // Deliberately separate from GOOGLE_* above. Those back Google *sign-in*; these back the
-  // review-data grant, which needs entirely different scopes. Sharing one OAuth client would mean
-  // revoking review access also breaks sign-in for every user in the tenant.
+  // Separate from GOOGLE_*: sign-in and the review-data grant need different scopes, and sharing one client would let revoking review access break sign-in.
   @IsOptional()
   @IsString()
   GBP_CLIENT_ID?: string;
@@ -230,22 +213,17 @@ export class EnvConfig {
   @IsString()
   GBP_CALLBACK_URL?: string;
 
-  // HMAC key for the OAuth `state` blob. Required in production by the manual check in
-  // env-config.module.ts — an unsigned/forgeably-signed state lets an attacker graft their Google
-  // account onto someone else's tenant.
+  // HMAC key for the OAuth `state` blob; required in production (env-config.module.ts), since a forgeable state lets an attacker graft their Google account onto another tenant.
   @IsOptional()
   @IsString()
   GBP_STATE_SECRET?: string;
 
-  // base64-encoded 32 bytes. Encrypts provider refresh tokens at rest in the local credential
-  // store — see LocalRedisCredentialStoreProvider.
+  // base64-encoded 32 bytes; encrypts provider refresh tokens at rest in the local credential store.
   @IsOptional()
   @IsString()
   CREDENTIAL_ENCRYPTION_KEY?: string;
 
-  // Dev-only: swaps the real Google Business Profile client for a fixture-backed one that still
-  // round-trips through our own OAuth callback. Forbidden in production by the Joi schema — a
-  // mocked business connection must never ship.
+  // Dev-only fixture-backed client that still round-trips through our OAuth callback. Forbidden in production by the Joi schema.
   @IsOptional()
   @IsString()
   DEV_GBP_MOCK?: string;
@@ -254,8 +232,6 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   DEV_GBP_MOCK_ACCOUNT_ID?: string;
-
-  // ─── GitHub OAuth ───────────────────────────────────────────────────────────
 
   @IsOptional()
   @IsString()
@@ -268,8 +244,6 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   GITHUB_CALLBACK_URL?: string;
-
-  // ─── Media ──────────────────────────────────────────────────────────────
 
   @IsOptional()
   @IsString()
@@ -295,8 +269,6 @@ export class EnvConfig {
   @IsString()
   CLOUDINARY_API_SECRET?: string;
 
-  // ─── Email ──────────────────────────────────────────────────────────────
-
   @IsOptional()
   @IsString()
   EMAIL_PROVIDER?: string;
@@ -321,8 +293,6 @@ export class EnvConfig {
   @IsString()
   EMAIL_FROM?: string;
 
-  // ─── SMS (Twilio) ──────────────────────────────────────────────────────────
-
   @IsOptional()
   @IsString()
   SMS_PROVIDER?: string;
@@ -338,8 +308,6 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   TWILIO_PHONE_NUMBER?: string;
-
-  // ─── SMS (AWS SNS) ─────────────────────────────────────────────────────────
 
   @IsOptional()
   @IsString()
@@ -357,8 +325,6 @@ export class EnvConfig {
   @IsString()
   AWS_SNS_SENDER_ID?: string;
 
-  // ─── FCM (Firebase Cloud Messaging) ──────────────────────────────────────
-
   @IsOptional()
   @IsString()
   FCM_PROJECT_ID?: string;
@@ -370,8 +336,6 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   FCM_CLIENT_EMAIL?: string;
-
-  // ─── Deployment target (Floci/AWS emulation) ─────────────────────────────
 
   @IsOptional()
   @IsString()
@@ -388,8 +352,6 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   SECRETS_MANAGER_SECRET_ID?: string;
-
-  // ─── SQS queue URLs (DEPLOYMENT_TARGET=aws only — see getQueueUrlEnvKey) ────
 
   @IsOptional()
   @IsString()
@@ -419,34 +381,16 @@ export class EnvConfig {
   @IsString()
   REVIEW_POST_QUEUE_URL?: string;
 
-  // ─── Billing (Stripe) ─────────────────────────────────────────────────────
-
   /**
-   * The single switch controlling whether billing exists in this deploy at all — read by
-   * `BillingService.createCheckoutSession` (gates the upgrade entry point), the public
-   * `GET /v1/settings/platform-config` response (`paymentFeatureEnabled`, read by every
-   * tenant/admin frontend to decide whether to render anything payment-related: the onboarding
-   * Paid-plan card, the tenant Settings Billing tab, the admin Billing nav item/dashboard), and
-   * nowhere else.
-   *
-   * Deliberately the *only* switch — there used to also be an admin-toggleable
-   * `platform_settings.billing_enabled` DB column, requiring both to be on for anything to show.
-   * That second switch added a state (env on, DB off, or vice versa) nobody actually needed to
-   * distinguish: an environment either has billing wired up (real or dummy Stripe keys configured,
-   * ready to sell) or it doesn't, and that's a deploy-time fact, not something a platform admin
-   * should be flipping at runtime. Collapsing to one flag removes that whole state space along
-   * with the toggle UI, the PATCH field, and the extra DB read on every checkout attempt.
-   *
-   * Defaults to disabled (applied via `=== 'true'` at each call site, not a class-level default
-   * here).
+   * The single switch for whether billing exists in this deploy (gates `BillingService.createCheckoutSession` and the public
+   * `paymentFeatureEnabled` frontends read). Deliberately the only one: billing being wired up is a deploy-time fact.
+   * Defaults to disabled (applied via `=== 'true'` at each call site, not here).
    */
   @IsOptional()
   @IsIn(['true', 'false'])
   PAYMENT_FEATURE_ENABLED?: string;
 
-  /** Selects the `PaymentProvider` implementation — same DI-swap shape as `STORAGE_PROVIDER`.
-   *  Defaults to `'dummy'` (applied via `?? 'dummy'` at the call site, per this file's own
-   *  `ConfigService.get()` convention, not a class-level default here). */
+  /** Selects the `PaymentProvider`; defaults to `'dummy'` (applied via `?? 'dummy'` at the call site, per this file's `ConfigService.get()` convention). */
   @IsOptional()
   @IsIn(['dummy', 'stripe'])
   PAYMENT_PROVIDER?: string;
@@ -459,25 +403,17 @@ export class EnvConfig {
   @IsString()
   STRIPE_WEBHOOK_SECRET?: string;
 
-  /** The Paid plan's real Stripe Price id — read directly by `BillingService.createCheckoutSession`
-   *  rather than hardcoded in the migration (`billing_plans.stripe_price_id` is seeded `NULL`;
-   *  this env var is the actual source of truth once real Stripe objects exist, with that column
-   *  only as a fallback for an operator who prefers to set it there instead). */
+  /** Paid plan's Stripe Price id, read by `createCheckoutSession`; the source of truth over `billing_plans.stripe_price_id` (seeded NULL), which is only a fallback. */
   @IsOptional()
   @IsString()
   STRIPE_PRICE_ID_PAID?: string;
 
-  /** Selects the `AiProvider` implementation — same DI-swap shape as `PAYMENT_PROVIDER`.
-   *  `'azure'` is the default and intended production provider (GDPR/`westeurope` requirement,
-   *  PLAN.md §5); `'openrouter'` remains a secondary option (applied via `?? 'azure'` at the call
-   *  site, not a class-level default here). */
+  /** Selects the `AiProvider`; defaults to `'azure'` (applied via `?? 'azure'` at the call site), the intended production provider (GDPR/`westeurope`). */
   @IsOptional()
   @IsIn(['openrouter', 'azure'])
   AI_PROVIDER?: string;
 
-  /** Read lazily by `OpenRouterAiProvider` on its first call, not at boot — this feature isn't
-   *  wired into anything load-bearing yet (dry-run testing only, see the module doc), so a missing
-   *  key must not fail app startup the way `STRIPE_SECRET_KEY` does for a live payment provider. */
+  /** Read lazily by `OpenRouterAiProvider` on first call, not at boot, so a missing key must not fail startup the way `STRIPE_SECRET_KEY` does. */
   @IsOptional()
   @IsString()
   OPENROUTER_API_KEY?: string;
@@ -488,8 +424,6 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   OPENROUTER_MODEL?: string;
-
-  // ─── Azure OpenAI (default AiProvider) ───────────────────────────────────
 
   /** Base resource endpoint, e.g. `https://<resource>.openai.azure.com`. Read lazily by
    *  `AzureOpenAiProvider` on its first call, same reasoning as `OPENROUTER_API_KEY`. */
@@ -510,44 +444,27 @@ export class EnvConfig {
   @IsString()
   AZURE_OPENAI_API_VERSION?: string;
 
-  /** Validated `=== 'westeurope'` at provider construction, not just by convention — PLAN.md §5
-   *  treats the Azure OpenAI region as a GDPR requirement for this engagement, not a preference,
-   *  so it's hardcoded/checked at the client-config level rather than left to whoever sets up the
-   *  Azure resource. */
+  /** Checked `=== 'westeurope'` at provider construction: GDPR requires that region for Azure OpenAI. */
   @IsOptional()
   @IsString()
   AZURE_OPENAI_REGION?: string;
 
-  // ─── Local mock server (dev-only — GBP write-API + Azure OpenAI) ─────────
-
   /**
-   * Redirects the GBP write-path calls (`getReviewReply`/`replyToReview`) and
-   * `AzureOpenAiProvider` at `apps/mock-external-apis` instead of the real Google/Azure endpoints
-   * — for use while real credentials for either aren't available yet. Same shape as
-   * `DEPLOYMENT_TARGET=aws`'s Floci redirect (`getAwsEndpointOverride`): a single toggle, checked
-   * by the provider construction/call sites themselves, with zero branching anywhere else.
-   * Forbidden in production by the Joi schema, same guard shape as `DEV_GBP_MOCK` — double-guarded
-   * by the provider factories' own `!isProduction()` check too.
+   * Redirects GBP write-path calls and `AzureOpenAiProvider` at `apps/mock-external-apis` while real credentials are unavailable.
+   * Forbidden in production by Joi, and the provider factories also check `!isProduction()`.
    */
   @IsOptional()
   @IsString()
   USE_LOCAL_MOCK_SERVER?: string;
 
-  /** Only read when `USE_LOCAL_MOCK_SERVER === 'true'`. Defaults to `http://localhost:4100`
-   *  (applied via `??` at the call site, not a class-level default here), matching
-   *  `apps/mock-external-apis`'s own default port. */
+  /** Only read when `USE_LOCAL_MOCK_SERVER === 'true'`; defaults to `http://localhost:4100` (applied via `??` at the call site), the mock's default port. */
   @IsOptional()
   @IsString()
   LOCAL_MOCK_SERVER_URL?: string;
 
-  // ─── GDPR erasure (team-member removal / tenant erasure) ─────────────────
-
   /**
-   * Days between a removal/erasure request and the nightly `ERASURE_PURGE` cron job actually
-   * anonymizing the affected user(s) — read by `TenantMembersService`/`AdminBusinessesService` (for
-   * the "takes effect in N days" message) and by `CronService` (for the purge query itself), so all
-   * three share one default rather than duplicating it. Access is revoked the moment the request is
-   * made; only the irreversible anonymization step waits out this window.
+   * Days between a removal/erasure request and the nightly `ERASURE_PURGE` cron anonymizing the user(s); shared by
+   * `TenantMembersService`, `AdminBusinessesService` and `CronService`. Access is revoked immediately; only anonymization waits.
    */
   @IsOptional()
   @IsNumber()

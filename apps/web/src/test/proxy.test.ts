@@ -19,14 +19,7 @@ function redirectLocation(response: ReturnType<typeof proxy>): string | null {
 }
 
 describe("proxy — tenant vs admin session routing", () => {
-  /**
-   * The bug this file exists to pin down: a platform admin manually navigating to a tenant-only
-   * route used to have no session-hint cookie at all (the admin login path cleared it outright),
-   * so this exact case fell into the same branch as a fully signed-out visitor — redirected to
-   * `/login` — where the client-side guard found the admin's still-valid `access_token` in
-   * localStorage and bounced straight back, forever. An `admin`-valued cookie must now be
-   * distinguished from "no cookie" and sent to `/forbidden`, not `/login`.
-   */
+  // Regression: admins used to land in the /login <-> localStorage-token redirect loop.
   test("an admin session hitting a tenant-only route is sent to /forbidden, not /login", () => {
     const response = proxy(requestFor(ROUTES.DASHBOARD, "admin"));
     expect(redirectLocation(response)).toBe(ROUTES.FORBIDDEN);
@@ -47,11 +40,7 @@ describe("proxy — tenant vs admin session routing", () => {
     expect(redirectLocation(response)).toBe(ROUTES.LOGIN);
   });
 
-  /**
-   * Not `/login` — that screen has no admin path left on it since the split
-   * (`separate-admin-login-design.md`), so bouncing an unauthenticated admin-area visitor there
-   * would be a dead end with no way to actually sign in.
-   */
+  // Not `/login`: it has no admin sign-in path, so that would be a dead end.
   test("no session at all on an admin-only route goes to /admin-login", () => {
     const response = proxy(requestFor(ROUTES.ADMIN));
     expect(redirectLocation(response)).toBe(ROUTES.ADMIN_LOGIN);
@@ -67,12 +56,7 @@ describe("proxy — tenant vs admin session routing", () => {
     expect(redirectLocation(response)).toBeNull();
   });
 
-  /**
-   * The other half of the loop: `/login` used to redirect ANY signed-in visitor straight to
-   * `/dashboard`, which for an admin session immediately failed the tenant-only check above and
-   * bounced right back to `/login` — recreating the same infinite loop one hop later. The
-   * redirect target has to depend on which kind of session it is.
-   */
+  // Regression: redirecting any signed-in visitor to /dashboard re-created the loop for admins one hop later.
   test("an admin session landing on /login is sent to /admin, not /dashboard", () => {
     const response = proxy(requestFor(ROUTES.LOGIN, "admin"));
     expect(redirectLocation(response)).toBe(ROUTES.ADMIN);
@@ -103,14 +87,7 @@ describe("proxy — tenant vs admin session routing", () => {
     expect(redirectLocation(response)).toBeNull();
   });
 
-  /**
-   * Deploy-time regression: the hint's value used to be the literal "1" for everyone, and only a
-   * tenant could hold it (the admin path cleared the cookie outright back then). Every browser
-   * already signed in when this ships still carries it, with the refresh token's 7-day lifetime.
-   * Reading it as "no session" would bounce those tenants to `/login`, where their still-valid
-   * localStorage token hard-redirects them back to `/dashboard` — the exact loop this cookie
-   * exists to prevent, re-created for every existing user at once.
-   */
+  // Deploy-time regression: sessions signed in before the role-valued cookie still carry the literal "1"; treating it as no session would loop every existing tenant.
   test("a legacy `1` session cookie is still honoured as a tenant session", () => {
     expect(redirectLocation(proxy(requestFor(ROUTES.DASHBOARD, "1")))).toBeNull();
     expect(redirectLocation(proxy(requestFor(ROUTES.LOGIN, "1")))).toBe(ROUTES.DASHBOARD);
@@ -119,8 +96,7 @@ describe("proxy — tenant vs admin session routing", () => {
   });
 
   test("an unrecognized cookie value is treated as no session, not as either role", () => {
-    // Defensive: a malformed/stale cookie value must fail closed to "signed out", never be
-    // mistaken for a match against either the tenant or admin branch.
+    // Fails closed to "signed out".
     const response = proxy(requestFor(ROUTES.DASHBOARD, "garbage"));
     expect(redirectLocation(response)).toBe(ROUTES.LOGIN);
   });

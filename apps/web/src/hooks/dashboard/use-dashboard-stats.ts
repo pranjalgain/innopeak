@@ -25,32 +25,18 @@ interface UseDashboardStatsResult {
 }
 
 /**
- * Loads everything the Dashboard screen needs for a given date range. One hook per screen
- * (rather than one per service method) keeps the loading state simple — the screen shows its
- * skeleton/empty state once, not per card. Two independent queries (metrics, attention reviews)
- * rather than one combined query: they key on different things (`range` vs a fixed limit) and a
- * cached "attention reviews" page shouldn't be thrown away just because the date range changed.
- *
- * No tenant lookup here: the endpoints scope themselves from the access token. An earlier version
- * fetched `AuthService.me()` first and gated the load on the result, which left the screen loading
- * forever whenever that call failed.
- *
- * Scoped to whichever business the Business Switcher currently has active (`useConnection()`'s
- * `state.location.id` — already the tenant's resolved selection, fallback included). That id is
- * folded into both query keys, not just passed to the service calls: switching the active
- * location changes the key, which is what makes react-query treat it as a different query and
- * fetch fresh data instead of quietly continuing to show the previous business's numbers under an
- * unchanged cache entry.
+ * One hook per screen keeps loading state simple. Two independent queries (metrics, attention reviews) because they key on
+ * different things and a cached attention page shouldn't be discarded when the range changes.
+ * No tenant lookup: endpoints scope from the access token, and gating on `AuthService.me()` would leave the screen
+ * loading forever if it failed. The active location id (`useConnection()`'s `state.location.id`) is in both query keys so
+ * switching business fetches fresh data instead of showing the previous business's numbers.
  */
 export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
   const { state, isLoading: isResolvingLocation } = useConnection();
   const locationId = state?.location?.id ?? null;
 
-  // Both queries wait for `["connection"]` to settle. Until it does, `locationId` is null, and
-  // null means "every location this tenant has" to the API — so firing early didn't just fetch
-  // something stale, it fetched a genuinely different figure. A multi-location tenant opening the
-  // dashboard saw the summed numbers across all their stores paint first, then jump to the active
-  // store's a moment later when the key changed and a second request landed.
+  // Both queries wait for `["connection"]` to settle: until then `locationId` is null, which the API reads as "every
+  // location", so firing early paints summed numbers that then jump to the active store's.
   const isReady = !isResolvingLocation;
 
   const metricsQuery = useQuery({
@@ -72,9 +58,8 @@ export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
     stats: metrics?.stats ?? null,
     ratingDistribution: metrics?.ratingDistribution ?? [],
     attentionReviews: attentionQuery.data ?? [],
-    // `!isReady` is part of this: a disabled query reports `isLoading: false` with no data, so
-    // without it the screen would render its empty state for the instant before the active
-    // location resolves, rather than staying on the skeleton it is already showing.
+    // `!isReady` matters: a disabled query reports `isLoading: false` with no data, which would flash the empty state
+    // before the active location resolves.
     isLoading: !isReady || metricsQuery.isLoading || attentionQuery.isLoading,
     error: metricsQuery.isError || attentionQuery.isError ? "Could not load dashboard data." : null,
   };

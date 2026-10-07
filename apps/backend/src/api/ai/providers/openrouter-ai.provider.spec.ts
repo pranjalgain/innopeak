@@ -53,7 +53,6 @@ describe('OpenRouterAiProvider', () => {
       }),
       expect.objectContaining({ timeout: expect.any(Number) })
     );
-    // Trimmed, and echoes the model OpenRouter actually served rather than the one requested.
     expect(result.content).toBe('Thanks so much!');
     expect(result.model).toBe('nvidia/nemotron-3-super-120b-a12b:free');
     expect(result.promptTokens).toBe(120);
@@ -63,10 +62,8 @@ describe('OpenRouterAiProvider', () => {
   });
 
   it("disables the SDK's own retries explicitly, so latency and wall clock stay bounded", async () => {
-    // The `openai` SDK defaults to maxRetries: 2. Nothing here chose that, and inheriting it would
-    // fold up to two silent failed attempts into `latencyMs` (the number this whole endpoint
-    // exists to show) and stretch a stuck request to ~3x the timeout. Pinned because it is a
-    // default that reappears the moment this option is dropped.
+    // The SDK defaults to maxRetries: 2, which would fold silent failed attempts into `latencyMs`
+    // and stretch a stuck request to ~3x the timeout.
     mockOpenAiInstance.chat.completions.create.mockResolvedValue({
       model: 'some/model',
       choices: [{ message: { content: 'Thanks!' }, finish_reason: 'stop' }],
@@ -84,9 +81,8 @@ describe('OpenRouterAiProvider', () => {
   });
 
   it('surfaces a truncated reply via finishReason rather than passing it off as complete', async () => {
-    // Observed for real against a free reasoning model: it spent the whole output budget, hit
-    // AI_MAX_OUTPUT_TOKENS and returned mid-sentence text. The string itself looks perfectly
-    // valid, so `finish_reason` is the only signal that the reply is unusable as a draft.
+    // A free reasoning model spent its whole output budget and returned valid-looking mid-sentence
+    // text; `finish_reason` is the only signal the reply is unusable.
     mockOpenAiInstance.chat.completions.create.mockResolvedValue({
       model: 'some/model',
       choices: [

@@ -106,11 +106,6 @@ describe('AdminUsersService', () => {
       expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
     });
 
-    /**
-     * Disabling a customer's account is the most consequential per-person action here, and it used
-     * to leave no trace in the feed at all — there was no actor to attribute it to and no event
-     * type to record.
-     */
     it('records a user_deactivated entry naming both the person and their business', async () => {
       adminUsersDbService.toggleActive.mockResolvedValue({
         outcome: 'toggled',
@@ -142,7 +137,7 @@ describe('AdminUsersService', () => {
       );
     });
 
-    /** The check every sibling admin service already had; this was the one relying on the guard alone. */
+    /** Fails safe if the controller's `@Roles` guard is ever loosened. */
     it('refuses a tenant user even if the controller guard were bypassed', async () => {
       const tenantActor = {
         type: JwtTokenType.TENANT_USER,

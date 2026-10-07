@@ -111,12 +111,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
     expect(completeRun).not.toHaveBeenCalled();
   });
 
-  /**
-   * The whole reason `last_review_synced_at` exists: Google orders `updateTime desc`, so the
-   * moment a review at or before the cursor appears, everything after it in that page — and every
-   * later page — is already known. A regression here either re-walks full history every 15
-   * minutes (wasted quota) or stops one page too early (missed reviews).
-   */
+  /** Guards both re-walking full history every tick and stopping one page too early. */
   it('stops paginating once a review is found well before the cursor, without fetching further pages', async () => {
     findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
     listReviews.mockResolvedValueOnce(
@@ -124,8 +119,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
         reviews: [
           review({ externalReviewId: 'ext-new-1', externalUpdatedAt: '2026-01-07T00:00:00.000Z' }),
           review({ externalReviewId: 'ext-new-2', externalUpdatedAt: '2026-01-06T00:00:00.000Z' }),
-          // An hour before the cursor — well outside POLL_CURSOR_OVERLAP_MS's 5-minute window, so
-          // this is unambiguously old and still stops the walk.
+          // Well outside the 5-minute overlap window.
           review({ externalReviewId: 'ext-old-1', externalUpdatedAt: '2026-01-04T23:00:00.000Z' }),
           review({ externalReviewId: 'ext-old-2', externalUpdatedAt: '2026-01-04T00:00:00.000Z' }),
         ],
@@ -145,15 +139,8 @@ describe('ReviewSyncQueueService.runPoll', () => {
   });
 
   /**
-   * `POLL_CURSOR_OVERLAP_MS` — Google's `reviews.list` walks a live, mutating list with no
-   * documented guarantee that a review's position is stable across the page fetches one poll
-   * makes. A review sitting right at the cursor can shift onto the wrong side of this run's
-   * boundary due to a concurrent insert/edit elsewhere, and with a single high-water cursor a
-   * review skipped that way is gone forever — no later poll ever looks below its own cursor. The
-   * fix re-examines a small window before the exact cursor rather than stopping there precisely,
-   * so a review in that window is re-imported (idempotently — `upsertReview`'s `ON CONFLICT`
-   * never touches `status`) instead of depending on this run's boundary having landed exactly
-   * where it would have without the race.
+   * Guards `POLL_CURSOR_OVERLAP_MS`: a review at the cursor can shift across the boundary mid-walk
+   * and be skipped forever; the overlap window re-imports it idempotently.
    */
   it('re-examines reviews within the overlap window before the cursor, not just strictly after it', async () => {
     findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
@@ -177,8 +164,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
     const written = importPollPage.mock.calls[0]?.[0] as { reviews: ProviderReview[] };
     expect(written.reviews.map(r => r.externalReviewId)).toEqual(['ext-new-1', 'ext-boundary']);
-    // The cursor advances only as far as the genuinely newest review — re-examining the boundary
-    // review must never regress it or push it backwards.
+    // Re-examining the boundary review must not regress the cursor.
     expect(completeRun).toHaveBeenCalledWith(
       expect.objectContaining({ lastReviewSyncedAt: '2026-01-06T00:00:00.000Z' })
     );
@@ -220,12 +206,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
     expect(importPollPage).toHaveBeenCalledTimes(2);
   });
 
-  /**
-   * `page.totalCount` is Google's *lifetime* review count for the location — a poll only ever
-   * fetches what is newer than its cursor, typically a handful of reviews, so writing the lifetime
-   * count as this run's `reviewsTotal` turned every poll's row into a meaningless "3 fetched / 2000
-   * total" ratio.
-   */
+  /** `page.totalCount` is the lifetime count; writing it made poll rows read "3 fetched / 2000 total". */
   it('never records reviewsTotal on a poll run, even when the provider reports one', async () => {
     findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
     listReviews.mockResolvedValueOnce(
@@ -252,16 +233,9 @@ describe('ReviewSyncQueueService.runPoll', () => {
     );
   });
 
-  /**
-   * The regression this exists to prevent: Google orders `updateTime desc`, so a run that hits the
-   * page cap before reaching the cursor has imported the *newest* slice of a backlog and its
-   * `maxExternalUpdatedAt` is the global newest. Advancing the cursor there steps permanently over
-   * everything the cap cut off, because no later poll looks below its own cursor. Must fail the
-   * run and leave the cursor alone instead.
-   */
+  /** A run truncated by the page cap must fail and leave the cursor: advancing would permanently skip what the cap cut off. */
   it('fails the run and leaves the cursor untouched when the page cap truncates the backlog', async () => {
     findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2020-01-01T00:00:00.000Z' });
-    // Every page is full, always has a next page, and never reaches the ancient cursor.
     listReviews.mockImplementation((_token: string, options: { pageToken?: string }) => {
       const n = Number(options.pageToken ?? '0');
       return Promise.resolve(
@@ -279,7 +253,6 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
     await service.runPoll(job);
 
-    // Bounded by MAX_POLL_PAGES (200) — no infinite pagination.
     expect(listReviews).toHaveBeenCalledTimes(200);
 
     const completion = completeRun.mock.calls[0]?.[0] as {
@@ -292,13 +265,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
     expect(completion.errorMessage).toContain('page cap');
   });
 
-  /**
-   * The counterpart to the test above, and the reason `truncated` checks `cursor !== null`.
-   * A location that is poll-eligible (backfill completed) but never got a cursor seeded — a
-   * backfill that fetched zero reviews, or one predating the column — must not fail forever just
-   * because it has more than one poll's worth of reviews. With no prior watermark there is no gap
-   * being skipped, so the run succeeds and adopts the newest timestamp as the starting watermark.
-   */
+  /** Counterpart to the test above: with no cursor seeded there is no gap, so truncation must not fail the location forever. */
   it('succeeds and seeds the cursor when the cap is hit with no cursor to begin with', async () => {
     findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: null });
     listReviews.mockImplementation((_token: string, options: { pageToken?: string }) => {
@@ -327,7 +294,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
     };
     expect(completion.status).toBe(SyncRunStatus.OK);
     expect(completion.errorMessage).toBeNull();
-    // Watermark established, so the next poll starts from here rather than repeating this forever.
+    // Watermark established so the next poll doesn't repeat this.
     expect(completion.lastReviewSyncedAt).not.toBeNull();
   });
 
@@ -363,11 +330,8 @@ describe('ReviewSyncQueueService.runPoll', () => {
   });
 
   it('does NOT fail the run when generation fails, unlike a classification failure', async () => {
-    // Deliberately asymmetric with the test above: classification failing leaves
-    // pending_classification rows behind, so it must gate the cursor/completion. Generation
-    // failing does not — classification already committed, and generateForClassifiedReviews'
-    // own query-driven design picks up anything this tick missed on the very next one, so a
-    // transient failure here must never look like a failed poll.
+    // Asymmetric with a classification failure: classification already committed and generation
+    // self-heals on the next tick.
     findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
     listReviews.mockResolvedValueOnce(
       page({ reviews: [review({ externalUpdatedAt: '2026-01-07T00:00:00.000Z' })] })
@@ -402,23 +366,15 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
     await service.runPoll(job);
 
-    // The outcome isn't returned to a caller outside this service, so the observable proof is
-    // that completeRun still reports success (generation's per-item failure count is tolerated,
-    // exactly like classification's own `skipped` already is) rather than flipping the run to
-    // ERROR over one failed draft among several generated ones.
+    // Observable proof the failure is tolerated: completeRun still reports OK.
     const completion = completeRun.mock.calls[0]?.[0] as { status: SyncRunStatus };
     expect(completion.status).toBe(SyncRunStatus.OK);
   });
 });
 
 /**
- * `job.syncRunId` is acquired once, before the job is ever published (`ConnectionsDbService`
- * confirms the location and inserts the `sync_runs` row synchronously in that request). BullMQ's
- * `attempts: 2` means a failed first attempt is retried against that *same* job — same
- * `syncRunId` — not a fresh one. The first attempt's catch block already moved that row to
- * `error`, and `completeRun`'s own CAS only matches `status = 'running'`, so without reopening it
- * a successful retry's completion call silently updates nothing: no `markBackfillCompleted`, no
- * cursor advance, while BullMQ still reports the job completed.
+ * A retry reuses `syncRunId`, whose row the first attempt moved to `error`; without reopening it,
+ * `completeRun`'s CAS (`status = 'running'`) updates nothing.
  */
 describe('ReviewSyncQueueService.runBackfill — retry reopens the carried sync run', () => {
   let service: ReviewSyncQueueService;
@@ -520,9 +476,6 @@ describe('ReviewSyncQueueService.runBackfill — retry reopens the carried sync 
   });
 
   it('lets a retried run reach a successful completion — the exact bug this reopen fixes', async () => {
-    // Before the fix: `completeRun`'s CAS only matches `status = 'running'`. The first attempt's
-    // failure already flipped the row to `error`; without reopening it, this call would still be
-    // made but would silently update nothing, and the caller had no way to notice.
     await service.runBackfill(job, true);
 
     expect(completeRun).toHaveBeenCalledTimes(1);
@@ -544,15 +497,7 @@ describe('ReviewSyncQueueService.runBackfill — retry reopens the carried sync 
   });
 });
 
-/**
- * `recordProgress` writes the run's cumulative `reviews_fetched` after every page — it is the only
- * place that counter is incremented. The local variable `runBackfill`/`runPoll` hold is only ever
- * assigned once, from the paginator's return value, so a failure partway through paginating never
- * updates it: it is still `0` (or whatever it started at) when the catch block runs, even though
- * real pages already committed real reviews. Passing that stale count to `completeRun` used to
- * overwrite the true, larger number `recordProgress` had already written — turning "700 reviews
- * imported, then a 401 on page 15" into a run whose final row reads 0.
- */
+/** On failure, `completeRun` must not overwrite `recordProgress`'s larger count with the stale local `reviewsFetched`. */
 describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-import failure', () => {
   let service: ReviewSyncQueueService;
   const listReviews = jest.fn();
@@ -622,9 +567,7 @@ describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-
   });
 
   it('omits reviewsFetched from the failure completion, rather than reporting 0 for committed pages', async () => {
-    // Page 1 succeeds and commits 100 reviews (recordProgress sees reviewsFetched: 100); page 2's
-    // request fails outright, so importAllPages throws with the count still sitting in a local
-    // scope the catch block never sees.
+    // Page 1 commits 100 reviews; page 2 fails, leaving the local count stale.
     listReviews
       .mockResolvedValueOnce(
         page({ reviews: [review()], nextPageToken: 'page-2', totalCount: 1000 })
@@ -633,7 +576,6 @@ describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-
 
     await expect(service.runBackfill(job, false)).rejects.toThrow('socket hang up');
 
-    // The one durable record of progress during the run.
     expect(recordProgress).toHaveBeenCalledWith(
       'run-1',
       expect.objectContaining({
@@ -644,8 +586,7 @@ describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-
     expect(completeRun).toHaveBeenCalledTimes(1);
     const failureCompletion = completeRun.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(failureCompletion['status']).toBe(SyncRunStatus.ERROR);
-    // The actual assertion: no reviewsFetched key at all, so the repository's conditional SET
-    // clause leaves recordProgress's 100 in place instead of clobbering it with a stale count.
+    // No reviewsFetched key, so the conditional SET leaves recordProgress's 100 in place.
     expect(failureCompletion).not.toHaveProperty('reviewsFetched');
   });
 

@@ -17,16 +17,7 @@ import { CredentialStoreProvider, type StoredCredential } from './credential-sto
 
 const SCHEME = 'aws-sm';
 
-/**
- * The production/AWS credential store — one Secrets Manager secret per connection, referenced from
- * Postgres only by its path. Same client the rest of this codebase already uses for Secrets
- * Manager (`src/config/secrets-bootstrap.ts`), including the Floci endpoint override so the
- * AWS-emulated local stack exercises this path too.
- *
- * One secret per connection, rather than one blob keyed by connection id, so that a single
- * tenant's credential can be rotated, audited or deleted without touching anyone else's — and so
- * that IAM can eventually scope access per-path.
- */
+/** One secret per connection (not one blob) so a tenant's credential can be rotated, audited or deleted independently, and IAM can scope per path. */
 export class AwsSecretsManagerCredentialStoreProvider extends CredentialStoreProvider {
   readonly scheme = SCHEME;
   private readonly logger = new Logger(AwsSecretsManagerCredentialStoreProvider.name);
@@ -74,9 +65,7 @@ export class AwsSecretsManagerCredentialStoreProvider extends CredentialStorePro
 
       return SecretString ? (JSON.parse(SecretString) as StoredCredential) : null;
     } catch (error) {
-      // Only a genuinely absent secret degrades to null (the owner must reconnect). Anything else
-      // — a permissions error, a network failure — is rethrown, because swallowing it would turn a
-      // transient AWS problem into every tenant being told their Google grant expired.
+      // Only a genuinely absent secret becomes null (owner must reconnect); swallowing other errors would tell every tenant their grant expired during a transient AWS problem.
       if (error instanceof ResourceNotFoundException) {
         this.logger.warn(`Credential ${reference} no longer exists in Secrets Manager.`);
         return null;
@@ -90,9 +79,7 @@ export class AwsSecretsManagerCredentialStoreProvider extends CredentialStorePro
     await this.client.send(
       new DeleteSecretCommand({
         SecretId: this.parseReference(reference),
-        // Not `ForceDeleteWithoutRecovery` — a disconnect that turns out to be a mistake is
-        // recoverable within the retention window, and a scheduled deletion still stops the
-        // credential being usable immediately.
+        // Not `ForceDeleteWithoutRecovery`: a mistaken disconnect stays recoverable, and scheduled deletion still disables the secret immediately.
         RecoveryWindowInDays: 7,
       })
     );

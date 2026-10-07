@@ -3,9 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { UserStatus } from '../enums/user-status.enum';
 
 /**
- * Login's `pending_verification` branch — not an error. This account exists and the password
- * was correct, but it never finished signup verification, so a fresh OTP has just been sent and
- * the frontend should render the same OTP stepper the signup wizard uses.
+ * Not an error: the password was correct but signup verification never finished, so a fresh OTP was
+ * sent and the frontend shows the OTP stepper.
  */
 export class LoginPendingVerificationDto {
   @ApiProperty({

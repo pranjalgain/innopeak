@@ -1,5 +1,7 @@
 import { AccountAnonymizationService } from '@auth/services/account-anonymization.service';
+import { ErasureNoticeService } from '@auth/services/erasure-notice.service';
 import { ICronJob } from '@bg/interfaces/job.interface';
+import type { IPurgeSkippedBusiness } from '@bg/interfaces/job.interface';
 import { BillingReconciliationService } from '@billing/services/billing-reconciliation.service';
 import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
@@ -13,8 +15,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ReviewSyncQueue } from '@review-sync-queue/review-sync.queue';
 
-/** `platform_activity_log.actor_email` for the one entry this log ever writes with no human admin
- *  behind it — see `RecordActivityInput.actorPlatformAdminId`'s own comment. */
+import { TenantErasureCleanupService } from './tenant-erasure-cleanup.service';
+
+/** `platform_activity_log.actor_email` for entries with no human admin behind them. */
 const SYSTEM_ACTOR_EMAIL = 'system@innopeak.internal';
 
 @Injectable()
@@ -30,18 +33,16 @@ export class CronService {
     private readonly adminOverviewDbService: AdminOverviewDbService,
     private readonly billingReconciliationService: BillingReconciliationService,
     private readonly tenantSubscriptionsDbService: TenantSubscriptionsDbService,
-    private readonly configService: ConfigService<EnvConfig>
+    private readonly tenantErasureCleanupService: TenantErasureCleanupService,
+    private readonly configService: ConfigService<EnvConfig>,
+    private readonly erasureNoticeService: ErasureNoticeService
   ) {}
 
   sendDailyMail(data?: ICronJob): void {
     this.logger.debug('Sending Daily mail', data);
   }
 
-  /**
-   * Nothing reads a consumed verify_email code or a revoked/expired refresh token ever again
-   * (`consumeVerifyEmailToken` and `findActiveRefreshToken` both exclude them), so without this
-   * both tables only ever grow — one refresh_tokens row per session ever started, forever.
-   */
+  /** Nothing reads consumed OTPs or revoked/expired refresh tokens again, so the tables would grow forever. */
   async purgeStaleAuthTokens(): Promise<void> {
     const purged = await this.authDbService.purgeStaleTokens();
     this.logger.log(
@@ -50,19 +51,11 @@ export class CronService {
   }
 
   /**
-   * The 15-minute poller's fan-out. Enumerates every location PLAN.md §8.2 makes eligible
-   * (`ConnectionsRepository.findLocationsDueForPoll`) and publishes one `review-poll` job per
-   * location — this method itself does no fetching, matching this codebase's own rule for `@Cron`
-   * methods: enqueue, don't work.
+   * Enqueues one `review-poll` job per due location; does no fetching itself.
    *
-   * `acquireSyncRun` (the same CAS-and-reclaim `ReviewSyncRepository` method backfill uses) is
-   * deliberately *not* called here — that would make this fan-out a database write per location on
-   * every tick, and a location whose previous poll is still genuinely running would fail loudly on
-   * the unique index instead of just not being re-enqueued. `runPoll` itself calls it once the job
-   * actually starts (`IReviewSyncJob` carries no `syncRunId` for this reason — there is nothing to
-   * carry yet at enqueue time), so a location already mid-poll simply loses that race silently
-   * when its own job runs — no different from how a slow backfill already behaves against a
-   * second trigger.
+   * `acquireSyncRun` is deliberately not called here: it would be a DB write per location per
+   * tick, and a still-running poll would fail on the unique index. `runPoll` calls it when the job
+   * starts, so a location already mid-poll loses that race silently.
    */
   async pollDueLocations(): Promise<void> {
     const locations = await this.connectionsDbService.findLocationsDueForPoll();
@@ -71,10 +64,8 @@ export class CronService {
     const failed: string[] = [];
 
     for (const location of locations) {
-      // Isolated per location on purpose. The cron queue runs `attempts: 1, removeOnFail: true`
-      // (cron-ui.module.ts), so letting one bad `queue.add` throw out of this loop would drop
-      // every *later* location's poll for the cycle with no retry — a transient Redis blip on
-      // location 7 of 300 silently starving 293 tenants.
+      // Isolated per location: the cron queue is `attempts: 1, removeOnFail: true`, so one throw
+      // would drop every later location's poll for the cycle with no retry.
       try {
         await this.reviewSyncQueue.addPollJob({
           tenantId: location.tenantId,
@@ -102,44 +93,38 @@ export class CronService {
     this.logger.debug(`Enqueued ${enqueued} review-poll job(s)`);
   }
 
-  /**
-   * `PLAN.md` §6's nightly reviewer-retention purge. Only tenants with an explicit
-   * `review_data_retention_months` set are touched — see
-   * `ReviewSyncRepository.purgeExpiredReviewerPii` for the full query and its idempotency/locking
-   * guarantees. The stale-`sync_runs` sweep (§8.1, cosmetic — see the ingestion doc) is a
-   * separate, still-unbuilt follow-up to this same job, not part of it yet.
-   */
+  /** Only tenants with an explicit `review_data_retention_months` are touched. */
   async purgeExpiredReviewerPii(): Promise<void> {
     const purged = await this.reviewSyncDbService.purgeExpiredReviewerPii();
     this.logger.log(`Anonymized ${purged} review(s) past their tenant's retention window`);
   }
 
   /**
-   * The GDPR erasure grace-period sweep — both `TenantMembersService.requestRemoval` and
-   * `AdminBusinessesService.requestErasure` only ever revoke access and start the clock; this job
-   * is what actually anonymizes data once `ERASURE_GRACE_PERIOD_DAYS` has elapsed.
+   * The removal/erasure requests only revoke access and start the clock; this anonymizes once
+   * `ERASURE_GRACE_PERIOD_DAYS` has elapsed.
    *
-   * Held under `AuthRepository.runWithErasurePurgeLock`'s session-level advisory lock for its
-   * entire duration — a second concurrent run (another replica, an overlapping manual trigger)
-   * would otherwise double-process the same tenants/users, since anonymizing a user is the one
-   * step that must never race itself across two independent transactions.
+   * Runs under a session-level advisory lock so a concurrent run (another replica, a manual
+   * trigger) can't double-process; anonymizing must never race itself across transactions.
    *
-   * Tenant-wide erasures go first, and fully (every user in the tenant) before the tenant itself
-   * flips to `erased` — so a tenant is never observed as `erased` while any of its users still
-   * holds PII. Reviews, replies, locations, connections, and billing records are never touched
-   * here; there is nothing for this job to do to them once every user is anonymized.
-   *
-   * Standalone member removals run second, in the same tick — see
-   * `AuthRepository.findUsersDueForErasurePurge`'s own comment for why that query needs no
-   * explicit exclusion for users already handled by the tenant loop above.
+   * Tenant erasures go first and anonymize every user before the tenant flips to `erased`, so an
+   * `erased` tenant never has a user holding PII. Standalone member removals run second.
    */
   async purgeErasureRequests(): Promise<void> {
     const gracePeriodDays = getErasureGracePeriodDays(this.configService);
+
+    // First, so a tenant whose reminder window opens tonight is told before anything else runs;
+    // it swallows its own errors so it can't block the purge.
+    const reminded = await this.erasureNoticeService.sendDueReminders();
+    if (reminded > 0) {
+      this.logger.log(`Sent the erasure reminder for ${reminded} business(es)`);
+    }
 
     await this.authDbService.runWithErasurePurgeLock(async acquireLock => {
       const dueTenants = await this.authDbService.findTenantsDueForErasurePurge(gracePeriodDays);
       let anonymizedUsers = 0;
       let erasedTenants = 0;
+      const skippedTenants: string[] = [];
+      const skippedDetails: IPurgeSkippedBusiness[] = [];
 
       for (const tenant of dueTenants) {
         await acquireLock('gdpr:tenant-erasure', tenant.id, async () => {
@@ -151,13 +136,53 @@ export class CronService {
             return;
           }
 
-          const userIds = await this.authDbService.findNonAnonymizedUserIdsForTenant(tenant.id);
-          for (const userId of userIds) {
-            await this.accountAnonymizationService.anonymizeUser(userId);
-            anonymizedUsers += 1;
+          // Release external resources first: anonymizing first would leave an "erased" business
+          // still billed or connected with nobody able to sign in to stop either.
+          try {
+            await this.tenantErasureCleanupService.releaseExternalResources(tenant.id);
+          } catch (error) {
+            skippedTenants.push(tenant.id);
+            skippedDetails.push({
+              name: tenant.name,
+              daysOverdue: this.daysOverdue(tenant.erasureRequestedAt, gracePeriodDays),
+              reason: this.briefReason(error),
+            });
+            this.logger.error(
+              `Skipping erasure of tenant ${tenant.id}: could not release its external resources (${
+                (error as Error).message
+              }); will retry at the next purge`
+            );
+            return;
           }
 
-          const erased = await this.authDbService.markTenantErased(tenant.id);
+          // Read now: once the users are anonymized there is no address left to confirm to.
+          const noticeRecipients = await this.erasureNoticeService.findRecipients(tenant.id);
+
+          // One tenant failing (a Cloudinary avatar delete, a transaction) must not abort the rest
+          // or the skipped-tenant alert below; anonymizing is idempotent per user.
+          let erased: { name: string } | null;
+          try {
+            const userIds = await this.authDbService.findNonAnonymizedUserIdsForTenant(tenant.id);
+            for (const userId of userIds) {
+              await this.accountAnonymizationService.anonymizeUser(userId);
+              anonymizedUsers += 1;
+            }
+            erased = await this.authDbService.markTenantErased(tenant.id);
+          } catch (error) {
+            skippedTenants.push(tenant.id);
+            skippedDetails.push({
+              name: tenant.name,
+              daysOverdue: this.daysOverdue(tenant.erasureRequestedAt, gracePeriodDays),
+              reason: this.briefReason(error),
+            });
+            this.logger.error(
+              `Skipping erasure of tenant ${tenant.id}: anonymizing it failed (${
+                (error as Error).message
+              }); will retry at the next purge`
+            );
+            return;
+          }
+
           if (erased) {
             erasedTenants += 1;
             await this.adminOverviewDbService.recordActivityBestEffort({
@@ -167,14 +192,15 @@ export class CronService {
               tenantId: tenant.id,
               businessName: erased.name,
             });
+            await this.erasureNoticeService.notifyErased({
+              recipients: noticeRecipients,
+              businessName: erased.name,
+            });
           }
         });
       }
 
-      // Same per-resource-lock-then-re-verify shape as the tenant loop above, closing the
-      // identical TOCTOU race against a concurrent `AuthRepository.cancelMemberRemoval` call for
-      // one of these same user ids — without it, a user an owner just un-removed could still be
-      // anonymized from this loop's stale read.
+      // Lock then re-verify, as above: a user an owner just un-removed must not be anonymized from a stale read.
       const standaloneUserIds =
         await this.authDbService.findUsersDueForErasurePurge(gracePeriodDays);
       for (const userId of standaloneUserIds) {
@@ -192,23 +218,40 @@ export class CronService {
         });
       }
 
+      if (skippedTenants.length > 0) {
+        // One line a log alert can match: a repeatedly failing erasure is a compliance problem.
+        this.logger.error(
+          `Erasure purge skipped ${skippedTenants.length} tenant(s) that could not be released: ${skippedTenants.join(', ')}`
+        );
+        // The log line is for alerting; this one is for a person. It swallows its own errors.
+        await this.erasureNoticeService.notifyPurgeSkipped(skippedDetails);
+      }
+
       this.logger.log(
         `Erasure purge: anonymized ${anonymizedUsers} user(s), erased ${erasedTenants} tenant(s)`
       );
     });
   }
 
+  /** Whole days past the deadline (`erasure_requested_at + grace`); never negative. */
+  private daysOverdue(erasureRequestedAt: string | null, gracePeriodDays: number): number {
+    if (!erasureRequestedAt) {
+      return 0;
+    }
+    const deadline = new Date(erasureRequestedAt).getTime() + gracePeriodDays * 86_400_000;
+    return Math.max(0, Math.floor((Date.now() - deadline) / 86_400_000));
+  }
+
+  /** One short line of why, for a platform admin's email — never a stack. */
+  private briefReason(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.replace(/\s+/g, ' ').trim().slice(0, 200) || 'Unknown error';
+  }
+
   /**
-   * The nightly safety net in `BillingReconciliationService`'s own three-layer design — for a
-   * tenant who never comes back to the checkout success page at all (closes the tab, pays from a
-   * different device), the synchronous redirect path (`POST /v1/billing/checkout/reconcile`) never
-   * runs either. This sweep is what still catches it.
-   *
-   * Candidates are `TenantSubscriptionsRepository.findStaleFreeWithStripeCustomer`'s own
-   * signature: a Stripe customer id (a checkout was at least started) but still on the `free`
-   * plan, unverified for over an hour — exactly "paid on Stripe, this app never heard about it."
-   * Each is isolated in its own try/catch, same reasoning as `pollDueLocations`: one tenant's
-   * Stripe lookup failing must not starve every other candidate in the same tick.
+   * Catches tenants who paid but never returned to the checkout success page, so the synchronous
+   * reconcile never ran. Candidates have a Stripe customer but are still `free` and unverified for
+   * over an hour. Isolated per tenant so one Stripe failure doesn't starve the rest.
    */
   async reconcileStaleBillingSubscriptions(): Promise<void> {
     const candidates = await this.tenantSubscriptionsDbService.findStaleFreeWithStripeCustomer();

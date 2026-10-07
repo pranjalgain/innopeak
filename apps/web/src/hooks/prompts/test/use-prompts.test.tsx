@@ -25,8 +25,7 @@ function prompt(overrides: Partial<AiPrompt> = {}): AiPrompt {
   };
 }
 
-// A fresh QueryClient per render so one test's cached `["prompts"]` data can never leak into
-// the next.
+// Fresh QueryClient per render so cached `["prompts"]` data cannot leak across tests.
 function wrapper({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={createQueryClient()}>
@@ -39,10 +38,9 @@ function wrapper({ children }: { children: ReactNode }) {
 
 describe("usePrompts", () => {
   test("saveNewVersion resolves rather than rejecting when the save fails", async () => {
-    // Regression: `mutateAsync` rejects even after its own `onError` toast fires. Without the
-    // hook catching that internally, `PromptEditorDialog`'s
-    // `await onSaveVersion(...); onClose();` flow would throw out of the click handler as an
-    // unhandled rejection instead of just leaving the dialog open for a retry.
+    // Regression: `mutateAsync` rejects even after `onError` fires; uncaught,
+    // `PromptEditorDialog`'s `await onSaveVersion(...); onClose()` would throw as an unhandled
+    // rejection.
     vi.spyOn(PromptService, "getPrompts").mockResolvedValue([prompt()]);
     vi.spyOn(PromptService, "createVersion").mockRejectedValue(new Error("network error"));
 
@@ -55,8 +53,8 @@ describe("usePrompts", () => {
   });
 
   test("updateTone resolves rather than rejecting when the save fails", async () => {
-    // Regression: `prompt-tone-select.tsx` fires this from `onValueChange` without awaiting it
-    // at all, so an uncaught rejection here would be a genuinely unhandled promise rejection.
+    // Regression: `prompt-tone-select.tsx` fires this without awaiting, so a rejection would be
+    // unhandled.
     vi.spyOn(PromptService, "getPrompts").mockResolvedValue([prompt()]);
     vi.spyOn(PromptService, "updateTone").mockRejectedValue(new Error("network error"));
 

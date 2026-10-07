@@ -17,10 +17,7 @@ describe('renderReceiptPdf', () => {
     expect(buffer.length).toBeGreaterThan(0);
   });
 
-  /** `tenants.name` is a varchar(255) and Stripe ids are unbounded, so both the billed-to block
-   *  and the invoice-details column can wrap to a second line. The layout flows from measured
-   *  heights rather than fixed offsets for exactly this input; before that, the wrapped name was
-   *  drawn over the email and the wrapped reference was struck through by the divider rule. */
+  /** Guards the layout: a long `tenants.name` or Stripe id wraps, so the layout must flow from measured heights (fixed offsets overdrew the email and struck the reference with the divider). */
   it('renders wrapping business names and long Stripe ids without throwing', async () => {
     const buffer = await renderReceiptPdf({
       businessName: 'Coastal Table Hospitality Group International Holdings Limited Partnership',

@@ -10,13 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-/**
- * A static, illustrative rendering of the real Review Detail screen's
- * reviewer-card + AI-draft-approval pattern — built from the same
- * components the actual product uses, not a mocked-up screenshot, so it
- * never drifts from what the product really looks like. None of the
- * buttons do anything; this is marketing, not the app.
- */
+/** Static marketing rendering of the Review Detail pattern, built from the real components so it cannot drift; buttons are inert. */
 export function ReviewReplyMockup() {
   const t = useTranslations("marketing.hero.mockup");
 

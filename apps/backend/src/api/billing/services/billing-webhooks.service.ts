@@ -14,45 +14,24 @@ import { StripeWebhookTenantNotFoundException } from '../exceptions/billing.exce
 import type { PaymentWebhookEvent } from '../types/billing.type';
 
 /**
- * The Stripe-facing half of the module — idempotency, then the per-event-type state machine.
- * **Downgrade-to-free on cancellation is explicit, not implied by status alone**:
+ * Idempotency, then the per-event-type state machine.
  *
- * | Event | Effect |
- * |---|---|
- * | `checkout.session.completed` | Attach `stripe_subscription_id`, set `plan_id` to `paid`, clear `billing_paused_at` on every one of the tenant's locations (Paid has no cap). |
- * | `customer.subscription.updated` | Sync `status`/period/`cancel_at_period_end` only. A tenant who canceled but is still in their paid period arrives here with `cancel_at_period_end: true` and `status: 'active'` — `plan_id` **stays** `paid` and entitlements stay unlimited; they keep what they already paid for. |
- * | `customer.subscription.deleted` | Fires when Stripe actually ends the subscription (period end, or immediate). **This is the one write that flips `plan_id` back to `free`** and clears `stripe_subscription_id`/`status`/period fields — entitlement checks read `plan_id`, not `status`, so forgetting this would leave a canceled tenant permanently reading as `paid`. Also runs `BillingEntitlementsService.enforceLocationLimitOnDowngrade`. |
- * | `invoice.payment_failed` | `status` only — no email queuing in v1. |
- * | `invoice.payment_succeeded` | `status`, plus a `billing_receipts` row (amount/currency/invoice number) so the tenant can download a PDF receipt — see `0012_billing_receipts.sql`. |
+ * Cancellation does not imply downgrade: `customer.subscription.updated` (even with
+ * `cancel_at_period_end`) leaves `plan_id` as `paid`, so the tenant keeps what they paid for.
+ * Only `customer.subscription.deleted` flips it to `free` (entitlement checks read `plan_id`, not
+ * `status`) and enforces the location limit.
  *
- * Every branch resolves the tenant by Stripe id via `requireSubscriptionByCustomerId`, which
- * **throws** (`StripeWebhookTenantNotFoundException`) rather than swallowing a miss — see that
- * method's own doc comment for why: letting the throw propagate and fail the webhook response is
- * what makes Stripe actually retry a transient miss (a race with an as-yet-uncommitted Checkout, a
- * brief replication lag) instead of this app silently, permanently losing it. That retry is bounded
- * (`UNKNOWN_CUSTOMER_RETRY_GRACE_MS`): once such an event is older than the grace window it is
- * acknowledged and logged instead, since a customer this database still doesn't know after that
- * long never will — failing it for days would only risk Stripe disabling the whole endpoint. The one deliberate
- * exception is `resolveSubscription`'s *own* no-op for a genuinely stale, out-of-order event (a
- * `.deleted` for a subscription the tenant has since superseded) — that one is correct to skip
- * forever, since reprocessing it later would never produce a different, more correct result.
+ * An unresolvable customer throws so Stripe retries a transient miss (race with an uncommitted
+ * Checkout, replication lag); past `UNKNOWN_CUSTOMER_RETRY_GRACE_MS` it is acknowledged and logged,
+ * since failing for days risks Stripe disabling the endpoint. The one silent no-op is a stale,
+ * superseded `.deleted`, which retrying would never change.
  *
- * Every handler that resolves a real tenant also returns its `tenantId`, so `handleEvent` can stamp
- * `tenant_subscriptions.stripe_last_verified_at` once, in one place, after any event type —
- * `BillingReconciliationService`'s cron sweep reads that column to decide which tenants still need
- * checking, and a tenant a webhook just confirmed in sync should not be re-checked again shortly
- * after for no reason.
+ * Handlers return their tenantId so `handleEvent` stamps `stripe_last_verified_at` once, keeping
+ * the reconciliation sweep off tenants a webhook just confirmed.
  *
- * **One transaction per delivery.** `handleEvent` opens a single `DBService.db.transaction(...)`
- * spanning the idempotency-ledger insert (`stripeWebhookEventsDbService.recordIfNew`) AND every
- * state-changing write the event's handler makes, all threaded through the same `tx`. Previously
- * the ledger insert committed on its own, ahead of the handler's writes: if the process crashed or
- * a write threw partway through a handler (e.g. `setToPaidFromCheckout` succeeding but
- * `clearBillingPauseForTenant` failing), the event was already marked "processed" and Stripe's
- * retry would see that and silently skip it forever, permanently losing the missed write with no
- * recovery path. Wrapping the ledger insert in the same transaction as the writes it guards means a
- * failure anywhere rolls the whole thing back, including the ledger row — so a retry actually
- * retries.
+ * One transaction per delivery covers the ledger insert and every handler write: if the ledger
+ * row committed first, a failure partway through a handler would leave the event marked processed
+ * and Stripe's retry would skip it forever.
  */
 @Injectable()
 export class BillingWebhooksService {
@@ -73,9 +52,7 @@ export class BillingWebhooksService {
 
     try {
       await this.dbService.db.transaction(async tx => {
-        // Insert-first, ON CONFLICT DO NOTHING — 0 rows returned means this event id was already
-        // processed (a duplicate delivery, Stripe's own retry behavior), and it must be skipped.
-        // Runs inside this same transaction — see this class's own doc comment for why.
+        // ON CONFLICT DO NOTHING: no row back means a duplicate delivery, which must be skipped.
         const isNew = await this.stripeWebhookEventsDbService.recordIfNew(
           event.id,
           rawType,
@@ -93,8 +70,7 @@ export class BillingWebhooksService {
         }
       });
     } catch (error) {
-      // The transaction (ledger row included) is already rolled back by the time this runs, so
-      // swallowing here only stops Stripe retrying — it never marks the event processed.
+      // The transaction (ledger row included) is already rolled back, so swallowing only stops Stripe retrying.
       if (error instanceof StripeWebhookTenantNotFoundException && this.isPastRetryGrace(event)) {
         this.logger.error(
           `Dropping Stripe event ${event.id} (${rawType}) for unknown customer ${customerId ?? 'n/a'} — ` +
@@ -114,9 +90,7 @@ export class BillingWebhooksService {
     );
   }
 
-  /** Routes to the per-event-type handler and returns the tenant id it resolved, or `null` for an
-   *  event that legitimately touches no tenant (`unhandled`, or `resolveSubscription`'s stale-event
-   *  no-op) — `handleEvent` uses that to decide whether to stamp `stripe_last_verified_at`. */
+  /** Returns the resolved tenant id, or `null` for an event touching no tenant (unhandled, stale). */
   private async dispatchEvent(
     tx: DrizzleTransaction,
     event: PaymentWebhookEvent
@@ -156,7 +130,7 @@ export class BillingWebhooksService {
       tx
     );
 
-    // Paid has no location cap — see §3a's final paragraph in the plan.
+    // Paid has no location cap.
     await this.connectionsDbService.clearBillingPauseForTenant(subscription.tenantId, tx);
 
     return subscription.tenantId;
@@ -171,7 +145,7 @@ export class BillingWebhooksService {
       return null;
     }
 
-    // `plan_id` is deliberately untouched here — see this class's own doc comment table.
+    // `plan_id` is deliberately untouched here: a canceled-but-paid tenant stays paid.
     await this.tenantSubscriptionsDbService.syncSubscriptionFields(
       subscription.tenantId,
       {
@@ -207,10 +181,7 @@ export class BillingWebhooksService {
     return subscription.tenantId;
   }
 
-  /** Syncs status (unchanged from before) and additionally records a `billing_receipts` row so the
-   *  tenant can download a PDF for this payment — see `0012_billing_receipts.sql`. The insert is
-   *  idempotent on `stripe_invoice_id`, so a retried delivery of the same event (this method only
-   *  runs once per event id anyway, per `handleEvent`'s own dedup) can never double-record. */
+  /** Also records a `billing_receipts` row (idempotent on `stripe_invoice_id`) for the PDF receipt. */
   private async handleInvoicePaymentSucceeded(
     tx: DrizzleTransaction,
     event: Extract<PaymentWebhookEvent, { type: 'invoice.payment_succeeded' }>
@@ -223,7 +194,7 @@ export class BillingWebhooksService {
       tx
     );
 
-    await this.billingReceiptsDbService.recordIfNew(
+    const receipt = await this.billingReceiptsDbService.recordIfNew(
       {
         tenantId: subscription.tenantId,
         stripeInvoiceId: event.invoiceId,
@@ -235,6 +206,15 @@ export class BillingWebhooksService {
       },
       tx
     );
+
+    // Refund due: the charge succeeded after the owner asked to be erased (invoice already
+    // finalized). Only on first delivery, so a replay can't log it twice.
+    if (receipt.inserted && receipt.paidAfterErasureRequest) {
+      this.logger.error(
+        `Refund due: invoice ${event.invoiceNumber ?? event.invoiceId} (${event.amountPaid} ${event.currency}) ` +
+          `was paid by tenant ${subscription.tenantId} after it requested erasure`
+      );
+    }
 
     return subscription.tenantId;
   }
@@ -250,18 +230,10 @@ export class BillingWebhooksService {
   }
 
   /**
-   * Prefers the Stripe subscription id (unambiguous, one row) and falls back to the customer id —
-   * a `customer.subscription.updated`/`.deleted` for a subscription this row hasn't recorded yet
-   * (e.g. delivered out of order relative to `checkout.session.completed`) can still resolve the
-   * tenant by customer id alone.
-   *
-   * That same fallback, unguarded, used to be able to apply a STALE event: Stripe does not
-   * guarantee delivery order, so a delayed `.deleted` for a subscription the tenant has since
-   * canceled-and-resubscribed past (a newer `stripeSubscriptionId` already attached) could resolve
-   * by customer id and wipe the tenant's *current, active* subscription back to Free. The check
-   * below closes that: once the customer-id fallback finds a row that already points at a
-   * *different*, non-null subscription id than the one this event describes, the event is for a
-   * subscription Stripe has since superseded — no-op instead of applying it.
+   * Prefers the subscription id, falling back to the customer id for events arriving before
+   * `checkout.session.completed`. Webhooks are unordered, so a fallback row already pointing at a
+   * different non-null subscription id means the event is stale (superseded); it is skipped rather
+   * than wiping the tenant's current subscription back to Free.
    */
   private async resolveSubscription(
     tx: DrizzleTransaction,
@@ -292,17 +264,7 @@ export class BillingWebhooksService {
     return byCustomerId;
   }
 
-  /**
-   * Throws, rather than returning `null`, when no `tenant_subscriptions` row matches this Stripe
-   * customer id — see `StripeWebhookTenantNotFoundException`'s own doc comment and this class's.
-   * The one place a "no match" genuinely should be a silent no-op (a stale, out-of-order event for
-   * a subscription the tenant has since superseded) is `resolveSubscription`'s own check *after*
-   * this call succeeds, not here: this method only ever answers "does any tenant own this Stripe
-   * customer at all," and the answer is never legitimately "no and that's fine" — every customer id
-   * in a webhook payload was, at some point, written by this same app (`StripePaymentProvider
-   * .createCustomer`), so a miss is always either a transient race or a genuine data problem, both
-   * worth Stripe retrying rather than this app discarding silently.
-   */
+  /** Throws on a miss: every customer id was written by this app, so a miss is a transient race or a data problem, both worth a Stripe retry. */
   private async requireSubscriptionByCustomerId(
     tx: DrizzleTransaction,
     customerId: string

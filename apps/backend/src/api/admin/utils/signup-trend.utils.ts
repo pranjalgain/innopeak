@@ -1,12 +1,8 @@
 import type { SignupTrendPoint } from '@db/repositories/admin-overview/types/admin-overview.type';
 
 /**
- * Fills every month in the trailing `monthsBack`-month window (counting back from the current UTC
- * month, inclusive) with a zero count where the repository returned none — it only returns months
- * that had at least one signup. Omitting zero-signup months would draw non-adjacent months as
- * adjacent equal-width bars on the frontend chart, implying an unbroken series and hiding a real
- * gap; this is what keeps the response itself the source of truth for "no signups that month"
- * rather than relying on the frontend to know the window's start/end.
+ * Zero-fills the trailing `monthsBack` UTC months (current inclusive) the repository omitted, so the
+ * chart doesn't draw non-adjacent months as adjacent bars.
  */
 export function fillSignupTrendWindow(
   points: SignupTrendPoint[],

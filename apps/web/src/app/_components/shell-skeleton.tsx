@@ -1,12 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
-/**
- * Shell-shaped skeleton (sidebar rail + header bar + content) shown by
- * route guards (`GoogleConnectionGuard`, `AdminGuard`) while their access
- * check is loading, so the whole app doesn't blank out to `null` on every
- * load. Deliberately not the real `AppShell` — that pulls in i18n/auth/
- * breakpoint context a guard shouldn't need just to render a placeholder.
- */
+/** Placeholder for route guards (`GoogleConnectionGuard`, `AdminGuard`) so the app doesn't blank to `null` while access loads. Not the real `AppShell`, whose i18n/auth/breakpoint context a guard shouldn't need. */
 export function ShellSkeleton() {
   return (
     <div className="flex min-h-dvh">

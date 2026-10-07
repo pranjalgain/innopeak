@@ -15,12 +15,6 @@ interface MobileBottomNavProps {
   homeHref: string;
 }
 
-/**
- * Replaces the sidebar entirely on mobile — the design uses a persistent
- * bottom tab bar there rather than a hamburger/drawer. Takes the same
- * `navItems`/`navNamespace`/`homeHref` as `AppShell` so the two can never
- * drift.
- */
 export function MobileBottomNav({ navItems, navNamespace, homeHref }: MobileBottomNavProps) {
   const t = useTranslations(navNamespace);
   const pathname = usePathname();
@@ -35,7 +29,8 @@ export function MobileBottomNav({ navItems, navNamespace, homeHref }: MobileBott
             key={item.href}
             href={item.href as Route}
             className={cn(
-              "flex flex-1 flex-col items-center justify-center gap-1 text-xs font-medium transition-colors duration-150 ease-fluid",
+              // Five tabs leave ~75px each on a 375px phone; long German labels ("Einstellungen") otherwise overflow into neighbours.
+              "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-0.5 text-[10px] font-medium transition-colors duration-150 ease-fluid min-[420px]:text-xs",
               isActive ? "text-primary" : "text-muted-foreground",
             )}
           >
@@ -49,7 +44,7 @@ export function MobileBottomNav({ navItems, navNamespace, homeHref }: MobileBott
               )}
               <Icon size={20} className="relative z-10" />
             </span>
-            {t(item.labelKey)}
+            <span className="max-w-full truncate">{t(item.labelKey)}</span>
           </Link>
         );
       })}

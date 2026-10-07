@@ -2,6 +2,7 @@ import type { AuthUser } from '@auth/types/auth.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
+import { SubscriptionCancellationSource } from '@common/enums/subscription-cancellation-source.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import type { EnvConfig } from '@config/env.config';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
@@ -37,21 +38,12 @@ import { PaymentProvider } from '../providers/payment.provider';
 import type { UpdateBillingProfileInput } from '../types/billing.type';
 import { buildReceiptFilename, renderReceiptPdf } from '../utils/receipt-pdf.util';
 
-/**
- * Plans listing, current subscription, and Checkout/Customer-Portal session orchestration — the
- * tenant-facing half of the module (`BillingWebhooksService` owns the Stripe-facing half).
- */
 @Injectable()
 export class BillingService {
   private readonly frontendUrl: string;
-  /** Deploy-level master switch — see `PAYMENT_FEATURE_ENABLED`'s own doc comment in
-   *  `env.config.ts`. Read once at construction: a deploy-time value, not something that changes
-   *  while the process is running. */
+  /** Deploy-level master switch, read once at construction. */
   private readonly paymentFeatureEnabled: boolean;
-  /** The Paid plan's real Stripe Price id — see `STRIPE_PRICE_ID_PAID`'s own doc comment in
-   *  `env.config.ts`. Read here, not from `billing_plans.stripe_price_id` (seeded `NULL` and
-   *  never written by anything): this env var is the actual source of truth, falling back to that
-   *  DB column only for an operator who prefers to set it there instead. */
+  /** Source of truth for the Paid price; `billing_plans.stripe_price_id` is seeded NULL and only a fallback. */
   private readonly stripePriceIdPaid: string | undefined;
 
   constructor(
@@ -89,21 +81,13 @@ export class BillingService {
     return this.buildSubscriptionResponse(tenantUser.tenantId);
   }
 
-  /**
-   * `POST /v1/billing/checkout/reconcile` — the checkout-redirect reconciliation path (Layer 2 of
-   * the webhook-miss recovery design, see `BillingReconciliationService`'s own doc comment). Reads
-   * the Checkout Session straight from Stripe instead of waiting on `checkout.session.completed`,
-   * so a tenant who lands on the success page is never stuck reading as unpaid just because that
-   * webhook was delayed or never arrived — safe to call even when the webhook already landed first
-   * (`setToPaidFromCheckout` is a plain idempotent `UPDATE`).
-   */
+  /** Reads the Checkout Session from Stripe so a delayed or missed webhook never leaves the tenant unpaid; safe if the webhook already landed. */
   async reconcileCheckoutSession(
     user: AuthUser,
     checkoutSessionId: string
   ): Promise<SubscriptionResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
-    // A Dummy checkout never redirects to Stripe's success_url, so there is no real Checkout
-    // Session to read — reject cleanly rather than letting the provider's plain Error surface as 500.
+    // A Dummy checkout has no real Checkout Session; reject cleanly rather than 500.
     if (this.paymentProvider.type !== 'stripe') {
       throw new StripeOnlyFeatureException();
     }
@@ -124,7 +108,6 @@ export class BillingService {
       throw new SubscriptionNotFoundException();
     }
 
-    // No customer yet (never started a checkout) — nothing to fetch a card for.
     const paymentMethod = subscription.stripeCustomerId
       ? await this.paymentProvider.getPaymentMethodSummary(subscription.stripeCustomerId)
       : null;
@@ -139,19 +122,12 @@ export class BillingService {
   }
 
   /**
-   * The upgrade entry point — gated on `PAYMENT_FEATURE_ENABLED` (deploy-level; see
-   * `env.config.ts`'s own doc comment for why this is the *only* switch, not one of two). Turning
-   * it off never touches an already-subscribed tenant (nothing here un-upgrades a tenant already
-   * on the Paid plan) — this only blocks *new* upgrades from starting here.
+   * Gated on `PAYMENT_FEATURE_ENABLED`; turning it off only blocks new upgrades, never an
+   * already-Paid tenant.
    *
-   * The read-decide-(create customer)-write span runs inside `withCheckoutLock`, serialized per
-   * tenant — without it, a double-click or two open tabs could both read no existing Stripe
-   * subscription/customer, each mint its own Stripe customer and Checkout Session, and (if both
-   * were completed) leave the tenant with two separately-billed live subscriptions, only one of
-   * which `tenant_subscriptions` would ever record — the other invisible to `cancelSubscription`
-   * and auto-renewing forever. `AlreadySubscribedException` closes the same race's simpler half:
-   * a tenant who already has a live `stripeSubscriptionId` gets a 409 instead of a second Checkout
-   * Session, whether or not two requests actually overlapped in time.
+   * The read-decide-write span runs in `withCheckoutLock` (per tenant): without it a double-click
+   * could mint two Stripe customers and, if both Checkouts completed, two live subscriptions of
+   * which only one is recorded and the other auto-renews invisibly forever.
    */
   async createCheckoutSession(user: AuthUser): Promise<RedirectUrlResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
@@ -188,10 +164,8 @@ export class BillingService {
           created.customerId,
           tx
         );
-        // `attached` is only ever `null` if some other write attached a customer id between the
-        // read above and here — shouldn't happen while `withCheckoutLock` holds the per-tenant
-        // lock, but re-reading and reusing that id (rather than proceeding on our own, now-
-        // orphaned one) keeps this correct even if that assumption ever stops holding.
+        // `null` means another write attached a customer id meanwhile (shouldn't happen under the
+        // lock); reuse that id rather than proceed on our now-orphaned one.
         if (attached) {
           return created.customerId;
         }
@@ -203,9 +177,7 @@ export class BillingService {
       }
     );
 
-    // Stamped before the session exists, not after: if this write failed afterwards, a payment
-    // could land on a session the nightly reconciliation sweep is blind to. See
-    // `0011_billing.sql`'s `checkout_started_at` comment.
+    // Stamped before the session exists: if this write failed afterwards, a payment could land on a session the nightly sweep can't see.
     await this.tenantSubscriptionsDbService.touchCheckoutStartedAt(tenantUser.tenantId);
 
     const session = await this.paymentProvider.createCheckoutSession({
@@ -219,10 +191,7 @@ export class BillingService {
     return RedirectUrlResponseDto.from(session.url);
   }
 
-  /** Manage/cancel an existing subscription — deliberately NOT gated on `PAYMENT_FEATURE_ENABLED`:
-   *  an already-Paid tenant keeps full Customer Portal access regardless of the deploy-level
-   *  switch, the same "never retroactive" reasoning `createCheckoutSession`'s own doc comment
-   *  describes. */
+  /** Deliberately not gated on `PAYMENT_FEATURE_ENABLED`: an already-Paid tenant keeps Portal access. */
   async createPortalSession(user: AuthUser): Promise<RedirectUrlResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
 
@@ -241,24 +210,15 @@ export class BillingService {
     return RedirectUrlResponseDto.from(session.url);
   }
 
-  /** Thin pass-through that narrows `user` before handing off to
-   *  `BillingEntitlementsService.setActiveLocationForPlan` — kept here (rather than injecting
-   *  `BillingEntitlementsService` into the controller too) so the controller calls exactly one
-   *  service method per module-structure.md. */
   async setActiveLocation(user: AuthUser, locationId: string): Promise<void> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
     await this.billingEntitlementsService.setActiveLocationForPlan(tenantUser.tenantId, locationId);
   }
 
   /**
-   * Dummy-only: lets the `/billing/dummy-checkout` confirmation page complete the upgrade itself,
-   * since `DummyPaymentProvider` has no external webhook caller to do it automatically (its own
-   * `constructWebhookEvent` throws — see that class's doc comment). Builds the exact same
-   * `checkout.session.completed` `PaymentWebhookEvent` shape a real Stripe delivery would, and
-   * hands it to `BillingWebhooksService.handleEvent` — the state transition itself is identical
-   * either way, only how the event gets here differs. 404s outside `PAYMENT_PROVIDER=dummy`: a
-   * route that flips any tenant to `paid` on nothing but the caller's own say-so must not exist
-   * once real payment is behind it.
+   * Dummy-only: the dummy provider has no webhook caller, so this feeds the handler the same
+   * `checkout.session.completed` event Stripe would send. 404s outside `PAYMENT_PROVIDER=dummy`,
+   * since a route that flips a tenant to `paid` on the caller's say-so must not exist with real payment.
    */
   async completeDummyCheckout(user: AuthUser, subscriptionId: string): Promise<void> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
@@ -289,23 +249,10 @@ export class BillingService {
   }
 
   /**
-   * The tenant's own in-app cancel action — calls the payment provider directly instead of
-   * redirecting to a hosted portal, since canceling needs none of the PCI-scoped UI that updating
-   * a card would (see `createPortalSession`, kept separate and still portal-based for that).
-   *
-   * Always at-period-end: the tenant keeps what they already paid for, the same "never
-   * retroactive" framing `createCheckoutSession`'s own doc comment uses, and the exact state a
-   * real Stripe Customer Portal cancel leaves a subscription in. Not gated on
-   * `PAYMENT_FEATURE_ENABLED`, same reasoning as `createPortalSession`.
-   *
-   * This method never writes `tenant_subscriptions` itself for the real provider — Stripe's own
-   * `customer.subscription.updated` webhook (fired by the `cancel_at_period_end: true` update
-   * `paymentProvider.cancelSubscription` makes) is what `BillingWebhooksService` actually applies
-   * the state change from, arriving asynchronously just like a Customer-Portal-initiated cancel
-   * would. `DummyPaymentProvider` has no real webhook caller (see its own doc comment), so for it
-   * this method applies the equivalent state change itself — replacing the old dummy-only
-   * `cancelDummySubscription`/`dummy/cancel-subscription` endpoint this consolidates; the frontend
-   * now calls this same method regardless of which provider is active.
+   * Always at period end (the tenant keeps what they paid for), and not gated on
+   * `PAYMENT_FEATURE_ENABLED`. For Stripe the state change arrives via the
+   * `customer.subscription.updated` webhook, not a write here; the dummy provider has no webhook
+   * caller, so this applies the equivalent event itself.
    */
   async cancelSubscription(user: AuthUser): Promise<void> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
@@ -317,7 +264,17 @@ export class BillingService {
       throw new SubscriptionNotFoundException();
     }
 
-    await this.paymentProvider.cancelSubscription(subscription.stripeSubscriptionId, true);
+    // Recorded before the provider call (reverted on failure) so cancelling a later erasure can't resume, and charge, an owner's own cancellation.
+    await this.tenantSubscriptionsDbService.markCancellationScheduled(
+      tenantUser.tenantId,
+      SubscriptionCancellationSource.OWNER
+    );
+    try {
+      await this.paymentProvider.cancelSubscription(subscription.stripeSubscriptionId, true);
+    } catch (error) {
+      await this.tenantSubscriptionsDbService.clearCancellationScheduled(tenantUser.tenantId);
+      throw error;
+    }
 
     if (this.paymentProvider.type === 'dummy') {
       await this.billingWebhooksService.handleEvent({
@@ -333,8 +290,7 @@ export class BillingService {
     }
   }
 
-  /** `billing_receipts` history for Settings → Billing — empty for a tenant who has never made a
-   *  real Stripe payment (Free, or on Dummy). See `0012_billing_receipts.sql`'s own doc comment. */
+  /** Empty for a tenant who has never made a real Stripe payment (Free, or on Dummy). */
   async listReceipts(user: AuthUser): Promise<ReceiptListResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
     const receipts = await this.billingReceiptsDbService.listByTenantId(tenantUser.tenantId);
@@ -342,11 +298,8 @@ export class BillingService {
   }
 
   /**
-   * Renders a PDF for one past payment on demand (not stored — cheap enough to regenerate every
-   * request, and avoids ever having a stale copy of a receipt sitting in a bucket). Scoped to the
-   * caller's own tenant at the query itself (`findByIdForTenant`), not by fetching-then-comparing
-   * `tenantId` in this method — so "doesn't exist" and "someone else's receipt" collapse to the
-   * same `ReceiptNotFoundException` (no leak) even if a future call site here forgot to compare.
+   * Rendered on demand, never stored. Tenant scoping is in the query itself, so a missing receipt
+   * and someone else's are indistinguishable (`ReceiptNotFoundException`).
    */
   async downloadReceiptPdf(
     user: AuthUser,
@@ -372,25 +325,14 @@ export class BillingService {
       paidAt: receipt.paidAt,
       amountPaid: receipt.amountPaid,
       currency: receipt.currency,
-      // The only line item there is: `billing_plans` has exactly one paid product today (see
-      // `BillingPlanCode`), so this is a plain description rather than something looked up per
-      // receipt. Not run through the i18n message catalog, matching the rest of this PDF's own
-      // template text (labels, footer) — the receipt itself isn't localized yet.
+      // Only one paid product exists, so no per-receipt lookup. Not localized, like the rest of the PDF template.
       planDescription: 'InnoPeak Paid Plan — Monthly Subscription',
     });
 
     return { buffer, filename: buildReceiptFilename(receipt) };
   }
 
-  /**
-   * In-app "manage billing" — reads/writes the Stripe Customer directly instead of redirecting to
-   * the hosted Customer Portal. Stripe-only, unlike `createPortalSession`/`cancelSubscription`:
-   * those two already had a real Dummy equivalent (a confirmation page, a state-machine update)
-   * to fall back to, but there is no meaningful "edit billing profile" or "add a card" for a
-   * `dummy_cus_*` id with no real Stripe object behind it — so this throws `StripeOnlyFeatureException`
-   * instead of faking one. Requires an existing customer (same as `createPortalSession`): the tenant
-   * must have started at least one checkout before there's a Stripe Customer to edit.
-   */
+  /** Stripe-only: a `dummy_cus_*` id has no real Stripe object to edit, so this throws rather than fake one. Needs an existing customer. */
   private async requireStripeCustomerId(tenantId: string): Promise<string> {
     if (this.paymentProvider.type !== 'stripe') {
       throw new StripeOnlyFeatureException();
@@ -420,8 +362,6 @@ export class BillingService {
     return BillingProfileResponseDto.from(profile);
   }
 
-  /** Starts the Stripe Elements card-collection flow — see `PaymentProvider.createSetupIntent`'s
-   *  own doc comment for why only a `clientSecret` crosses this boundary. */
   async createSetupIntent(user: AuthUser): Promise<SetupIntentResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
     const customerId = await this.requireStripeCustomerId(tenantUser.tenantId);
@@ -429,8 +369,7 @@ export class BillingService {
     return SetupIntentResponseDto.from(clientSecret);
   }
 
-  /** Called once the browser has confirmed the SetupIntent, so the new card actually becomes the
-   *  one `getSubscription`'s masked-card display (and any future renewal) uses. */
+  /** Called once the browser has confirmed the SetupIntent. */
   async setDefaultPaymentMethod(user: AuthUser, paymentMethodId: string): Promise<void> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
     const customerId = await this.requireStripeCustomerId(tenantUser.tenantId);

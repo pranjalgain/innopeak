@@ -8,10 +8,7 @@ import { OAUTH_STATE_TTL_SECONDS } from '../constants/connections.constants';
 import { OAuthStateFailureReason } from '../enums/oauth-state-failure-reason.enum';
 import { ReturnTo } from '../enums/return-to.enum';
 
-/**
- * An in-memory stand-in for the two Redis commands this service depends on. `getdel` really does
- * delete, because "consumed exactly once" is the property under test.
- */
+/** In-memory stand-in for the Redis commands used; `getdel` really deletes since single use is under test. */
 function fakeRedis() {
   const store = new Map<string, string>();
 
@@ -70,8 +67,7 @@ describe('OAuthStateService', () => {
   });
 
   it('consumes the nonce exactly once', async () => {
-    // A replayed callback — the user pressing back, or an attacker resubmitting a captured URL —
-    // must find nothing. GETDEL is what makes this atomic rather than a read-then-delete race.
+    // A replayed callback must find nothing; GETDEL makes that atomic.
     const { state, sid } = await service.mint(input);
 
     await expect(service.consume(state, sid)).resolves.toMatchObject({ ok: true });
@@ -82,8 +78,7 @@ describe('OAuthStateService', () => {
   });
 
   it('rejects a callback whose browser-binding cookie is missing', async () => {
-    // This is the mailed-consent-link attack: the victim's browser never received the cookie, so
-    // their consent cannot be grafted onto the attacker's tenant.
+    // The mailed-consent-link attack: the victim's browser has no cookie, so consent can't be grafted onto the attacker's tenant.
     const { state } = await service.mint(input);
 
     await expect(service.consume(state, undefined)).resolves.toEqual({
@@ -127,14 +122,8 @@ describe('OAuthStateService', () => {
   });
 
   it('rejects a state past its TTL', async () => {
-    // Re-signing with an old timestamp is impossible without the secret, so instead the clock is
-    // advanced past the window and the *real*, untouched minted `state` is reused as-is — its
-    // signature was computed over its own `issuedAt`, and `verify()` recomputes the expected
-    // signature from whatever `issuedAt` is embedded in the string it's given. An earlier version
-    // of this test rebuilt the string with a *recomputed* `Date.now() - elevenMinutes`, which only
-    // reproduces the original `issuedAt` if zero time passed between minting and mocking — flaky
-    // by construction, since it collapsed to INVALID_SIGNATURE (a mismatched recomputed timestamp)
-    // instead of EXPIRED the moment even 1ms of real time passed between the two `Date.now()` reads.
+    // The clock is advanced past the window and the real minted `state` reused: rebuilding it with a
+    // recomputed timestamp would be flaky and yield INVALID_SIGNATURE instead of EXPIRED.
     const { state, sid } = await service.mint(input);
     const realNow = Date.now();
     jest.spyOn(Date, 'now').mockReturnValue(realNow + OAUTH_STATE_TTL_SECONDS * 1000 + 60_000);
@@ -147,13 +136,7 @@ describe('OAuthStateService', () => {
     jest.restoreAllMocks();
   });
 
-  /**
-   * `EXPIRED` and `INVALID_SIGNATURE` used to collapse into the same `null` inside `verify()`,
-   * making `EXPIRED` an enum member `consume()` could never actually produce despite the class's
-   * own doc comment describing these as internal diagnostics. A validly-signed-but-stale state
-   * (above) must report `EXPIRED`; a validly-timed-but-forged one (below) must still report
-   * `INVALID_SIGNATURE` — the fix must not blur that distinction the other way.
-   */
+  /** Regression: `EXPIRED` was unreachable (collapsed into `null`); stale-but-signed must report it while forged still reports `INVALID_SIGNATURE`. */
   it('still reports INVALID_SIGNATURE, not EXPIRED, for a forged-but-timely state', async () => {
     const { sid } = await service.mint(input);
 

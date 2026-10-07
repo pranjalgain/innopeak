@@ -228,6 +228,47 @@ untableified callers (the mobile card list, the review detail page) don't pass i
 original unclamped, wrap-friendly behaviour — reach for this pattern before inventing a new one
 the next time translated text meets a fixed-width container.
 
+## Signup, onboarding and billing return — behaviours worth knowing
+
+- **Refreshing on the verification-code step resumes it.** The password signup keeps *only the
+  email awaiting its code* in this tab's `sessionStorage` (`PendingSignupService`, 30 minutes, no
+  password or token), so a refresh or Back/Forward shows the code box again instead of a blank form
+  whose re-submit is refused ("an account with this email already exists"). It changes nothing about
+  who may claim an address. "Use a different email" forgets it and returns to the form.
+- **The onboarding "You're all set" screen only quotes an import count when it has one.** Opened
+  again later (Back from the dashboard) nothing was imported *in that session*, so it reads as a
+  plain confirmation rather than "imported 0 reviews".
+- **A guarded admin route with no session goes to `/admin-login`**, matching what the edge
+  (`proxy.ts`) does for a fresh visit — so signing out and pressing Back no longer lands on the
+  tenant sign-in page.
+- **After Stripe Checkout, the Billing tab says where the payment stands.** Landing on
+  `?checkout=success&session_id=…` reconciles with Stripe; unless the plan is confirmed Paid, a
+  banner stays above the Billing tab ("still processing" or "couldn't confirm") with a **Check
+  again** button, instead of a toast that disappears. The outcome is read from the
+  `mutateAsync` promise, not per-call callbacks, for the Strict Mode reason below.
+
+## Server state (TanStack Query) and failure behaviour
+
+`createQueryClient()` (`src/app/_libs/utils/query-client.ts`) sets `retry: false`, so a failed
+query is not retried on its own, and keeps TanStack's default `retryOnMount` — navigating away and
+back to a page whose request failed tries again.
+
+The thing that must never happen is the **guard loop**. `ConnectionGuard` swaps the whole shell for a
+skeleton while `useConnection` reports `isLoading`; TanStack resets an errored, data-less query to
+`pending` the moment it refetches, so `isLoading` went true again on every retry, the children
+unmounted, remounted (a new observer retries a failed query), and so on — about 100 requests a
+second against a failing API, indefinitely, and a 429 from the rate limiter only kept it going.
+Guard-feeding hooks (`useConnection`, `useTenantOwnerProfile`) therefore report
+`isInitialLoad(query)` — loading *and never errored* — so a query that has already failed fails
+open instead of blanking the shell again. Measured against a stub API answering 429 and 500:
+7–8 requests in 20 seconds, down from ~100 a second. A page left open through a backend outage
+heals itself too: `refetchOnWindowFocus` is on **only for a query currently in the `error` state**,
+one request per focus, never a loop.
+
+When a request must survive a Strict Mode remount (a redirect after a mutation, say), read its
+outcome from the promise `mutateAsync` returns — a per-call `onSuccess` and the mutation's
+`isSuccess` are both lost when the observer detaches mid-flight (see the dummy-checkout page).
+
 ## Local dev stack
 
 `apps/web/docker-compose.yml`'s Postgres/MySQL/Redis containers are generic boilerplate scaffolding

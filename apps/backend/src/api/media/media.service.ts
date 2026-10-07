@@ -16,14 +16,7 @@ import { StorageProvider } from './providers/storage.provider';
 import { StorageAssetNotFoundError } from './types/storage-provider.type';
 import { avatarFolderFor } from './utils/avatar-folder.util';
 
-/**
- * Orchestrates the direct-to-provider avatar upload: mint an authorization the client uploads
- * with, then independently verify and persist what actually landed — see `StorageProvider`'s own
- * doc comments for why verification never trusts the client's own claim. `TenantAvatarController`/
- * `AdminAvatarController` (this module's own `controllers/`) are the two routes that call in here;
- * see the `*ForTenant`/`*ForAdmin` methods below for why the actor check lives here rather than on
- * those controllers.
- */
+/** Direct-to-provider avatar upload: mint an authorization, then verify independently what landed (never trust the client's claim). */
 @Injectable()
 export class MediaService {
   private readonly logger = new Logger(MediaService.name);
@@ -33,8 +26,7 @@ export class MediaService {
     private readonly mediaDbService: MediaDbService
   ) {}
 
-  /** Signs an upload scoped to this owner's own folder — see `avatarFolderFor` for why the folder
-   *  is derived from the authenticated owner rather than accepted from the client. */
+  /** Folder derives from the authenticated owner, never the client (see `avatarFolderFor`). */
   private async getAvatarUploadAuthorization(
     owner: MediaOwner
   ): Promise<AvatarUploadAuthorizationResponseDto> {
@@ -50,25 +42,10 @@ export class MediaService {
   }
 
   /**
-   * GDPR anonymization's one hook into this module — `AccountAnonymizationService` depends on
-   * `MediaService`, never `MediaDbService` directly, per this module's own "nothing outside
-   * `MediaService` talks to a storage provider" convention. A no-op (not an error) when the owner
-   * never had an avatar.
-   *
-   * Deletes from storage *before* the `media` row — the previous order deleted the row first, so a
-   * Cloudinary failure (swallowed, since it must never block anonymization) left the row gone but
-   * the asset still live in storage with nothing left in the DB to ever retry or reconcile it
-   * against. Deleting storage first means a failure here simply leaves the row in place: the asset
-   * is still reachable, and a future retry of this same method (or of the whole anonymization) sees
-   * it again and tries again, instead of the leak being silent and permanent.
-   *
-   * That retry story only works as long as a storage failure genuinely means "still there, try
-   * again" — which is why a `StorageAssetNotFoundError` is handled separately from every other
-   * failure. If the process crashed (or the DB delete below threw) on a *previous* run, right after
-   * that run's storage delete had already succeeded, this run's `storageProvider.delete` call finds
-   * nothing left to delete and throws exactly that error — treating it the same as a real failure
-   * would leave the row stuck forever, since every future retry fails identically. The asset being
-   * gone IS the state a delete is trying to reach, so this case still proceeds to the DB delete.
+   * GDPR anonymization's hook into this module; a no-op when the owner never had an avatar. Storage is deleted before the
+   * `media` row so a swallowed Cloudinary failure leaves the row for a retry instead of a silent leak.
+   * `StorageAssetNotFoundError` still proceeds to the DB delete: a previous run already removed the asset, and every
+   * retry would otherwise fail forever.
    */
   async deleteAvatarIfPresent(owner: MediaOwner): Promise<void> {
     const existing = await this.mediaDbService.findAvatarAsset(owner);
@@ -111,16 +88,7 @@ export class MediaService {
     return this.confirmAvatar({ platformAdminId }, providerAssetId);
   }
 
-  /**
-   * Actor-checked entry points for `TenantAvatarController`/`AdminAvatarController` — the two
-   * avatar upload/confirm route pairs both live in this module (not on `AuthController`/
-   * `AdminSettingsController`) precisely so a future third avatar owner, or a second media `kind`
-   * (a business logo, say), only ever means adding another pair of these here, never touching
-   * another module's controller. The plain `confirmUserAvatar`/`getUserAvatarUrl`-style methods
-   * above stay owner-agnostic and reusable; the actor check is what's specific to being reached
-   * over HTTP by a caller whose JWT `type` claim isn't already guaranteed to match the owner it's
-   * asking to act as (see `assertActorType`'s own comment).
-   */
+  /** Actor-checked entry points for the avatar controllers: HTTP callers' JWT `type` isn't guaranteed to match the owner (see `assertActorType`). */
   async getAvatarUploadAuthorizationForTenant(
     actor: AuthUser
   ): Promise<AvatarUploadAuthorizationResponseDto> {
@@ -154,14 +122,8 @@ export class MediaService {
   }
 
   /**
-   * `@CurrentUser()` only guarantees a *valid* JWT of *some* type — nothing stops a platform-admin
-   * token from reaching a route mounted at `RouteNames.AUTH` (that controller isn't `@Roles()`-
-   * gated, since it also serves `@Public()` routes), or vice versa. Without this, a platform admin
-   * calling the tenant confirm route would write a `media` row keyed by their own id under
-   * `userId` — wrong owner column, and only caught (as a raw FK-violation 500, not a clean 403) if
-   * that id doesn't also happen to exist in `users`. Every one of the four methods above needs this
-   * exact check, which is why it's a shared private helper rather than four copies of the same
-   * `if`.
+   * `@CurrentUser()` only guarantees a valid JWT of some type, and the tenant route isn't `@Roles()`-gated (it also serves
+   * `@Public()` routes). Without this a platform admin would write a `media` row under `userId`, surfacing as a raw FK 500, not a 403.
    */
   private assertActorType(actor: AuthUser, expected: JwtTokenType): void {
     if (actor.type === expected) {
@@ -174,9 +136,8 @@ export class MediaService {
   }
 
   private async confirmAvatar(owner: MediaOwner, providerAssetId: string): Promise<string> {
-    // Verified against *this owner's* folder, not a shared one: `providerAssetId` is attacker-
-    // supplied (it's readable in any rendered avatar URL), so this is the check that stops one
-    // owner confirming another's asset and, on their next upload, deleting it.
+    // `providerAssetId` is attacker-supplied (visible in avatar URLs); checking this owner's folder stops one owner
+    // confirming, and later deleting, another's asset.
     const verification = await this.storageProvider.verifyUpload(
       providerAssetId,
       avatarFolderFor(owner)
@@ -201,12 +162,8 @@ export class MediaService {
     });
 
     if (previousAsset) {
-      // Best-effort, after the DB write above has already committed the new avatar — a failure
-      // here leaves an orphaned asset in storage, never a broken/rolled-back avatar. Deliberately
-      // deletes via the *currently active* provider rather than `previousAsset.provider`: if the
-      // active provider is ever swapped while old assets from a previous one still exist, cleaning
-      // those up needs a provider registry keyed by that stored value, not the single injected
-      // instance this constructor has — out of scope while only one provider is ever configured.
+      // Best-effort after the DB commit: a failure leaves an orphaned asset, never a rolled-back avatar. Uses the active
+      // provider, not `previousAsset.provider`; swapping providers would need a registry keyed by that value.
       this.storageProvider.delete(previousAsset.providerAssetId).catch((error: unknown) => {
         this.logger.warn(
           `Could not delete previous avatar asset "${previousAsset.providerAssetId}": ${

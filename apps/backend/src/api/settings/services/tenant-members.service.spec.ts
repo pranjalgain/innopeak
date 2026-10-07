@@ -143,13 +143,7 @@ describe('TenantMembersService', () => {
       expect(authDbService.createMemberInvite).not.toHaveBeenCalled();
     });
 
-    /**
-     * Regression target: an email that already belongs to a real account (this tenant's own
-     * owner, a member of a different tenant, a platform admin who also self-registered) must not
-     * get the same "already invited" wording a genuinely pending invite gets — that phrasing reads
-     * as actionable ("wait for them to accept") when the real answer is "this address already has
-     * an account and cannot be invited at all".
-     */
+    // Regression: an email owned by a real account must not get the actionable "already invited" wording of a pending invite.
     it('rejects an email that already belongs to a real account with the generic already-registered message', async () => {
       authDbService.findMemberInviteStatusByEmail.mockResolvedValue({
         id: 'user-2',
@@ -169,11 +163,7 @@ describe('TenantMembersService', () => {
       }
     });
 
-    /**
-     * Nothing expires or sweeps invite rows automatically, so before this an invite that was
-     * never accepted claimed its address permanently — mirrors
-     * `AdminSettingsService.sendInvite`'s own lapsed-invite replacement.
-     */
+    // Regression: an unaccepted invite used to claim its address permanently.
     it('replaces a lapsed invite instead of refusing the address forever', async () => {
       authDbService.findMemberInviteStatusByEmail.mockResolvedValue({
         id: 'stale-1',
@@ -197,14 +187,8 @@ describe('TenantMembersService', () => {
       expect(result.email).toBe('sam.rivera@thecoffeehouse.com');
     });
 
-    /**
-     * The nightly `AUTH_TOKEN_CLEANUP` sweep deletes an expired invite's token row
-     * (`PURGEABLE_OTP_PURPOSES` covers `invite`) but leaves the `users` row `invited` — the same
-     * shape `findMemberInviteStatusByEmail`'s left join produces for that row: `inviteExpiresAt`
-     * comes back `null`, not a past date. Before this fix, `null` read as "not an invite at all"
-     * (the same value a self-signed-up owner has) rather than "lapsed", so the address was stuck
-     * behind a permanent 409 with no live invite anyone could revoke.
-     */
+    // Regression: the nightly cleanup deletes an expired invite's token but leaves the user `invited`,
+    // so `inviteExpiresAt` is null; that must read as lapsed, not a live invite (permanent 409).
     it('replaces an invite whose token row the nightly sweep already deleted (null expiry, still invited)', async () => {
       authDbService.findMemberInviteStatusByEmail.mockResolvedValue({
         id: 'swept-1',
@@ -228,11 +212,7 @@ describe('TenantMembersService', () => {
       expect(result.email).toBe('sam.rivera@thecoffeehouse.com');
     });
 
-    /**
-     * The same `null` expiry means something else entirely on a row that was never invited in the
-     * first place — a self-signed-up owner has no invite token and therefore no expiry either.
-     * That row must keep answering "already registered", never be deleted and replaced.
-     */
+    // A null expiry on a never-invited row (self-signed-up owner) must keep answering "already registered", not be replaced.
     it('still refuses a self-registered account with no invite token (null expiry, active status)', async () => {
       authDbService.findMemberInviteStatusByEmail.mockResolvedValue({
         id: 'owner-2',
@@ -272,12 +252,7 @@ describe('TenantMembersService', () => {
       );
     });
 
-    /**
-     * `owner.tenantId` names the tenant an authenticated owner belongs to — `findTenantStatus`
-     * returning `null` for it is not expected to happen. A literal fallback, not a thrown error,
-     * since a slightly generic invite email is a fine outcome for a case that should not occur,
-     * and failing the whole invite over a cosmetic detail would not be.
-     */
+    // A missing tenant row falls back to a generic name rather than failing the invite over a cosmetic detail.
     it('falls back to a generic business name if the tenant lookup somehow comes back empty', async () => {
       authDbService.findMemberInviteStatusByEmail.mockResolvedValue(null);
       authDbService.findTenantStatus.mockResolvedValue(null);
@@ -298,11 +273,7 @@ describe('TenantMembersService', () => {
       );
     });
 
-    /**
-     * The pre-check above is read-then-write: two owners inviting the same address at once can
-     * both pass it, and the second insert hits the global unique-email index. That must surface as
-     * the same 409 a synchronous duplicate gets, not a raw 500.
-     */
+    // The pre-check is read-then-write: a concurrent duplicate hits the unique-email index and must still be a 409, not a 500.
     it('maps a unique-violation race on insert to the same conflict a synchronous duplicate gets', async () => {
       authDbService.findMemberInviteStatusByEmail.mockResolvedValue(null);
       const uniqueViolation = Object.assign(new Error('duplicate key'), { code: '23505' });

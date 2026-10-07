@@ -1,11 +1,6 @@
 /**
- * Faint scattered stars, map pins, comment bubbles and small sparkle diamonds behind auth cards.
- * Originally matched `innopeak-design.html`'s Login/Onboarding artboards one-to-one; has since
- * diverged on request (denser, pins sized to match the other shapes, everything a touch fainter)
- * and no longer tracks that file. Purely decorative — non-interactive, meant to sit behind a card
- * via z-index. The pin is the Material "place" glyph (teardrop + ring), traced as an outline to
- * match the line-art weight of the other shapes rather than kept solid the way Material renders
- * it by default.
+ * Faint stars, map pins, comment bubbles and sparkle diamonds behind auth cards; decorative only, sits behind a
+ * card via z-index. The pin is the Material "place" glyph traced as an outline to match the other shapes' line-art weight.
  */
 export function AuthDecoration() {
   return (

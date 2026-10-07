@@ -19,7 +19,6 @@ import { Label } from "@/components/ui/label";
 interface PasswordAuthFormProps {
   isLoading: boolean;
   onSubmit: (email: string, password: string) => void;
-  /** Overrides the submit button's label — e.g. "Sign up"/"Signing up…" when this form is reused on the signup screen. Defaults to "Sign in"/"Signing in…". */
   submitLabel?: string;
   submittingLabel?: string;
 }
@@ -27,13 +26,8 @@ interface PasswordAuthFormProps {
 const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
 
 /**
- * Email/password fields for login — always rendered, never gated behind the platform's
- * passwordLoginEnabled setting. Shared by the tenant `LoginView` and the platform-admin
- * `AdminLoginView`. The submit label is overridable via `submitLabel`/`submittingLabel`.
- *
- * Validated client-side against `_schemas/password-auth.schema.ts` so a malformed address is
- * caught here rather than spending a round trip to earn a 400. The password is only checked for
- * presence — see the schema for why sign-in must not enforce the signup rules.
+ * Never gated behind `passwordLoginEnabled`; shared by `LoginView` and `AdminLoginView`.
+ * The password is only checked for presence: sign-in must not enforce the signup rules (see the schema).
  */
 export function PasswordAuthForm({
   isLoading,
