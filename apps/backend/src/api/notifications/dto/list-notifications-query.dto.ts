@@ -8,11 +8,7 @@ import {
   NOTIFICATIONS_OFFSET_MAX,
 } from '../constants/notifications.constants';
 
-/**
- * `offset`/`limit`, not this app's usual `page`/`pageSize` — see the API reference's own
- * "Corrected (implementation pass)" note: this has to match `notification.service.ts`'s real
- * `list(offset, limit)` call, verified directly against the frontend rather than assumed.
- */
+/** `offset`/`limit`, not this app's usual `page`/`pageSize`, to match the frontend's `list(offset, limit)` call. */
 export class ListNotificationsQueryDto {
   @ApiPropertyOptional({
     example: 0,
@@ -25,10 +21,7 @@ export class ListNotificationsQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  // Bounded as well as floored. `@IsInt()` accepts any integral double, `1e20` included, and an
-  // offset that large reaches Postgres as an out-of-range bigint — a 500 where the validator was
-  // supposed to answer 400. The cap is far beyond any real feed (NOTIFICATIONS_LIMIT_MAX per
-  // page) and exists to bound the value, not to ration it.
+  // `@IsInt()` accepts `1e20`, which reaches Postgres as an out-of-range bigint (a 500, not a 400).
   @Max(NOTIFICATIONS_OFFSET_MAX)
   offset?: number;
 

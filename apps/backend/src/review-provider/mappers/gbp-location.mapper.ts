@@ -2,13 +2,7 @@ import { ProviderMappingError } from '../errors/provider.error';
 import type { GbpAccount, GbpLocation, GbpPostalAddress } from '../types/gbp-wire.type';
 import type { ProviderAccount, ProviderLocation } from '../types/review-provider.type';
 
-/**
- * Google's structured address flattened to the single line `locations.address` holds.
- *
- * Returns null rather than "" for a service-area business, which genuinely has no storefront
- * address — the column is nullable precisely so that case is representable, and an empty string
- * would render as a blank line in the confirm-location card instead of being omitted.
- */
+// null, not "", for a service-area business: no storefront address, and "" would render a blank line.
 function formatAddress(address: GbpPostalAddress | undefined): string | null {
   if (!address) {
     return null;
@@ -24,7 +18,7 @@ function formatAddress(address: GbpPostalAddress | undefined): string | null {
   return parts.length > 0 ? parts.join(', ') : null;
 }
 
-/** Treats a whitespace-only string as absent — Google sends `title: " "` more often than you'd hope. */
+// Google sends `title: " "` more often than you'd hope.
 function nonEmpty(value: string | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : null;
@@ -36,12 +30,9 @@ export function mapGbpLocation(location: GbpLocation): ProviderLocation {
   }
 
   return {
-    // The full `locations/{id}` path, kept intact: it is what the reviews endpoint's URL is built
-    // from, so storing a bare id would mean reassembling the path on every call.
+    // Full `locations/{id}` path: the reviews endpoint URL is built from it.
     externalLocationId: location.name,
-    // `locations.name` is NOT NULL. A location Google returns with no title — or with a title of
-    // only whitespace — is a real (rare) case, so fall back to the resource path rather than
-    // failing the whole discovery call or writing a blank name into the confirm-location card.
+    // `locations.name` is NOT NULL and Google can return no/blank title, so fall back to the resource path.
     name: nonEmpty(location.title) ?? location.name,
     address: formatAddress(location.storefrontAddress),
   };

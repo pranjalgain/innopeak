@@ -167,12 +167,7 @@ describe('PromptsService', () => {
       );
     });
 
-    /**
-     * Regression: the frontend has no way to distinguish "unknown placeholder" from "missing
-     * placeholder" (or either from an unrelated 400) without a machine-readable code — without
-     * this, `use-prompts.ts` could only ever show a generic "Could not save" toast, discarding the
-     * specific, actionable message this validation already produces.
-     */
+    /** Regression: without a machine-readable code the frontend could only show a generic "Could not save" toast. */
     it('tags the unknown-placeholder rejection with a machine-readable code', async () => {
       try {
         await target.createVersion(promptId, { template: 'Hi {{unknown_var}}' }, tenantUser);
@@ -302,8 +297,7 @@ describe('PromptsService', () => {
       });
     });
 
-    /** Tone is prompt configuration too — gating only `createVersion` left a Free tenant able to
-     *  reshape how the AI writes through the cheaper half of the same capability. */
+    /** Tone is prompt configuration too; gating only `createVersion` left Free a cheaper route to reshape AI output. */
     it('rejects with CustomPromptsNotOnPlanException when the plan disallows custom prompts', async () => {
       billingEntitlementsService.canEditCustomPrompt.mockResolvedValue(false);
 
@@ -319,9 +313,7 @@ describe('PromptsService', () => {
   });
 
   describe('getVersionStats', () => {
-    // The repository now answers "does this exist" and "what are its stats" in one call — `null`
-    // means it doesn't exist, so there is no separate existence-check mock to set up any more; see
-    // `ReviewsReadRepository.getPromptVersionStats`'s own doc comment for why one query can do both.
+    // `null` means the prompt/version doesn't exist; one repository call answers both existence and stats.
     it('throws PromptVersionNotFoundException (not PromptNotFoundException) when ?version=N does not exist for this tenant', async () => {
       reviewSyncDbService.getPromptVersionStats.mockResolvedValue(null);
 

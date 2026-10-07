@@ -10,11 +10,7 @@ export class DeadLetterQueueService {
 
   constructor(private readonly queuePublisher: QueuePublisherProvider) {}
 
-  /**
-   * `redactJobSecrets` strips any live, usable credential (`otp`, `inviteLink`, …) before this
-   * ever reaches the queue — a failed job would otherwise sit in the DLQ (days-long retention)
-   * holding it in the clear. See that helper's own comment.
-   */
+  /** `redactJobSecrets` strips live credentials first: the DLQ retains jobs for days. */
   async addFailedJobToDLQ(data: IDLQFailedJobData): Promise<void> {
     this.logger.warn(
       `Adding failed job to DLQ: ${data.originalJobId} from ${data.originalQueueName}`

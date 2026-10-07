@@ -1,17 +1,9 @@
 import { ACCESS_TOKEN_TTL_SECONDS } from '../constants/auth.constants';
 
 /**
- * Lifetime left on the access token the caller presented, for the routes that re-sign a
- * platform-admin token mid-session to refresh a claim (today only
- * `AdminSettingsService.updateLocale`). Signing the replacement with this instead of the full TTL
- * is what stops such a route from doubling as a session-extension primitive — see
- * `PlatformAdminAuthUser.sessionExpiresAt` for why an admin session must stay un-renewable.
- *
- * Clamped at both ends. The floor keeps `expiresIn` positive: a token this close to expiry has
- * already passed the guard, and handing `jsonwebtoken` a zero or negative lifetime would mint
- * something born expired. The ceiling means a token claiming an implausibly distant `exp` still
- * cannot buy more than the normal TTL. A token with no `exp` at all falls back to the full TTL —
- * it cannot be extending anything, since nothing established a deadline to extend.
+ * Remaining lifetime of the presented token, so re-signing mid-session cannot extend an admin
+ * session. Floored above zero (a zero/negative `expiresIn` mints a born-expired token), capped at
+ * the full TTL; no `exp` falls back to the full TTL.
  */
 export function remainingSessionSeconds(sessionExpiresAt: number | undefined): number {
   if (sessionExpiresAt === undefined) {

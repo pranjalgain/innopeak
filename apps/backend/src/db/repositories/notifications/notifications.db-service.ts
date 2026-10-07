@@ -17,8 +17,7 @@ export class NotificationsDbService {
 
   async listPage(input: ListNotificationsInput): Promise<NotificationsPage> {
     const [rows, unreadTotal] = await Promise.all([
-      // Over-fetches by one row (see the repository's own comment) purely to derive `hasMore`
-      // without a second COUNT(*) query.
+      // Over-fetches by one row to derive `hasMore` without a second COUNT(*).
       this.notificationsRepository.listPage(input),
       this.notificationsRepository.countUnread(input.tenantId, input.userId),
     ]);
@@ -39,11 +38,7 @@ export class NotificationsDbService {
     return { items, hasMore, unreadTotal };
   }
 
-  /**
-   * Marks one row read and reports the caller's remaining unread count, so the bell's badge can
-   * be reconciled from the response instead of guessed at or refetched. Returns null when the row
-   * isn't the caller's — the 404 the service raises.
-   */
+  /** Returns null when the row isn't the caller's (the service raises 404). */
   async markRead(input: MarkNotificationReadInput): Promise<NotificationReadResult | null> {
     const updated = await this.notificationsRepository.markRead(input);
     if (!updated) {
@@ -55,8 +50,7 @@ export class NotificationsDbService {
     };
   }
 
-  /** Marks the caller's whole feed read. The count is read back rather than assumed to be zero:
-   *  a row inserted between the update and the count is genuinely unread and belongs in the badge. */
+  /** The count is read back rather than assumed zero: a row inserted meanwhile is genuinely unread. */
   async markAllRead(tenantId: string, userId: string): Promise<NotificationReadResult> {
     await this.notificationsRepository.markAllRead(tenantId, userId);
     return { unreadTotal: await this.notificationsRepository.countUnread(tenantId, userId) };

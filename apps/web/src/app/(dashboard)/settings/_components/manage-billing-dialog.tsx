@@ -22,14 +22,7 @@ interface ManageBillingDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/**
- * In-app replacement for the old redirect-to-hosted-Customer-Portal flow — Stripe-only (the
- * "Manage billing" button in `BillingSettingsSection` only opens this when
- * `subscription.paymentProvider === "stripe"`; a Dummy-provider tenant still gets the old portal
- * redirect, since there's no real Stripe customer here to edit). Name/email write straight to the
- * Stripe Customer; the card update uses Stripe Elements + a SetupIntent so the raw card number
- * never reaches this app's own backend (PCI SAQ A).
- */
+/** Stripe-only in-app billing dialog (Dummy tenants keep the portal redirect). The card uses Elements + a SetupIntent so the raw number never reaches our backend (PCI SAQ A). */
 export function ManageBillingDialog({ open, onOpenChange }: ManageBillingDialogProps) {
   const t = useTranslations("settings.billing.manageDialog");
   const stripePromise = useMemo(() => getStripe(), []);

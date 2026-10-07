@@ -21,9 +21,7 @@ export class CronSqsConsumer extends SqsQueueConsumerBase {
   }
 
   async process(jobName: string, data: unknown): Promise<void> {
-    // Narrowed once into a variable (rather than switching on the cast expression directly) so
-    // the compiler can actually narrow it to `never` below — a cast repeated at each `case` isn't
-    // narrowable, which silently defeats the exhaustiveness check.
+    // Held in a variable so the compiler can narrow it to `never` in `default`; a repeated cast can't.
     const name = jobName as CronJobName;
 
     switch (name) {
@@ -46,7 +44,6 @@ export class CronSqsConsumer extends SqsQueueConsumerBase {
         await this.cronService.reconcileStaleBillingSubscriptions();
         break;
       default: {
-        // Exhaustiveness check: a new CronJobName member left unhandled here fails the build.
         const unhandled: never = name;
         throw new Error(`Unknown job name: ${String(unhandled)}`);
       }

@@ -5,11 +5,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 
 import { ApiError } from "@/app/_libs/services/api-error";
+import { BillingService } from "@/app/_libs/services/billing.service";
 import {
   type AvailableLocation,
   type BackfillProgress,
   ConnectionService,
 } from "@/app/_libs/services/connection.service";
+
+/** `null` when unlimited or unknown. A failed read must not block the picker (the backend enforces on confirm); at least 1 so Continue stays usable. */
+async function remainingLocationCapacity(): Promise<number | null> {
+  try {
+    const subscription = await BillingService.getSubscription();
+    if (subscription.maxLocations === null) return null;
+    return Math.max(1, subscription.maxLocations - subscription.activeLocationCount);
+  } catch {
+    return null;
+  }
+}
 
 export type OnboardingConnectStage =
   | "checking"
@@ -22,18 +34,13 @@ export type OnboardingConnectStage =
   | "done"
   | "error";
 
-/** What the user can actually *do* about a failure. Keeps the stage components dumb. */
 export type ErrorRecovery = "retry" | "reconnect" | "restart" | "continue";
 
 export interface ConnectFlowError {
   /** A translation key under `onboardingConnect.errors`. */
   code: string;
   recovery: ErrorRecovery;
-  /** Verbatim backend message to show instead of the `code`-based translation, for a failure
-   *  whose reason varies (e.g. a plan's location limit) and where the backend's own text is
-   *  already the useful, specific one — same straight-through convention as
-   *  `avatar-upload.service.ts`'s `AvatarUploadService.errorMessage`, rather than re-translating
-   *  it client-side under a generic bucket. */
+  /** Backend text shown verbatim instead of the `code` translation, for failures whose reason varies (e.g. a plan's location limit). */
   message?: string;
 }
 
@@ -42,7 +49,7 @@ interface UseOnboardingConnectFlowResult {
   error: ConnectFlowError | null;
   locations: AvailableLocation[];
   selectedLocationIds: string[];
-  /** Aggregated across every location currently backfilling — the sum of each one's imports. */
+  /** Summed across every location currently backfilling. */
   progress: number | null;
   reviewsFetched: number;
   totalToImport: number | null;
@@ -54,14 +61,11 @@ interface UseOnboardingConnectFlowResult {
   retry: () => void;
 }
 
-/** Poll cadence. Recursive setTimeout, not setInterval — see `scheduleNextPoll`. */
 const POLL_INTERVAL_MS = 2500;
 
-/** How long a stale-looking backfill is tolerated before it is reported as failed. */
 const SLOW_BACKFILL_GIVE_UP_MS = 10 * 60 * 1000;
 
-/** Reserved key for the resume chain's own controller in `abortControllersRef` — distinct from
- *  the real location ids that key every backfill poll's controller in that same map. */
+/** Key for the resume chain's controller in `abortControllersRef`, alongside location-id keys. */
 const RESUME_ABORT_KEY = "__resume__";
 
 const OAUTH_ERROR_RECOVERY: Record<string, ErrorRecovery> = {
@@ -73,7 +77,6 @@ const OAUTH_ERROR_RECOVERY: Record<string, ErrorRecovery> = {
   SERVER_ERROR: "retry",
 };
 
-/** What this hook tracks per confirmed location while its backfill is in flight. */
 interface LocationBackfillState {
   reviewsFetched: number;
   totalToImport: number | null;
@@ -81,27 +84,12 @@ interface LocationBackfillState {
 }
 
 /**
- * Drives the connect flow against the real backend, replacing a `setInterval` that filled a
- * progress bar over ~2.5 seconds and a `localStorage` flag that recorded "connected".
- *
- * The two properties that matter most, and that the fake version could not have:
- *
- *  - **It resumes.** On mount it reads `GET /v1/connections` (is there a connection at all?) and,
- *    once connected, `GET /v1/connections/locations` (every location this tenant has confirmed —
- *    `GET /v1/connections` itself only ever reports the tenant's single currently-selected one,
- *    which is not enough once several locations can be confirmed at once) to jump straight to
- *    whichever stage the tenant is actually in. A refresh mid-import — or coming back tomorrow —
- *    picks up where it left off instead of restarting from "Connect".
- *  - **It advances on `livePollingEnabled`, never on `status === "ok"`.** Those are different
- *    facts: `ok` means the import job finished, while `onboardingBackfillCompletedAt` is what
- *    un-gates the live poller. Advancing on `ok` would show "you're all set" for a location the
- *    scheduler still refuses to enqueue.
- *
- * Several locations can be confirmed in one go, so every location backfills independently and in
- * parallel — its own poll loop, its own abort controller — while the numbers this hook exposes
- * are the sum across all of them: "you're all set" only once every one of them is actually live,
- * and any single location failing fails the whole screen rather than silently leaving one store
- * behind with no visible indication.
+ * - Resumes on mount from `GET /v1/connections` plus `GET /v1/connections/locations` (the former
+ *   reports only the single selected location), so a refresh mid-import picks up where it left off.
+ * - Advances on `livePollingEnabled`, never `status === "ok"`: `ok` means the import job finished,
+ *   but `onboardingBackfillCompletedAt` is what un-gates the live poller.
+ * - Each confirmed location polls independently while exposed numbers are sums; "done" needs every
+ *   location live, and any one failing fails the whole screen.
  */
 export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
   const router = useRouter();
@@ -122,16 +110,11 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const mountedRef = useRef(true);
   const slowSinceRef = useRef<number | null>(null);
-  // Per-location running totals, kept outside React state — only the aggregate below needs to
-  // trigger a render, and each location's own contribution has to survive independently of when
-  // its neighbors last responded.
+  // Outside React state: only the aggregate needs to render.
   const locationStateRef = useRef<Record<string, LocationBackfillState>>({});
   const resolvedRef = useRef<Set<string>>(new Set());
-  // Mirrors `confirmedLocationIds`, updated synchronously inside `startBackfill` — `applyLocationProgress`
-  // reads this rather than the state value because `startBackfill` kicks off the first poll for
-  // each location in the same tick it calls `setConfirmedLocationIds`, before React has committed
-  // that state update. Reading the state itself there would compare against last render's (stale,
-  // often still `[]`) length and never detect "every location is done".
+  // Synchronous mirror of `confirmedLocationIds`: the first polls start in the same tick as
+  // `setConfirmedLocationIds`, so reading state would see a stale length and never detect "all done".
   const confirmedLocationIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
@@ -143,8 +126,6 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     };
   }, []);
 
-  /** Stops every in-flight poll and its scheduled follow-up. `startBackfill` does this for itself
-   *  before starting a fresh run; the stage resets below need it too. */
   const stopAllPolling = useCallback(() => {
     abortControllersRef.current.forEach((controller) => controller.abort());
     timersRef.current.forEach((timer) => clearTimeout(timer));
@@ -158,17 +139,11 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     setStage("error");
   }, []);
 
-  // ── Backfill polling ────────────────────────────────────────────────────
-
   const recomputeAggregate = useCallback(() => {
     const entries = Object.values(locationStateRef.current);
     const totalReviews = entries.reduce((sum, entry) => sum + entry.reviewsFetched, 0);
-    // Every *confirmed* location has to have reported a total, not merely every location that has
-    // answered so far: `locationStateRef` only gains an entry once that location's first poll
-    // lands. Judging completeness on `entries.length > 0` let whichever location replied first
-    // define the whole denominator — a small store that finished instantly would put the combined
-    // bar at 100% (and, being monotonic, pin it there) while its siblings were still importing
-    // thousands of reviews.
+    // Every confirmed location must have reported a total, not just those that answered so far;
+    // otherwise a small store finishing first sets the whole denominator and pins the bar at 100%.
     const everyTotalKnown =
       entries.length === confirmedLocationIdsRef.current.length &&
       entries.every((entry) => entry.totalToImport !== null);
@@ -179,8 +154,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
     setReviewsFetched(totalReviews);
     setTotalToImport(total);
-    // Monotonic, same reasoning as the single-location version: a provider revising one
-    // location's total between pages must never make the combined bar visibly rewind.
+    // Monotonic: a provider revising a total between pages must not rewind the bar.
     setProgress((current) => (rawProgress === null ? current : Math.max(current ?? 0, rawProgress)));
 
     const anyStale = entries.some((entry) => entry.isStale);
@@ -204,9 +178,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
       };
       recomputeAggregate();
 
-      // `isStale` is not a failure — the run may still be alive, and the backend's acquisition will
-      // reclaim it if it is not. Give up only after a bounded window so a single dead job cannot
-      // spin the whole screen forever.
+      // `isStale` isn't a failure (the run may be alive); give up after a bounded window so a dead job can't spin forever.
       if (slowSinceRef.current && Date.now() - slowSinceRef.current > SLOW_BACKFILL_GIVE_UP_MS) {
         fail("backfillFailed", "retry");
         return false;
@@ -217,7 +189,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
         return false;
       }
 
-      // The ONLY correct terminal signal — see this hook's doc comment.
+      // The only correct terminal signal (see the hook's doc comment).
       if (snapshot.livePollingEnabled) {
         resolvedRef.current.add(locationId);
         if (resolvedRef.current.size === confirmedLocationIdsRef.current.length) {
@@ -231,10 +203,8 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     [fail, recomputeAggregate],
   );
 
-  // The poll re-schedules itself, so it needs a stable handle to call. A `useCallback` cannot
-  // reference itself inside its own body (it is not yet bound when the body is created), and a
-  // plain recursive closure would capture a stale `applyLocationProgress`. The ref is assigned on
-  // every render, so each tick calls the current implementation.
+  // A `useCallback` can't reference itself, and a recursive closure would capture a stale
+  // `applyLocationProgress`; the ref always points at the current implementation.
   const pollOneRef = useRef<(id: string) => Promise<void>>(async () => undefined);
 
   const pollOne = useCallback(
@@ -248,9 +218,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
         if (!mountedRef.current || controller.signal.aborted) return;
 
         if (applyLocationProgress(locationId, snapshot)) {
-          // Recursive setTimeout scheduled *after* the response lands, not setInterval — a backend
-          // slower than the interval would otherwise stack overlapping requests per location, each
-          // one making the next slower.
+          // setTimeout after the response, not setInterval: a slow backend would otherwise stack overlapping requests.
           timersRef.current.set(
             locationId,
             setTimeout(() => void pollOneRef.current(locationId), POLL_INTERVAL_MS),
@@ -258,8 +226,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
         }
       } catch (caught) {
         if (!mountedRef.current || controller.signal.aborted) return;
-        // A single failed poll is not a failed import. Keep polling; the give-up window above is
-        // what eventually stops it. A 404, though, means the location itself is gone.
+        // A failed poll isn't a failed import, but a 404 means the location is gone.
         if (caught instanceof ApiError && caught.statusCode === 404) {
           fail("backfillFailed", "restart");
           return;
@@ -273,16 +240,14 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     [applyLocationProgress, fail],
   );
 
-  // Assigned in an effect, not during render: React forbids mutating a ref in the render phase
-  // (a re-render that never commits would leave the ref pointing at a discarded closure).
+  // In an effect, not render: a render that never commits would leave the ref on a discarded closure.
   useEffect(() => {
     pollOneRef.current = pollOne;
   }, [pollOne]);
 
   const startBackfill = useCallback(
     (ids: string[]) => {
-      // Abort anything still in flight from a previous attempt (e.g. a `retry`) before resetting
-      // state, so a straggling response cannot fold stale numbers into the fresh run.
+      // Abort the previous attempt first so a straggling response can't fold stale numbers into the new run.
       stopAllPolling();
       locationStateRef.current = {};
       resolvedRef.current = new Set();
@@ -300,8 +265,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     [pollOne, stopAllPolling],
   );
 
-  // Background tabs throttle timers to roughly once a minute, so a user who switches away and back
-  // would otherwise see bars frozen where they left them. Re-poll every unresolved location on return.
+  // Background tabs throttle timers to ~1/minute, so re-poll unresolved locations on return.
   useEffect(() => {
     if (stage !== "backfilling" || confirmedLocationIds.length === 0) return;
 
@@ -319,8 +283,6 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [stage, confirmedLocationIds, pollOne]);
 
-  // ── Location discovery ──────────────────────────────────────────────────
-
   const loadLocations = useCallback(async (signal?: AbortSignal) => {
     setStage("loading_locations");
 
@@ -334,25 +296,19 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
       }
 
       setLocations(available);
-      // Every not-yet-connected location starts checked: the ask is "track all the businesses",
-      // so continuing without touching anything imports everything Google returned. Already
-      // -connected locations start unchecked — re-selecting them is harmless (the backend treats
-      // a re-confirm as idempotent) but reads as "importing again" for no reason.
-      //
-      // ...unless that would select nothing at all, which is a reconnect: `alreadyConnected` is
-      // true for any persisted row including a deactivated one, so a tenant who disconnected and
-      // came back sees every location flagged as connected. Leaving the selection empty there
-      // strands them — Continue is disabled with nothing selected, and the single-location branch
-      // renders a plain card with no checkbox to turn back on. Falling back to "all of them" is
-      // also just the right default: re-confirming is exactly what this screen is for.
+      // Not-yet-connected locations start checked, so Continue imports everything Google returned.
+      // If none are, this is a reconnect (`alreadyConnected` is true even for deactivated rows) and
+      // an empty selection would strand the user with Continue disabled, so fall back to all.
       const notYetConnected = available.filter((location) => !location.alreadyConnected);
-      const preselected = notYetConnected.length > 0 ? notYetConnected : available;
+      const candidates = notYetConnected.length > 0 ? notYetConnected : available;
+      // Capped at plan capacity, or a Free tenant with two locations hits the limit on the first Continue.
+      const capacity = await remainingLocationCapacity();
+      if (!mountedRef.current || signal?.aborted) return;
+      const preselected = capacity === null ? candidates : candidates.slice(0, capacity);
       setSelectedLocationIds(preselected.map((location) => location.externalLocationId));
       setStage("confirm_location");
     } catch (caught) {
-      // A deliberate cancellation (a newer `resume()` superseded this one — see `RESUME_ABORT_KEY`),
-      // not a real failure. Surfacing it as `loadLocationsFailed` would flash an error screen for
-      // every StrictMode dev double-invoke, which aborts the first of its two identical calls.
+      // Cancellation by a newer `resume()` (see `RESUME_ABORT_KEY`), not a failure; otherwise StrictMode's double-invoke would flash an error screen.
       if (!mountedRef.current || signal?.aborted) return;
       if (caught instanceof ApiError && caught.errorCode === "CONNECTION_NEEDS_REAUTH") {
         fail("needsReauth", "reconnect");
@@ -362,15 +318,10 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     }
   }, [fail]);
 
-  // ── Mount: read the callback's query params, then resume ────────────────
-
   const resume = useCallback(async () => {
-    // React StrictMode's dev-only mount → cleanup → remount runs this effect twice, and the first
-    // call's `getState`/`listLocations`/`listAvailableLocations` chain was never cancellable —
-    // `mountedRef` alone doesn't catch it, since by the time that stale promise resolves,
-    // `mountedRef.current` is back to `true` from the second mount. Aborting any previous resume
-    // chain before starting a new one means only the latest one ever gets to set state, and closes
-    // the window where two concurrent calls doubled up on the same credential-refresh path.
+    // StrictMode runs this twice and `mountedRef` is back to `true` by the time the stale chain
+    // resolves, so abort any previous resume: only the latest may set state, and two concurrent
+    // calls must not double up on credential refresh.
     abortControllersRef.current.get(RESUME_ABORT_KEY)?.abort();
     const controller = new AbortController();
     abortControllersRef.current.set(RESUME_ABORT_KEY, controller);
@@ -380,11 +331,8 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
       const state = await ConnectionService.getState(signal);
       if (!mountedRef.current || signal.aborted) return;
 
-      // Branch on the *connection row*, not on `status`. `status` answers "is this tenant fully
-      // set up" — it is `disconnected` both when the tenant has never connected AND in the state
-      // this flow exists to resolve: consent granted, no location confirmed yet. Keying the
-      // connect stage off `status` alone sent the user back to "Connect" immediately after a
-      // successful OAuth round trip, with no way to ever reach location selection.
+      // Branch on the connection row, not `status`: `status` is `disconnected` both for never
+      // connected and for consent-granted-no-location-yet, which this flow exists to resolve.
       if (!state.connectionId) {
         setStage("connect");
         return;
@@ -395,15 +343,12 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
         return;
       }
 
-      // `GET /v1/connections` only ever reports the tenant's single currently-selected location —
-      // not enough to resume correctly once several can be confirmed in one go. The persisted list
-      // is the actual source of truth for "what has this tenant confirmed so far".
+      // `GET /v1/connections` reports only one selected location; the persisted list is the source of truth.
       const persisted = await ConnectionService.listLocations(signal);
       if (!mountedRef.current || signal.aborted) return;
 
       const active = persisted.filter((location) => location.status === "active");
       if (active.length === 0) {
-        // Connected, but nothing confirmed yet — exactly where the OAuth callback lands.
         await loadLocations(signal);
         return;
       }
@@ -419,10 +364,8 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
       startBackfill(pending);
     } catch {
-      // Same reasoning as `loadLocations`'s catch: a cancelled chain is not a real failure.
       if (!mountedRef.current || signal.aborted) return;
-      // Fail to the connect stage rather than an error screen: the user can always start the flow
-      // again, and an error screen for "we couldn't check" is a dead end.
+      // Connect stage, not an error screen: "we couldn't check" is a dead end, and the flow can restart.
       setStage("connect");
     }
   }, [fail, loadLocations, startBackfill]);
@@ -432,9 +375,8 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     const connected = searchParams.get("connected");
 
     if (oauthError || connected) {
-      // Stripped so a refresh cannot replay a stale error, or re-enter the post-consent branch
-      // after the user has moved on. Cast because Next's typed routes reject a runtime `pathname`,
-      // even though this only ever removes a query string from the route already rendering.
+      // Stripped so a refresh can't replay a stale error or re-enter the post-consent branch.
+      // Cast because Next's typed routes reject a runtime `pathname`.
       router.replace(pathname as Parameters<typeof router.replace>[0]);
     }
 
@@ -447,12 +389,9 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     }
 
     void resume();
-    // Deliberately mount-only: this reads the one-shot callback params, and re-running it on every
-    // searchParams change would re-enter the flow immediately after `router.replace` strips them.
+    // Mount-only: re-running on searchParams change would re-enter the flow right after `router.replace` strips them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ── Actions ─────────────────────────────────────────────────────────────
 
   const startConnect = useCallback(() => {
     setStage("redirecting");
@@ -483,9 +422,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
           fail("needsReauth", "reconnect");
           return;
         }
-        // The backend's own message already names the actual reason (e.g. "Too many locations
-        // for this account.") — more useful here than the generic bucket below, which would
-        // otherwise discard it and just say "try again" for a plan limit no retry can fix.
+        // Show the backend's message: the generic bucket would say "try again" for a limit no retry fixes.
         if (caught instanceof ApiError && caught.errorCode === "LOCATION_LIMIT_REACHED") {
           fail("confirmFailed", "retry", caught.message);
           return;
@@ -502,11 +439,8 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     slowSinceRef.current = null;
 
     if (recovery === "reconnect" || recovery === "restart") {
-      // One location failing puts the whole screen in the error stage, but its siblings' poll
-      // loops are still running — only the unmount cleanup and `startBackfill` ever stopped them,
-      // and this branch does neither. They would keep hitting `/backfill` every 2.5s behind the
-      // Connect screen, and a sibling that later reported `status: "error"` would call `fail()`
-      // and drag the user off a screen they had already recovered to.
+      // Siblings of the failed location are still polling; stop them or they'd keep hitting
+      // `/backfill` behind the Connect screen and `fail()` the user off a recovered screen.
       stopAllPolling();
       setStage("connect");
       return;

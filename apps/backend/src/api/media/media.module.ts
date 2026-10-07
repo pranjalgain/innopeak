@@ -12,19 +12,12 @@ import type { StorageProviderType } from './types/storage-provider.type';
 
 const logger = new Logger('MediaModule');
 
-// Same DI-swap shape as AuthModule's own `verifyEmailTokenProviderFactory` — a provider scoped to
-// this module rather than a separate top-level module, since `MediaService` is its only consumer
-// (unlike EmailProvider, which genuinely has many consumers across the app and lives at
-// `src/email/` for that reason).
+// Provider scoped to this module because `MediaService` is its only consumer.
 const storageProviderFactory = {
   provide: StorageProvider,
   useFactory: (configService: ConfigService<EnvConfig>): StorageProvider => {
-    // Unlike EmailModule's factory, this does NOT force `noop` outside production. Sending a real,
-    // unwanted email in dev is actively harmful (a stray inbox, an embarrassed test user);
-    // uploading a real image to Cloudinary in dev is the opposite — it's exactly what this feature
-    // needs to be testable with once real credentials exist, and forcing `noop` here would make
-    // that impossible without deploying. `STORAGE_PROVIDER` defaults to `noop` so nothing requires
-    // credentials until an operator explicitly opts in, in any environment.
+    // Unlike EmailModule's factory, this does not force `noop` outside production: uploading to Cloudinary in dev
+    // is what makes the feature testable. `STORAGE_PROVIDER` defaults to `noop` until an operator opts in.
     const providerType =
       (configService.get<string>('STORAGE_PROVIDER') as StorageProviderType | undefined) ?? 'noop';
 
@@ -42,16 +35,8 @@ const storageProviderFactory = {
 };
 
 /**
- * Not `@Global()` — `MediaService` is real business logic, imported explicitly by whichever
- * modules need it for reads (`AuthModule`'s own profile-building — see `AuthService.me`), the same
- * as `PromptsModule`/`ConnectionsModule`. `StorageProvider` stays private to this module: nothing
- * outside `MediaService` talks to a storage provider directly.
- *
- * `TenantAvatarController`/`AdminAvatarController` own the upload-authorization/confirm routes
- * themselves — see `MediaService`'s own doc comment on why those live here rather than on
- * `AuthController`/`AdminSettingsController`, even though they're mounted at those controllers'
- * own route prefixes (`RouteNames.AUTH`/`RouteNames.ADMIN_SETTINGS`). NestJS registers controllers
- * by which module declares them, not by path prefix, so this needs no import back from either.
+ * Not `@Global()`: modules needing reads import `MediaService` explicitly; `StorageProvider` stays private. The avatar
+ * controllers live here though mounted at other controllers' prefixes, since Nest registers controllers by declaring module.
  */
 @Module({
   controllers: [TenantAvatarController, AdminAvatarController],

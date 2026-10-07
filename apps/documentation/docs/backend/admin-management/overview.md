@@ -98,6 +98,75 @@ user in the tenant loses access immediately, exactly as a plain suspend would �
 anonymized yet. The actual anonymization happens later, in the nightly erasure-purge cron job, once
 the configured grace period has elapsed, and is cancellable any time before then via `cancelErasure`.
 
+**Owner self-service.** An owner can also schedule their own business's erasure (Settings → General
+→ Delete business; see [Auth API § Delete the business](../auth/api-reference.md#delete-the-business-owner-self-service)):
+typed business name plus re-authentication (password, or an emailed code for an SSO-only owner), then
+the same request path as the admin's — suspension, subscription handling, polling stop — with the
+owner recorded in `tenants.erasure_requested_by_user_id` and as the activity-log actor. That column is
+what lets an owner whose *own* request is pending sign in with their password and **restore** the
+business during the grace period; an erasure an admin requested (the column is `NULL`, and an admin
+request overwrites it) can only be cancelled by an admin. Cancelling — by either — clears it.
+
+**What erasure releases outside the database.** Anonymizing users alone left an erased business
+fully alive elsewhere — still billed, still holding a live Google grant, still being polled. Erasure
+now releases each of those, in two stages:
+
+| When | What | Why |
+|---|---|---|
+| **On request** (`requestErasure`) | The tenant is suspended, which now also **stops review polling** (the 15-minute poller skips `suspended`/`erased` tenants, so no new reviews, AI drafts or notification emails are produced for it). A live Stripe subscription is handled by its state (best-effort; a failure is logged and the purge retries it): **`active`** → set to **cancel at period end**, recorded as `cancellation_source = 'erasure'`; **`past_due`** → **cancelled immediately** and its open invoices voided, since no service is owed and Stripe would otherwise keep retrying the card through the grace period; **already ending** (the owner cancelled) → left alone, source stays `owner`. | Charging stops at the end of the period already paid, without destroying the plan if the request is cancelled in the grace period. The paid period is not refunded — the owner already had it; see the billing policy below. |
+| **On cancel-erasure** (`cancelErasure`) | If the subscription is still set to end **and** `cancellation_source = 'erasure'` **and** it has not actually ended yet, it is resumed (`cancel_at_period_end = false`) and the source cleared. A subscription the owner cancelled themselves (`owner`, or unknown) is never resumed. | The marker is what makes resuming safe: a bare `cancel_at_period_end` cannot say who set it, and resuming an owner's deliberate cancellation would charge them against their wishes. |
+| **At purge** (grace period elapsed) | In order, per tenant: delete the **Stripe customer** (ends any subscription immediately and removes the owner's name/email from Stripe; Stripe keeps invoices it must retain), **disconnect Google** (revoke the OAuth grant, delete the stored credential, deactivate locations), **anonymize reviewer names** on all of the tenant's reviews, then anonymize every user (which now also deletes their refresh and one-time tokens) and mark the tenant `erased`. | Each step is idempotent. Any failure skips that tenant for the night — nothing is anonymized until everything external is released — and the run ends with one error line naming every skipped tenant. |
+
+**Billing policy.** Plans bill a full month in advance from the start date. Erasure ends renewal, never refunds the month already paid, and the purge deleting the Stripe customer mid-period simply forfeits what is left of it. If the grace period outlasts the paid period, Stripe ends the subscription at period end and the existing `customer.subscription.deleted` webhook moves the tenant to Free while it is still suspended. Charging a *new* month after a request is only possible if the request lands within about an hour before renewal (Stripe has already created that invoice) — a case for a manual refund, deliberately not automated yet: such a payment is detected, flagged and queued for an admin on the Billing page — see [the refund rule](../admin-billing/overview.md#charged-after-an-erasure-request-the-refund-rule-and-the-manual-queue).
+
+**Erasure emails.** Everyone who can undo or must know about an erasure is told by email, so a
+request is never silent (a stolen session that deletes the business is the case this exists for).
+Recipients are the tenant's **active owners** (`role = owner`, not anonymized, not themselves
+pending removal); members are not emailed. The text is tailored per recipient: the owner who asked
+(and has a password) is told to sign in and restore, with a button; another owner is told only the
+requester can restore it; an SSO-only requester, and everyone when an admin asked, is pointed at
+support — see [restore rules](../auth/api-reference.md#delete-the-business-owner-self-service). Each recipient gets the mail in their own `users.locale`
+(`en` default, `de`). All four are the one queue job `ERASURE_NOTICE_EMAIL`, differing by `kind`,
+rendered through the generic `notification` template from a copy catalog in code — no per-language
+template files.
+
+| Kind | Sent when | Says |
+|---|---|---|
+| `scheduled` | An erasure is requested — by the owner (`POST /v1/auth/delete-account`) **or** a platform admin (`requestErasure`) | The business is suspended and will be erased on *date*; who asked (the owner, or "a platform administrator"); how to undo it — the requesting owner signs in with their password and chooses **Restore**, otherwise contact support. |
+| `reminder` | Once, `ERASURE_REMINDER_DAYS_BEFORE` (3) days before the deadline, by the nightly purge job | Same facts, "N days left". Skipped when the grace period is not longer than that. |
+| `cancelled` | The erasure is cancelled — owner restore or admin `cancelErasure` | The business is active again. This is also the alarm if someone else restored it. |
+| `erased` | After the purge has anonymized the tenant | The business and its data have been erased. Recipients are read **before** anonymization (the addresses are gone afterwards) and the mail is sent only once the tenant is marked `erased`; if a night's run dies halfway, the next run finds the addresses already anonymized and sends nothing — a missed confirmation, never a wrong one. |
+
+Delivery is best-effort everywhere: an email failure is logged and never fails or rolls back the
+erasure, restore or purge. The reminder is **claimed before it is sent**
+(`tenants.erasure_reminder_sent_at`, set by an `UPDATE … WHERE erasure_reminder_sent_at IS NULL`),
+so overlapping runs cannot double-send, at the price that a failed enqueue loses that one reminder.
+The column is cleared whenever an erasure is requested or cancelled, so a second request later
+gets its own reminder. No support address is configured anywhere yet, so "contact support" is
+generic wording rather than a mailto.
+
+**Purge failures are per tenant.** A failure releasing a tenant's external resources — including
+Google not confirming the revocation of its grant (a `400 invalid_token`, i.e. already revoked, counts
+as done), in which case the stored credential is kept so it can be retried — *or* a failure anonymizing
+its users skips just that tenant, records why, and the run carries on with the rest. Anonymizing is
+idempotent per user, so the next night picks up where it stopped.
+
+**Self-service activity-log entries** name the actor as the fixed label `owner (self-service)`, never
+the owner's email: the activity log is not anonymized, so an address written there would outlive the
+erasure it records. The business name on the entry says which business.
+
+**Purge alerting.** A tenant the nightly purge could not release (Stripe unreachable, Google revoke
+failing…) is skipped and retried the next night — and previously that was only an error log line.
+Now, when a run skips at least one tenant, **every active platform admin is emailed** (in their own
+language) a summary: each skipped business, how many days past its deadline it is, and the error that
+stopped it (truncated to 200 characters). One email per admin per run, so it repeats nightly until the
+cause is fixed — deliberately: a missed erasure deadline is a compliance failure, not a blip. A run
+that skips nothing sends nothing. Delivery is best-effort and never affects the purge. What this does
+**not** catch is the job not running at all (a dead worker or scheduler) — that needs an external
+heartbeat/dead-man's-switch on the job and is out of scope here.
+
+Owners can also take their data with them first: see [Data export](../settings/api-reference.md#data-export).
+
 **Why reuse `status = 'suspended'` instead of adding a fourth `tenant_status` value:** every
 existing suspend-check elsewhere in the app — auth guards, connection checks, anything that already
 treats `suspended` as "no access" — keeps working unmodified for a tenant that's mid-grace-period,

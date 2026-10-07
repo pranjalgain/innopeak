@@ -4,6 +4,7 @@ import { isAwsDeploymentTarget } from '@config/deployment-target.util';
 import { CronSqsConsumer } from '@cron/cron-sqs.consumer';
 import { CronProcessor } from '@cron/cron.processor';
 import { CronService } from '@cron/cron.service';
+import { TenantErasureCleanupService } from '@cron/tenant-erasure-cleanup.service';
 import { DeadLetterQueueModule } from '@dead-letter-queue/dead-letter-queue.module';
 import { Module, Provider } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -12,20 +13,10 @@ import { ReviewSyncQueueProducerModule } from '@review-sync-queue/review-sync-qu
 const isAws = isAwsDeploymentTarget();
 const consumerProvider: Provider = isAws ? CronSqsConsumer : CronProcessor;
 
-/**
- * `ReviewSyncQueueProducerModule` — the producer half, deliberately not the whole
- * `ReviewSyncQueueModule` — is imported for `CronService`'s `ReviewSyncQueue` dependency.
- * `pollDueLocations` is the first cron job in this codebase whose work is "publish more jobs"
- * rather than doing its work inline, so `CronService` needed a producer for the first time;
- * importing the consumer module here would additionally start a second review-sync `@Processor`
- * wherever this module is loaded. `ConnectionsDbService`/`AdminOverviewDbService`/
- * `TenantSubscriptionsDbService` (`CronService`'s other DB-layer dependencies) need no import:
- * `DBModule` is `@Global()`. `AuthModule` is imported for `AccountAnonymizationService` alone — the
- * GDPR erasure-purge job's one cross-module dependency; `BillingReconciliationModule` (deliberately not the whole `BillingModule`, whose controllers and checkout code the worker has no use for) likewise for
- * `BillingReconciliationService` alone, the nightly billing-reconciliation sweep's own one
- * cross-module dependency. No cycle risk for either: nothing `AuthModule`/`BillingReconciliationModule` imports
- * ever imports `CronModule` back.
- */
+// Only the producer half of the review-sync queue: importing the consumer module would start a
+// second review-sync `@Processor` wherever this module loads. `AuthModule` supplies
+// `AccountAnonymizationService` for the erasure purge; `BillingReconciliationModule` (not the whole
+// `BillingModule`, whose controllers the worker has no use for) supplies the reconciliation sweep.
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -34,6 +25,6 @@ const consumerProvider: Provider = isAws ? CronSqsConsumer : CronProcessor;
     AuthModule,
     BillingReconciliationModule,
   ],
-  providers: [consumerProvider, CronService],
+  providers: [consumerProvider, CronService, TenantErasureCleanupService],
 })
 export class CronModule {}

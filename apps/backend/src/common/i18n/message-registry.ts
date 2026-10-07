@@ -3,29 +3,12 @@ import type { MessageCatalog } from './message-catalog.type';
 import { messagesDe } from './messages.de';
 import { messagesEn } from './messages.en';
 
-/**
- * "Services keep throwing and returning stable message *keys*, and exactly one layer translates"
- * (the multilingual design doc's recommended approach). `MESSAGES.AUTH.INVALID_CREDENTIALS` used
- * to be the literal English sentence, evaluated once at the throw site with no request context to
- * translate against. It is now a *tagged key string* — still just a `string` (or, for the two
- * interpolating entries, still a function returning a `string`), so every existing call site
- * (`throw new UnauthorizedException(MESSAGES.AUTH.INVALID_CREDENTIALS)`,
- * `ResponseUtil.success(data, MESSAGES.PROMPTS.LISTED)`, the handful of specs asserting
- * `.rejects.toThrow(MESSAGES.X.Y)`) keeps compiling and passing completely unchanged. The only two
- * places that need to know the tag exists are `TransformInterceptor` (the success-response edge)
- * and `HttpExceptionFilter` (the error-response edge), which call `renderMessage` right before the
- * response is serialized.
- *
- * Tag format: `TAG_PREFIX` followed by a dotted key path, with a further `TAG_SEPARATOR` plus
- * JSON-encoded args for an interpolating entry. The separator character is the ASCII control
- * character at code point zero, built at runtime with `String.fromCharCode(0)` rather than typed
- * literally in this file, so no editor, terminal, or diff view downstream ever has to render a raw
- * control byte from this source. That character cannot appear in any hand-written catalog string
- * or in JSON-encoded args, so a tagged key can never collide with an ordinary message that never
- * went through `MESSAGES` (a class-validator message, a Postgres error string, a third-party
- * library's error text) — `renderMessage` passes anything without the prefix straight through
- * untouched.
- */
+// `MESSAGES` leaves are tagged key strings, not English text; only `TransformInterceptor` and
+// `HttpExceptionFilter` call `renderMessage` to translate, right before serializing the response.
+// Tag: TAG_PREFIX + dotted key path (+ TAG_SEPARATOR + JSON args for interpolating entries). The
+// NUL separator is built at runtime so no editor or diff has to render a raw control byte; it can't
+// occur in catalog strings or JSON, so an untagged message (class-validator, Postgres, third-party)
+// never collides and passes through `renderMessage` untouched.
 const CONTROL_CHAR = String.fromCharCode(0);
 const TAG_PREFIX = `${CONTROL_CHAR}i18n${CONTROL_CHAR}`;
 const TAG_SEPARATOR = CONTROL_CHAR;
@@ -39,8 +22,6 @@ function tag(path: string, args?: unknown[]): string {
   return `${TAG_PREFIX}${path}${TAG_SEPARATOR}${JSON.stringify(args)}`;
 }
 
-/** Recursively mirrors a catalog's shape, replacing every leaf with a tagged-key string (plain
- *  leaves) or a function that produces one (interpolating leaves) — never the rendered text. */
 function buildKeyedCatalog<T>(node: T, path: string): T {
   if (typeof node === 'function') {
     return ((...args: unknown[]) => tag(path, args)) as unknown as T;
@@ -58,14 +39,6 @@ function buildKeyedCatalog<T>(node: T, path: string): T {
   throw new Error(`Unexpected message catalog node at "${path}"`);
 }
 
-/**
- * The object every existing call site imports as `MESSAGES` (via
- * `@common/constants/messages.constants`, which now just re-exports this). Same shape and same
- * leaf types as the catalog it's built from (`messagesEn`) — a string stays a string, an
- * interpolating function keeps the same parameters and return type — so nothing downstream of
- * `MESSAGES.X.Y` needs to change; only what the string *contains* changed, from rendered English
- * to a tagged key `renderMessage` resolves later.
- */
 export const MESSAGES: MessageCatalog = buildKeyedCatalog(messagesEn, '');
 
 const CATALOGS_BY_LOCALE: Record<Locale, MessageCatalog> = {
@@ -73,12 +46,7 @@ const CATALOGS_BY_LOCALE: Record<Locale, MessageCatalog> = {
   de: messagesDe,
 };
 
-/**
- * Own-property only — `path.split('.')` walking a plain object could otherwise resolve to an
- * inherited member (`constructor`, `toString`, `hasOwnProperty`, …) on `Object.prototype`. A
- * malformed or forged tag containing a path segment like `constructor` must land on "not found",
- * never on `Object`'s own `constructor` function.
- */
+// Own-property only: a forged tag with a segment like `constructor` must not resolve to an inherited member.
 function getByPath(catalog: MessageCatalog, path: string): CatalogValue | undefined {
   let current: unknown = catalog;
   for (const segment of path.split('.')) {
@@ -95,22 +63,13 @@ function getByPath(catalog: MessageCatalog, path: string): CatalogValue | undefi
 }
 
 /**
- * The rendering step both response edges call. Anything that isn't a tagged key (the common case
- * for text that never went through `MESSAGES` — class-validator output, a Postgres error, a
- * third-party error message) is returned unchanged, English-only for now; that's an accepted,
- * explicit gap, not a bug this function is responsible for closing.
+ * Untagged text (class-validator, Postgres, third-party) passes through, English-only: an accepted gap.
  *
- * `raw` is deliberately typed wider than `string`: both call sites ultimately derive it from a
- * caught exception's `.message`, and `@Catch()` (no argument) catches literally anything a service
- * can throw — a plain string, a rejected promise's non-Error reason, `undefined` — not just real
- * `Error`/`HttpException` instances, whatever a call site's own type annotation claims. This must
- * never throw *itself*, or the exception filter it runs inside has nothing left to catch it.
+ * `raw` is `unknown` because `@Catch()` receives anything thrown. This must never throw itself,
+ * since it runs inside the exception filter.
  */
 export function renderMessage(raw: unknown, locale: Locale): string {
   if (typeof raw !== 'string') {
-    // `raw` is deliberately `unknown` (see the doc comment above) — this must coerce literally
-    // anything without throwing, `[object Object]` included, rather than assume every non-string
-    // has a meaningful `toString()`.
     // eslint-disable-next-line @typescript-eslint/no-base-to-string
     return raw === undefined || raw === null ? '' : String(raw);
   }
@@ -126,17 +85,9 @@ export function renderMessage(raw: unknown, locale: Locale): string {
   const catalog = CATALOGS_BY_LOCALE[locale];
   const entry = getByPath(catalog, path);
 
-  // An allowlist, not a blocklist: only a string leaf is returned as-is and only a function leaf
-  // is invoked. Every other outcome — not found, a nested object (no real catalog leaf is ever
-  // one), or anything else `getByPath` could in principle return — falls back to the raw tag
-  // string. Visibly wrong (a client sees the literal tag) beats silently wrong (a non-string value,
-  // or an inherited member, shipped as `ApiResponse.message`) or an outright crash.
-  //
-  // The function branch is additionally wrapped: a corrupted tag can carry unparseable JSON args,
-  // or JSON args of the wrong shape for the target function (e.g. a number where an array is
-  // expected) — both throw from inside this call, and this must degrade the same way malformed
-  // input elsewhere in this function does, not propagate out of an edge layer with no one above it
-  // to catch it.
+  // Allowlist: only string and function leaves render; anything else falls back to the raw tag,
+  // visibly wrong rather than silently wrong or a crash. The function call is wrapped because a
+  // corrupted tag can carry bad JSON args, and nothing above this edge layer would catch the throw.
   if (typeof entry === 'function') {
     try {
       const args = argsJson ? (JSON.parse(argsJson) as unknown[]) : [];
@@ -154,16 +105,8 @@ export function renderMessage(raw: unknown, locale: Locale): string {
 }
 
 /**
- * Several controllers (`AuthController.resendOtp`/`logout`, `BlocklistTermsController.remove`,
- * `AuthController.signup`/`login`'s pending-verification branch) return a service result that
- * duplicates the same `MESSAGES.X.Y` value both as the response envelope's own `message` (which
- * `TransformInterceptor`/`HttpExceptionFilter` already render) and as a `message` field *inside*
- * the payload itself (`ResponseUtil.success(response, response.message, ...)`, where `response`
- * becomes `data`). That inner copy is a locale-agnostic tag exactly like the outer one — it never
- * goes through a separate rendering step of its own — so without this, a real client would see
- * the correctly-rendered envelope message sitting alongside a raw, un-rendered tag in
- * `data.message`. Scoped to exactly that one well-known field name; everything else on `data` is
- * left untouched, never walked into guessing at what else might be a message.
+ * Some controllers return a payload whose own `message` field repeats the envelope's tagged
+ * message, which would reach clients un-rendered. Scoped to that one field; nothing else on `data` is walked.
  */
 export function renderNestedMessage<T>(data: T, locale: Locale): T {
   if (

@@ -9,17 +9,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useDownloadReceiptPdf } from "@/hooks/billing/use-download-receipt-pdf";
 import type { Receipt } from "@/types/domain";
 
-/** `amountPaid` is Stripe's own smallest-currency-unit integer (e.g. cents) — divides by 100 to
- *  get the major unit, same simplification `renderReceiptPdf` makes on the backend (correct for
- *  every 2-decimal currency Stripe issues test prices in today). */
+/** `amountPaid` is in the smallest currency unit; dividing by 100 assumes a 2-decimal currency, as on the backend. */
 function formatReceiptAmount(amountPaid: number, currency: string): string {
   return formatCurrency(amountPaid / 100, currency.toUpperCase());
 }
 
-/** Stripe-only payment history — always empty for a Dummy-provider tenant, since there's no real
- *  charge behind it to document. Rendered only when there's at least one receipt (see
- *  `BillingSettingsSection`), so a Free or Dummy tenant never sees an empty "Billing history"
- *  card. */
+/** Stripe-only: a Dummy tenant has no real charge to document. */
 export function ReceiptsHistoryCard({ receipts }: { receipts: Receipt[] }) {
   const t = useTranslations("settings.billing.receipts");
   const tToasts = useTranslations("settings.billing.toasts");

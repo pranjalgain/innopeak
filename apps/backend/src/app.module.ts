@@ -2,6 +2,7 @@ import { AiModule } from '@ai/ai.module';
 import { ACCESS_TOKEN_TTL_SECONDS } from '@auth/constants/auth.constants';
 import { DEFAULT_JOB_OPTIONS, QueuePrefix } from '@bg/constants/job.constant';
 import { QueueUIModule } from '@bg/queue-ui.module';
+import { THROTTLER_TIERS } from '@common/constants/throttle.constants';
 import { ErrorHandlerService } from '@common/services/error-handler.service';
 import { EnvConfigModule } from '@config/env-config.module';
 import { EnvConfig } from '@config/env.config';
@@ -21,7 +22,6 @@ import { ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { JwtModule } from '@nestjs/jwt';
-// import { DevtoolsModule } from '@nestjs/devtools-integration';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { OtelModule } from '@otel/otel.module';
 import { PromptsModule } from '@prompts/prompts.module';
@@ -47,12 +47,11 @@ import { TracingModule } from './api/tracing/tracing.module';
 
 const configService = new ConfigService<EnvConfig>();
 
-// Queue module
 const queueModule = BullModule.forRootAsync({
   imports: [RedisModule],
   useFactory: (redisClient: Redis) => {
     return {
-      prefix: QueuePrefix.SYSTEM, // For grouping queues
+      prefix: QueuePrefix.SYSTEM,
       connection: redisClient.options,
       defaultJobOptions: DEFAULT_JOB_OPTIONS,
     };
@@ -60,38 +59,31 @@ const queueModule = BullModule.forRootAsync({
   inject: [REDIS_CLIENT],
 });
 
-// Rate Limiting
-//
-// `ttl` is MILLISECONDS — @nestjs/throttler has taken ms since v5 and this project pins 6.5.0.
-// These tiers previously read `1 * 60` with a "1 minute" comment, which is a 60-*millisecond*
-// window: every route without an explicit `@Throttle` (logout, the OAuth callback, /me, and every
-// non-auth route) was effectively unthrottled, and the medium/long/very-long tiers could never
-// bind. The per-route overrides in the auth controller already used ms, so only these were wrong.
+// `ttl` is in milliseconds (@nestjs/throttler >= 5); seconds would make the window 60 ms and leave unannotated routes effectively unthrottled.
 const MINUTE_MS = 60 * 1000;
 const rateLimit = ThrottlerModule.forRoot([
   {
-    name: 'short',
-    ttl: MINUTE_MS, // 1 minute
-    limit: 30, // Maximum number of requests within the ttl
+    name: THROTTLER_TIERS.SHORT,
+    ttl: MINUTE_MS,
+    limit: 30,
   },
   {
-    name: 'medium',
+    name: THROTTLER_TIERS.MEDIUM,
     ttl: 5 * MINUTE_MS,
     limit: 100,
   },
   {
-    name: 'long',
+    name: THROTTLER_TIERS.LONG,
     ttl: 30 * MINUTE_MS,
     limit: 500,
   },
   {
-    name: 'very-long',
+    name: THROTTLER_TIERS.VERY_LONG,
     ttl: 60 * MINUTE_MS,
     limit: 1000,
   },
 ]);
 
-// Cache Module
 const cacheModule = CacheModule.registerAsync({
   useFactory: async () => {
     const store = await redisStore({
@@ -103,7 +95,7 @@ const cacheModule = CacheModule.registerAsync({
 
     return {
       store,
-      ttl: 5 * 60000, // Default - 5 minutes (milliseconds)
+      ttl: 5 * 60000, // milliseconds
     };
   },
   isGlobal: true,
@@ -111,9 +103,6 @@ const cacheModule = CacheModule.registerAsync({
 
 @Module({
   imports: [
-    // DevtoolsModule.register({
-    //   http: process.env['NODE_ENV'] !== 'production',
-    // }),
     rateLimit,
     cacheModule,
     EnvConfigModule,
@@ -126,9 +115,7 @@ const cacheModule = CacheModule.registerAsync({
     queueModule,
     QueueUIModule,
 
-    // For DevToolsMiddleware, which authenticates the out-of-band ops surfaces (Bull Board etc.).
-    // A local registration rather than reusing AuthModule's: this only ever verifies, and the
-    // JwtService resolved for an AppModule-level provider must come from AppModule's own imports.
+    // For DevToolsMiddleware. Registered here, not reused from AuthModule: an AppModule-level provider resolves JwtService from AppModule's own imports.
     JwtModule.registerAsync({
       useFactory: (config: ConfigService<EnvConfig>) => ({
         secret: config.get<string>('JWT_SECRET') ?? '',
@@ -137,19 +124,10 @@ const cacheModule = CacheModule.registerAsync({
       inject: [ConfigService],
     }),
 
-    // Auth
     AuthModule,
-
-    // Email
     EmailModule,
-
-    // Google Business Profile client + credential store (@Global, shared with the worker)
     ReviewProviderModule,
-
-    // Review classification (@Global, shared with the worker)
     ReviewPipelineModule,
-
-    // APIs
     ConnectionsModule,
     ReviewsModule,
     MetricsModule,
@@ -162,11 +140,7 @@ const cacheModule = CacheModule.registerAsync({
     NotificationsModule,
     AdminModule,
     BillingModule,
-    // Registered here in its own right, not left to ride along on `AuthModule`'s import of it:
-    // NestJS mounts a module's controllers wherever the module appears in the graph, so the four
-    // avatar routes were previously live only as a side effect of `AuthService` needing
-    // `MediaService` for a profile read. Dropping that one unrelated import would have silently
-    // unmounted them — no compile error, no failing unit test, just 404s.
+    // Registered explicitly, not via AuthModule's import: dropping that import would silently unmount the avatar routes (404s, no compile error).
     MediaModule,
   ],
   providers: [
@@ -175,7 +149,7 @@ const cacheModule = CacheModule.registerAsync({
       provide: APP_INTERCEPTOR,
       useClass: HttpLoggingInterceptor,
     },
-    // Guard order: ThrottlerGuard → JwtAuthGuard → RolesGuard
+    // Order matters: ThrottlerGuard, JwtAuthGuard, RolesGuard.
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
@@ -196,11 +170,8 @@ const cacheModule = CacheModule.registerAsync({
 })
 export class AppModule {
   configure(consumer: MiddlewareConsumer): void {
-    // Apply to all routes
     consumer.apply(MetricsMiddleware).forRoutes('*');
 
-    // The ops-tools auth guard is NOT applied here: Bull Board mounts as an Express sub-app that a
-    // MiddlewareConsumer binding cannot reach. It is registered as raw Express middleware in
-    // bootstrap.ts instead (see createOpsToolsGuard), which does run before the sub-app.
+    // The ops-tools guard isn't applied here: Bull Board is an Express sub-app a MiddlewareConsumer can't reach (see createOpsToolsGuard in bootstrap.ts).
   }
 }

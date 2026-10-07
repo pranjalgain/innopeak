@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useTranslations } from "next-intl";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 
 
@@ -21,6 +21,7 @@ import {
 import { OtpVerificationStage } from "@/app/(auth)/onboarding/signup/_components/otp-verification-stage";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
+import { PendingSignupService } from "@/app/_libs/services/pending-signup.service";
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
 import { LoadErrorState } from "@/components/common/load-error-state";
 import { Button } from "@/components/ui/button";
@@ -37,20 +38,9 @@ const SSO_LIKE_STEPS: OnboardingStep[] = ["identity", "plan", "connect"];
 const PASSWORD_STEPS: OnboardingStep[] = ["identity", "otp", "plan", "connect"];
 
 /**
- * Steps 1-2 of onboarding: prove who is signing up, then (password path only) verify the email.
- * Steps 3-4 ("plan", "connect") are **not** rendered here — this hands off to `/onboarding/plan`.
- *
- * That split is forced, not stylistic, for step 4 (connect): it's a real Google OAuth grant, which
- * means the browser leaves the app entirely and comes back through the backend's callback. This
- * route cannot survive that: `/onboarding/signup` is in `proxy.ts`'s REDIRECT_IF_AUTHENTICATED_PATHS,
- * and by then the user *is* authenticated, so any full navigation back here bounces to /dashboard.
- * The previous shape only worked because the mocked connect flow never navigated anywhere. Step 3
- * (plan) has no such constraint, but lives on its own route anyway for the same reason connect
- * does — one place, not duplicated across every view that hands off to it.
- *
- * Handing off by route rather than persisting wizard state also means there is no in-memory state
- * left to lose across a round trip, and each downstream step exists in exactly one place instead
- * of being rendered by multiple views that must be kept in sync.
+ * Steps 1-2 of onboarding; steps 3-4 live on their own routes (see `handOffToPlan`). Step 4 is a Google OAuth grant that
+ * leaves the app, and `/onboarding/signup` is in `proxy.ts`'s REDIRECT_IF_AUTHENTICATED_PATHS, so an authenticated user
+ * returning here would bounce to /dashboard. Handing off by route also leaves no wizard state to lose across the round trip.
  */
 export function OnboardingSignupView() {
   const t = useTranslations("onboardingSignup");
@@ -75,6 +65,15 @@ export function OnboardingSignupView() {
   const [viaPassword, setViaPassword] = useState(false);
   const [signupEmail, setSignupEmail] = useState("");
 
+  // A refresh (or Back/Forward) on the OTP step must resume it: re-submitting the form is refused, the account exists.
+  useEffect(() => {
+    const pendingEmail = PendingSignupService.get();
+    if (!pendingEmail) return;
+    setViaPassword(true);
+    setSignupEmail(pendingEmail);
+    setStep("otp");
+  }, []);
+
   const authMethods = {
     sso: platformSettings?.ssoLoginEnabled ?? false,
     password: platformSettings?.passwordLoginEnabled ?? false,
@@ -83,16 +82,8 @@ export function OnboardingSignupView() {
   const bothSsoLike = authMethods.sso && authMethods.social;
   const stepperSteps = viaPassword ? PASSWORD_STEPS : SSO_LIKE_STEPS;
 
-  /**
-   * `replace`, not `push`: the signup screen must not be reachable with the Back button once an
-   * account exists — going back would land an authenticated user on a route that immediately
-   * bounces them to /dashboard, which reads as the app losing their place mid-onboarding.
-   *
-   * Hands off to `/onboarding/plan`, not straight to `/onboarding/connect` — every fresh signup
-   * (password or Microsoft SSO) sees the Free/Paid choice before ever reaching the Google
-   * Business Profile location-picker, so a Free tenant learns the 1-location cap up front instead
-   * of discovering it as a rejection after selecting several.
-   */
+  /** `replace`, not `push`: Back must not return an authenticated user to a route that bounces to /dashboard. Hands off to
+   *  /onboarding/plan so every fresh signup sees the Free/Paid choice before the location-picker. */
   const handOffToPlan = useCallback(
     (via: "password" | "sso") => {
       OnboardingContextService.set({ from: "signup", via });
@@ -103,25 +94,38 @@ export function OnboardingSignupView() {
 
   const handleSsoSubmit = async () => {
     const succeeded = await signupWithMicrosoft();
-    if (succeeded) handOffToPlan("sso");
+    if (succeeded) {
+      PendingSignupService.clear();
+      handOffToPlan("sso");
+    }
   };
 
   const handlePasswordSubmit = async (values: CreateAccountFormValues) => {
     const succeeded = await signupWithPassword(values);
     if (succeeded) {
+      PendingSignupService.set(values.email);
       setViaPassword(true);
       setSignupEmail(values.email);
       setStep("otp");
     }
   };
 
+  const handleChangeEmail = () => {
+    PendingSignupService.clear();
+    setViaPassword(false);
+    setSignupEmail("");
+    setStep("identity");
+  };
+
   const { handleVerify: handleVerifyOtp, handleResend: handleResendOtp } = useOtpVerification({
     email: signupEmail,
     verifySignupOtp,
     resendSignupOtp,
-    // A brand-new account never has a Google Business Profile connected yet — always straight to
-    // the plan step, unlike login's OTP branch which checks hasConnectedBusiness.
-    onVerified: () => handOffToPlan("password"),
+    // A brand-new account has no Google Business Profile yet, so go straight to the plan step (unlike login's OTP branch).
+    onVerified: () => {
+      PendingSignupService.clear();
+      handOffToPlan("password");
+    },
   });
 
   return (
@@ -214,6 +218,7 @@ export function OnboardingSignupView() {
               isLoading={isLoading}
               onVerify={(code) => void handleVerifyOtp(code)}
               onResend={() => void handleResendOtp()}
+              onChangeEmail={handleChangeEmail}
             />
           ) : null}
         </div>

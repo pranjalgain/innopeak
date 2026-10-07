@@ -18,12 +18,7 @@ interface ConfirmLocationStageProps {
   isSubmitting?: boolean;
 }
 
-/**
- * One location renders as today's single confirmation card; several render the same card behind
- * a checkbox. The multi-location branch is not speculative — a franchise's connected account
- * really does return several, and every one of them needs its reviews tracked, not just whichever
- * happened to come back first.
- */
+/** One location renders as a single card, several behind a checkbox; a franchise's account really does return several. */
 export function ConfirmLocationStage({
   locations,
   selectedLocationIds,
@@ -63,11 +58,8 @@ export function ConfirmLocationStage({
                   onCheckedChange={() => onToggle(location.externalLocationId)}
                   className="shrink-0"
                 />
-                {/* `flex-1 min-w-0`, not the default `w-full` — as a flex sibling of the checkbox,
-                    `w-full` asks for 100% of the *row's* width in addition to the checkbox's own
-                    width and the `gap-3` between them, which pushes the card past the row's right
-                    edge by exactly that much. `flex-1` instead claims the space actually left over
-                    after the checkbox. */}
+                {/* `flex-1 min-w-0`, not `w-full`: as a flex sibling of the checkbox, `w-full` adds the checkbox and `gap-3` widths
+                    on top and pushes the card past the row's right edge. */}
                 <LocationCard location={location} isSelected={isSelected} className="w-auto min-w-0 flex-1" />
               </label>
             );
@@ -141,11 +133,8 @@ function LocationCard({
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <div className="flex items-center gap-2">
-              {/* `min-w-0` here, not just on the ancestor flex containers — a flex child's default
-                  min-width is its own content's natural width, so without this `truncate`'s
-                  `overflow:hidden` never actually engages: the browser refuses to shrink the span
-                  below the full name's width, and a long one pushes the badge past the card instead
-                  of ellipsizing. */}
+              {/* `min-w-0` here, not only on ancestors: a flex child's default min-width is its content width, so otherwise
+                  `truncate` never engages and a long name pushes the badge out. */}
               <span className="min-w-0 flex-1 truncate text-sm font-medium">{location.name}</span>
               {location.alreadyConnected && (
                 <Badge

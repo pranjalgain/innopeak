@@ -8,27 +8,14 @@ import type {
 } from './types/classification-result.type';
 
 /**
- * Deliberately above what one import can produce, and that margin has to be maintained by hand:
- * a backfill imports at most `MAX_PAGES` (20, `review-sync-queue.service.ts`) ×
- * `GBP_REVIEWS_PAGE_SIZE` (50, `review-provider.constants.ts`) = **1000** reviews, so a limit of
- * 1000 would sit exactly on that ceiling rather than clear of it. These three constants are
- * coupled across three files with nothing enforcing the relationship, so raising `MAX_PAGES` or
- * the page size without raising this silently reintroduces truncation.
- *
- * Truncation is not data loss — the remainder keeps `classification = 'pending_classification'`
- * and a later run picks it up — but with no poller yet, "a later run" means re-triggering
- * backfill by hand, so it is worth not hitting.
+ * Deliberately above one import's ceiling, maintained by hand: a backfill imports at most `MAX_PAGES` (20,
+ * `review-sync-queue.service.ts`) × `GBP_REVIEWS_PAGE_SIZE` (50, `review-provider.constants.ts`) = 1000 reviews.
+ * Nothing enforces that coupling, so raising either without raising this reintroduces truncation (the remainder
+ * stays `pending_classification` until a later run).
  */
 const BATCH_LIMIT = 2000;
 
-/**
- * The sole public entrypoint for this module — everything else here is private plumbing. Composes
- * the pure `classifyReview` rule (PLAN.md §3) with the pending-review queue: read the tenant's
- * current blocklist/threshold once, then classify and claim each pending review one at a time.
- *
- * Per-review, not batched into one write, so that one review losing its claim CAS (§8.3) never
- * blocks the rest of the batch.
- */
+/** Sole public entrypoint of this module. Classifies per review, not in one batched write, so one review losing its claim CAS never blocks the rest. */
 @Injectable()
 export class ReviewClassificationService {
   private readonly logger = new Logger(ReviewClassificationService.name);

@@ -3,16 +3,14 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 
 import { PROMPT_ERROR_CODES } from '../constants/prompts.constants';
 
-/** No fixed default: `message` always names the specific unknown placeholder(s)
- *  (`MESSAGES.PROMPTS.UNKNOWN_VARIABLE(names)`), so every call site supplies it explicitly. */
+/** No default message: it always names the specific unknown placeholder(s). */
 export class UnknownPlaceholderException extends BadRequestException {
   constructor(message: string) {
     super({ message, code: PROMPT_ERROR_CODES.UNKNOWN_PLACEHOLDER });
   }
 }
 
-/** No fixed default: `message` always names the specific missing placeholder(s)
- *  (`MESSAGES.PROMPTS.MISSING_VARIABLE(names)`), so every call site supplies it explicitly. */
+/** No default message: it always names the specific missing placeholder(s). */
 export class MissingPlaceholderException extends BadRequestException {
   constructor(message: string) {
     super({ message, code: PROMPT_ERROR_CODES.MISSING_PLACEHOLDER });
@@ -25,9 +23,7 @@ export class PromptNotFoundException extends NotFoundException {
   }
 }
 
-/** `?version=N` (or a versions-scoped route) names a version this prompt has never had —
- *  distinct from `PromptNotFoundException`, which means the prompt itself doesn't exist for this
- *  tenant. See `apps/documentation/docs/backend/prompts/api-reference.md#error-reference`. */
+/** The prompt exists but never had the requested version; distinct from PromptNotFoundException. */
 export class PromptVersionNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.PROMPTS.VERSION_NOT_FOUND) {
     super({ message, code: 'PROMPT_VERSION_NOT_FOUND' });

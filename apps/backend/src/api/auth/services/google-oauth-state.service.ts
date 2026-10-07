@@ -18,21 +18,12 @@ import type {
 } from '../types/auth.type';
 
 /**
- * Same three layers as the Business Profile flow (`connections/services/oauth-state.service.ts`),
- * for the same structural reason: a self-contained signed blob is a bearer credential, and a
- * signature proves only that we minted it — never who is completing the round trip.
- *
- * Here the blob would assert "sign someone in as intent X". So:
- *
- *  1. **The signed blob only rejects garbage cheaply and recovers the nonce.** No field the write
- *     path acts on is read from it.
- *  2. **A Redis record is authoritative**, consumed with `GETDEL` before the code is exchanged, so
- *     a replayed callback finds nothing and two concurrent ones cannot both pass.
- *  3. **A `google_auth_sid` cookie binds the round trip to the browser that began it**, defeating
- *     a mailed consent link: the recipient's browser has no matching cookie.
- *
- * A genuinely new signup no longer carries a `businessName` here at all — see
- * PendingGoogleSignupService, which takes over once this state is consumed.
+ * A signed blob is a bearer credential and its signature proves only that we minted it, never who
+ * completes the round trip. So: (1) the blob only rejects garbage cheaply and recovers the nonce,
+ * nothing the write path acts on is read from it; (2) a Redis record is authoritative, consumed
+ * with `GETDEL` before the code is exchanged, so a replay finds nothing and concurrent callbacks
+ * cannot both pass; (3) a `google_auth_sid` cookie binds the round trip to the browser that began
+ * it, defeating a mailed consent link.
  */
 @Injectable()
 export class GoogleOAuthStateService {
@@ -55,21 +46,17 @@ export class GoogleOAuthStateService {
     const nonce = randomBytes(24).toString('base64url');
     const sid = randomBytes(32).toString('base64url');
 
-    // `exactOptionalPropertyTypes`: built conditionally rather than `inviteToken: input.inviteToken`,
-    // which would assign a literal `undefined` for every LOGIN/SIGNUP mint — a real key on the
-    // record, not merely an absent one, and a type error under this config regardless.
+    // Built conditionally: `exactOptionalPropertyTypes` rejects assigning a literal `undefined`,
+    // which would also be a real key on the record.
     const record: GoogleAuthStateRecord = {
       intent: input.intent,
       sidHash: this.hashSid(sid),
       ...(input.inviteToken !== undefined ? { inviteToken: input.inviteToken } : {}),
     };
 
-    // `NX` so a nonce collision fails rather than overwriting another in-flight consent. The
-    // result is checked rather than assumed: a silent overwrite-miss here would still sign and
-    // return a state whose Redis record is someone else's, so `consume()` would later fail with a
-    // generic INVALID_STATE and no way to tell that apart from a genuinely expired or forged one.
-    // At 192 bits of randomness this is not a realistic collision — the check exists so the
-    // impossible case fails loudly instead of silently, not because it is expected to fire.
+    // `NX` so a nonce collision fails rather than overwriting another in-flight consent. Checked
+    // rather than assumed: a silent miss would return a state whose Redis record is someone else's,
+    // later failing as an indistinguishable INVALID_STATE. Not expected to fire at 192 bits.
     const claimed = await this.redis.set(
       `${GOOGLE_AUTH_STATE_KEY_PREFIX}${nonce}`,
       JSON.stringify(record),
@@ -87,9 +74,8 @@ export class GoogleOAuthStateService {
   }
 
   /**
-   * Verifies, then consumes. Every failure returns the same `{ ok: false }` — expired, replayed,
-   * forged and wrong-browser are deliberately indistinguishable to the caller, which maps them all
-   * to one `INVALID_STATE` redirect.
+   * Every failure returns the same `{ ok: false }`: expired, replayed, forged and wrong-browser are
+   * deliberately indistinguishable to the caller.
    */
   async consume(
     state: string | undefined,

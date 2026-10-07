@@ -1,12 +1,16 @@
 import type { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import type { Locale } from '@common/i18n/locale';
 
-// ─── PlatformAdminRepository ─────────────────────────────────────────────────
-
 export interface PlatformAdminProfileRow {
   id: string;
   email: string;
   passwordHash: string | null;
+  locale: Locale | null;
+}
+
+/** Who an operational alert goes to: an active platform admin, in their own language. */
+export interface PlatformAdminAlertRecipient {
+  email: string;
   locale: Locale | null;
 }
 
@@ -23,8 +27,7 @@ export interface PlatformAdminInviteRow {
   id: string;
   email: string;
   status: PlatformAdminStatus;
-  /** Falls back to the admin's own `createdAt` for the seeded root admin, which has no invite row
-   * at all — see `PlatformAdminDbService.listInvites`. */
+  /** Falls back to the admin's `createdAt` for the seeded root, which has no invite row. */
   invitedAt: string;
   expiresAt: string | null;
   /** `invited_by_platform_admin_id IS NULL` — the seeded root admin. */
@@ -32,31 +35,25 @@ export interface PlatformAdminInviteRow {
 }
 
 /**
- * Each member carries a single literal discriminant rather than one member with a
- * `'not_found' | 'not_invited'` union: narrowing by `!== 'not_found'` only subtracts that literal
- * from such a member's property type, it never eliminates the member, so the `deleted` branch
- * stays unnarrowed and `email` is unreachable at every call site.
+ * Each member carries a single literal discriminant rather than a `'not_found' | 'not_invited'`
+ * union: narrowing by `!== 'not_found'` would not eliminate the member, leaving `email`
+ * unreachable.
  */
 export type RevokeInviteOutcome =
   | { outcome: 'deleted'; id: string; email: string }
   | { outcome: 'not_found' }
   | { outcome: 'not_invited' };
 
-/** Same reasoning as `RevokeInviteOutcome` above — see `setStatusGuardingLastActive`. */
+/** Same reasoning as `RevokeInviteOutcome` above. */
 export type SetAdminStatusOutcome =
   | { outcome: 'last_active' }
   | { outcome: 'not_found' }
   | { outcome: 'updated'; id: string; email: string; status: PlatformAdminStatus };
 
 /**
- * `invalid` covers every reason the invite couldn't be redeemed — never existed, already used,
- * expired, or lost a race between the read and the write below — collapsed into one outcome
- * deliberately: distinguishing them to the caller would tell a prober which guess was closest, the
- * same enumeration-avoidance reasoning as `MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP`.
- *
- * `identity_already_linked` is `acceptInviteWithGoogleIdentity`-only and IS worth telling apart —
- * it's an actionable, non-enumerating answer ("this Google account is already someone else's"),
- * not a guess about the token.
+ * `invalid` collapses every reason an invite could not be redeemed (never existed, used, expired,
+ * lost a race) so a prober cannot tell which guess was closest. `identity_already_linked` (Google
+ * path only) is actionable and non-enumerating, so it stays distinct.
  */
 export type AcceptInviteOutcome =
   | { outcome: 'accepted'; id: string; email: string; locale: Locale | null }
@@ -68,9 +65,7 @@ export interface SetAdminStatusGuardInput {
   status: PlatformAdminStatus;
 }
 
-// ─── PlatformAdminDbService ──────────────────────────────────────────────────
-
-/** `PlatformAdminProfileRow` plus the avatar `MediaDbService` composes in — see `findById`. */
+/** `PlatformAdminProfileRow` plus the avatar `MediaDbService` composes in. */
 export interface PlatformAdminProfileWithAvatar extends PlatformAdminProfileRow {
   avatarUrl: string | null;
 }

@@ -17,14 +17,7 @@ interface UseOtpVerificationResult {
   handleResend: () => Promise<void>;
 }
 
-/**
- * Shared OTP-step behavior for both entry points that land on `OtpVerificationStage` — the
- * signup wizard (a brand-new account's first verification) and login (an existing
- * `pending_verification` account, resent a fresh code). The two flows differ only in what
- * happens after a successful verify (`onVerified`) and where `isLoading` comes from (each
- * caller's own `useAuth()`); this hook exists so neither has to re-implement the
- * verify/resend/toast wiring in between.
- */
+/** Shared OTP step for the signup wizard and login; the flows differ only in `onVerified` and where `isLoading` comes from. */
 export function useOtpVerification({
   email,
   verifySignupOtp,
@@ -38,8 +31,7 @@ export function useOtpVerification({
     if (verified) {
       onVerified(hasConnectedBusiness);
     } else {
-      // `errorMessage` is only set when the failure wasn't a wrong code (rate limit, network,
-      // server fault) — surfacing the real reason beats insisting a correct code is invalid.
+      // `errorMessage` is set only when the failure wasn't a wrong code (rate limit, network, server).
       toast.error(errorMessage ?? tOtp("toasts.verifyFailed"));
     }
   };

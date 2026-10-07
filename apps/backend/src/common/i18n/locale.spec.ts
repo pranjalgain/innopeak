@@ -11,8 +11,6 @@ describe('resolveLocale', () => {
   });
 
   it('strips a region subtag and matches on the primary language alone', () => {
-    // Region subtags are explicitly out of scope (see the locale contract) — de-AT/de-CH must
-    // still resolve to plain `de`, not fall through to the default.
     expect(resolveLocale('de-DE')).toBe('de');
     expect(resolveLocale('en-US')).toBe('en');
   });
@@ -22,7 +20,6 @@ describe('resolveLocale', () => {
   });
 
   it('picks the highest-q supported candidate, ignoring unsupported higher-q ones', () => {
-    // fr isn't supported at all; among the two that are, de has the higher q.
     expect(resolveLocale('fr;q=0.9, de;q=0.8, en;q=0.5')).toBe('de');
   });
 

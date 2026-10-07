@@ -27,7 +27,6 @@ vi.mock("sonner", () => ({
 
 const PASSWORD = "NewStr0ng@Pass";
 
-/** A fresh QueryClient per render so one test's cached `["platform-settings"]` can't leak. */
 function renderView() {
   return render(
     <QueryClientProvider client={createQueryClient()}>
@@ -40,9 +39,7 @@ function renderView() {
 
 describe("AcceptInviteView", () => {
   beforeEach(() => {
-    // `vi.spyOn` returns the *same* mock for an already-spied method, so without this a call made
-    // in one test is still on the record in the next — enough to make a "was never called"
-    // assertion pass or fail for the wrong reason.
+    // spyOn returns the same mock for an already-spied method, so calls would leak between tests.
     vi.clearAllMocks();
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
       ssoLoginEnabled: false,
@@ -66,8 +63,6 @@ describe("AcceptInviteView", () => {
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
   });
 
-  /** The subtitle is the only instruction on this screen, so it has to name whichever ways to
-   *  finish are actually on offer — not the password half while a Google button sits below it. */
   test("names only the password option when Google is not offered", async () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
       ssoLoginEnabled: false,
@@ -83,7 +78,6 @@ describe("AcceptInviteView", () => {
     ).toBeInTheDocument();
   });
 
-  /** A dead link is a dead end — never the password form, which could only fail on submit. */
   test("renders the invalid state, not the form, for a token the backend rejects", async () => {
     vi.spyOn(AuthService, "validateAdminInvite").mockRejectedValue(
       new ApiError(404, "This invite link is invalid or has expired."),
@@ -146,13 +140,7 @@ describe("AcceptInviteView", () => {
     ).toBeInTheDocument();
   });
 
-  /**
-   * Regression: accepting through Google leaves the admin with no `password_hash`, so Google
-   * becomes their only credential — and `/login` hides its Google button behind this same
-   * setting. Offering it here while the platform has social sign-in off minted an admin whose one
-   * way in was a button that is never rendered, with no admin `set-password` flow to recover
-   * through.
-   */
+  // Regression: offering Google here with social sign-in off locked the admin out (no password, and /login hides the button).
   test("hides Google when the platform has social sign-in disabled", async () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
       ssoLoginEnabled: false,
@@ -163,8 +151,7 @@ describe("AcceptInviteView", () => {
 
     renderView();
 
-    // The password form is always available, so waiting on it proves the card has rendered and
-    // the Google button's absence below is a real decision rather than a not-yet-loaded screen.
+    // Waiting on the always-present password form proves the card rendered before asserting Google's absence.
     expect(await screen.findByLabelText("Password")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Continue with Google" }),

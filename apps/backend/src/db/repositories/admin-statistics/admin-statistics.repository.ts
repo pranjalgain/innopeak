@@ -12,11 +12,7 @@ import type {
   SyncHealthCounts,
 } from './types/admin-statistics.type';
 
-/**
- * Platform-wide review/sync analytics for the admin Statistics page — `reviews`/`review_responses`/
- * `sync_runs` aggregated across every tenant, the same "no tenantId filter" scope
- * `AdminOverviewRepository.getReviewStats()` already uses for its own headline counts.
- */
+/** Platform-wide analytics: deliberately no tenantId filter. */
 @Injectable()
 export class AdminStatisticsRepository {
   constructor(private readonly dbService: DBService) {}
@@ -72,12 +68,9 @@ export class AdminStatisticsRepository {
   }
 
   /**
-   * Reviews fetched (by `reviews.createdAt`, when this app synced it) and replies actually posted
-   * (by `review_responses.postedAt`, when Google received it — not `createdAt`, which is when the
-   * draft was written) bucketed by calendar month, UTC. Two independent queries rather than one
-   * joined query: `reviews`/`review_responses` have no shared grain to join on for this purpose
-   * (a month can post replies to reviews fetched in an earlier month), so `AdminStatisticsDbService`
-   * merges the two series by month key instead.
+   * Per UTC calendar month: reviews by `createdAt` (when synced) and replies by `postedAt` (when
+   * Google received it, not when the draft was written). Two queries merged by month key, since a
+   * month can post replies to reviews fetched earlier.
    */
   async getReviewsTrend(monthsBack: number): Promise<ReviewsTrendPoint[]> {
     const now = new Date();
@@ -99,12 +92,8 @@ export class AdminStatisticsRepository {
       this.dbService.db
         .select({ year: repliesYearExpr, month: repliesMonthExpr, value: count() })
         .from(schema.reviewResponses)
-        // Keyed on `posted_at` alone, not `status = 'posted'`. `posted_at` is only ever written
-        // when a reply actually reached Google, and it is never cleared — whereas `status` is
-        // mutable (`ResponseStatus`'s own doc: `posted -> superseded on a later edit`), so
-        // filtering on it would let a past month's bar shrink months later, retroactively
-        // rewriting a historical chart. `gte` already excludes the NULLs, so no status filter is
-        // needed to keep unposted drafts out.
+        // Keyed on `posted_at`, not `status = 'posted'`: status can later become `superseded`,
+        // which would retroactively shrink past months. `gte` already excludes NULL (unposted).
         .where(gte(schema.reviewResponses.postedAt, windowStart))
         .groupBy(repliesYearExpr, repliesMonthExpr),
     ]);

@@ -17,17 +17,12 @@ const PLAN_COLUMNS = {
   customPromptsEnabled: schema.billingPlans.customPromptsEnabled,
 } as const;
 
-/**
- * `billing_plans` — a seeded, effectively-static catalog of exactly two rows (`free`/`paid`, see
- * `0011_billing.sql`). No create/update/delete here on purpose: this is not an admin-managed
- * resource, so the repository only ever reads it.
- */
+/** Seeded static catalog (free/paid); read-only on purpose since it is not admin-managed. */
 @Injectable()
 export class BillingPlansRepository {
   constructor(private readonly dbService: DBService) {}
 
-  /** `tx` lets a caller already inside a transaction (e.g. `AuthDbService.signup`) read a
-   *  consistent view without borrowing a second pooled connection. */
+  /** `tx` lets a caller already in a transaction (e.g. signup) read without borrowing a second pooled connection. */
   async findByCode(code: BillingPlanCode, tx?: DrizzleTransaction): Promise<BillingPlanRow | null> {
     const rows = await (tx ?? this.dbService.db)
       .select(PLAN_COLUMNS)

@@ -15,17 +15,8 @@ interface AccessStateProps {
 }
 
 /**
- * Renders a consistent, accessible access-control state.
- *
- * `title`/`description` arrive already translated from each page, so this stays a presentational
- * component; only its own action label is looked up here.
- *
- * One action, deliberately. This used to offer a second "Explore the boilerplate" button pointing
- * at the marketing page's `#features` anchor — leftover template copy from before anything linked
- * here at all. These pages are now the real destination for a genuine access rejection (the route
- * guards and `proxy.ts` send wrong-principal traffic to `/forbidden`), and inviting someone who
- * just hit an authorization error to go browse feature marketing is not a serious answer. "Return
- * home" is: `/` is itself guarded, so it lands each principal on the home that's actually theirs.
+ * Presentational: `title`/`description` arrive translated. One action on purpose: "Return home" (`/` is guarded, so it
+ * lands each principal on their own home); sending someone who hit an authorization error to feature marketing is not an answer.
  */
 export function AccessState({ code, title, description, icon: Icon }: AccessStateProps) {
   const t = useTranslations("accessState");

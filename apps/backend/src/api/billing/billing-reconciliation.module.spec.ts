@@ -10,8 +10,6 @@ import { DummyPaymentProvider } from './providers/dummy-payment.provider';
 import { PaymentProvider } from './providers/payment.provider';
 import { BillingReconciliationService } from './services/billing-reconciliation.service';
 
-/** Stands in for the `@Global()` `DBModule` and the app-wide `ConfigModule` — the only things
- *  `BillingReconciliationModule` is allowed to rely on from outside itself. */
 @Global()
 @Module({
   providers: [
@@ -24,12 +22,8 @@ import { BillingReconciliationService } from './services/billing-reconciliation.
 })
 class FakeGlobalModule {}
 
-/**
- * The worker process (`CronModule`) loads this module on its own, without `BillingModule`. Unit
- * tests of `CronService` mock the reconciliation service outright, so this is the one place the
- * real dependency graph is resolved — it fails if the module ever grows a dependency that only
- * `BillingModule` (or the API process) provides.
- */
+// The worker process loads this module without `BillingModule`; fails if it grows a dependency only
+// `BillingModule` provides.
 describe('BillingReconciliationModule', () => {
   it('resolves the reconciliation service and payment provider with only global dependencies', async () => {
     const moduleRef = await Test.createTestingModule({

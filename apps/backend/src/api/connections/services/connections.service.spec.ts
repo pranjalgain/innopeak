@@ -26,6 +26,7 @@ import { OAuthStateService } from './oauth-state.service';
 
 import { ConnectionState } from '../enums/connection-state.enum';
 import { ReturnTo } from '../enums/return-to.enum';
+import { ConnectionNotFoundException } from '../exceptions/connections.exceptions';
 
 const user: TenantAuthUser = {
   type: JwtTokenType.TENANT_USER,
@@ -80,12 +81,9 @@ const backfillRun = {
 };
 
 /**
- * `confirmLocations`'s job is published only after its own DB transaction has already committed —
- * BullMQ and Postgres share no transaction. A publish failure therefore cannot be rolled back with
- * the insert that already made the sync run `running`, and that row holds
- * `UNIQUE (location_id) WHERE status = 'running'`. Left uncompensated, nothing would ever process
- * that run (it was never enqueued) and the unique index would reject every later confirm attempt
- * for the location, permanently — the tenant would never ingest a single review.
+ * BullMQ and Postgres share no transaction, so a publish failure cannot roll back the committed
+ * `running` sync run; uncompensated it would block every later confirm via
+ * `UNIQUE (location_id) WHERE status = 'running'`.
  */
 describe('ConnectionsService.confirmLocations — enqueue failure is compensated', () => {
   let service: ConnectionsService;
@@ -145,6 +143,28 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
     service = moduleRef.get(ConnectionsService);
   });
 
+  describe('a disconnected connection', () => {
+    const disconnected = { ...connection, disconnectedAt: '2026-03-01T00:00:00.000Z' };
+
+    it('is treated as no connection by confirmLocations — it must not re-activate a location against a revoked grant', async () => {
+      findConnectionByTenant.mockResolvedValue(disconnected);
+
+      await expect(
+        service.confirmLocations({ user, externalLocationIds: ['locations/1'] })
+      ).rejects.toBeInstanceOf(ConnectionNotFoundException);
+      expect(confirmLocationDb).not.toHaveBeenCalled();
+    });
+
+    it('is treated as no connection by listAvailableLocations — no provider call is made', async () => {
+      findConnectionByTenant.mockResolvedValue(disconnected);
+
+      await expect(service.listAvailableLocations(user)).rejects.toBeInstanceOf(
+        ConnectionNotFoundException
+      );
+      expect(listLocations).not.toHaveBeenCalled();
+    });
+  });
+
   it('succeeds normally when the job publishes cleanly', async () => {
     addBackfillJob.mockResolvedValue(undefined);
 
@@ -174,14 +194,7 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
     );
   });
 
-  /**
-   * Regression: the multi-location loop used to `await this.enqueueBackfill(...)` bare, so the
-   * first failure threw straight out of the loop. `enqueueBackfill` compensates only its *own*
-   * sync run, which left every location after the failing one holding a committed `running` row
-   * with no job published and nothing to compensate it — the exact "stuck running forever, which
-   * then blocks every future confirm for that location via the partial unique index" state the
-   * compensation logic exists to prevent, just relocated from one location to the rest of the batch.
-   */
+  /** Regression: a failed enqueue in the multi-location loop threw out of it, stranding later locations with a `running` run and no job. */
   it('still enqueues (and compensates) the remaining locations after one publish fails', async () => {
     const secondLocation = { ...location, id: 'location-2', externalLocationId: 'locations/2' };
     const secondRun = { ...backfillRun, id: 'run-2', locationId: 'location-2' };
@@ -193,7 +206,6 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
       { location, backfill: backfillRun, backfillAlreadyRunning: false },
       { location: secondLocation, backfill: secondRun, backfillAlreadyRunning: false },
     ]);
-    // Only the FIRST location's publish fails.
     addBackfillJob
       .mockRejectedValueOnce(new Error('Redis connection lost'))
       .mockResolvedValue(undefined);
@@ -202,12 +214,10 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
       service.confirmLocations({ user, externalLocationIds: ['locations/1', 'locations/2'] })
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
-    // The second location must still have had its turn rather than being abandoned mid-loop.
     expect(addBackfillJob).toHaveBeenCalledTimes(2);
     expect(addBackfillJob).toHaveBeenLastCalledWith(
       expect.objectContaining({ locationId: 'location-2', syncRunId: 'run-2' })
     );
-    // ...and only the one that actually failed is compensated to `error`.
     expect(completeRun).toHaveBeenCalledTimes(1);
     expect(completeRun).toHaveBeenCalledWith(
       expect.objectContaining({ syncRunId: 'run-1', status: SyncRunStatus.ERROR })
@@ -229,13 +239,7 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
     expect(body.message).not.toContain('ECONNREFUSED');
   });
 
-  /**
-   * Regression: the run's `errorMessage` here is copied verbatim into `locations.last_sync_error`
-   * (`completeRun` -> `updateSyncSnapshot`), which `ConnectionsSyncService.getSyncHealth` later
-   * returns to the tenant owner as-is — on a *different*, later request than this one, so the 503
-   * body being sanitized (asserted above) does not protect it. Persisting the raw error here would
-   * leak the same BullMQ/Redis detail this route's own 503 explicitly refuses to hand back.
-   */
+  /** Regression: `errorMessage` is persisted to `locations.last_sync_error` and returned later via `getSyncHealth`, so the raw BullMQ/Redis detail must not be stored. */
   it('persists the safe, user-facing message on the run — never the raw queue error text', async () => {
     addBackfillJob.mockRejectedValue(new Error('ECONNREFUSED 127.0.0.1:6379'));
 
@@ -265,13 +269,7 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
     expect(completeRun).not.toHaveBeenCalled();
   });
 
-  /**
-   * The race-safe backstop: `ConnectionsDbService.confirmLocations` rechecks the location limit
-   * under an advisory lock and throws `LocationLimitExceededError` when two concurrent confirms
-   * both passed the cheap pre-check (`assertLocationLimit`, itself exercised via
-   * `findLocationsByTenant` returning `[]` in this suite's `beforeEach`). The service must
-   * translate that into the same 409 the pre-check throws, not let it escape as a raw 500.
-   */
+  /** Race-safe backstop: a `LocationLimitExceededError` from the locked recheck must surface as the same 409 as the pre-check, not a 500. */
   it('maps a race-safe LocationLimitExceededError from the DB layer to a 409, not a 500', async () => {
     confirmLocationDb.mockRejectedValue(new LocationLimitExceededError());
 
@@ -283,14 +281,7 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
   });
 });
 
-/**
- * `PLAN.md` §8.8 and the API reference both state that reconnecting with the same Google account
- * "reactivates the matched location rather than creating a second one." The write path only ever
- * upserted `review_provider_connections` — nothing touched `locations` — so a tenant who
- * disconnected and reconnected with the same account stayed stuck showing "not connected"
- * (`GET /v1/connections` requires an *active* location) until they repeated the confirm-location
- * step by hand, contradicting the documented behavior.
- */
+/** Regression: reconnecting with the same Google account must reactivate the matched location, not leave the tenant showing "not connected". */
 describe('ConnectionsService.handleCallback — reconnect reactivates locations', () => {
   let service: ConnectionsService;
   const consume = jest.fn();
@@ -324,9 +315,7 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
     upsertConnection.mockResolvedValue(connection);
     replaceCredential.mockResolvedValue('local-redis:secret-1');
     storeNewCredential.mockResolvedValue('local-redis:secret-2');
-    // No prior locations reactivated by default — most of the tests below only care that
-    // `reactivateLocationsForConnection` was (or wasn't) called, not what it returns. The one test
-    // that cares about the restart path sets its own value.
+    // Default to no reactivated locations; only the restart-path test sets its own value.
     reactivateLocationsForConnection.mockResolvedValue([]);
     restartIncompleteBackfills.mockResolvedValue([]);
 
@@ -407,8 +396,7 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
       sid: 'sid',
     });
 
-    // The connection and reactivation already committed by this point — a failure restarting the
-    // backfill must not turn a successful reconnect into an OAuth error redirect.
+    // The reconnect already committed; a backfill restart failure must not turn it into an OAuth error redirect.
     expect(redirect).toContain('connected=1');
   });
 
@@ -448,17 +436,7 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
   });
 });
 
-/**
- * Regression: a soft-disconnected `review_provider_connections` row (`disconnected_at` set)
- * survives forever so a same-account reconnect can upsert onto it — but `findConnectionByTenant`
- * still returns that row when it is the only one for the tenant, and this method used to report it
- * as a live connection (non-null `connection`, exposing its id) purely because `connected` and
- * `connection` were computed independently. The onboarding connect flow's resume logic treats a
- * non-null `connectionId` as "connected, awaiting location confirmation" and calls
- * `listAvailableLocations`, which uses the connection's stored credential — already revoked at
- * disconnect time — and always fails. A disconnected tenant must be indistinguishable from a
- * tenant that never connected at all.
- */
+/** Regression: a soft-disconnected connection row (revoked credential) was reported as live, which broke the onboarding resume logic. */
 describe('ConnectionsService.getConnectionStatus — soft-disconnected connection', () => {
   let service: ConnectionsService;
   const findConnectionByTenant = jest.fn();
@@ -506,8 +484,7 @@ describe('ConnectionsService.getConnectionStatus — soft-disconnected connectio
       connection: null,
       location: null,
     });
-    // Would have used the (revoked) credential behind this connection for nothing — the early
-    // return must short-circuit before either lookup.
+    // The early return must short-circuit before either lookup.
     expect(findLocationsByTenant).not.toHaveBeenCalled();
     expect(findActiveLocationId).not.toHaveBeenCalled();
   });

@@ -72,15 +72,13 @@ describe('OtelService', () => {
         return undefined;
       });
 
-      // Deliberately capture the return value (even though the method is typed `void`)
-      // to prove onModuleInit() does not sneak in an async Promise under the hood.
+      // Capture the return value (typed `void`) to prove onModuleInit() is not secretly async.
       // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression
       const result = target.onModuleInit();
 
       expect(result === undefined).toBe(true);
       expect((result as unknown as object) instanceof Promise).toBe(false);
-      // If the method were still asynchronous under the hood, isActive() would not yet
-      // reflect the SDK having been constructed and started by the time we get here.
+      // An async onModuleInit would not yet have constructed and started the SDK here.
       expect(target.isActive()).toBe(true);
       expect(loggerWarnSpy).not.toHaveBeenCalled();
     });

@@ -78,12 +78,7 @@ describe('MediaService', () => {
       expect(result).toMatchObject({ provider: 'cloudinary' });
     });
 
-    /**
-     * Regression: the signed folder used to be a single shared `avatars`, which is what let one
-     * owner confirm another's asset (reproduced live: a platform admin claimed a tenant user's
-     * `public_id`). Signing an owner-scoped folder is half the fix — `confirmAvatarFor*` below
-     * re-deriving and checking it is the other half.
-     */
+    /** Regression: the signed folder was a shared `avatars`, letting one owner confirm another's asset; `confirmAvatarFor*` below re-checks it. */
     it("signs an upload scoped to the tenant user's own folder", async () => {
       storageProvider.createUploadAuthorization.mockResolvedValue({
         provider: 'cloudinary',
@@ -180,11 +175,7 @@ describe('MediaService', () => {
       expect(result.avatarUrl).toBe('https://res.cloudinary.com/demo/avatars/user-1.png');
     });
 
-    /**
-     * Regression: confirm used to verify against a shared `avatars` folder, so any asset id — in
-     * particular another owner's, readable straight out of a rendered avatar URL — passed the
-     * check. Verifying against the caller's own folder is what rejects it.
-     */
+    /** Regression: confirm verified against a shared `avatars` folder, so another owner's asset id (visible in avatar URLs) passed. */
     it("verifies the asset against the tenant user's own folder, not a shared one", async () => {
       storageProvider.verifyUpload.mockResolvedValue({ ok: false, reason: 'notFound' });
 
@@ -199,12 +190,7 @@ describe('MediaService', () => {
       expect(mediaDbService.upsertAvatar).not.toHaveBeenCalled();
     });
 
-    /**
-     * The regression this guards: every `verifyUpload` failure used to collapse into the same
-     * generic "could not verify" message, including a real, freshly-uploaded file whose format
-     * just wasn't in the allowlist — which read as "please try again" to someone who needed to
-     * pick a different file instead.
-     */
+    /** Regression: every `verifyUpload` failure collapsed into one generic message, even an allowlist rejection that needed a different file. */
     it('surfaces MESSAGES.MEDIA.UNSUPPORTED_FORMAT specifically for an unsupported-format result', async () => {
       storageProvider.verifyUpload.mockResolvedValue({ ok: false, reason: 'unsupportedFormat' });
 
@@ -308,11 +294,7 @@ describe('MediaService', () => {
       expect(mediaDbService.deleteAvatar).toHaveBeenCalledWith({ userId: 'user-1' });
     });
 
-    /**
-     * A Cloudinary hiccup must never block the anonymization itself, but must also never delete
-     * the `media` row for an asset that's still live in storage — leaving the row intact is what
-     * makes a future retry possible instead of leaking the asset silently.
-     */
+    /** A Cloudinary failure must not block anonymization, nor delete the `media` row of a still-live asset (keeps retry possible). */
     it('swallows a storage-provider deletion failure and leaves the DB row untouched', async () => {
       mediaDbService.findAvatarAsset.mockResolvedValue({
         provider: 'cloudinary',
@@ -324,12 +306,7 @@ describe('MediaService', () => {
       expect(mediaDbService.deleteAvatar).not.toHaveBeenCalled();
     });
 
-    /**
-     * Closes the gap a plain "swallow every failure" catch would leave: if a previous run's
-     * storage delete already succeeded but crashed before the DB delete, this run's storage delete
-     * finds nothing and throws `StorageAssetNotFoundError` — every retry would fail identically
-     * forever unless this one case still proceeds to clean up the stale row.
-     */
+    /** `StorageAssetNotFoundError` means a prior run's storage delete succeeded but the DB delete didn't; it must still clean up the stale row or every retry fails. */
     it('still deletes the stale DB row when the asset is already gone from storage', async () => {
       mediaDbService.findAvatarAsset.mockResolvedValue({
         provider: 'cloudinary',

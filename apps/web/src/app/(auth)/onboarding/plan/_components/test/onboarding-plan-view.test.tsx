@@ -105,9 +105,7 @@ describe("OnboardingPlanView", () => {
       .spyOn(BillingService, "createCheckoutSession")
       .mockResolvedValue({ url: "http://localhost:3002/billing/dummy-checkout?subscriptionId=dummy_sub_1" });
     const originalLocation = window.location;
-    // jsdom doesn't support a plain assignment to `window.location.href` the way a real browser
-    // does — replaced with a settable stand-in so `useCreateCheckoutSession`'s hard redirect can
-    // be observed (same pattern as `require-auth.test.tsx`).
+    // jsdom rejects assigning `window.location.href`; a settable stand-in lets the hard redirect be observed (as in `require-auth.test.tsx`).
     Object.defineProperty(window, "location", {
       configurable: true,
       value: { ...originalLocation, href: "http://localhost:3002/onboarding/plan" },

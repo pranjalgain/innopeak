@@ -28,7 +28,7 @@ vi.mock("sonner", () => ({
 const PASSWORD = "NewStr0ng@Pass";
 const NAME = "Sam Rivera";
 
-/** A fresh QueryClient per render so one test's cached `["platform-settings"]` can't leak. */
+/** Fresh QueryClient per render so cached `["platform-settings"]` cannot leak between tests. */
 function renderView() {
   return render(
     <QueryClientProvider client={createQueryClient()}>
@@ -80,7 +80,6 @@ describe("AcceptInviteView (tenant member)", () => {
     ).toBeInTheDocument();
   });
 
-  /** A dead link is a dead end — never the name/password form, which could only fail on submit. */
   test("renders the invalid state, not the form, for a token the backend rejects", async () => {
     vi.spyOn(AuthService, "validateMemberInvite").mockRejectedValue(
       new ApiError(404, "This invite link is invalid or has expired."),
@@ -93,12 +92,7 @@ describe("AcceptInviteView (tenant member)", () => {
     expect(screen.queryByRole("button", { name: "Accept invite" })).not.toBeInTheDocument();
   });
 
-  /**
-   * Regression: only a 404 means the invite itself is dead. A network drop, a 5xx, or the
-   * validate route's own rate limit used to land on the exact same hard dead end — "ask whoever
-   * invited you to send a new one" — for something that had nothing to do with the token and
-   * could resolve on its own. This state offers a retry instead, and is not "invalid".
-   */
+  // Regression: only a 404 means the invite is dead; a network drop, 5xx or rate limit used to show the same dead end.
   test("offers a retry, not the dead-end invalid screen, when validation fails for a reason other than a 404", async () => {
     vi.spyOn(AuthService, "validateMemberInvite").mockRejectedValue(
       new ApiError(500, "Internal server error"),
@@ -147,7 +141,6 @@ describe("AcceptInviteView (tenant member)", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith(ROUTES.DASHBOARD));
   });
 
-  /** Rare, but real: an invite accepted before the owner has connected anything yet. */
   test("routes to the connect stepper when no business is connected yet", async () => {
     vi.spyOn(AuthService, "acceptMemberInvite").mockResolvedValue({
       hasConnectedBusiness: false,
@@ -163,19 +156,14 @@ describe("AcceptInviteView (tenant member)", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
   });
 
-  /**
-   * Regression: the requirements checklist covers every rule it tracks (length, case, digit,
-   * special character) except the max-length rule, so a password over 128 characters left the
-   * checklist showing all-green while the form stayed invalid with no visible reason why.
-   */
+  // Regression: the checklist does not track max length, so a >128-char password left it all-green while the form was invalid.
   test("shows the max-length error when the checklist has nothing left to flag", async () => {
     const user = userEvent.setup();
     renderView();
 
     await user.type(await screen.findByLabelText("Your name"), NAME);
     await user.type(screen.getByLabelText("Password"), `${"Aa1!".repeat(32)}Aa1!`);
-    // `mode: "onTouched"` only validates a field on blur the first time — tabbing away is what
-    // actually populates `errors.password` here, the same way a real user leaving the field would.
+    // `mode: "onTouched"` only populates `errors.password` after blur, so tab away like a real user.
     await user.tab();
 
     expect(

@@ -18,11 +18,7 @@ export interface PasswordRequirements {
   special: boolean;
 }
 
-/**
- * Evaluates each rule from `@/app/_libs/constants/password-rules` — the same constants the zod
- * form schemas validate against, so the checklist can never show all-green for a password the
- * schema (or the API behind it) will reject.
- */
+/** Uses the same constants as the zod schemas so the checklist can't show all-green for a password the schema rejects. */
 export function checkPasswordRequirements(password: string): PasswordRequirements {
   return {
     minLength: password.length >= PASSWORD_MIN_LENGTH,
@@ -47,7 +43,6 @@ interface PasswordRequirementsListProps {
   requirements: PasswordRequirements;
 }
 
-/** Live checklist below a password field — same check/cross treatment `DoneStage`'s success circle uses. */
 export function PasswordRequirementsList({ requirements }: PasswordRequirementsListProps) {
   const t = useTranslations("common.passwordRequirements");
 

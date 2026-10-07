@@ -1,9 +1,7 @@
 /**
- * `tenant_subscriptions.status` — deliberately a subset of Stripe's own subscription statuses
- * (`trialing`/`incomplete_expired`/`unpaid` are omitted). See `0011_billing.sql`'s own comment:
- * nothing in this codebase produces those yet (no trial period in v1) — add a member only once a
- * real code path needs it. `null` (not a member here) means a pure-Free tenant with no Stripe
- * object at all — see the column's own comment.
+ * Deliberately a subset of Stripe's statuses (`trialing`/`incomplete_expired`/`unpaid` omitted):
+ * nothing produces them yet, so add a member only once a code path needs it. `null` (not a member)
+ * means a pure-Free tenant with no Stripe object.
  */
 export enum SubscriptionStatus {
   ACTIVE = 'active',

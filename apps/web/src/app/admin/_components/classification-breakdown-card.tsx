@@ -5,15 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { ClassificationBreakdownPoint, ReviewClassification } from "@/types/domain";
 
 interface ClassificationBreakdownCardProps {
-  /** All three classifications always present, zero-filled where unused — backend already did
-   *  this (`GET .../statistics/summary`), so this only renders it. */
+  /** Backend zero-fills all three classifications. */
   breakdown: ClassificationBreakdownPoint[];
 }
 
-// `Partial`, not `Record`: `ReviewClassification` is the review-queue's own broader type (which
-// also has `unclassified`, a filter-only value that never comes from this endpoint) — the backend
-// response here is only ever one of these three, but TypeScript can't narrow that from the shared
-// type alone.
+// `Partial`: `ReviewClassification` also has `unclassified`, a filter-only value this endpoint never returns.
 const DOT_CLASSNAME: Partial<Record<ReviewClassification, string>> = {
   auto_reply_candidate: "bg-success",
   escalated: "bg-destructive",

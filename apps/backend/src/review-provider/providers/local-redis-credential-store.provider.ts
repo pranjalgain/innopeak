@@ -12,21 +12,10 @@ const IV_BYTES = 12;
 const KEY_BYTES = 32;
 
 /**
- * Local/dev credential store: Redis, with AES-256-GCM at rest.
- *
- * **What this defends against, stated plainly:** a casual `KEYS *` in a shared dev Redis, a copied
- * RDB file, a Redis dump pasted into a bug report. It is *not* a KMS trust boundary — the key
- * lives in the same `.env` as everything else, so anyone with the env has the plaintext. That is
- * an acceptable local posture and an unacceptable production one, which is why the factory refuses
- * to construct this class in production regardless of deployment target.
- *
- * Redis rather than Postgres because it is the only durable store both the API and worker
- * processes already share, and the worker needs to resolve credentials to run a backfill.
- *
- * **Known failure mode:** a `FLUSHALL` voids every stored credential. The behaviour degrades
- * gracefully — `get()` returns null, the connection flips to `needs_reauth`, the owner re-consents
- * through the flow that already exists — but it logs a warning, because otherwise it looks like a
- * bug in the OAuth code rather than a wiped cache.
+ * Local/dev only (the factory refuses it in production): AES-256-GCM at rest only guards against a
+ * casual `KEYS *`, a copied RDB or a pasted dump, since the key sits in the same `.env`.
+ * Redis because it is the only durable store the API and worker processes share.
+ * A `FLUSHALL` voids every credential: `get()` returns null and the connection flips to `needs_reauth`, with a warning so it isn't mistaken for an OAuth bug.
  */
 export class LocalRedisCredentialStoreProvider extends CredentialStoreProvider {
   readonly scheme = SCHEME;
@@ -40,8 +29,7 @@ export class LocalRedisCredentialStoreProvider extends CredentialStoreProvider {
     super();
     const key = Buffer.from(encryptionKeyBase64, 'base64');
 
-    // Checked at construction, not at first use: a wrong-length key is a configuration error, and
-    // discovering it when an owner is halfway through OAuth is strictly worse than at boot.
+    // At construction, not first use: a wrong-length key should fail at boot, not mid-OAuth.
     if (key.length !== KEY_BYTES) {
       throw new Error(
         `CREDENTIAL_ENCRYPTION_KEY must decode to ${KEY_BYTES} bytes (got ${key.length}). Generate one with: openssl rand -base64 32`
@@ -76,8 +64,7 @@ export class LocalRedisCredentialStoreProvider extends CredentialStoreProvider {
     try {
       return JSON.parse(this.decrypt(payload)) as StoredCredential;
     } catch (error) {
-      // A key rotation makes every existing ciphertext undecryptable. Same graceful outcome as a
-      // missing key, but worth its own message so it isn't mistaken for a flush.
+      // Key rotation makes existing ciphertext undecryptable; own message so it isn't mistaken for a flush.
       this.logger.error(
         `Failed to decrypt credential ${reference} — CREDENTIAL_ENCRYPTION_KEY may have changed: ${(error as Error).message}`
       );
@@ -89,11 +76,7 @@ export class LocalRedisCredentialStoreProvider extends CredentialStoreProvider {
     await this.redis.del(`${KEY_PREFIX}${this.parseReference(reference)}`);
   }
 
-  /**
-   * Rejects a reference minted by a different store rather than returning null for it. A null here
-   * is indistinguishable from "the owner's grant was revoked", so a misrouted reference would
-   * present as a broken connection instead of the deployment error it actually is.
-   */
+  /** Rejects a foreign reference rather than returning null, which would be indistinguishable from a revoked grant. */
   private parseReference(reference: string): string {
     const [scheme, ...rest] = reference.split(':');
 
@@ -106,7 +89,7 @@ export class LocalRedisCredentialStoreProvider extends CredentialStoreProvider {
     return rest.join(':');
   }
 
-  /** `iv:authTag:ciphertext`, all base64. GCM's auth tag is what makes this tamper-evident. */
+  /** `iv:authTag:ciphertext`, all base64. */
   private encrypt(plaintext: string): string {
     const iv = randomBytes(IV_BYTES);
     const cipher = createCipheriv(ALGORITHM, this.key, iv);

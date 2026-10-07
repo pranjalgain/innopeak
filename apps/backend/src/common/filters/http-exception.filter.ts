@@ -26,11 +26,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const context = `${request.method} ${request.url}`;
     const errorId = uuidv4();
-    // Resolved once, reused for both the log line below (rendered in English regardless — see
-    // the `renderMessage(exception.message, 'en')` call) and the client-facing response — the
-    // log always reads in the language ops works in; the response reads in the caller's own.
-    // An exception thrown before `JwtAuthGuard` populates `request.user` (or on a `@Public()`
-    // route) has no stored-user locale to read, and correctly falls through to `Accept-Language`.
+    // Resolved once for the log line (always English, what ops reads) and the response (caller's
+    // locale). With no stored-user locale (thrown before `JwtAuthGuard`, or a `@Public()` route) it
+    // falls through to `Accept-Language`.
     const locale = resolveRequestLocale(
       requestUserLocale(request),
       request.headers['accept-language']
@@ -70,9 +68,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (errorResponse.message !== undefined) {
       errorResponse.message = renderMessage(errorResponse.message, locale);
     }
-    // See `renderNestedMessage` — the same data.message duplication `TransformInterceptor`
-    // guards against on the success path, applied here in case an error's `data` (rare — most
-    // error responses carry `data: null`) ever nests one too.
+    // Same data.message duplication `TransformInterceptor` guards against on the success path, in
+    // case an error's `data` nests one.
     errorResponse.data = renderNestedMessage(errorResponse.data, locale);
 
     if (host.getType() === 'http') {

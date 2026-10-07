@@ -156,9 +156,8 @@ describe('TokenService', () => {
       );
     });
 
-    // The security property behind `remainingSessionSeconds`: a mid-session claim refresh must
-    // not hand back a longer-lived token than the one that authorized it, or the route doing the
-    // refreshing becomes a way to keep an un-renewable admin session alive forever.
+    // A mid-session claim refresh must not return a longer-lived token than the one that authorized
+    // it, or the route becomes a way to keep an un-renewable admin session alive.
     it('honours an explicit remaining lifetime instead of granting a fresh TTL', () => {
       jwtService.sign.mockReturnValueOnce('admin-access-token');
 
@@ -210,9 +209,8 @@ describe('TokenService', () => {
     });
 
     /**
-     * The distinction the cookie layer depends on. Same 401 either way, but only a dead family
-     * may clear the browser's session cookies — clearing on a lost rotation race would discard
-     * the valid successor the winning request just issued. See `AuthController.refresh`.
+     * Same 401 either way, but only a dead family may clear the session cookies; clearing on a lost
+     * race would discard the winner's valid successor.
      */
     it('reports a dead family (no live session left) as a plain UnauthorizedException', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
@@ -240,8 +238,8 @@ describe('TokenService', () => {
     });
 
     /**
-     * Reuse detection. The row is still present but already revoked, and how long ago decides
-     * whether this is a benign two-tab race or a replay of a token that leaked.
+     * Row is present but revoked; how long ago decides between a benign two-tab race and a replay
+     * of a leaked token.
      */
     it('treats a token spent moments ago as a lost race, keeping the session alive', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
@@ -339,8 +337,10 @@ describe('TokenService', () => {
       expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
     });
 
-    /** Defense-in-depth: an already-issued refresh token must be explicitly rejected once every
-     *  user in a tenant has been anonymized, not merely rely on each individual user's own row. */
+    /**
+     * Defense in depth: reject an already-issued refresh token once every user in the tenant is
+     * anonymized.
+     */
     it('revokes every refresh token and rejects when the tenant is erased', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findRefreshTokenByHash.mockResolvedValue({

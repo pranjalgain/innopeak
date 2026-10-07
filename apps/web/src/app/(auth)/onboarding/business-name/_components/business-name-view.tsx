@@ -17,24 +17,17 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/auth/use-auth";
 
 /**
- * The one screen a genuinely new Google signup passes through, between the OAuth callback and
- * /onboarding/plan. Google returns a person, not a business, and `tenants.name` is NOT NULL —
- * asking for it here, instead of before the redirect inside the *password* signup form, means
- * "Continue with Google" no longer requires touching a form built for a different method.
- *
- * Reachable only via the `google_pending_signup` cookie the callback set, not a session — there is
- * nothing to guard client-side (mirrors /onboarding/signup, which needs no auth either). If that
- * cookie is missing, expired, or already used, `completeGoogleSignup` throws and `useAuth` shows a
- * toast with the backend's own message, which already says to start over.
+ * Screen between the Google OAuth callback and /onboarding/plan: Google returns a person, not a business, and `tenants.name` is NOT NULL.
+ * Reachable only via the `google_pending_signup` cookie, so nothing is guarded client-side; a missing or used cookie makes
+ * `completeGoogleSignup` throw with the backend's start-over message.
  */
 export function BusinessNameView() {
   const t = useTranslations("onboardingBusinessName");
   const router = useRouter();
   const { completeGoogleSignup, isLoading } = useAuth();
   const [businessName, setBusinessName] = useState("");
-  // Set only on a submit attempt, never on blur: the input is `autoFocus`, so an incidental blur
-  // right after mount (browser autofill, a password-manager icon stealing focus) must not paint
-  // the field red before the user has had a chance to type anything.
+  // Set only on submit, never blur: the input is `autoFocus`, so an incidental blur (autofill, password manager)
+  // must not paint it red.
   const [submitted, setSubmitted] = useState(false);
 
   const trimmed = businessName.trim();
@@ -47,11 +40,8 @@ export function BusinessNameView() {
 
     const succeeded = await completeGoogleSignup(trimmed);
     if (succeeded) {
-      // Same handoff onboarding-signup-view uses for its own SSO path: the stepper (or lack of
-      // one) on /onboarding/plan and /onboarding/connect reads this, not anything this route
-      // holds in memory. Goes to /onboarding/plan, not straight to /onboarding/connect — see
-      // onboarding-signup-view's handOffToPlan for why every fresh signup sees the Free/Paid
-      // choice before the location-picker.
+      // Same handoff as onboarding-signup-view's SSO path (the stepper reads this). Goes to /onboarding/plan so every
+      // fresh signup sees the Free/Paid choice first (see its `handOffToPlan`).
       OnboardingContextService.set({ from: "signup", via: "sso" });
       router.replace(ROUTES.ONBOARDING_PLAN);
     }

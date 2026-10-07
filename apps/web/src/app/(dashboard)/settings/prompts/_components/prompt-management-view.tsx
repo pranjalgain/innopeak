@@ -65,9 +65,7 @@ export function PromptManagementView() {
 
   if (isLoading || isLoadingStats) return <PromptManagementSkeleton />;
 
-  // Rolled up across every prompt's *current* version only — history entries have their own
-  // stats shown inline where they're already relevant, this is meant as "how am I doing right
-  // now," not a lifetime total across every version ever edited.
+  // Current versions only; history entries show their own stats, so this isn't a lifetime total.
   const aggregate = prompts.reduce(
     (totals, prompt) => {
       const current = getCurrentVersion(prompt);

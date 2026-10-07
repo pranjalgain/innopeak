@@ -19,11 +19,6 @@ import {
   ApiGetAdminAvatarUploadAuthorization,
 } from '../swagger/admin-avatar.swagger';
 
-/**
- * The platform-admin half of the avatar upload flow — mounted at the same `RouteNames.ADMIN_SETTINGS`
- * prefix `AdminSettingsController` uses, since an avatar is Settings → Profile's picture there too.
- * `@Roles(PLATFORM_ADMIN)` matches every other route under that prefix.
- */
 @Controller({ path: RouteNames.ADMIN_SETTINGS, version: '1' })
 @ApiTags('Admin — Settings')
 @Roles(JwtTokenType.PLATFORM_ADMIN)

@@ -20,8 +20,6 @@ import type { AdminUser } from "@/types/domain";
 
 const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
 
-// Same convention as the Businesses screen's own `STATUS_BADGE_CLASSNAME` — `border-transparent`
-// plus a semantic `-soft`/`text-*` pair, rather than the ad hoc ternary this file inlined twice.
 const STATUS_BADGE_CLASSNAME: Record<"active" | "inactive", string> = {
   active: "border-transparent bg-success-soft text-success",
   inactive: "border-transparent bg-muted text-muted-foreground",
@@ -75,8 +73,7 @@ interface UserActionsMenuProps {
   onToggleActive: (id: string) => void;
 }
 
-// See `RowActionsMenu`'s own comment for why the confirm dialog is a sibling of `DropdownMenu`
-// rather than nested inside `DropdownMenuContent`.
+// See `RowActionsMenu` for why the confirm dialog is a sibling of `DropdownMenu`.
 function UserActionsMenu({ user, onToggleActive }: UserActionsMenuProps) {
   const t = useTranslations("adminUsers");
 
@@ -160,9 +157,7 @@ export function AdminUsersView() {
               <TableBody>
                 <AnimatePresence initial={false}>
                   {pageItems.map((user) => (
-                    // Plain `motion.tr` rather than `motion.create(TableRow)` — `TableRow` doesn't
-                    // forward a ref, which Motion needs to apply layout transforms, so this inlines
-                    // that primitive's own row styling instead of wrapping it.
+                    // Plain `motion.tr`: `TableRow` doesn't forward a ref, which Motion needs for layout transforms.
                     <motion.tr
                       key={user.id}
                       layout

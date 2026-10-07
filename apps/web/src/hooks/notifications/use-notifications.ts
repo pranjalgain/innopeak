@@ -15,7 +15,6 @@ interface UseNotificationsResult {
   notifications: Notification[];
   unreadCount: number;
   isLoading: boolean;
-  /** Whether another `fetchNextPage()` would return more items. */
   hasMore: boolean;
   isFetchingNextPage: boolean;
   /** Set when a *paging* request failed, so the panel can offer a retry inline instead of toasting. */
@@ -29,20 +28,10 @@ interface UseNotificationsResult {
 type NotificationsData = InfiniteData<NotificationPage, number>;
 
 /**
- * Loads notifications a page at a time (the panel calls `fetchNextPage` as the list nears its
- * bottom, and again whenever a page doesn't fill the container) and owns read/unread state
- * through react-query's cache — marking read is optimistic and silent (no toast, no reload),
- * matching how frequent/low-stakes it is compared to the app's other mutations.
- *
- * `unreadCount` comes from the server's whole-feed total on the most recently fetched page,
- * rather than the loaded rows: the bell's dot speaks for every notification, not just the first
- * page. Marking read adjusts it in the cache so it stays honest between fetches.
- *
- * Only the *initial* load failure toasts (`isLoadingError` — failed with no page ever loaded). A
- * failed paging request surfaces as `isFetchNextPageError` instead — toasting there fired once
- * per scroll attempt and stacked up while the user kept scrolling. `useInfiniteQuery` itself
- * handles what a hand-rolled `offsetRef`/`isFetchingRef`/StrictMode-mount-guard used to: dedup of
- * concurrent identical requests and safe double-invocation under StrictMode need no extra code.
+ * Marking read is optimistic and silent (frequent, low-stakes). `unreadCount` is the server's
+ * whole-feed total from the latest page, not the loaded rows: the bell's dot covers every
+ * notification. Only the initial load failure toasts (`isLoadingError`); a paging failure surfaces
+ * as `isFetchNextPageError`, since toasting there fired per scroll attempt and stacked up.
  */
 export function useNotifications(): UseNotificationsResult {
   const t = useTranslations("appShell.notificationPanel.toasts");
@@ -61,15 +50,13 @@ export function useNotifications(): UseNotificationsResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query.isLoadingError]);
 
-  // A synchronous lock, not just a check against `query.isFetchingNextPage`: react-query's own
-  // "fetching" flag only updates through a re-render, so two calls to `fetchNextPage` in the same
-  // synchronous tick (a fast double-scroll-trigger) would both see the old, pre-fetch value and
-  // both fire. This ref is set/cleared within the same tick the call happens in, closing that gap.
+  // A synchronous lock: react-query's fetching flag only updates through a re-render, so two
+  // `fetchNextPage` calls in the same tick would both fire.
   const isFetchingNextPageRef = useRef(false);
 
   const fetchNextPage = useCallback(() => {
-    // Scrolling alone must not re-fire a failing request — matches the original's
-    // `nextPageFailed` gate; `retryNextPage` is the explicit way past it.
+    // Scrolling alone must not re-fire a failing request; `retryNextPage` is the explicit way past
+    // it.
     if (query.isFetchNextPageError || isFetchingNextPageRef.current) return;
     isFetchingNextPageRef.current = true;
     void query.fetchNextPage().finally(() => {
@@ -82,10 +69,9 @@ export function useNotifications(): UseNotificationsResult {
   }, [query]);
 
   /**
-   * Replaces the optimistic unread guess with the count the server reported after the write. The
-   * total lives on every page's response, so every page gets it — `unreadCount` below reads the
-   * most recent one. The server is the only thing that can know this: the badge covers the whole
-   * feed, while this client holds only the pages it has fetched.
+   * Replaces the optimistic unread guess with the server's count, which lives on every page's
+   * response. Only the server knows it: the badge covers the whole feed while the client holds only
+   * fetched pages.
    */
   const applyUnreadTotal = useCallback(
     (unreadTotal: number) => {
@@ -96,9 +82,10 @@ export function useNotifications(): UseNotificationsResult {
     [queryClient],
   );
 
-  /** A failed read-write leaves the cache holding an optimistic value the server never accepted.
-   *  Refetching is the honest repair, and unlike restoring a snapshot it cannot clobber a
-   *  concurrent write that did succeed. */
+  /**
+   * A failed write leaves an optimistic value the server never accepted. Refetching repairs it
+   * without clobbering a concurrent write that succeeded, as restoring a snapshot could.
+   */
   const resyncAfterFailedWrite = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
   }, [queryClient]);
@@ -114,9 +101,8 @@ export function useNotifications(): UseNotificationsResult {
         const pages = old.pages.map((page, index) => ({
           ...page,
           items: page.items.map((item) => (item.id === id ? { ...item, isRead: true } : item)),
-          // The unread total lives on every page's response; nudge only the most recent one, the
-          // one `unreadCount` below actually reads. Replaced by the server's own count the moment
-          // the request lands.
+          // Nudge only the most recent page's total (the one `unreadCount` reads); the server's
+          // count replaces it when the request lands.
           unreadTotal:
             index === old.pages.length - 1 ? Math.max(0, page.unreadTotal - 1) : page.unreadTotal,
         }));
@@ -130,8 +116,7 @@ export function useNotifications(): UseNotificationsResult {
   );
 
   const markAllAsRead = useCallback(() => {
-    // Marks the whole feed server-side, including rows this client has never fetched, so the
-    // total goes to zero rather than dropping by however many rows happen to be loaded.
+    // Marks the whole feed server-side, including unfetched rows, so the total goes to zero.
     queryClient.setQueryData<NotificationsData>(notificationsQueryKey, (old) => {
       if (!old) return old;
       return {

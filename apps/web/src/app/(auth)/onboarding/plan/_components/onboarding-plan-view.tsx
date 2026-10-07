@@ -57,30 +57,17 @@ function PlanCard({ name, description, features, action, highlighted = false }: 
 }
 
 /**
- * Step 3 of onboarding, between signup/business-name and /onboarding/connect — see
- * `onboarding-signup-view.tsx`'s `handOffToPlan` for why this exists: a fresh tenant sees the
- * Free/Paid choice before ever reaching the location-picker, instead of discovering the Free
- * 1-location cap as a rejection after trying to connect several (that rejection is still correctly
- * enforced server-side either way — see `ConnectionsDbService.confirmLocations` — this step only
- * makes the cap known up front instead of as a surprise).
- *
- * "Continue with Free" is a real, explicit button, not a skip link — the tenant is already on
- * Free from signup (`AuthDbService.signup` seeds it), so this makes no backend call, it just moves
- * on. "Upgrade to Paid" reuses the exact same `useCreateCheckoutSession` the Settings > Billing tab
- * uses, redirecting the whole page to Stripe/Dummy Checkout; on return, `ConnectionGuard` (this
- * tenant has no connection yet) bounces straight to /onboarding/connect, already on Paid.
- *
- * Only rendered for a genuinely fresh signup (see the two `handOffToPlan`-equivalent call sites) —
- * a returning owner who never finished connecting, or a member accepting an invite, goes straight
- * to /onboarding/connect as before; they've already had, or never needed, this choice.
+ * Step 3, between signup/business-name and /onboarding/connect: shows the Free/Paid choice before the location-picker so the
+ * Free 1-location cap isn't a surprise rejection (still enforced in `ConnectionsDbService.confirmLocations`).
+ * "Continue with Free" makes no backend call (the tenant is already on Free); on return from checkout `ConnectionGuard`
+ * bounces to /onboarding/connect. Only for fresh signups; returning owners and invite acceptors skip it.
  */
 export function OnboardingPlanView() {
   const t = useTranslations("onboardingPlan");
   const router = useRouter();
   const [context, setContext] = useState<OnboardingContext | null>(null);
 
-  // Read in an effect, not during render: sessionStorage does not exist on the server, and
-  // reading it inline would make the first client render disagree with the server's HTML.
+  // Read in an effect: sessionStorage doesn't exist on the server, and reading it inline would mismatch the server HTML.
   useEffect(() => {
     setContext(OnboardingContextService.get());
   }, []);

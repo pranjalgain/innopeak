@@ -1,39 +1,10 @@
--- Migration: platform_admin
--- Google Business Profile Review Management — platform admin module
--- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
--- Depends on: 0000_foundation.sql (enum types)
---
--- ⚠ RECREATE YOUR DATABASE AFTER PULLING A CHANGE TO THIS FILE — see 0000_foundation.sql's own
--- header for why an edited-in-place migration is a silent no-op on an existing database.
--- `idx_platform_admin_invites_platform_admin_id_purpose` (added below) is required by the new
--- `platform_admin_invite_purpose = 'set_password'` upsert (`AdminSettingsService`'s add-password
--- flow); without it that route 500s with "there is no unique or exclusion constraint matching
--- the ON CONFLICT specification" rather than reissuing the OTP cleanly.
---
--- platform_admins is the SaaS-level support/ops hierarchy — fully separate from the
--- tenant-scoped `users` table (PLAN.md §2), no FK to any tenant table anywhere in this file.
--- Its own invited_by_platform_admin_id is a self-reference, which needs no special handling —
--- valid within a single CREATE TABLE since Postgres only checks FK validity at row-insert
--- time, not at table-creation time.
---
--- Originally carried its own `avatar_url` column here; moved to the generic `media` table
--- (0010_media.sql) once tenant-user avatars needed the same storage and a plain string column
--- can't be shared across two owner tables with real FK integrity. See that file's own header.
-
--- ───────────────────────────────────────────────────────────────────────
--- platform_admins — independent (no FK to any other table)
--- ───────────────────────────────────────────────────────────────────────
-
 CREATE TABLE IF NOT EXISTS platform_admins (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     email VARCHAR(255) NOT NULL,
     password_hash VARCHAR(255),
     invited_by_platform_admin_id UUID REFERENCES platform_admins(id) ON DELETE SET NULL,
     status platform_admin_status NOT NULL,
-    -- Reuses `user_locale` (0000_foundation.sql) rather than a second identical enum — the type
-    -- is a generic two-value locale domain, not something `users` owns exclusively. NULL means
-    -- "never chose," same reasoning as `users.locale`'s own comment: a DEFAULT would silently pin
-    -- every existing admin to one language instead of letting Accept-Language decide for them.
+    -- NULL means the admin never chose a language; Accept-Language decides.
     locale user_locale,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -42,13 +13,8 @@ CREATE TABLE IF NOT EXISTS platform_admins (
 CREATE UNIQUE INDEX idx_platform_admins_email ON platform_admins(email);
 CREATE INDEX idx_platform_admins_invited_by_platform_admin_id ON platform_admins(invited_by_platform_admin_id);
 
--- At most one row may have invited_by_platform_admin_id IS NULL — the single seeded root admin
--- (PLAN.md §2). Every subsequently invited admin must record who invited them.
+-- Only the seeded root admin may have no inviter.
 CREATE UNIQUE INDEX idx_platform_admins_single_root ON platform_admins((TRUE)) WHERE invited_by_platform_admin_id IS NULL;
-
--- ───────────────────────────────────────────────────────────────────────
--- platform_admin_identities — depends on: platform_admins
--- ───────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS platform_admin_identities (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -61,10 +27,6 @@ CREATE TABLE IF NOT EXISTS platform_admin_identities (
 
 CREATE INDEX idx_platform_admin_identities_platform_admin_id ON platform_admin_identities(platform_admin_id);
 CREATE UNIQUE INDEX idx_platform_admin_identities_provider_provider_user_id ON platform_admin_identities(provider, provider_user_id);
-
--- ───────────────────────────────────────────────────────────────────────
--- platform_admin_invites — depends on: platform_admins
--- ───────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS platform_admin_invites (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -79,10 +41,5 @@ CREATE TABLE IF NOT EXISTS platform_admin_invites (
 
 CREATE INDEX idx_platform_admin_invites_platform_admin_id ON platform_admin_invites(platform_admin_id);
 CREATE UNIQUE INDEX idx_platform_admin_invites_token_hash ON platform_admin_invites(token_hash);
--- Same upsert-on-(owner, purpose) shape as `idx_password_reset_tokens_user_id_purpose`
--- (0002_tenant_auth.sql) — lets the add-password OTP be reissued (resend) by updating the one
--- live `set_password`-purpose row for an admin rather than accumulating a new one per request.
--- Not needed for `invite`/`reset` today (each admin gets at most one live row of either purpose
--- in practice already), but scoping the constraint to all three purposes, not just
--- `set_password`, is what actually matches the invariant this table intends to hold.
+-- One live row per (admin, purpose): a resent code updates it.
 CREATE UNIQUE INDEX idx_platform_admin_invites_platform_admin_id_purpose ON platform_admin_invites(platform_admin_id, purpose);

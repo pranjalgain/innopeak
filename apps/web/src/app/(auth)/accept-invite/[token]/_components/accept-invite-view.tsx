@@ -40,18 +40,9 @@ interface AcceptInviteViewProps {
 }
 
 /**
- * Tenant-member invite acceptance — the mirror of the platform-admin `AcceptInviteView`
- * (`(auth)/invite/[token]`), with one real difference: `users.name` is `NOT NULL` and the
- * invite-send form is email-only, so this screen also collects the invitee's own name (admin's
- * doesn't — `platform_admins` has no `name` column at all). Four states: validating the token
- * (skeleton), invalid/expired (a dead end back to `/login`), a transient validation failure (a
- * retry button — see `useAcceptMemberInvite`'s own comment for why this is not the same as
- * invalid), or the two ways to finish — a name + password, or Google.
- *
- * On success, routes exactly like `LoginView` does: the dashboard if this tenant already has a
- * connected Google Business Profile, the connect stepper otherwise. A member joining an existing
- * business almost always lands on the dashboard — the stepper only fires for the rare case of
- * accepting before the owner has connected anything yet.
+ * Mirrors the platform-admin `AcceptInviteView` but also collects the invitee's name (`users.name` is NOT NULL,
+ * the invite form is email-only). On success routes like `LoginView`: dashboard if a Google Business Profile
+ * is connected, the connect stepper otherwise.
  */
 export function AcceptInviteView({ token }: AcceptInviteViewProps) {
   const t = useTranslations("auth.acceptMemberInvite");
@@ -67,8 +58,7 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
     retryValidation,
   } = useAcceptMemberInvite(token);
 
-  // Gated exactly like the tenant `LoginView`'s own Google button — `socialLoginEnabled` decides
-  // whether the button renders, not whether the invite itself is valid.
+  // `socialLoginEnabled` gates only the Google button, not invite validity.
   const { data: platformSettings } = usePlatformSettings();
   const socialEnabled = platformSettings?.socialLoginEnabled ?? false;
 
@@ -133,9 +123,7 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
     );
   }
 
-  // Distinct from `invalid`: a network drop, a 5xx, or the validate route's own rate limit failed
-  // the check without ever telling us the token itself is dead — unlike `invalid`, this can
-  // resolve by simply asking again, so it gets a retry button rather than a hard dead end.
+  // Distinct from `invalid`: a network drop, 5xx or rate limit says nothing about the token, so offer retry, not a dead end.
   if (!invite) {
     return (
       <>
@@ -185,10 +173,8 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
             {showRequirements ? (
               <PasswordRequirementsList requirements={requirements} />
             ) : errors.password ? (
-              // The checklist covers every rule it tracks (length, case, digit, special
-              // character) — this only ever renders for a rule it doesn't, `PASSWORD_MAX_LENGTH`,
-              // where the checklist would otherwise show all-green while the form stays invalid
-              // with no visible reason why.
+              // Renders only for `PASSWORD_MAX_LENGTH`, the one rule the checklist does not track;
+              // without it the checklist is all-green while the form stays invalid.
               <p className={FIELD_ERROR_CLASS}>{errors.password.message}</p>
             ) : null}
           </div>

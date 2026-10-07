@@ -40,7 +40,6 @@ export class SesEmailProvider extends EmailProvider {
     const recipients = Array.isArray(to) ? to : [to];
 
     // TODO: Build full MIME message with attachments support
-    // For now, construct a basic raw email message
     const boundary = `----=_Part_${Date.now()}`;
     const rawParts: string[] = [
       `From: ${sender}`,

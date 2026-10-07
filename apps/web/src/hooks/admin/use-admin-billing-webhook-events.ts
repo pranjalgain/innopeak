@@ -7,11 +7,7 @@ import { AdminBillingService } from "@/app/_libs/services/admin-billing.service"
 import { adminBillingWebhookEventsQueryKey } from "@/hooks/admin/admin-query-keys";
 import type { BillingWebhookEvent, StripeWebhookEventTypeKey } from "@/types/domain";
 
-/** `"all"` (every event type `BillingWebhooksService` acts on — the only ones this endpoint ever
- *  returns) or one of `StripeWebhookEventType`'s own key names to narrow to a single type. The
- *  raw, ignored Stripe traffic this app receives isn't exposed here at all — that's an
- *  engineering debugging concern for Stripe's own Dashboard event log or backend logs, not
- *  something a platform admin needs to reason about. */
+/** `"all"` (every type `BillingWebhooksService` acts on) or one `StripeWebhookEventType` key; ignored Stripe traffic is not exposed. */
 export type WebhookEventFilter = "all" | StripeWebhookEventTypeKey;
 
 interface UseAdminBillingWebhookEventsResult {
@@ -40,12 +36,7 @@ interface WebhookEventsQueryParams {
 const webhookEventsQueryKey = (params: WebhookEventsQueryParams) =>
   [...adminBillingWebhookEventsQueryKey, params] as const;
 
-/**
- * Webhook activity, paginated and filtered **server-side** — same reasoning as
- * `useReviewQueue`'s own doc comment: this fetches exactly the page being displayed, using
- * `GET /v1/admin/billing/webhook-events`'s own `page`/`pageSize`/`meta`, rather than loading one
- * batch and re-slicing it client-side.
- */
+/** Paginated and filtered server-side, like `useReviewQueue`. */
 export function useAdminBillingWebhookEvents(): UseAdminBillingWebhookEventsResult {
   const t = useTranslations("adminBilling.toasts");
   const [page, setPageState] = useState(1);
@@ -53,10 +44,8 @@ export function useAdminBillingWebhookEvents(): UseAdminBillingWebhookEventsResu
 
   const type = filter !== "all" ? filter : undefined;
 
-  // A filter change invalidates the current page — page 3 of one filter may not exist once a
-  // narrower one applies. Adjusted during render (not an effect) for the same reason
-  // `useReviewQueue` does: an effect runs after the render that would otherwise fetch the stale
-  // page under the new filter first.
+  // A filter change can leave the current page out of range. Adjusted during render, not in an
+  // effect, so the stale page is never fetched under the new filter first.
   const paramsKey = filter;
   const [lastParamsKey, setLastParamsKey] = useState(paramsKey);
   if (lastParamsKey !== paramsKey) {
@@ -89,10 +78,8 @@ export function useAdminBillingWebhookEvents(): UseAdminBillingWebhookEventsResu
     events: eventsQuery.data?.events ?? [],
     filter,
     setFilter: setFilterState,
-    // The genuine first load only — `eventsQuery.isFetching` also flips true on every filter/page
-    // change once data already exists, and the card hides its Pagination footer whenever this is
-    // true. `placeholderData: keepPreviousData` already keeps the previous page's rows/`total` on
-    // screen while the next one loads, so Pagination has no reason to disappear on every click.
+    // First load only: `isFetching` also flips on every filter/page change, and `keepPreviousData`
+    // already keeps the old rows on screen, so Pagination shouldn't vanish on each click.
     isLoading: eventsQuery.isLoading,
     isError: eventsQuery.isError,
     retry: () => {

@@ -13,15 +13,10 @@ const SETTINGS_COLUMNS = {
   updatedByPlatformAdminId: schema.platformSettings.updatedByPlatformAdminId,
 } as const;
 
-/** The table's own CHECK constraint (`platform_settings_id_check`) makes id=1 the only row that
- * can ever exist — every read/write here targets it directly rather than selecting-then-branching. */
+/** `platform_settings_id_check` makes id=1 the only possible row, so reads/writes target it directly. */
 const SINGLETON_ID = 1;
 
-/**
- * `platform_settings` — a single, platform-wide row controlling which login methods the
- * sign-in/sign-up screens offer and whether tenant owners can invite teammates. Not tenant-scoped,
- * not platform-admin-scoped: this replaces what used to be build-time `NEXT_PUBLIC_*` env vars.
- */
+/** The single platform-wide row of login-method and invite toggles; not tenant- or platform-admin-scoped. */
 @Injectable()
 export class PlatformSettingsRepository {
   constructor(private readonly dbService: DBService) {}

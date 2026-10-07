@@ -23,7 +23,7 @@ export class EmailQueueConfig {
       defaultJobOptions: {
         removeOnFail: true,
         removeOnComplete: {
-          age: 1 * 24 * 3600, // Keep for 1 day
+          age: 1 * 24 * 3600,
         },
       },
     });
@@ -42,9 +42,8 @@ export class EmailQueueConfig {
   }
 }
 
-// BullMQ registration, its Bull Board UI feature, and the raw queue-event listener only apply in
-// 'local' mode — in 'aws' mode, email jobs go through SQS (see EmailSqsConsumer); dashboard parity
-// comes from the dev-tools SQS panel instead of Bull Board.
+// BullMQ, Bull Board and the queue-event listener apply only in 'local' mode; in 'aws' email jobs go
+// through SQS (EmailSqsConsumer) and the dev-tools SQS panel replaces Bull Board.
 const bullMqImports: DynamicModule[] = isAws
   ? []
   : [EmailQueueConfig.getQueueConfig(), EmailQueueConfig.getQueueUIConfig()];

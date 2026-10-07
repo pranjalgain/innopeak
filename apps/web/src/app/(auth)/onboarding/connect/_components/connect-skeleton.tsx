@@ -1,13 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
-/**
- * Loading placeholder for the "checking" and "loading_locations" stages, shaped like the actual
- * content those stages resolve into (`ConnectStage`/`ConfirmLocationStage`: an icon circle, a
- * title, a subtitle, then a couple of location-card-shaped rows) — not `ShellSkeleton`, which is
- * a full app-shell placeholder (sidebar rail + header bar) meant for route guards. Reusing that
- * one here rendered a sidebar-shaped skeleton squeezed into this narrow, centered ~480px card,
- * matching none of the layouts it was standing in for.
- */
+/** Shaped like what the checking/loading_locations stages resolve into; not `ShellSkeleton`, whose sidebar-shaped placeholder doesn't fit this narrow card. */
 export function ConnectSkeleton() {
   return (
     <div className="flex flex-col items-center gap-4 text-center">

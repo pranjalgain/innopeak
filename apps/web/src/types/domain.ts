@@ -1,21 +1,12 @@
-/**
- * Shared domain types for InnoPeak's mock data layer. Field/enum names
- * intentionally mirror the real backend schema (see
- * apps/backend/docs/schema.dbml, apps/backend/docs/PLAN.md) so swapping mock
- * services for real API calls later doesn't require reshaping data that's
- * already flowing through hooks and components.
- */
-
 export interface Tenant {
-  id: string;
   name: string;
-  /** Google Business Profile category, e.g. "Seafood restaurant". */
-  businessType: string;
-  address: string;
-  phone: string;
-  /** Google's own aggregate rating/review count — distinct from InnoPeak's review queue stats. */
-  googleRating: number;
-  googleReviewCount: number;
+  /** `null` when none is connected. Google's category, phone and aggregate rating are never fetched, so they are not
+   *  modelled here. */
+  location: {
+    name: string;
+    address: string | null;
+    lastSyncedAt: string | null;
+  } | null;
 }
 
 export type DateRange = "7d" | "30d" | "90d";
@@ -34,8 +25,7 @@ export interface RatingDistributionRow {
   percentage: number;
 }
 
-/** `DashboardService.getMetrics`'s domain-shaped return — both views the dashboard needs derived
- *  from the one underlying fetch, so the raw generated-SDK response never has to cross into a hook. */
+/** Both views the dashboard needs, derived from one fetch so the raw SDK response never crosses into a hook. */
 export interface DashboardMetrics {
   stats: DashboardStats;
   ratingDistribution: RatingDistributionRow[];
@@ -49,8 +39,7 @@ export interface AttentionReview {
   initials: string;
   rating: number;
   snippet: string;
-  /** Null is reachable: `escalation_reason` is nullable, so a review escalated without a recorded
-   * reason renders no badge rather than a guessed one. */
+  /** Null is reachable (`escalation_reason` is nullable): such a review renders no badge rather than a guessed one. */
   escalationReason: EscalationReason | null;
 }
 
@@ -64,17 +53,13 @@ export type ReviewClassification =
 
 export type ReplyDraftStatus = "pending_approval" | "approved" | "rejected" | "superseded";
 
-/**
- * An AI-drafted reply candidate for a review. Approving one automatically
- * supersedes any sibling draft still pending approval — only one reply can
- * ever be posted per review.
- */
+/** Approving one supersedes any sibling still pending: only one reply can be posted per review. */
 export interface ReviewReplyDraft {
   id: string;
   label: string;
-  /** The current text — may differ from `originalContent` if an owner edited it before approving. */
+  /** May differ from `originalContent` if an owner edited it before approving. */
   content: string;
-  /** The AI's draft as generated, before any owner edits. Immutable — never changes after creation. */
+  /** The AI's draft as generated; immutable. */
   originalContent: string;
   status: ReplyDraftStatus;
   /** Which prompt (and which of its versions) generated this draft — the link analytics is built on. */
@@ -83,7 +68,14 @@ export interface ReviewReplyDraft {
   createdAt: string;
   /** Set when the owner approves or rejects (including when superseded by a sibling's approval). `null` while pending. */
   decidedAt: string | null;
+  /** When Google confirmed the reply. The API folds `posted` and `post_failed` into `approved`, so
+   *  this and `errorMessage` are how an approved draft's delivery is told apart. */
+  postedAt: string | null;
+  /** Why the last post attempt failed; `null` unless it did. Cleared when a retry is queued. */
+  errorMessage: string | null;
 }
+
+export type ReplyDeliveryState = "not_posted" | "posted" | "failed";
 
 export interface Review {
   id: string;
@@ -142,21 +134,16 @@ export interface SettingsData {
   connection: ConnectionInfo;
 }
 
-/**
- * The signed-in tenant owner's own profile — `email` mirrors `users.email`
- * (`apps/backend`'s `0002_tenant_auth.sql`) and is read-only here (changing
- * a login email is a re-verification flow, not a plain settings edit).
- * `avatarUrl` is the only field this screen lets you change directly.
- */
+/** `email` is read-only here (changing a login email is a re-verification flow); `avatarUrl` is the only field this screen lets you change. */
 export interface TenantOwnerProfile {
   name: string;
   email: string;
   avatarUrl: string | null;
   /** `false` for a Google/SSO-only account — Settings shows "Add password" instead of "Change password". */
   hasPassword: boolean;
-  /** The tenant/company name set at signup (`tenants.name`) — read-only in Settings. */
+  /** Read-only in Settings. */
   businessName: string;
-  /** The shell's own role badge reads this — see `MemberRole` for the invited-teammate case, which `DashboardLayout` had no way to distinguish from an owner before this field existed. */
+  /** The shell's role badge reads this (see `MemberRole` for invited teammates). */
   role: MemberRole;
 }
 
@@ -195,13 +182,7 @@ export interface AiPrompt {
   tone: PromptTone;
 }
 
-/**
- * Draft outcomes for one prompt (optionally scoped to a single version) —
- * the answer to "is this prompt actually producing replies owners keep?".
- * `approvedAsIsCount`/`approvedEditedCount` split out how often an owner had
- * to rewrite the AI's draft before approving it, not just whether it was
- * eventually approved.
- */
+/** Draft outcomes for one prompt (optionally one version); `approvedAsIsCount`/`approvedEditedCount` split how often an owner had to rewrite the draft. */
 export interface PromptVersionStats {
   totalGenerated: number;
   approvedCount: number;
@@ -240,7 +221,7 @@ export interface Notification {
 
 export type BusinessStatus = "active" | "suspended" | "erased";
 
-/** Mirrors the real `google_connection_status` enum, flattened with a `disconnected` case for "no connection row exists yet" (see the connections module plan). */
+/** Mirrors the real `google_connection_status` enum, flattened with a `disconnected` case for "no connection row exists yet". */
 export type BusinessConnectionStatus =
   | "connected"
   | "needs_reauth"
@@ -277,18 +258,11 @@ export interface AdminUser {
 /** Mirrors the real `platform_admin_status` enum (`apps/backend`'s `0000_foundation.sql`). */
 export type PlatformAdminStatus = "invited" | "active" | "disabled";
 
-/**
- * The signed-in super admin's own profile. `email` mirrors the real
- * `platform_admins` table (`apps/backend`'s `0001_platform_admin.sql`) and is
- * read-only here — changing a login email is a re-verification flow, not a
- * plain settings edit. `avatarUrl` is the only field this screen lets you
- * change directly; there's no name column to mirror either.
- */
+/** `email` is read-only (changing a login email is a re-verification flow); `avatarUrl` is the only field this screen lets you change. */
 export interface PlatformAdminProfile {
   email: string;
   avatarUrl: string | null;
-  /** `false` for a Google-only admin (accepted an invite via SSO) — Settings shows "Add
-   *  password" instead of "Change password" for those. */
+  /** `false` for a Google-only admin (accepted an invite via SSO): Settings shows "Add password" instead. */
   hasPassword: boolean;
 }
 
@@ -298,11 +272,9 @@ export interface PlatformAdminInvite {
   email: string;
   status: PlatformAdminStatus;
   invitedAt: string;
-  /** When a pending invite lapses. `null` for an admin that was never invited (the seeded root) —
-   * only meaningful, and only read, while `status === "invited"`. */
+  /** `null` for an admin never invited (the seeded root); only read while `status === "invited"`. */
   expiresAt: string | null;
-  /** The seeded root admin — never invited, never disable-able, never revocable. The roster hides
-   * those actions for this row regardless of who's viewing it. */
+  /** The seeded root: never invited, disable-able or revocable; the roster hides those actions for it. */
   isRoot: boolean;
 }
 
@@ -314,16 +286,13 @@ export interface AdminOverviewStats {
   totalRepliesSent: number;
 }
 
-/** One calendar month's tenant-signup count, `monthKey` as `YYYY-MM`. The window is always fully
- *  populated by the backend — a month with no signups is still present, with `count: 0` — so the
- *  frontend never needs to fill gaps itself. */
+/** `monthKey` as `YYYY-MM`. Always fully populated by the backend (a month with no signups is present with `count: 0`), so the frontend never fills gaps. */
 export interface SignupTrendPoint {
   monthKey: string;
   count: number;
 }
 
-/** One calendar month's review-volume figures, `monthKey` as `YYYY-MM` — always fully populated
- *  by the backend (a month with none is still present, at zero), same contract as `SignupTrendPoint`. */
+/** `monthKey` as `YYYY-MM`; always fully populated, same contract as `SignupTrendPoint`. */
 export interface ReviewsTrendPoint {
   monthKey: string;
   reviewsFetched: number;
@@ -358,8 +327,7 @@ export interface AdminStatisticsSummary {
   classificationBreakdown: ClassificationBreakdownPoint[];
 }
 
-/** One calendar month's Free-to-Paid upgrade count, `monthKey` as `YYYY-MM` — same
- *  always-fully-populated contract as `SignupTrendPoint`. */
+/** `monthKey` as `YYYY-MM`; always fully populated like `SignupTrendPoint`. */
 export interface UpgradeTrendPoint {
   monthKey: string;
   count: number;
@@ -375,6 +343,19 @@ export interface AtRiskSubscription {
   currentPeriodEnd: string | null;
 }
 
+/** A payment that succeeded after its business asked to be deleted — refund due, not yet handled. */
+export interface PostErasureCharge {
+  receiptId: string;
+  tenantId: string;
+  businessName: string;
+  invoiceNumber: string | null;
+  /** Smallest currency unit (cents), as Stripe charged it. */
+  amountPaid: number;
+  /** Lowercase ISO 4217 code. */
+  currency: string;
+  paidAt: string;
+}
+
 export interface BillingWebhookEvent {
   id: string;
   type: string;
@@ -384,12 +365,9 @@ export interface BillingWebhookEvent {
   businessName: string | null;
 }
 
-/** Mirrors `StripeWebhookEventType` (`apps/backend`'s `billing.type.ts`) — the 5 event types
- *  `BillingWebhooksService` actually acts on, and the only ones `GET /v1/admin/billing/webhook-events`
- *  ever returns — every other Stripe event type this app receives and ignores never reaches this
- *  admin view at all. Key names, not the raw Stripe wire strings, are this app's own filter
- *  vocabulary — see `ListBillingWebhookEventsQueryDto.type`'s own comment for why the raw format
- *  never appears in a URL. */
+/** Mirrors `StripeWebhookEventType` (backend `billing.type.ts`): the 5 types `BillingWebhooksService` acts on, the only
+ *  ones the webhook-events endpoint returns. Keys, not raw Stripe wire strings, are the filter vocabulary (see
+ *  `ListBillingWebhookEventsQueryDto.type`). */
 export const StripeWebhookEventType = {
   CHECKOUT_SESSION_COMPLETED: "checkout.session.completed",
   SUBSCRIPTION_UPDATED: "customer.subscription.updated",
@@ -405,9 +383,7 @@ export const HANDLED_STRIPE_WEBHOOK_EVENT_TYPES = Object.values(
   StripeWebhookEventType,
 ) as HandledStripeWebhookEventType[];
 
-/** The Super Admin Billing page's whole first screen — `GET /v1/admin/billing/summary`. Webhook
- *  activity is a separate, paginated concern (`BillingWebhookEventList` below), not part of this
- *  one-shot summary. */
+/** `GET /v1/admin/billing/summary`. Webhook activity is separate and paginated (`BillingWebhookEventList`). */
 export interface AdminBillingSummary {
   freeCount: number;
   paidCount: number;
@@ -418,6 +394,7 @@ export interface AdminBillingSummary {
   cancelingCount: number;
   upgradeTrend: UpgradeTrendPoint[];
   atRisk: AtRiskSubscription[];
+  postErasureCharges: PostErasureCharge[];
 }
 
 /** Shared page/pageSize/total/totalPages envelope for a paginated list — mirrors the backend's
@@ -435,37 +412,23 @@ export interface BillingWebhookEventList {
   meta: PaginationMeta;
 }
 
-/**
- * Platform-wide feature settings — a single row (`apps/backend`'s `platform_settings` table),
- * not per-tenant. Which login methods the sign-in/sign-up screens offer, and whether a tenant
- * owner's Settings > Members tab can send invites. Replaces what used to be build-time
- * `NEXT_PUBLIC_*` env vars: a Super Admin now changes these at runtime from Admin Settings, and
- * every visitor (including a signed-out one on the login screen) reads the current value from
- * `GET /v1/settings/platform-config`.
- */
+/** Platform-wide feature settings, a single row (`platform_settings`) rather than per-tenant; read at runtime from `GET /v1/settings/platform-config`, including by signed-out visitors. */
 export interface PlatformSettings {
   ssoLoginEnabled: boolean;
   passwordLoginEnabled: boolean;
   socialLoginEnabled: boolean;
   inviteMembersEnabled: boolean;
   /**
-   * Whether billing exists in this deploy at all — a pure reflection of the backend's
-   * `PAYMENT_FEATURE_ENABLED` env var, not a runtime-toggleable setting (there is deliberately no
-   * admin UI to flip this; see that env var's own doc comment in `env.config.ts` for why one
-   * switch, not two). Gates every payment-related UI surface: the onboarding "choose your plan"
-   * step's "Upgrade to Paid" option, the tenant Settings "Billing" tab, and the admin "Billing"
-   * nav item/dashboard. Never retroactive — turning it off has no effect on a tenant already on
-   * the Paid plan.
+   * Whether billing exists in this deploy: reflects the backend's `PAYMENT_FEATURE_ENABLED` env var, not a runtime
+   * setting (deliberately no admin UI). Gates every payment-related UI surface. Not retroactive: turning it off
+   * does not affect a tenant already on the Paid plan.
    */
   paymentFeatureEnabled?: boolean;
 }
 
-/** A real platform-admin action from `platform_activity_log`. Mirrors the backend's
- *  `platform_activity_type` enum exactly — the API performs no runtime validation of `type` on
- *  the way out (a plain cast in `AdminActivityService`), so a value missing here is a value this
- *  union silently lies about, breaking `ActivityLogCard`'s exhaustive `Record`s render. Used as
- *  the paginated Activity tab's own filter vocabulary (`PlatformActivityFilter`) — that view never
- *  includes `business_joined` (see `PlatformActivityEntry`'s own comment for why). */
+/** A real `platform_activity_log` action; mirrors the backend's `platform_activity_type` enum exactly. The API does no
+ *  runtime validation of `type` (a plain cast in `AdminActivityService`), so a missing value breaks `ActivityLogCard`'s
+ *  exhaustive `Record`s. Also the Activity tab's filter vocabulary, which never includes `business_joined`. */
 export type PlatformActivityType =
   | "business_suspended"
   | "business_reactivated"
@@ -479,19 +442,14 @@ export type PlatformActivityType =
   | "user_activated"
   | "user_deactivated";
 
-/** One entry in the Overview page's activity feed. `"business_joined"` isn't a real
- *  `platform_activity_type` — a signup has no platform-admin actor at all, so the backend
- *  synthesizes it from `AdminBusinessSummary.createdAt` and merges it into
- *  `GET /v1/admin/overview/activity`'s response server-side (`actorEmail` is `null` for those
- *  entries) rather than the frontend fetching a second endpoint and merging it client-side. The
- *  paginated Activity tab (`GET /v1/admin/overview/activity-log`) never returns this variant. */
+/** `"business_joined"` is not a real `platform_activity_type`: a signup has no admin actor, so the backend synthesizes it
+ *  from `AdminBusinessSummary.createdAt` and merges it server-side into `GET /v1/admin/overview/activity` (`actorEmail`
+ *  is `null`). The paginated Activity tab never returns it. */
 export interface PlatformActivityEntry {
   id: string;
   type: PlatformActivityType | "business_joined";
-  /** `null`, not omitted, for a synthesized `business_joined` entry — a signup has no
-   *  platform-admin actor at all. Matches the backend DTO's own `string | null` exactly, unlike
-   *  `businessName`/`email` below (which the service layer does coalesce to `undefined`, since
-   *  those two are genuinely absent-vs-present depending on `type`, not always-present-but-null). */
+  /** `null`, not omitted, for a synthesized `business_joined` entry; matches the backend DTO. Unlike `businessName`/`email`
+   *  below, which the service coalesces to `undefined` since they are absent-vs-present by `type`. */
   actorEmail: string | null;
   /** The business a `business_*`/`business_joined` entry acted on. */
   businessName?: string;
@@ -500,21 +458,16 @@ export interface PlatformActivityEntry {
   occurredAt: string;
 }
 
-/** `GET /v1/admin/overview/activity-log` — paginated, filterable platform-admin action history.
- *  Real `platform_activity_log` rows only — distinct from the Overview glance card's merged feed
- *  (`GET /v1/admin/overview/activity`, `business_joined` entries included), which has no
- *  server-side pagination of its own. */
+/** `GET /v1/admin/overview/activity-log`: real `platform_activity_log` rows only, unlike the Overview feed
+ *  (`business_joined` included, no pagination). */
 export interface PlatformActivityList {
   activities: PlatformActivityEntry[];
   meta: PaginationMeta;
 }
 
-// ─── Billing ──────────────────────────────────────────────────────────────
-
 export type BillingPlanCode = "free" | "paid";
 
-/** One row of `GET /v1/billing/plans` — the catalog entry, not the tenant's own usage (see
- *  `Subscription` below for that). `null` on any `max*` field means unlimited. */
+/** `null` on any `max*` field means unlimited. */
 export interface BillingPlan {
   id: string;
   code: BillingPlanCode;
@@ -526,8 +479,7 @@ export interface BillingPlan {
 
 export type SubscriptionStatus = "active" | "past_due" | "canceled" | "incomplete";
 
-/** The tenant's on-file card, as reported by the active payment provider — masked/tokenized data
- *  only (Stripe's own `brand`/`last4`/expiry), never a raw card number. */
+/** Masked/tokenized data only (Stripe's `brand`/`last4`/expiry), never a raw card number. */
 export interface PaymentMethodSummary {
   brand: string;
   last4: string;
@@ -554,9 +506,7 @@ export interface Subscription {
   customPromptsEnabled: boolean;
   /** `null` for Free tenants, or a Paid tenant with no card on file yet. */
   paymentMethod: PaymentMethodSummary | null;
-  /** The active `PAYMENT_PROVIDER` — gates in-app card/billing-profile editing to `"stripe"` only
-   *  (see the backend's `StripeOnlyFeatureException`); a Dummy-provider tenant falls back to the
-   *  simulated `/billing/dummy-portal` page instead. */
+  /** The active `PAYMENT_PROVIDER`; in-app card/billing-profile editing is `"stripe"` only (`StripeOnlyFeatureException`), Dummy tenants use `/billing/dummy-portal`. */
   paymentProvider: "stripe" | "dummy";
 }
 

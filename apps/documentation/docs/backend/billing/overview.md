@@ -124,9 +124,29 @@ NOTHING` — zero rows returned means "already processed, skip"), then dispatche
 | Event | Effect |
 |---|---|
 | `checkout.session.completed` | Attach `stripe_subscription_id`, set `plan_id` to `paid`, clear `billing_paused_at` on every one of the tenant's locations (Paid has no location cap). |
-| `customer.subscription.updated` | Sync `status`/`current_period_start`/`current_period_end`/`cancel_at_period_end` only — `plan_id` is deliberately untouched. A tenant who has canceled but is still inside their paid period arrives here with `cancelAtPeriodEnd: true` and `status: 'active'`; `plan_id` **stays** `paid` and entitlements stay unlimited — they keep what they already paid for. |
+| `customer.subscription.updated` | Sync `status`/`current_period_start`/`current_period_end`/`cancel_at_period_end` only — `plan_id` is deliberately untouched. A tenant who has canceled but is still inside their paid period arrives here with `cancelAtPeriodEnd: true` and `status: 'active'`; `plan_id` **stays** `paid` and entitlements stay unlimited — they keep what they already paid for. It also clears `cancellation_source` when the flag arrives `false` (the subscription renews again); while the flag is still `true` the source is left as it was written — a webhook cannot know who asked. |
 | `customer.subscription.deleted` | Fires when Stripe actually ends the subscription (at period end, or immediately if canceled outside a grace period). **This is the one write that flips `plan_id` back to `free`** and clears `stripe_subscription_id`/`status`/period fields. Entitlement checks read `plan_id`, not `status` — forgetting this write would leave a canceled tenant permanently reading as `paid` with unlimited access. Also calls `BillingEntitlementsService.enforceLocationLimitOnDowngrade`. |
 | `invoice.payment_failed` / `invoice.payment_succeeded` | `status` only (`past_due` / `active`) — no email queuing in v1. |
+
+### Who cancelled — `tenant_subscriptions.cancellation_source`
+
+`cancel_at_period_end` alone cannot say *who* set it, and that decides whether it may be undone.
+`cancellation_source` (`owner` | `erasure`, `NULL` when not ending or never recorded) is written
+**before** the provider call and reverted if it fails:
+
+| Written by | Source | Cleared by |
+|---|---|---|
+| `POST /v1/billing/cancel` (Billing → Cancel) | `owner` | a `subscription.updated` arriving with the flag `false`; `checkout.session.completed`; `subscription.deleted` |
+| An admin's erasure request on an `active` subscription | `erasure` | the same, or the admin cancelling the erasure (which resumes it) |
+| A Customer Portal cancel (we never wrote it) | `NULL` — treated as the owner's | the same |
+
+Only an `erasure` cancellation is ever resumed by cancelling the erasure, and only while the paid
+period has not run out; an owner's (or unattributed) cancellation never is, because resuming it
+would renew — and charge — something they chose to end. A `past_due` subscription is not marked at
+all: an erasure request cancels it immediately and voids its open invoices. Ending a subscription *at
+period end* uses a fresh Stripe idempotency key on every call (a fixed one made cancel → resume →
+cancel again inside 24 hours silently skip the second cancel, since Stripe replays a key's first
+response for a day).
 
 Every branch resolves the tenant by Stripe customer/subscription id. A customer id no
 `tenant_subscriptions` row matches **throws** (`StripeWebhookTenantNotFoundException`, HTTP 404)

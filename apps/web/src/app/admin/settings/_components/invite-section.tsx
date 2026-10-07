@@ -33,8 +33,7 @@ export function InviteSection() {
   const format = useFormatter();
   const { invites, isLoading, isError, refetch, sendInvite, revokeInvite, setAdminStatus } =
     usePlatformAdminInvites();
-  // The signed-in admin's own email, so the roster can hide the disable button on their own row —
-  // the backend also refuses self-disable, this just avoids offering an action that always fails.
+  // Hides Disable on the admin's own row; the backend also refuses self-disable.
   const { profile } = usePlatformAdminProfile();
   const schema = useMemo(() => inviteAdminSchema(t), [t]);
 
@@ -48,11 +47,8 @@ export function InviteSection() {
     mode: "onTouched",
     defaultValues: { email: "" },
   });
-  // The schema has no separate "required" rule — an empty string simply fails `.email()` — so
-  // blurring the field before typing anything (`mode: "onTouched"`) surfaced the same "not a valid
-  // email" message a real typo would, nagging an admin who hadn't done anything yet. Mirrored into
-  // local state via `register`'s onChange rather than read with `watch()`, which React Compiler
-  // can't safely memoize — see `MembersSettingsSection`'s identical fix on the tenant side.
+  // No separate "required" rule: an empty string fails `.email()`, so blurring an untouched field would show "not a valid
+  // email". Mirrored into local state rather than `watch()`, which React Compiler can't memoize safely.
   const [emailValue, setEmailValue] = useState("");
   const showEmailError = Boolean(errors.email) && emailValue.trim().length > 0;
 
@@ -66,8 +62,7 @@ export function InviteSection() {
   });
 
   if (isLoading) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
-  // `invites` collapses a failed load to `[]` (see the hook), which otherwise renders identically
-  // to a roster that is genuinely empty — an outage read as "no invites yet."
+  // `invites` collapses a failed load to `[]`, which would read as an empty roster during an outage.
   if (isError) return <LoadErrorState onRetry={refetch} />;
 
   return (
@@ -81,10 +76,7 @@ export function InviteSection() {
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <form className="flex flex-col gap-1.5" onSubmit={submitInvite} noValidate>
-          {/* Visually hidden rather than absent: a placeholder is not an accessible name (it is
-              dropped by some screen readers and disappears the moment anything is typed), and
-              every other input on this screen has a real <Label>. `aria-describedby` wires the
-              validation message below to the field so it is announced, not just drawn. */}
+          {/* Visually hidden, not absent: a placeholder isn't an accessible name, and `aria-describedby` makes the validation message announced. */}
           <Label htmlFor="invite-email" className="sr-only">
             {t("emailPlaceholder")}
           </Label>
@@ -167,16 +159,8 @@ export function InviteSection() {
                       {t("enable")}
                     </Button>
                   ) : profile && invite.email !== profile.email && !invite.isRoot ? (
-                    // status === "active", not the signed-in admin's own row, and not the seeded
-                    // root admin. Requires `profile` to have actually loaded —
-                    // `invite.email !== profile?.email` is `true` while `profile` is still
-                    // `undefined` (loading, or its own fetch failed), which showed Disable on the
-                    // signed-in admin's own row until their profile resolved — an action that
-                    // always fails against the backend's own self-disable guard. `!invite.isRoot`
-                    // is the same reasoning one row over: root has no inviter to re-enable it and
-                    // no self-service signup to replace it, so the backend rejects disabling it
-                    // outright — the control simply isn't offered here, rather than being offered
-                    // and then failing.
+                    // Not offered for a non-active invite, the admin's own row (`invite.email !== profile?.email` is true while `profile` is
+                    // still undefined, so `profile` must have loaded), or the root admin, which the backend refuses to disable.
                     <ConfirmActionButton
                       trigger={
                         <Button

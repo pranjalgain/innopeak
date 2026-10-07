@@ -28,17 +28,13 @@ describe('fillPromptTemplate', () => {
   });
 
   it('leaves a placeholder untouched when its value is an empty string', () => {
-    // `Object.hasOwn` (present) vs the value being falsy — an explicit empty review_text is a
-    // real, valid value, not "missing"; only an absent key falls back to the original token.
+    // An empty value is valid, not "missing"; only an absent key keeps the token.
     const result = fillPromptTemplate('Review: "{{review_text}}"', { review_text: '' });
     expect(result).toBe('Review: ""');
   });
 
   it('tolerates whitespace padding inside the braces', () => {
-    // The shared pattern captures whatever sits between the braces (including padding) and this
-    // function trims it, rather than the pattern itself allowing for `\s*`. Worth pinning: an
-    // earlier, module-local copy of the regex encoded the padding allowance in the pattern, so
-    // this behaviour has to survive being sourced from `createPlaceholderPattern()` instead.
+    // The shared pattern captures the padding; the function must trim it.
     const result = fillPromptTemplate('{{ business_name }} / {{\treviewer_name\t}}', {
       business_name: 'Acme Cafe',
       reviewer_name: 'Alex',
@@ -48,9 +44,7 @@ describe('fillPromptTemplate', () => {
   });
 
   it('fills consistently across repeated calls despite the shared global regex', () => {
-    // `createPlaceholderPattern()` hands out a `g`-flagged RegExp, which carries `lastIndex`
-    // state. `String.replace` resets it per call, but this module holds one long-lived instance,
-    // so a second call must not start mid-string and silently skip the first placeholder.
+    // Guards the long-lived `g`-flagged RegExp: a later call must not start at a stale `lastIndex`.
     const template = '{{business_name}} thanks {{reviewer_name}}';
     const values = { business_name: 'Acme', reviewer_name: 'Alex' };
 

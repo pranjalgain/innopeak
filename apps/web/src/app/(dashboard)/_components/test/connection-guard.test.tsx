@@ -45,8 +45,7 @@ function profile(overrides: Partial<TenantOwnerProfile> = {}): TenantOwnerProfil
 }
 
 function renderGuard(queryClient: ReturnType<typeof createQueryClient> = createQueryClient()) {
-  // A fresh QueryClient per render so one test's cached `["connection"]` data can never leak into
-  // the next — react-query's cache otherwise persists across renders within the same client.
+  // Fresh QueryClient per render so cached `["connection"]` data can't leak between tests.
   return render(
     <QueryClientProvider client={queryClient}>
       <NextIntlClientProvider locale="en" messages={messages}>
@@ -62,10 +61,7 @@ describe("ConnectionGuard", () => {
   beforeEach(() => {
     replace.mockClear();
     vi.restoreAllMocks();
-    // A default owner profile for every test that doesn't care about role — without this,
-    // `useTenantOwnerProfile()` (now called unconditionally by this guard) would hit the real
-    // `AuthService.me()` HTTP call in every other test in this file, same as `ConnectionService`
-    // already gets a mock in each one below.
+    // Default owner profile; otherwise `useTenantOwnerProfile()` would hit the real `AuthService.me()`.
     vi.spyOn(TenantOwnerProfileService, "get").mockResolvedValue(profile());
   });
 
@@ -89,11 +85,7 @@ describe("ConnectionGuard", () => {
     expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
   });
 
-  /**
-   * Regression: the connect stepper this used to send every disconnected caller to is entirely
-   * `@Roles(UserRole.OWNER)` on the backend — a member landed there with no button that could
-   * ever succeed, and no other route to escape to, since this guard runs on every dashboard page.
-   */
+  // Regression: members were sent to the owner-only connect stepper, where no button could succeed.
   test("shows a member a waiting screen instead of the onboarding stepper when disconnected", async () => {
     vi.spyOn(ConnectionService, "getState").mockResolvedValue(state({ status: "disconnected" }));
     const queryClient = createQueryClient();
@@ -107,9 +99,7 @@ describe("ConnectionGuard", () => {
   });
 
   test("does not redirect a disconnected tenant before the caller's role is known", () => {
-    // `isMember` defaults to `false` while `profile` is still loading — redirecting on that
-    // default would send an about-to-be-revealed member to the stepper for one render before
-    // bouncing them back. The decision must wait, not assume owner.
+    // `isMember` is false while `profile` loads; the decision must wait, not assume owner.
     vi.spyOn(ConnectionService, "getState").mockResolvedValue(state({ status: "disconnected" }));
     vi.spyOn(TenantOwnerProfileService, "get").mockReturnValue(new Promise(() => undefined));
 
@@ -121,8 +111,7 @@ describe("ConnectionGuard", () => {
   });
 
   test("renders the dashboard with a reconnect banner when the grant expired", async () => {
-    // Blanking a paying tenant's dashboard because a refresh token expired reads as data loss —
-    // their reviews and history are all still there, only ingestion of new ones is broken.
+    // Blanking the dashboard over an expired refresh token reads as data loss; only new-review ingestion is broken.
     vi.spyOn(ConnectionService, "getState").mockResolvedValue(state({ status: "needs_reauth" }));
 
     renderGuard();
@@ -133,9 +122,7 @@ describe("ConnectionGuard", () => {
   });
 
   test("fails open on a server error rather than ejecting the user into onboarding", async () => {
-    // A transient 5xx must not look like "you never connected". A genuine 401 is handled upstream
-    // (ApiClient clears the token, RequireAuth redirects), so failing open cannot mask an auth
-    // failure.
+    // A transient 5xx must not look like "you never connected"; a 401 is handled upstream, so failing open can't mask it.
     vi.spyOn(ConnectionService, "getState").mockRejectedValue(new ApiError(503, "Unavailable"));
 
     renderGuard();
@@ -144,14 +131,7 @@ describe("ConnectionGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  /**
-   * Regression: a 403 used to fall through every branch (it's not the redirect-to-onboarding
-   * case, not `needs_reauth`, and the "fail open" reasoning only ever accounted for a genuine
-   * 401 being handled upstream) and silently render the dashboard shell anyway — no data, no
-   * error, nothing wrong-looking about it. A 403 here means `requireTenantUser` rejected the
-   * caller outright (e.g. a platform admin's valid token reaching this component); unlike a 5xx,
-   * retrying it can never succeed, so it must not fail open the same way.
-   */
+  // Regression: a 403 (non-tenant token) fell through every branch and silently rendered an empty dashboard shell; retrying can never succeed, so it must not fail open.
   test("does not fail open on a 403 — sends the caller to /forbidden instead", async () => {
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
@@ -188,9 +168,7 @@ describe("ConnectionGuard", () => {
   });
 
   test("keeps rendering the dashboard through a background refetch, not just the first load", async () => {
-    // Regression: `["connection"]` is shared app-wide (dashboard layout, Settings' Connection
-    // tab), so a second observer mounting or `refetchOnReconnect` firing must not blank an
-    // already-connected dashboard back to a skeleton — only the data-less first load should.
+    // Regression: `["connection"]` is shared app-wide, so a second observer or `refetchOnReconnect` must not blank a connected dashboard back to a skeleton.
     const queryClient = createQueryClient();
     queryClient.setQueryData(connectionQueryKey, state());
     const getState = vi.spyOn(ConnectionService, "getState");
@@ -200,8 +178,7 @@ describe("ConnectionGuard", () => {
 
     expect(await screen.findByText("Dashboard content")).toBeInTheDocument();
 
-    // Not awaited: the mocked `getState` never resolves, and `invalidateQueries` itself only
-    // resolves once its triggered refetch settles — awaiting it here would hang the test.
+    // Not awaited: the mocked `getState` never resolves, so awaiting `invalidateQueries` would hang.
     void queryClient.invalidateQueries({ queryKey: connectionQueryKey });
     await waitFor(() => expect(getState).toHaveBeenCalled());
 

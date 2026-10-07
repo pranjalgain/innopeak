@@ -1,4 +1,5 @@
 import { Public } from '@auth/decorators/public.decorator';
+import { SKIP_ALL_THROTTLERS } from '@common/constants/throttle.constants';
 import { RouteNames } from '@common/route-names';
 import { HealthService } from '@health/health.service';
 import { Controller, Get, Render, VERSION_NEUTRAL } from '@nestjs/common';
@@ -11,7 +12,7 @@ import { HealthUiViewModelDto } from './dto/health-ui-view-model.dto';
 
 @Controller({ path: RouteNames.HEALTH, version: VERSION_NEUTRAL })
 @ApiTags('Health')
-@SkipThrottle()
+@SkipThrottle(SKIP_ALL_THROTTLERS)
 @Public()
 // @ApiExcludeController()
 export class HealthController {

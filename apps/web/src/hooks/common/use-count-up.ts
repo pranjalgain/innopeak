@@ -1,25 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
-/**
- * Animates up to `target` the moment `isLoading` first flips to `false`, easing out via
- * `requestAnimationFrame` so it reads as a quick counter rather than a linear tick.
- *
- * Animates from 0 only the *first* time. A later `target` change animates from whatever is
- * currently displayed — a refetch that brings "48 businesses" up to 51 counts 48 → 51, it does not
- * replay from zero. Previously a `hasAnimated` ref short-circuited the effect permanently, so
- * every value after the first was ignored outright: on a `refetchOnReconnect` the surrounding
- * panels updated and these tiles kept rendering the old numbers, contradicting the rest of the
- * page until a reload.
- */
+/** Eases up to `target` once `isLoading` flips false. Animates from 0 only the first time; later changes animate from the displayed value (48 -> 51, not a replay). */
 export function useCountUp(target: number, isLoading: boolean, duration = 900): number {
   const [value, setValue] = useState(0);
   const hasAnimatedRef = useRef(false);
-  // Read inside the animation effect below but deliberately NOT one of its dependencies:
-  // depending on the displayed value there would restart the animation on every frame it sets.
-  // Synced via its own effect rather than assigned during render — a ref is a side effect, and
-  // React may render a function component more than once per commit (Strict Mode, an interrupted
-  // render), so writing `valueRef.current` in the render body itself doesn't reliably keep it in
-  // step with the `value` that actually committed.
+  // Read in the animation effect but not a dependency (it would restart the animation every frame). Synced in its own
+  // effect because writing a ref during render isn't reliable under Strict Mode or interrupted renders.
   const valueRef = useRef(0);
   useEffect(() => {
     valueRef.current = value;

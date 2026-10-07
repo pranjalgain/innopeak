@@ -21,37 +21,19 @@ interface ConnectionGuardProps {
 }
 
 /**
- * Gates the dashboard on a connected Google Business Profile.
- *
- * Replaces `GoogleConnectionGuard`, which read a `localStorage` flag written by the browser that
- * happened to run onboarding. Three behaviours here are deliberate and were wrong before:
- *
- *  - **`needs_reauth` renders the app**, with a reconnect banner. Blanking a paying tenant's
- *    dashboard because a refresh token expired reads as data loss; their reviews and history are
- *    all still there, and the only thing broken is ingestion of new ones.
- *  - **A network or 5xx failure fails open.** Ejecting a signed-in user into onboarding because
- *    one request timed out is a far worse outcome than briefly showing a dashboard to someone who
- *    turns out not to be connected. A genuine 401 is handled upstream — `ApiClient` clears the
- *    token and `RequireAuth` redirects to /login — so failing open cannot mask an auth failure.
- *  - **A 403 does NOT fail open.** `useConnection`'s own exclusion only covers 401 (handled
- *    upstream, as above) — a 403 is `requireTenantUser` on the backend rejecting a caller who
- *    isn't even a tenant user at all, e.g. a platform admin's valid token reaching this component
- *    (which `RequireAuth` is now supposed to catch first, but this is the one place that would
- *    otherwise silently render a broken dashboard shell — empty data, no error — if it somehow
- *    didn't). Unlike a 5xx, retrying this can never succeed, so failing open here would just hide
- *    a real, permanent access problem instead of surfacing it.
- *  - **A `member` never reaches the connect stepper.** `disconnected` used to redirect every
- *    caller there, but every route the stepper drives (`GET /v1/connections/google/authorize`,
- *    `POST /v1/connections/locations`, …) is `@Roles(UserRole.OWNER)` — a member landed on a
- *    stepper whose only button 403s, with no way off it (this component runs on every dashboard
- *    route, so there is nowhere else to navigate to). They get `WaitingOnOwnerScreen` instead,
- *    which explains the state rather than offering an action that cannot succeed.
+ * Gates the dashboard on a connected Google Business Profile. Deliberate behaviours:
+ *  - `needs_reauth` still renders the app (with a banner): blanking the dashboard reads as data
+ *    loss when only ingestion of new reviews is broken.
+ *  - A network/5xx failure fails open: ejecting a signed-in user to onboarding over a timeout is
+ *    worse. A 401 is handled upstream (`ApiClient` + `RequireAuth`), so this cannot mask it.
+ *  - A 403 does not fail open: it means a non-tenant token (e.g. a platform admin) reached the
+ *    dashboard, retrying can never succeed, and failing open would hide a permanent access problem.
+ *  - A `member` never reaches the connect stepper: every route it drives is owner-only, so its
+ *    only button would 403 with nowhere else to navigate. They get `WaitingOnOwnerScreen`.
  */
 export function ConnectionGuard({ children }: ConnectionGuardProps) {
   const { state, isLoading, error } = useConnection();
-  // The redirect-vs-explain decision below must not fire before this resolves — `isMember`
-  // defaults to `false` while `profile` is still loading, so redirecting on that default would
-  // send an about-to-be-revealed member to the stepper for one render before bouncing them back.
+  // The redirect-vs-explain decision must wait for this: `isMember` is false while `profile` loads, which would briefly send a member to the stepper.
   const { profile, isLoading: isProfileLoading } = useTenantOwnerProfile();
   const isMember = profile?.role === "member";
   const router = useRouter();
@@ -63,15 +45,12 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
 
   useEffect(() => {
     if (shouldRedirect) router.replace(ROUTES.ONBOARDING_CONNECT);
-    // A hard redirect, not router.replace() — an already-signed-in visitor landing back on
-    // /login would just be bounced straight into this same rejection again (see RequireAuth's own
-    // doc comment on why a valid-but-wrong-type token can't be routed through /login).
+    // Hard redirect, not router.replace(): /login would bounce a signed-in visitor straight back into this same rejection.
     else if (isForbidden) window.location.href = ROUTES.FORBIDDEN;
   }, [shouldRedirect, isForbidden, router]);
 
   if (isLoading || (isDisconnected && isProfileLoading)) return <ShellSkeleton />;
 
-  // Only the brief instant before either redirect fires renders nothing.
   if (shouldRedirect || isForbidden) return null;
 
   if (shouldExplainToMember) return <WaitingOnOwnerScreen />;
@@ -88,12 +67,6 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
   return <>{children}</>;
 }
 
-/**
- * Where a `member` lands instead of the connect stepper while their tenant has no Google Business
- * Profile connected yet — see `ConnectionGuard`'s own comment on why a member cannot use that
- * stepper at all. Expected to be rare: almost every invite lands on an already-connected tenant,
- * since inviting a teammate is itself something only an owner who has set the business up does.
- */
 function WaitingOnOwnerScreen() {
   const t = useTranslations("appShell.waitingOnOwner");
 

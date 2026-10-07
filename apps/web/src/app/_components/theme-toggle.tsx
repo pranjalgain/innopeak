@@ -9,37 +9,18 @@ import { LuMoon, LuSun } from "react-icons/lu";
 import { cn } from "@/app/_libs/utils/cn";
 
 /**
- * Standalone, always-visible theme toggle — same "always in chrome, never nested inside a menu a
- * user has to open first" reasoning as `LanguageSwitcher`. A binary switch, not a Light/Dark/
- * System dropdown (that was this component's first draft — replaced on request for something
- * more direct, then simplified further by dropping "System" entirely): clicking flips between
- * light and dark. No OS-preference inference — `ThemeProvider` in `layout.tsx` sets
- * `defaultTheme="light"` and `enableSystem={false}`, so every visitor starts on light regardless
- * of their OS setting, and `resolvedTheme` here is always plainly `"light"` or `"dark"`.
- *
- * The thumb is a sliding track+circle (`@radix-ui/react-switch`, the same primitive `Switch`
- * wraps, used directly here rather than through that component — this needs custom internal icon
- * content its plain track/thumb doesn't have room for) carrying both icons stacked in the same
- * spot: the outgoing one rotates out and shrinks while the incoming one rotates in and grows, so
- * the swap reads as one continuous turn rather than a hard cut. `prefers-reduced-motion` still
- * gets a plain, instant swap — `motion-reduce:transition-none` on every animated piece.
- *
- * `compact`: same purpose and same dimensions as `LanguageSwitcher`'s prop of the same name — the
- * marketing header now carries both controls with no more width than it used to give the language
- * switch alone, so both shrink together rather than one crowding the row at full size.
+ * Always-visible binary light/dark switch, for the same reason as `LanguageSwitcher`. No OS-preference inference:
+ * `ThemeProvider` sets `defaultTheme="light"` and `enableSystem={false}`, so `resolvedTheme` is always "light" or "dark".
+ * Uses `@radix-ui/react-switch` directly because the icon content doesn't fit `Switch`. `compact` mirrors
+ * `LanguageSwitcher`'s prop so both fit the marketing header.
  */
 export function ThemeToggle({ compact = false }: { compact?: boolean } = {}) {
   const t = useTranslations("themeToggle");
   const { resolvedTheme, setTheme } = useTheme();
-  // `resolvedTheme` is `undefined` on the server and on first client render — next-themes only
-  // knows it after reading `localStorage`, which is client-only. Rendering the real switch against
-  // that unresolved value would paint it in the light position for a dark-mode visitor (the
-  // provider's blocking script has already put `.dark` on `<html>`, so the *page* is dark), then
-  // visibly slide it across a frame later, on every single page load. So until `mounted`, render
-  // a non-interactive twin whose position comes from the `dark:` variants instead — those key off
-  // that same pre-paint class, so it is correct in both themes with no JS, and the real switch
-  // takes over at the identical position without animating. Suppressing clicks over that window
-  // falls out of this for free: there is no control to click yet.
+  // `resolvedTheme` is `undefined` on the server and first client render (next-themes reads `localStorage`). Rendering the
+  // real switch then would paint it in the light position for a dark visitor and slide it a frame later on every load.
+  // Until `mounted`, render a non-interactive twin positioned by `dark:` variants, which key off the pre-paint `.dark`
+  // class; the real switch then takes over at the same position.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -53,10 +34,8 @@ export function ThemeToggle({ compact = false }: { compact?: boolean } = {}) {
     <SwitchPrimitive.Root
       checked={isDark}
       onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-      // Names the thing being toggled, not the action. Radix emits `role="switch"` plus
-      // `aria-checked`, so an action-phrased name ("Switch to light mode") would be read out
-      // alongside the state as "switch to light mode, switch, on" — announcing the opposite of
-      // what is actually on.
+      // Names the thing toggled, not the action: Radix emits `role="switch"` + `aria-checked`, so "Switch to light mode"
+      // would be announced as on, the opposite of the state.
       aria-label={t("label")}
       className={cn(
         "focus-visible:ring-ring/50 relative inline-flex shrink-0 items-center rounded-full",
@@ -93,15 +72,8 @@ export function ThemeToggle({ compact = false }: { compact?: boolean } = {}) {
   );
 }
 
-/**
- * The pre-hydration stand-in described in `ThemeToggle`. Same box and same painted state as the
- * real switch, driven entirely by `dark:` variants rather than React state, so it is already
- * correct on the server render and the first client paint. `aria-hidden` because it is scenery:
- * it cannot be operated, so exposing it as a control would only offer assistive tech a dead
- * target for the frame or two before the real one arrives. No transitions anywhere — there is no
- * state change here to animate, and the real switch mounting into the same position must not look
- * like movement.
- */
+/** Pre-hydration stand-in for `ThemeToggle`, driven by `dark:` variants rather than React state. `aria-hidden` because it
+ *  can't be operated; no transitions, so the real switch mounting in the same spot doesn't look like movement. */
 function ThemeTogglePlaceholder({ compact }: { compact: boolean }) {
   return (
     <div

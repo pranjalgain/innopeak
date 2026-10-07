@@ -25,14 +25,7 @@ interface AddPasswordFormProps {
 
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
-/**
- * Shown instead of `ChangePasswordForm` for a Google/SSO-only account — there is no current
- * password to prove, so the fields (and the collapsed prompt in front of them) are deliberately
- * different rather than a `ChangePasswordForm` with one field hidden. A step-up OTP (mailed by
- * `requestSetPasswordOtp`) stands in for that missing current-password proof: without it, an
- * access token alone would be enough to grant this account a permanent credential — see
- * `AuthService.setPassword`'s doc comment on the backend.
- */
+/** For Google/SSO-only accounts with no current password to prove; a mailed step-up OTP stands in so an access token alone can't grant a permanent credential. */
 export function AddPasswordForm({ requestSetPasswordOtp, setPassword }: AddPasswordFormProps) {
   const t = useTranslations("settings.profile");
   const schema = useMemo(() => setPasswordSchema(t), [t]);
@@ -58,10 +51,7 @@ export function AddPasswordForm({ requestSetPasswordOtp, setPassword }: AddPassw
     newPasswordValue.length > 0 &&
     !passwordMeetsRequirements(requirements);
 
-  // Depends on whether a countdown is running, not on its current value: keying this to
-  // `cooldown` itself tore the interval down and rebuilt it on every tick, throwing away whatever
-  // part of that second had already elapsed and making the "60s" wait run visibly long. The
-  // functional update is what lets this read the latest value without depending on it.
+  // Keyed on whether a countdown is running, not on `cooldown`: re-keying every tick rebuilt the interval and made the wait run long.
   const cooldownActive = cooldown > 0;
   useEffect(() => {
     if (!cooldownActive) return;
@@ -89,8 +79,7 @@ export function AddPasswordForm({ requestSetPasswordOtp, setPassword }: AddPassw
     }
   };
 
-  // On success `profile.hasPassword` flips to true and this component unmounts (replaced by
-  // `ChangePasswordForm`), so there's no local state left to clear.
+  // `profile.hasPassword` flips on success and this unmounts, so no local state needs clearing.
   const submitPassword = handleSubmit(async (values) => {
     await setPassword(values.newPassword, values.otp);
   });

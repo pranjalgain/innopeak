@@ -45,26 +45,17 @@ const SYNC_RUN_COLUMNS = {
   updatedAt: schema.syncRuns.updatedAt,
 } as const;
 
-/** How long a `running` row may go without progress before another run may reclaim it. PLAN.md
- * §8.1's tolerance — 2× the 15-minute poll interval. */
+/** How long a `running` row may go without progress before another run may reclaim it (2x the poll interval). */
 const STALE_RUN_MINUTES = 30;
 
 /**
- * How long a review may sit `in_review` with no draft behind it before `reclaimStaleGenerationClaims`
- * hands it back to the generation queue. Same 30 minutes, and the same reasoning, as
- * `STALE_RUN_MINUTES` above: generation takes seconds, so anything still claimed after half an hour
- * is not slow, it is abandoned — the worker died between `claimForGeneration` and
- * `insertGeneratedResponse` (a deploy, an OOM kill, a stalled BullMQ job). Without this sweep those
- * reviews are stranded permanently: `findClassifiedNeedingGeneration` only ever reads
- * `status = 'new'`, and nothing else in this codebase moves a row off `in_review`.
+ * How long a review may sit `in_review` with no draft before it is handed back to generation.
+ * Generation takes seconds, so older means the worker died (deploy, OOM, stalled job), and nothing
+ * else moves a row off `in_review`.
  */
 const STALE_GENERATION_CLAIM_MINUTES = 30;
 
-/**
- * The single owner of `sync_runs`, `reviews` and `review_responses`. Nothing in
- * `src/db/repositories/connections/` touches these tables, and nothing here touches
- * `locations` — cross-domain work happens in a DB service passing one `tx` to both repositories.
- */
+/** Sole owner of `sync_runs`, `reviews` and `review_responses`; cross-domain work passes one `tx` to both repositories. */
 @Injectable()
 export class ReviewSyncRepository {
   constructor(private readonly dbService: DBService) {}
@@ -74,21 +65,11 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Reclaims a wedged run, then inserts. **Both halves are required**, and the documented rule is
-   * only the first half.
-   *
-   * PLAN.md §8.1 describes staleness as a *read* predicate ("a running row older than 30 minutes
-   * is treated as not blocking"), but the blocking is done by a partial unique index —
-   * `UNIQUE (location_id) WHERE status = 'running'` — which rejects a second insert regardless of
-   * how old the first row is. So a crashed backfill wedges the location permanently, and since
-   * §8.2 gates the entire live pipeline on backfill completing, that tenant then never ingests a
-   * single review. The stale row has to actually be moved out of `running`.
-   *
-   * `GREATEST(started_at, updated_at)`, not `started_at`: the doc's own error message says "no
-   * progress for 30 minutes" while its predicate checks *start* time, which would reclaim a
-   * legitimately long backfill out from under itself and start a second import over the same
-   * history. This works because the job writes `reviews_fetched` (and `updated_at`) after every
-   * page, so `updated_at` is a genuine heartbeat.
+   * Reclaims a stale run before inserting: the partial unique index `UNIQUE (location_id) WHERE
+   * status = 'running'` blocks a second insert however old the first row is, so a crashed run would
+   * wedge the location (and its whole pipeline) permanently. Staleness uses `GREATEST(started_at,
+   * updated_at)` since `updated_at` is the per-page heartbeat; `started_at` alone would reclaim a
+   * long, healthy backfill.
    */
   async acquireSyncRun(
     tx: DrizzleTransaction,
@@ -110,10 +91,8 @@ export class ReviewSyncRepository {
         )
       );
 
-    // Still allowed to raise 23505 on idx_sync_runs_location_id_running — a genuinely live run is
-    // exactly what should block this one. The caller (`ConnectionsDbService.confirmLocation`)
-    // catches it and reports `backfillAlreadyRunning: true` in a 200/201 body, not a 409 — see
-    // `ConnectionsService.confirmLocation`.
+    // May still raise 23505 on idx_sync_runs_location_id_running: a live run should block this
+    // one; the caller reports it as `backfillAlreadyRunning`, not a 409.
     const rows = await tx
       .insert(schema.syncRuns)
       .values({
@@ -148,32 +127,15 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Compare-and-set on `status = 'running'`. Zero rows updated means this run was reclaimed as
-   * stale while it was still working, and its result is no longer authoritative — without the CAS
-   * a reclaimed run resurrects itself from `error` back to `ok`, and worse, goes on to set
-   * `onboarding_backfill_completed_at` for an import a second run is currently redoing.
+   * CAS on `status = 'running'`: zero rows means the run was reclaimed as stale, so its result is
+   * no longer authoritative (it would otherwise resurrect itself to `ok` and set
+   * `onboarding_backfill_completed_at` while a second run redoes the import).
    *
-   * `reviewsFetched` is optional and, when omitted, is left out of the `SET` clause entirely
-   * rather than written as some caller-supplied number. `recordSyncProgress` already writes the
-   * true cumulative count after every page **during** the run — it is the only place that counter
-   * is incremented — so a caller completing the run only has an authoritative number of its own
-   * on a clean success. On a failure that happened mid-import, the caller's own local counter was
-   * never updated past its starting value (the count only lives inside the paginating loop, and a
-   * throw from partway through it never returns anything to the caller), so passing it here would
-   * silently overwrite real progress with a stale, usually-zero number — turning "700 reviews
-   * imported, then a 401 on page 15" into a run that reports 0. Leaving the column untouched keeps
-   * whatever the last successful page's `recordSyncProgress` call wrote, which is the accurate
-   * figure either way.
+   * `reviewsFetched` is left out of the SET when absent: after a mid-import failure the caller's
+   * local counter is stale (usually 0) and would overwrite the true count `recordSyncProgress` wrote.
    *
-   * `finalizeReviewsTotal` closes a different gap: `reviews_total` is written mid-run from the
-   * provider's own `totalCount` (the location's *lifetime* review count), while backfill
-   * deliberately stops early once it hits `IMPORTED_REPLY_TARGET` or `MAX_PAGES` (see
-   * `review-sync-queue.service.ts`). A location with 400 lifetime reviews whose sampled 60 satisfy
-   * the reply target completes successfully having imported everything backfill ever intended to
-   * — but `reviews_total` is still 400, so `reviews_fetched / reviews_total` reports 15% forever
-   * for a run that is, by design, entirely done. Only set on a clean, complete success: it
-   * overwrites the misleading provider-lifetime figure with the run's own final count, so the
-   * percentage this specific run reports can actually reach 100.
+   * `finalizeReviewsTotal` replaces `reviews_total` (the provider's lifetime count) with this run's
+   * final count, since backfill stops early by design and the percentage would never reach 100.
    *
    * Returns whether this run still owned the row.
    */
@@ -207,22 +169,10 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Reclaims a backfill run this same job already owns, for a BullMQ retry. Compare-and-set on
-   * `status = 'error'`, mirroring `completeSyncRun`'s CAS the other direction.
-   *
-   * `runBackfill` carries its `sync_runs` row's id across attempts (`IReviewBackfillJob.syncRunId`
-   * — acquired once, before the job is ever published), so a second attempt after the first threw
-   * is not a new run; it is the same one, replaying. But `completeSyncRun` already moved that row
-   * to `error` when attempt one's catch block recorded the failure — and its own CAS only matches
-   * `status = 'running'`. Left as-is, a *successful* second attempt's own `completeSyncRun` call
-   * finds zero rows to update (status is `error`, not `running`), so `markBackfillCompleted` and
-   * `advanceLastReviewSyncedAt` silently never run: `onboarding_backfill_completed_at` stays null,
-   * the location is excluded from polling forever, and BullMQ still marks the job completed — a
-   * fully successful import that the rest of the system can never see. This reopens the row first,
-   * so the second attempt's completion has a `running` row to CAS against, same as the first.
-   *
-   * `error_message`/`completed_at` are cleared, not left stale, since the row is no longer
-   * terminal; `started_at` is left untouched — it is the run's real start, not this attempt's.
+   * Reopens an `error` run for a BullMQ retry (CAS on `status = 'error'`). The retry reuses the same
+   * `sync_runs` row, which the first attempt's failure moved to `error`; without reopening, the
+   * retry's `completeSyncRun` CAS matches nothing and `markBackfillCompleted` silently never runs,
+   * excluding the location from polling forever. `started_at` is kept: it is the run's real start.
    */
   async reopenSyncRunForRetry(syncRunId: string): Promise<boolean> {
     const rows = await this.dbService.db
@@ -260,12 +210,7 @@ export class ReviewSyncRepository {
     return (rows[0] as SyncRunRow | undefined) ?? null;
   }
 
-  /**
-   * `tx` matters when the caller is already inside a transaction holding a lock this read could
-   * queue behind — `confirmLocations` reads through its own `tx` after a sync-run constraint
-   * violation rather than borrowing a second pooled connection while holding the tenant's
-   * advisory lock.
-   */
+  /** Pass `tx` when already inside a transaction holding a lock this read could queue behind, rather than borrowing a second pooled connection. */
   async findRunningRunForLocation(
     locationId: string,
     tx?: DrizzleTransaction
@@ -305,7 +250,6 @@ export class ReviewSyncRepository {
         .select(SYNC_RUN_COLUMNS)
         .from(schema.syncRuns)
         .where(where)
-        // The exact ordering idx_sync_runs_location_id_started_at was added for.
         .orderBy(desc(schema.syncRuns.startedAt))
         .limit(input.pageSize)
         .offset((input.page - 1) * input.pageSize),
@@ -316,12 +260,8 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Idempotent per `(location_id, external_review_id)`.
-   *
-   * `classification` and `status` are deliberately **absent** from the `DO UPDATE SET` list. A
-   * re-run — a retried backfill, a poller re-reading a page — would otherwise reset a review the
-   * team has already triaged back to `pending_classification`/`new`, silently undoing human work
-   * and re-queueing an AI draft for a review that was already answered.
+   * Idempotent per `(location_id, external_review_id)`. `classification` and `status` are
+   * deliberately absent from `DO UPDATE SET`, so a re-run never resets an already-triaged review.
    */
   async upsertReview(
     tx: DrizzleTransaction,
@@ -353,9 +293,7 @@ export class ReviewSyncRepository {
       })
       .returning({
         id: schema.reviews.id,
-        // `xmax = 0` is Postgres's way of saying "this tuple was inserted, not updated" — the
-        // only way to tell an insert from an update through ON CONFLICT, and what lets the job
-        // count genuinely new reviews rather than rows touched.
+        // `xmax = 0` means the tuple was inserted, not updated; the only way to tell through ON CONFLICT.
         inserted: sql<boolean>`(xmax = 0)`,
       });
 
@@ -367,17 +305,8 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * The owner's own historical reply, imported as `source = 'imported'`.
-   *
-   * `ON CONFLICT (review_id) WHERE source = 'imported'` — the `WHERE` clause is **required**:
-   * without it Postgres cannot infer the partial index as the conflict arbiter and the statement
-   * errors outright rather than falling back to the table.
-   *
-   * `response_type = 'imported_reply'` is the enum value this feature added. The column is
-   * NOT NULL and the two pre-existing values (`auto_reply_suggestion`, `escalation_snippet`)
-   * both describe AI output, so before that enum change this insert had no legal value at all.
-   *
-   * Returns false when the row already existed, so the caller can count imports honestly.
+   * The `WHERE` on `ON CONFLICT (review_id)` is required: without it Postgres cannot infer the
+   * partial index as arbiter. Returns false when the row already existed.
    */
   async insertImportedReply(
     tx: DrizzleTransaction,
@@ -394,8 +323,7 @@ export class ReviewSyncRepository {
         status: ResponseStatus.POSTED,
         postedAt: input.postedAt,
       })
-      // `where` here is the *index predicate*, not a row filter — it is what tells Postgres which
-      // of the two partial unique indexes on review_id to use as the arbiter.
+      // `where` is the index predicate (it picks which partial unique index arbitrates), not a row filter.
       .onConflictDoNothing({
         target: schema.reviewResponses.reviewId,
         where: sql`source = 'imported'`,
@@ -406,20 +334,9 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * The classification queue read: `classification = 'pending_classification'` (the DB default,
-   * never touched by `upsertReview`'s `DO UPDATE SET`) **and** `status = 'new'`.
-   *
-   * Both halves are required. `status = 'new'` is what PLAN.md §7 means by "backfilled reviews
-   * skip the live workflow entirely" — `resolveBackfillStatus` deliberately sorts imported history
-   * into `responded` (already answered) and `dismissed` (old, unanswered) precisely so those rows
-   * are never routed, drafted for, or escalated about, and §7's implementation note is explicit
-   * that only a `new` row is "eligible for §8.3's claim-and-classify step, no special case
-   * anywhere else in the pipeline." Filtering on `classification` alone would classify a decade of
-   * already-answered reviews and escalate every low-rated one among them — the exact flood §7
-   * exists to prevent.
-   *
-   * Ordered oldest-review-first so that hitting `limit` truncates predictably rather than
-   * arbitrarily; `reviewed_at` is nullable, and Postgres sorts those NULLs last on ASC.
+   * Both predicates are required: `status = 'new'` keeps backfilled history (`responded`/
+   * `dismissed`) out of the live workflow, and classifying on `classification` alone would classify
+   * and escalate a decade of answered reviews. Oldest first so hitting `limit` truncates predictably.
    */
   async findPendingClassification(
     tenantId: string,
@@ -448,24 +365,11 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Compare-and-set on the same two columns `findPendingClassification` selects on, the same CAS
-   * shape as `completeSyncRun`. Zero rows updated means the review is no longer a candidate:
-   * another worker classified it first (a retried backfill, an overlapping run), or a human moved
-   * it off `new` in the window between the queue read and this write. Both are "nothing to do,"
-   * not an error.
-   *
-   * **What this does and does not guarantee.** It closes PLAN.md §8.3's double-*classification*
-   * race: no review is ever classified twice. It does **not** guarantee the decision was made
-   * against current data, because the predicate omits `rating` and `review_text` — the columns
-   * `classifyReview` actually read, and the ones `upsertReview` overwrites on conflict. A run
-   * reclaimed as stale (§8.1) can therefore re-import an edited review while the reclaimed run is
-   * still mid-batch, and that run's write lands with the CAS satisfied and a stale rating behind
-   * it. Narrow, and §8.6's supersede-and-reclassify is the general owner of "content changed after
-   * classification" — but it is not closed here.
-   *
-   * `status` is re-checked but never *written*: §8.3's `status = 'new' → 'in_review'` transition
-   * belongs to the generation step, which doesn't exist in this codebase yet. Writing it here
-   * would mark a review as having a pending draft when nothing has drafted anything.
+   * CAS on the columns `findPendingClassification` selects on; zero rows means another worker or a
+   * human got there first, which is not an error. Prevents double classification but not a stale
+   * decision: the predicate omits `rating`/`review_text`, so a run reclaimed as stale can still land
+   * a classification against an edited review (narrow; not closed here). `status` is checked but
+   * never written: `new -> in_review` belongs to generation.
    */
   async claimClassification(reviewId: string, input: ClaimClassificationInput): Promise<boolean> {
     const rows = await this.dbService.db
@@ -489,29 +393,13 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * The generation queue read — reviews `claimClassification` already routed to one of the two
-   * live-pipeline outcomes, still sitting at `status = 'new'` because nothing has drafted a reply
-   * for them yet. Deliberately query-driven rather than fed a list from the classification step
-   * that just ran: this also picks up any backlog left behind by a prior tick whose generation
-   * step failed partway (the exact case `releaseGenerationClaim` below exists for), with no extra
-   * bookkeeping needed to notice it.
+   * Query-driven rather than fed from the classification step, so it also picks up backlog from a
+   * tick whose generation failed partway.
    *
-   * **Newest first — deliberately the opposite of `findPendingClassification`'s oldest-first**, and
-   * the divergence is the point, not an inconsistency to tidy up. Classification is bounded only
-   * by a generous per-tick batch size, so its leftovers are drafted on the very next tick and the
-   * order barely matters. Generation is bounded by a *monthly* quota (`max_ai_drafts_per_month`),
-   * and anything it doesn't reach may not get another chance for weeks. Oldest-first against that
-   * cap inverts the priority: a Free tenant onboarding a location with 30 recent unanswered
-   * reviews would spend its entire month's allowance on the oldest 20 within a minute of
-   * connecting, leaving every genuinely new review that month undrafted. A reply to a review from
-   * three days ago is worth more than one from fifty-eight days ago, and under a hard cap the
-   * freshest reviews must not also be last in line.
-   *
-   * `NULLS LAST` is load-bearing on `DESC`, not decoration: Postgres defaults to `NULLS FIRST`
-   * when sorting descending, and `reviewed_at` is nullable (PLAN.md §6 calls out reviews ingested
-   * without a parseable provider timestamp). Without it, exactly those undated reviews would sort
-   * ahead of everything and consume the quota first — the precise failure this ordering exists to
-   * prevent, reintroduced through the back door.
+   * Newest first, deliberately the opposite of `findPendingClassification`: generation is bounded
+   * by a monthly quota, and oldest-first would let a tenant onboarding 30 unanswered reviews burn
+   * the month's allowance on the oldest. `NULLS LAST` is required because Postgres sorts NULLs
+   * first on DESC, which would put undated reviews at the front.
    */
   async findClassifiedNeedingGeneration(
     tenantId: string,
@@ -536,20 +424,13 @@ export class ReviewSyncRepository {
             ReviewClassification.ESCALATED,
           ]),
           eq(schema.reviews.status, ReviewStatus.NEW),
-          // Belt to `claimForGeneration`'s braces, and *not* redundant with it. The CAS only stops
-          // two workers drafting the same review at the same time; it says nothing about a review
-          // that already has a draft and has since been handed back to `new` — which happens
-          // whenever `insertGeneratedResponse` commits and then the connection drops before its
-          // RETURNING row is read, or a stale claim is reclaimed a moment too eagerly. Without
-          // this, that review is drafted a second time: nothing in the schema forbids two
-          // `ai_generated` rows for one review (the partial uniques on `review_responses` cover
-          // only `status IN ('approved','posted')` and `source = 'imported'`), and both would
-          // count against the tenant's monthly draft quota.
+          // Not redundant with `claimForGeneration`'s CAS, which only stops concurrent drafting: a
+          // review already drafted and handed back to `new` (insert committed but the connection
+          // dropped, or an eager stale reclaim) would be drafted twice, since nothing in the schema
+          // forbids two `ai_generated` rows, and both would count against the monthly quota.
           //
-          // The outer correlation is the literal `reviews.id`, never `${schema.reviews.id}`:
-          // interpolating a Column inside a `sql` template renders its BARE name, which would bind
-          // to `review_responses.id` here and make the predicate compare a row to itself. Same
-          // trap, same fix, as `AdminBusinessesRepository`'s own correlated subqueries.
+          // Correlate on the literal `reviews.id`: interpolating a Column in a `sql` template
+          // renders its bare name, which would bind to `review_responses.id` here.
           sql`NOT EXISTS (
             SELECT 1 FROM ${schema.reviewResponses}
             WHERE ${schema.reviewResponses.reviewId} = reviews.id
@@ -560,20 +441,12 @@ export class ReviewSyncRepository {
       .orderBy(sql`${schema.reviews.reviewedAt} DESC NULLS LAST`)
       .limit(limit);
 
-    // The `inArray` above is a type-level fact to Postgres, not to Drizzle's inferred return type
-    // (which is the column's full enum, `pending_classification` included) — safe to narrow here
-    // because the query itself makes that value unreachable, the same reasoning
-    // `ClaimClassificationInput`'s own narrower type already relies on.
+    // `inArray` narrows at the SQL level but not in Drizzle's inferred type; the cast is safe
+    // because the query excludes `pending_classification`.
     return rows as GenerationCandidateRow[];
   }
 
-  /**
-   * PLAN.md §8.3's other half: `claimClassification` closes the double-*classification* race,
-   * this one closes double-*generation* — the same CAS shape, on the same `status` column,
-   * against the state classification actually left the review in. Zero rows updated means another
-   * worker already claimed it (or generated for it and posted, moving it further along) between
-   * the queue read and this write; both are "nothing to do here," not an error.
-   */
+  /** CAS on `status = 'new'`, closing double-generation as `claimClassification` closes double-classification. Zero rows means another worker got there first; not an error. */
   async claimForGeneration(reviewId: string): Promise<boolean> {
     const rows = await this.dbService.db
       .update(schema.reviews)
@@ -585,16 +458,9 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Undoes `claimForGeneration` when the AI call itself fails after the claim — without this, a
-   * review whose generation attempt failed would sit at `status = 'in_review'` forever with no
-   * draft behind it, invisible to every later poll's own `findClassifiedNeedingGeneration` query
-   * (which only ever reads `status = 'new'`). Reverting back to `new` is what lets the *next*
-   * 15-minute tick retry it, the same self-healing shape `findClassifiedNeedingGeneration`'s own
-   * doc comment describes for a mid-batch failure.
-   *
-   * CAS'd against `in_review`, not unconditional, so this can never undo a *different* transition
-   * that happened in between (a human posting a manual reply, say, which moves status further
-   * along, not back to `new`) — this only ever reverses the exact claim it is paired with.
+   * Undoes `claimForGeneration` after an AI failure so the next tick can retry; otherwise the review
+   * sits `in_review` forever, invisible to `findClassifiedNeedingGeneration`. CAS'd on `in_review`
+   * so it never undoes a different transition (e.g. a human's manual reply).
    */
   async releaseGenerationClaim(reviewId: string): Promise<void> {
     await this.dbService.db
@@ -606,25 +472,15 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * The sweep `releaseGenerationClaim` cannot be: that one only runs from a `catch` inside a live
-   * process, so it covers a *caught exception* and nothing else. A worker that dies outright
-   * between `claimForGeneration` and `insertGeneratedResponse` — a deploy, an OOM kill, a stalled
-   * BullMQ job — leaves its in-flight review at `in_review` with no draft, where
-   * `findClassifiedNeedingGeneration` (which reads only `status = 'new'`) can never see it again.
-   * Nothing else in this codebase moves a row off `in_review`, so without this sweep that review
-   * is stranded permanently: never drafted, never retried, yet still counted in the dashboard's
-   * open backlog (`DashboardDbService.OPEN_STATUSES` spans `new` *and* `in_review`).
+   * Sweep for workers that died between `claimForGeneration` and `insertGeneratedResponse` (deploy,
+   * OOM, stalled job), which `releaseGenerationClaim`'s catch cannot cover; otherwise the review
+   * stays `in_review` forever, undrafted yet counted in the dashboard's open backlog. Call it
+   * immediately before the queue read it unblocks.
    *
-   * Same reclaim-then-proceed shape as `acquireSyncRun`'s own stale-run handling above, and called
-   * the same way — immediately before the queue read it unblocks.
-   *
-   * **The `NOT EXISTS` guard is the load-bearing half, not a safety flourish.** A review that was
-   * drafted *successfully* also sits at `in_review` indefinitely, because the approval flow that
-   * would move it to `responded` does not exist yet. Reclaiming on age alone would therefore walk
-   * every successfully-drafted review in the tenant back to `new` half an hour later and draft it
-   * again — every tick, forever, each one a billable call. Only a claim with nothing behind it is
-   * genuinely abandoned. Deliberately checks for *any* response row rather than an `ai_generated`
-   * one: a review that has a human or imported reply is equally not waiting on generation.
+   * The `NOT EXISTS` guard is load-bearing: a successfully drafted review also sits at `in_review`
+   * (no approval flow moves it on), so reclaiming on age alone would redraft every one each tick,
+   * each a billable call. It checks for any response row, not just `ai_generated`: a human or
+   * imported reply also means it is not waiting on generation.
    */
   async reclaimStaleGenerationClaims(locationId: string): Promise<number> {
     const rows = await this.dbService.db
@@ -635,8 +491,7 @@ export class ReviewSyncRepository {
           eq(schema.reviews.locationId, locationId),
           eq(schema.reviews.status, ReviewStatus.IN_REVIEW),
           sql`${schema.reviews.updatedAt} < now() - interval '${sql.raw(String(STALE_GENERATION_CLAIM_MINUTES))} minutes'`,
-          // Literal `reviews.id`, not `${schema.reviews.id}` — same bare-column-name trap
-          // documented on `findClassifiedNeedingGeneration`'s own subquery above.
+          // Literal `reviews.id`: a bare-column interpolation would bind to `review_responses.id`.
           sql`NOT EXISTS (
             SELECT 1 FROM ${schema.reviewResponses}
             WHERE ${schema.reviewResponses.reviewId} = reviews.id
@@ -649,18 +504,9 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Persists one AI-generated draft. No `onConflictDoNothing` the way `insertImportedReply` has
-   * one: that guards a partial unique index on `review_id` scoped to `source = 'imported'`, which
-   * exists specifically to make the historical backfill re-runnable, and there is no equivalent
-   * index for `source = 'ai_generated'` to arbitrate against.
-   *
-   * What keeps a review from being drafted twice is therefore *two* things, not one — worth
-   * stating precisely, because "the CAS handles it" is only half true. `claimForGeneration`'s CAS
-   * stops two workers drafting the same review **concurrently**; it offers nothing once a claim
-   * has been released back to `new` (a failed insert, a reclaimed stale claim), and a plain
-   * `INSERT` here would happily add a second row. The other half is
-   * `findClassifiedNeedingGeneration`'s `NOT EXISTS` predicate, which keeps an
-   * already-drafted review out of the candidate set in the first place.
+   * No `onConflictDoNothing`: there is no partial unique index for `source = 'ai_generated'` to
+   * arbitrate against. Double drafting is prevented by `claimForGeneration`'s CAS (concurrent
+   * workers) and `findClassifiedNeedingGeneration`'s `NOT EXISTS` (a claim released back to `new`).
    */
   async insertGeneratedResponse(input: InsertGeneratedResponseInput): Promise<string> {
     const rows = await this.dbService.db
@@ -679,19 +525,14 @@ export class ReviewSyncRepository {
 
     const inserted = rows[0];
     if (inserted === undefined) {
-      // `.insert().returning()` on a successful statement always returns the inserted row —
-      // reaching here would mean the insert silently affected zero rows, which Postgres does not
-      // do for a plain (non-conflict-guarded) INSERT. Kept as a loud failure rather than a
-      // swallowed one specifically because the caller (`AiReplyGenerationService`) needs to know
-      // whether to release the generation claim it just took.
+      // `returning` on a plain INSERT always yields the row; fail loudly so the caller knows to
+      // release its generation claim.
       throw new Error(MESSAGES.REVIEWS.GENERATED_RESPONSE_INSERT_FAILED(input.reviewId));
     }
     return inserted.id;
   }
 
-  /** Every column `ReviewResponseRow` needs, for the `.returning()` clauses below — same set
-   *  `ReviewsReadRepository`'s own `RESPONSE_COLUMNS` selects, kept local to this file since a
-   *  `.returning()` and a `.select()` take the same shape but not the same builder call. */
+  /** Kept local: `.returning()` and `.select()` take the same shape but not the same builder call. */
   private static readonly RETURNING_COLUMNS = {
     id: schema.reviewResponses.id,
     reviewId: schema.reviewResponses.reviewId,
@@ -711,15 +552,9 @@ export class ReviewSyncRepository {
   } as const;
 
   /**
-   * Approves a pending draft, optionally with edited content. CAS'd on `status = 'pending_approval'`
-   * — same shape as `claimForGeneration` — so a response that was already decided (by this same
-   * request racing itself, or a sibling's approval superseding it first) returns `null` rather than
-   * silently overwriting a settled decision; the caller (`ReviewSyncDbService.approveResponse`)
-   * turns that into a clean 409, not a raw affected-zero-rows surprise.
-   *
-   * Can raise a 23505 on `idx_review_responses_review_id_live_reply` if a sibling won the same race
-   * a moment earlier and is now `approved`/`posted` — deliberately left to propagate to the DB
-   * service, which is where every other writer of that index (`writeReviewPage`) already catches it.
+   * CAS on `status = 'pending_approval'`: an already-decided response returns `null` (the caller
+   * maps it to 409) rather than overwriting a settled decision. May raise a 23505 on
+   * `idx_review_responses_review_id_live_reply` if a sibling won the race; it propagates to the DB service.
    */
   async approveResponse(
     tx: DrizzleTransaction,
@@ -748,8 +583,7 @@ export class ReviewSyncRepository {
     return (rows[0] as ReviewResponseRow | undefined) ?? null;
   }
 
-  /** Same CAS shape as `approveResponse` — no live-reply index to guard, `rejected` never
-   *  participates in that partial unique index. */
+  /** Same CAS as `approveResponse`; no live-reply index to guard since `rejected` is outside it. */
   async rejectResponse(
     tx: DrizzleTransaction,
     input: RejectResponseInput
@@ -776,11 +610,8 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Marks every other still-`pending_approval` response on the same review as `superseded` —
-   * scoped to the whole review, not just `excludeResponseId`'s own `generationGroupId`: a review
-   * only ever has one live reply regardless of grouping (`idx_review_responses_review_id_live_reply`
-   * covers the whole review), so a sibling from a *different* group left `pending_approval` would
-   * be stale in exactly the same way a same-group one is.
+   * Supersedes every other `pending_approval`/`post_failed` response on the review, not just the
+   * same `generationGroupId`: a review has one live reply regardless of grouping.
    */
   async supersedeSiblingDrafts(
     tx: DrizzleTransaction,
@@ -793,7 +624,11 @@ export class ReviewSyncRepository {
         and(
           eq(schema.reviewResponses.reviewId, input.reviewId),
           ne(schema.reviewResponses.id, input.excludeResponseId),
-          eq(schema.reviewResponses.status, ResponseStatus.PENDING_APPROVAL)
+          // A `post_failed` sibling is dead once another reply is chosen; its Retry could only 409.
+          inArray(schema.reviewResponses.status, [
+            ResponseStatus.PENDING_APPROVAL,
+            ResponseStatus.POST_FAILED,
+          ])
         )
       )
       .returning({ id: schema.reviewResponses.id });
@@ -802,48 +637,29 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * `PLAN.md` §6's nightly reviewer-retention purge. Only tenants with an explicit
-   * `tenant_settings.review_data_retention_months` are touched — there is deliberately no
-   * platform-default fallback, so a tenant who has never set this stays fully untouched rather
-   * than being purged against a number nobody chose for them.
+   * Only tenants with an explicit `review_data_retention_months` are touched; there is deliberately
+   * no platform default, so nobody is purged against a number they never chose.
    *
-   * `rating` / `review_text` / `classification` are never touched: the business legitimately
-   * needs "we got a 2★ review in March" long after retention expires — what must go is the link
-   * to a named individual, not the review's own content. `external_reviewer_id` is nulled
-   * alongside `reviewer_name` so nothing pseudonymously re-identifies the same reviewer across
-   * visits after anonymization (confirmed as the intended behavior, not left to guess).
+   * `rating`/`review_text`/`classification` stay (the business still needs "a 2-star review in
+   * March"); only the link to a person goes. `external_reviewer_id` is nulled too so nothing
+   * re-identifies the reviewer pseudonymously.
    *
-   * `COALESCE(reviewed_at, created_at)` is load-bearing, not defensive: `reviewed_at` is nullable,
-   * and any comparison against `NULL` is unknown rather than true in SQL, so a review ingested
-   * without a parseable timestamp would otherwise sit permanently un-purgeable — the opposite of
-   * what this job exists to guarantee.
+   * `COALESCE(reviewed_at, created_at)` is load-bearing: `reviewed_at` is nullable and a comparison
+   * against NULL is never true, so an undated review would be un-purgeable.
    *
-   * `anonymized_at IS NULL` makes this idempotent: an already-anonymized row is not re-selected on
-   * a later run (harmless either way, since the columns are already null and the UPDATE would be
-   * an inert no-op, but skipping it keeps `anonymized_at` as the true first-anonymized timestamp
-   * rather than the most recent purge run that happened to touch it).
+   * `anonymized_at IS NULL` keeps that column the true first-anonymized timestamp.
    *
-   * Wrapped in a transaction-scoped advisory lock: `@Cron` fires in-process on *every* worker
-   * replica (see the scheduling doc's "one honest caveat"), so more than one replica can enqueue
-   * this job for the same nightly tick. The UPDATE above is idempotent on its own, but without a
-   * lock two concurrent executions would both scan and both attempt to update the same rows,
-   * wasteful and racy for no benefit. The lock makes the second execution simply wait, then find
-   * nothing left to match — not skip its work silently, just make it a fast no-op.
+   * The advisory lock exists because `@Cron` fires on every worker replica, so several can enqueue
+   * this job for one tick; the second then waits and finds nothing left to match.
    */
   async purgeExpiredReviewerPii(): Promise<number> {
     return this.transaction(async tx => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('reviews:retention-purge'), 0)`);
 
-      // `review_data_retention_months` is deliberately unbounded at the API layer (a tenant may
-      // set an astronomically large value to mean "keep indefinitely" — see
-      // UpdateTenantSettingsDto). But `now() - (N || ' months')::interval` overflows Postgres's
-      // representable timestamp range well before Postgres's own INTEGER range does (confirmed:
-      // 80,000 months computes fine, 100,000 raises `timestamp out of range`) — and that overflow
-      // aborts this entire cross-tenant UPDATE, so one tenant's huge-but-valid setting would stop
-      // every other tenant's purge from running, silently, every night. LEAST(...) clamps only the
-      // value fed into the interval arithmetic, never the stored column: 10,000 months (~833
-      // years) is already so far past any real review's age that clamping to it changes no real
-      // purge decision, while keeping the arithmetic permanently inside Postgres's range.
+      // `review_data_retention_months` is unbounded at the API layer (huge means "keep forever"), but
+      // `now() - (N || ' months')::interval` overflows the timestamp range around 100,000 months and
+      // would abort this cross-tenant UPDATE for every tenant. LEAST clamps only the interval
+      // arithmetic, never the stored value; 10,000 months (~833 years) changes no real purge decision.
       const result = await tx.execute(sql`
         UPDATE reviews r
         SET reviewer_name = NULL,
@@ -859,27 +675,30 @@ export class ReviewSyncRepository {
         RETURNING r.id
       `);
 
-      // `audit_logs` (and the second redaction pass this job used to run against it) is gone —
-      // that table snapshotted a full row on every write with nothing purging it, which meant the
-      // reviewer_name this purge nulls above still lingered forever in every prior snapshot of the
-      // row. With no snapshot table left to leak into, the anonymizing UPDATE above is the whole job.
       return result.rows.length;
     });
   }
 
+  /** Erased-tenant counterpart of `purgeExpiredReviewerPii`: every review, regardless of retention. Idempotent: a row keeps its first `anonymized_at`. */
+  async anonymizeReviewerPiiForTenant(tenantId: string): Promise<number> {
+    const result = await this.dbService.db.execute(sql`
+      UPDATE reviews
+      SET reviewer_name = NULL,
+          external_reviewer_id = NULL,
+          anonymized_at = now(),
+          updated_at = now()
+      WHERE tenant_id = ${tenantId}::uuid
+        AND anonymized_at IS NULL
+      RETURNING id
+    `);
+    return result.rows.length;
+  }
+
   /**
-   * Claims an `approved` response for posting, immediately before the queue service calls Google —
-   * the CAS half of `0004_reviews.sql`'s crash-window fix. Same claim-with-staleness-reclaim
-   * shape as `acquireSyncRun`: a first attempt sets `post_attempted_at = now()`, and a worker that
-   * crashed between that write and the next terminal write (`markResponsePosted`/
-   * `markResponsePostFailed`/`supersedeForExternalReply`, all of which clear it back to null)
-   * leaves a window where a *second* attempt may reclaim rather than being blocked forever by a
-   * dead worker's stale claim.
-   *
-   * Zero rows updated means: the response is not `approved` (already posted, rejected, superseded,
-   * never approved), or it is `approved` but another attempt claimed it within the last
-   * `POST_CLAIM_STALE_MINUTES` and is presumably still in flight. Both are "nothing to do here,"
-   * not an error — the caller (`ReviewPostQueueService`) logs and returns rather than throwing.
+   * CAS claim on an `approved` response before calling Google, with stale reclaim like
+   * `acquireSyncRun`: a worker that crashed after setting `post_attempted_at` leaves it set until a
+   * terminal write clears it, so a later attempt may reclaim after `POST_CLAIM_STALE_MINUTES`. Zero
+   * rows means not `approved`, or another attempt is presumably in flight; the caller logs and returns.
    */
   async claimResponseForPosting(
     input: ClaimResponseForPostingInput
@@ -900,8 +719,7 @@ export class ReviewSyncRepository {
     return (rows[0] as ReviewResponseRow | undefined) ?? null;
   }
 
-  /** The review half of every "a live reply now exists" write — posted, superseded-by-external,
-   *  and imported-after-a-lost-CAS all end here. */
+  /** Every "a live reply now exists" write ends here. */
   async markReviewResponded(tx: DrizzleTransaction, reviewId: string): Promise<void> {
     await tx
       .update(schema.reviews)
@@ -909,12 +727,7 @@ export class ReviewSyncRepository {
       .where(eq(schema.reviews.id, reviewId));
   }
 
-  /**
-   * The successful-post write: CAS `approved -> posted`, and — in the same transaction — the
-   * parent review to `responded`. `postedAt` is Google's own `reviewReply.updateTime` from the
-   * `replyToReview` call that just succeeded, not `now()`, so this row reads identically to one the
-   * historical backfill imported.
-   */
+  /** CAS `approved -> posted` plus the parent review to `responded`, in one transaction. `postedAt` is Google's `reviewReply.updateTime`, not `now()`, matching backfill-imported rows. */
   async markResponsePosted(
     tx: DrizzleTransaction,
     input: MarkResponsePostedInput
@@ -947,11 +760,8 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Gives a claim back without changing the response's status: the response stays `approved` and
-   * immediately claimable. Used when an attempt is abandoned for a reason that is not the
-   * response's fault (a transient provider error being rescheduled), so the rescheduled job is not
-   * blocked behind a claim nothing is still working on. `false` means the response was no longer
-   * `approved`, i.e. there was no claim of ours left to release.
+   * Gives a claim back without changing status, for abandonments that are not the response's fault
+   * (a rescheduled transient provider error). `false` means it was no longer `approved`.
    */
   async releaseResponseClaim(input: ClaimResponseForPostingInput): Promise<boolean> {
     const rows = await this.dbService.db
@@ -993,22 +803,11 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * PLAN.md §8.12's abort path: the freshness check found a reply already live on Google that this
-   * response did not write (an owner replying directly on Google, or a reply this same response
-   * already posted on a prior attempt that crashed before its own `markResponsePosted` committed —
-   * the caller tells the two apart by comparing content before calling this). CAS `approved ->
-   * superseded`, then imports the reply Google actually has as a new `source = 'imported'`,
-   * `status = 'posted'` row — reusing `insertImportedReply`'s own conflict-tolerant insert, since
-   * the shape (and the "a live reply beats a historical no-op" reasoning) is identical.
-   *
-   * Returns `false` without inserting anything when the CAS itself affected no rows — the response
-   * was no longer `approved` (a race with a human rejecting/re-approving between the claim and this
-   * call), in which case there is no stale approval left to supersede.
-   *
-   * Also advances `reviews.status` to `responded`, the same write `markResponsePosted` makes for
-   * the ordinary successful-post path — the review genuinely has a live, accurate reply now (the
-   * one just imported), so leaving its status at `new`/`in_review` would strand it in the
-   * dashboard's pending-response queue forever despite already being answered.
+   * Abort path when the freshness check finds a reply live on Google that this response did not
+   * write (an owner replying directly, or this response's own earlier attempt that crashed before
+   * `markResponsePosted` committed; the caller tells them apart by content). CAS `approved ->
+   * superseded`, then imports Google's reply. Returns `false` if the response was no longer
+   * `approved`. Also sets the review `responded`, else it would sit in the pending queue though answered.
    */
   async supersedeForExternalReply(
     tx: DrizzleTransaction,
@@ -1046,8 +845,7 @@ export class ReviewSyncRepository {
     return true;
   }
 
-  /** The `post_failed -> approved` arrow in PLAN.md §4.2 — clears `error_message` so the retried
-   *  attempt starts clean, and `post_attempted_at` so it is immediately claimable. */
+  /** `post_failed -> approved`; clears `error_message` and `post_attempted_at` so it is immediately claimable. */
   async retryPostableResponse(
     input: RetryPostableResponseInput
   ): Promise<ReviewResponseRow | null> {
@@ -1072,12 +870,8 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Writes a reply from scratch, landing directly at `approved` — the author is the approver, and
-   * a self-approval step through `approveResponse` would be theatre. `source = 'human_manual'`,
-   * `generation_group_id`/`original_content`/`prompt_version_id` all stay `NULL` (never had an AI
-   * draft behind them). Can raise a 23505 on `idx_review_responses_review_id_live_reply`,
-   * deliberately left to propagate — the service layer catches it the same way
-   * `ReviewsService.approveReply` already does for the equivalent conflict.
+   * Lands directly at `approved`: the author is the approver, so a self-approval step would be
+   * theatre. May raise a 23505 on `idx_review_responses_review_id_live_reply`; it propagates to the service.
    */
   async insertManualReply(
     tx: DrizzleTransaction,

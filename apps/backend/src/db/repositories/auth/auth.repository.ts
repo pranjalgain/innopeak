@@ -20,6 +20,8 @@ import type {
   AcceptMemberInviteOutcome,
   AcquireErasureLock,
   CancelMemberRemovalOutcome,
+  ErasureNoticeRecipient,
+  ErasureReminderCandidate,
   InsertedTenant,
   InsertedUser,
   InsertInvitedMemberInput,
@@ -42,14 +44,9 @@ import type {
 } from './types/auth.type';
 
 /**
- * Every `token_purpose` this codebase actually mints, and therefore every one the nightly
- * `deleteStaleOtpTokens` sweep has to cover — a purpose that writes rows but is missing here is
- * one whose spent rows nothing ever deletes.
- *
- * `INVITE` (tenant-member invites — `insertInvitedMember`/`acceptMemberInviteWith*`) joined this
- * list the day that flow started writing rows here; a used or lapsed invite token is exactly the
- * same kind of dead weight `VERIFY_EMAIL`/`SET_PASSWORD` already are. `reset` stays absent —
- * nothing writes it yet (see `TokenPurpose`).
+ * Every `token_purpose` this codebase mints, i.e. every one the nightly `deleteStaleOtpTokens`
+ * sweep must cover; a purpose missing here has spent rows nothing ever deletes. `reset` is absent
+ * because nothing writes it yet.
  */
 export const PURGEABLE_OTP_PURPOSES = [
   TokenPurpose.VERIFY_EMAIL,
@@ -58,24 +55,18 @@ export const PURGEABLE_OTP_PURPOSES = [
 ] as const;
 
 /**
- * Mechanical Drizzle queries only — no cross-table composition or transaction ownership, that's
- * AuthDbService's job (apps/backend/docs/conventions/module-structure.md). Every write method
- * takes the transaction handle explicitly rather than defaulting to `dbService.db`, since every
- * current caller runs inside an AuthDbService-owned transaction. The transaction handle is the
- * one parameter allowed to stay positional alongside a named input — everything else is grouped
- * into an interface even where it's just one field, for consistency across the module.
+ * Mechanical Drizzle queries only; composition and transaction ownership belong to AuthDbService.
+ * Write methods take the transaction handle explicitly (positional, alongside a named input
+ * object).
  */
 @Injectable()
 export class AuthRepository {
   constructor(private readonly dbService: DBService) {}
 
   /**
-   * Global lookup — deliberately NOT scoped to a tenant or to any status. `users.email` is only
-   * unique per-tenant (`idx_users_tenant_id_email`), which is what lets signup create a brand new
-   * tenant per attempt; the "is this email already registered anywhere" check signup now does
-   * needs to see across every tenant, and login needs to find the account regardless of its
-   * status to decide which of the login branches applies. Excludes anonymized accounts — their
-   * email is considered freed for reuse.
+   * Global, deliberately not scoped to a tenant or status: `users.email` is only unique per tenant,
+   * so signup's "already registered anywhere" check must see across tenants, and login must find
+   * the account whatever its status. Excludes anonymized accounts (their email is free for reuse).
    */
   async findUserByEmail(email: string): Promise<UserByEmail | null> {
     const rows = await this.dbService.db
@@ -94,14 +85,12 @@ export class AuthRepository {
       .orderBy(desc(schema.users.createdAt))
       .limit(1);
 
-    // Drizzle infers `role`/`status` as the pgEnum's own plain string-literal union, not the
-    // app-level enum — this repository is the one place that boundary is bridged, since the
-    // literal values are guaranteed identical (the enum's members are defined from the same
-    // strings the migration creates).
+    // Drizzle infers pgEnum columns as plain string-literal unions; this is the one place that
+    // bridges them to the app enums (the values are identical).
     return (rows[0] as UserByEmail | undefined) ?? null;
   }
 
-  /** Same shape as `findUserByEmail`, keyed by id — used by refresh/logout, which only have the user id (from the JWT `sub`/DB row), not the email. */
+  /** Keyed by id for refresh/logout, which only have the JWT `sub`. */
   async findUserById(id: string): Promise<UserByEmail | null> {
     const rows = await this.dbService.db
       .select({
@@ -134,13 +123,10 @@ export class AuthRepository {
     return (rows[0] as { status: TenantStatus; name: string } | undefined) ?? null;
   }
 
-  /** Row-existence is the only signal for "has this tenant connected a Google Business Profile" — no dedicated flag exists on `tenants`/`tenant_settings`. */
   /**
-   * The same rule `GET /v1/connections` uses for `connected`: a live, active connection **and** an
-   * active location. This only drives the post-login redirect (the dashboard guard is
-   * authoritative), but a bare row-existence probe over-reported — a tenant who had disconnected
-   * still read as connected, was routed to the dashboard, and was immediately bounced back to
-   * onboarding by the guard.
+   * Same rule as `GET /v1/connections`' `connected` (live connection and an active location); bare
+   * row existence still read a disconnected tenant as connected and bounced them back to
+   * onboarding.
    */
   async hasConnectedBusiness(tenantId: string): Promise<boolean> {
     const rows = await this.dbService.db
@@ -163,9 +149,10 @@ export class AuthRepository {
     return rows.length > 0;
   }
 
-  /** Null means either "never chosen" or the chosen location was later removed (`ON DELETE SET
-   *  NULL`) — `ConnectionsService.getConnectionStatus` falls back to the tenant's first active
-   *  location in both cases, so the two are not distinguished here. */
+  /**
+   * Null means never chosen, or the chosen location was removed (`ON DELETE SET NULL`);
+   * `ConnectionsService.getConnectionStatus` falls back to the first active location either way.
+   */
   async findActiveLocationId(tenantId: string): Promise<string | null> {
     const rows = await this.dbService.db
       .select({ activeLocationId: schema.tenants.activeLocationId })
@@ -176,10 +163,10 @@ export class AuthRepository {
     return rows[0]?.activeLocationId ?? null;
   }
 
-  /** A single shared value for the whole tenant — see the column comment in
-   *  0003_review_provider_locations.sql. The caller (`ConnectionsService.setActiveLocation`)
-   *  is what restricts this to an owner and validates the location belongs to the tenant; this
-   *  method itself trusts its input. */
+  /**
+   * Trusts its input; the caller (`ConnectionsService.setActiveLocation`) restricts this to an
+   * owner and validates the location.
+   */
   async updateActiveLocationId(
     tx: DrizzleTransaction,
     input: { tenantId: string; locationId: string | null }
@@ -232,10 +219,9 @@ export class AuthRepository {
     tx: DrizzleTransaction,
     input: InsertTenantSettingsInput
   ): Promise<void> {
-    // `escalation_rating_threshold` is left to its column default (3) — one source of truth for
-    // the product default, in the schema. `auto_post_enabled` is written explicitly even though
-    // it defaults to false, because "never post without a human in the MVP" is an app-level
-    // guarantee (PLAN.md §8) and worth stating at the insert rather than inheriting silently.
+    // `escalation_rating_threshold` keeps its column default (single source of truth);
+    // `auto_post_enabled` is written explicitly because "never post without a human" is an
+    // app-level guarantee, not a schema default.
     await tx.insert(schema.tenantSettings).values({
       tenantId: input.tenantId,
       autoPostEnabled: false,
@@ -244,12 +230,8 @@ export class AuthRepository {
   }
 
   /**
-   * Seeds the new owner as the tenant's one escalation recipient — `channel`/`type` left to their
-   * column defaults (`email`/`escalation`, the only values either has today). Without this, a
-   * brand-new tenant has zero `notification_recipients` rows and every future escalation would be
-   * a silent, correct-but-useless no-op forever; there is no add-recipient route yet for anyone to
-   * fix that after the fact. Same "the row must exist, not just the value" reasoning as
-   * `insertTenantSettings` above.
+   * Seeds the new owner as the tenant's one escalation recipient; with no `notification_recipients`
+   * row every escalation would silently no-op and there is no add-recipient route to fix it later.
    */
   async insertNotificationRecipient(
     tx: DrizzleTransaction,
@@ -262,13 +244,10 @@ export class AuthRepository {
   }
 
   /**
-   * Upserts on `(user_id, purpose)`, not `token_hash` — a verify_email code is a 6-digit OTP, not
-   * a 256-bit random value, so `token_hash` can't be the identity of "this user's live code"
-   * (two users can land on the same digits at the same time). `idx_password_reset_tokens_user_id_purpose`
-   * enforces at most one live row per user per purpose; issuing a fresh code (signup, a
-   * login-triggered resend, or an explicit resend click) always overwrites that same row. This
-   * also covers the dev fixed-code bypass with no special-cased second method — a fixed value is
-   * just another code that happens to repeat across upserts.
+   * Upserts on `(user_id, purpose)`, not `token_hash`: a verify_email code is a 6-digit OTP, so two
+   * users can hold the same digits and the hash cannot identify "this user's live code". The unique
+   * index keeps one live row per user per purpose; every reissue overwrites it, which also covers
+   * the dev fixed-code bypass.
    */
   async putVerifyEmailToken(
     tx: DrizzleTransaction,
@@ -294,12 +273,9 @@ export class AuthRepository {
   }
 
   /**
-   * Compare-and-swap, not check-then-write (auth API reference's Security considerations,
-   * `PLAN.md` §8.7): the `used_at IS NULL AND expires_at > now()` guard lives in the `WHERE`
-   * clause of the same `UPDATE` that consumes the token, so two simultaneous requests for the
-   * same code can't both see it as valid — the loser's `UPDATE` matches zero rows. Scoped by
-   * `userId` (the caller already resolved it via `findUserByEmail`) as well as `tokenHash`, since
-   * `token_hash` is no longer unique across users.
+   * Compare-and-swap: the `used_at IS NULL AND expires_at > now()` guard is in the `WHERE` of the
+   * consuming `UPDATE`, so of two simultaneous requests for one code the loser matches zero rows.
+   * Also scoped by `userId`, since `token_hash` is not unique across users.
    */
   async consumeVerifyEmailToken(
     tx: DrizzleTransaction,
@@ -343,13 +319,9 @@ export class AuthRepository {
   }
 
   /**
-   * Discards a password that was set but never proven — see `AuthDbService.resolveGoogleIdentity`.
-   *
-   * A `pending_verification` row's `password_hash` was chosen by whoever typed it into signup,
-   * which is not necessarily the person who owns the mailbox. Activating that row off an SSO
-   * assertion (which proves only the mailbox) would leave the unproven password live on a now-real
-   * account, so it is dropped instead. The account keeps working through SSO and can adopt a
-   * password later via `POST /v1/auth/set-password`.
+   * Discards a password that was set but never proven (see `AuthDbService.resolveGoogleIdentity`):
+   * an SSO assertion proves only the mailbox, so activating the row would leave a possibly
+   * squatter-chosen password live.
    */
   async clearPasswordHash(tx: DrizzleTransaction, userId: string): Promise<void> {
     await tx
@@ -358,7 +330,10 @@ export class AuthRepository {
       .where(eq(schema.users.id, userId));
   }
 
-  /** Drops any outstanding verify-email code for a user — its purpose is served, or (see `clearPasswordHash`) it belonged to a signup attempt that is no longer trusted. */
+  /**
+   * Drops any outstanding verify-email code: it served its purpose, or belonged to a signup attempt
+   * that is no longer trusted (see `clearPasswordHash`).
+   */
   async deleteVerifyEmailTokensForUser(tx: DrizzleTransaction, userId: string): Promise<void> {
     await tx
       .delete(schema.passwordResetTokens)
@@ -371,23 +346,52 @@ export class AuthRepository {
   }
 
   /**
-   * Same upsert-on-(user_id, purpose) shape as `putVerifyEmailToken`, under the `token_purpose`
-   * enum's own `set_password` value. This is the step-up proof `AuthService.setPassword` requires
-   * before converting an access token (a 15-minute credential) into a permanent one on a
-   * passwordless account: without it, a stolen access token alone was sufficient.
+   * Same upsert shape as `putVerifyEmailToken`, with its own `set_password` purpose. It is the
+   * step-up proof `AuthService.setPassword` requires before a 15-minute access token can create a
+   * permanent password; without it a stolen access token sufficed.
    *
-   * Deliberately NOT `reset`, which the auth API reference reserves for the (unbuilt) public
-   * forgot-password route: one shared value would make this upsert silently invalidate a live
-   * reset token, and would let a code minted here — behind an access token — satisfy a consume
-   * from that unauthenticated route, and vice versa.
+   * Deliberately not `reset` (reserved for the public forgot-password route): a shared value would
+   * let this upsert invalidate a live reset token and let a code minted here satisfy that
+   * unauthenticated consume.
    */
-  async putSetPasswordOtp(tx: DrizzleTransaction, input: PutVerifyEmailTokenInput): Promise<void> {
+  putSetPasswordOtp(tx: DrizzleTransaction, input: PutVerifyEmailTokenInput): Promise<void> {
+    return this.putStepUpOtp(tx, TokenPurpose.SET_PASSWORD, input);
+  }
+
+  /** `consumeVerifyEmailToken`'s CAS shape, scoped to the `set_password`-purpose row `putSetPasswordOtp` writes. */
+  consumeSetPasswordOtp(
+    tx: DrizzleTransaction,
+    input: { userId: string; tokenHash: string }
+  ): Promise<boolean> {
+    return this.consumeStepUpOtp(tx, TokenPurpose.SET_PASSWORD, input);
+  }
+
+  /**
+   * Step-up code for an SSO-only owner before scheduling their business's erasure; its own
+   * `delete_account` purpose so it satisfies neither `set_password` nor the reset route.
+   */
+  putDeleteAccountOtp(tx: DrizzleTransaction, input: PutVerifyEmailTokenInput): Promise<void> {
+    return this.putStepUpOtp(tx, TokenPurpose.DELETE_ACCOUNT, input);
+  }
+
+  consumeDeleteAccountOtp(
+    tx: DrizzleTransaction,
+    input: { userId: string; tokenHash: string }
+  ): Promise<boolean> {
+    return this.consumeStepUpOtp(tx, TokenPurpose.DELETE_ACCOUNT, input);
+  }
+
+  private async putStepUpOtp(
+    tx: DrizzleTransaction,
+    purpose: TokenPurpose,
+    input: PutVerifyEmailTokenInput
+  ): Promise<void> {
     await tx
       .insert(schema.passwordResetTokens)
       .values({
         userId: input.userId,
         tokenHash: input.tokenHash,
-        purpose: TokenPurpose.SET_PASSWORD,
+        purpose,
         expiresAt: input.expiresAt,
       })
       .onConflictDoUpdate({
@@ -401,9 +405,9 @@ export class AuthRepository {
       });
   }
 
-  /** `consumeVerifyEmailToken`'s CAS shape, scoped to the `set_password`-purpose row `putSetPasswordOtp` writes. */
-  async consumeSetPasswordOtp(
+  private async consumeStepUpOtp(
     tx: DrizzleTransaction,
+    purpose: TokenPurpose,
     input: { userId: string; tokenHash: string }
   ): Promise<boolean> {
     const rows = await tx
@@ -413,7 +417,7 @@ export class AuthRepository {
         and(
           eq(schema.passwordResetTokens.userId, input.userId),
           eq(schema.passwordResetTokens.tokenHash, input.tokenHash),
-          eq(schema.passwordResetTokens.purpose, TokenPurpose.SET_PASSWORD),
+          eq(schema.passwordResetTokens.purpose, purpose),
           isNull(schema.passwordResetTokens.usedAt),
           gt(schema.passwordResetTokens.expiresAt, sql`now()`)
         )
@@ -424,11 +428,9 @@ export class AuthRepository {
   }
 
   /**
-   * Scoped to `status = 'pending_verification'` defensively — a verify_email token should never
-   * exist for a user in any other status today, but this guards against a stale/reused token
-   * silently reactivating an account that isn't actually pending verification. Returns whether it
-   * actually changed anything, so the caller can tell a real activation from a guard-blocked
-   * no-op instead of treating both as success.
+   * Scoped to `pending_verification` so a stale or reused token cannot reactivate an account in
+   * another status. Returns whether anything changed, so a guard-blocked no-op is distinguishable
+   * from an activation.
    */
   async activateUser(tx: DrizzleTransaction, userId: string): Promise<boolean> {
     const rows = await tx
@@ -443,13 +445,8 @@ export class AuthRepository {
   }
 
   /**
-   * Moves a tenant off the `pending_activation` default it is created with. Called wherever an
-   * owner's email becomes proven — OTP verification, or a Google signup/link, where Google has
-   * already verified it. Without this the column stayed `pending_activation` for the life of every
-   * tenant, since nothing else ever wrote it.
-   *
-   * Scoped to `pending_activation` so it can never resurrect a `suspended` tenant: suspension is
-   * an admin decision, and a member verifying their email must not undo it.
+   * Moves a tenant off `pending_activation` once the owner's email is proven (OTP, or Google).
+   * Scoped to `pending_activation` so it can never undo an admin's suspension.
    */
   async activateTenant(tx: DrizzleTransaction, tenantId: string): Promise<void> {
     await tx
@@ -472,17 +469,11 @@ export class AuthRepository {
   }
 
   /**
-   * A refresh-token row found **without** filtering on `revoked_at IS NULL` — so a token that was
-   * already spent is still found, along with when it was spent.
-   *
-   * That is what makes reuse detection possible: "not active" collapses three very different
-   * situations (never existed, expired, already rotated out), and only the third is a signal that
-   * a spent token is still in circulation. `revokedAt` lets the caller separate a lost rotation
-   * race moments ago from a replay minutes later — see `TokenService.rotate` and
-   * `REFRESH_REUSE_GRACE_SECONDS`.
-   *
-   * Still excludes expired tokens: past `expires_at` nothing can be honored or inferred, and the
-   * daily purge deletes those rows anyway.
+   * Found without filtering on `revoked_at IS NULL`, so a spent token is still found along with
+   * when it was spent: that is what makes reuse detection possible ("not active" otherwise merges
+   * never existed, expired and rotated out). `revokedAt` lets the caller tell a lost rotation race
+   * moments ago from a later replay (see `TokenService.rotate`, `REFRESH_REUSE_GRACE_SECONDS`).
+   * Still excludes expired tokens.
    */
   async findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRow | null> {
     const rows = await this.dbService.db
@@ -504,15 +495,9 @@ export class AuthRepository {
   }
 
   /**
-   * "Does this user still have *any* live session?" — the question that separates a refresh
-   * token that lost a rotation race from one whose whole family is dead.
-   *
-   * Both cases reach `TokenService.rotate()` as "the presented token is not active", but they
-   * want opposite handling at the cookie layer: a token superseded moments ago by a concurrent
-   * refresh sits alongside a perfectly good successor (the winner's), and the browser already
-   * holds it, so the failed caller must not clear cookies. A revoked-on-logout, expired, or
-   * DB-reset-away token has no successor, and the cookies genuinely need clearing or the
-   * frontend's session hint outlives the session. See `AuthController.refresh`.
+   * Whether the user has any live session. Separates a refresh token that lost a rotation race (a
+   * successor exists and the browser already holds it, so cookies must not be cleared) from one
+   * whose whole family is dead (cookies must be cleared). See `AuthController.refresh`.
    */
   async hasActiveRefreshToken(userId: string): Promise<boolean> {
     const rows = await this.dbService.db
@@ -531,11 +516,9 @@ export class AuthRepository {
   }
 
   /**
-   * Compare-and-swap, same shape as `consumeVerifyEmailToken`: the `revoked_at IS NULL` guard is
-   * in the `UPDATE`'s own `WHERE`, so of N concurrent rotations of one token exactly one sees a
-   * row change. Returns whether this call was that one — the caller must treat `false` as "this
-   * token was already spent" rather than proceeding to issue a replacement (observed before this:
-   * 5 concurrent refreshes of one token → 5 live sessions).
+   * Compare-and-swap: the `revoked_at IS NULL` guard is in the `UPDATE`'s `WHERE`, so of N
+   * concurrent rotations exactly one sees a row change. `false` means the token was already spent
+   * and no replacement may be issued.
    */
   async revokeRefreshToken(tx: DrizzleTransaction, id: string): Promise<boolean> {
     const rows = await tx
@@ -547,10 +530,7 @@ export class AuthRepository {
     return rows.length > 0;
   }
 
-  /**
-   * Housekeeping — a consumed or expired OTP has no further use once its window is over. Returns
-   * the number of rows removed.
-   */
+  /** Returns the number of rows removed. */
   async deleteStaleOtpTokens(tx: DrizzleTransaction): Promise<number> {
     const rows = await tx
       .delete(schema.passwordResetTokens)
@@ -569,13 +549,10 @@ export class AuthRepository {
   }
 
   /**
-   * Housekeeping — an expired refresh token can never be honored again
-   * (`findRefreshTokenByHash` already excludes expired ones), so that row is dead weight
-   * immediately. A revoked row is different: `TokenService.handleSpentToken` needs it to still
-   * exist to tell a reuse replay from a lost rotation race, so it's kept for at least
-   * `REFRESH_TOKEN_REVOKED_RETENTION_HOURS` past `revokedAt` — see that constant's own comment for
-   * why a bare "revoked at all" check here previously gave replay detection an unpredictable
-   * (sometimes near-zero) window instead of a consistent one. Returns the number of rows removed.
+   * Expired tokens go immediately; a revoked row is kept for
+   * `REFRESH_TOKEN_REVOKED_RETENTION_HOURS` past `revokedAt` because
+   * `TokenService.handleSpentToken` needs it to tell a replay from a lost rotation race. Returns
+   * the number of rows removed.
    */
   async deleteStaleRefreshTokens(tx: DrizzleTransaction): Promise<number> {
     const rows = await tx
@@ -624,9 +601,8 @@ export class AuthRepository {
   }
 
   /**
-   * Idempotent on `idx_user_identities_provider_provider_user_id`. A second sign-in with the same
-   * Google account refreshes the recorded email rather than raising a 23505 — the email on the
-   * identity is a convenience copy, and Workspace accounts do get renamed.
+   * Idempotent on `idx_user_identities_provider_provider_user_id`; a repeat sign-in refreshes the
+   * recorded email (Workspace accounts get renamed) instead of raising a 23505.
    */
   async upsertUserIdentity(tx: DrizzleTransaction, input: InsertUserIdentityInput): Promise<void> {
     await tx
@@ -644,10 +620,8 @@ export class AuthRepository {
   }
 
   /**
-   * The SSO counterpart to `insertOwnerUser`. Created `active` with `email_verified_at` already
-   * set, and with no password hash: Google has verified the address, so there is no OTP to send
-   * and nothing to verify. That is also why this path must provision the tenant's workspace
-   * itself — it never passes through `verifyEmail`, which is where password signups get theirs.
+   * SSO counterpart to `insertOwnerUser`: created active and verified, with no password hash. It
+   * never passes through `verifyEmail`, so the caller must provision the workspace itself.
    */
   async insertVerifiedOwnerUser(
     tx: DrizzleTransaction,
@@ -674,12 +648,8 @@ export class AuthRepository {
   }
 
   /**
-   * Creates the invited member's own `users` row — `status: invited`, no password, attributed to
-   * the owner who sent the invite. Mirrors `PlatformAdminRepository.insertInvitedAdmin`; the one
-   * structural difference is there is no separate invite-row table to also write here — the
-   * invite token lives on `password_reset_tokens` (`insertMemberInviteToken`), inserted as its own
-   * statement in the same transaction, same as `signup`'s `insertOwnerUser` +
-   * `putVerifyEmailToken` pair.
+   * Creates the invited member's `users` row (`status: invited`, no password); the invite token
+   * goes into `password_reset_tokens` via `insertMemberInviteToken` in the same transaction.
    */
   async insertInvitedMember(
     tx: DrizzleTransaction,
@@ -705,9 +675,9 @@ export class AuthRepository {
     return row;
   }
 
-  /** A plain insert, not an upsert — a brand-new `users` row from `insertInvitedMember` never has
-   *  a prior invite token to replace, unlike `putVerifyEmailToken`'s upsert-on-`(user_id, purpose)`
-   *  shape for a row that can be re-issued a code many times over its life. */
+  /**
+   * Plain insert, not an upsert: a brand-new `users` row never has a prior invite token to replace.
+   */
   async insertMemberInviteToken(
     tx: DrizzleTransaction,
     input: InsertMemberInviteTokenInput
@@ -721,12 +691,9 @@ export class AuthRepository {
   }
 
   /**
-   * Global lookup, not tenant-scoped — mirrors `PlatformAdminRepository.findByEmail` for the same
-   * reason: `idx_users_email_active` is a global uniqueness guarantee (one non-anonymized account
-   * per email, across every tenant), so "is this email already claimed" has to check globally
-   * before `TenantMembersService.sendInvite` ever attempts the insert. `inviteExpiresAt` comes from
-   * the left-joined `invite`-purpose `password_reset_tokens` row, `null` for anyone who wasn't
-   * invited (a self-registered or platform-admin-provisioned owner).
+   * Global, not tenant-scoped: `idx_users_email_active` is globally unique, so "already claimed"
+   * must be checked across tenants before `TenantMembersService.sendInvite` inserts.
+   * `inviteExpiresAt` comes from the left-joined invite token and is `null` for anyone not invited.
    */
   async findMemberInviteStatusByEmail(email: string): Promise<MemberInviteStatusRow | null> {
     const rows = await this.dbService.db
@@ -751,12 +718,9 @@ export class AuthRepository {
   }
 
   /**
-   * Read-only preview for `GET /v1/auth/invite/:token` and the Google-authorize route — so both
-   * can fail fast on a dead link before ever asking the invitee for a name/password or redirecting
-   * to Google. Mirrors `PlatformAdminRepository.findInviteEmailByTokenHash`: the invite row's own
-   * `used_at`/`expires_at` are the only source of truth for "still redeemable", never
-   * `users.status` — `acceptMemberInviteWith*` below flip both in the same transaction, so they
-   * can never disagree.
+   * Read-only preview so the accept screen and the Google-authorize route can fail fast on a dead
+   * link. The invite row's `used_at`/`expires_at` are the source of truth for "still redeemable",
+   * never `users.status` (the accept paths flip both in one transaction).
    */
   async findMemberInviteEmailByTokenHash(
     tokenHash: string
@@ -778,11 +742,7 @@ export class AuthRepository {
     return (rows[0] as { email: string; tenantId: string } | undefined) ?? null;
   }
 
-  /**
-   * Redeems a member invite by setting a name and password — the shared first step
-   * (`lockLiveMemberInvite`) is identical to `acceptMemberInviteWithGoogleIdentity` below; only
-   * what happens to `users` differs (a name + password hash here, a name + identity row there).
-   */
+  /** Password variant of invite redemption; the Google variant shares `lockLiveMemberInvite`. */
   async acceptMemberInviteWithPassword(input: {
     tokenHash: string;
     name: string;
@@ -813,8 +773,8 @@ export class AuthRepository {
 
       const member = activated[0];
       if (!member) {
-        // Raced with something else accepting/removing the same member between the lock above and
-        // this write — the invite row was live a moment ago, the users row no longer is.
+        // Raced with another accept/remove between the lock and this write: the invite row was
+        // live, the users row no longer is.
         return { outcome: 'invalid' };
       }
 
@@ -823,10 +783,8 @@ export class AuthRepository {
         outcome: 'accepted',
         id: member.id,
         tenantId: member.tenantId,
-        // `email`/`name` are nullable at the column level (GDPR anonymize-in-place, see
-        // `users.name`'s own doc comment) but provably set here: this row's `status` was just
-        // `invited` (never anonymized — only an active/accepted member is ever anonymized) and
-        // `name` was set by this very UPDATE, from a required, non-null `input.name`.
+        // `email`/`name` are nullable at the column level (GDPR anonymize) but provably set here:
+        // the row was just `invited` (never anonymized) and `name` was set by this UPDATE.
         email: member.email!,
         name: member.name!,
       };
@@ -834,15 +792,10 @@ export class AuthRepository {
   }
 
   /**
-   * Redeems a member invite by linking a Google identity and setting a name, instead of a
-   * password. `AuthService.completeMemberInviteGoogle` has already confirmed the Google account's
-   * verified email matches the invited address before calling this.
-   *
-   * A plain insert into `user_identities`, not `upsertUserIdentity` — that method's
-   * `onConflictDoUpdate` on `(provider, provider_user_id)` exists for a *returning* user relinking
-   * their own account, and reusing it here would silently steal a Google identity already linked
-   * to a *different* user rather than reporting `identity_already_linked`, the same distinction
-   * `PlatformAdminRepository.acceptInviteWithGoogleIdentity`'s own comment makes.
+   * Google variant of invite redemption; `AuthService.completeMemberInviteGoogle` has already
+   * confirmed the verified email matches. A plain insert, not `upsertUserIdentity`: its
+   * `onConflictDoUpdate` would silently steal a Google identity linked to a different user instead
+   * of reporting `identity_already_linked`.
    */
   async acceptMemberInviteWithGoogleIdentity(input: {
     tokenHash: string;
@@ -886,9 +839,8 @@ export class AuthRepository {
         });
       } catch (error) {
         if (isUniqueViolation(error)) {
-          // This Google account is already linked to a *different* user
-          // (`idx_user_identities_provider_provider_user_id`). Rolled back atomically with the
-          // transaction — the member above is not left half-activated with no identity.
+          // This Google account is already linked to a different user; rolls back with the
+          // transaction so the member is not left half-activated.
           return { outcome: 'identity_already_linked' };
         }
         throw error;
@@ -899,8 +851,8 @@ export class AuthRepository {
         outcome: 'accepted',
         id: member.id,
         tenantId: member.tenantId,
-        // Same reasoning as `acceptMemberInviteWithPassword`'s own comment — this row was just
-        // `invited` (never anonymized) and `name` was just set by this UPDATE.
+        // Provably set: this row was just `invited` (never anonymized) and `name` was set by this
+        // UPDATE.
         email: member.email!,
         name: member.name!,
       };
@@ -908,10 +860,8 @@ export class AuthRepository {
   }
 
   /**
-   * Locks the live invite row (unused, unexpired) inside the caller's transaction so a concurrent
-   * redemption of the same token cannot also pass — mirrors
-   * `PlatformAdminRepository.lockLiveInvite` exactly, on `password_reset_tokens` instead of
-   * `platform_admin_invites`.
+   * Locks the live (unused, unexpired) invite row so a concurrent redemption cannot also pass;
+   * mirrors `PlatformAdminRepository.lockLiveInvite`.
    */
   private async lockLiveMemberInvite(
     tx: DrizzleTransaction,
@@ -942,35 +892,16 @@ export class AuthRepository {
   }
 
   /**
-   * Deletes the invited member's own row outright — not a soft-disable, since the member never
-   * accepted and never had a real account to begin with. Scoped to `status = 'invited'` AND
-   * `tenant_id` so an owner can never revoke another tenant's pending invite or a member who has
-   * since accepted.
+   * Deletes the invited member's row outright (never accepted, so no real account), scoped to
+   * `status = 'invited'` AND `tenant_id` so an owner cannot revoke another tenant's invite or a
+   * member who has accepted. Both statements carry the tenant scope: scoping the token delete by
+   * `user_id` alone would let a cross-tenant request delete another tenant's invite token even
+   * though the `users` delete then matches nothing and returns 404.
    *
-   * **Both** statements carry that tenant scope, the token delete included. Filtering the token
-   * delete on `user_id` alone was a cross-tenant write: the `users` delete below still refused to
-   * match, so the caller correctly got a 404, but the other tenant's invite token was already gone
-   * by then and the transaction committed anyway — killing a pending invite in a tenant the caller
-   * has no access to, with the 404 making it look like nothing had happened.
-   *
-   * Deletes the `password_reset_tokens` row explicitly, in its own statement, *before* deleting
-   * `users` — deliberately not left to the FK's own `ON DELETE CASCADE`, which would delete them
-   * in the opposite order (lock `users` first, cascade to the token second).
-   *
-   * That ordering matters because `lockLiveMemberInvite` (the accept path's compare-and-swap)
-   * locks the token row first and only then updates `users`. Two transactions that acquire the
-   * same two locks in *opposite* orders are exactly Postgres's textbook deadlock shape: a revoke
-   * racing an in-flight accept could have this method holding the `users` row lock waiting for the
-   * token lock accept already holds, while accept waits for the `users` lock this method already
-   * holds — a circular wait Postgres can only resolve by aborting one side with a raw `deadlock
-   * detected` error instead of the clean 409/400 either path is supposed to produce. Matching
-   * accept's own lock order (token, then user) makes that circular wait structurally impossible:
-   * whichever transaction gets there first simply finishes before the other can start waiting on
-   * it.
-   *
-   * (`PlatformAdminRepository.deleteInvitedAdmin` has the identical latent risk against
-   * `acceptInviteWith*`'s own `lockLiveInvite` — tracked separately, since fixing it touches a
-   * different, already-shipped table pair.)
+   * The token row is deleted explicitly, before `users`, to match `lockLiveMemberInvite`'s lock
+   * order (token, then user); the FK cascade would lock in the opposite order and could deadlock
+   * against an in-flight accept. `PlatformAdminRepository.deleteInvitedAdmin` has the same latent
+   * risk.
    */
   async deleteInvitedMember(
     tenantId: string,
@@ -1003,16 +934,13 @@ export class AuthRepository {
 
       const deleted = rows[0];
       if (deleted) {
-        // `email` is nullable at the column level (GDPR anonymize-in-place) but this row was
-        // deleted while still `status = 'invited'` — never-accepted rows are never anonymized,
-        // only active/accepted members are — so it's provably the address the invite was sent to.
+        // `email` is nullable (GDPR anonymize) but this row was still `invited`, which is never
+        // anonymized, so it is the invited address.
         return { outcome: 'revoked' as const, email: deleted.email! };
       }
 
-      // Nothing matched: either no such id in this tenant at all, or an id whose row is no longer
-      // `invited` (already accepted — in which case the delete above harmlessly removed its
-      // already-spent token row, same cleanup the nightly sweep would have done anyway). One extra
-      // read only on the failure path, so the happy path stays two statements, not three.
+      // Nothing matched: no such id in this tenant, or the row is no longer `invited` (the delete
+      // above harmlessly removed its spent token). The extra read runs only on this failure path.
       const existing = await tx
         .select({ id: schema.users.id })
         .from(schema.users)
@@ -1024,19 +952,13 @@ export class AuthRepository {
   }
 
   /**
-   * Drops a lapsed invite so the same address can be invited again — see
-   * `findMemberInviteStatusByEmail` for why a stale row otherwise claims that email forever (the
-   * global `idx_users_email_active` index, not merely a per-tenant one). Scoped to `invited` for
-   * the same reason `deleteInvitedMember` is: an accepted member must never be removed by an
-   * invite-flow path. Global, not tenant-scoped — the row being replaced was found via the global
-   * lookup in the first place.
+   * Drops a lapsed invite so the address can be invited again (a stale row otherwise claims it
+   * forever via the global `idx_users_email_active`). Scoped to `invited` so an accepted member is
+   * never removed by an invite path; global, since the row was found via the global lookup.
    *
-   * Takes the same token-then-user lock order `deleteInvitedMember` does, and for the same reason
-   * — see its comment. The window here is narrower (this only runs against an invite the caller
-   * has already read as lapsed, and accept only locks a token it reads as live), but "narrower"
-   * depends on the app clock and the database clock agreeing about the expiry instant, which is
-   * not an invariant worth resting a deadlock on. Every writer of this table pair takes the two
-   * locks in one order.
+   * Same token-then-user lock order as `deleteInvitedMember`; the window is narrower here but
+   * depends on app and DB clocks agreeing on the expiry instant, which is not worth resting a
+   * deadlock on.
    */
   async deleteExpiredMemberInvite(id: string): Promise<void> {
     await this.dbService.db.transaction(async tx => {
@@ -1056,9 +978,8 @@ export class AuthRepository {
   }
 
   /**
-   * Every user in a tenant — owner and members alike, invited or active — for the Team Members
-   * list. Excludes anonymized rows, same as every other user-facing read in this repository.
-   * Ordered oldest-first so the owner (always the first row created) leads the list.
+   * Every non-anonymized user in a tenant, oldest first so the owner (created first) leads the Team
+   * Members list.
    */
   async listTenantMembers(tenantId: string): Promise<TenantMemberRow[]> {
     const rows = await this.dbService.db
@@ -1079,21 +1000,15 @@ export class AuthRepository {
   }
 
   /**
-   * Marks an active member `disabled` + `erasure_requested_at = now()` — access is revoked
-   * immediately, but the actual anonymization is deferred to the nightly erasure-purge cron job
-   * once `ERASURE_GRACE_PERIOD_DAYS` elapses, so a mistaken request can still be cancelled.
-   * Self-removal is refused one layer up (`TenantMembersService`, a cheap check that needs no DB
-   * round trip) — this method only ever sees a target other than the acting owner.
+   * Marks an active member `disabled` with `erasure_requested_at = now()`: access ends at once, but
+   * anonymization is deferred to the nightly purge after `ERASURE_GRACE_PERIOD_DAYS` so a mistaken
+   * request can be cancelled. Self-removal is refused a layer up, so the target is never the acting
+   * owner.
    *
-   * Advisory-lock-guarded against stripping a tenant down to zero owners, same shape as
-   * `PlatformAdminRepository.setStatusGuardingLastActive`'s last-active-admin guard: without the
-   * lock, two concurrent requests removing the tenant's last two owners could each read "one other
-   * owner exists" before either write lands. Scoped to this one tenant via `hashtext(tenantId)` as
-   * the second key — unlike the platform-admin guard it mirrors (correctly global there, since
-   * platform admins have no tenant partition), this invariant is per-tenant, so two unrelated
-   * tenants' removal requests must never serialize against each other. Matches the same
-   * per-tenant lock-key shape `ConnectionsRepository.acquireLocationConfirmLock`/
-   * `TenantSubscriptionsRepository.acquireCheckoutLock` already use.
+   * Advisory-locked so two concurrent requests removing the last two owners cannot both read "one
+   * other owner exists". The second key is `hashtext(tenantId)` because this invariant is per
+   * tenant (unlike the global platform-admin guard it mirrors), so unrelated tenants must not
+   * serialize; same key shape as `ConnectionsRepository.acquireLocationConfirmLock`.
    */
   async requestMemberRemoval(
     tenantId: string,
@@ -1156,18 +1071,12 @@ export class AuthRepository {
   }
 
   /**
-   * The GDPR anonymize-in-place primitive both erasure flows (member removal, tenant erasure)
-   * purge through — never a hard `DELETE`, since `review_responses.approved_by_user_id`/
-   * `rejected_by_user_id`/`created_by_user_id` (`ON DELETE SET NULL`) need this row to survive for
-   * the "who approved this reply" accountability trail, and two `RESTRICT` FKs
-   * (`review_provider_connections.connected_by_user_id`, `notifications.recipient_user_id`) would
-   * outright block a real delete the moment this user has ever connected a location or received a
-   * notification.
-   *
-   * Idempotent — guarded on `anonymized_at IS NULL`, so calling this twice (a retried purge job,
-   * a row already caught by an earlier run) is a harmless no-op the second time, not an error.
-   * Avatar deletion is NOT this method's job — see `AccountAnonymizationService`, which calls
-   * `MediaService.deleteAvatarIfPresent` first and this method second.
+   * The GDPR anonymize-in-place primitive both erasure flows use, never a hard `DELETE`:
+   * `review_responses.*_by_user_id` need the row to survive for the approval trail, and two
+   * `RESTRICT` FKs (`review_provider_connections.connected_by_user_id`,
+   * `notifications.recipient_user_id`) would block a real delete. Idempotent via `anonymized_at IS
+   * NULL`, so a retried purge is a no-op. Avatar deletion is the caller's job
+   * (`AccountAnonymizationService`), done first.
    */
   async anonymizeUser(userId: string): Promise<{ outcome: 'already_anonymized' | 'anonymized' }> {
     return this.dbService.db.transaction(async tx => {
@@ -1190,23 +1099,25 @@ export class AuthRepository {
       }
 
       await tx.delete(schema.userIdentities).where(eq(schema.userIdentities.userId, userId));
+      // An anonymized user must not keep a way back in: drop every refresh-token hash and
+      // unconsumed OTP/invite/reset token (access tokens are stateless and lapse within
+      // `ACCESS_TOKEN_TTL_SECONDS`).
+      await tx.delete(schema.refreshTokens).where(eq(schema.refreshTokens.userId, userId));
+      await tx
+        .delete(schema.passwordResetTokens)
+        .where(eq(schema.passwordResetTokens.userId, userId));
 
       return { outcome: 'anonymized' };
     });
   }
 
   /**
-   * Undoes `requestMemberRemoval` — clears the pending marker and restores `status = 'active'`.
-   * Scoped to a row that still has `erasure_requested_at` set and hasn't been anonymized yet;
-   * once the grace period elapses and the cron job runs, there is nothing left to cancel.
+   * Undoes `requestMemberRemoval`, restoring the prior status (`active`, or `invited` for someone
+   * who never accepted); only while `erasure_requested_at` is set and the row is not anonymized.
    *
-   * Takes a per-member advisory lock (`hashtext('gdpr:member-erasure'), hashtext(memberId)`) —
-   * the same key the erasure-purge cron's standalone member-removal loop takes as a session lock
-   * (see `runWithErasurePurgeLock`'s `acquireLock` parameter) before anonymizing that user. Without
-   * this, this method could "succeed" in the gap between the cron reading its due-user list and
-   * actually anonymizing that user, racing to restore access to a user the cron anonymizes anyway
-   * moments later — the same class of race `AdminBusinessesRepository.cancelErasure` closes against
-   * the cron's tenant-wide loop.
+   * Takes the per-member advisory lock the purge cron's member-removal loop also takes, so this
+   * cannot "succeed" in the gap between the cron reading its due list and anonymizing that user
+   * (the same race `AdminBusinessesRepository.cancelErasure` closes for tenants).
    */
   async cancelMemberRemoval(
     tenantId: string,
@@ -1217,7 +1128,14 @@ export class AuthRepository {
 
       const rows = await tx
         .update(schema.users)
-        .set({ status: UserStatus.ACTIVE, erasureRequestedAt: null, updatedAt: sql`now()` })
+        .set({
+          // Restores the pre-removal status: accepting an invite always stamps `email_verified_at`,
+          // so null means never accepted; hard-coding `active` would promote an unaccepted invitee
+          // to a member that could no longer be revoked.
+          status: sql`CASE WHEN ${schema.users.emailVerifiedAt} IS NULL THEN ${UserStatus.INVITED} ELSE ${UserStatus.ACTIVE} END::user_status`,
+          erasureRequestedAt: null,
+          updatedAt: sql`now()`,
+        })
         .where(
           and(
             eq(schema.users.id, memberId),
@@ -1233,12 +1151,9 @@ export class AuthRepository {
         return { outcome: 'cancelled', id: updated.id };
       }
 
-      // Scoped off anonymized rows too, matching the CAS update's own guard above — a member the
-      // nightly purge already anonymized (row still exists, but is no longer a real active person)
-      // reads as "not found" here, not a misleading "not pending" that implies removal simply
-      // hasn't started yet. Only reachable via a stale tab, a replayed request, or a direct API
-      // call: `listTenantMembers` already excludes anonymized rows, so the normal UI never has
-      // this id.
+      // Also excludes anonymized rows, like the CAS update above, so a member the purge already
+      // anonymized reads as "not found" rather than a misleading "not pending" (reachable only via
+      // a stale tab or direct API call).
       const existing = await tx
         .select({ id: schema.users.id })
         .from(schema.users)
@@ -1256,30 +1171,25 @@ export class AuthRepository {
   }
 
   /**
-   * The one place `DBService`'s raw connection is touched for a transaction boundary — keeps
-   * that fully inside the Repository (module-structure.md: "only Repositories talk to the raw
-   * connection"), so AuthDbService composes transactions through this passthrough instead of
-   * injecting `DBService` itself.
+   * Keeps the raw `DBService` connection inside the Repository; AuthDbService composes transactions
+   * through this passthrough.
    */
   async transaction<T>(fn: (tx: DrizzleTransaction) => Promise<T>): Promise<T> {
     return this.dbService.db.transaction(fn);
   }
 
-  // ─── GDPR erasure-purge (nightly cron job) ────────────────────────────────
-
-  /** `Date.now() - gracePeriodDays` as the ISO cutoff every due-for-erasure query below compares
-   *  against — one place, so `findTenantsDueForErasurePurge`/`isTenantStillDueForErasure` and
-   *  `findUsersDueForErasurePurge`/`isUserStillDueForErasure` can never compute it inconsistently
-   *  with each other. */
+  /**
+   * One place for the ISO cutoff every due-for-erasure query compares against, so the tenant and
+   * user variants cannot compute it inconsistently.
+   */
   private erasureCutoff(gracePeriodDays: number): string {
     return new Date(Date.now() - gracePeriodDays * 24 * 60 * 60 * 1000).toISOString();
   }
 
   /**
-   * Shared by `findTenantsDueForErasurePurge` (every due tenant) and `isTenantStillDueForErasure`
-   * (one tenant, re-checked under the per-tenant lock) — the exact same "still suspended,
-   * erasure_requested_at set and past the cutoff" predicate either way, just optionally narrowed
-   * to one id, so the two can never silently drift out of sync with each other.
+   * Shared by `findTenantsDueForErasurePurge` and `isTenantStillDueForErasure` (optionally narrowed
+   * to one id) so the "still suspended, erasure requested and past the cutoff" predicate cannot
+   * drift.
    */
   private tenantDueForErasureCondition(cutoff: string, tenantId?: string): SQL | undefined {
     const conditions = [
@@ -1293,8 +1203,7 @@ export class AuthRepository {
     return and(...conditions);
   }
 
-  /** Same shape as `tenantDueForErasureCondition`, for the standalone (non-tenant-wide) member-
-   *  removal path — shared by `findUsersDueForErasurePurge` and `isUserStillDueForErasure`. */
+  /** Same shape as `tenantDueForErasureCondition`, for the standalone member-removal path. */
   private userDueForErasureCondition(cutoff: string, userId?: string): SQL | undefined {
     const conditions = [
       isNotNull(schema.users.erasureRequestedAt),
@@ -1308,21 +1217,23 @@ export class AuthRepository {
   }
 
   /**
-   * Tenants whose grace period has elapsed — `erasure_requested_at` set and at least
-   * `gracePeriodDays` ago, still `suspended` (not yet flipped to the terminal `erased`, and not a
-   * plain suspension with no erasure pending, since that leaves `erasure_requested_at` null).
+   * Suspended tenants with `erasure_requested_at` at least `gracePeriodDays` ago; a plain
+   * suspension has it null and is excluded.
    */
   async findTenantsDueForErasurePurge(
     gracePeriodDays: number
-  ): Promise<{ id: string; name: string }[]> {
+  ): Promise<{ id: string; name: string; erasureRequestedAt: string | null }[]> {
     return this.dbService.db
-      .select({ id: schema.tenants.id, name: schema.tenants.name })
+      .select({
+        id: schema.tenants.id,
+        name: schema.tenants.name,
+        erasureRequestedAt: schema.tenants.erasureRequestedAt,
+      })
       .from(schema.tenants)
       .where(this.tenantDueForErasureCondition(this.erasureCutoff(gracePeriodDays)));
   }
 
-  /** Every not-yet-anonymized user in a tenant being erased — what the cron job anonymizes one by
-   *  one before flipping the tenant itself to `erased`. */
+  /** Anonymized one by one by the cron before the tenant itself flips to `erased`. */
   async findNonAnonymizedUserIdsForTenant(tenantId: string): Promise<string[]> {
     const rows = await this.dbService.db
       .select({ id: schema.users.id })
@@ -1333,11 +1244,195 @@ export class AuthRepository {
   }
 
   /**
-   * The terminal step of tenant erasure — only reachable after every user in the tenant has
-   * already been anonymized (the cron job's own ordering guarantees this, not a DB constraint).
-   * Guarded on still being `suspended`, so calling this twice (a retried purge job) is a harmless
-   * no-op the second time. Returns the tenant's name for the activity-log entry, or `null` if
-   * nothing matched.
+   * Active owners with an address: not members, nor anyone disabled, anonymized or pending removal.
+   * Read before the purge anonymizes them.
+   */
+  async findTenantOwnerRecipients(tenantId: string): Promise<ErasureNoticeRecipient[]> {
+    return this.dbService.db
+      .select({
+        userId: schema.users.id,
+        hasPassword: sql<boolean>`${schema.users.passwordHash} IS NOT NULL`,
+        email: schema.users.email,
+        name: schema.users.name,
+        locale: schema.users.locale,
+      })
+      .from(schema.users)
+      .where(
+        and(
+          eq(schema.users.tenantId, tenantId),
+          eq(schema.users.role, UserRole.OWNER),
+          eq(schema.users.status, UserStatus.ACTIVE),
+          isNull(schema.users.anonymizedAt),
+          isNull(schema.users.erasureRequestedAt),
+          isNotNull(schema.users.email)
+        )
+      ) as Promise<ErasureNoticeRecipient[]>;
+  }
+
+  /**
+   * Suspended tenants whose deadline is within `reminderDaysBefore` days but not yet past (those
+   * belong to the purge) and not yet reminded.
+   */
+  async findTenantsDueForErasureReminder(input: {
+    gracePeriodDays: number;
+    reminderDaysBefore: number;
+  }): Promise<ErasureReminderCandidate[]> {
+    const day = 24 * 60 * 60 * 1000;
+    const windowOpens = new Date(
+      Date.now() - (input.gracePeriodDays - input.reminderDaysBefore) * day
+    ).toISOString();
+    const deadline = this.erasureCutoff(input.gracePeriodDays);
+
+    return this.dbService.db
+      .select({ id: schema.tenants.id })
+      .from(schema.tenants)
+      .where(
+        and(
+          eq(schema.tenants.status, TenantStatus.SUSPENDED),
+          isNotNull(schema.tenants.erasureRequestedAt),
+          lte(schema.tenants.erasureRequestedAt, windowOpens),
+          gt(schema.tenants.erasureRequestedAt, deadline),
+          isNull(schema.tenants.erasureReminderSentAt)
+        )
+      );
+  }
+
+  /**
+   * True only for the caller whose `UPDATE` flips `erasure_reminder_sent_at` from NULL, so
+   * overlapping runs cannot both send. Claimed before the email is queued: a failed enqueue loses
+   * the reminder rather than risk two.
+   */
+  async claimErasureReminder(
+    tenantId: string
+  ): Promise<{ name: string; erasureRequestedAt: string } | null> {
+    const rows = await this.dbService.db
+      .update(schema.tenants)
+      .set({ erasureReminderSentAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.tenants.id, tenantId),
+          eq(schema.tenants.status, TenantStatus.SUSPENDED),
+          isNotNull(schema.tenants.erasureRequestedAt),
+          isNull(schema.tenants.erasureReminderSentAt)
+        )
+      )
+      .returning({
+        name: schema.tenants.name,
+        erasureRequestedAt: schema.tenants.erasureRequestedAt,
+      });
+
+    const row = rows[0];
+    return row?.erasureRequestedAt
+      ? { name: row.name, erasureRequestedAt: row.erasureRequestedAt }
+      : null;
+  }
+
+  /**
+   * The owner's own erasure request (an admin's is `AdminBusinessesRepository.requestErasure`),
+   * plus who asked. Takes the same per-tenant advisory lock as the purge and `cancelErasure`; only
+   * an `active` or `pending_activation` tenant qualifies. Returns the tenant's name, or null when
+   * nothing was updated.
+   */
+  async requestTenantErasureBySelf(input: {
+    tenantId: string;
+    requestedByUserId: string;
+  }): Promise<{ name: string } | null> {
+    return this.dbService.db.transaction(async tx => {
+      await acquireResourceXactLock(tx, 'gdpr:tenant-erasure', input.tenantId);
+
+      const rows = await tx
+        .update(schema.tenants)
+        .set({
+          status: TenantStatus.SUSPENDED,
+          erasureRequestedAt: sql`now()`,
+          erasureRequestedByUserId: input.requestedByUserId,
+          erasureReminderSentAt: null,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(schema.tenants.id, input.tenantId),
+            inArray(schema.tenants.status, [TenantStatus.ACTIVE, TenantStatus.PENDING_ACTIVATION])
+          )
+        )
+        .returning({ name: schema.tenants.name });
+
+      return rows[0] ?? null;
+    });
+  }
+
+  /**
+   * Undoes `requestTenantErasureBySelf` and only that: the erasure must be pending and requested by
+   * this very user, so an admin's request (column NULL) or another owner's can never be undone
+   * here. Takes the same lock as the purge, so a restore cannot succeed in the gap between the
+   * purge reading its due list and anonymizing. Returns the tenant's name, or null.
+   */
+  async cancelSelfRequestedErasure(input: {
+    tenantId: string;
+    requestedByUserId: string;
+    gracePeriodDays: number;
+  }): Promise<{ name: string } | null> {
+    return this.dbService.db.transaction(async tx => {
+      await acquireResourceXactLock(tx, 'gdpr:tenant-erasure', input.tenantId);
+
+      const rows = await tx
+        .update(schema.tenants)
+        .set({
+          status: TenantStatus.ACTIVE,
+          erasureRequestedAt: null,
+          erasureRequestedByUserId: null,
+          erasureReminderSentAt: null,
+          lastErasureRequestedAt: sql`${schema.tenants.erasureRequestedAt}`,
+          lastErasureCancelledAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(schema.tenants.id, input.tenantId),
+            eq(schema.tenants.status, TenantStatus.SUSPENDED),
+            isNotNull(schema.tenants.erasureRequestedAt),
+            eq(schema.tenants.erasureRequestedByUserId, input.requestedByUserId),
+            // Only before the deadline: after it the purge may already have released Stripe, Google
+            // and reviewer names, and restoring would revive a half-erased business.
+            gt(schema.tenants.erasureRequestedAt, this.erasureCutoff(input.gracePeriodDays))
+          )
+        )
+        .returning({ name: schema.tenants.name });
+
+      return rows[0] ?? null;
+    });
+  }
+
+  /**
+   * What `login` needs to tell a self-requested pending erasure from a plain suspension; only read
+   * after the password is proven.
+   */
+  async findTenantErasureState(tenantId: string): Promise<{
+    status: TenantStatus;
+    name: string;
+    erasureRequestedAt: string | null;
+    erasureRequestedByUserId: string | null;
+  } | null> {
+    const rows = await this.dbService.db
+      .select({
+        status: schema.tenants.status,
+        name: schema.tenants.name,
+        erasureRequestedAt: schema.tenants.erasureRequestedAt,
+        erasureRequestedByUserId: schema.tenants.erasureRequestedByUserId,
+      })
+      .from(schema.tenants)
+      .where(eq(schema.tenants.id, tenantId))
+      .limit(1);
+
+    const row = rows[0];
+    return row ? { ...row, status: row.status as TenantStatus } : null;
+  }
+
+  /**
+   * Terminal step of tenant erasure, only valid once every user in the tenant is anonymized (the
+   * cron's ordering guarantees it, not a DB constraint). Guarded on still being `suspended`, so a
+   * retried purge is a no-op. Returns the tenant's name for the activity log, or `null` if nothing
+   * matched.
    */
   async markTenantErased(tenantId: string): Promise<{ name: string } | null> {
     const rows = await this.dbService.db
@@ -1352,11 +1447,9 @@ export class AuthRepository {
   }
 
   /**
-   * Standalone due member removals — a user whose own grace period elapsed independent of any
-   * tenant-wide erasure. Run *after* `findTenantsDueForErasurePurge`'s loop in the same cron tick:
-   * a user who was also swept up by a tenant-wide erasure already has `anonymized_at` set by then,
-   * so this query naturally returns nothing further for them — no explicit tenant-status join
-   * needed to avoid double-processing, idempotency already covers it.
+   * Standalone due member removals, independent of any tenant-wide erasure. Runs after the tenant
+   * loop in the same cron tick; users already swept by a tenant erasure have `anonymized_at` set,
+   * so idempotency avoids double-processing without a tenant-status join.
    */
   async findUsersDueForErasurePurge(gracePeriodDays: number): Promise<string[]> {
     const rows = await this.dbService.db
@@ -1368,31 +1461,21 @@ export class AuthRepository {
   }
 
   /**
-   * Holds a SESSION-level advisory lock (`pg_advisory_lock`, not `_xact_lock`) for `fn`'s entire
-   * duration — deliberately not a transaction-scoped lock, since `fn` calls out to
-   * `AccountAnonymizationService` (Cloudinary + several independent per-user transactions) and a
-   * `_xact_lock` would release after the very first one, letting a second concurrent run (a second
-   * replica, an overlapping manual trigger) start double-processing the rest. Checks out its own
-   * client from `dbService.pool` rather than going through `dbService.db` — see `DBService.pool`'s
-   * own comment for why a session lock's acquire/release must share one physical connection.
+   * Holds a SESSION-level advisory lock (`pg_advisory_lock`, not `_xact_lock`) for `fn`'s whole
+   * duration: `fn` calls out to `AccountAnonymizationService` (Cloudinary plus several per-user
+   * transactions), and a transaction lock would release after the first, letting a second
+   * concurrent run (another replica, an overlapping manual trigger) double-process the rest. Uses
+   * its own client from `dbService.pool` because a session lock's acquire and release must share
+   * one physical connection (see `DBService.pool`).
    *
-   * `fn` is handed an `acquireLock` callback for taking further, narrower session locks — one
-   * per due tenant (key `'gdpr:tenant-erasure'`) or due standalone member (key
-   * `'gdpr:member-erasure'`) — *on this same connection*, rather than each checking out a second
-   * pooled client of its own. Postgres session advisory locks stack: a session can hold several
-   * distinct keys at once, each released independently, so nesting a per-resource lock inside the
-   * outer purge lock on one connection is safe and avoids doubling pool usage per due
-   * tenant/member on every cron tick.
+   * `fn` gets an `acquireLock` callback for narrower per-tenant (`'gdpr:tenant-erasure'`) or
+   * per-member (`'gdpr:member-erasure'`) session locks on this same connection; session advisory
+   * locks stack, so this avoids a second pooled client per due resource.
    *
-   * Each per-resource key taken through `acquireLock` is the SAME key
-   * `AdminBusinessesRepository.cancelErasure`/`setStatus` (for tenants) and
-   * `AuthRepository.cancelMemberRemoval` (for members) take as transaction-scoped
-   * (`pg_advisory_xact_lock`) locks. A session-level and a transaction-level advisory lock on the
-   * same key conflict with each other in Postgres (only their release timing differs), so this
-   * mutually excludes the cron's per-tenant/per-member processing against a concurrent admin
-   * cancel-erasure/cancel-removal call for that same resource — without it, an admin could cancel
-   * while the cron is mid-loop anonymizing that resource, leaving it active with its data already
-   * anonymized.
+   * Those per-resource keys are the SAME ones `AdminBusinessesRepository.cancelErasure`/`setStatus`
+   * and `AuthRepository.cancelMemberRemoval` take as `pg_advisory_xact_lock`. Session and
+   * transaction advisory locks on one key conflict, so an admin cancel cannot land while the cron
+   * is mid-anonymization, which would leave the resource active with its data already anonymized.
    */
   async runWithErasurePurgeLock<T>(
     fn: (acquireLock: AcquireErasureLock) => Promise<T>
@@ -1425,12 +1508,10 @@ export class AuthRepository {
   }
 
   /**
-   * Re-verifies a tenant is still due for erasure from *inside* `acquireLock('gdpr:tenant-erasure',
-   * tenantId, ...)` — the cron's `findTenantsDueForErasurePurge` read happens before the lock is
-   * acquired, so by the time the lock is held, an admin may have already cancelled the erasure (or,
-   * in principle, a previous overlapping run already erased it). Shares
-   * `tenantDueForErasureCondition` with `findTenantsDueForErasurePurge`, scoped to one tenant, so
-   * the two can never define "still due" differently from each other.
+   * Re-verifies a tenant is still due from inside `acquireLock('gdpr:tenant-erasure', ...)`: the
+   * cron's `findTenantsDueForErasurePurge` read happens before the lock, so an admin may have
+   * cancelled (or an overlapping run erased it) meanwhile. Shares `tenantDueForErasureCondition` so
+   * "still due" cannot be defined differently.
    */
   async isTenantStillDueForErasure(tenantId: string, gracePeriodDays: number): Promise<boolean> {
     const rows = await this.dbService.db
@@ -1443,11 +1524,8 @@ export class AuthRepository {
   }
 
   /**
-   * Standalone-member counterpart to `isTenantStillDueForErasure` — re-verifies one user is still
-   * due from *inside* `acquireLock('gdpr:member-erasure', userId, ...)`, closing the same TOCTOU
-   * race `isTenantStillDueForErasure` closes for tenants: `findUsersDueForErasurePurge`'s read
-   * happens before the lock is acquired, so a concurrent `cancelMemberRemoval` for this same user
-   * may have already landed by the time the lock is held.
+   * Standalone-member counterpart to `isTenantStillDueForErasure`; closes the same TOCTOU race,
+   * where a `cancelMemberRemoval` lands between `findUsersDueForErasurePurge` and taking the lock.
    */
   async isUserStillDueForErasure(userId: string, gracePeriodDays: number): Promise<boolean> {
     const rows = await this.dbService.db

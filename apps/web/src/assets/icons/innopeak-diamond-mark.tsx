@@ -2,11 +2,7 @@ interface InnoPeakDiamondMarkProps {
   className?: string;
 }
 
-/**
- * Just the diamond/peak mark cropped out of the full lockup
- * (`InnoPeakLogo`), for spots without room for the wordmark — the
- * dashboard sidebar's collapsed icon-only rail, and the favicon.
- */
+/** The diamond mark cropped from `InnoPeakLogo`, for spots without room for the wordmark (collapsed sidebar rail, favicon). */
 export function InnoPeakDiamondMark({ className }: InnoPeakDiamondMarkProps) {
   return (
     <svg viewBox="190.91 38.72 43.33 74.31" className={className} role="img" aria-label="InnoPeak">

@@ -49,30 +49,15 @@ function Logo({ homeHref }: { homeHref: string }) {
 
 interface AppShellProps {
   children: ReactNode;
-  /** Shared between the desktop/tablet sidebar and the mobile bottom nav, so the two can never drift. */
   navItems: readonly ShellNavItem[];
-  /** i18n namespace each `navItems[].labelKey` resolves against. */
   navNamespace: string;
   homeHref: string;
   identity: ShellIdentity;
-  /** Where the account menu's owner-details row links to — Settings' Profile tab for the tenant
-   *  shell, the Super Admin area's own profile tab for the admin one. */
   profileHref: string;
-  /** Off for the Super Admin shell — review-escalation notifications are a tenant concept. */
   showNotifications?: boolean;
-  /** Forwarded to `AppHeader` — see its own prop doc. */
   showBusinessSwitcher?: boolean;
 }
 
-/**
- * The sidebar+header shell shared by every screen behind login: full
- * labeled sidebar on desktop, icon-only rail on tablet, hidden entirely
- * (replaced by a bottom tab bar) on mobile. The header title tracks
- * whichever nav item matches the current route, so new screens under
- * `(dashboard)` or `admin` need no extra wiring here. Parameterized by
- * `navItems`/`identity` so both the tenant dashboard and the Super Admin
- * area share this one shell instead of duplicating it.
- */
 export function AppShell({
   children,
   navItems,
@@ -131,49 +116,19 @@ export function AppShell({
                   asChild
                   isActive={isActive}
                   tooltip={t(item.labelKey)}
-                  // `group/navitem` is a *named* group — so this element's own `data-active` can
-                  // drive its own children's classes below via `group-data-[...]/navitem:`,
-                  // without colliding with the Sidebar root's own (unnamed) `group`, which the
-                  // plain `group-data-[collapsible=icon]:` variants here still react to.
-                  //
-                  // The active-state `scale-*` classes below live directly on `<item.icon>`/
-                  // `<span>`, not as `[&>svg]:`/`[&>span:last-child]:` brackets on this element —
-                  // tried that first and it silently no-ops: a `group-data-[.../navitem:[&>x]:`
-                  // class sitting on the SAME element that carries `group/navitem` + `data-active`
-                  // compiles to requiring that element be a descendant of itself, which nothing
-                  // ever matches. Confirmed both ways against the actual compiled CSS and rendered
-                  // pixel geometry, not assumed. Icon *size* has the opposite constraint and stays
-                  // up here as `[&>svg]:size-4.5` — a plain class directly on `<item.icon>` loses
-                  // to the base `SidebarMenuButton` variant's own `[&>svg]:size-4`, which is
-                  // parent-scoped and therefore higher specificity.
-                  //
-                  // The left accent bar itself is the `motion.div` above, not a static border here
-                  // — `layoutId` lets Motion animate it sliding between rows on nav change instead
-                  // of it just popping to the new active item.
+                  // `group/navitem` is a named group so `data-active` drives the children's classes without
+                  // colliding with the Sidebar root's unnamed `group`. The active `scale-*` classes live on the
+                  // children, not as `[&>svg]:` brackets here: a `group-data-[...]/navitem:[&>x]:` class on the
+                  // element carrying `group/navitem` requires it to be its own descendant and never matches.
+                  // Icon size stays here because a class on `<item.icon>` loses to the variant's parent-scoped `[&>svg]:size-4`.
                   className="group/navitem h-9 rounded-none pl-[10px] text-sm [&>svg]:size-4.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:rounded-md group-data-[collapsible=icon]:[&>svg]:size-5"
                 >
                   <Link href={item.href as Route}>
-                    {/* `scale-*` rather than a bigger `size-*`/`text-*` on active — a transform is
-                        purely visual and never affects the layout box, so the row's own
-                        height/width (and therefore every sibling's position) can't shift when this
-                        toggles, unlike changing the icon's actual size or the text's actual
-                        font-size would.
-                        `backface-hidden` + `will-change-[transform,scale]` — without either, this
-                        element has no compositing layer of its own, so Chromium/WebKit rasterize
-                        the icon on the main thread at each intermediate frame of the scale
-                        transition instead of animating a single pre-rasterized GPU layer, which
-                        reads as a brief haze/blur that sharpens the instant the transition settles.
-                        Confirmed via computed style before the fix (`will-change: auto`,
-                        `backface-visibility: visible`, no layer) — both utilities together force
-                        layer promotion up front so the whole transition renders on one already-
-                        sharp texture. */}
+                    {/* `scale-*`, not a bigger size: a transform never affects the layout box, so siblings can't shift.
+                        `backface-hidden` + `will-change` force layer promotion; otherwise the icon is rasterized per
+                        frame during the transition and looks hazy until it settles. */}
                     <item.icon className="scale-100 backface-hidden transition-transform ease-fluid will-change-[transform,scale] group-data-[active=true]/navitem:scale-110" />
-                    {/* `inline-block` — `scale`/`transform` has no visual effect on a plain
-                        `inline` element (only block/inline-block/replaced elements honor it), and
-                        a `<span>` defaults to inline; the icon is an `<svg>`, already a replaced
-                        element, so it needs no equivalent override. Same layer-promotion pair as
-                        the icon above, for the same reason — text is even more visibly affected by
-                        mid-transition software rasterization than icon strokes are. */}
+                    {/* `inline-block`: transforms have no effect on a plain inline `<span>`. Same layer promotion as the icon. */}
                     <span className="inline-block scale-100 backface-hidden transition-transform ease-fluid will-change-[transform,scale] group-data-[active=true]/navitem:scale-105 group-data-[collapsible=icon]:hidden">
                       {t(item.labelKey)}
                     </span>

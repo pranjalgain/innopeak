@@ -3,13 +3,7 @@ import { validate } from 'class-validator';
 
 import { GenerateReplyDryRunDto } from './generate-reply-dry-run.dto';
 
-/**
- * Exercises the DTO through the *same* two steps the global `ValidationPipe` runs
- * (`bootstrap.ts`: `transform: true`, `whitelist: true`, `forbidNonWhitelisted: true`) —
- * `plainToInstance` then `validate` — rather than through the service, which every other spec in
- * this module calls directly and therefore never sees this boundary at all. The null case below
- * was a real 500.
- */
+// Mirrors the global ValidationPipe (plainToInstance then validate); service specs bypass this boundary.
 const PIPE_OPTIONS = { whitelist: true, forbidNonWhitelisted: true } as const;
 
 function transform(body: Record<string, unknown>): GenerateReplyDryRunDto {
@@ -21,16 +15,20 @@ const validBody = {
   review: { reviewerName: 'Jamie L.', rating: 5, reviewText: 'Loved it!' },
 };
 
-/** Built from char codes rather than written inline: these are exactly the characters
- *  `sanitizePromptTemplate` strips (zero-width space, NUL, BOM), so as source literals they'd be
- *  invisible in the file and the next editor would have no way to tell them from empty strings. */
+// Built from char codes: as literals these characters (stripped by sanitizePromptTemplate) would be invisible.
 const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 const STRIPPED_ONLY = String.fromCharCode(0x200b, 0x0000, 0xfeff);
 
 describe('GenerateReplyDryRunDto', () => {
+  it('rejects a body with no `review` (previously an unhandled 500 in toServiceInput)', async () => {
+    const dto = transform({ category: 'positive' });
+
+    const errors = await validate(dto, PIPE_OPTIONS);
+
+    expect(errors.map(e => e.property)).toContain('review');
+  });
+
   it('survives plainToInstance as a real class instance, so toServiceInput() exists', async () => {
-    // The controller calls `dto.toServiceInput()`; that only works because the pipe's
-    // `transform: true` builds an actual instance rather than handing over the plain body.
     const dto = transform(validBody);
 
     expect(dto).toBeInstanceOf(GenerateReplyDryRunDto);
@@ -43,10 +41,7 @@ describe('GenerateReplyDryRunDto', () => {
   });
 
   it('treats an explicit null override as absent instead of forwarding it to the service', async () => {
-    // Regression: `@IsOptional()` skips validation on null as well as undefined, so this body
-    // passes validation untouched. An earlier `toServiceInput()` omitted only `undefined`, so the
-    // null was forwarded, took the service's `templateOverride !== undefined` branch, and reached
-    // `sanitizePromptTemplate(null)` -> TypeError -> 500 on a request that means "no override".
+    // Regression: @IsOptional() lets null through validation; forwarding it reached sanitizePromptTemplate(null) -> 500.
     const dto = transform({ ...validBody, templateOverride: null, toneOverride: null });
 
     await expect(validate(dto, PIPE_OPTIONS)).resolves.toEqual([]);
@@ -57,8 +52,7 @@ describe('GenerateReplyDryRunDto', () => {
   });
 
   it('rejects a whitespace-only templateOverride once sanitization has emptied it', async () => {
-    // The @Transform runs first (sanitize + trim), so validation sees '' and @IsNotEmpty fires —
-    // a 400, rather than an empty prompt being sent to a real, billable AI provider.
+    // The @Transform runs first, so validation sees '' and returns 400 instead of sending an empty prompt to a billable provider.
     const errors = await validate(
       transform({ ...validBody, templateOverride: '   ' }),
       PIPE_OPTIONS
@@ -103,7 +97,6 @@ describe('GenerateReplyDryRunDto', () => {
       transform({ ...validBody, review: { ...validBody.review, rating: 6 } }),
       PIPE_OPTIONS
     );
-    // Nested failures surface on the parent property, with the child error inside it.
     expect(badRating.map(error => error.property)).toEqual(['review']);
   });
 });

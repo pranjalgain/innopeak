@@ -6,8 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-/** `PAYMENT_FEATURE_ENABLED` is off — gates `POST /v1/billing/checkout` only (the upgrade entry
- *  point), never an already-subscribed tenant's existing access. */
+/** `PAYMENT_FEATURE_ENABLED` is off; gates checkout only, never existing access. */
 export class BillingNotEnabledException extends ForbiddenException {
   constructor(message: string = MESSAGES.BILLING.NOT_ENABLED) {
     super({ message, code: 'BILLING_NOT_ENABLED' });
@@ -20,19 +19,14 @@ export class PlanNotFoundException extends NotFoundException {
   }
 }
 
-/** Should never fire in practice — every tenant gets a `free` subscription row in the same
- *  transaction that creates it (`AuthDbService.signup`/`completeGoogleSignup`). */
+/** Should never fire: every tenant gets a `free` subscription row in its creation transaction. */
 export class SubscriptionNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.BILLING.SUBSCRIPTION_NOT_FOUND) {
     super({ message, code: 'SUBSCRIPTION_NOT_FOUND' });
   }
 }
 
-/** `POST /v1/billing/checkout` called by a tenant who already has a live Stripe subscription
- *  (`stripeSubscriptionId` already set, or `plan_id` already `paid`) — without this guard, a
- *  double-click/two-tab race could each mint a fresh, separately-billed Stripe Checkout Session
- *  and, if both were completed, two live subscriptions for one tenant with only the second's id
- *  ever recorded locally. See `BillingService.createCheckoutSession`. */
+/** Guards against a double-click/two-tab race minting two billed subscriptions with only one id recorded. */
 export class AlreadySubscribedException extends ConflictException {
   constructor(message: string = MESSAGES.BILLING.ALREADY_SUBSCRIBED) {
     super({ message, code: 'ALREADY_SUBSCRIBED' });
@@ -57,78 +51,64 @@ export class CustomPromptsNotOnPlanException extends ForbiddenException {
   }
 }
 
-/** `BillingEntitlementsService.canGenerateAiDraft` — now genuinely thrown by
- *  `AiReplyGenerationService.generateDryRunReply` (`@ai/ai-reply-generation.service.ts`), see that
- *  method's own doc comment for why a dry run can still hit this limit despite never persisting a
- *  draft. */
 export class AiDraftLimitReachedException extends ForbiddenException {
   constructor(message: string = MESSAGES.BILLING.AI_DRAFT_LIMIT_REACHED) {
     super({ message, code: 'AI_DRAFT_LIMIT_REACHED' });
   }
 }
 
-/** `Stripe.webhooks.constructEvent` rejected the signature — the webhook route's entire trust
- *  boundary, since it is `@Public()` with no JWT. */
+/** The webhook route is `@Public()`, so the signature check is its entire trust boundary. */
 export class StripeWebhookSignatureInvalidException extends BadRequestException {
   constructor(message: string = MESSAGES.BILLING.STRIPE_WEBHOOK_SIGNATURE_INVALID) {
     super({ message, code: 'STRIPE_WEBHOOK_SIGNATURE_INVALID' });
   }
 }
 
-/** `PUT /v1/billing/active-location` named a location that isn't this tenant's own, or is
- *  `status = 'inactive'` (disconnected) — see `BillingEntitlementsService.setActiveLocationForPlan`. */
+/** Location is not this tenant's, or is `inactive` (disconnected). */
 export class LocationNotEligibleForActivationException extends BadRequestException {
   constructor(message: string = MESSAGES.BILLING.LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION) {
     super({ message, code: 'LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION' });
   }
 }
 
-/** In-app card/billing-profile editing (`GET`/`PUT /v1/billing/profile`, `POST
- *  /v1/billing/setup-intent`, `PUT /v1/billing/payment-method`) only exists for real Stripe —
- *  `DummyPaymentProvider` has no real Customer object behind it to read or edit. */
+/** `DummyPaymentProvider` has no real Stripe Customer to read or edit. */
 export class StripeOnlyFeatureException extends ForbiddenException {
   constructor(message: string = MESSAGES.BILLING.STRIPE_ONLY_FEATURE) {
     super({ message, code: 'STRIPE_ONLY_FEATURE' });
   }
 }
 
-/** `GET /v1/billing/receipts/:id/pdf` (or the list) named a receipt that doesn't exist, or belongs
- *  to a different tenant — the two cases are indistinguishable from the caller's own subscription,
- *  same as any other tenant-scoped lookup in this app. */
+/** Missing and other-tenant receipts are deliberately indistinguishable. */
 export class ReceiptNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.BILLING.RECEIPT_NOT_FOUND) {
     super({ message, code: 'RECEIPT_NOT_FOUND' });
   }
 }
 
-/** `POST /v1/billing/dummy/*` called while `PAYMENT_PROVIDER=stripe` — these routes only exist to
- *  let a dummy checkout/portal confirmation page complete what a real Stripe webhook would
- *  otherwise deliver, and must never be reachable (a free-upgrade path with no payment behind it)
- *  once a deployment is actually running real Stripe. */
+/** Dummy routes would be a free-upgrade path, so they must be unreachable under `PAYMENT_PROVIDER=stripe`. */
 export class DummyProviderNotActiveException extends NotFoundException {
   constructor(message: string = MESSAGES.BILLING.DUMMY_PROVIDER_NOT_ACTIVE) {
     super({ message, code: 'DUMMY_PROVIDER_NOT_ACTIVE' });
   }
 }
 
-/** `BillingWebhooksService.requireSubscriptionByCustomerId` found no `tenant_subscriptions` row
- *  for the event's Stripe customer id. Thrown, not swallowed, specifically so it propagates out of
- *  `handleEvent`'s transaction and rolls back the `stripe_webhook_events` idempotency-ledger insert
- *  along with it — a webhook endpoint returning non-2xx is exactly what makes Stripe retry the
- *  delivery, which is the right outcome for a miss that might resolve once a still-committing
- *  Checkout Session, or a brief replication lag, catches up. See that method's own doc comment. */
+/** Thrown, not swallowed, so it rolls back the `stripe_webhook_events` ledger insert and the non-2xx makes Stripe retry (the miss may be a still-committing checkout or replication lag). */
 export class StripeWebhookTenantNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.BILLING.STRIPE_WEBHOOK_TENANT_NOT_FOUND) {
     super({ message, code: 'STRIPE_WEBHOOK_TENANT_NOT_FOUND' });
   }
 }
 
-/** `POST /v1/billing/checkout/reconcile` was called with a `checkoutSessionId` whose own
- *  `metadata.tenantId` doesn't match the authenticated caller's tenant — either a stale/foreign
- *  session id, or an attempt to probe another tenant's checkout outcome. Reported as 404, the same
- *  enumeration-prevention stance every other tenant-scoped lookup in this app takes. */
+/** Session `metadata.tenantId` doesn't match the caller; 404 to prevent probing other tenants. */
 export class CheckoutSessionTenantMismatchException extends NotFoundException {
   constructor(message: string = MESSAGES.BILLING.CHECKOUT_SESSION_TENANT_MISMATCH) {
     super({ message, code: 'CHECKOUT_SESSION_TENANT_MISMATCH' });
+  }
+}
+
+/** Client input, so 400 rather than Stripe's `invalid_request_error` surfacing as 500. */
+export class PaymentMethodNotUsableException extends BadRequestException {
+  constructor(message: string = MESSAGES.BILLING.PAYMENT_METHOD_NOT_USABLE) {
+    super({ message, code: 'PAYMENT_METHOD_NOT_USABLE' });
   }
 }

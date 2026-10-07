@@ -18,28 +18,21 @@ interface AdminLayoutProps {
 }
 
 /**
- * Shell for every screen under `/admin` — a separate identity from the
- * tenant dashboard (see `AdminGuard`), sharing the same `AppShell` chrome
- * with its own nav items and no review notifications.
+ * Separate identity from the tenant dashboard (see `AdminGuard`), sharing the `AppShell` chrome
+ * with its own nav and no review notifications.
  */
 export default function AdminLayout({ children }: AdminLayoutProps) {
   const t = useTranslations("appShell");
-  // Same profile Settings' own Profile tab reads, through the same react-query cache — so the
-  // sidebar and Settings can never disagree about who is signed in. Until it resolves the chrome
-  // paints with an empty name rather than a placeholder identity: there is no stored optimistic
-  // copy for an admin the way `TokenService` keeps one for a tenant owner.
+  // Same query cache as Settings' Profile tab, so sidebar and Settings never disagree. Until it
+  // resolves the chrome shows an empty name rather than a placeholder identity (no optimistic copy
+  // exists for an admin).
   const { profile } = usePlatformAdminProfile();
   const displayName = profile ? platformAdminDisplayName(profile.email) : "";
-  // Billing is a real payment feature, not just an analytics view — hidden from the nav (and
-  // therefore unreachable through it) whenever this deploy has no billing wired up at all. See
-  // `PlatformSettings.paymentFeatureEnabled`'s own doc comment for why this is a pure reflection
-  // of a deploy-level env var, not something a platform admin can toggle. Defaults to hidden
-  // while the query is still loading rather than flashing the item and immediately removing it.
-  //
-  // Also stays visible whenever at least one tenant is on Paid, regardless of the flag — that
-  // flag only ever gates *starting* a new checkout, never an already-Paid tenant's subscription
-  // (Stripe keeps billing them either way). An admin needs to keep seeing, and acting on, billing
-  // for as long as any such tenant exists — see `useAdminHasPaidTenants`'s own doc comment.
+  // Billing is hidden from the nav when this deploy has no billing wired up (a reflection of a
+  // deploy-level env var, not an admin toggle), and while loading to avoid a flash. It stays
+  // visible whenever any tenant is on Paid regardless of the flag, which only gates starting new
+  // checkouts: Stripe keeps billing existing Paid tenants and an admin must still see them
+  // (`useAdminHasPaidTenants`).
   const { data: platformSettings } = usePlatformSettings();
   const { data: hasPaidTenants } = useAdminHasPaidTenants();
   const billingNavAvailable = platformSettings?.paymentFeatureEnabled === true || hasPaidTenants === true;

@@ -1,16 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, MinLength } from 'class-validator';
+import { IsString, Matches, MinLength } from 'class-validator';
 
-/** Body for `POST /v1/billing/checkout/reconcile` — the real Stripe Checkout Session id the
- *  browser landed on `success_url` with (via the `{CHECKOUT_SESSION_ID}` template token Stripe
- *  substitutes on redirect). Not format-constrained to Stripe's own `cs_...` shape: unlike
- *  `CompleteDummyCheckoutDto`'s `dummy_sub_<uuid>` pattern (an id this app itself mints), a Checkout
- *  Session id is opaque and provider-defined — `BillingReconciliationService` treats a malformed or
- *  unknown one as whatever `PaymentProvider.retrieveCheckoutSession` reports, not something to
- *  pre-validate a shape for here. */
+/** A Checkout Session id is opaque and provider-defined, so no `cs_...` shape check; the provider decides what an unknown id means. */
 export class ReconcileCheckoutSessionDto {
   @ApiProperty({ example: 'cs_test_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6' })
   @IsString()
   @MinLength(1, { message: 'checkoutSessionId must not be empty' })
+  // Charset and length bound only; arbitrary input would otherwise reach Stripe and surface as a 500.
+  @Matches(/^[A-Za-z0-9_-]{1,255}$/, { message: 'checkoutSessionId is not a valid session id.' })
   checkoutSessionId!: string;
 }

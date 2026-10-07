@@ -29,9 +29,7 @@ export function AdminStatisticsView() {
     refetch,
   } = useAdminStatistics();
 
-  // Each stat counts up from 0 on first load, once its real value arrives — same pattern as
-  // Overview's own stat cards (`useCountUp`). Rounded to one decimal before animating since these
-  // three are percentages/averages, not whole counts.
+  // Rounded to one decimal before animating: these are percentages/averages, not whole counts.
   const replyRateAnimated = useCountUp(Math.round(replyRatePercent * 10), isLoading) / 10;
   const avgRatingAnimated = useCountUp(Math.round(avgRating * 10), isLoading) / 10;
   const syncSuccessAnimated = useCountUp(Math.round(syncSuccessRatePercent * 10), isLoading) / 10;
@@ -50,9 +48,7 @@ export function AdminStatisticsView() {
     },
   ] as const;
 
-  // Same reasoning as `AdminOverviewView`'s own doc comment: every panel here is derived from the
-  // one summary query, so a failure would otherwise paint several confident zeroes rather than an
-  // outage.
+  // Whole page: every panel derives from one query, so a failure would show confident zeroes.
   if (isError) {
     return <LoadErrorState onRetry={refetch} />;
   }

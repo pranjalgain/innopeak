@@ -7,9 +7,6 @@ interface PublicLayoutProps {
   children: ReactNode;
 }
 
-/**
- * Provides consistent navigation and footer chrome for public-facing pages.
- */
 export default function PublicLayout({ children }: PublicLayoutProps) {
   return (
     <div className="flex min-h-dvh flex-col">

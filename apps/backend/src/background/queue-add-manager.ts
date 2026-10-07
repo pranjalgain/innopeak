@@ -1,6 +1,8 @@
 import { DEFAULT_JOB_OPTIONS, JobName, QueueName } from '@bg/constants/job.constant';
 import {
   IAdminInviteEmailJob,
+  IErasureNoticeEmailJob,
+  IErasurePurgeAlertEmailJob,
   IMemberInviteEmailJob,
   IOtpEmailJob,
 } from '@bg/interfaces/job.interface';
@@ -13,11 +15,8 @@ export class AddingJobsToQueueManager {
   constructor(private readonly queuePublisher: QueuePublisherProvider) {}
 
   async addJob<T>(queueName: QueueName, jobName: JobName, data: T): Promise<void> {
-    // Never serialize the payload — an OTP-email job carries the raw 6-digit `otp` (and, once the
-    // reset flow lands, `passwordSetLink`/`passwordResetLink`). `NODE_ENV` only ever validates to
-    // `development` or `production`, so a *staging* box logs at `debug`, and this line shipped
-    // live OTPs into the log files and Loki. The HTTP interceptor already redacts these fields for
-    // exactly this reason; this producer was the path that leaked around it. Log only the routing.
+    // Never serialize the payload: OTP-email jobs carry the raw `otp` and set/reset links, and a
+    // staging box logs at `debug` (NODE_ENV is only development/production). Log only the routing.
     this.logger.debug(`Adding job ${jobName} to queue ${queueName}`, 'AddingJobsToQueueManager');
 
     try {
@@ -49,6 +48,17 @@ export class AddingJobsToQueueManager {
   }
 
   async addMemberInviteEmailJob(jobName: JobName, data: IMemberInviteEmailJob): Promise<void> {
+    return this.addJob(QueueName.EMAIL, jobName, data);
+  }
+
+  async addErasureNoticeEmailJob(jobName: JobName, data: IErasureNoticeEmailJob): Promise<void> {
+    return this.addJob(QueueName.EMAIL, jobName, data);
+  }
+
+  async addErasurePurgeAlertEmailJob(
+    jobName: JobName,
+    data: IErasurePurgeAlertEmailJob
+  ): Promise<void> {
     return this.addJob(QueueName.EMAIL, jobName, data);
   }
 

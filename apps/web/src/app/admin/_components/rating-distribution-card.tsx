@@ -6,13 +6,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { RatingDistributionPoint } from "@/types/domain";
 
 interface RatingDistributionCardProps {
-  /** All five ratings always present, ascending, zero-filled where unused — backend already did
-   *  this (`GET .../statistics/summary`), so this only renders it. */
+  /** Backend zero-fills all five ratings, ascending. */
   distribution: RatingDistributionPoint[];
 }
 
-/** Horizontal bar histogram, 5 stars down to 1 — a star count reads top-heavy-first more naturally
- *  than ascending, so the array is reversed for display only. */
+/** Reversed for display only, so 5 stars is on top. */
 export function RatingDistributionCard({ distribution }: RatingDistributionCardProps) {
   const t = useTranslations("adminStatistics.ratingDistribution");
   const format = useFormatter();

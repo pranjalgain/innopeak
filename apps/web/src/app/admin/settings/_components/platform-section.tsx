@@ -15,9 +15,7 @@ interface PlatformToggleRowProps {
   checked: boolean;
   disabled: boolean;
   onCheckedChange: (checked: boolean) => void;
-  /** Manual stagger, since these four rows are individually written out below rather than
-   *  mapped from an array — 60ms increments matches the delay step used everywhere else this
-   *  page staggers a list. */
+  /** Manual stagger: the four rows are written out rather than mapped; 60ms matches the page's other staggers. */
   delayMs: number;
 }
 
@@ -48,7 +46,7 @@ export function PlatformSection() {
   const { update, isUpdating } = useUpdatePlatformSettings();
 
   if (isLoading) return <Skeleton className="h-72 w-full max-w-3xl rounded-xl" />;
-  // See ProfileSection's twin comment — an infinite skeleton is not a loading state.
+  // An infinite skeleton is not a loading state (see ProfileSection).
   if (isError || !settings) return <LoadErrorState onRetry={() => void refetch()} />;
 
   const toggle = (field: keyof PlatformSettings) => (checked: boolean) => {

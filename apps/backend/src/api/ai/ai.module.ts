@@ -10,18 +10,11 @@ import { AiProvider } from './providers/ai.provider';
 import { AzureOpenAiProvider } from './providers/azure-openai.provider';
 import { OpenRouterAiProvider } from './providers/openrouter-ai.provider';
 
-// NOTE: `PromptsDbService`/`AuthDbService`/`AdminBusinessesDbService`/`ReviewSyncDbService` aren't
-// imported here — `DBModule` is `@Global()` and provides all of them, same as `BillingModule`'s
-// own doc comment explains for its DB services.
+// DB services come from the `@Global()` `DBModule`, so they aren't imported here.
 
 const logger = new Logger('AiModule');
 
-/**
- * Same DI-swap shape as `BillingModule`'s `paymentProviderFactory` — see that file's own doc
- * comment for why the selection lives in a module-scoped factory. `'azure'` is the default and
- * intended production provider (PLAN.md §5's GDPR/`westeurope` requirement); `'openrouter'`
- * remains a real, working secondary option.
- */
+/** `'azure'` is the default production provider (GDPR/`westeurope` requirement); `'openrouter'` is a working secondary option. */
 const aiProviderFactory = {
   provide: AiProvider,
   useFactory: (configService: ConfigService<EnvConfig>): AiProvider => {
@@ -41,16 +34,8 @@ const aiProviderFactory = {
 };
 
 /**
- * `BillingModule` for `BillingEntitlementsService` (the AI-draft monthly-limit check) — same
- * explicit-import reasoning as `PromptsModule`'s own doc comment.
- *
- * `AiReplyGenerationService` is exported, unlike a module whose service only its own controller
- * calls: `ReviewSyncQueueModule` (the worker process — `WorkerModule` never imports API modules,
- * only `ReviewSyncQueueModule` itself does) imports this module specifically to call
- * `generateForClassifiedReviews`. Not `@Global()` — matching `BillingModule`'s own choice not to
- * be, for the same reason: an explicit import at every real call site is what makes "who depends
- * on AI generation" answerable by reading imports, not by knowing this module happens to be
- * global.
+ * `AiReplyGenerationService` is exported because `ReviewSyncQueueModule` (the worker process) calls
+ * `generateForClassifiedReviews`. Not `@Global()`, so dependents stay visible in imports.
  */
 @Module({
   imports: [BillingModule, ReviewPostQueueUIModule],

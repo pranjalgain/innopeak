@@ -12,10 +12,13 @@ import { AcceptMemberInviteDto } from '../dto/accept-member-invite.dto';
 import { AuthenticatedUserDto } from '../dto/authenticated-user.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import { CompleteGoogleSignupDto } from '../dto/complete-google-signup.dto';
+import { DeleteAccountResponseDto } from '../dto/delete-account-response.dto';
+import { DeleteAccountDto } from '../dto/delete-account.dto';
 import type { LoginPendingVerificationDto } from '../dto/login-response.dto';
 import { LoginDto } from '../dto/login.dto';
 import { MemberInvitePreviewDto } from '../dto/member-invite-preview.dto';
 import { ResendOtpDto } from '../dto/resend-otp.dto';
+import { RestoreAccountDto } from '../dto/restore-account.dto';
 import { SetPasswordDto } from '../dto/set-password.dto';
 import { SignupResponseDto } from '../dto/signup-response.dto';
 import { SignupDto } from '../dto/signup.dto';
@@ -727,5 +730,179 @@ export function ApiMe(): ReturnType<typeof applyDecorators> {
       status: 403,
       description: 'Authenticated as a platform admin, not a tenant user.',
     })
+  );
+}
+
+const failure = (
+  statusCode: number,
+  message: string,
+  error: string,
+  code: string
+): Record<string, unknown> => ({
+  statusCode,
+  status: 'Failure',
+  message,
+  error,
+  code,
+  traceId: '38cf5d10-00cb-4e4b-8417-f9e63e877466',
+  data: null,
+});
+
+export function ApiRequestDeleteAccountOtp(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Request the code that confirms deleting the business (owners without a password)',
+      description:
+        'Step-up ahead of POST /v1/auth/delete-account for an owner who signed in with Google or ' +
+        'Microsoft and so has no password to re-enter: emails a 6-digit code to their own address. ' +
+        'A code minted here satisfies only account deletion (its own token purpose). Owner only; ' +
+        'an owner who has a password gets 400 PASSWORD_REQUIRED and confirms with it instead.',
+    }),
+    ApiResponse({
+      status: 200,
+      description:
+        'Acknowledged — a fresh code was sent, or one is still live within its cooldown.',
+      examples: {
+        default: {
+          summary: 'Acknowledged',
+          value: {
+            statusCode: 200,
+            status: 'Success',
+            message: 'Verification code sent. Check your email to continue.',
+            data: { message: 'Verification code sent. Check your email to continue.' },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'The owner has a password — confirm with it instead.',
+      examples: {
+        passwordRequired: {
+          summary: 'Password required',
+          value: failure(
+            400,
+            'Confirm with your password instead of a code.',
+            'Bad Request',
+            'PASSWORD_REQUIRED'
+          ),
+        },
+      },
+    }),
+    ApiResponse({ status: 409, description: 'Only an owner can delete the business.' })
+  );
+}
+
+export function ApiDeleteAccount(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Schedule the whole business for deletion (owner only)',
+      description:
+        'Suspends the business immediately, stops billing (a live subscription is cancelled at ' +
+        'period end, or at once when past due) and schedules permanent erasure after the grace ' +
+        'period. `businessName` must match the business name exactly; the owner re-authenticates ' +
+        'with `password`, or with the emailed `otp` when they have no password. Until the grace ' +
+        'period ends the owner can undo it with POST /v1/auth/restore-account. Clears the ' +
+        "caller's session cookies.",
+    }),
+    ApiBody({
+      type: DeleteAccountDto,
+      examples: {
+        withPassword: {
+          summary: 'Owner with a password',
+          value: { businessName: 'Acme Dental', password: 'Str0ng@Pass' },
+        },
+        withOtp: {
+          summary: 'SSO-only owner',
+          value: { businessName: 'Acme Dental', otp: '482913' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 200,
+      description: 'Deletion scheduled.',
+      type: DeleteAccountResponseDto,
+      examples: {
+        default: {
+          summary: 'Scheduled',
+          value: {
+            statusCode: 200,
+            status: 'Success',
+            message: "Deletion scheduled. You've been signed out.",
+            data: {
+              scheduledFor: '2026-10-27T09:30:00.000Z',
+              gracePeriodDays: 21,
+              canRestore: true,
+            },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 400,
+      description: 'Business name mismatch, missing password, or a missing/invalid/expired code.',
+      examples: {
+        nameMismatch: {
+          summary: 'Business name mismatch',
+          value: failure(
+            400,
+            "The business name you typed doesn't match.",
+            'Bad Request',
+            'BUSINESS_NAME_MISMATCH'
+          ),
+        },
+      },
+    }),
+    ApiResponse({ status: 401, description: 'Wrong password.' }),
+    ApiResponse({
+      status: 409,
+      description: 'Not an owner, or the business is already pending deletion or erased.',
+    }),
+    ApiResponse({ status: 429, description: 'Too many attempts.' })
+  );
+}
+
+export function ApiRestoreAccount(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Restore a business the owner scheduled for deletion',
+      description:
+        'Public. Undoes an erasure the **same owner** requested via POST /v1/auth/delete-account, ' +
+        'inside the grace period — including resuming a subscription the erasure set to end. ' +
+        'Everything that does not qualify (wrong password, unknown email, an erasure an admin ' +
+        'requested, an erased business, a non-owner) is the same 401 INVALID_CREDENTIALS, so the ' +
+        'route reveals nothing about who has a pending erasure. Shares the sign-in lockout.',
+    }),
+    ApiBody({
+      type: RestoreAccountDto,
+      examples: {
+        default: {
+          summary: 'Typical request',
+          value: { email: 'jane@thecoffeehouse.com', password: 'StrongP@ss1' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 200,
+      description: 'Restored; the owner and their team can sign in again.',
+      examples: {
+        default: {
+          summary: 'Restored',
+          value: {
+            statusCode: 200,
+            status: 'Success',
+            message: 'Your business has been restored. You can sign in now.',
+            data: { message: 'Your business has been restored. You can sign in now.' },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 401,
+      description: 'Invalid credentials, or nothing of this owner to restore.',
+    }),
+    ApiResponse({ status: 429, description: 'Too many attempts.' })
   );
 }

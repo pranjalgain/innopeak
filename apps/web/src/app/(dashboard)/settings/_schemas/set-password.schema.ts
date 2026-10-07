@@ -9,14 +9,9 @@ import {
   PASSWORD_UPPERCASE_REGEX,
 } from "@/app/_libs/constants/password-rules";
 
-/** Resolves one error-message key. Matches next-intl's `useTranslations` return shape. */
 type Translate = (key: string) => string;
 
-/**
- * Same shape as `changePasswordSchema` minus `currentPassword` — there is nothing to prove for an
- * account that has never had one (Google/SSO-only). A factory for the same reason: built at
- * render with the caller's translator, memoized (`useMemo`) to keep the resolver identity stable.
- */
+/** Like `changePasswordSchema` minus `currentPassword`: an SSO-only account has none to prove. Factory + memoize for the same reason. */
 const OTP_LENGTH = 6;
 const OTP_PATTERN = /^\d{6}$/;
 

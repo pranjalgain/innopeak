@@ -8,12 +8,9 @@ import type { Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 
 /**
- * SQS has no BullMQ `@Processor`/`WorkerHost` equivalent, so this base class provides the same
- * shape via a long-polling `ReceiveMessageCommand` loop: on success the message is deleted: on
- * failure it's left alone so its visibility timeout expires and SQS's native redrive policy moves
- * it to the matching `-dlq` queue after `maxReceiveCount` attempts (see infra/floci/sqs.tf).
- * Concrete subclasses (e.g. `EmailSqsConsumer`) only implement `process()`, mirroring the
- * `switch (job.name) { ... }` dispatch already used by the BullMQ processors.
+ * Stands in for BullMQ's `@Processor`/`WorkerHost` with a long-polling loop: success deletes the
+ * message; failure leaves it so the visibility timeout expires and SQS redrive moves it to the
+ * `-dlq` queue after `maxReceiveCount` attempts (see infra/floci/sqs.tf).
  */
 export abstract class SqsQueueConsumerBase implements OnModuleInit, OnModuleDestroy {
   protected abstract readonly queueName: QueueName;
@@ -50,12 +47,7 @@ export abstract class SqsQueueConsumerBase implements OnModuleInit, OnModuleDest
 
   protected abstract process(jobName: string, data: unknown): Promise<void>;
 
-  /**
-   * Called after `process()` throws, before the message is left for SQS's native redrive.
-   * Default is a no-op; concrete consumers (e.g. `EmailSqsConsumer`) override this to also push
-   * into `DeadLetterQueueService`, matching the BullMQ processors' `onFailed`/`onStalled`/
-   * `onError` behavior so the dev-tools DLQ panel has the same failure metadata in both modes.
-   */
+  /** No-op hook run after `process()` throws; consumers override it to record into `DeadLetterQueueService` so the DLQ panel has the same failure metadata as under BullMQ. */
   protected onProcessingFailed(_jobName: string, _data: unknown, _error: Error): Promise<void> {
     return Promise.resolve();
   }
@@ -99,8 +91,7 @@ export abstract class SqsQueueConsumerBase implements OnModuleInit, OnModuleDest
         `Failed to process SQS message ${message.MessageId ?? ''} (job "${jobName}") on ` +
           `"${this.queueName}": ${err.message}`
       );
-      // Leave the message in place — its visibility timeout will expire and SQS's native redrive
-      // policy moves it to the matching -dlq queue after maxReceiveCount attempts.
+      // Left in place so the visibility timeout expires and redrive moves it to the -dlq.
       await this.onProcessingFailed(jobName, data, err);
     }
   }

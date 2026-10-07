@@ -13,6 +13,7 @@ import {
 import { JwtTokenType } from './enums/jwt-token-type.enum';
 import { UserRole } from './enums/user-role.enum';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
+import { AccountDeletionService } from './services/account-deletion.service';
 import { AuthService } from './services/auth.service';
 import type { TenantAuthUser } from './types/auth.type';
 
@@ -39,27 +40,18 @@ describe('AuthController.refresh', () => {
 
     const moduleRef = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: { refresh } }],
+      providers: [
+        { provide: AuthService, useValue: { refresh } },
+        { provide: AccountDeletionService, useValue: {} },
+      ],
     }).compile();
 
     controller = moduleRef.get(AuthController);
   });
 
   /**
-   * The regression this exists to prevent: `session` is the frontend edge middleware's routing
-   * hint (`proxy.ts`), set once at login with its own 7-day `maxAge` — nothing about a failed
-   * refresh used to touch it. Leaving it behind a failed rotation (an unknown, revoked, or reused
-   * refresh token; a DB reset that emptied `refresh_tokens` out from under a still-cookied
-   * browser) made the middleware keep believing the visitor was signed in, bouncing `/login` back
-   * to `/dashboard` forever while the client's own hard redirect fought it the other way —
-   * `POST /v1/auth/refresh` firing on every bounce until the throttler started rejecting it
-   * outright.
-   *
-   * `admin_access_token` is cleared here too, unconditionally, even though this route can only
-   * ever be reached by a tenant session (an admin has no refresh cookie to call it with) — see
-   * `AuthController.clearSessionCookies`'s own comment for why clearing every possible session
-   * cookie, regardless of which principal is signing out, is what lets `POST /v1/auth/logout`
-   * (and, incidentally, this failure path) stay principal-agnostic.
+   * Guards: a failed refresh must also clear the `session` hint (and `admin_access_token`), or edge
+   * middleware keeps bouncing /login to /dashboard while refresh fires until throttled.
    */
   it('clears every session cookie when the refresh token is rejected', async () => {
     refresh.mockRejectedValue(new UnauthorizedException('Invalid or expired refresh token.'));
@@ -88,11 +80,8 @@ describe('AuthController.refresh', () => {
   });
 
   /**
-   * The regression this exists to prevent, and the reason `RefreshTokenSupersededException`
-   * exists at all: two dashboard tabs idle past the access-token TTL both wake and refresh with
-   * the same cookie (the frontend single-flights per tab, not across tabs). The winner rotates
-   * and `Set-Cookie`s a valid successor; the loser's 401 must not then wipe it, or the user is
-   * logged out of every tab and the next refresh has no cookie at all to recover from.
+   * Guards: a refresh that lost a concurrent rotation (`RefreshTokenSupersededException`) must not clear
+   * the winner's cookie, or the user is logged out of every tab.
    */
   it('keeps the session cookies when the token merely lost a rotation race', async () => {
     refresh.mockRejectedValue(new RefreshTokenSupersededException());
@@ -107,8 +96,7 @@ describe('AuthController.refresh', () => {
   });
 
   it('still reports a superseded token as a 401, indistinguishable from any other bad token', () => {
-    // Same status and message as a genuinely dead session — the cookie handling differs, the
-    // HTTP contract deliberately does not (no enumeration signal for a caller to probe).
+    // Same status and message as a dead session: no enumeration signal.
     const superseded = new RefreshTokenSupersededException();
 
     expect(superseded).toBeInstanceOf(UnauthorizedException);
@@ -170,17 +158,17 @@ describe('AuthController.updateLocale', () => {
 
     const moduleRef = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: { updateLocale } }],
+      providers: [
+        { provide: AuthService, useValue: { updateLocale } },
+        { provide: AccountDeletionService, useValue: {} },
+      ],
     }).compile();
 
     controller = moduleRef.get(AuthController);
   });
 
   /**
-   * The regression this exists to prevent: `updateLocale` is authenticated by an access token
-   * alone (see `TokenService.reissueAccessToken`'s doc comment), so it must never mint or set a
-   * refresh token — doing so would let a bare access token upgrade itself into a fresh,
-   * indefinitely-rotatable 7-day session with no additional proof of identity.
+   * Guards: `updateLocale` is authenticated by an access token alone, so it must never mint a refresh token.
    */
   it('sets only the access token cookie, never the refresh token or session hint cookies', async () => {
     updateLocale.mockResolvedValue({
@@ -221,7 +209,10 @@ describe('AuthController.login', () => {
 
     const moduleRef = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: { login } }],
+      providers: [
+        { provide: AuthService, useValue: { login } },
+        { provide: AccountDeletionService, useValue: {} },
+      ],
     }).compile();
 
     controller = moduleRef.get(AuthController);
@@ -276,7 +267,10 @@ describe('AuthController.acceptMemberInvite', () => {
 
     const moduleRef = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: { acceptMemberInvite } }],
+      providers: [
+        { provide: AuthService, useValue: { acceptMemberInvite } },
+        { provide: AccountDeletionService, useValue: {} },
+      ],
     }).compile();
 
     controller = moduleRef.get(AuthController);
@@ -326,7 +320,10 @@ describe('AuthController.inviteGoogleAuthorize', () => {
 
     const moduleRef = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: { buildMemberInviteGoogleRedirect } }],
+      providers: [
+        { provide: AuthService, useValue: { buildMemberInviteGoogleRedirect } },
+        { provide: AccountDeletionService, useValue: {} },
+      ],
     }).compile();
 
     controller = moduleRef.get(AuthController);

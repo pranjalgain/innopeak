@@ -13,20 +13,15 @@ import { refreshSession } from "@/app/_libs/api-sdk/config";
 import { SUPER_ADMIN_EMAIL } from "@/app/_libs/constants/current-owner";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError, unwrap } from "@/app/_libs/services/api-error";
+import { PendingSignupService } from "@/app/_libs/services/pending-signup.service";
 import { TokenService } from "@/app/_libs/services/token.service";
 import { setLocaleCookie } from "@/app/_libs/utils/locale";
 import type { AppLocale } from "@/i18n/locales";
 
 /**
- * Pushes a just-signed-in account's saved language into the cookie the UI actually reads
- * (`src/i18n/request.ts`), so the preference survives a new device or cleared browsing data
- * rather than living only wherever it was first chosen. The backend localizes its own responses
- * from the token claim regardless, so skipping this is what leaves a session rendering its chrome
- * in one language and its toasts in another.
- *
- * A `null` stored locale means the account never chose one — leave the cookie untouched so
- * whatever the visitor already has (or `Accept-Language`) still decides, rather than pinning them
- * to a default they never picked.
+ * Syncs a signed-in account's saved language into the UI's cookie (`src/i18n/request.ts`) so it survives a new device;
+ * skipping it leaves chrome and backend toasts in different languages. A null stored locale leaves the cookie alone so
+ * the visitor's existing cookie/Accept-Language still decides.
  */
 function restoreStoredLocale(locale: AppLocale | null): void {
   if (locale) {
@@ -44,7 +39,7 @@ export interface AuthenticatedUser {
   businessName: string;
   /** `users.locale` — null when the user has never set one (falls back to `Accept-Language`). */
   locale: AppLocale | null;
-  /** This user's current avatar, from the backend's `media` table — null until one is uploaded. */
+  /** null until an avatar is uploaded. */
   avatarUrl: string | null;
 }
 
@@ -67,39 +62,38 @@ interface PlatformAdminTokenResponse {
 /** `GET /v1/admin/auth/invite/:token`'s response — a real generated model, unlike `PlatformAdminTokenResponse` above. */
 export type AdminInvitePreview = AdminInvitePreviewDto;
 
-/** `GET /v1/auth/invite/:token`'s response — the tenant-member counterpart to `AdminInvitePreview`. */
 export type MemberInvitePreview = MemberInvitePreviewDto;
 
 export type LoginResult =
   | { kind: "verify_needed"; email: string }
-  | { kind: "success"; hasConnectedBusiness: boolean };
+  | { kind: "success"; hasConnectedBusiness: boolean }
+  /** The password was right but the owner scheduled the business for deletion and it can still be restored; `message` is the server's, with the deadline. */
+  | { kind: "scheduled_for_deletion"; message: string };
+
+export interface DeleteAccountResult {
+  scheduledFor: string;
+  gracePeriodDays: number;
+  /** Whether the owner can restore it themselves (they have a password to sign in with). */
+  canRestore: boolean;
+}
+
+/** Re-authentication for `deleteAccount`: the password for an owner who has one, else the emailed code. */
+export interface DeleteAccountInput {
+  businessName: string;
+  password?: string;
+  otp?: string;
+}
 
 export interface VerifyOtpResult {
   verified: boolean;
   hasConnectedBusiness: boolean;
-  /**
-   * Set when the attempt failed for a reason that is NOT "wrong code" — rate limiting, a network
-   * drop, a backend fault. The OTP screen needs this to avoid telling someone their correct code
-   * is invalid (which just makes them retry and dig deeper into the throttle).
-   */
+  /** Set when the attempt failed for a reason other than a wrong code (rate limit, network, backend fault), so the OTP screen does not call a correct code invalid. */
   errorMessage?: string;
 }
 
 /**
- * Auth service — real backend calls against the NestJS API (`apps/backend`), via the generated
- * `@innopeak/client-sdk`. Hooks and components never call the backend, the SDK, or
- * `TokenService` directly, so nothing above this file needs to change if the backend contract does.
- *
- * Platform-admin auth has its own methods (`loginAsAdmin`, `validateAdminInvite`,
- * `acceptAdminInvite`, `startAdminInviteGoogle`) against the backend's separate
- * `/v1/admin/auth/*` routes — `loginWithPassword` below is tenant-only. See
- * `apps/documentation/docs/backend/auth/separate-admin-login-design.md` for why the two were
- * split. Tenant-member invites (`validateMemberInvite`, `acceptMemberInvite`,
- * `startMemberInviteGoogle`) are their own trio too, against `/v1/auth/invite/*` — see
- * `tenant-member-invite-design.md`. `resolveLoginDestination` below (used only by the
- * still-mocked Microsoft SSO path) is the one remaining place that guesses "admin" from the email
- * string instead of a real backend answer — real Microsoft SSO doesn't exist in the backend at
- * all yet, for either principal.
+ * Hooks and components never call the backend, SDK or `TokenService` directly. `resolveLoginDestination` (mocked Microsoft
+ * SSO only) still guesses "admin" from the email; real Microsoft SSO does not exist in the backend yet.
  */
 export class AuthService {
   private static resolveLoginDestination(email: string): string {
@@ -112,11 +106,7 @@ export class AuthService {
     window.location.assign(this.resolveLoginDestination(email));
   }
 
-  /**
-   * The authoritative "who am I" for screens that must not guess — Settings' Profile tab. Also
-   * refreshes the locally cached display name, so the shell's optimistic first paint stays in step
-   * with what the server just said.
-   */
+  /** Also refreshes the locally cached display name so the shell's first paint matches the server. */
   static async me(): Promise<AuthenticatedUser> {
     const response = await authApi.authControllerMeV1();
     const user = unwrap<AuthenticatedUser>(response.data);
@@ -126,43 +116,38 @@ export class AuthService {
     return user;
   }
 
-  /**
-   * Mints a signed authorization the browser uploads the new avatar image directly with — the
-   * backend never sees the file itself. See `AvatarUploadService.upload`
-   * (`app/_libs/services/avatar-upload.service.ts`) for what a caller does with this next.
-   */
+  /** Mints a signed authorization the browser uses to upload the avatar directly; the backend never sees the file. */
   static async getAvatarUploadAuthorization(): Promise<AvatarUploadAuthorizationResponseDto> {
     const response = await authApi.tenantAvatarControllerAuthorizeV1();
     return unwrap<AvatarUploadAuthorizationResponseDto>(response.data);
   }
 
-  /**
-   * The other half of the avatar upload flow: hands the uploaded asset's provider id back to the
-   * backend, which independently verifies it before persisting. Returns just the confirmed
-   * `avatarUrl` — the media route has no notion of a tenant's full profile — so the caller merges
-   * it into whatever it already has cached rather than replacing the object wholesale.
-   */
+  /** Hands the uploaded asset's id to the backend, which re-verifies it. Returns only `avatarUrl`, so callers merge it into cached data. */
   static async confirmAvatar(providerAssetId: string): Promise<string | null> {
     const response = await authApi.tenantAvatarControllerConfirmAvatarV1({
       confirmAvatarDto: { providerAssetId },
     });
-    // `ConfirmAvatarResponseDto` types `avatarUrl` as optional (Swagger marks a nullable field
-    // that way), so normalize the absent case rather than letting `undefined` reach the cache.
+    // `avatarUrl` is typed optional (Swagger marks nullables so); normalize the absent case.
     const { avatarUrl } = unwrap<ConfirmAvatarResponseDto>(response.data);
     return avatarUrl ?? null;
   }
 
-  /**
-   * Real password login — tenant only. Does NOT redirect — the caller branches on the result's
-   * `kind`. See `loginAsAdmin` for the platform-admin equivalent, its own route entirely.
-   */
+  /** Tenant only; does NOT redirect, the caller branches on `kind`. */
   static async loginWithPassword(email: string, password: string): Promise<LoginResult> {
-    const response = await authApi.authControllerLoginV1(
-      { loginDto: { email, password } },
-      { authOptional: true },
-    );
-    // The SDK's declared return type (`TokenResponseDto`) only documents one of the two actual
-    // shapes this route can answer with — see `LoginResult` above.
+    let response;
+    try {
+      response = await authApi.authControllerLoginV1(
+        { loginDto: { email, password } },
+        { authOptional: true },
+      );
+    } catch (error) {
+      // Only answered after the password is proven, so it is a result (not a toast) that lets the login screen offer to restore.
+      if (error instanceof ApiError && error.errorCode === "ACCOUNT_SCHEDULED_FOR_DELETION") {
+        return { kind: "scheduled_for_deletion", message: error.message };
+      }
+      throw error;
+    }
+    // The SDK return type documents only one of the route's two shapes (see `LoginResult`).
     const data = unwrap<TokenResponse | { status: "pending_verification"; email: string }>(
       response.data,
     );
@@ -173,61 +158,43 @@ export class AuthService {
 
     TokenService.setName(data.user.name);
     restoreStoredLocale(data.user.locale);
+    // A password sign-in supersedes a half-done signup on the code step; otherwise /onboarding/signup resumed a verification that cannot succeed.
+    PendingSignupService.clear();
     return { kind: "success", hasConnectedBusiness: data.hasConnectedBusiness };
   }
 
-  /**
-   * Platform-admin password login, against the backend's own `/v1/admin/auth/login` — no
-   * `pending_verification`/business-name branching, since admins never self-register.
-   */
+  /** No `pending_verification`/business-name branching: admins never self-register. */
   static async loginAsAdmin(email: string, password: string): Promise<void> {
     const response = await adminAuthApi.platformAdminAuthControllerLoginV1(
       { loginDto: { email, password } },
       { authOptional: true },
     );
-    // The SDK's declared return type (`void`) is wrong the same way `authControllerLoginV1`'s is —
-    // see `loginWithPassword`'s own comment: the backend's `@ApiResponse` here never declared a
-    // `type:` the generator could turn into a model, so `PlatformAdminTokenResponse` is hand-typed
-    // and asserted onto the actual envelope.
+    // SDK return type (`void`) is wrong: the backend's `@ApiResponse` declares no `type:`, so `PlatformAdminTokenResponse` is hand-typed onto the envelope.
     const data = unwrap<PlatformAdminTokenResponse>(response.data);
     restoreStoredLocale(data.admin.locale);
   }
 
-  /**
-   * Real Google sign-in. No business name: login never creates a tenant, so an unknown identity
-   * comes back as `?error=NO_ACCOUNT` rather than silently signing someone up.
-   */
+  /** Login never creates a tenant: an unknown identity returns `?error=NO_ACCOUNT` instead of signing up. */
   static startGoogleLogin(): void {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
     window.location.assign("/v1/auth/google?intent=login");
   }
 
   /**
-   * The admin sign-in screen's Google button — its own backend route, not `startGoogleLogin`'s.
-   * An admin who accepted their invite through Google has no password at all, so the form on that
-   * screen can never sign them in and this is their only way back.
-   *
-   * Deliberately not the tenant route with a different label: that one falls through to the tenant
-   * tables when no admin identity matches, which would let the admin screen hand back a *tenant*
-   * session, and sends its failures to `/login` — a page with no admin path on it. This route
-   * resolves `platform_admin_identities` only, and errors back to `/admin-login`.
+   * Admin sign-in Google button. Not the tenant route: that falls through to tenant tables (could return a tenant session)
+   * and sends failures to `/login`, which has no admin path. This resolves `platform_admin_identities` only and errors to `/admin-login`.
    */
   static startAdminGoogleLogin(): void {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
     window.location.assign("/v1/admin/auth/google");
   }
 
-  /**
-   * Verifies identity during signup — unlike the login methods, this never
-   * redirects: the signup wizard still has a Google Business Profile
-   * connection step to complete before landing on the dashboard. Signup
-   * always creates a tenant, never a super admin.
-   */
+  /** Never redirects: the wizard still has a Google Business Profile step. Always creates a tenant, never a super admin. */
   static async signupWithMicrosoft(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 600));
   }
 
-  /** Real signup. Throws (ApiError, 409 on an already-registered email) — the caller catches. */
+  /** Throws ApiError (409 on an already-registered email). */
   static async signupWithPassword(values: CreateAccountFormValues): Promise<void> {
     await authApi.authControllerSignupV1(
       {
@@ -243,35 +210,17 @@ export class AuthService {
   }
 
   /**
-   * Real Google signup. A full-page navigation rather than an SDK call: the browser has to follow
-   * the redirect to Google's consent screen, and the backend sets an httpOnly binding cookie on
-   * the way out that an XHR could not carry back.
-   *
-   * No business name here any more — Google returns a person, not a business, so asking for one
-   * before the redirect meant collecting it inside the *password* signup form, which read oddly
-   * for someone who never intends to set a password. The callback now sends a genuinely new
-   * signup to `/onboarding/business-name` instead; an existing or linked account still lands
-   * straight on /dashboard, same as before.
-   *
-   * Never resolves — the page is gone.
+   * Full-page navigation: the browser must follow the redirect to Google, and the backend sets an httpOnly binding cookie an
+   * XHR could not carry back. No business name here (Google returns a person); the callback sends a new signup to
+   * `/onboarding/business-name`. Never resolves.
    */
   static startGoogleSignup(): void {
-    // Not a Next page: `/v1/*` is rewritten to the NestJS backend, which answers with a 302 to
-    // Google's consent screen. `router.push` would ask the Next router to resolve a route that
-    // does not exist in the app, and the browser must genuinely leave the origin for OAuth at all.
+    // Not a Next page: `/v1/*` is rewritten to the backend, which 302s to Google; `router.push` would try to resolve a nonexistent route.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign("/v1/auth/google?intent=signup");
   }
 
-  /**
-   * The screen after `startGoogleSignup` lands on `/onboarding/business-name` submits here — the
-   * one thing Google could not supply. Unlike the OAuth steps this IS a normal request: there is
-   * no browser navigation to preserve, and the backend's `google_pending_signup` cookie (set by
-   * the callback) rides along automatically via `withCredentials`.
-   *
-   * Throws `ApiError` on 400 (the pending signup expired or was already used — the caller sends
-   * the visitor back to restart) or 409 (someone else claimed the email in the meantime).
-   */
+  /** Submits the business name Google could not supply; the `google_pending_signup` cookie rides via `withCredentials`. ApiError 400: pending signup expired/used; 409: email claimed meanwhile. */
   static async completeGoogleSignup(
     businessName: string,
   ): Promise<{ hasConnectedBusiness: boolean }> {
@@ -284,11 +233,6 @@ export class AuthService {
     return { hasConnectedBusiness: data.hasConnectedBusiness };
   }
 
-  /**
-   * Verifies the OTP sent after a password signup (or a login-triggered resend) — mirrors the
-   * real `users.email_verified_at` column (`apps/backend`'s `0002_tenant_auth.sql`), set once
-   * verification succeeds.
-   */
   static async verifySignupOtp(email: string, code: string): Promise<VerifyOtpResult> {
     try {
       const response = await authApi.authControllerVerifyEmailV1(
@@ -297,11 +241,10 @@ export class AuthService {
       );
       const data = unwrap<TokenResponse>(response.data);
       TokenService.setName(data.user.name);
+      PendingSignupService.clear();
       return { verified: true, hasConnectedBusiness: data.hasConnectedBusiness };
     } catch (error) {
-      // Only a 400 actually means "that code is wrong" — the backend returns it for
-      // not-found/already-used/expired alike. Anything else (429 from the attempt limiter, 5xx, a
-      // network failure) is reported with the real reason instead of a misleading "invalid code".
+      // Only a 400 means a wrong code (not-found/used/expired alike); 429, 5xx or network failures report their real reason.
       const isWrongCode = error instanceof ApiError && error.statusCode === 400;
 
       return {
@@ -318,26 +261,14 @@ export class AuthService {
     await authApi.authControllerResendOtpV1({ resendOtpDto: { email } }, { authOptional: true });
   }
 
-  /**
-   * Mints a fresh access token from the httpOnly `refresh_token` cookie — no body to send, the
-   * cookie travels automatically via `withCredentials`. Returns false (doesn't throw) on
-   * an invalid/expired/missing cookie, so a caller can fall back to redirecting to `/login`
-   * instead of surfacing a raw network error.
-   */
+  /** Uses the httpOnly `refresh_token` cookie. Returns false rather than throwing so callers can redirect to `/login`. */
   static async refreshAccessToken(): Promise<boolean> {
     const refreshed = await refreshSession();
     if (!refreshed) TokenService.clear();
     return refreshed;
   }
 
-  /**
-   * Lands on the sign-in screen that belongs to whoever just signed out — read from the token's
-   * own `type` claim, before it is cleared. A platform admin sent to the tenant `/login` was a
-   * dead end: since the login split that page has no admin path on it at all, so the only way
-   * back into the console was to know to type `/admin-login` by hand. Falls back to the tenant
-   * page when the type can't be read (a decode hiccup, or a session already gone), which is the
-   * right default for the overwhelmingly common case.
-   */
+  /** Reads the token's `type` claim before it is cleared so a platform admin lands on `/admin-login` (the tenant `/login` has no admin path); falls back to the tenant page. */
   static async logout(): Promise<void> {
     const destination =
       TokenService.getTokenType() === "platform_admin" ? ROUTES.ADMIN_LOGIN : ROUTES.LOGIN;
@@ -350,12 +281,8 @@ export class AuthService {
   }
 
   /**
-   * Ensures the access-token cookie is fresh right before a `skipRefresh` call — unconditional,
-   * since without a JS-readable copy of the token there is no local way to tell "still valid" from
-   * "expired" ahead of time. Change/set-password below need this guarantee specifically because a
-   * wrong current password is also a 401, and treating that as "access token expired" would rotate
-   * or end the session before the form ever sees the real error. One extra request on these rare,
-   * deliberate actions is the trade for never storing the token itself.
+   * Unconditional refresh before a `skipRefresh` call: with no JS-readable token there is no local way to tell expiry.
+   * Change/set-password need it because a wrong current password is also a 401 that must not be read as an expired token.
    */
   private static async ensureFreshSession(): Promise<void> {
     const revived = await this.refreshAccessToken();
@@ -364,14 +291,7 @@ export class AuthService {
     }
   }
 
-  /**
-   * Rotates the password and the session; the refresh cookie is replaced by the backend. Throws
-   * `ApiError` on 4xx/5xx.
-   *
-   * `skipRefresh` is load-bearing: a wrong current password is also a 401, and treating that as
-   * "access token expired" would rotate the session (or sign the user out) before the form ever
-   * sees the error — see `ensureFreshSession`.
-   */
+  /** `skipRefresh`: a wrong current password is also a 401 and must reach the form instead of rotating the session (see `ensureFreshSession`). */
   static async changePassword(currentPassword: string, newPassword: string): Promise<void> {
     await this.ensureFreshSession();
 
@@ -383,22 +303,13 @@ export class AuthService {
     TokenService.setName(data.user.name);
   }
 
-  /**
-   * Step-up verification ahead of `setPassword` — mails a 6-digit code to the caller's own
-   * address. Required because an access token alone isn't proof enough to grant a passwordless
-   * (Google-only) account its first password; see `setPassword`'s doc comment.
-   */
+  /** Step-up code ahead of `setPassword`: an access token alone is not enough to give a Google-only account its first password. */
   static async requestSetPasswordOtp(): Promise<void> {
     await this.ensureFreshSession();
     await authApi.authControllerRequestSetPasswordOtpV1({ skipRefresh: true });
   }
 
-  /**
-   * The other half of `changePassword` — for an account that has never had one (Google/SSO-only).
-   * No `currentPassword` to send: there is nothing to prove yet. Takes `otp` from
-   * `requestSetPasswordOtp` instead, since without some proof of live mailbox control an access
-   * token alone (stolen or otherwise) would be enough to grant a permanent credential.
-   */
+  /** For accounts that never had a password; `otp` replaces `currentPassword`, so a stolen access token cannot grant a permanent credential. */
   static async setPassword(newPassword: string, otp: string): Promise<void> {
     await this.ensureFreshSession();
 
@@ -410,24 +321,37 @@ export class AuthService {
     TokenService.setName(data.user.name);
   }
 
+  /** Step-up code for a password-less owner ahead of `deleteAccount`; owners with a password confirm with it instead. */
+  static async requestDeleteAccountOtp(): Promise<void> {
+    await this.ensureFreshSession();
+    await authApi.authControllerRequestDeleteAccountOtpV1({ skipRefresh: true });
+  }
+
+  /** Ends this session (the backend clears the cookies). `skipRefresh` as in `changePassword`: a wrong password is a 401 that must reach the form. */
+  static async deleteAccount(input: DeleteAccountInput): Promise<DeleteAccountResult> {
+    await this.ensureFreshSession();
+    const response = await authApi.authControllerDeleteAccountV1(
+      { deleteAccountDto: input },
+      { skipRefresh: true },
+    );
+    const result = unwrap<DeleteAccountResult>(response.data);
+    TokenService.clear();
+    return result;
+  }
+
+  /** Public (no session to restore with): proves the owner by email + password; any 401 means nothing to restore for these credentials. */
+  static async restoreAccount(email: string, password: string): Promise<void> {
+    await authApi.authControllerRestoreAccountV1(
+      { restoreAccountDto: { email, password } },
+      { authOptional: true },
+    );
+  }
+
   /**
-   * Persists the signed-in caller's language preference — `users.locale` for a tenant user,
-   * `platform_admins.locale` for a platform admin — so backend responses (error/success messages,
-   * eventually emails) render in the same language as the UI, not just this browser's
-   * `Accept-Language` header. A no-op for a signed-out visitor: the language switcher lives on
-   * public pages too, where there is no account to persist the choice against and the cookie-only
-   * `NEXT_LOCALE` mechanism already covers the UI's own strings.
-   *
-   * Branches on `TokenService.getTokenType()` rather than calling one shared endpoint for both —
-   * `PATCH /v1/auth/locale` is tenant-only on the backend (see `AuthService.updateLocale`'s own
-   * `TENANT_ONLY` guard) precisely because this codebase deliberately never shares one auth flow
-   * between the two principals (`separate-admin-login-design.md`); the admin counterpart is its
-   * own route, `PATCH /v1/admin/settings/profile/locale`.
-   *
-   * Throws on failure rather than swallowing it: the caller (the language switcher) waits for
-   * this to resolve before it flips the UI's own language, so a failed sync must not be reported
-   * as a success — the two would otherwise disagree, with the UI in the new language and every
-   * backend-originated message still arriving in the old one.
+   * No-op for a signed-out visitor (the cookie-only `NEXT_LOCALE` covers public pages). Branches on token type because
+   * `PATCH /v1/auth/locale` is tenant-only; admins use `PATCH /v1/admin/settings/profile/locale`.
+   * Throws on failure: the language switcher waits for this before flipping the UI, so a swallowed failure would leave the UI
+   * and backend messages in different languages.
    */
   static async updateLocale(locale: AppLocale): Promise<void> {
     const tokenType = TokenService.getTokenType();
@@ -445,11 +369,7 @@ export class AuthService {
     await authApi.authControllerUpdateLocaleV1({ updateLocaleDto: { locale } });
   }
 
-  /**
-   * `GET /v1/admin/auth/invite/:token` — public preview, so the accept screen can show "You've
-   * been invited as `<email>`" before ever asking for a password or redirecting to Google. Throws
-   * `ApiError` (404) for a token that never existed, was already used, or has expired.
-   */
+  /** Public preview for the accept screen; ApiError 404 for a token that never existed, was used, or expired. */
   static async validateAdminInvite(token: string): Promise<AdminInvitePreview> {
     const response = await adminAuthApi.platformAdminAuthControllerValidateAdminInviteV1(
       { token },
@@ -458,14 +378,7 @@ export class AuthService {
     return unwrap<AdminInvitePreview>(response.data);
   }
 
-  /**
-   * `POST /v1/admin/auth/invite/accept` — the password path. Signs the admin in immediately on
-   * success, same token-storage shape as `loginAsAdmin`. Throws `ApiError` (400) for a token that
-   * never existed, was already used, or has expired, or for a weak password.
-   *
-   * The SDK's declared return type (`void`) is wrong the same way `loginAsAdmin`'s is — see its
-   * comment above.
-   */
+  /** Signs the admin in on success; ApiError 400 for a bad token or weak password. SDK return type (`void`) is wrong, as in `loginAsAdmin`. */
   static async acceptAdminInvite(token: string, password: string): Promise<void> {
     const response = await adminAuthApi.platformAdminAuthControllerAcceptAdminInviteV1(
       { acceptAdminInviteDto: { token, password } },
@@ -475,20 +388,12 @@ export class AuthService {
     restoreStoredLocale(data.admin.locale);
   }
 
-  /**
-   * The SSO alternative to `acceptAdminInvite` — a full-page navigation, same shape as
-   * `startGoogleLogin`/`startGoogleSignup`: the browser has to follow the redirect to Google's
-   * consent screen, which an XHR could not do. Never resolves — the page is gone.
-   */
+  /** Full-page navigation, like `startGoogleLogin`: the browser must follow the redirect to Google. Never resolves. */
   static startAdminInviteGoogle(token: string): void {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`/v1/admin/auth/invite/${encodeURIComponent(token)}/google`);
   }
 
-  /**
-   * `GET /v1/auth/invite/:token` — the tenant-member counterpart to `validateAdminInvite`. Same
-   * generic 404 for a token that never existed, was already used, or has expired.
-   */
   static async validateMemberInvite(token: string): Promise<MemberInvitePreview> {
     const response = await authApi.authControllerValidateMemberInviteV1(
       { token },
@@ -497,13 +402,7 @@ export class AuthService {
     return unwrap<MemberInvitePreview>(response.data);
   }
 
-  /**
-   * `POST /v1/auth/invite/accept` — the password path. Unlike `acceptAdminInvite`, this carries
-   * `name` (the invite-send form is email-only, same as admin's — see the backend's
-   * `AcceptMemberInviteDto` for why the invitee supplies it here instead) and returns the same
-   * `TokenResponseDto` shape `loginWithPassword` does, since accepting signs the member in exactly
-   * like an ordinary tenant login.
-   */
+  /** Unlike `acceptAdminInvite`, carries `name` (the invite form is email-only) and returns the same `TokenResponseDto` as `loginWithPassword`. */
   static async acceptMemberInvite(
     token: string,
     name: string,
@@ -518,11 +417,7 @@ export class AuthService {
     return { hasConnectedBusiness: data.hasConnectedBusiness };
   }
 
-  /**
-   * The SSO alternative to `acceptMemberInvite` — a full-page navigation, same shape as
-   * `startAdminInviteGoogle`: the browser has to follow the redirect to Google's consent screen,
-   * which an XHR could not do. Never resolves — the page is gone.
-   */
+  /** Full-page navigation, like `startAdminInviteGoogle`. Never resolves. */
   static startMemberInviteGoogle(token: string): void {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`/v1/auth/invite/${encodeURIComponent(token)}/google`);

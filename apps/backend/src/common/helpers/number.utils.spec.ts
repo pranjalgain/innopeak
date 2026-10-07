@@ -6,11 +6,8 @@ import { IsInt, IsOptional } from 'class-validator';
 import { parseIntegerInput } from './number.utils';
 
 /**
- * Exercised through a real `plainToInstance` with `enableImplicitConversion: true` — the exact
- * global `ValidationPipe` option (`bootstrap.ts`) whose blind `Number(value)` coercion this
- * function exists to narrow. A unit test calling `parseIntegerInput` directly with a hand-built
- * `{ value, obj, key }` would not catch a regression in *how* class-transformer's pipeline calls
- * it — only a real transform does.
+ * Goes through a real `plainToInstance` with `enableImplicitConversion: true` (the `bootstrap.ts` pipe option
+ * whose blind `Number(value)` this narrows); a direct call would miss regressions in how class-transformer calls it.
  */
 class IntegerProbeDto {
   @IsOptional()
@@ -37,8 +34,7 @@ describe('parseIntegerInput', () => {
   });
 
   it('does not coerce a boolean into 1 or 0', () => {
-    // The bug this exists to fix: `@Type(() => Number)`'s `Number(true) === 1` let a boolean
-    // silently pass @IsInt() as if it were the number 1.
+    // `@Type(() => Number)`'s `Number(true) === 1` let a boolean pass @IsInt() as 1.
     expect(transform(true).count).toBe(true);
     expect(transform(false).count).toBe(false);
   });

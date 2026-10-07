@@ -8,8 +8,8 @@ import { GoogleOAuthStateService } from './google-oauth-state.service';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 
 /**
- * The three layers are the whole point of this class, so each is tested by defeating it: a forged
- * signature, a replayed nonce, and a callback arriving from a different browser.
+ * Each of the three layers is tested by defeating it: forged signature, replayed nonce, callback
+ * from a different browser.
  */
 describe('GoogleOAuthStateService', () => {
   let target: GoogleOAuthStateService;
@@ -56,10 +56,8 @@ describe('GoogleOAuthStateService', () => {
   });
 
   /**
-   * At 192 bits of randomness this never happens in practice, but a silent overwrite-miss here
-   * would still hand the caller a signed state whose Redis record belongs to someone else's
-   * in-flight consent — surfacing later as a generic, indistinguishable INVALID_STATE with no
-   * diagnostic trail. `mint` must fail loudly instead.
+   * `mint` must fail loudly on a nonce collision rather than return a state whose Redis record
+   * belongs to someone else.
    */
   it('throws rather than silently minting a state whose record write lost the NX race', async () => {
     redis.set.mockResolvedValueOnce(null);

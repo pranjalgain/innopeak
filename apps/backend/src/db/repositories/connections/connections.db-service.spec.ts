@@ -45,14 +45,10 @@ function locationRow(externalLocationId: string) {
 }
 
 /**
- * `MAX_ACTIVE_LOCATIONS` (MVP's one-active-location rule) has no database constraint behind it,
- * so `ConnectionsService.assertLocationLimit`'s pre-check is the only thing guarding it — and
- * that check runs *before* this transaction even opens. Under READ COMMITTED, two concurrent
- * `confirmLocation` calls for *different* `externalLocationId`s can each see zero active
- * locations (neither has committed anything for the other to see yet), both pass the pre-check,
- * and both commit — silently doubling a tenant past the limit. `acquireLocationConfirmLock`
- * closes it with a transaction-scoped advisory lock: the second call blocks until the first
- * commits, so its own recheck here runs against the first one's already-committed row.
+ * `MAX_ACTIVE_LOCATIONS` has no DB constraint and the service's pre-check runs before this
+ * transaction opens, so under READ COMMITTED two concurrent `confirmLocation` calls for different
+ * locations could both pass and exceed the limit. `acquireLocationConfirmLock` (advisory lock)
+ * makes the second block until the first commits.
  */
 describe('ConnectionsDbService.confirmLocations — location limit is rechecked under lock', () => {
   let service: ConnectionsDbService;
@@ -213,10 +209,9 @@ describe('ConnectionsDbService.confirmLocations — location limit is rechecked 
 });
 
 /**
- * The partial unique index `idx_sync_runs_location_id_running` allows one *running* run per
- * location regardless of trigger, so acquiring a backfill can lose to whatever is already there.
- * The conflict handler's job is to report that honestly — and, crucially, to notice when there is
- * nothing there after all.
+ * `idx_sync_runs_location_id_running` allows one running run per location regardless of trigger, so
+ * acquiring a backfill can lose to an existing run. The conflict handler must report that honestly,
+ * including when nothing is there after all.
  */
 describe('ConnectionsDbService.confirmLocations — sync-run acquisition conflicts', () => {
   let service: ConnectionsDbService;
@@ -301,17 +296,15 @@ describe('ConnectionsDbService.confirmLocations — sync-run acquisition conflic
 
     expect(result?.backfillAlreadyRunning).toBe(true);
     expect(result?.backfill?.id).toBe('scheduled-run');
-    // Through `tx`, not a second pooled connection — the outer transaction is still holding this
-    // tenant's advisory lock while this read happens.
+    // Through `tx`, not a second pooled connection: the outer transaction still holds this tenant's
+    // advisory lock.
     expect(findRunningRunForLocation).toHaveBeenCalledWith('location-locations/1', txMock);
   });
 
   /**
-   * Regression: the blocking run can finish between the constraint violation and the follow-up
-   * read, leaving nothing running. That used to be reported as `{backfill: null,
-   * backfillAlreadyRunning: true}` — and the caller skips enqueuing on that flag, so the location
-   * ended up active, never backfilled, with `onboarding_backfill_completed_at` NULL forever. That
-   * also excludes it from `findLocationsDueForPoll`, so nothing retried it and no error surfaced.
+   * Regression: the blocking run can finish between the violation and the follow-up read; that was
+   * reported as `backfillAlreadyRunning: true`, so the caller skipped enqueuing and the location
+   * was never backfilled or polled.
    */
   it('takes the now-free index instead of reporting a backfill that is not running', async () => {
     acquireSyncRun
@@ -328,12 +321,9 @@ describe('ConnectionsDbService.confirmLocations — sync-run acquisition conflic
 });
 
 /**
- * Regression: `disconnect()` never touches `sync_runs`, and `reactivateLocationsForConnection`
- * deliberately never re-queues a location that already finished its backfill — so a location
- * whose backfill was still in flight (or had failed) when the owner disconnected used to
- * reactivate with no path left to ever acquire a fresh run. The frontend then polled the same
- * pre-disconnect `sync_runs` row forever, wedged in `running` or terminally `error`, with no
- * retry path that created a new one — the "stuck on the backfill page" bug this closes.
+ * Regression: `disconnect()` does not touch `sync_runs` and reactivation never re-queues a finished
+ * backfill, so a location disconnected mid-backfill reactivated with no path to a fresh run (the
+ * frontend polled the old row forever).
  */
 describe('ConnectionsDbService.restartIncompleteBackfills', () => {
   let service: ConnectionsDbService;

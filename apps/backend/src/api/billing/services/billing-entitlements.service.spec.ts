@@ -8,8 +8,6 @@ import type { ConnectionsDbService } from '@db/repositories/connections/connecti
 import type { LocationRow } from '@db/repositories/connections/types/connections.type';
 import type { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 
-/** Opaque stand-in for the real Drizzle transaction handle `withLocationSelectionLock` threads
- *  through to `applyBillingLocationSelection`. */
 const fakeTx = { __fakeTx: true } as unknown as DrizzleTransaction;
 
 import { BillingEntitlementsService } from './billing-entitlements.service';
@@ -92,6 +90,7 @@ describe('BillingEntitlementsService', () => {
     currentPeriodStart: null,
     currentPeriodEnd: null,
     cancelAtPeriodEnd: false,
+    cancellationSource: null,
     stripeLastVerifiedAt: null,
     checkoutStartedAt: null,
   };
@@ -119,16 +118,12 @@ describe('BillingEntitlementsService', () => {
 
     tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(subscription);
     billingPlansDbService.findById.mockResolvedValue(freePlan);
-    // `enforceLocationLimitOnDowngrade` reads the Free plan directly by code (see that method's
-    // own doc comment for why) — default it to the same shape `findById` already defaults to.
+    // enforceLocationLimitOnDowngrade reads the Free plan by code, not by id.
     billingPlansDbService.findByCode.mockResolvedValue(freePlan);
     connectionsDbService.countActiveUnpausedLocations.mockResolvedValue(0);
     authDbService.listTenantMembers.mockResolvedValue([]);
     reviewSyncDbService.countAiGeneratedResponsesThisMonth.mockResolvedValue(0);
-    // Fakes `ConnectionsDbService.withLocationSelectionLock`: no real lock/transaction to
-    // simulate, just resolves `findLocationsByTenant`'s own mock and hands it (plus a fake tx) to
-    // the caller's callback — existing `findLocationsByTenant.mockResolvedValue(...)` setups below
-    // keep working unchanged.
+    // Fake lock: hands findLocationsByTenant's mock result and a fake tx to the callback.
     connectionsDbService.withLocationSelectionLock.mockImplementation(
       async (
         tenantId: string,
@@ -246,8 +241,7 @@ describe('BillingEntitlementsService', () => {
 
   describe('enforceLocationLimitOnDowngrade', () => {
     it('does nothing when the plan has no location cap', async () => {
-      // Not a realistic Free-plan shape (Free is the only plan with a cap today) — only
-      // `maxLocations` matters here, confirming the method bails out before ever taking the lock.
+      // Only maxLocations matters: the method must bail out before taking the lock.
       billingPlansDbService.findByCode.mockResolvedValue(paidPlan);
 
       await target.enforceLocationLimitOnDowngrade('tenant-1');
@@ -314,7 +308,6 @@ describe('BillingEntitlementsService', () => {
 
       await target.enforceLocationLimitOnDowngrade('tenant-1');
 
-      // Only one unpaused location exists, which is <= maxLocations(1) — nothing to do.
       expect(connectionsDbService.applyBillingLocationSelection).not.toHaveBeenCalled();
     });
   });

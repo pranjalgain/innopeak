@@ -36,17 +36,7 @@ interface CreateAccountFormProps {
 
 const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
 
-/**
- * Signup's own account-creation form — deliberately not shared with login's `PasswordAuthForm`:
- * login never needs a name field or this much validation for an account that already exists.
- *
- * Validation is react-hook-form + a zod resolver (`_schemas/create-account.schema.ts`), with
- * `mode: 'onTouched'` so a message only appears once its field has been blurred at least once,
- * then updates live as the user keeps editing.
- *
- * The password field shows the live checklist instead of its resolver error: the checklist names
- * every unmet rule at once, where the error message can only name the first one zod hit.
- */
+/** Not shared with login's `PasswordAuthForm`. The password field shows the live checklist instead of its resolver error, since the checklist names every unmet rule at once. */
 export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProps) {
   const t = useTranslations("onboardingSignup.createAccount");
   const schema = useMemo(() => createAccountSchema(t), [t]);
@@ -65,7 +55,7 @@ export function CreateAccountForm({ isLoading, onSubmit }: CreateAccountFormProp
   // checklist needs the value on every keystroke, and `watch` cannot be memoized safely.
   const [passwordValue, setPasswordValue] = useState("");
   const requirements = checkPasswordRequirements(passwordValue);
-  // Hidden again once every rule passes — a column of green ticks is noise, not information.
+  // Hidden once every rule passes: a column of green ticks is noise.
   const showRequirements =
     Boolean(touchedFields.password) &&
     passwordValue.length > 0 &&

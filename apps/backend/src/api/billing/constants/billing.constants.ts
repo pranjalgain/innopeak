@@ -1,28 +1,17 @@
-/**
- * Module-local constants only — not user-facing messages (those live in
- * `src/common/constants/messages.constants.ts`, see module-structure.md).
- */
-
-/** Frontend paths the Dummy/Stripe redirect URLs point back at. Relative to `FRONTEND_URL`. Real
- *  pages are frontend follow-up work (out of scope here) — see `DummyPaymentProvider`'s own doc
- *  comment for what each is expected to do once built. */
+/** Frontend paths the Dummy/Stripe redirect URLs point back at. Relative to `FRONTEND_URL`. */
 export const BILLING_REDIRECT_PATHS = {
-  // `{CHECKOUT_SESSION_ID}` is a literal Stripe Checkout template token — Stripe substitutes it
-  // with the real session id on redirect, no app-side session-id capture needed. The frontend reads
-  // `session_id` alongside `checkout=success` and calls `POST /v1/billing/checkout/reconcile` —
-  // see `BillingReconciliationService`.
+  // `{CHECKOUT_SESSION_ID}` is a literal Stripe Checkout template token that Stripe fills in on
+  // redirect; the frontend passes it to `POST /v1/billing/checkout/reconcile`.
   CHECKOUT_SUCCESS: '/settings?tab=billing&checkout=success&session_id={CHECKOUT_SESSION_ID}',
   CHECKOUT_CANCEL: '/settings?tab=billing&checkout=cancel',
   PORTAL_RETURN: '/settings?tab=billing',
-  /** Dummy-only confirmation page — see `DummyPaymentProvider.createCheckoutSession`. */
+  /** Dummy-only confirmation page. */
   DUMMY_CHECKOUT: '/billing/dummy-checkout',
-  /** Dummy-only confirmation page — see `DummyPaymentProvider.createPortalSession`. */
+  /** Dummy-only confirmation page. */
   DUMMY_PORTAL: '/billing/dummy-portal',
 } as const;
 
-/** Stripe event types this app acts on — every other incoming event type maps to `'unhandled'`
- *  in `StripePaymentProvider.constructWebhookEvent` and is logged/skipped by
- *  `BillingWebhooksService`, per the plan's v1 event table. */
+/** Stripe event types this app acts on; every other type maps to `'unhandled'` and is skipped. */
 export const HANDLED_STRIPE_EVENT_TYPES = [
   'checkout.session.completed',
   'customer.subscription.updated',
@@ -31,9 +20,8 @@ export const HANDLED_STRIPE_EVENT_TYPES = [
   'invoice.payment_succeeded',
 ] as const;
 
-/** How long a webhook for a Stripe customer this app has no record of keeps being retried (by
- *  letting Stripe re-deliver it) before it is acknowledged and dropped. A miss that is genuinely
- *  transient — replication lag, a race with a still-committing checkout — resolves within seconds;
- *  anything older is a customer this database will never know (a shared Stripe account, a wiped
- *  local DB), and failing it for days would only risk Stripe disabling the whole endpoint. */
+/** How long a webhook for an unknown Stripe customer is left to be retried by Stripe before it is
+ *  acked and dropped. Genuine misses (replication lag, a still-committing checkout) resolve in
+ *  seconds; older ones are customers this DB will never know, and failing them for days risks Stripe
+ *  disabling the endpoint. */
 export const UNKNOWN_CUSTOMER_RETRY_GRACE_MS = 60 * 60 * 1000;

@@ -49,12 +49,8 @@ describe('CronSqsConsumer', () => {
       expect(cronService.pollDueLocations).toHaveBeenCalledTimes(1);
     });
 
-    /**
-     * The regression this guards: `CronJobName` has four members but this consumer's switch used
-     * to handle only three, dropping REVIEWER_RETENTION_PURGE into `default: throw`. Under
-     * `DEPLOYMENT_TARGET=aws` that meant the nightly GDPR reviewer-retention purge threw every
-     * time, was redriven to the DLQ, and never actually ran — with no crash to surface it.
-     */
+    // Regression: an unhandled REVIEWER_RETENTION_PURGE hit `default: throw`, so under
+    // DEPLOYMENT_TARGET=aws the GDPR purge went to the DLQ every night and never ran.
     it('dispatches REVIEWER_RETENTION_PURGE jobs to CronService.purgeExpiredReviewerPii and awaits it', async () => {
       await consumer.process(CronJobName.REVIEWER_RETENTION_PURGE, undefined);
 

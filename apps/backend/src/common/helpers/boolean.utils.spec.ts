@@ -6,11 +6,8 @@ import { IsBoolean, IsOptional } from 'class-validator';
 import { parseBooleanInput } from './boolean.utils';
 
 /**
- * Exercised through a real `plainToInstance` with `enableImplicitConversion: true` — the exact
- * global `ValidationPipe` option (`bootstrap.ts`) whose blind `Boolean(value)` coercion this
- * function exists to undo. A unit test calling `parseBooleanInput` directly with a hand-built
- * `{ value, obj, key }` would not catch a regression in *how* class-transformer's pipeline calls
- * it — only a real transform does.
+ * Goes through a real `plainToInstance` with `enableImplicitConversion: true` (the `bootstrap.ts` pipe option
+ * whose blind `Boolean(value)` this undoes); a direct call would miss regressions in how class-transformer calls it.
  */
 class BooleanProbeDto {
   @IsOptional()
@@ -26,9 +23,7 @@ function transform(raw: unknown): BooleanProbeDto {
 
 describe('parseBooleanInput', () => {
   it('reads the string "false" as false, not true', () => {
-    // The bug this exists to fix: class-transformer's implicit conversion runs `Boolean(value)`
-    // on a boolean-typed property before any @Transform sees it, and `Boolean("false")` is
-    // `true` — a non-empty string is truthy in plain JS.
+    // `Boolean("false")` is `true`, and implicit conversion runs it before any @Transform sees the value.
     expect(transform('false').flag).toBe(false);
   });
 

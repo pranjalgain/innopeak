@@ -38,13 +38,7 @@ interface AcceptInviteViewProps {
   token: string;
 }
 
-/**
- * Platform-admin invite acceptance. Same card shell `LoginView` uses, in three states: validating
- * the token (skeleton), invalid/expired (a dead end back to login — there is nothing else this
- * screen can do with a bad token), or the two ways to finish — a password, or Google (which
- * navigates away entirely and comes back here with `?error=` on failure, read by
- * `useOAuthErrorToast` the same way the login screen reads its own Google failures).
- */
+// Google navigates away and returns with `?error=` on failure, read by useOAuthErrorToast.
 export function AcceptInviteView({ token }: AcceptInviteViewProps) {
   const t = useTranslations("auth.acceptInvite");
   useOAuthErrorToast();
@@ -52,13 +46,9 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
   const { isValidating, invite, invalid, isSubmitting, acceptWithPassword, startWithGoogle } =
     useAcceptAdminInvite(token);
 
-  // Gated exactly like `LoginView`'s own Google button, and for a load-bearing reason rather than
-  // symmetry: an admin who accepts through Google gets no `password_hash` at all, so Google
-  // becomes their *only* credential. Offering it here while the platform has social sign-in
-  // switched off would mint an admin whose one way in is a button `/login` doesn't render —
-  // locked out on arrival, with no admin equivalent of the tenant `set-password` flow to recover
-  // through. Defaults to hidden while the fetch is in flight (and on failure), same as the login
-  // screen: the password form below is always available, so hiding it costs nothing.
+  // Gated like LoginView's Google button: a Google-accepted admin has no password, so with social
+  // sign-in off they'd be locked out (/login hides the button; no admin set-password flow).
+  // Hidden while loading or on failure; the password form is always available.
   const { data: platformSettings } = usePlatformSettings();
   const socialEnabled = platformSettings?.socialLoginEnabled ?? false;
 
@@ -123,9 +113,7 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
       <AuthLogo />
       <div className={CARD_CLASS}>
         <h1 className="text-gradient mb-1 text-center text-xl font-semibold">{t("title")}</h1>
-        {/* Two variants rather than one neutral line: the subtitle is the only instruction on this
-            screen, and naming just the password half while a Google button sits below it leaves an
-            SSO invitee to infer the instruction doesn't apply to them. */}
+        {/* Two variants: the subtitle must not name only the password while a Google button is offered. */}
         <p className="text-muted-foreground mb-7 text-center text-sm">
           {socialEnabled
             ? t("invitedAsWithGoogle", { email: invite?.email ?? "" })

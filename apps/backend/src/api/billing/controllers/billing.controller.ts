@@ -50,8 +50,7 @@ import {
   ApiUpdateBillingProfile,
 } from '../swagger/billing.swagger';
 
-/** Tenant-facing billing routes — owner-only, same reasoning as `PromptsController`: billing
- *  plans/upgrades are a business-level decision, not something any team member should trigger. */
+/** Owner-only: plan changes are a business-level decision. */
 @Controller({ path: RouteNames.BILLING, version: '1' })
 @ApiTags('Billing')
 @Roles(UserRole.OWNER)
@@ -146,16 +145,12 @@ export class BillingController {
     return ResponseUtil.success(result, MESSAGES.BILLING.RECEIPTS_RETRIEVED);
   }
 
-  /** Binary PDF response — bypasses `ResponseUtil`/`ApiResponse<T>` entirely (see
-   *  `TransformInterceptor`'s own doc comment for why this route's path is excluded from it),
-   *  the same shape `MetricsController.getDefaultMetrics` uses for its own non-JSON body. */
+  /** Binary PDF: bypasses `ResponseUtil`/`ApiResponse<T>` (this path is excluded from `TransformInterceptor`). */
   @Get(`${RouteNames.BILLING_RECEIPTS}/${RouteNames.BILLING_RECEIPT_PDF}`)
   @ApiDownloadReceiptPdf()
   async downloadReceiptPdf(
     @CurrentUser() user: AuthUser,
-    // Same pipe `ReviewsController.getReview` uses on its own id param — without it a malformed
-    // id reaches a `uuid` column comparison and Postgres raises 22P02, surfacing as a 500 rather
-    // than the documented 404.
+    // Validated so a malformed id 404s instead of reaching a `uuid` comparison (Postgres 22P02 -> 500).
     @Param('receiptId', ParseUUIDPipe) receiptId: string,
     @Res() res: Response
   ): Promise<void> {

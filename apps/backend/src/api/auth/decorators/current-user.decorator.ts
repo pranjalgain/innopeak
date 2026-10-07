@@ -4,22 +4,7 @@ import type { Request } from 'express';
 
 import type { AuthUser } from '../types/auth.type';
 
-/**
- * Parameter decorator that extracts the authenticated user from the request.
- * Must be used on routes protected by JwtAuthGuard.
- *
- * @example
- * @Get('profile')
- * getProfile(@CurrentUser() user: AuthUser) {
- *   return user;
- * }
- *
- * @example
- * @Get('profile')
- * getEmail(@CurrentUser('email') email: string) {
- *   return email;
- * }
- */
+/** Requires a route protected by `JwtAuthGuard`. */
 export const CurrentUser = createParamDecorator(
   (
     data: keyof AuthUser | undefined,

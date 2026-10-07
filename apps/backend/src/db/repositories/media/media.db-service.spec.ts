@@ -71,12 +71,7 @@ describe('MediaDbService', () => {
       });
     });
 
-    /**
-     * Regression: `previousAsset` used to be reported for any pre-existing row, so re-confirming
-     * the id the row already held made the caller delete the asset it had just saved — the request
-     * answered 200 "Avatar updated" while the stored `url` became a permanent 404. Reproduced live
-     * against Cloudinary before the fix.
-     */
+    // Regression: re-confirming the id the row already held reported it as previous, so the caller deleted the just-saved asset (200, then a permanent 404 url).
     it('reports no previous asset when the confirmed id is the one the row already holds', async () => {
       const unchanged = 'avatars/users/user-1/asset-1';
       mediaRepository.upsertAvatar.mockResolvedValue({

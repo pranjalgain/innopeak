@@ -1,7 +1,7 @@
 import { MESSAGES } from '@common/constants/messages.constants';
 import { renderMessage } from '@common/i18n/message-registry';
 import { LoggerService } from '@logger/logger.service';
-import { BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
@@ -107,6 +107,28 @@ describe('ErrorHandlerService', () => {
       expect(result.statusCode).toBe(HttpStatus.BAD_REQUEST);
       expect(result.message).toContain('Foreign key constraint failed');
       expect(result.message).toContain('(column: user_id)');
+    });
+
+    it('recognises a Postgres error that Drizzle wrapped as `.cause`', () => {
+      // `DrizzleQueryError` has no SQLSTATE of its own, and its message is the whole statement.
+      const wrapped = Object.assign(new Error('Failed query: INSERT INTO blocklist_terms ...'), {
+        cause: makePgError({ code: '23505' }),
+      });
+
+      const result = target.handleError(wrapped, 'ctx');
+
+      expect(result.statusCode).toBe(HttpStatus.CONFLICT);
+      expect(result.message).not.toContain('Failed query');
+    });
+
+    it('maps a NUL byte in a text value (SQLSTATE 22021) to a 400, not a 500', () => {
+      const wrapped = Object.assign(new Error('Failed query: ...'), {
+        cause: makePgError({ code: '22021' }),
+      });
+
+      const result = target.handleError(wrapped, 'ctx');
+
+      expect(result.statusCode).toBe(HttpStatus.BAD_REQUEST);
     });
 
     it('falls back to INTERNAL_SERVER_ERROR for an unmapped Postgres error code', () => {
@@ -245,11 +267,7 @@ describe('ErrorHandlerService', () => {
       expect(result.message).toBe('a string error');
     });
 
-    /**
-     * `MESSAGES.SETTINGS.TENANT_SETTINGS_ROW_MISSING` stands in for any DB Service/Repository
-     * should-never-happen guard that now throws through the message catalog — a tagged key, not
-     * literal English. This must never leak into the log unrendered.
-     */
+    // A tagged `MESSAGES.*` key (not English) thrown by a DB service guard must never leak into the log unrendered.
     it('renders a tagged MESSAGES key into English before logging it', () => {
       const error = new Error(MESSAGES.SETTINGS.TENANT_SETTINGS_ROW_MISSING('tenant-1'));
 
@@ -348,6 +366,27 @@ describe('ErrorHandlerService', () => {
     });
   });
 
+  describe('handleForbidden', () => {
+    it('carries a { message, code } 403 code to the client, so callers can tell 403s apart', () => {
+      const result = target.handleForbidden(
+        new ForbiddenException({
+          message: 'Scheduled for deletion.',
+          code: 'ACCOUNT_SCHEDULED_FOR_DELETION',
+        }),
+        'ctx'
+      );
+
+      expect(result.statusCode).toBe(HttpStatus.FORBIDDEN);
+      expect(result.error).toBe('ACCOUNT_SCHEDULED_FOR_DELETION');
+    });
+
+    it('keeps the plain "Forbidden" label for a 403 with no code', () => {
+      const result = target.handleForbidden(new ForbiddenException('No.'), 'ctx');
+
+      expect(result.error).toBe('Forbidden');
+    });
+  });
+
   describe('handleBadRequest', () => {
     it('strips the field prefix and renders each validation message as a sentence', () => {
       const error = Object.assign(new Error('validation failed'), {
@@ -401,12 +440,7 @@ describe('ErrorHandlerService', () => {
       expect(result.message).toBe('invalid payload');
     });
 
-    /**
-     * Regression: `handleHttpException` (the non-BadRequestException path) already read a
-     * `{ message, code }`-shaped exception's `code` via `extractCode`, but this path never did —
-     * so a `new BadRequestException({ message, code: 'X' })` silently lost `code`, surfacing as
-     * a plain "Bad Request" the frontend could never branch on.
-     */
+    // Regression: `new BadRequestException({ message, code })` lost `code`, surfacing as a plain "Bad Request".
     it('surfaces a machine-readable code from a BadRequestException({ message, code }) payload', () => {
       const error = new BadRequestException({
         message: 'Missing required prompt placeholder(s): review_text',

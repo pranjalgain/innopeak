@@ -12,13 +12,7 @@ const tokens: ProviderTokenSet = {
   expiresAt: new Date(Date.now() + 3600_000),
 };
 
-/**
- * `disconnect()` schedules the old credential for deletion — the AWS store gives it a 7-day
- * recovery window rather than purging it immediately. An owner reconnecting the *same* Google
- * account inside that window hits the same `credential_reference`, and AWS Secrets Manager refuses
- * `PutSecretValue` against a secret pending deletion. Without a fallback, that owner could not
- * reconnect their own account at all for up to 7 days.
- */
+// Regression: a secret pending deletion (7-day window after disconnect) refuses writes, which blocked reconnecting the same Google account.
 describe('ProviderCredentialService.replaceCredential', () => {
   let service: ProviderCredentialService;
   const get = jest.fn();
@@ -52,8 +46,7 @@ describe('ProviderCredentialService.replaceCredential', () => {
   });
 
   it('mints a fresh secret and returns its reference when the old one refuses the write', async () => {
-    // The exact failure mode: AWS Secrets Manager's InvalidRequestException on a secret pending
-    // deletion from a disconnect within the last 7 days.
+    // Secrets Manager's InvalidRequestException on a secret pending deletion.
     update.mockRejectedValue(new Error('InvalidRequestException: pending deletion'));
 
     const result = await service.replaceCredential('aws-sm:tenant-1/connection', tokens);
@@ -65,9 +58,7 @@ describe('ProviderCredentialService.replaceCredential', () => {
   });
 
   it('carries the old refresh token into the fresh secret when the new tokens omit one', async () => {
-    // Google omits refresh_token on every response except the first consent — a genuine
-    // reconnect always gets one, but the merge logic must still be exercised, not bypassed, on
-    // the fallback path.
+    // Google omits refresh_token after the first consent; the merge must still run on the fallback path.
     update.mockRejectedValue(new Error('pending deletion'));
     const tokensWithNoRefresh: ProviderTokenSet = {
       accessToken: tokens.accessToken,
@@ -91,15 +82,7 @@ describe('ProviderCredentialService.replaceCredential', () => {
   });
 });
 
-/**
- * `refreshUnderLock` falls through to refreshing anyway when it never acquired the lock and the
- * concurrent-refresh wait times out (the holder crashed, or is just slower than the wait window) —
- * safe, since Google's refresh tokens are reusable. But the `finally` block used to delete the
- * lock unconditionally, including on this exact fallthrough path — deleting a lock this call never
- * held, which belongs to whichever other call *did* acquire it and may still be mid-refresh. A
- * third caller could then acquire the freed lock and start a redundant third refresh, exactly what
- * the lock exists to prevent.
- */
+// Regression: the finally block deleted the lock even when this call never acquired it, letting a third refresh start.
 describe('ProviderCredentialService.resolveAccessToken — lock release', () => {
   let service: ProviderCredentialService;
   const refreshAccessToken = jest.fn();
@@ -123,9 +106,7 @@ describe('ProviderCredentialService.resolveAccessToken — lock release', () => 
     update.mockResolvedValue(undefined);
     refreshAccessToken.mockResolvedValue(tokens);
     redisDel.mockResolvedValue(1);
-    // No cached access token at `resolveAccessToken`'s own read, and `awaitConcurrentRefresh`'s
-    // polling reads never find one either — the concurrent holder never finishes within the wait
-    // window, so the fallthrough path is what actually runs.
+    // Never a cached token, so the concurrent holder never finishes within the wait and the fallthrough path runs.
     redisGet.mockResolvedValue(null);
 
     const moduleRef = await Test.createTestingModule({
@@ -148,7 +129,7 @@ describe('ProviderCredentialService.resolveAccessToken — lock release', () => 
   });
 
   it('does not delete the refresh lock when it never acquired it', async () => {
-    redisSet.mockResolvedValue(null); // NX lost — someone else already holds the lock
+    redisSet.mockResolvedValue(null); // NX lost
 
     const resultPromise = service.resolveAccessToken(input);
     await jest.runAllTimersAsync();
@@ -160,11 +141,62 @@ describe('ProviderCredentialService.resolveAccessToken — lock release', () => 
   });
 
   it('still deletes the lock on the ordinary path where it did acquire it', async () => {
-    redisSet.mockResolvedValue('OK'); // NX won — this call owns the lock
+    redisSet.mockResolvedValue('OK'); // NX won
 
     const result = await service.resolveAccessToken(input);
 
     expect(result.accessToken).toBe(tokens.accessToken);
     expect(redisDel).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ProviderCredentialService.revokeOrThrow', () => {
+  let service: ProviderCredentialService;
+  const get = jest.fn();
+  const del = jest.fn();
+  const revoke = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    del.mockResolvedValue(undefined);
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ProviderCredentialService,
+        { provide: ReviewProvider, useValue: { revoke } },
+        {
+          provide: CredentialStoreProvider,
+          useValue: { get, update: jest.fn(), put: jest.fn(), delete: del },
+        },
+        { provide: REDIS_CLIENT, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ProviderCredentialService);
+  });
+
+  it('revokes at Google and then deletes the stored credential', async () => {
+    get.mockResolvedValue({ refreshToken: 'rt' });
+    revoke.mockResolvedValue(true);
+
+    await expect(service.revokeOrThrow('ref')).resolves.toBeUndefined();
+
+    expect(revoke).toHaveBeenCalledWith('rt');
+    expect(del).toHaveBeenCalledWith('ref');
+  });
+
+  it('throws and keeps the credential when Google does not confirm, so the purge can retry', async () => {
+    get.mockResolvedValue({ refreshToken: 'rt' });
+    revoke.mockResolvedValue(false);
+
+    await expect(service.revokeOrThrow('ref')).rejects.toThrow('did not confirm');
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('has nothing to release for a credential that is already gone or holds no refresh token', async () => {
+    get.mockResolvedValueOnce(null).mockResolvedValueOnce({});
+
+    await expect(service.revokeOrThrow('ref')).resolves.toBeUndefined();
+    await expect(service.revokeOrThrow('ref')).resolves.toBeUndefined();
+
+    expect(revoke).not.toHaveBeenCalled();
   });
 });

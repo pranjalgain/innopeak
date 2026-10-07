@@ -28,17 +28,10 @@ const DATE_FORMAT = {
   minute: "2-digit",
 } as const;
 
-/** Two per page — pagination controls only earn their place on the screen once there's actually
- *  more than a couple of entries to page through. */
+/** Pagination controls only earn their place once there are more than a couple of entries. */
 const VERSIONS_PER_PAGE = 2;
 
-/**
- * Read-only list of every prior version, oldest first (excludes the current
- * one — that's already shown on the prompt card). No restore action here;
- * this is history, not rollback. Each entry shows that version's own
- * approval-rate stats, not just its template — the point of versioning is
- * seeing whether an edit actually helped.
- */
+/** Read-only history of prior versions, oldest first (the current one is on the prompt card); no restore. Shows per-version approval stats so an edit's effect is visible. */
 export function PromptVersionHistory({ promptId, versions }: PromptVersionHistoryProps) {
   const t = useTranslations("promptManagement.history");
   const format = useFormatter();
@@ -51,9 +44,7 @@ export function PromptVersionHistory({ promptId, versions }: PromptVersionHistor
     VERSIONS_PER_PAGE,
   );
 
-  // Only the couple of versions actually on screen right now — and not even those until this
-  // section is expanded. Every prior version used to get fetched up front the moment the page
-  // loaded, whether or not anyone ever opened its history.
+  // Only the versions on screen, and none until the section is expanded.
   const pairs = useMemo(
     () => pageItems.map((version) => ({ promptId, version: version.version })),
     [pageItems, promptId],
@@ -75,17 +66,7 @@ export function PromptVersionHistory({ promptId, versions }: PromptVersionHistor
         {t("toggle", { count: priorVersions.length })}
       </Button>
 
-      {/*
-       * `grid-template-rows: 0fr -> 1fr` is a CSS-only fluid collapse — the row track's own size
-       * is what's animated. That only works if there's a single grid item inside: `<ul>` and
-       * `Pagination` used to be two SEPARATE children of this grid container with no explicit
-       * `grid-row`, so CSS auto-placement put them in two different rows — the explicit one
-       * (correctly sized 0fr/1fr) and an implicit second one, which defaults to `auto` and
-       * therefore never collapses no matter what `isOpen` is. That's exactly why `Pagination` kept
-       * showing below the "collapsed" list. Wrapping both in one inner `<div>` makes them a single
-       * grid item, so the row's own 0fr/1fr sizing (plus `overflow-hidden` here to clip it) covers
-       * everything inside, together.
-       */}
+      {/* `grid-template-rows: 0fr -> 1fr` only collapses a single grid item: `<ul>` and `Pagination` as separate children landed in an implicit `auto` row that never collapses, so both go in one inner `<div>`. */}
       <div
         className={cn(
           "ease-fluid grid transition-[grid-template-rows,margin-top] duration-300",
@@ -114,9 +95,7 @@ export function PromptVersionHistory({ promptId, versions }: PromptVersionHistor
                     {t("preview")}
                   </Button>
                 </div>
-                {/* Same "this is a message, not code" framing as the current version's bubble on
-                    the card above, just a quieter/compact variant to match a de-emphasized history
-                    entry — a plain background instead of an avatar-fronted bubble. */}
+                {/* Quieter variant of the current version's message bubble. */}
                 <div className="text-muted-foreground mt-1.5 max-h-24 overflow-hidden rounded-lg bg-background px-2.5 py-2 text-xs whitespace-pre-wrap">
                   {version.template}
                 </div>

@@ -13,12 +13,7 @@ import { GenerateReplyDryRunResponseDto } from './dto/generate-reply-dry-run-res
 import { GenerateReplyDryRunDto } from './dto/generate-reply-dry-run.dto';
 import { ApiGenerateReplyDryRun } from './swagger/ai.swagger';
 
-/**
- * `@Public()` — no token required. Removed on request, for local testing without having to log
- * in first: this route reads a tenant's prompt configuration and calls a real, billable AI
- * provider, so without a JWT to read `tenantId` off, the caller names one directly (see
- * `GenerateReplyDryRunDto.tenantId`).
- */
+/** Unauthenticated for local testing; with no JWT to read `tenantId` from, the caller names one (see `GenerateReplyDryRunDto.tenantId`). */
 @Controller({ path: RouteNames.AI, version: '1' })
 @ApiTags('AI')
 @Public()
@@ -31,8 +26,7 @@ export class AiController {
   ) {}
 
   @Post(RouteNames.AI_DRY_RUN)
-  // Every call here is a real, billable AI provider request, not a database write — worth
-  // keeping tight even with no per-caller identity to key a limit on.
+  // Every call is a billable AI provider request; keep tight even with no per-caller identity to key on.
   @Throttle({ short: { limit: 5, ttl: 60000 } })
   @ApiGenerateReplyDryRun()
   async generateDryRunReply(
@@ -50,14 +44,8 @@ export class AiController {
     );
   }
 
-  /**
-   * `findRecent(1)` — not `findAll()`. This route is `@Public()`, so every unauthenticated
-   * request that omits `tenantId` used to run the Super Admin Businesses listing (every tenant,
-   * ~5 correlated subqueries per row: owner name, owner email, user count, the latest-connection
-   * pair) to extract exactly one field, `id`. `findRecent(1)` runs the same per-row cost but
-   * bounded by a real SQL `LIMIT` instead of scanning every tenant — an unauthenticated,
-   * per-IP-only-throttled amplification vector against the primary DB otherwise.
-   */
+  /** `findRecent(1)`, not `findAll()`: this route is public, and `findAll` runs the expensive Super Admin listing
+   *  per unauthenticated request just to read one id; the SQL LIMIT bounds that. */
   private async resolveTenantId(requested: string | undefined): Promise<string> {
     if (requested !== undefined) {
       return requested;
@@ -72,9 +60,8 @@ export class AiController {
       });
     }
 
-    // Not the tenant's name: this line fires on every unauthenticated call that omits
-    // tenantId, and a real customer's name has no reason to land in the application log because
-    // of a request nobody signed.
+    // Not the tenant's name: this fires on every unauthenticated call omitting tenantId, and a customer's name
+    // shouldn't reach the log because of an unsigned request.
     this.logger.warn(`No tenantId given — resolved to tenant ${first.id}.`);
     return first.id;
   }

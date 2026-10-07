@@ -24,11 +24,11 @@ const PLATFORM_ACTIVITY_TYPES: PlatformActivityType[] = [
   "user_deactivated",
 ];
 
-/** Paginated, filterable platform-admin action history — the Activity page's own dedicated view,
- *  distinct from the Overview page's small glance card (`ActivityLogCard`, driven by
- *  `useAdminOverview`, no pagination, and merged with synthesized "business joined" entries). Same
- *  icon/color language and per-type message templates as that card, reused rather than
- *  redeclared. */
+/**
+ * Paginated platform-admin action history; unlike the Overview's `ActivityLogCard` it has no
+ * synthesized "business joined" entries, and it reuses that card's icon/color language and message
+ * templates.
+ */
 export function PlatformActivityLogCard() {
   const t = useTranslations("adminActivity");
   const tMessages = useTranslations("adminOverview.activityLog.messages");
@@ -74,7 +74,7 @@ export function PlatformActivityLogCard() {
         </Select>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
-        {/* Same fixed-height reasoning as `BillingWebhookEventsCard` — see its own comment. */}
+        {/* Fixed height, as in `BillingWebhookEventsCard`. */}
         <div className="flex flex-1 flex-col gap-1 sm:min-h-[600px]">
           {isError ? (
             <LoadErrorState onRetry={retry} />

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
+import { PendingSignupService } from "@/app/_libs/services/pending-signup.service";
 import { PlatformSettingsService } from "@/app/_libs/services/platform-settings.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
 
@@ -16,14 +17,12 @@ const replace = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace }),
-  // The view reads `?error=` on mount to surface a failed Google round trip — see
-  // useOAuthErrorToast. No param here, so the hook is a no-op in these tests.
+  // The view reads `?error=` on mount (useOAuthErrorToast); no param here, so the hook is a no-op.
   usePathname: () => "/onboarding/signup",
   useSearchParams: () => new URLSearchParams(),
 }));
 
-// A fresh QueryClient per render so one test's cached `["platform-settings"]` entry can never
-// leak into the next.
+// A fresh QueryClient per render so a cached `["platform-settings"]` entry can't leak between tests.
 function renderView() {
   return render(
     <QueryClientProvider client={createQueryClient()}>
@@ -38,8 +37,7 @@ describe("OnboardingSignupView", () => {
   beforeEach(() => {
     replace.mockClear();
     window.sessionStorage.clear();
-    // SSO-only — matches the platform's own shipped default (see the platform_settings
-    // migration), and is exactly what these tests exercise.
+    // SSO-only, the platform's shipped default (see the platform_settings migration).
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
       ssoLoginEnabled: true,
       passwordLoginEnabled: false,
@@ -65,12 +63,7 @@ describe("OnboardingSignupView", () => {
     expect(screen.queryByText("Verify email")).not.toBeInTheDocument();
   });
 
-  /**
-   * Step 3 is no longer rendered here — it is its own route. That is forced rather than stylistic:
-   * connecting is a real Google OAuth grant, so the browser leaves the app and returns through the
-   * backend's callback, and `/onboarding/signup` is in `proxy.ts`'s REDIRECT_IF_AUTHENTICATED_PATHS
-   * — by step 3 the user is authenticated, so any full navigation back here bounces to /dashboard.
-   */
+  /** Step 3 is its own route: connecting is a Google OAuth grant that leaves the app, and `/onboarding/signup` bounces authenticated users to /dashboard. */
   test("hands off to the plan route after continuing with Microsoft", async () => {
     const user = userEvent.setup();
     renderView();
@@ -79,8 +72,7 @@ describe("OnboardingSignupView", () => {
 
     // `waitFor`, because signup itself is async — the handoff happens after it resolves.
     await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_PLAN));
-    // The stepper on the destination route needs to know this is still the signup wizard, and
-    // which variant, because the backend callback redirects to a fixed path and drops query params.
+    // The destination stepper needs the wizard variant; the backend callback redirects to a fixed path and drops query params.
     expect(OnboardingContextService.get()).toEqual({ from: "signup", via: "sso" });
   });
 
@@ -94,5 +86,26 @@ describe("OnboardingSignupView", () => {
     expect(
       screen.queryByRole("button", { name: "Connect Google Business Profile" }),
     ).not.toBeInTheDocument();
+  });
+
+  /** Regression: refreshing on the OTP step dropped the user onto a blank signup form whose re-submit was refused (account exists). */
+  test("resumes the verification step after a refresh instead of a blank signup form", async () => {
+    PendingSignupService.set("owner@cafe.test");
+
+    renderView();
+
+    expect(await screen.findByText(/owner@cafe\.test/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: messages.onboardingSignup.otp.verifyButton })).toBeTruthy();
+  });
+
+  test("offers a way back to the form that forgets the pending email", async () => {
+    PendingSignupService.set("owner@cafe.test");
+    const user = userEvent.setup();
+
+    renderView();
+    await user.click(await screen.findByRole("button", { name: messages.onboardingSignup.otp.changeEmail }));
+
+    expect(PendingSignupService.get()).toBeNull();
+    expect(screen.queryByText(/owner@cafe\.test/)).toBeNull();
   });
 });

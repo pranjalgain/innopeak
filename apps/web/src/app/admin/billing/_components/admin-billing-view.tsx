@@ -8,6 +8,7 @@ import { LuBan, LuCircleAlert, LuCircleCheck, LuUsers } from "react-icons/lu";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { cn } from "@/app/_libs/utils/cn";
 import { AtRiskSubscriptionsPanel } from "@/app/admin/billing/_components/at-risk-subscriptions-panel";
+import { PostErasureChargesPanel } from "@/app/admin/billing/_components/post-erasure-charges-panel";
 import { UpgradeTrendCard } from "@/app/admin/billing/_components/upgrade-trend-card";
 import { LoadErrorState } from "@/components/common/load-error-state";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,13 +22,9 @@ export function AdminBillingView() {
   const t = useTranslations("adminBilling");
   const format = useFormatter();
   const router = useRouter();
-  // This page has no nav item to reach it through once payment is off and nothing is on Paid (see
-  // `AdminLayout`'s own filter), but the URL itself still resolves — bounce a direct/bookmarked
-  // visit back to Overview rather than rendering a dashboard for a feature this deploy doesn't
-  // have. `billingAvailable` mirrors the nav filter exactly: the flag only ever gates *starting* a
-  // new checkout, never an already-Paid tenant's subscription, so this page must stay reachable
-  // for as long as any such tenant exists, regardless of the flag. Only acts once both queries
-  // have actually resolved; either one still loading never redirects.
+  // The nav hides this page when payment is off and nothing is on Paid, but the URL still resolves;
+  // bounce direct visits to Overview. `billingAvailable` mirrors the nav filter: the flag only gates
+  // new checkouts, so the page stays reachable while any Paid tenant exists. Never redirects while a query is loading.
   const { data: platformSettings, isLoading: platformSettingsLoading } = usePlatformSettings();
   const { data: hasPaidTenants, isLoading: hasPaidTenantsLoading } = useAdminHasPaidTenants();
   const settingsResolved = !platformSettingsLoading && !hasPaidTenantsLoading;
@@ -46,12 +43,13 @@ export function AdminBillingView() {
     cancelingCount,
     upgradeTrend,
     atRisk,
+    postErasureCharges,
+    resolvePostErasureCharge,
     isLoading,
     isError,
     refetch,
   } = useAdminBilling();
 
-  // Same pattern as Overview/Statistics' own stat cards.
   const freeCountAnimated = useCountUp(freeCount, isLoading);
   const paidCountAnimated = useCountUp(paidCount, isLoading);
   const activeCountAnimated = useCountUp(activeCount, isLoading);
@@ -66,14 +64,12 @@ export function AdminBillingView() {
 
   const showAtRisk = atRisk.length > 0;
 
-  // While the redirect effect above is deciding (or already firing), render nothing rather than
-  // a flash of the dashboard for a feature this deploy doesn't have.
+  // Avoids a flash of the dashboard while the redirect effect decides.
   if (!settingsResolved || !billingAvailable) {
     return null;
   }
 
-  // Same reasoning as `AdminOverviewView`/`AdminStatisticsView`'s own doc comments — one summary
-  // query behind this whole page, so a failure would otherwise paint several confident zeroes.
+  // One summary query backs the whole page, so a failure would otherwise paint several confident zeroes.
   if (isError) {
     return (
       <div className="p-fluid-page">
@@ -113,6 +109,13 @@ export function AdminBillingView() {
           <LuBan className="size-4 shrink-0" />
           {t("cancelingNotice", { count: cancelingCount })}
         </p>
+      )}
+
+      {!isLoading && postErasureCharges.length > 0 && (
+        <PostErasureChargesPanel
+          charges={postErasureCharges}
+          onResolve={resolvePostErasureCharge}
+        />
       )}
 
       {isLoading ? (

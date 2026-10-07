@@ -1,6 +1,6 @@
 import { ReturnTo } from '../enums/return-to.enum';
 
-/** Machine-facing codes the frontend branches on. Distinct from MESSAGES, which is human copy. */
+/** Machine-facing codes the frontend branches on; distinct from MESSAGES, which is human copy. */
 export const CONNECTION_ERROR_CODES = {
   CONNECTION_NOT_FOUND: 'CONNECTION_NOT_FOUND',
   LOCATION_NOT_FOUND: 'LOCATION_NOT_FOUND',
@@ -14,8 +14,8 @@ export const CONNECTION_ERROR_CODES = {
 } as const;
 
 /**
- * Appended as `?error=<code>` on the callback's 302 — never a JSON body, because the user is
- * mid-browser-navigation and a JSON error would paint as a document.
+ * Appended as `?error=<code>` on the callback's 302, never a JSON body: the user is mid-browser-
+ * navigation and JSON would paint as a document.
  */
 export const OAUTH_ERROR_CODES = {
   INVALID_STATE: 'INVALID_STATE',
@@ -23,10 +23,8 @@ export const OAUTH_ERROR_CODES = {
   PROVIDER_ERROR: 'PROVIDER_ERROR',
   ACCOUNT_MISMATCH: 'ACCOUNT_MISMATCH',
   /**
-   * Not in the original spec. Consent that grants *some* scopes yields a connection that
-   * authorizes but cannot read reviews — indistinguishable from a working one until the first
-   * backfill fails, at which point the owner is told to reconnect with no hint about what to do
-   * differently.
+   * Partial-scope consent yields a connection that authorizes but cannot read reviews,
+   * indistinguishable from a working one until the first backfill fails.
    */
   INSUFFICIENT_SCOPE: 'INSUFFICIENT_SCOPE',
   SERVER_ERROR: 'SERVER_ERROR',
@@ -35,11 +33,9 @@ export const OAUTH_ERROR_CODES = {
 export type OAuthErrorCode = (typeof OAUTH_ERROR_CODES)[keyof typeof OAUTH_ERROR_CODES];
 
 /**
- * `returnTo` is resolved against this allowlist, never used as a URL. Accepting a raw URL on the
- * authorize route would make the callback an open redirect — an attacker mails a consent link
- * whose `returnTo` points at their own site, and the victim lands there having just authorized.
+ * Resolved against an allowlist, never used as a URL: a raw `returnTo` would make the callback an
+ * open redirect. `Record<ReturnTo, …>` forces a path for every new enum member.
  */
-/** `Record<ReturnTo, …>` so adding a member to the enum is a compile error until it has a path. */
 export const RETURN_TO_PATHS: Record<ReturnTo, string> = {
   [ReturnTo.ONBOARDING]: '/onboarding/connect',
   [ReturnTo.SETTINGS]: '/settings?tab=connection',
@@ -48,21 +44,16 @@ export const RETURN_TO_PATHS: Record<ReturnTo, string> = {
 export const DEFAULT_RETURN_TO = ReturnTo.ONBOARDING;
 
 /**
- * Binds an OAuth round trip to the browser that started it. `SameSite=Lax` because the callback
- * arrives as a top-level GET navigation from Google, which Lax permits and Strict does not —
- * Strict here would drop the cookie on exactly the request that needs it and make every legitimate
- * connect fail as INVALID_STATE.
+ * `SameSite=Lax` because the callback is a top-level GET navigation from Google; Strict would drop
+ * the cookie on exactly that request and fail every connect as INVALID_STATE.
  */
 export const OAUTH_SID_COOKIE_NAME = 'gbp_oauth_sid';
 export const OAUTH_SID_COOKIE_PATH = '/v1/connections';
 export const OAUTH_STATE_TTL_SECONDS = 600;
 
 /**
- * A tenant can now confirm more than one location at OAuth-confirm time (multi-select), so this
- * is no longer "the" product limit — it's a sanity ceiling against a pathological Google account
- * (or a confused/malicious client sending an oversized `externalLocationIds` array) rather than
- * an intended UX constraint. Still an application rule, not a database constraint: nothing about
- * the `locations` schema caps rows per tenant.
+ * Sanity ceiling against a pathological Google account or an oversized `externalLocationIds` array.
+ * An application rule only; the `locations` schema does not cap rows per tenant.
  */
 export const MAX_ACTIVE_LOCATIONS = 50;
 
@@ -72,5 +63,5 @@ export const BACKFILL_POLL_THROTTLE = { limit: 120, ttl: 60000 } as const;
 export const SYNC_RUNS_PAGE_SIZE_DEFAULT = 20;
 export const SYNC_RUNS_PAGE_SIZE_MAX = 100;
 
-/** PLAN.md §8.1's tolerance, surfaced to the UI as `isStale`. */
+/** Tolerance before a run is surfaced to the UI as `isStale`. */
 export const STALE_RUN_MINUTES = 30;

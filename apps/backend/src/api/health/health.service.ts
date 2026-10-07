@@ -9,10 +9,8 @@ import { HealthCheckResultsDto } from './dto/health-check-results.dto';
 import { HealthEntryDto } from './dto/health-entry.dto';
 
 /**
- * Every indicator builds its result via `HealthIndicator.getStatus(key, ...)`, which always
- * populates `result[key]`. The index signature on `HealthIndicatorResult` can't express that
- * guarantee statically under `noUncheckedIndexedAccess`, so we fall back to an explicit "down"
- * entry here — this branch should be unreachable in practice.
+ * `getStatus` always populates `result[key]`, but the index signature cannot express that under
+ * `noUncheckedIndexedAccess`; the "down" fallback should be unreachable.
  */
 function extractEntry(result: HealthIndicatorResult, key: string): HealthEntryDto {
   const entry = result[key];
@@ -24,7 +22,6 @@ export class HealthService {
   constructor(
     private readonly http: CustomHttpHealthIndicator,
     private readonly database: CustomDatabaseHealthIndicator,
-    // private readonly disk: DiskHealthIndicator,
     private readonly memory: MemoryHealthIndicator,
     private readonly redisHealth: RedisHealthIndicator
   ) {}
@@ -33,7 +30,6 @@ export class HealthService {
     const results = {} as HealthCheckResultsDto;
     let overallStatus: 'down' | 'up' = 'up';
 
-    // HTTP check
     try {
       const httpResult = await this.http.pingCheck('google', 'https://google.com');
       results.google = extractEntry(httpResult, 'google');
@@ -46,7 +42,6 @@ export class HealthService {
       overallStatus = 'down';
     }
 
-    // Database check
     try {
       const dbResult = await this.database.isHealthy('database');
       results.database = extractEntry(dbResult, 'database');
@@ -59,7 +54,6 @@ export class HealthService {
       overallStatus = 'down';
     }
 
-    // Redis check
     try {
       const redisResult = await this.redisHealth.isHealthy('redis');
       results.redis = extractEntry(redisResult, 'redis');
@@ -72,7 +66,6 @@ export class HealthService {
       overallStatus = 'down';
     }
 
-    // Memory check
     try {
       const memoryResult = await this.memory.checkHeap('memory_heap', 250 * 1024 * 1024);
       results.memory_heap = extractEntry(memoryResult, 'memory_heap');

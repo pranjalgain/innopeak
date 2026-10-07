@@ -15,9 +15,7 @@ const ADMIN_USER_COLUMNS = {
   email: schema.users.email,
   role: schema.users.role,
   status: schema.users.status,
-  // A correlated scalar subquery rather than a JOIN + GROUP BY: at most one row per user either
-  // way, and this keeps the query a plain SELECT with no aggregation to get wrong on the other
-  // (non-aggregated) columns above.
+  // Correlated subquery rather than JOIN + GROUP BY, keeping this a plain SELECT with no aggregation.
   lastLoginAt: sql<string | null>`(
     SELECT MAX(${schema.refreshTokens.createdAt})
     FROM ${schema.refreshTokens}
@@ -25,29 +23,16 @@ const ADMIN_USER_COLUMNS = {
   )`.as('last_login_at'),
 } as const;
 
-/**
- * Cross-tenant reads/writes over `users` — the one place in this codebase that queries `users`
- * without scoping to a single tenant, since the Super Admin area's whole purpose is to see across
- * every tenant. `AuthRepository` (tenant-scoped or single-row) is a different domain; nothing here
- * duplicates it.
- */
+/** The one place that queries `users` across tenants (Super Admin). */
 @Injectable()
 export class AdminUsersRepository {
   constructor(private readonly dbService: DBService) {}
 
   /**
-   * Every non-anonymized user, across every tenant, newest first, optionally narrowed by `search`
-   * (name or business name substring, case-insensitive — the two fields the Users screen's search
-   * box has always searched, previously client-side via `useSearchFilter`'s `USER_SEARCH_FIELDS`).
-   * Both columns are already real, joined columns on this query (unlike the Businesses list's
-   * owner name, which needs an `EXISTS` — see `businessSearchCondition`), so a plain `or(ilike, ilike)`
-   * is enough here. No pagination yet; the Users screen still pages the result client-side.
+   * `search` matches name or business name, case-insensitive. Not paginated; the Users screen pages client-side.
    *
-   * `lastLoginAt` is approximated from the most recent `refresh_tokens` row this user was ever
-   * issued (login, verify-email, a Google callback, or a refresh rotation all mint one) — there is
-   * no dedicated `last_login_at` column on `users` yet, and adding one would mean touching every
-   * token-issuing path in the auth module. A user who never completed signup (no session ever
-   * issued) correctly reads `null` here.
+   * `lastLoginAt` is approximated from the newest `refresh_tokens` row (every token-issuing path
+   * mints one); `users` has no `last_login_at` column. Null means no session was ever issued.
    */
   async findAll(search?: string): Promise<AdminUserRow[]> {
     const pattern = search ? `%${escapeLikePattern(search)}%` : undefined;
@@ -69,7 +54,6 @@ export class AdminUsersRepository {
     return rows as AdminUserRow[];
   }
 
-  /** Total non-anonymized user count, across every tenant — the Overview page's "Users" stat card. Same `anonymized_at IS NULL` filter as `findAll`, for consistency. */
   async count(): Promise<number> {
     const rows = await this.dbService.db
       .select({ value: count() })
@@ -91,30 +75,16 @@ export class AdminUsersRepository {
   }
 
   /**
-   * A single toggle, not separate activate/deactivate methods, mirroring the frontend's own
-   * `toggleActive` — any status other than `disabled` flips to `disabled`, and `disabled` flips
-   * back to whatever it must have been. Returns whether a row was actually updated, not the new
-   * row — the caller re-reads via `findById` so the response always carries the joined
-   * `businessName`/`lastLoginAt`.
+   * Flips `disabled` and back. Returns whether a row was updated; the caller re-reads for the
+   * joined columns.
    *
-   * Re-enabling resolves the target status from `email_verified_at` rather than hardcoding
-   * `active`, because `status` alone cannot say what a disabled user was before: this toggle
-   * flattens `active` and `pending_verification` onto the same `disabled`. Hardcoding `active`
-   * meant two clicks on a never-verified signup (disable, then re-enable) silently promoted them
-   * to a fully active account — `AuthService.login` stops returning `pending_verification` and
-   * issues real tokens, so the email-verification gate is bypassed for an address nobody ever
-   * proved they controlled. It also stranded them the other way: `AuthRepository.activateUser` is
-   * scoped to `status = 'pending_verification'`, so once the status had moved on, their real
-   * verification link matched zero rows and the tenant never got provisioned.
+   * Re-enabling derives the status from `email_verified_at` (written once by `activateUser`, never
+   * cleared), not a hardcoded `active`: disabled flattens `active` and `pending_verification`, and
+   * promoting a never-verified signup to active would bypass email verification and strand their
+   * real verification link (`activateUser` only matches `pending_verification`).
    *
-   * `email_verified_at` is the right source because it is written exactly once, by that same
-   * `activateUser`, and nothing ever clears it — so it survives any number of toggles.
-   *
-   * Refuses to run while `erasure_requested_at` is set (a tenant owner has an active team-member
-   * removal request pending on this user) — reactivating a "disabled" user out from under that
-   * flag would leave it stale: the user would look active again with no way for anyone to notice
-   * the nightly erasure-purge job still has them queued for anonymization once the original grace
-   * period elapses. The caller must cancel the pending removal first.
+   * Refuses while `erasure_requested_at` is set: reactivating would hide that the nightly purge
+   * still has the user queued. The caller must cancel the removal first.
    */
   async toggleActive(userId: string): Promise<ToggleActiveOutcome> {
     const result = await this.dbService.db.execute(sql`

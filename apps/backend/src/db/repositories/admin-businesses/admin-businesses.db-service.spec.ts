@@ -90,10 +90,8 @@ describe('AdminBusinessesDbService', () => {
 
   describe('connectionStatus derivation', () => {
     /**
-     * Distinct from `disconnected` on purpose — a tenant that never onboarded and one whose live
-     * connection broke need different people to act. Collapsing them let the newest never-onboarded
-     * signups permanently fill the Overview's three "Needs attention" slots, hiding every real
-     * mid-life disconnection behind them.
+     * Guards: never-onboarded tenants were collapsed into `disconnected`, filling the Overview's
+     * "Needs attention" slots and hiding real disconnections.
      */
     it('reports never_connected when there is no connection row at all', async () => {
       adminBusinessesRepository.findAll.mockResolvedValue([

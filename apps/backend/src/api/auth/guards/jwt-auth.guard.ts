@@ -5,11 +5,6 @@ import { Observable } from 'rxjs';
 
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
-/**
- * JWT authentication guard that extends Passport's AuthGuard.
- * Checks for the @Public() decorator metadata and skips authentication
- * if the route is marked as public.
- */
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   constructor(private readonly reflector: Reflector) {

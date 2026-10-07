@@ -2,24 +2,18 @@ import { type DefaultOptions, MutationCache, QueryCache, QueryClient } from "@ta
 
 import type { ApiError } from "@/app/_libs/services/api-error";
 
-// Types every TanStack Query/Mutation error as this app's own ApiError, so `error` in
-// onError/useQuery/useMutation is that shape everywhere — no casts at each call site.
 declare module "@tanstack/react-query" {
   interface Register {
     defaultError: ApiError;
   }
 }
 
-/**
- * No default retries: unlike some setups that retry once after a silent token refresh, this
- * app's axios interceptor (`_libs/api-sdk/config.ts`) already replays a failed request itself,
- * inside the interceptor, before the promise ever reaches react-query — a query/mutation here
- * only ever sees a *final* failure, so retrying it again would just repeat a already-failed call.
- */
+/** No default retries: the axios interceptor (`_libs/api-sdk/config.ts`) already replays a failed request, so react-query only ever sees a final failure. */
 const queryConfig: DefaultOptions = {
   queries: {
     retry: false,
-    refetchOnWindowFocus: false,
+    // Only a *failed* query refetches on focus, so a page recovers once the backend is back (one request per focus, not a loop).
+    refetchOnWindowFocus: (query) => query.state.status === "error",
     refetchOnReconnect: true,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
@@ -32,9 +26,7 @@ const queryConfig: DefaultOptions = {
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: queryConfig,
-    // Empty on purpose: errors are handled per call site (each hook's own onError/toast), not
-    // globally here — these just exist so a query with no local error handler doesn't produce an
-    // unhandled-rejection warning.
+    // Empty on purpose: errors are handled per call site; these only avoid unhandled-rejection warnings.
     mutationCache: new MutationCache({ onError: () => {} }),
     queryCache: new QueryCache({ onError: () => {} }),
   });

@@ -28,14 +28,8 @@ export class AdminUsersService {
   }
 
   /**
-   * Takes the actor for two reasons. It restores the `requirePlatformAdmin` check every sibling
-   * admin service already had — this was the only one relying solely on the controller's
-   * `@Roles` guard, so it was the only one that would not fail safe if that guard were ever
-   * loosened. And it gives the activity log someone to attribute the entry to.
-   *
-   * Recorded after the write, like the business suspend/reactivate path: a not-found toggle has
-   * nothing to log. The entry names both the user and their business, since an email alone is
-   * ambiguous on a feed that spans every tenant.
+   * Re-checks `requirePlatformAdmin` so it does not rely solely on the controller's `@Roles` guard.
+   * Logged after the write; names both user and business since an email alone is ambiguous across tenants.
    */
   async toggleActive(actor: AuthUser, userId: string): Promise<AdminUserResponseDto> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);

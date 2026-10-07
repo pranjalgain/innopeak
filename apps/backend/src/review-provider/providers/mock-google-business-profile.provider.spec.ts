@@ -14,13 +14,8 @@ const baseConfig = {
   callbackUrl: 'https://app.example.com/callback',
 };
 
-/**
- * Regression coverage for the bug `request()`'s own doc comment now explains: `getReviewReply`/
- * `replyToReview` are inherited (not overridden), so they dispatch through this same mock
- * transport — which, before this fix, had no branch for their URLs at all and either threw
- * (`localMockServerUrl` set) or silently matched the broader `/reviews` list-page branch on a
- * false-positive substring check (`localMockServerUrl` unset), returning the wrong fixture shape.
- */
+// Regression: the inherited `getReviewReply`/`replyToReview` had no transport branch and either threw or
+// matched the broader `/reviews` list-page branch, returning the wrong fixture shape.
 describe('MockGoogleBusinessProfileProvider — getReviewReply/replyToReview', () => {
   describe('without localMockServerUrl (DEV_GBP_MOCK alone)', () => {
     const provider = new MockGoogleBusinessProfileProvider(baseConfig);
@@ -123,9 +118,7 @@ describe('MockGoogleBusinessProfileProvider — getReviewReply/replyToReview', (
       });
 
       expect(page.reviews.length).toBeGreaterThan(0);
-      // The real LEGACY_V4 host, never the local mock server — listReviews/listLocations are
-      // deliberately unaffected by this toggle (see GbpProviderConfig.localMockServerUrl's own
-      // comment on the real provider).
+      // The real LEGACY_V4 host: listReviews/listLocations are deliberately unaffected by the local mock server toggle.
       expect(GBP_HOSTS.LEGACY_V4).not.toContain('localhost');
     });
   });

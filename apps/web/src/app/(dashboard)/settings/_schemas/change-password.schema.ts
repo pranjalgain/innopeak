@@ -9,17 +9,9 @@ import {
   PASSWORD_UPPERCASE_REGEX,
 } from "@/app/_libs/constants/password-rules";
 
-/** Resolves one error-message key. Matches next-intl's `useTranslations` return shape. */
 type Translate = (key: string) => string;
 
-/**
- * A factory, not a module-scope schema: next-intl's `useTranslations` is a hook, so the schema is
- * built at render with the caller's translator. Memoize it (`useMemo`) to keep the resolver
- * identity stable.
- *
- * `currentPassword` is only checked for presence — whether it is *correct* is the server's answer,
- * and guessing at it client-side would be a second source of truth for something we cannot know.
- */
+/** A factory because next-intl's translator is a hook; memoize to keep the resolver identity stable. `currentPassword` is checked for presence only: correctness is the server's answer. */
 export function changePasswordSchema(t: Translate) {
   return z
     .object({

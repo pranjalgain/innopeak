@@ -15,13 +15,10 @@ export class EmailService {
   private readonly templatesDir: string;
 
   constructor(private readonly emailProvider: EmailProvider) {
-    // Resolve template directory relative to the compiled output (dist/) at runtime
+    // Relative to the compiled output (dist/) at runtime
     this.templatesDir = join(__dirname, 'templates');
   }
 
-  /**
-   * Send an email directly via the configured provider.
-   */
   async sendEmail(options: SendEmailOptions): Promise<EmailSendResult> {
     this.logger.debug(
       `Sending email to ${Array.isArray(options.to) ? options.to.join(', ') : options.to}`
@@ -29,14 +26,6 @@ export class EmailService {
     return this.emailProvider.send(options);
   }
 
-  /**
-   * Load and compile a Handlebars template, then send the resulting HTML email.
-   *
-   * @param to      - recipient address(es)
-   * @param templateName - name of the .hbs file (without extension) in the templates directory
-   * @param data    - data to pass into the Handlebars template
-   * @param overrides - optional overrides for subject, from, replyTo, etc.
-   */
   async sendTemplateEmail(
     to: string[] | string,
     templateName: string,
@@ -47,8 +36,7 @@ export class EmailService {
 
     const subject = overrides?.subject ?? this.deriveSubject(templateName, data);
 
-    // Build options carefully to avoid assigning undefined to optional properties
-    // (required by exactOptionalPropertyTypes)
+    // exactOptionalPropertyTypes forbids assigning undefined to optional properties
     const options: SendEmailOptions = {
       to,
       subject,
@@ -68,9 +56,6 @@ export class EmailService {
     return this.sendEmail(options);
   }
 
-  /**
-   * Load a .hbs template from disk (with in-memory caching) and compile it.
-   */
   private async compileTemplate(
     templateName: string,
     data: Record<string, unknown>
@@ -88,16 +73,12 @@ export class EmailService {
     return compiled(data);
   }
 
-  /**
-   * Derive a reasonable email subject from the template name when none is provided.
-   */
   private deriveSubject(templateName: string, data: Record<string, unknown>): string {
     const titleFromData = data['subject'] ?? data['title'];
     if (typeof titleFromData === 'string') {
       return titleFromData;
     }
 
-    // Convert kebab-case template name to title case
     return templateName.replace(/-/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
   }
 }

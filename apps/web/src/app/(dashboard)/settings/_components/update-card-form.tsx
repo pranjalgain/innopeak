@@ -13,9 +13,7 @@ import { useSetDefaultPaymentMethod } from "@/hooks/billing/use-set-default-paym
 import { useSubscription } from "@/hooks/billing/use-subscription";
 import type { PaymentMethodSummary } from "@/types/domain";
 
-/** Fixed neutral colors rather than reading the app's own CSS variables — Stripe Elements renders
- *  inside a cross-origin iframe, so it can't inherit the page's theme tokens directly. Picked to
- *  read reasonably in both light and dark mode rather than tracking the live theme. */
+/** Fixed neutral colors: Stripe Elements renders in a cross-origin iframe and can't inherit the page's theme tokens. */
 const CARD_ELEMENT_OPTIONS = {
   style: {
     base: {
@@ -27,9 +25,6 @@ const CARD_ELEMENT_OPTIONS = {
   },
 } as const;
 
-/** A small colored pill for inline success/error feedback — the same "icon in a soft-tinted box"
- *  language `ConnectErrorStage`/`DoneStage` use for whole-page states, scaled down for a single
- *  form field's result instead of a full flow outcome. */
 function InlineNotice({ tone, children }: { tone: "success" | "destructive"; children: string }) {
   const Icon = tone === "success" ? LuCheck : LuTriangleAlert;
   return (
@@ -44,11 +39,7 @@ function InlineNotice({ tone, children }: { tone: "success" | "destructive"; chi
   );
 }
 
-/** Shows what's already on file — without this, the dialog's card input looks identical whether
- *  there's a saved card or not, since Stripe Elements never pre-fills a card number back (it only
- *  ever accepts new input). Reuses `useSubscription`'s cached data (same query key as the Settings
- *  page behind this dialog), so this costs no extra request. Styled as the same masked-card row
- *  `PaymentMethodRow` uses on the page behind this dialog, for visual continuity. */
+/** Shows the saved card, since Stripe Elements never pre-fills one; reuses `useSubscription`'s cached data, so no extra request. */
 function CurrentCard({ paymentMethod }: { paymentMethod: PaymentMethodSummary }) {
   const t = useTranslations("settings.billing.manageDialog.card");
   const expiry = formatCardExpiryMonth(paymentMethod.expMonth);
@@ -65,7 +56,7 @@ function CurrentCard({ paymentMethod }: { paymentMethod: PaymentMethodSummary })
   );
 }
 
-/** Lives inside `<Elements>` — `useStripe`/`useElements` only resolve within that provider. */
+/** Must live inside `<Elements>` for `useStripe`/`useElements` to resolve. */
 export function UpdateCardForm() {
   const t = useTranslations("settings.billing.manageDialog.card");
   const { data: subscription } = useSubscription();
@@ -79,11 +70,8 @@ export function UpdateCardForm() {
 
   const isSubmitting =
     createSetupIntentMutation.isPending || setDefaultPaymentMethodMutation.isPending;
-  // Synchronous re-entrancy guard — `isSubmitting` above only flips true after a React state
-  // update round-trip, so a fast double-click (or Enter-key repeat) landing inside the same task
-  // could otherwise call this twice before either mutation's `isPending` re-renders the disabled
-  // button, creating two SetupIntents and racing to set the default payment method twice. Mirrors
-  // the dummy-checkout page's own `hasStarted` ref guard.
+  // Synchronous re-entrancy guard: `isSubmitting` flips only after a React state round-trip, so a fast double-click
+  // could create two SetupIntents.
   const submitInFlight = useRef(false);
 
   const handleSubmit = async (event: FormEvent) => {

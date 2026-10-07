@@ -182,7 +182,13 @@
       "ssoUnavailable": "Weitere Anmeldeoptionen konnten nicht geprüft werden.",
       "ssoUnavailableRetry": "Erneut versuchen",
       "platformAdmin": "Plattform-Administrator?",
-      "adminSignIn": "Hier anmelden"
+      "adminSignIn": "Hier anmelden",
+      "scheduledForDeletion": {
+        "title": "Dieses Unternehmen ist zur Löschung vorgemerkt",
+        "restore": "Mein Unternehmen wiederherstellen",
+        "restoring": "Wird wiederhergestellt …",
+        "back": "Zurück"
+      }
     },
     "adminLogin": {
       "title": "Admin-Anmeldung",
@@ -269,7 +275,9 @@
     "toasts": {
       "signInFailed": "Bei der Anmeldung ist etwas schiefgelaufen. Bitte versuchen Sie es erneut.",
       "signUpFailed": "Beim Erstellen Ihres Kontos ist etwas schiefgelaufen. Bitte versuchen Sie es erneut.",
-      "signOutFailed": "Bei der Abmeldung ist etwas schiefgelaufen. Bitte versuchen Sie es erneut."
+      "signOutFailed": "Bei der Abmeldung ist etwas schiefgelaufen. Bitte versuchen Sie es erneut.",
+      "restoreFailed": "Das Unternehmen konnte nicht wiederhergestellt werden. Prüfen Sie Ihr Passwort und versuchen Sie es erneut.",
+      "restored": "Ihr Unternehmen wurde wiederhergestellt."
     },
     "googleErrors": {
       "NO_ACCOUNT": "Für diese Google-Adresse wurde kein Konto gefunden. Bitte zuerst registrieren.",
@@ -313,6 +321,7 @@
     "done": {
       "title": "Alles bereit",
       "description": "Wir haben {count} Verlaufsbewertungen importiert und prüfen ab jetzt alle 15 Minuten auf neue.",
+      "descriptionNoCount": "Ihre Bewertungen sind eingerichtet. Wir prüfen alle 15 Minuten auf neue.",
       "button": "Zum Dashboard"
     },
     "errors": {
@@ -379,6 +388,7 @@
       "incompleteCode": "Geben Sie den 6-stelligen Code ein.",
       "resend": "Code erneut senden",
       "resendIn": "Code in {seconds}s erneut senden",
+      "changeEmail": "Andere E-Mail-Adresse verwenden",
       "toasts": {
         "resent": "Code erneut gesendet.",
         "resendFailed": "Der Code konnte nicht erneut gesendet werden. Bitte versuchen Sie es in Kürze erneut.",
@@ -446,7 +456,10 @@
       "reviewCta": "Prüfen"
     },
     "businessProfile": {
-      "googleReviewCount": "({count, plural, one {# Google-Bewertung} other {# Google-Bewertungen}})"
+      "lastSynced": "Zuletzt synchronisiert: {date}",
+      "neverSynced": "Noch nicht synchronisiert",
+      "noAddress": "Keine Adresse hinterlegt",
+      "noLocation": "Es ist kein Standort des Google-Unternehmensprofils verbunden."
     }
   },
   "reviewQueue": {
@@ -486,11 +499,18 @@
       "loadFailed": "Diese Bewertung konnte nicht geladen werden.",
       "approved": "Antwort freigegeben.",
       "rejected": "Antwort abgelehnt.",
-      "saveFailed": "Die Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
+      "saveFailed": "Die Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+      "posted": "Antwort auf Google veröffentlicht.",
+      "postFailed": "Google hat die Antwort nicht angenommen. Sie können es erneut versuchen.",
+      "postQueued": "Wird auf Google veröffentlicht…",
+      "postQueueFailed": "Die Veröffentlichung konnte nicht eingeplant werden. Bitte versuchen Sie es erneut.",
+      "manualReplyCreated": "Antwort gespeichert.",
+      "postStillPending": "Der Beitrag an Google läuft noch. Prüfen Sie es in einem Moment, bevor Sie es erneut versuchen."
     },
     "replies": {
       "title": "Vorgeschlagene Antworten",
-      "description": "Für diese Eskalation wurden zwei KI-Antwortentwürfe erstellt. Die Freigabe eines Entwurfs ersetzt automatisch den anderen — pro Bewertung kann immer nur eine Antwort veröffentlicht werden.",
+      "descriptionOne": "Für diese Bewertung wurde ein KI-Antwortentwurf erstellt. Geben Sie ihn unverändert frei, bearbeiten Sie ihn zuerst oder lehnen Sie ihn ab.",
+      "descriptionMany": "Für diese Bewertung wurden {count} KI-Antwortentwürfe erstellt. Die Freigabe eines Entwurfs ersetzt automatisch die anderen — pro Bewertung kann immer nur eine Antwort veröffentlicht werden.",
       "snippetLabel": "Entwurf {label}",
       "approve": "Freigeben",
       "edit": "Bearbeiten",
@@ -500,12 +520,28 @@
         "pending_approval": "Ausstehende Freigabe",
         "approved": "Freigegeben",
         "rejected": "Abgelehnt",
-        "superseded": "Ersetzt"
+        "superseded": "Ersetzt",
+        "posted": "Veröffentlicht",
+        "post_failed": "Veröffentlichung fehlgeschlagen"
       },
       "confirmation": {
-        "approved": "Freigegeben — wird im Google Unternehmensprofil veröffentlicht.",
+        "approved": "Freigegeben — noch nicht auf Google veröffentlicht.",
         "rejected": "Abgelehnt — dieser Entwurf wird nicht verwendet.",
-        "superseded": "Ersetzt — für diese Bewertung wurde eine andere Antwort freigegeben."
+        "superseded": "Ersetzt — für diese Bewertung wurde eine andere Antwort freigegeben.",
+        "posted": "Im Google Unternehmensprofil veröffentlicht.",
+        "post_failed": "Freigegeben, aber Google hat die Antwort nicht angenommen."
+      },
+      "post": "Auf Google veröffentlichen",
+      "retryPost": "Erneut versuchen",
+      "posting": "Wird veröffentlicht…",
+      "postErrorDetail": "Grund: {message}",
+      "retryUnavailable": "Für diese Bewertung ist bereits eine andere Antwort aktiv, daher kann diese nicht erneut versucht werden.",
+      "manual": {
+        "title": "Eigene Antwort schreiben",
+        "description": "Lieber eigene Worte? Schreiben Sie eine Antwort von Grund auf. Sie wird beim Speichern sofort freigegeben und ersetzt alle noch offenen Entwürfe.",
+        "placeholder": "Ihre Antwort schreiben…",
+        "submit": "Antwort speichern",
+        "submitting": "Wird gespeichert…"
       }
     }
   },
@@ -546,7 +582,44 @@
       },
       "save": "Speichern",
       "saving": "Wird gespeichert…",
-      "cancel": "Abbrechen"
+      "cancel": "Abbrechen",
+      "deleteBusiness": {
+        "title": "Dieses Unternehmen löschen",
+        "description": "Entfernt dieses Unternehmen mit allen Bewertungen, Antworten und Einstellungen endgültig. Während der Frist lässt sich das rückgängig machen.",
+        "open": "Unternehmen löschen …",
+        "dialog": {
+          "title": "Dieses Unternehmen löschen?",
+          "description": "Ihr gesamtes Team wird sofort abgemeldet und alles wird zur endgültigen Löschung vorgemerkt.",
+          "consequences": {
+            "suspended": "Alle Teammitglieder verlieren innerhalb weniger Minuten den Zugriff.",
+            "billing": "Ein kostenpflichtiges Abonnement wird nicht mehr verlängert – es endet mit dem bereits bezahlten Zeitraum.",
+            "erased": "Nach {days} Tagen werden das Unternehmen, seine Bewertungen und die Verbindung endgültig gelöscht.",
+            "restore": "Bis dahin können Sie alles wiederherstellen, indem Sie sich mit Ihrem Passwort anmelden.",
+            "noRestore": "Sie haben sich ohne Passwort angemeldet. Eine Wiederherstellung ist daher nur über den Support vor diesem Datum möglich."
+          },
+          "nameLabel": "Geben Sie „{name}“ zur Bestätigung ein",
+          "passwordLabel": "Ihr Passwort",
+          "otpLabel": "Bestätigungscode",
+          "otpHint": "Wir senden einen 6-stelligen Code per E-Mail, um Ihre Identität zu bestätigen.",
+          "sendCode": "Code per E-Mail senden",
+          "sendingCode": "Wird gesendet …",
+          "resendCode": "Code erneut senden",
+          "resendCodeIn": "Code erneut senden in {seconds} s",
+          "cancel": "Abbrechen",
+          "confirm": "Unternehmen löschen",
+          "deleting": "Wird gelöscht …",
+          "exportHint": "Nach Ablauf der Frist ist die Löschung endgültig. Möchten Sie vorher eine Kopie Ihrer Daten?",
+          "exportFirst": "Kopie meiner Daten herunterladen",
+          "exporting": "Wird vorbereitet …"
+        },
+        "done": {
+          "title": "Löschung vorgemerkt",
+          "description": "Ihr Unternehmen wird am {date} ({days} Tage ab jetzt) endgültig gelöscht. Sie wurden abgemeldet.",
+          "canRestore": "Anders entschieden? Melden Sie sich bis dahin mit E-Mail und Passwort an und wählen Sie „Wiederherstellen“.",
+          "contactSupport": "Um dies vorher rückgängig zu machen, wenden Sie sich an den Support.",
+          "backToSignIn": "Zurück zur Anmeldung"
+        }
+      }
     },
     "blocklist": {
       "title": "Sperrliste",
@@ -731,6 +804,14 @@
         "checkoutReconcilePending": "Ihre Zahlung wird noch verarbeitet — Ihr Plan wird in Kürze aktualisiert.",
         "checkoutReconcileFailed": "Wir konnten Ihre Zahlung gerade nicht bestätigen. Laden Sie die Seite neu, um es erneut zu versuchen — falls Sie belastet wurden, wird Ihr Plan in Kürze aktualisiert."
       },
+      "checkoutStatus": {
+        "pendingTitle": "Ihre Zahlung wird noch verarbeitet",
+        "pendingDescription": "Wir haben von Stripe noch keine Bestätigung erhalten. Das kann einen Moment dauern. Prüfen Sie es erneut oder schauen Sie später wieder vorbei — falls Sie belastet wurden, wird Ihr Plan automatisch aktualisiert.",
+        "failedTitle": "Wir konnten Ihre Zahlung nicht bestätigen",
+        "failedDescription": "Stripe war gerade nicht erreichbar. Versuchen Sie es gleich noch einmal — falls Sie belastet wurden, wird Ihr Plan automatisch aktualisiert.",
+        "checkAgain": "Erneut prüfen",
+        "checking": "Wird geprüft…"
+      },
       "chooseLocation": {
         "title": "Aktiven Standort wählen",
         "proactiveDescription": "Ihr Tarif wechselt zu Free, der {count, plural, one {# Standort} other {# Standorte}} erlaubt. Wählen Sie, welcher aktiv bleiben soll — Sie können dies jederzeit vorher ändern.",
@@ -808,6 +889,18 @@
           "securedByStripe": "Gesichert durch Stripe",
           "expires": "Läuft ab {month}/{year}"
         }
+      }
+    },
+    "exportData": {
+      "title": "Daten exportieren",
+      "description": "Laden Sie eine Kopie der Daten Ihres Unternehmens herunter – Team, Einstellungen, Standorte, Bewertungen und Antworten sowie Zahlungsbelege – als eine Datei. Passwörter, Verbindungszugangsdaten und Kennungen des Zahlungsanbieters sind nie enthalten.",
+      "download": "Meine Daten herunterladen",
+      "downloading": "Wird vorbereitet …",
+      "toasts": {
+        "downloaded": "Ihr Datenexport ist bereit.",
+        "failed": "Der Export konnte nicht erstellt werden. Bitte versuchen Sie es erneut.",
+        "forbidden": "Nur die Inhaberin oder der Inhaber kann die Daten exportieren.",
+        "tooManyRequests": "Zu viele Exporte. Bitte warten Sie eine Minute und versuchen Sie es erneut."
       }
     }
   },
@@ -1019,7 +1112,18 @@
       }
     },
     "toasts": {
-      "loadFailed": "Die Abrechnung konnte nicht geladen werden."
+      "loadFailed": "Die Abrechnung konnte nicht geladen werden.",
+      "chargeHandled": "Als bearbeitet markiert.",
+      "chargeAlreadyHandled": "Bereits bearbeitet.",
+      "chargeHandleFailed": "Konnte nicht als bearbeitet markiert werden."
+    },
+    "postErasureCharges": {
+      "title": "Nach einer Löschanfrage abgebucht",
+      "subtitle": "Diese Unternehmen haben die Löschung beantragt und wurden trotzdem belastet. Erstatten Sie die Rechnung in Stripe und markieren Sie sie dann als bearbeitet.",
+      "detail": "Rechnung {invoice} · {amount} · bezahlt am {date}",
+      "noInvoiceNumber": "(ohne Nummer)",
+      "resolve": "Als bearbeitet markieren",
+      "resolving": "Wird gespeichert …"
     }
   },
   "adminBusinesses": {
@@ -1053,11 +1157,11 @@
     },
     "confirmRequestErasure": {
       "title": "Löschung von {name} anfordern?",
-      "description": "Jeder Benutzer dieses Unternehmens verliert sofort den Zugriff. Die Daten werden nach der Übergangsfrist endgültig gelöscht, sofern Sie nicht vorher abbrechen."
+      "description": "Alle Nutzer dieses Unternehmens verlieren sofort den Zugriff, und die Synchronisierung mit Google wird gestoppt. Ein kostenpflichtiges Abonnement endet mit dem laufenden Abrechnungszeitraum. Nach der Karenzzeit werden die Daten des Unternehmens endgültig gelöscht und der Stripe-Kunde sowie der Google-Zugriff entfernt — es sei denn, Sie brechen vorher ab."
     },
     "confirmCancelErasure": {
       "title": "Löschung von {name} abbrechen?",
-      "description": "Dieses Unternehmen wird wieder aktiv — es wurde noch nichts gelöscht."
+      "description": "Dieses Unternehmen wird wieder aktiviert und die Synchronisierung läuft weiter — es wurde noch nichts gelöscht. Ein durch die Löschung zum Ende vorgemerktes Abonnement wird fortgesetzt; ein vom Inhaber selbst gekündigtes bleibt gekündigt und kann unter Abrechnung erneut abgeschlossen werden."
     },
     "emptyState": {
       "title": "Noch keine Unternehmen",

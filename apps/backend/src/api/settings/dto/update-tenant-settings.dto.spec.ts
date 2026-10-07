@@ -12,11 +12,9 @@ const validBody = {
 };
 
 /**
- * `reviewDataRetentionMonths` had `@Min(1)` but no upper bound, while the column behind it is a
- * Postgres `INTEGER`. A value past that column's own range reached the database uncaught and
- * surfaced as a 500 (`22003 value out of range`) instead of the validation 400 every other bad
- * input on this route gets. Exercised through the real global `ValidationPipe` options
- * (`enableImplicitConversion: true`) rather than calling `class-validator` directly.
+ * Regression: `reviewDataRetentionMonths` had no upper bound, so a value past Postgres `INTEGER`
+ * surfaced as a 500 (`22003`) instead of a validation 400. Runs through the real global
+ * `ValidationPipe` options.
  */
 function validate(reviewDataRetentionMonths: unknown): { errors: number; value: unknown } {
   const dto = plainToInstance(
@@ -56,11 +54,8 @@ describe('UpdateTenantSettingsDto.reviewDataRetentionMonths', () => {
 });
 
 /**
- * `@Type(() => Number)` (what all three integer fields used before this fix) coerces with a
- * blind `Number(value)` — `Number(true) === 1`, `Number([6]) === 6`, `Number(" 6 ") === 6` — so a
- * boolean, an array, or a whitespace-padded string all landed on a valid-looking integer and
- * `@IsInt()`/`@Min()`/`@Max()` never saw anything to reject. Exercised through the real global
- * `ValidationPipe` options, same as the suite above.
+ * Regression: `@Type(() => Number)` blindly coerced `true`, `[6]` and `" 6 "` to valid-looking
+ * integers, so `@IsInt()`/`@Min()`/`@Max()` never rejected them.
  */
 describe('UpdateTenantSettingsDto numeric fields reject non-numeric JSON types', () => {
   function validateField(field: string, value: unknown): number {

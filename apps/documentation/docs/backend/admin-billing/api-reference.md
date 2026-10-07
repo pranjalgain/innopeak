@@ -94,6 +94,17 @@ Success `200`:
       "status": "past_due",
       "currentPeriodEnd": "2026-09-01T00:00:00.000Z"
     }
+  ],
+  "postErasureCharges": [
+    {
+      "receiptId": "0190f3bb-1c2d-7e4f-8a9b-0c1d2e3f4a5b",
+      "tenantId": "0190f3aa-2a3e-7c1a-9b1e-8f2a1c3d4e5f",
+      "businessName": "The Coastal Table",
+      "invoiceNumber": "8E8B7F1-0007",
+      "amountPaid": 4900,
+      "currency": "usd",
+      "paidAt": "2026-09-30T23:41:00.000Z"
+    }
   ]
 }
 ```
@@ -106,8 +117,26 @@ Success `200`:
 | `upgradeTrend[].monthKey` | string | `YYYY-MM`, zero-padded, UTC. Every month in the window is present, including zero-count ones |
 | `upgradeTrend[].count` | integer | `checkout.session.completed` webhook deliveries that month |
 | `atRisk[]` | array | Past-due subscriptions, most recently updated first, capped at 10 |
+| `postErasureCharges[]` | array | Payments that succeeded **after** the business's erasure was requested and have not been marked handled — newest first, capped at 20. See [the refund rule](./overview.md#charged-after-an-erasure-request-the-refund-rule-and-the-manual-queue). `amountPaid` is the smallest currency unit (cents) |
 
 Errors: `401`, `403`, `429`.
+
+## Marking a post-erasure charge handled
+
+| Method | Path | Auth | Throttle |
+|---|---|---|---|
+| `POST` | `/v1/admin/billing/post-erasure-charges/:receiptId/resolve` | Bearer, platform admin | global `short` tier (30/min) |
+
+### `POST /v1/admin/billing/post-erasure-charges/:receiptId/resolve`
+
+Removes one entry from `postErasureCharges` after an admin has refunded it in Stripe (or decided not
+to). Idempotent in effect: resolving an already-resolved entry is a `404`, the same as an unknown
+one, and the first resolver's identity and time are kept. Does **not** talk to Stripe.
+
+Success `200`: `{ "message": "Marked as handled." }`
+
+Errors: `400` (`receiptId` is not a UUID), `401`, `403`, `404 POST_ERASURE_CHARGE_NOT_FOUND` (unknown id, not flagged, or already
+handled), `429`.
 
 ## Webhook activity
 
@@ -169,6 +198,7 @@ of range), `401`, `403`, `429`.
 | Status | Code | Route(s) | When |
 |---|---|---|---|
 | `400` | `Validation Error` | `GET /webhook-events` | A `class-validator` rule failed — unrecognized `type` key, or `page`/`pageSize` outside their bounds. |
+| `404` | `POST_ERASURE_CHARGE_NOT_FOUND` | `POST /post-erasure-charges/:receiptId/resolve` | No unresolved, flagged receipt with that id. |
 | `401` | `Unauthorized` | Every route | Missing, malformed, or expired access token. |
 | `403` | `Forbidden` | Every route | `RolesGuard` rejecting a token whose `type` isn't `platform_admin`. |
 | `429` | `Too Many Requests` | Any route | The global `short` tier (30/min) exceeded. |

@@ -11,7 +11,6 @@ interface LogEntry {
   [key: string]: unknown;
 }
 
-// Shared log line formatter used by both the file and console transports.
 const logFormat = format.printf(({ timestamp, level, message, context }) => {
   const ts = typeof timestamp === 'string' ? timestamp : JSON.stringify(timestamp);
   const ctx = typeof context === 'string' ? context : 'App';
@@ -21,20 +20,19 @@ const logFormat = format.printf(({ timestamp, level, message, context }) => {
 
 @Injectable({ scope: Scope.TRANSIENT })
 export class LoggerService {
-  private static sigtermListenerAdded = false; // Static flag to track if the listener has been added
+  private static sigtermListenerAdded = false;
   private readonly logger: WinstonLogger;
   private readonly lokiPort: number = 3100;
   private logQueue: LogEntry[] = [];
-  private readonly flushInterval = 5000; // 5 seconds
+  private readonly flushInterval = 5000; // ms
   private readonly breaker!: CircuitBreaker;
   private readonly circuitOptions = {
-    timeout: 5000, // If the function takes longer than 5 seconds, it will timeout
-    errorThresholdPercentage: 50, // If 50% of requests fail, the breaker will open
-    resetTimeout: 10000, // After 10 seconds, try again
+    timeout: 5000, // ms
+    errorThresholdPercentage: 50,
+    resetTimeout: 10000, // ms
   };
 
   constructor(private readonly configService: ConfigService<EnvConfig>) {
-    // Enable logging only in non-production environments
     const environment = this.configService.get<string>('NODE_ENV');
     const lokiAPI = this.configService.get<string>('LOKI_API_TOKEN');
     const lokiPORT = this.configService.get<string>('LOKI_PORT');
@@ -43,7 +41,6 @@ export class LoggerService {
     const isStaging = environment === 'staging';
     const isDevelopment = environment === 'development';
 
-    // Create Winston logger with configuration
     this.logger = createLogger({
       level: isProduction ? 'warn' : 'debug',
       format: format.combine(format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), logFormat),
@@ -62,25 +59,23 @@ export class LoggerService {
     });
 
     if (isDevelopment) {
-      // Start the log flusher
       this.startLogFlusher(lokiAPI ?? '');
 
       this.logger.on('data', log => {
         this.addToLogQueue(log as LogEntry);
       });
 
-      // Add SIGTERM listener only once (Handle graceful shutdown)
+      // Once only: the class is TRANSIENT, so every instance would otherwise add a listener.
       if (!LoggerService.sigtermListenerAdded) {
         process.on('SIGTERM', () => {
           void (async (): Promise<void> => {
-            await this.sendBatchToPromtail(lokiAPI ?? ''); // Flush any remaining logs
+            await this.sendBatchToPromtail(lokiAPI ?? '');
             process.exit(0);
           })();
         });
-        LoggerService.sigtermListenerAdded = true; // Mark the listener as added
+        LoggerService.sigtermListenerAdded = true;
       }
 
-      // Create the circuit breaker to wrap the sendBatchToPromtail method
       this.breaker = new CircuitBreaker(this.sendBatchToPromtail.bind(this), this.circuitOptions);
       this.breaker.on('open', () => {
         Logger.warn('Circuit breaker opened for sendBatchToPromtail');
@@ -122,7 +117,7 @@ export class LoggerService {
   private async sendBatchToPromtail(lokiAPI: string): Promise<void> {
     const logsToSend = [...this.logQueue];
     try {
-      this.logQueue = []; // Clear the queue after copying
+      this.logQueue = [];
 
       const response = await fetch(`http://127.0.0.1:${this.lokiPort}/loki/api/v1/push`, {
         method: 'POST',
@@ -145,13 +140,12 @@ export class LoggerService {
       }
     } catch (error) {
       Logger.error('Failed to send batch logs to Promtail:', (error as Error).message);
-      // Optionally, re-add logs to queue if sending failed
+      // Re-queue so the failed batch is resent on the next flush.
       this.logQueue.push(...logsToSend);
-      throw error; // Throw error to let the circuit breaker handle it
+      throw error; // so the circuit breaker counts the failure
     }
   }
 
-  // Custom error log
   error(
     message: string,
     trace?: string,
@@ -163,25 +157,21 @@ export class LoggerService {
     this.logger.error({ message: `${prefix}${message}`, trace, context });
   }
 
-  // Custom warning log
   warn(message: string, context?: string, traceId?: string, spanId?: string): void {
     const prefix = this.formatTracePrefix(traceId, spanId);
     this.logger.warn({ message: `${prefix}${message}`, context });
   }
 
-  // Custom general log
   log(message: string, context?: string, traceId?: string, spanId?: string): void {
     const prefix = this.formatTracePrefix(traceId, spanId);
     this.logger.info({ message: `${prefix}${message}`, context });
   }
 
-  // Additional debug log method
   debug(message: string, context?: string, traceId?: string, spanId?: string): void {
     const prefix = this.formatTracePrefix(traceId, spanId);
     this.logger.debug({ message: `${prefix}${message}`, context });
   }
 
-  // HTTP request/response logging method
   http(message: string, context?: string, traceId?: string, spanId?: string): void {
     const prefix = this.formatTracePrefix(traceId, spanId);
     this.logger.info({ message: `${prefix}${message}`, context: context ?? 'HTTP' });

@@ -17,10 +17,6 @@ import { ReviewProvider } from './providers/review-provider.provider';
 
 const logger = new Logger('ReviewProviderModule');
 
-/**
- * Same factory-swap shape as `EmailModule`/`AuthModule` — the concrete class is chosen once here,
- * so nothing downstream ever branches on environment to work out which provider it holds.
- */
 const reviewProviderFactory = {
   provide: ReviewProvider,
   useFactory: (configService: ConfigService<EnvConfig>): ReviewProvider => {
@@ -29,18 +25,11 @@ const reviewProviderFactory = {
       clientId: configService.get<string>('GBP_CLIENT_ID') ?? '',
       clientSecret: configService.get<string>('GBP_CLIENT_SECRET') ?? '',
       callbackUrl: configService.get<string>('GBP_CALLBACK_URL') ?? '',
-      // Independent of DEV_GBP_MOCK below — see GbpProviderConfig.localMockServerUrl's own
-      // comment. Applies to both the mock and the real provider construction further down, since
-      // it only affects the write-path methods neither mock subclass overrides. Conditionally
-      // spread, not `localMockServerUrl: localMockServerUrl` directly — exactOptionalPropertyTypes
-      // treats an explicit `undefined` on an optional property as a type error, not "absent".
+      // Independent of DEV_GBP_MOCK: it only affects the write-path methods the mock subclass doesn't override.
       ...(localMockServerUrl !== undefined ? { localMockServerUrl } : {}),
     };
 
-    // Belt and braces with the Joi schema's `Joi.forbidden()` in production: that rejects the env
-    // var at boot, and this refuses to honour it even if some other path sets it. A mocked
-    // business connection is indistinguishable from a real one once it is a row in Postgres, so
-    // "impossible in production" is worth stating twice.
+    // Also enforced by the Joi schema; repeated because a mocked connection is indistinguishable from a real one once stored.
     const mockEnabled = configService.get<string>('DEV_GBP_MOCK') === 'true' && !isProduction();
 
     if (mockEnabled) {
@@ -49,8 +38,7 @@ const reviewProviderFactory = {
       );
       return new MockGoogleBusinessProfileProvider({
         ...config,
-        // An empty env var means "unset", not "override with an empty account id" — `??` would
-        // treat '' as a real value and produce a connection whose provider_account_id is blank.
+        // An empty env var means unset; `??` alone would treat '' as a real (blank) account id.
         accountIdOverride:
           configService.get<string>('DEV_GBP_MOCK_ACCOUNT_ID')?.trim() ?? undefined,
       });
@@ -63,15 +51,9 @@ const reviewProviderFactory = {
 };
 
 /**
- * Local Redis in plain local development, Secrets Manager in production **and** in the
- * Floci-emulated AWS local stack (`isAwsDeploymentTarget()`, so `DEPLOYMENT_TARGET=aws` gets real
- * Secrets Manager semantics to develop against, not the plain-Redis store).
- *
- * `isProduction()` alone would not be enough: the Redis store's encryption key sits in the same
- * `.env` as everything else, which is fine for plain local development but is not a trust boundary
- * once Secrets Manager is in the loop at all. Making the local store *throw* rather than silently
- * not be selected means a production node can never end up persisting refresh tokens in Redis
- * because someone got a deployment variable wrong.
+ * Secrets Manager in production and the Floci-emulated `aws` target, local Redis otherwise.
+ * `isProduction()` alone isn't enough: the Redis store's key lives in `.env`, which is no trust
+ * boundary, so a misconfigured production node must never persist refresh tokens in Redis.
  */
 const credentialStoreFactory = {
   provide: CredentialStoreProvider,
@@ -97,11 +79,7 @@ const credentialStoreFactory = {
   inject: [ConfigService, REDIS_CLIENT],
 };
 
-/**
- * `@Global()` for the same reason `EmailModule` is: the backfill job runs inside `WorkerModule`,
- * which never imports API modules, and both processes need the same provider and credential
- * resolution. See ReviewProvider's class doc.
- */
+// Global because the backfill runs in WorkerModule, which imports no API modules.
 @Global()
 @Module({
   imports: [RedisModule],

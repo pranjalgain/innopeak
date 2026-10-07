@@ -14,18 +14,13 @@ interface UseAdminLoginResult {
   isLoading: boolean;
 }
 
-/**
- * Platform-admin login, against `AuthService.loginAsAdmin` — its own route, own hook, mirroring
- * `useAuth`'s shape but without any of the tenant-only branches (`verify_needed`,
- * `hasConnectedBusiness`) that never apply to an admin. See `separate-admin-login-design.md`.
- */
+/** Platform-admin login via `AuthService.loginAsAdmin`; mirrors `useAuth` without the tenant-only branches. */
 export function useAdminLogin(): UseAdminLoginResult {
   const t = useTranslations("auth.toasts");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Same bfcache hazard as `useAuth`: `startAdminGoogleLogin` below navigates away instead of
-  // awaiting anything, so browser-back can restore this page from bfcache with `isLoading: true`
-  // still in memory — with no remount, nothing else would ever clear it.
+  // Same bfcache hazard as `useAuth`: Google login navigates away, so browser-back can restore this
+  // page with `isLoading: true` and no remount to clear it.
   useEffect(() => {
     const handlePageShow = (event: PageTransitionEvent) => {
       if (event.persisted) setIsLoading(false);
@@ -51,9 +46,8 @@ export function useAdminLogin(): UseAdminLoginResult {
   );
 
   /**
-   * Navigates away rather than awaiting anything, so there is no success path and no `finally` to
-   * clear the spinner — the page is being replaced. Failures come back as `?error=` on
-   * `/admin-login`, which the view reads on mount via `useOAuthErrorToast`.
+   * Navigates away, so there is no `finally` to clear the spinner. Failures return as `?error=` on
+   * `/admin-login`, read on mount via `useOAuthErrorToast`.
    */
   const startAdminGoogleLogin = useCallback(() => {
     setIsLoading(true);

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LuLoaderCircle, LuTriangleAlert } from "react-icons/lu";
 
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
@@ -14,51 +14,45 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCompleteDummyCheckout } from "@/hooks/billing/use-complete-dummy-checkout";
 
-/** Where the backend's own `BILLING_REDIRECT_PATHS.CHECKOUT_SUCCESS` points — kept in sync by
- *  hand since that constant isn't shared with the frontend build. */
+/**
+ * Mirrors the backend's `BILLING_REDIRECT_PATHS.CHECKOUT_SUCCESS`, which isn't shared with the
+ * frontend build; keep in sync by hand.
+ */
 const CHECKOUT_SUCCESS_PATH = `${ROUTES.SETTINGS}?tab=billing&checkout=success`;
 
 /**
- * `DummyPaymentProvider.createCheckoutSession` points here instead of a real Stripe redirect (see
- * `apps/backend/src/api/billing/providers/dummy-payment.provider.ts`'s own doc comment) — its
- * `tenantId`/`customerId`/`subscriptionId` query params are what a real confirmation page reads
- * and hands to the same internal method the Stripe webhook would call for
- * `checkout.session.completed`.
+ * Target of `DummyPaymentProvider.createCheckoutSession` in place of a Stripe redirect. On mount it
+ * calls the dummy-only `POST /v1/billing/dummy/complete-checkout` with the carried
+ * `subscriptionId`, applying the state transition a Stripe webhook would (the dummy provider has no
+ * webhook caller), then continues to `BILLING_REDIRECT_PATHS.CHECKOUT_SUCCESS`, or shows an error
+ * and a way back.
  *
- * Lives under `(auth)`, not `(dashboard)` — a real Stripe-hosted Checkout page has no dashboard
- * chrome either, and critically, a tenant reaching this page for the *first* time (from
- * `/onboarding/plan`'s "Upgrade to Paid", before ever connecting a business) has not connected
- * anything yet. Under `(dashboard)`, `ConnectionGuard` would redirect them straight back to
- * `/onboarding/connect` before this page's own effect ever got to call `complete-checkout` —
- * this only wraps in `RequireAuth` (a real session, nothing about being connected).
- *
- * On mount, this page calls `POST /v1/billing/dummy/complete-checkout` with the `subscriptionId`
- * the redirect carried — the dummy-only, owner-authenticated endpoint that applies that same state
- * transition, since `DummyPaymentProvider` has no external webhook caller of its own to deliver
- * one. On success it continues on to the real success destination
- * (`BILLING_REDIRECT_PATHS.CHECKOUT_SUCCESS`) — which `ConnectionGuard` will itself redirect on to
- * `/onboarding/connect` for a not-yet-connected tenant, now on Paid; on failure it shows an error
- * and a way back rather than silently stranding the owner mid-upgrade.
+ * Under `(auth)`, not `(dashboard)`: a first-time upgrader from `/onboarding/plan` has not
+ * connected a business, and `ConnectionGuard` would bounce them to `/onboarding/connect` before the
+ * completion call ran.
  */
 function DummyCheckoutPage() {
   const t = useTranslations("settings.billing.dummyCheckout");
   const searchParams = useSearchParams();
   const subscriptionId = searchParams.get("subscriptionId");
-  const { mutate, isPending, isError } = useCompleteDummyCheckout();
-  // Guards against React 18 Strict Mode's double-invoked effect (and a fast re-render) firing this
-  // dummy-only, side-effecting completion call twice for the same page load.
+  const { mutateAsync } = useCompleteDummyCheckout();
+  const [status, setStatus] = useState<"pending" | "error">("pending");
+  // Guards against Strict Mode's double-invoked effect firing this side-effecting call twice.
   const hasStarted = useRef(false);
 
+  // The outcome is read off the promise `mutateAsync` returns, not the observer or a per-call
+  // `onSuccess`: Strict Mode's remount (and `RequireAuth` re-mounting its child) detaches the
+  // observer from an in-flight call, so those are dropped and the page sat on its spinner. A
+  // full-page redirect (not `router.push`) guarantees the Billing tab fetches fresh
+  // plan/subscription data instead of a pre-upgrade cache.
   const complete = (id: string) => {
     hasStarted.current = true;
-    mutate(id, {
-      // A full-page redirect, not `router.push`: this mirrors `useCreateCheckoutSession`'s own
-      // outbound redirect and guarantees the Billing tab's plan/subscription queries are fetched
-      // fresh rather than possibly serving a pre-upgrade cached read.
-      onSuccess: () => {
+    setStatus("pending");
+    mutateAsync(id)
+      .then(() => {
         window.location.href = CHECKOUT_SUCCESS_PATH;
-      },
-    });
+      })
+      .catch(() => setStatus("error"));
   };
 
   useEffect(() => {
@@ -67,7 +61,7 @@ function DummyCheckoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscriptionId]);
 
-  const showError = !subscriptionId || isError;
+  const showError = !subscriptionId || status === "error";
 
   return (
     <>
@@ -93,8 +87,8 @@ function DummyCheckoutPage() {
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            {isError && subscriptionId ? (
-              <Button type="button" variant="outline" disabled={isPending} onClick={() => complete(subscriptionId)}>
+            {status === "error" && subscriptionId ? (
+              <Button type="button" variant="outline" onClick={() => complete(subscriptionId)}>
                 {t("retry")}
               </Button>
             ) : null}

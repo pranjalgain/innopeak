@@ -13,22 +13,56 @@ export interface IOtpEmailJob extends IEmailJob {
   passwordSetLink?: string;
 }
 
-/** Published by AdminSettingsService.sendInvite — deliberately its own interface rather than
- *  reusing IOtpEmailJob's unused link fields, since this isn't an OTP email. */
+/** Deliberately not IOtpEmailJob: this isn't an OTP email. */
 export interface IAdminInviteEmailJob extends IEmailJob {
   inviteLink: string;
   expiresIn?: string;
 }
 
-/** Published by TenantMembersService.sendInvite — same shape as IAdminInviteEmailJob, kept as its
- *  own interface rather than shared since the two invite flows have no other coupling. */
+/** Same shape as IAdminInviteEmailJob but kept separate; the two invite flows are otherwise uncoupled. */
 export interface IMemberInviteEmailJob extends IEmailJob {
   inviteLink: string;
   expiresIn?: string;
-  /** The tenant the invitee is being asked to join. Without it the email reads "a team", which is
-   *  indistinguishable between senders — a recipient invited by two businesses cannot tell the two
-   *  emails apart, and an unattributed invite scores worse with spam filters. */
+  /** Without it the email reads "a team": recipients invited by two businesses cannot tell the
+   *  emails apart, and unattributed invites score worse with spam filters. */
   businessName: string;
+}
+
+export type ErasureNoticeKind = 'cancelled' | 'erased' | 'reminder' | 'scheduled';
+
+/**
+ * One job per recipient, rendered in their own language. The payload is self-contained: for
+ * `erased`, recipients no longer exist in the database when the mail is sent.
+ */
+export interface IErasureNoticeEmailJob extends IEmailJob {
+  kind: ErasureNoticeKind;
+  businessName: string;
+  /** The recipient's `users.locale`, `en` when they never chose one. */
+  locale: 'de' | 'en';
+  /** ISO 8601 erasure deadline. Absent for `cancelled`. */
+  scheduledFor?: string;
+  /** An owner can restore their own request by signing in; an admin's request cannot be restored that way. */
+  requestedBy: 'admin' | 'owner';
+  /**
+   * How this recipient can undo it: `you` (they asked and have a password), `requester` (only the
+   * other owner who asked can), or `support` (SSO-only owner, or not an owner's request).
+   */
+  restore: 'requester' | 'support' | 'you';
+  loginUrl: string;
+}
+
+export interface IPurgeSkippedBusiness {
+  name: string;
+  /** Whole days past the erasure deadline (0 = due today). */
+  daysOverdue: number;
+  /** What stopped it — already truncated; shown to a platform admin, never to the business. */
+  reason: string;
+}
+
+/** Operational alert for platform admins, one job per admin so each gets their own language. */
+export interface IErasurePurgeAlertEmailJob extends IEmailJob {
+  locale: 'de' | 'en';
+  skipped: IPurgeSkippedBusiness[];
 }
 
 export interface ICronJob {
@@ -40,8 +74,7 @@ export interface ICronJob {
   };
 }
 
-/** Fields every review-sync job needs, whichever trigger produced it — the base
- * `ReviewSyncQueueService.runPoll` and its shared helpers accept. */
+/** Fields every review-sync job needs, whichever trigger produced it. */
 export interface IReviewSyncJob {
   tenantId: string;
   locationId: string;
@@ -51,34 +84,24 @@ export interface IReviewSyncJob {
 }
 
 /**
- * A backfill job additionally carries the `sync_runs` row `ConnectionsDbService.confirmLocation`
- * already acquired before publishing — acquired synchronously in the API request so the
- * confirm-location response can return its id immediately. A poll job has no such need and omits
- * it: `ReviewSyncQueueService.runPoll` acquires its own run when the job actually executes (via
- * `ReviewSyncDbService.acquireSyncRun`), since nothing needs the id before then and a BullMQ job
- * can sit queued for a while after `CronService.pollDueLocations` publishes it.
+ * A backfill job carries the `sync_runs` row acquired in the confirm-location request so that
+ * response can return its id. A poll job omits it and acquires its own run when it executes,
+ * since it can sit queued for a while.
  */
 export interface IReviewBackfillJob extends IReviewSyncJob {
-  /** The `sync_runs` row this job owns. Completion is a CAS against it, so it must be carried. */
+  /** Completion is a CAS against this row, so it must travel with the job. */
   syncRunId: string;
 }
 
 /**
- * Published whenever something decides one `review_responses` row is ready to go out:
- * `ReviewsService.approveReply`'s auto-post step, the non-escalated auto-approve step in
- * `AiReplyGenerationService`, the manual `.../responses/:responseId/post` route, and `retry-post`.
- * Deliberately minimal — everything else the worker needs (the review's external ids, the tenant's
- * connection, the response's current content) is looked up fresh inside
- * `ReviewPostQueueService.postResponse` rather than carried in the payload, the same reasoning
- * `IReviewBackfillJob`'s own doc comment gives for re-reading a cursor rather than trusting one
- * baked into the job: a job can sit queued for a while, and this data can change underneath it.
+ * Deliberately minimal: the worker looks up everything else (external ids, connection, current
+ * response content) fresh, since a job can sit queued and that data can change underneath it.
  */
 export interface IReviewPostJob {
   tenantId: string;
   reviewId: string;
   responseId: string;
-  /** 1-based attempt number; absent on a first attempt. Only `ReviewPostQueueService` sets it,
-   *  when it reschedules itself after a transient provider failure — see that class. */
+  /** 1-based; absent on the first attempt. Set only when rescheduling after a transient provider failure. */
   attempt?: number;
 }
 

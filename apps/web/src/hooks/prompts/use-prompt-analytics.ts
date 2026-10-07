@@ -34,18 +34,7 @@ interface UsePromptVersionStatsResult {
   getStats: (promptId: string, version?: number) => PromptVersionStats;
 }
 
-/**
- * One `GET /v1/prompts/:promptId/versions/:version/stats` query per (promptId, version) pair
- * given — no more, no less. `enabled` lets a caller build the pairs eagerly (so `useQueries`'
- * hook count stays stable across renders, which it requires) but skip actually firing them until
- * something makes them worth fetching — `PromptVersionHistory` uses this to fetch only the
- * couple of versions its own pagination is currently showing, and not at all while its section is
- * still collapsed, rather than every version of every prompt up front.
- *
- * `getStats` keeps the same synchronous lookup signature every render call site depends on — a
- * pair that hasn't resolved yet (or was never requested) reads as all-zero/`null` rather than
- * `undefined`, so nothing downstream needs a loading branch of its own.
- */
+/** One stats query per (promptId, version) pair. `enabled` lets callers build pairs eagerly (`useQueries` needs a stable hook count) but defer firing; `getStats` reads an unresolved pair as all-zero/`null`, so callers need no loading branch. */
 export function usePromptVersionStatsQueries(
   pairs: PromptVersionPair[],
   enabled = true,
@@ -84,17 +73,7 @@ function promptStatsBatchQueryKey(pairs: PromptVersionPair[]) {
   return ["prompt-stats-batch", pairs.map(({ promptId, version }) => statsKey(promptId, version))] as const;
 }
 
-/**
- * Stats for every prompt's *current* version only — the summary strip and each prompt card's own
- * stats line, both always visible. Historical versions are fetched separately and lazily, by
- * `PromptVersionHistory` itself, only once (and only for) whichever page of its own history a
- * user actually expands — see `usePromptVersionStatsQueries`'s own doc comment for why.
- *
- * One `POST /v1/prompts/stats/batch` request for every prompt at once, not one
- * `GET .../stats` request per prompt — `useQueries` (what this used before) put a query on the
- * network per prompt in the list, so a 20-prompt tenant fired 20 simultaneous requests just to
- * render the list.
- */
+/** Stats for every prompt's current version in one `POST /v1/prompts/stats/batch`, not a request per prompt. Historical versions are fetched lazily by `PromptVersionHistory`. */
 export function usePromptAnalytics(prompts: AiPrompt[]): UsePromptVersionStatsResult {
   const pairs = useMemo(
     () =>

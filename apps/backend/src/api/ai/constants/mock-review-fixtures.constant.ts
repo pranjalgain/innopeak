@@ -10,12 +10,8 @@ export interface MockReviewFixture {
 }
 
 /**
- * Realistic mock reviews for exercising the AI generation path end to end — `scripts/ai-dry-run.script.ts`
- * and `GenerateReplyDryRunDto`'s Swagger examples both draw from this one list, so a new fixture
- * shows up in both places at once. Deliberately not just "one happy-path review": a short 5-star,
- * a mixed 3-star, an angry 1-star, a long rambling 1-star (checking the template's own word-limit
- * instruction actually holds under pressure), and a non-English review (checking the "reply in
- * the same language the review is written in" instruction every default template already carries).
+ * Shared by `scripts/ai-dry-run.script.ts` and `GenerateReplyDryRunDto`'s Swagger examples. Includes
+ * a long 1-star (word-limit instruction) and a non-English review (reply-in-the-same-language).
  */
 export const MOCK_REVIEW_FIXTURES: readonly MockReviewFixture[] = [
   {

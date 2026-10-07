@@ -36,25 +36,15 @@ export function AdminOverviewView() {
 
   const showNeedsAttention = needsAttention.length > 0;
 
-  // Each stat counts up from 0 on first load, once its real value arrives.
   const businessCountAnimated = useCountUp(businessCount, isLoading);
   const userCountAnimated = useCountUp(userCount, isLoading);
   const reviewsFetchedAnimated = useCountUp(totalReviewsFetched, isLoading);
   const repliesSentAnimated = useCountUp(totalRepliesSent, isLoading);
 
-  // Only Businesses has real historical data to compute a genuine change from — the signup-trend
-  // series already fetched for the chart below. The other three stats have no prior-period value
-  // anywhere, so they stay plain rather than fabricating a delta that isn't real.
-  //
-  // `businessCount` above is a running total, and each `signupTrend` bucket is new signups within
-  // that one calendar month (a flow, not a cumulative count) — so the trend badge reads however
-  // many new businesses joined in the most recent month, not the difference between two months'
-  // signup rates (that would answer "is growth accelerating", a different question than what "vs
-  // last month" promises next to a running total). Rendered with `tone="neutral"` below: this is a
-  // magnitude, not a two-period comparison, and can never legitimately read as "declining" (a
-  // month can only add 0 or more businesses) — coloring it green would assert a judgment ("growth
-  // is good") the data can't back up, since a low-but-positive count right after a much higher one
-  // is really a slowdown, not an improvement.
+  // Only Businesses has prior-period data; the others stay plain rather than fabricate a delta.
+  // `businessCount` is a running total and each bucket is one month's new signups, so the badge
+  // shows the latest month's count, not a change in signup rate. Rendered `tone="neutral"`: it can
+  // never read as "declining", and green would assert a judgment the data can't back.
   const lastMonth = signupTrend[signupTrend.length - 1];
   const businessTrend = lastMonth ? lastMonth.count : null;
 
@@ -75,9 +65,8 @@ export function AdminOverviewView() {
     { key: "repliesSent", value: format.number(repliesSentAnimated), icon: LuReply, trend: null },
   ] as const;
 
-  // The whole page rather than per-panel: every panel here is derived from the same four queries,
-  // so a failure would otherwise paint four separate confident zeroes — "0 Businesses", "Nothing
-  // needs attention right now", "No signups yet" — which is an outage described as good news.
+  // Whole page, not per panel: every panel derives from the same four queries, and a failure
+  // would otherwise show confident zeroes, an outage described as good news.
   if (isError) {
     return <LoadErrorState onRetry={refetch} />;
   }

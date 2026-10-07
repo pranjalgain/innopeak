@@ -21,9 +21,8 @@ describe('SqsQueueStatusService', () => {
     configValues = {
       DEPLOYMENT_TARGET: 'aws',
       EMAIL_QUEUE_URL: 'http://localhost:4566/000000000000/nestjs-app-email',
-      // A second *currently existing* queue — the notification queue this used to name was
-      // removed along with the notifications module, which left the enum and this fixture out of
-      // sync and the skip-on-error test below asserting on a queue that can never be returned.
+      // Must be a queue that currently exists, or the skip-on-error test asserts on one that can
+      // never be returned.
       CRON_QUEUE_URL: 'http://localhost:4566/000000000000/nestjs-app-cron',
     };
 

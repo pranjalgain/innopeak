@@ -8,8 +8,6 @@ import type { ReviewStatus } from '@common/enums/review-status.enum';
 import type { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import type { SyncTrigger } from '@common/enums/sync-trigger.enum';
 
-// ─── review-sync.repository.ts ───────────────────────────────────────────────
-
 export interface SyncRunRow {
   id: string;
   tenantId: string;
@@ -21,7 +19,7 @@ export interface SyncRunRow {
   reviewsFetched: number | null;
   reviewsTotal: number | null;
   errorMessage: string | null;
-  /** Bumped on every progress write — the heartbeat both the reclaim predicate and `isStale` read. */
+  /** Bumped on every progress write; the heartbeat the stale-run reclaim reads. */
   updatedAt: string;
 }
 
@@ -57,10 +55,7 @@ export interface ClaimClassificationInput {
   matchedKeywords: string[] | null;
 }
 
-/** What `findClassifiedNeedingGeneration` reads — everything `AiReplyGenerationService` needs to
- *  draft a reply, and nothing else. `classification` is narrowed the same way
- *  `ClaimClassificationInput`'s is: this row only ever exists because `claimClassification`
- *  already wrote one of these two values, `pending_classification` is not a real possibility. */
+/** `classification` is narrowed because the row only exists after `claimClassification` wrote one of these two values. */
 export interface GenerationCandidateRow {
   id: string;
   rating: number;
@@ -74,14 +69,10 @@ export interface InsertGeneratedResponseInput {
   reviewId: string;
   responseType: ResponseType.AUTO_REPLY_SUGGESTION | ResponseType.ESCALATION_SNIPPET;
   content: string;
-  /** Non-null only for `ESCALATION_SNIPPET` rows — see that constant's own doc comment in
-   *  `ai-reply-generation.service.ts` for why an escalated review still gets a group id even
-   *  while only one snippet is generated per review today. */
+  /** Non-null only for `ESCALATION_SNIPPET` rows. */
   generationGroupId: string | null;
   generationMetadata: Record<string, unknown>;
 }
-
-// ─── review-sync.db-service.ts ───────────────────────────────────────────────
 
 export interface ImportReviewInput {
   externalReviewId: string;
@@ -104,11 +95,9 @@ export interface ImportPageResult {
   reviewsWritten: number;
   reviewsInserted: number;
   repliesImported: number;
-  /** Reviews whose reply lost a race against the *live-reply* index. Counted, never silent. */
+  /** Reviews whose reply lost a race against the live-reply index. Counted, never silent. */
   repliesSkippedConflict: number;
 }
-
-// ─── reviews-read.repository.ts ──────────────────────────────────────────────
 
 export interface ReviewRow {
   id: string;
@@ -122,9 +111,7 @@ export interface ReviewRow {
   sentiment: ReviewSentiment | null;
   classification: ReviewClassification;
   escalationReason: EscalationReason | null;
-  // Drizzle infers a bare `jsonb` column as `unknown`; narrowed here to what every writer
-  // actually stores (`ReviewSyncRepository.claimClassification`'s `ClaimClassificationInput`),
-  // the same boundary-bridging this repository already does for enum columns.
+  // Drizzle infers a bare `jsonb` column as `unknown`; narrowed to what every writer stores.
   matchedKeywords: string[] | null;
   status: ReviewStatus;
   anonymizedAt: string | null;
@@ -153,12 +140,8 @@ export interface ApproveResponseInput {
   responseId: string;
   reviewId: string;
   tenantId: string;
-  /** `null` is a legitimate value, not a placeholder for "not yet known" — the system's own
-   *  auto-post step (`AiReplyGenerationService`'s non-escalated, `auto_post_enabled = true` path)
-   *  approves with no human involved at all, and `null` here is how that is recorded truthfully.
-   *  The column's `ON DELETE SET NULL` FK already allows it. */
+  /** `null` is legitimate: the auto-post step approves with no human, and `null` records that truthfully. */
   approvedByUserId: string | null;
-  /** Final content to store — possibly edited from the draft's own `content`. */
   content: string;
   source: ResponseSource;
 }
@@ -191,8 +174,6 @@ export interface FindReviewByIdForTenantInput {
   tenantId: string;
 }
 
-// ─── Posting lifecycle (PLAN.md §4.2's `approved -> posted/post_failed`, §8.12's freshness check) ──
-
 export interface ClaimResponseForPostingInput {
   responseId: string;
   tenantId: string;
@@ -201,15 +182,13 @@ export interface ClaimResponseForPostingInput {
 export interface MarkResponsePostedInput {
   responseId: string;
   reviewId: string;
-  /** Google's own `reviewReply.updateTime` for the reply just posted — not `now()`, so this
-   *  matches what a freshness-check read of the same reply would report. */
+  /** Google's `reviewReply.updateTime`, not `now()`. */
   postedAt: string;
 }
 
 export interface ImportLiveReplyInput {
   tenantId: string;
   reviewId: string;
-  /** The reply found live on Google. */
   content: string;
   postedAt: string;
 }
@@ -223,7 +202,7 @@ export interface SupersedeForExternalReplyInput {
   responseId: string;
   reviewId: string;
   tenantId: string;
-  /** The reply PLAN.md §8.12's freshness check found already live on Google. */
+  /** The reply the freshness check found already live on Google. */
   content: string;
   postedAt: string;
 }
@@ -249,15 +228,13 @@ export interface FindResponsesForReviewsInput {
 export interface GetPromptVersionStatsInput {
   tenantId: string;
   promptId: string;
-  /** Omit to aggregate across every version of the prompt; pass to scope to one version. */
+  /** Omit to aggregate across every version. */
   version?: number;
 }
 
 export interface GetPromptVersionStatsBatchInput {
   tenantId: string;
-  /** Every (promptId, version) pair to aggregate — each is always scoped to one version, unlike
-   *  the single-stats method's optional `version`, since a batch caller always knows which
-   *  version it wants per prompt (`usePromptAnalytics`'s current-version-per-prompt use case). */
+  /** Always scoped to one version, unlike the single method's optional `version`. */
   pairs: Array<{ promptId: string; version: number }>;
 }
 
@@ -267,11 +244,7 @@ export interface PromptVersionStatsBatchRow {
   stats: PromptVersionStatsRow;
 }
 
-/**
- * `approvedAsIsCount` is deliberately absent — it's `approvedCount - approvedEditedCount`, plain
- * arithmetic on two numbers this repository already computed, not a query of its own. Computed by
- * the caller (`PromptsService`), not here.
- */
+/** `approvedAsIsCount` is absent on purpose: `PromptsService` derives it as `approvedCount - approvedEditedCount`. */
 export interface PromptVersionStatsRow {
   totalGenerated: number;
   approvedCount: number;

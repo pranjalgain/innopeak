@@ -32,7 +32,6 @@ export class TracingController {
           'service.name': 'nestjs-app',
         });
 
-        // Simulate some work
         const result = this.simulateWork(span);
 
         span.setStatus({ code: 1 }); // OK
@@ -69,7 +68,6 @@ export class TracingController {
           'custom.data': JSON.stringify(data),
         });
 
-        // Simulate work based on duration
         const duration = data.duration ?? 1000;
         const result = this.simulateWorkWithDuration(span, duration);
 
@@ -108,7 +106,6 @@ export class TracingController {
   private simulateWork(span: Span): WorkSimulationResultDto {
     span.addEvent('Starting work simulation');
 
-    // Simulate some processing
     const start = Date.now();
     let result = 0;
     for (let i = 0; i < 1000000; i++) {
@@ -144,7 +141,6 @@ export class TracingController {
     let iterations = 0;
     let result = 0;
 
-    // Simulate work until we reach the target duration
     while (Date.now() - start < targetDuration) {
       result += Math.random();
       iterations++;

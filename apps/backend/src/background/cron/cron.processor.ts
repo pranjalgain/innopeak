@@ -54,7 +54,6 @@ export class CronProcessor extends WorkerHost {
           await this.cronService.reconcileStaleBillingSubscriptions();
           break;
         default: {
-          // Exhaustiveness check: a new CronJobName member left unhandled here fails the build.
           const unhandled: never = job.name;
           throw new Error(`Unknown job name: ${String(unhandled)}`);
         }
@@ -97,7 +96,6 @@ export class CronProcessor extends WorkerHost {
     this.logger.error(job.stacktrace);
     if (typeof job.log === 'function') void job.log(logMessage);
 
-    // Push the failed job to the Dead Letter Queue
     await this.dlqService.addFailedJobToDLQ({
       originalQueueName: QueueName.CRON,
       originalJobId: job.id ?? '',
@@ -114,7 +112,6 @@ export class CronProcessor extends WorkerHost {
     this.logger.error(`Job ${job.id} has been stalled`);
     if (typeof job.log === 'function') void job.log(`Job ${job.id} has been stalled`);
 
-    // Considering stalled jobs to DLQ if they are consistently stalling
     await this.dlqService.addFailedJobToDLQ({
       originalQueueName: QueueName.CRON,
       originalJobId: job.id ?? '',
@@ -131,7 +128,6 @@ export class CronProcessor extends WorkerHost {
     this.logger.error(logMessage);
     if (typeof job.log === 'function') void job.log(logMessage);
 
-    // Errors to DLQ as well
     await this.dlqService.addFailedJobToDLQ({
       originalQueueName: QueueName.CRON,
       originalJobId: job.id ?? '',

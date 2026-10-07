@@ -52,9 +52,7 @@ export class PromptsService {
     const rows = await this.promptsDbService.listWithVersions(tenantUser.tenantId);
     const embedHistory = includeHistory ?? false;
 
-    // A prompt with no versions is skipped, not fatal. `prompts` and `prompt_versions` are
-    // separate tables with nothing forcing a version to exist, so one malformed row would
-    // otherwise 404 the entire listing and take every healthy prompt down with it.
+    // Skipped, not fatal: nothing forces a version to exist, so one malformed row would 404 the whole listing.
     const dtos: PromptDto[] = [];
     for (const row of rows) {
       const dto = toPromptDto(row, embedHistory);
@@ -77,9 +75,7 @@ export class PromptsService {
   ): Promise<CreatePromptVersionResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.PROMPTS.TENANT_ONLY);
 
-    // Plan-gated before the placeholder validation below even looks at `dto.template` — Free's
-    // "default prompt/tone only" restriction means a Free tenant may never author custom template
-    // text at all, independent of whether that text would otherwise be valid.
+    // Plan gate runs before placeholder validation: Free may never author custom template text, valid or not.
     if (!(await this.billingEntitlementsService.canEditCustomPrompt(tenantUser.tenantId))) {
       throw new CustomPromptsNotOnPlanException();
     }
@@ -137,12 +133,7 @@ export class PromptsService {
     return CreatePromptVersionResponseDto.from(promptId, versionDto, versionCount);
   }
 
-  /**
-   * Plan-gated on the same `customPromptsEnabled` entitlement as `createVersion` — tone is prompt
-   * configuration (`prompts.tone`), and Free's "default prompt only" restriction means a Free
-   * tenant may not reshape how the AI writes by any route. Gating only the template editor left
-   * the cheaper half of the same capability open.
-   */
+  /** Gated on `customPromptsEnabled` like `createVersion`: tone is prompt configuration, so gating only the template editor left Free a cheaper route. */
   async updateTone(
     promptId: string,
     tone: PromptToneValue,
@@ -172,10 +163,8 @@ export class PromptsService {
   ): Promise<PromptVersionStatsResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.PROMPTS.TENANT_ONLY);
 
-    // A single query answers both "does this exist" and "what are its stats" — see
-    // `ReviewsReadRepository.getPromptVersionStats`'s own doc comment for how. `null` here means
-    // the prompt (version omitted) or that specific version (version given) doesn't exist for this
-    // tenant; which exception to throw still depends on which of the two was being looked up.
+    // `null` means the prompt (no version given) or that version doesn't exist for this tenant; which exception to
+    // throw depends on which was looked up.
     const stats = await this.reviewSyncDbService.getPromptVersionStats({
       tenantId: tenantUser.tenantId,
       promptId,
@@ -188,21 +177,13 @@ export class PromptsService {
         : new PromptVersionNotFoundException();
     }
 
-    // Arithmetic, not a query: `approvedAsIsCount` is never stored or asked of the DB directly,
-    // it's just what's left of `approvedCount` once the edited ones are subtracted out.
+    // Derived, never stored: `approvedCount` minus the edited ones.
     const approvedAsIsCount = stats.approvedCount - stats.approvedEditedCount;
 
     return PromptVersionStatsResponseDto.from({ ...stats, approvedAsIsCount });
   }
 
-  /**
-   * The batch counterpart to `getVersionStats` — one grouped query for every (promptId, version)
-   * pair a caller asks for, rather than a request per pair (`usePromptAnalytics`'s N+1 fix). No
-   * per-pair existence check: a pair naming a prompt/version this tenant doesn't have simply comes
-   * back all-zero (`ReviewsReadRepository.getPromptVersionStatsBatch`'s tenant-scoped join can
-   * never match rows for another tenant's prompt in the first place), which keeps this a single
-   * round trip instead of N existence checks plus one aggregate query.
-   */
+  /** Batch form of `getVersionStats` in one grouped query. No existence check: unknown pairs come back all-zero (the tenant-scoped join never matches another tenant's rows). */
   async getVersionStatsBatch(
     pairs: PromptStatsBatchPairDto[],
     user: AuthUser

@@ -49,11 +49,8 @@ export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
     async (email: string) => {
       try {
         const invite = await sendInviteMutation.mutateAsync(email);
-        // Appended only when there is a list to append to. `[...(prev ?? []), invite]` looked
-        // equivalent but silently replaced the whole cache with a one-element array whenever the
-        // roster query had failed or not yet loaded — the other admins vanished from the screen
-        // until a refetch. `undefined` leaves the cache untouched and lets the invalidate below
-        // fetch the real list.
+        // Append only when there is a list: `[...(prev ?? []), invite]` would replace the cache with a
+        // one-element array if the roster query had failed or not loaded. `undefined` leaves it untouched.
         queryClient.setQueryData<PlatformAdminInvite[]>(platformAdminInvitesQueryKey, (prev) =>
           prev ? [...prev, invite] : undefined,
         );
@@ -63,8 +60,7 @@ export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
         toast.success(t("sent", { email }));
         return true;
       } catch (error) {
-        // A 409 (already invited) carries a specific reason worth showing — same as
-        // `setAdminStatus`'s own 400/409 branch below.
+        // A 409 (already invited) carries a specific reason worth showing.
         toastApiError(error, { 400: null, 409: null }, t("sendFailed"));
         return false;
       }
@@ -88,8 +84,7 @@ export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
         void queryClient.invalidateQueries({ queryKey: adminOverviewActivityLogQueryKey });
         toast.success(t("revoked"));
       } catch (error) {
-        // A 409 (already accepted, no longer revocable) carries a specific reason worth showing —
-        // same as `setAdminStatus`'s own 400/409 branch below.
+        // A 409 (already accepted, no longer revocable) carries a specific reason worth showing.
         toastApiError(error, { 400: null, 409: null }, t("revokeFailed"));
       }
     },
@@ -108,8 +103,7 @@ export function usePlatformAdminInvites(): UsePlatformAdminInvitesResult {
         queryClient.setQueryData<PlatformAdminInvite[]>(platformAdminInvitesQueryKey, (prev) =>
           prev?.map((invite) => (invite.id === id ? { ...invite, status: updated.status } : invite)),
         );
-        // The disable/enable is server-recorded to the activity feed, and both the Overview glance
-        // card and the dedicated Activity page read that.
+        // Server-recorded to the activity feed, which both the Overview and Activity pages read.
         void queryClient.invalidateQueries({ queryKey: adminOverviewActivityQueryKey });
         void queryClient.invalidateQueries({ queryKey: adminOverviewActivityLogQueryKey });
         toast.success(enabled ? t("adminEnabled") : t("adminDisabled"));

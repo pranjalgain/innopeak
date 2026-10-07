@@ -24,10 +24,8 @@ export function BackfillingStage({
   isSlow = false,
 }: BackfillingStageProps) {
   const t = useTranslations("onboardingConnect.backfilling");
-  // Presentation-only cycling — purely to keep a ~10-30s wait feeling alive, so it lives here
-  // rather than in the polling hook, and stops rotating (falling back to `takingLonger`) once the
-  // import is genuinely running long, at which point cycling through cheerful phrases would read
-  // as tone-deaf.
+  // Cosmetic cycling to keep a ~10-30s wait alive; stops (falls back to `takingLonger`) once the import runs long,
+  // when cheerful phrases would read as tone-deaf.
   const [phase, setPhase] = useState(0);
 
   useEffect(() => {
@@ -47,8 +45,7 @@ export function BackfillingStage({
       <p className="text-sm text-muted-foreground">{statusText}</p>
       <Progress value={progress ?? undefined} indeterminate={progress === null} />
       <span className="text-[13px] text-muted-foreground">
-        {/* `reviewsFetched` is always real and always climbing, so "112 reviews imported" is
-            available even when "112 of 187" is not. */}
+        {/* `reviewsFetched` is always real, so "112 reviews imported" works even when "112 of 187" doesn't. */}
         {totalToImport === null
           ? t("importingUnknownTotal", { imported: reviewsFetched })
           : t("importing", { imported: reviewsFetched, total: totalToImport })}

@@ -6,6 +6,7 @@ import { Injectable } from '@nestjs/common';
 import { PlatformAdminRepository } from './platform-admin.repository';
 import type {
   AcceptInviteOutcome,
+  PlatformAdminAlertRecipient,
   PlatformAdminInviteRow,
   PlatformAdminLoginRow,
   PlatformAdminProfileWithAvatar,
@@ -21,12 +22,7 @@ export class PlatformAdminDbService {
     private readonly mediaDbService: MediaDbService
   ) {}
 
-  /**
-   * The profile row plus its avatar, composed from two repositories rather than a join in
-   * `PlatformAdminRepository` itself — `platform_admins` has no `avatar_url` column at all
-   * anymore (see `0001_platform_admin.sql`'s own header), so "this admin's profile" is inherently
-   * two reads now, and composing them is exactly a DB Service's job.
-   */
+  /** Composed from two reads because `platform_admins` has no `avatar_url` column. */
   async findById(id: string): Promise<PlatformAdminProfileWithAvatar | null> {
     const row = await this.platformAdminRepository.findById(id);
     if (!row) return null;
@@ -35,23 +31,26 @@ export class PlatformAdminDbService {
     return { ...row, avatarUrl };
   }
 
-  /** See `PlatformAdminRepository.findForLogin` — the read `PlatformAdminAuthService.login` uses. */
   async findForLogin(email: string): Promise<PlatformAdminLoginRow | null> {
     return this.platformAdminRepository.findForLogin(email);
   }
 
-  /** Live status of an admin by id, `null` if the row is gone — see `PlatformAdminRepository.findStatusById`. */
+  async findActiveAlertRecipients(): Promise<PlatformAdminAlertRecipient[]> {
+    return this.platformAdminRepository.findActiveAlertRecipients();
+  }
+
   async findStatusById(id: string): Promise<PlatformAdminStatus | null> {
     return this.platformAdminRepository.findStatusById(id);
   }
 
-  /** See `PlatformAdminRepository.isRootAdmin`. */
   async isRootAdmin(id: string): Promise<boolean> {
     return this.platformAdminRepository.isRootAdmin(id);
   }
 
-  /** Issues (or reissues) the OTP `AdminSettingsService.setPassword` requires before a
-   *  passwordless admin can adopt one — see `PlatformAdminRepository.putSetPasswordOtp`. */
+  /**
+   * Issues (or reissues) the OTP `AdminSettingsService.setPassword` requires before a passwordless
+   * admin can adopt one.
+   */
   async putSetPasswordOtp(input: {
     platformAdminId: string;
     tokenHash: string;
@@ -72,7 +71,7 @@ export class PlatformAdminDbService {
     );
   }
 
-  /** See `PlatformAdminRepository.setStatusGuardingLastActive` — the actual last-active-admin guard lives there, atomically. */
+  /** The last-active-admin guard lives in the repository, atomically. */
   async setStatusGuardingLastActive(
     input: SetAdminStatusGuardInput
   ): Promise<SetAdminStatusOutcome> {
@@ -85,7 +84,7 @@ export class PlatformAdminDbService {
     return this.platformAdminRepository.findByEmail(email);
   }
 
-  /** See `PlatformAdminRepository.deleteExpiredInvite` — clears a lapsed invite so its address can be reused. */
+  /** Clears a lapsed invite so its address can be reused. */
   async deleteExpiredInvite(id: string): Promise<void> {
     return this.platformAdminRepository.deleteExpiredInvite(id);
   }
@@ -94,24 +93,16 @@ export class PlatformAdminDbService {
     await this.platformAdminRepository.updatePasswordHash(id, passwordHash);
   }
 
-  /** See `PlatformAdminRepository.updateLocale`. Re-fetches via this class's own `findById` (not
-   *  the repository's) so the fresh row still carries its avatar — the caller returns this
-   *  straight to the client as the updated profile, same as every other mutation here. */
+  /** Re-fetches via this class's own `findById` so the fresh row still carries its avatar. */
   async updateLocale(id: string, locale: Locale): Promise<PlatformAdminProfileWithAvatar | null> {
     await this.platformAdminRepository.updateLocale(id, locale);
     return this.findById(id);
   }
 
   /**
-   * Every platform admin — this is the roster behind Settings → Members, not just pending
-   * invites, despite the name. `invitedAt` falls back to the admin's own `createdAt` for the
-   * seeded root, which has no invite row at all (see the repository's own comment).
-   *
-   * `expiresAt` stays **null** for such a row rather than falling back to `createdAt`. The
-   * fallback invented an expiry that was never real — the root admin came back claiming to have
-   * expired the instant it was seeded — and it only looked harmless because the UI happens to
-   * branch on `status`. A field that means "when this invite lapses" has no honest value for a
-   * row that was never invited, so it says so.
+   * The whole admin roster behind Settings → Members, not just pending invites. `invitedAt` falls
+   * back to `createdAt` for the seeded root (no invite row), but `expiresAt` stays null: a fallback
+   * would invent an expiry that was never real.
    */
   async listInvites(): Promise<PlatformAdminInviteRow[]> {
     const rows = await this.platformAdminRepository.findAllWithInvites();
@@ -125,8 +116,10 @@ export class PlatformAdminDbService {
     }));
   }
 
-  /** Both inserts (the admin's own row, then its invite token row) happen in one transaction — a
-   * failure between the two must not leave an invited-status admin with no invite ever recorded. */
+  /**
+   * Both inserts run in one transaction so a failure between them cannot leave an invited admin
+   * with no invite recorded.
+   */
   async createInvite(input: {
     email: string;
     invitedByPlatformAdminId: string;
@@ -152,27 +145,25 @@ export class PlatformAdminDbService {
       status: PlatformAdminStatus.INVITED,
       invitedAt: new Date().toISOString(),
       expiresAt: input.expiresAt,
-      // Always false: this path is how every non-root admin comes to exist in the first place —
-      // root is only ever seeded (`seed-platform-admin.ts`), never invited.
+      // Always false: root is only ever seeded, never invited.
       isRoot: false,
     };
   }
 
   /**
-   * Returns the revoked invite's own id/email, or which of the two failure modes occurred — a
-   * missing id and an already-accepted admin are different answers to the caller (404 vs 409),
-   * see `PlatformAdminRepository.deleteInvitedAdmin`.
+   * Returns the revoked invite's id/email, or which failure occurred: a missing id (404) and an
+   * already-accepted admin (409) are different answers.
    */
   async revokeInvite(id: string): Promise<RevokeInviteOutcome> {
     return this.platformAdminRepository.deleteInvitedAdmin(id);
   }
 
-  /** See `PlatformAdminRepository.countActiveGoogleOnlyAdmins` — backs the social-login lockout guard. */
+  /** Backs the social-login lockout guard. */
   async countActiveGoogleOnlyAdmins(): Promise<number> {
     return this.platformAdminRepository.countActiveGoogleOnlyAdmins();
   }
 
-  /** See `PlatformAdminRepository.findByGoogleIdentity` — the login-side read of a linked admin identity. */
+  /** The login-side read of a linked admin identity. */
   async findByGoogleIdentity(providerUserId: string): Promise<{
     id: string;
     email: string;
@@ -182,12 +173,11 @@ export class PlatformAdminDbService {
     return this.platformAdminRepository.findByGoogleIdentity(providerUserId);
   }
 
-  /** See `PlatformAdminRepository.findInviteEmailByTokenHash` — read-only, does not consume. */
+  /** Read-only; does not consume. */
   async findInviteEmailByTokenHash(tokenHash: string): Promise<{ email: string } | null> {
     return this.platformAdminRepository.findInviteEmailByTokenHash(tokenHash);
   }
 
-  /** See `PlatformAdminRepository.acceptInviteWithPassword`. */
   async acceptInviteWithPassword(input: {
     tokenHash: string;
     passwordHash: string;
@@ -195,7 +185,6 @@ export class PlatformAdminDbService {
     return this.platformAdminRepository.acceptInviteWithPassword(input);
   }
 
-  /** See `PlatformAdminRepository.acceptInviteWithGoogleIdentity`. */
   async acceptInviteWithGoogleIdentity(input: {
     tokenHash: string;
     providerUserId: string;

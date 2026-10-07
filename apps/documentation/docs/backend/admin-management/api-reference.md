@@ -88,7 +88,11 @@ Errors: `400` validation (`search` over 200 chars), `401`, `403`, `429`.
 
 ### `POST /v1/admin/businesses/:tenantId/status`
 
-Suspends or reactivates a tenant. Reactivating always lands the real `tenant_status` on `active`,
+Suspends or reactivates a tenant. Suspension is enforced at **login and token refresh**, not on
+every request: a user already signed in keeps working until their current access token expires
+(`ACCESS_TOKEN_TTL_SECONDS`, 15 minutes by default), after which the refresh is refused and every
+refresh token they hold is revoked. There is deliberately no per-request database read to make it
+instantaneous. Reactivating always lands the real `tenant_status` on `active`,
 never back on `pending_activation` — proceeding to normal operation, not un-suspending into an
 onboarding state the tenant may have left long ago. Records a `business_suspended` /
 `business_reactivated` entry to `platform_activity_log` on success (best-effort — see [Admin
@@ -118,7 +122,8 @@ cancel it first via `cancel-erasure`), `429`.
 
 Starts the grace-period clock on a tenant's erasure. Immediately sets the tenant's real
 `tenant_status` to `suspended` and stamps `erasure_requested_at` — every user in the tenant loses
-access now, exactly as a plain suspend would, but nothing is anonymized yet. Anonymization happens
+access exactly as a plain suspend does (at their next login or refresh, at most one access-token
+lifetime away), but nothing is anonymized yet. Anonymization happens
 later, in the nightly erasure-purge cron job, once the configured grace period elapses; cancellable
 any time before then via `cancel-erasure`. See [Overview § Tenant
 erasure](./overview.md#tenant-erasure-request-and-cancel-platform-admin-only-not-tenant-self-service)

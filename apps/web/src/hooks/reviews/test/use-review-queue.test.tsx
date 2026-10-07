@@ -61,8 +61,10 @@ function wrapper({ children }: { children: ReactNode }) {
   );
 }
 
-/** Like `wrapper`, but hands back the `QueryClient` too — needed to simulate the Business
- *  Switcher's own direct cache write into `["connection"]`. */
+/**
+ * Also returns the `QueryClient`, to simulate the Business Switcher's direct cache write into
+ * `["connection"]`.
+ */
 function renderWithClient() {
   const queryClient = createQueryClient();
   function withClient({ children }: { children: ReactNode }) {
@@ -83,9 +85,8 @@ describe("useReviewQueue", () => {
   });
 
   test("isError is true and reviews is empty on a failed fetch — distinct from a genuinely empty result", async () => {
-    // Regression: `placeholderData: keepPreviousData` only holds the previous page's rows while
-    // the new fetch is still pending — once it settles as an error, `data` (and so `reviews`)
-    // reverts to empty, indistinguishable from zero real matches unless a caller also checks
+    // Regression: `keepPreviousData` only holds old rows while the fetch is pending; on error
+    // `reviews` reverts to empty, indistinguishable from zero matches unless a caller checks
     // `isError`.
     vi.spyOn(ReviewService, "getReviews").mockRejectedValue(new Error("network error"));
 
@@ -134,8 +135,8 @@ describe("useReviewQueue", () => {
     });
 
     test("switching the active business re-fetches under a new query key and resets to page 1", async () => {
-      // `total: 20` (2 pages at pageSize 10) — `setPage(2)` clamps back to 1 against an empty
-      // result's `totalPages`, so the page-reset assertion below needs a real second page to move to.
+      // `total: 20` (2 pages) so the page-reset assertion has a real second page: `setPage(2)`
+      // clamps to 1 against an empty result's `totalPages`.
       const getReviews = vi.spyOn(ReviewService, "getReviews").mockResolvedValue(page([], 20));
       vi.spyOn(ConnectionService, "getState").mockResolvedValue(
         connectionState({ location: location({ id: "loc-1" }) }),

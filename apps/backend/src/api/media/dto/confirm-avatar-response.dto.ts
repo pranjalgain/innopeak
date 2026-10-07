@@ -1,11 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-/**
- * Deliberately just the avatar, not the caller's full profile — `MediaService` has no idea what a
- * `TenantOwnerProfile`/`PlatformAdminProfile` looks like, and shouldn't need to; that's exactly the
- * coupling that would have to grow with every new avatar owner. The caller already has the rest of
- * its own profile cached and only needs this one field refreshed.
- */
+/** Deliberately just the avatar: `MediaService` must not know owner profile shapes, which would grow with every new avatar owner. */
 export class ConfirmAvatarResponseDto {
   @ApiPropertyOptional({
     example:

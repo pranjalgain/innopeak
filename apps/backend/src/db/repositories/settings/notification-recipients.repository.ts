@@ -29,29 +29,16 @@ export class NotificationRecipientsRepository {
 
     return rows.map(row => ({
       ...row,
-      // `users.name` is nullable at the column level (GDPR anonymize-in-place) — a recipient whose
-      // user has since been removed (Feature A's anonymize-in-place, not a hard delete, so this
-      // row survives) would otherwise surface `name: null` here for the first time. The rest of
-      // this stack (DTO, frontend) has always assumed a real display name; a fallback label at the
-      // one point the nullability is actually introduced is simpler than threading `| null`
-      // through every consumer for a case that's cosmetic, not load-bearing.
+      // `users.name` is nullable (GDPR anonymize-in-place keeps the recipient row), but the DTO and frontend assume a display name, so fall back to a label here.
       name: row.name ?? 'Removed team member',
       channel: row.channel as NotificationChannelPref,
     }));
   }
 
   /**
-   * Returns null when `id` doesn't exist for this tenant — the guarded `WHERE` clause is what
-   * makes this a 404 rather than a 500 or, worse, a cross-tenant write: `id` alone would find a
-   * row, `tenant_id` is what proves it's this caller's.
-   *
-   * `UPDATE … FROM users … RETURNING users.name` — one statement, so the owning user's name comes
-   * back with the row it belongs to rather than from a second round trip that would have to
-   * invent a value for a user that cannot be absent (`user_id` is `NOT NULL REFERENCES users(id)
-   * ON DELETE CASCADE`, so a recipient row can never outlive its user). The join is also what
-   * `listByTenant` above already does for the same reason.
-   *
-   * There are no `updated_at` triggers anywhere in this schema — every writer stamps it itself.
+   * Null when `id` doesn't exist for this tenant: the `tenant_id` in the WHERE is what makes that a 404 rather than a cross-tenant write.
+   * One `UPDATE … FROM users … RETURNING users.name` returns the owner's name with the row (as `listByTenant` does); a recipient can't outlive its user.
+   * No `updated_at` triggers exist in this schema, so every writer stamps it itself.
    */
   async updateForTenant(
     input: UpdateNotificationRecipientInput

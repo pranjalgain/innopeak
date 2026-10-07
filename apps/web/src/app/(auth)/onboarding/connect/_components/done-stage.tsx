@@ -4,7 +4,7 @@ import { LuCheck } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
 
 interface DoneStageProps {
-  /** What was actually imported — not the planned total, which a real backend may never reach. */
+  /** What was actually imported, not the planned total. Zero means nothing imported *in this session*, so it reads as a plain confirmation, not "imported 0 reviews". */
   totalImported: number;
   onGoToDashboard: () => void;
 }
@@ -20,7 +20,7 @@ export function DoneStage({ totalImported, onGoToDashboard }: DoneStageProps) {
       <div className="flex flex-col gap-2">
         <h1 className="text-gradient text-lg font-semibold">{t("title")}</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          {t("description", { count: totalImported })}
+          {totalImported > 0 ? t("description", { count: totalImported }) : t("descriptionNoCount")}
         </p>
       </div>
       <Button type="button" size="block" onClick={onGoToDashboard}>

@@ -17,12 +17,7 @@ interface ReviewTableProps {
 
 const DATE_FORMAT = { month: "short", day: "numeric" } as const;
 
-/**
- * Tablet/desktop layout — a horizontally-scrollable fixed-width table
- * (matches the design's own `min-width:760px` on this breakpoint rather
- * than letting columns shrink/overlap). Below the tablet breakpoint,
- * `ReviewCardList` takes over instead (see `review-results.tsx`).
- */
+/** Tablet/desktop layout: a horizontally scrollable fixed-width table (design's `min-width:760px`); `ReviewCardList` takes over below the tablet breakpoint. */
 export function ReviewTable({ reviews }: ReviewTableProps) {
   const t = useTranslations("reviewQueue");
   const format = useFormatter();
@@ -55,16 +50,10 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
                 <StarRating rating={review.rating} />
               </TableCell>
               <TableCell className="truncate text-muted-foreground">{review.reviewText}</TableCell>
-              {/* `table-fixed` pins this column at `w-56` rather than growing to fit a wide
-                  badge the way an `auto`-layout table would — German's longer classification
-                  labels (`auto_reply_candidate` alone runs to 34 characters) would otherwise
-                  spill past the column into "Status" instead of being contained by it. Wraps
-                  onto a second line (`whitespace-normal break-words`) rather than truncating —
-                  classification is information someone is actually meant to read here, not
-                  decoration, so hiding half of it behind an ellipsis traded one bug for a worse
-                  one. `min-w-0` on the flex column plus `max-w-full` on each badge is what
-                  actually makes wrapping engage inside its cell instead of pushing the cell
-                  wider — `Badge`'s own `w-fit` still wins over a bare `max-w-full` without it. */}
+              {/* Wraps rather than truncates: German classification labels (`auto_reply_candidate` alone is 34
+                  characters) would spill into "Status" under `table-fixed`, and classification is meant to be read.
+                  `min-w-0` on the flex column plus `max-w-full` on each badge lets wrapping engage; `Badge`'s own
+                  `w-fit` otherwise wins. */}
               <TableCell className="w-56 whitespace-normal">
                 <div className="flex min-w-0 flex-col items-center gap-1 text-center">
                   <ClassificationBadge

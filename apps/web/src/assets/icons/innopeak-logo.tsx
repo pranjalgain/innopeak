@@ -3,15 +3,9 @@ interface InnoPeakLogoProps {
 }
 
 /**
- * The official InnoPeak lockup (diamond mark + wordmark), from
- * `innopeak-logo-col-grey.svg`. Wide aspect ratio (~2.9:1) — use
- * `InnoPeakDiamondMark` instead wherever there isn't room for the full
- * wordmark (e.g. a collapsed icon-only sidebar rail).
- *
- * The wordmark paints with `currentColor` rather than the source SVG's fixed grey, so it
- * follows whatever surface it sits on — `--foreground` on the marketing and auth pages,
- * `--sidebar-foreground` inside the sidebar, and legible in both themes. The diamond keeps
- * its literal brand pink: it is the one mark that must not shift with the palette.
+ * Diamond mark + wordmark (~2.9:1); use `InnoPeakDiamondMark` where there is no room for the wordmark.
+ * The wordmark paints with `currentColor` to follow its surface and theme; the diamond keeps its literal brand
+ * pink, the one mark that must not shift with the palette.
  */
 export function InnoPeakLogo({ className }: InnoPeakLogoProps) {
   return (

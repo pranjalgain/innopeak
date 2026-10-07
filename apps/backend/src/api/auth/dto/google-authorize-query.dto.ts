@@ -4,11 +4,9 @@ import { IsIn } from 'class-validator';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 
 /**
- * The intents THIS route may start. Deliberately a subset of `OAuthIntent`, not the whole enum:
- * `ADMIN_INVITE` is only ever minted by `GET /v1/auth/invite/:token/google`, which supplies the
- * `inviteToken` that intent is meaningless without. A bare `@IsEnum(OAuthIntent)` here silently
- * widened to accept `?intent=admin_invite` the moment that member was added, minting a tokenless
- * state whose only possible outcome is a dead-end `?error=INVALID_OR_EXPIRED_INVITE`.
+ * Deliberately a subset of `OAuthIntent`: `ADMIN_INVITE` is only minted by `GET
+ * /v1/auth/invite/:token/google`, which supplies the `inviteToken` it needs. Accepting it here
+ * would mint a tokenless state that can only dead-end.
  */
 const AUTHORIZE_INTENTS = [OAuthIntent.LOGIN, OAuthIntent.SIGNUP] as const;
 

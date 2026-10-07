@@ -63,14 +63,9 @@ export function MembersSettingsSection() {
     mode: "onTouched",
     defaultValues: { email: "" },
   });
-  // The schema has no separate "required" rule — an empty string simply fails `.email()` — so
-  // blurring the field before typing anything (`mode: "onTouched"`) surfaces the same "not a valid
-  // email" message a real typo would. That reads as the form nagging someone who hasn't done
-  // anything yet; an untouched-but-empty field isn't invalid, it's just not filled in.
-  //
-  // Mirrored into local state via `register`'s onChange rather than read with `watch()` — same
-  // reasoning `ProfileSettingsSection`'s password checklist documents: `watch()` can't be
-  // memoized safely and React Compiler skips optimizing the whole component around it.
+  // No separate "required" rule: an empty string fails `.email()`, so blurring an untouched field would show "not a valid
+  // email". Mirrored into local state rather than `watch()`, which can't be memoized safely and makes React Compiler
+  // skip the component.
   const [emailValue, setEmailValue] = useState("");
   const showEmailError = Boolean(errors.email) && emailValue.trim().length > 0;
 

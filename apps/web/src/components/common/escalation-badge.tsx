@@ -6,13 +6,11 @@ import type { EscalationReason } from "@/types/domain";
 
 interface EscalationBadgeProps {
   reason: EscalationReason;
-  /** Drops the "Escalated ·" prefix for tight layouts where that context is already obvious. */
   short?: boolean;
   className?: string;
 }
 
-// A blocklisted term/reviewer ranks more severe than a merely low rating — one is a policy hit,
-// the other is ordinary (if unhappy) customer feedback.
+// A blocklist hit is a policy violation, so it ranks more severe than a low rating.
 const REASON_BADGE_CLASSNAME: Record<EscalationReason, string> = {
   low_rating: "bg-warning-soft text-warning",
   blocklist_match: "bg-destructive-soft text-destructive",

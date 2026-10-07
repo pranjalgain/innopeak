@@ -8,9 +8,7 @@ describe('MetricsService', () => {
   let target: MetricsService;
 
   beforeEach(async () => {
-    // MetricsService registers its counters/gauges/histograms on prom-client's default
-    // global registry. Clear it before each test so re-instantiating the service in a
-    // fresh TestingModule doesn't throw "metric already registered" errors.
+    // Metrics live on prom-client's global registry; clear it so re-instantiating doesn't throw "already registered".
     register.clear();
 
     const module: TestingModule = await Test.createTestingModule({

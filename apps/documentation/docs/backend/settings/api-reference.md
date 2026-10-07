@@ -452,7 +452,7 @@ Request:
 
 | Field | Type | Rules |
 |---|---|---|
-| `term` | string | required, trimmed, 1–255 chars (`VARCHAR(255) NOT NULL`), non-empty after trimming. Stored with the casing sent; matched case-insensitively. Multi-word phrases are valid — the client's own blocklist contains "food poisoning" and "health inspector". No `match_type` is accepted: `PLAN.md` §2 lists `exact`/`contains`/`regex` as a possible fast-follow, explicitly not MVP, so match semantics are the classifier's and not stored per term. |
+| `term` | string | required, trimmed, 1–255 chars (`VARCHAR(255) NOT NULL`), non-empty after trimming and containing at least one visible character (a zero-width-only term is rejected). Stored with the casing sent; matched case-insensitively. Multi-word phrases are valid — the client's own blocklist contains "food poisoning" and "health inspector". No `match_type` is accepted: `PLAN.md` §2 lists `exact`/`contains`/`regex` as a possible fast-follow, explicitly not MVP, so match semantics are the classifier's and not stored per term. |
 
 Success `201`:
 
@@ -464,7 +464,9 @@ Success `201`:
 }
 ```
 
-Errors: `400` validation, `401`, `403` (member), `409 BLOCKLIST_TERM_EXISTS`, `500`.
+Errors: `400` validation, `401`, `403` (member), `409 BLOCKLIST_TERM_EXISTS`, `409 BLOCKLIST_LIMIT_REACHED`, `500`.
+
+**Limit.** A tenant's blocklist holds at most **100** terms (`MAX_BLOCKLIST_TERMS_PER_TENANT`) — the classifier scans every term against every new review, and the list previously grew without bound. The count and the insert run in one transaction behind a per-tenant advisory lock, so concurrent adds cannot both slip under the cap. A term the tenant already has still answers `409 BLOCKLIST_TERM_EXISTS` when the list is full; only a genuinely new term gets `BLOCKLIST_LIMIT_REACHED`.
 
 ### `PATCH /v1/settings/blocklist-terms/:id`
 
@@ -956,7 +958,10 @@ Errors: `401`, `403` (member), `400 CANNOT_REMOVE_SELF`, `400 CANNOT_REMOVE_LAST
 ### `POST /v1/settings/members/:memberId/cancel-removal`
 
 Undoes `request-removal` — a clean, full undo, since nothing is anonymized until the grace period
-actually elapses. Restores `status = 'active'` and clears `erasure_requested_at`.
+actually elapses. Clears `erasure_requested_at` and restores the status the member had before the
+request: `active` for someone who has signed in, `invited` for an invitee who never accepted
+(`email_verified_at IS NULL`). Restoring `active` for the second kind would have turned a pending
+invite into a live account with no verified email, and removed it from the invite-revoke path.
 
 The fallback existence-check that distinguishes the two error cases below also excludes
 already-anonymized rows: if the nightly purge already ran for this member (`anonymized_at` set)
@@ -979,6 +984,54 @@ Success `200`:
 ```
 
 Errors: `401`, `403` (member), `404 MEMBER_NOT_FOUND`, `409 MEMBER_REMOVAL_NOT_PENDING`, `500`.
+
+## Data export
+
+| Method | Path | Auth | Throttle |
+|---|---|---|---|
+| `GET` | `/v1/settings/export` | Bearer, `@Roles('owner')` | 3 / min |
+
+### `GET /v1/settings/export`
+
+Downloads a copy of the business's own data as one JSON file — the portability half of deletion: an
+owner can take everything with them *before* scheduling it (the Delete business dialog offers it).
+**Not** wrapped in the usual response envelope: the body is the file, `Content-Type:
+application/json`, `Content-Disposition: attachment; filename="innopeak-export-<business>-<YYYY-MM-DD>.json"`.
+Owner only; a member — or an owner an admin has disabled — gets `403`. Not available once the business is suspended (including while an
+erasure is pending), since nobody can sign in then.
+
+The body is **streamed** — reviews are read 500 at a time and written out as they arrive — so memory
+stays flat however many reviews a business has.
+
+```json
+{
+  "format": "innopeak-export",
+  "version": 1,
+  "exportedAt": "2026-10-07T09:30:00.000Z",
+  "business": { "name": "Acme Dental", "status": "active", "createdAt": "2026-03-02T10:00:00.000Z" },
+  "team": [{ "name": "Jane Owner", "email": "jane@acme.test", "role": "owner", "status": "active", "createdAt": "..." }],
+  "settings": { "escalationRatingThreshold": 3, "autoPostEnabled": false, "reviewDataRetentionMonths": null, "aiReplyCount": 1 },
+  "blocklist": ["refund", "lawsuit"],
+  "notificationRecipients": [{ "email": "jane@acme.test", "notificationType": "escalation", "channel": "email", "isActive": true }],
+  "locations": [{ "id": "…", "name": "Acme Dental – Main", "address": "…", "provider": "google", "status": "active", "createdAt": "…" }],
+  "prompts": [{ "category": "…", "name": "…", "description": null, "tone": "professional", "versions": [{ "version": 1, "template": "…", "createdAt": "…" }] }],
+  "reviews": [{
+    "id": "…", "locationId": "…", "rating": 5, "text": "…", "reviewerName": "A. Customer",
+    "reviewedAt": "…", "sentiment": "positive", "classification": "auto_reply", "status": "responded",
+    "responses": [{ "type": "reply", "content": "…", "source": "ai", "status": "posted", "postedAt": "…", "createdAt": "…" }]
+  }],
+  "billing": { "plan": "paid", "status": "active", "currentPeriodEnd": "…", "receipts": [{ "invoiceNumber": "…", "amountPaid": 4900, "currency": "usd", "paidAt": "…" }] }
+}
+```
+
+What is **in** it: what the business entered or produced — team, settings, blocklist, recipients,
+locations, prompts, reviews with every reply (drafts and rejected ones too, tagged by `status`), and
+billing receipts. What is **deliberately left out**: anything that is a credential or internal
+machinery — password hashes, tokens, the Google connection and its stored credential, Stripe ids,
+sync runs, generation metadata and error text, in-app notification rows. A reviewer's name is
+`null` once it has been anonymized by the retention job. Amounts are in the smallest currency unit.
+
+Errors: `401`, `403`, `429`.
 
 ## Error reference
 
@@ -1007,9 +1060,10 @@ below; `error` is the category string the frontend branches on.
 | `409` | `EMAIL_ALREADY_REGISTERED` | `POST /v1/settings/members` | This email belongs to an already-active account anywhere in the product (global `idx_users_email_active`). |
 | `409` | `MEMBER_INVITE_NOT_REVOCABLE` | `DELETE /v1/settings/members/:memberId` | The id exists but is no longer `invited` (already accepted) — nothing left to revoke. |
 | `409` | `MEMBER_REMOVAL_NOT_PENDING` | `POST /v1/settings/members/:memberId/cancel-removal` | The target has no pending removal (`erasure_requested_at IS NULL`) to cancel. |
+| `409` | `BLOCKLIST_LIMIT_REACHED` | `POST /v1/settings/blocklist-terms` | The tenant already has 100 terms. Remove one first. |
 | `409` | `BLOCKLIST_TERM_EXISTS` | `POST /v1/settings/blocklist-terms`, `PATCH /v1/settings/blocklist-terms/:id` | `lower(term)` collides with an existing row (`idx_blocklist_terms_tenant_id_lower_term`). `POST` has no reactivation path — removal is a hard `DELETE`, so every collision is a `409`. |
 | `409` | `RECIPIENT_ALREADY_EXISTS` | `POST /v1/settings/notification-recipients` | This user is already a recipient for this `notification_type`. Application-enforced until the unique index above is migrated, and therefore racy under concurrent submits. |
-| `429` | `Too Many Requests` | Every route | The global `short` tier (30 / minute) — this module sets no per-route override. |
+| `429` | `Too Many Requests` | Every route | The global `short` tier (30 / minute); `GET /export` has its own 3 / minute. |
 | `500` | `Internal Server Error` | Every route | Unhandled exception. Only `traceId` is safe to show the user. A CHECK-constraint violation reaching here (rather than surfacing as `400`) means DTO validation drifted from the schema — treat it as a bug in the DTO, not in the caller. |
 
 No route in this module returns `422`, and none returns `204`: every success carries a body so the

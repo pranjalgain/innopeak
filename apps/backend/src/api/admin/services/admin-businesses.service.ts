@@ -1,5 +1,7 @@
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
+import { ErasureNoticeService } from '@auth/services/erasure-notice.service';
 import { requirePlatformAdmin } from '@auth/utils/require-platform-admin.util';
+import { BillingReconciliationService } from '@billing/services/billing-reconciliation.service';
 import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { BusinessStatus } from '@common/enums/business-status.enum';
@@ -7,7 +9,7 @@ import { PlatformActivityType } from '@common/enums/platform-activity-type.enum'
 import { EnvConfig } from '@config/env.config';
 import { AdminBusinessesDbService } from '@db/repositories/admin-businesses/admin-businesses.db-service';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { AuthUser } from '../../auth/types/auth.type';
@@ -21,10 +23,14 @@ import type { SetBusinessStatusParams } from '../types/admin.type';
 
 @Injectable()
 export class AdminBusinessesService {
+  private readonly logger = new Logger(AdminBusinessesService.name);
+
   constructor(
     private readonly adminBusinessesDbService: AdminBusinessesDbService,
     private readonly adminOverviewDbService: AdminOverviewDbService,
-    private readonly configService: ConfigService<EnvConfig>
+    private readonly billingReconciliationService: BillingReconciliationService,
+    private readonly configService: ConfigService<EnvConfig>,
+    private readonly erasureNoticeService: ErasureNoticeService
   ) {}
 
   async list(
@@ -37,14 +43,8 @@ export class AdminBusinessesService {
   }
 
   /**
-   * `status` here is the frontend's simplified `BusinessStatus` (active/suspended); mapped to the
-   * real 3-value `TenantStatus` before writing — `active` always lands on `TenantStatus.ACTIVE`,
-   * never back on `pending_activation`, since re-activating a suspended business means proceeding
-   * to normal operation, not un-suspending it into an onboarding state it may have left long ago.
-   *
-   * Recorded to `platform_activity_log` on success — the Super Admin Overview page's "Activity"
-   * panel reads this back. Logged after the write, not before: a failed/not-found update has
-   * nothing to log.
+   * `status` is the frontend's simplified BusinessStatus; `active` always maps to TenantStatus.ACTIVE, never back to pending_activation.
+   * Logged after the write, so a not-found update logs nothing.
    */
   async setStatus(
     actor: AuthUser,
@@ -74,8 +74,7 @@ export class AdminBusinessesService {
       actorPlatformAdminId: admin.id,
       actorEmail: admin.email,
       tenantId,
-      // Snapshotted from the row we just wrote, so the entry still reads correctly after this
-      // business is renamed or deleted — see `platform_activity_log.business_name`.
+      // Snapshot of the name, so the entry survives a later rename or delete.
       businessName: summary.name,
     });
 
@@ -83,14 +82,8 @@ export class AdminBusinessesService {
   }
 
   /**
-   * Suspends the tenant immediately and starts its grace period — every user in it loses access
-   * now. The actual anonymization happens later, in the nightly erasure-purge cron job, once
-   * `ERASURE_GRACE_PERIOD_DAYS` has elapsed; cancellable any time before then via `cancelErasure`.
-   *
-   * A `null` result (repository scoped off an already-`erased` tenant, or a plain not-found)
-   * collapses to the same `BusinessNotFoundException` `setStatus` uses for its own not-found case
-   * — an already-erased tenant has nothing further to request, and reads the same to the caller as
-   * one that never existed.
+   * Suspends immediately; anonymization happens in the nightly purge after `ERASURE_GRACE_PERIOD_DAYS`.
+   * An already-erased tenant reads as not found.
    */
   async requestErasure(
     actor: AuthUser,
@@ -102,6 +95,16 @@ export class AdminBusinessesService {
       throw new BusinessNotFoundException();
     }
 
+    // Best-effort: the request already took effect and the purge deletes the Stripe customer anyway,
+    // so a Stripe hiccup must not fail it.
+    try {
+      await this.billingReconciliationService.scheduleCancellationForErasure(tenantId);
+    } catch (error) {
+      this.logger.warn(
+        `Could not schedule subscription cancellation for tenant ${tenantId} on erasure request: ${(error as Error).message}`
+      );
+    }
+
     await this.adminOverviewDbService.recordActivityBestEffort({
       type: PlatformActivityType.BUSINESS_ERASURE_REQUESTED,
       actorPlatformAdminId: admin.id,
@@ -110,19 +113,33 @@ export class AdminBusinessesService {
       businessName: summary.name,
     });
 
+    await this.erasureNoticeService.notifyScheduled({
+      tenantId,
+      businessName: summary.name,
+      requestedBy: 'admin',
+    });
+
     return {
       business: AdminBusinessResponseDto.from(summary),
       gracePeriodDays: this.gracePeriodDays(),
     };
   }
 
-  /** Undoes `requestErasure` — a clean, full undo, since nothing is anonymized until the grace
-   *  period actually elapses. */
   async cancelErasure(actor: AuthUser, tenantId: string): Promise<AdminBusinessResponseDto> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const summary = await this.adminBusinessesDbService.cancelErasure(tenantId);
     if (!summary) {
       throw new BusinessNotFoundException();
+    }
+
+    // Resumes only a subscription the erasure itself set to end, never one the owner cancelled.
+    // Best-effort: a Stripe hiccup must not fail the cancel (worst case the owner re-subscribes).
+    try {
+      await this.billingReconciliationService.resumeAfterErasureCancelled(tenantId);
+    } catch (error) {
+      this.logger.warn(
+        `Could not resume subscription for tenant ${tenantId} after erasure was cancelled: ${(error as Error).message}`
+      );
     }
 
     await this.adminOverviewDbService.recordActivityBestEffort({
@@ -132,6 +149,8 @@ export class AdminBusinessesService {
       tenantId,
       businessName: summary.name,
     });
+
+    await this.erasureNoticeService.notifyCancelled({ tenantId, businessName: summary.name });
 
     return AdminBusinessResponseDto.from(summary);
   }

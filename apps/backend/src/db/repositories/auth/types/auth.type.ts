@@ -4,15 +4,14 @@ import type { UserRole } from '@auth/enums/user-role.enum';
 import type { UserStatus } from '@auth/enums/user-status.enum';
 import type { Locale } from '@common/i18n/locale';
 
-// ─── Housekeeping ─────────────────────────────────────────────────────────────
-
 export interface PurgeStaleTokensResult {
-  /** Spent/expired `password_reset_tokens` rows across every purpose this codebase mints — see `AuthRepository.deleteStaleOtpTokens`. */
+  /**
+   * Spent/expired `password_reset_tokens` rows across every purpose (see
+   * `AuthRepository.deleteStaleOtpTokens`).
+   */
   otpTokens: number;
   refreshTokens: number;
 }
-
-// ─── Signup / tenant provisioning ─────────────────────────────────────────────
 
 export interface SignupResult {
   tenantId: string;
@@ -64,8 +63,6 @@ export interface InsertVerifiedOwnerUserInput {
   email: string;
 }
 
-// ─── User / tenant reads & writes ─────────────────────────────────────────────
-
 export interface UserByEmail {
   id: string;
   tenantId: string;
@@ -74,7 +71,7 @@ export interface UserByEmail {
   passwordHash: string | null;
   role: UserRole;
   status: UserStatus;
-  /** Null means "never chose" — see the `locale` column comment in 0002_tenant_auth.sql. */
+  /** Null means "never chose". */
   locale: Locale | null;
 }
 
@@ -92,12 +89,11 @@ export interface VerifiedUser {
   role: UserRole;
   passwordHash: string | null;
   /**
-   * Carried so callers can apply the same standing checks password login does. It used to be
-   * dropped here, which is how the Google callback ended up with no way to refuse a `disabled`
-   * account — see AuthService.handleGoogleCallback.
+   * Carried so callers can apply the same standing checks as password login (e.g. refusing a
+   * `disabled` account in the Google callback).
    */
   status: UserStatus;
-  /** Null means "never chose" — see the `locale` column comment in 0002_tenant_auth.sql. */
+  /** Null means "never chose". */
   locale: Locale | null;
 }
 
@@ -126,17 +122,10 @@ export interface SetActiveLocationIdInput {
   locationId: string | null;
 }
 
-// ─── Google identity ───────────────────────────────────────────────────────────
-
 /**
- * `'unknown'` deliberately carries no user and no reason — what it means is an AuthService-level
- * decision (NO_ACCOUNT for a login round trip, a pending signup for a signup one), not this DB
- * service's to make. See `resolveGoogleIdentity`.
- *
- * `firstActivation` is true only on the one branch that just promoted a `pending_verification`
- * row to `active` — the Google-linking equivalent of `verifyEmail` returning non-null. It's the
- * signal `AuthService.handleGoogleCallback` uses to know "this is the moment a brand-new tenant
- * finished signing up."
+ * `'unknown'` carries no user or reason: what it means is an AuthService decision (NO_ACCOUNT on
+ * login, a pending signup on signup). `firstActivation` is true only when this call just promoted a
+ * `pending_verification` row to `active`, the moment a brand-new tenant finished signing up.
  */
 export type GoogleIdentityLookup =
   { kind: 'known'; user: VerifiedUser; firstActivation: boolean } | { kind: 'unknown' };
@@ -152,15 +141,11 @@ export interface UserIdentityRow {
   userId: string;
 }
 
-// ─── Verify-email / set-password OTP tokens ───────────────────────────────────
-
 export interface PutVerifyEmailTokenInput {
   userId: string;
   tokenHash: string;
   expiresAt: string;
 }
-
-// ─── Refresh tokens ────────────────────────────────────────────────────────────
 
 export interface InsertRefreshTokenInput {
   userId: string;
@@ -168,7 +153,7 @@ export interface InsertRefreshTokenInput {
   expiresAt: string;
 }
 
-/** A refresh-token row that may or may not still be live — see `findRefreshTokenByHash`. */
+/** May or may not still be live; see `findRefreshTokenByHash`. */
 export interface RefreshTokenRow {
   id: string;
   userId: string;
@@ -176,14 +161,13 @@ export interface RefreshTokenRow {
   revokedAt: string | null;
 }
 
-// ─── Tenant-member invites ─────────────────────────────────────────────────────
-
 export interface InsertInvitedMemberInput {
   tenantId: string;
   email: string;
-  /** `users.name` is `NOT NULL`, and the invite-send form is email-only (the invitee picks their
-   *  own name on the accept screen) — the email itself is the placeholder until then, same
-   *  fallback shape `AuthDbService.completeGoogleSignup` already uses (`input.name ?? input.email`). */
+  /**
+   * `users.name` is `NOT NULL` and the invite form is email-only (the invitee picks a name on
+   * accept), so the email is the placeholder until then.
+   */
   name: string;
   invitedByUserId: string;
 }
@@ -194,8 +178,7 @@ export interface InsertMemberInviteTokenInput {
   expiresAt: string;
 }
 
-/** Mirrors `PlatformAdminRepository.findByEmail`'s shape — global, not tenant-scoped, since
- *  `idx_users_email_active` is a global uniqueness guarantee. */
+/** Global, not tenant-scoped, since `idx_users_email_active` is a global uniqueness guarantee. */
 export interface MemberInviteStatusRow {
   id: string;
   tenantId: string;
@@ -215,26 +198,24 @@ export interface TenantMemberRow {
 }
 
 /**
- * Same enumeration-avoidance shape as `RevokeMemberInviteOutcome` below, plus the one guard that
- * flow doesn't need: `last_owner` refuses to strip a tenant down to zero owners. `requested` marks
- * the row `disabled` + `erasure_requested_at = now()` — the actual anonymization happens later, in
- * the nightly erasure-purge cron job, once the grace period elapses.
+ * Same enumeration-avoidance shape as `RevokeMemberInviteOutcome`, plus `last_owner`, which refuses
+ * to strip a tenant down to zero owners. `requested` only marks the row; anonymization happens
+ * later in the nightly purge.
  */
 export type RequestMemberRemovalOutcome =
   | { outcome: 'last_owner' }
   | { outcome: 'not_found' }
   | { outcome: 'requested'; id: string; email: string | null };
 
-/** `not_pending` covers both "never requested" and "already anonymized" — either way there is
- *  nothing left for a cancel to undo. */
+/**
+ * `not_pending` covers both "never requested" and "already anonymized": nothing is left to cancel.
+ */
 export type CancelMemberRemovalOutcome =
   { outcome: 'cancelled'; id: string } | { outcome: 'not_found' } | { outcome: 'not_pending' };
 
 /**
- * The callback `AuthRepository.runWithErasurePurgeLock` hands to its `fn` for taking a further,
- * narrower per-resource session lock on the same connection the outer purge lock already holds —
- * see that method's own doc comment for why nesting locks on one connection (rather than each
- * checking out a second pooled client) is safe and necessary.
+ * Callback `runWithErasurePurgeLock` hands to `fn` for taking narrower per-resource session locks
+ * on the connection that already holds the outer purge lock.
  */
 export type AcquireErasureLock = <T>(
   lockKey: string,
@@ -243,19 +224,33 @@ export type AcquireErasureLock = <T>(
 ) => Promise<T>;
 
 /**
- * `invalid` covers every reason the invite couldn't be redeemed — never existed, already used,
- * expired, or lost a race between the read and the write — collapsed deliberately, same
- * enumeration-avoidance reasoning as `PlatformAdminRepository`'s own `AcceptInviteOutcome`.
- * `identity_already_linked` is Google-accept-only and IS worth telling apart — an actionable,
- * non-enumerating answer, not a guess about the token.
+ * `invalid` collapses every reason the invite can't be redeemed (never existed, used, expired, lost
+ * a race) to avoid enumeration. `identity_already_linked` is Google-accept-only and is worth
+ * telling apart: it is actionable without revealing anything about the token.
  */
 export type AcceptMemberInviteOutcome =
   | { outcome: 'accepted'; id: string; tenantId: string; email: string; name: string }
   | { outcome: 'identity_already_linked' }
   | { outcome: 'invalid' };
 
-/** Same three-way split as `PlatformAdminRepository.RevokeInviteOutcome`, and for the same reason
- *  — an already-accepted member is a 409 the caller can see is wrong ("already active"), not a 404
- *  indistinguishable from a typo'd id. */
+/**
+ * Same three-way split as `PlatformAdminRepository.RevokeInviteOutcome`: an already-accepted member
+ * is a 409 the caller can see is wrong, not a 404 indistinguishable from a typo'd id.
+ */
 export type RevokeMemberInviteOutcome =
   { outcome: 'not_found' } | { outcome: 'not_invited' } | { outcome: 'revoked'; email: string };
+
+/** Who an erasure email goes to: an active owner, in their own language (null = never chose one). */
+export interface ErasureNoticeRecipient {
+  userId: string;
+  /** Whether they can restore with a password — an SSO-only owner cannot. */
+  hasPassword: boolean;
+  email: string;
+  name: string;
+  locale: Locale | null;
+}
+
+/** A tenant whose pending erasure is close enough to its deadline for the "N days left" reminder. */
+export interface ErasureReminderCandidate {
+  id: string;
+}

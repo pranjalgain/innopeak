@@ -7,9 +7,8 @@ import { ReviewPostQueueService } from '@review-post-queue/review-post-queue.ser
 import { Job } from 'bullmq';
 
 /**
- * `concurrency: 3` — a single Google PUT/GET pair per job, short-lived like email sends rather
- * than a long-running paginating import, so this mirrors `EmailProcessor`'s concurrency rather
- * than `ReviewSyncProcessor`'s lower one.
+ * `concurrency: 3`: one short Google PUT/GET pair per job, like email sends, not a long paginating
+ * import.
  */
 @Processor(QueueName.REVIEW_POST, {
   concurrency: 3,
@@ -48,9 +47,8 @@ export class ReviewPostProcessor extends WorkerHost {
   }
 
   /**
-   * `attempts: 1` on this queue (see `ReviewPostQueueConfig`) means `attemptsMade` is always `0`
-   * here — every failure is already final, unlike `EmailProcessor`'s own `onFailed`, which waits
-   * for BullMQ to exhaust retries first. Forwarded to the DLQ unconditionally for that reason.
+   * `attempts: 1` means `attemptsMade` is always `0` and every failure is final, so it is forwarded
+   * to the DLQ unconditionally.
    */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<IReviewPostJob, void, JobName>): Promise<void> {

@@ -6,20 +6,12 @@ import { LuRefreshCw, LuTriangleAlert } from "react-icons/lu";
 import { Button } from "@/components/ui/button";
 
 interface LoadErrorStateProps {
-  /** Retries the failed query. Omit for a screen with nothing meaningful to retry. */
   onRetry?: () => void;
 }
 
 /**
- * Shown when a query **failed**, in place of the screen's empty state.
- *
- * Every admin hook used to collapse an error into `?? []`, so a failed request rendered exactly
- * like a successful one that returned nothing: an outage read as "No businesses yet — New
- * businesses will show up here once they sign up." A super admin could not tell a broken platform
- * from an empty one, and the only signal was a toast that had already faded.
- *
- * Queries here run with `retry: false`, so nothing recovers on its own — hence an explicit retry
- * rather than just a message.
+ * For a failed query, in place of the empty state: an outage must not read as "nothing yet".
+ * Queries run with `retry: false`, hence the explicit retry.
  */
 export function LoadErrorState({ onRetry }: LoadErrorStateProps) {
   const t = useTranslations("common.loadError");

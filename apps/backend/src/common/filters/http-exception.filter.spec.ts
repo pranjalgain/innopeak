@@ -11,11 +11,8 @@ import { Test } from '@nestjs/testing';
 import { HttpExceptionFilter } from './http-exception.filter';
 
 /**
- * The error-response edge of the "translate at the edge" mechanism. `ErrorHandlerService` is
- * used for real here (with only its `LoggerService` dependency mocked) rather than stubbed out,
- * so this exercises the actual path a thrown `MESSAGES.X.Y`-keyed exception takes: construct →
- * `ErrorHandlerService` builds the response body, still carrying the tag → the filter resolves
- * the request's locale and renders it right before the response is sent.
+ * Uses `ErrorHandlerService` for real (only its `LoggerService` mocked) to exercise the actual path
+ * a `MESSAGES.X.Y`-keyed exception takes.
  */
 describe('HttpExceptionFilter — locale-aware message rendering', () => {
   let filter: HttpExceptionFilter;
@@ -79,8 +76,8 @@ describe('HttpExceptionFilter — locale-aware message rendering', () => {
 
   it('leaves a message that never went through MESSAGES unchanged, regardless of locale', () => {
     const { host, response } = buildHost({ 'accept-language': 'de' });
-    // BadRequestException with a plain string is what class-validator's own pipeline produces —
-    // this mechanism does not (yet) translate that, and must not corrupt it either.
+    // class-validator's pipeline throws a plain-string BadRequestException; it must pass through
+    // untranslated and uncorrupted.
     const exception = new UnauthorizedException(
       'some ad-hoc message never passed through MESSAGES'
     );

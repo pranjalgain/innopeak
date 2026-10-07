@@ -2,13 +2,20 @@ import { DrizzleTransaction } from '@db/db.service';
 import { Injectable } from '@nestjs/common';
 
 import { BillingReceiptsRepository } from './billing-receipts.repository';
-import type { BillingReceiptRow, InsertBillingReceiptInput } from './types/billing.type';
+import type {
+  BillingReceiptRow,
+  InsertBillingReceiptInput,
+  RecordReceiptOutcome,
+} from './types/billing.type';
 
 @Injectable()
 export class BillingReceiptsDbService {
   constructor(private readonly billingReceiptsRepository: BillingReceiptsRepository) {}
 
-  recordIfNew(input: InsertBillingReceiptInput, tx?: DrizzleTransaction): Promise<void> {
+  recordIfNew(
+    input: InsertBillingReceiptInput,
+    tx?: DrizzleTransaction
+  ): Promise<RecordReceiptOutcome> {
     return this.billingReceiptsRepository.insertIfNew(input, tx);
   }
 

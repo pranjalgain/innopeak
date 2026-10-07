@@ -6,8 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { UpgradeTrendPoint } from "@/types/domain";
 
 interface UpgradeTrendCardProps {
-  /** Already bucketed by calendar month and zero-filled by the backend (`GET
-   *  .../billing/summary`) — oldest first, `monthKey` as `YYYY-MM`. */
+  /** Bucketed by calendar month and zero-filled by the backend; oldest first, `monthKey` as `YYYY-MM`. */
   trend: UpgradeTrendPoint[];
 }
 
@@ -17,9 +16,7 @@ interface MonthBucket {
   count: number;
 }
 
-/** Same UTC-parsing reasoning as `SignupTrendCard.toMonthBuckets`. Kept as its own small component
- *  (rather than reusing `SignupTrendCard` directly) since that one hardcodes the `adminOverview`
- *  translation namespace — this is the Billing page's own chart, on the Billing page's own copy. */
+/** Same UTC parsing as `SignupTrendCard.toMonthBuckets`; separate because that card hardcodes the `adminOverview` translation namespace. */
 function toMonthBuckets(trend: UpgradeTrendPoint[]): MonthBucket[] {
   return trend.map((point) => {
     const [year, month] = point.monthKey.split("-").map(Number);

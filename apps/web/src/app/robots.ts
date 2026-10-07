@@ -2,10 +2,6 @@ import type { MetadataRoute } from "next";
 
 import { env } from "env";
 
-/**
- * @description Robots for the website
- * @returns {MetadataRoute.Robots} Robots for the website
- */
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: {

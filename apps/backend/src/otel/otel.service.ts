@@ -31,25 +31,21 @@ export class OtelService implements OnModuleInit, OnModuleDestroy {
       }
 
       const serviceName = this.config.get<string>('OTEL_SERVICE_NAME') ?? 'nestjs-app';
-      // Fix: Use localhost instead of jaeger hostname for host connectivity
+      // Hardcoded localhost: the jaeger hostname is not resolvable from the host.
       const otlpEndpoint = 'http://localhost:4318/v1/traces';
 
       this.logger.log(`🚀 Initializing OpenTelemetry for service: ${serviceName}`);
       this.logger.log(`📤 OTLP Endpoint: ${otlpEndpoint}`);
 
-      // Set up context manager
       context.setGlobalContextManager(new AsyncLocalStorageContextManager());
 
-      // Detect resources and ensure service name is set
       const resource = detectResources({
         detectors: [envDetector, processDetector, osDetector],
       });
 
-      // Add service information to the resource
       resource.attributes['service.name'] = serviceName;
       resource.attributes['service.version'] = '1.0.0';
 
-      // Create trace exporter with proper configuration
       const traceExporter = new OTLPTraceExporter({
         url: otlpEndpoint,
         headers: {
@@ -57,7 +53,6 @@ export class OtelService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      // Initialize SDK
       this.sdk = new NodeSDK({
         serviceName,
         resource,
@@ -65,7 +60,7 @@ export class OtelService implements OnModuleInit, OnModuleDestroy {
         traceExporter,
         instrumentations: [
           getNodeAutoInstrumentations({
-            // Disable some instrumentations that might cause issues
+            // Disabled because they can cause issues.
             '@opentelemetry/instrumentation-fs': {
               enabled: false,
             },
@@ -76,13 +71,11 @@ export class OtelService implements OnModuleInit, OnModuleDestroy {
         ],
       });
 
-      // Start the SDK
       this.sdk.start();
 
       this.logger.log(`✅ OpenTelemetry tracing started for: ${serviceName}`);
       this.logger.log(`📤 Exporting traces to: ${otlpEndpoint}`);
 
-      // Test trace generation
       this.generateTestTrace();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -98,9 +91,6 @@ export class OtelService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Generate a test trace to verify OpenTelemetry is working
-   */
   private generateTestTrace(): void {
     try {
       const tracer = trace.getTracer('nestjs-app', '1.0.0');
@@ -122,16 +112,10 @@ export class OtelService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Get the current tracer instance
-   */
   getTracer(name: string, version?: string): Tracer {
     return trace.getTracer(name, version);
   }
 
-  /**
-   * Check if OpenTelemetry is active
-   */
   isActive(): boolean {
     return this.sdk !== null;
   }

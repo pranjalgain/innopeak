@@ -3,7 +3,7 @@ import { UserRole } from '@auth/enums/user-role.enum';
 import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth.type';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import { AdminBillingDbService } from '@db/repositories/admin-billing/admin-billing.db-service';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
@@ -15,6 +15,7 @@ describe('AdminBillingService', () => {
     getSummary: jest.Mock;
     hasPaidTenants: jest.Mock;
     listWebhookEvents: jest.Mock;
+    resolvePostErasureCharge: jest.Mock;
   };
 
   const admin: PlatformAdminAuthUser = {
@@ -38,6 +39,7 @@ describe('AdminBillingService', () => {
       getSummary: jest.fn(),
       hasPaidTenants: jest.fn(),
       listWebhookEvents: jest.fn(),
+      resolvePostErasureCharge: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -74,6 +76,17 @@ describe('AdminBillingService', () => {
             currentPeriodEnd: '2026-09-01T00:00:00.000Z',
           },
         ],
+        postErasureCharges: [
+          {
+            receiptId: 'receipt-1',
+            tenantId: 'tenant-2',
+            businessName: 'Gamma Shop',
+            invoiceNumber: 'INV-0007',
+            amountPaid: 4900,
+            currency: 'usd',
+            paidAt: '2026-09-30T23:41:00.000Z',
+          },
+        ],
       });
 
       const result = await target.getSummary(admin, 6);
@@ -84,6 +97,46 @@ describe('AdminBillingService', () => {
       expect(result.upgradeTrend).toEqual([{ monthKey: '2026-09', count: 1 }]);
       expect(result.atRisk).toHaveLength(1);
       expect(result.atRisk[0]?.businessName).toBe('The Coastal Table');
+      expect(result.postErasureCharges).toEqual([
+        {
+          receiptId: 'receipt-1',
+          tenantId: 'tenant-2',
+          businessName: 'Gamma Shop',
+          invoiceNumber: 'INV-0007',
+          amountPaid: 4900,
+          currency: 'usd',
+          paidAt: '2026-09-30T23:41:00.000Z',
+        },
+      ]);
+    });
+  });
+
+  describe('resolvePostErasureCharge', () => {
+    it('rejects a tenant-user token', async () => {
+      await expect(target.resolvePostErasureCharge(tenantUser, 'receipt-1')).rejects.toThrow(
+        ForbiddenException
+      );
+      expect(adminBillingDbService.resolvePostErasureCharge).not.toHaveBeenCalled();
+    });
+
+    it('records the acting admin', async () => {
+      adminBillingDbService.resolvePostErasureCharge.mockResolvedValue(true);
+
+      await expect(target.resolvePostErasureCharge(admin, 'receipt-1')).resolves.toHaveProperty(
+        'message'
+      );
+      expect(adminBillingDbService.resolvePostErasureCharge).toHaveBeenCalledWith({
+        receiptId: 'receipt-1',
+        adminId: 'admin-1',
+      });
+    });
+
+    it('is a 404 for an unknown, never-flagged or already-handled receipt', async () => {
+      adminBillingDbService.resolvePostErasureCharge.mockResolvedValue(false);
+
+      await expect(target.resolvePostErasureCharge(admin, 'receipt-1')).rejects.toThrow(
+        NotFoundException
+      );
     });
   });
 

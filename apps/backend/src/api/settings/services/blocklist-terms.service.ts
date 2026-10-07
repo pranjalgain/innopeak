@@ -4,12 +4,14 @@ import { SettingsDbService } from '@db/repositories/settings/settings.db-service
 import { Injectable } from '@nestjs/common';
 
 import type { AuthUser } from '../../auth/types/auth.type';
+import { MAX_BLOCKLIST_TERMS_PER_TENANT } from '../constants/settings.constants';
 import {
   BlocklistTermDto,
   BlocklistTermListResponseDto,
   DeleteBlocklistTermResponseDto,
 } from '../dto/blocklist-term-response.dto';
 import {
+  BlocklistLimitReachedException,
   BlocklistTermExistsException,
   BlocklistTermNotFoundException,
 } from '../exceptions/settings.exceptions';
@@ -26,14 +28,18 @@ export class BlocklistTermsService {
 
   async create(user: AuthUser, term: string): Promise<BlocklistTermDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.SETTINGS.TENANT_ONLY);
-    const row = await this.settingsDbService.insertBlocklistTerm({
+    const result = await this.settingsDbService.insertBlocklistTerm({
       tenantId: tenantUser.tenantId,
       term,
+      maxTerms: MAX_BLOCKLIST_TERMS_PER_TENANT,
     });
-    if (row === null) {
+    if (result.outcome === 'duplicate') {
       throw new BlocklistTermExistsException();
     }
-    return BlocklistTermDto.from(row);
+    if (result.outcome === 'limit_reached') {
+      throw new BlocklistLimitReachedException();
+    }
+    return BlocklistTermDto.from(result.record);
   }
 
   async remove(user: AuthUser, id: string): Promise<DeleteBlocklistTermResponseDto> {

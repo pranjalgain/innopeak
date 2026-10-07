@@ -7,10 +7,8 @@ import { LuCamera, LuLoaderCircle } from "react-icons/lu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
-/** Mirrors the backend's own `FORMAT_TO_MIME_TYPE` allowlist (`CloudinaryStorageProvider`) —
- *  deliberately excludes `image/svg+xml` for the same reason: an SVG can carry a `<script>`, and
- *  this app renders the confirmed avatar URL directly in an `<img src>`. Keeping the two lists in
- *  sync just narrows the OS file picker's suggestions; the backend's own check is what's load-bearing. */
+/** Mirrors the backend's `FORMAT_TO_MIME_TYPE` allowlist, excluding `image/svg+xml` (an SVG can carry
+ *  a `<script>` and the avatar URL renders in an `<img>`). Only narrows the picker; the backend check is what's load-bearing. */
 const ACCEPTED_AVATAR_TYPES =
   "image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,image/bmp";
 
@@ -18,18 +16,10 @@ interface AvatarUploadProps {
   avatarUrl: string | null;
   initials: string;
   changeLabel: string;
-  /** Disables the picker and swaps the icon for a spinner while a previous selection is still uploading. */
   isUploading?: boolean;
-  /** Runs the real direct-to-provider upload + confirm round trip — see `AvatarUploadService.upload`. */
   onUpload: (file: File) => Promise<void>;
 }
 
-/**
- * Profile-picture picker. Selecting a file shows an immediate local preview
- * (`URL.createObjectURL`) while `onUpload` uploads it for real in the background; the preview is
- * dropped once that settles, reverting to whatever `avatarUrl` then is — the confirmed new image on
- * success, or the unchanged previous one on failure.
- */
 export function AvatarUpload({
   avatarUrl,
   initials,

@@ -89,12 +89,7 @@ describe('createOpsToolsGuard', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  /**
-   * Regression test: Express's own router matches routes case-insensitively by default, so a
-   * differently-cased request (`/Admin/Queues`) still reaches Bull Board's sub-app even though it
-   * doesn't literal-match the lowercase `/admin/queues` prefix. A case-sensitive comparison here
-   * let such a request skip this guard entirely while Express still routed it through underneath.
-   */
+  // Regression: Express routes case-insensitively, so `/Admin/Queues` still reached Bull Board while bypassing a case-sensitive guard.
   it.each(['/Admin/Queues', '/ADMIN/QUEUES/api/queues', '/Health/Health-UI', '/Dev-Tools'])(
     'still enforces the guard on a differently-cased protected path (%s)',
     path => {

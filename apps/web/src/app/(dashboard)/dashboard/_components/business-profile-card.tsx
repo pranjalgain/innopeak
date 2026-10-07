@@ -1,5 +1,5 @@
-import { useTranslations } from "next-intl";
-import { LuMapPin, LuPhone, LuStar, LuStore } from "react-icons/lu";
+import { useFormatter, useTranslations } from "next-intl";
+import { LuClock, LuMapPin, LuStore } from "react-icons/lu";
 
 import { Card, CardContent } from "@/components/ui/card";
 import type { Tenant } from "@/types/domain";
@@ -8,40 +8,42 @@ interface BusinessProfileCardProps {
   tenant: Tenant;
 }
 
-/**
- * Read-only summary of what's synced from the connected Google Business
- * Profile (category, address, phone, Google's own rating). Full connection
- * management (disconnect, etc.) lives in Settings → Connection — this is
- * just the at-a-glance view.
- */
+/** Read-only summary from the backend; Google's category, phone and rating are never fetched. Connection management lives in Settings → Connection. */
 export function BusinessProfileCard({ tenant }: BusinessProfileCardProps) {
   const t = useTranslations("dashboard.businessProfile");
+  const format = useFormatter();
+  const { location } = tenant;
+
+  if (!location) {
+    return (
+      <Card>
+        <CardContent className="text-sm text-muted-foreground">{t("noLocation")}</CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
-      <CardContent className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
-            <LuStore className="size-4 shrink-0" />
-            {tenant.businessType}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <LuMapPin className="size-4 shrink-0" />
-            {tenant.address}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <LuPhone className="size-4 shrink-0" />
-            {tenant.phone}
-          </span>
-        </div>
-
-        <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-warning-soft px-3 py-1.5 text-sm font-medium text-warning">
-          <LuStar className="size-4 fill-current" />
-          {tenant.googleRating.toFixed(1)}
-          <span className="text-warning/70">
-            {t("googleReviewCount", { count: tenant.googleReviewCount })}
-          </span>
-        </div>
+      <CardContent className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <LuStore className="size-4 shrink-0" />
+          {location.name}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <LuMapPin className="size-4 shrink-0" />
+          {location.address ?? t("noAddress")}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <LuClock className="size-4 shrink-0" />
+          {location.lastSyncedAt
+            ? t("lastSynced", {
+                date: format.dateTime(new Date(location.lastSyncedAt), {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }),
+              })
+            : t("neverSynced")}
+        </span>
       </CardContent>
     </Card>
   );

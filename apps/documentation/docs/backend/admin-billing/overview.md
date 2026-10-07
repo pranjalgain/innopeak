@@ -30,7 +30,7 @@ Reference](./api-reference.md).
 
 ## Data model
 
-No tables are created for this module. Every figure below is a read against tables the tenant-facing
+No tables are created for this module (the three `billing_receipts` columns named below are the only schema it adds). Every figure below is a read against tables the tenant-facing
 [Billing module](../billing/overview.md#data-model) owns:
 
 | Figure | Source | Notes |
@@ -40,7 +40,38 @@ No tables are created for this module. Every figure below is a read against tabl
 | `cancelingCount` | `AdminBillingRepository.getCancelingCount()` — `COUNT(*) WHERE cancel_at_period_end = true` | Still Paid and billed — see the billing module's own note on why `plan_id` doesn't flip until `customer.subscription.deleted` actually fires |
 | Upgrade trend | `AdminBillingRepository.getUpgradeTrend()` — `stripe_webhook_events` rows of type `checkout.session.completed`, grouped by `EXTRACT(YEAR/MONTH FROM processed_at)`, UTC | Zero-filled to a full window before the response leaves the service, same reasoning and same `fillUpgradeTrendWindow` pattern as [Admin Overview's signup trend](../admin-overview/overview.md#signup-trend-is-zero-filled-in-the-service-not-the-repository) |
 | At-risk subscriptions | `AdminBillingRepository.getAtRiskSubscriptions()` — `tenant_subscriptions WHERE status = 'past_due'`, joined to `tenants` for the display name, capped at 10, most-recently-updated first | The tenants Stripe is actively retrying a failed invoice against |
+| Charged-after-request queue | `AdminBillingRepository.getUnresolvedPostErasureCharges()` — `billing_receipts WHERE paid_after_erasure_request AND refund_resolved_at IS NULL`, joined to `tenants` for the name, newest first, capped at 20 | Columns `paid_after_erasure_request`, `refund_resolved_at`, `refund_resolved_by_admin_id` were added to `billing_receipts` — this module's one write, `resolvePostErasureCharge` |
 | Webhook events | `AdminBillingRepository.listWebhookEvents()` — see [Webhook activity](#webhook-activity-paginated-search-side-lists-only-the-handled-event-types) below | Paginated, filterable, and scoped to a fixed vocabulary of 5 event types |
+
+## Charged after an erasure request: the refund rule, and the manual queue
+
+**The rule.** Erasure never refunds the month already paid (see the [billing
+policy](../admin-management/overview.md#tenant-erasure-request-and-cancel-platform-admin-only-not-tenant-self-service)).
+The one exception is a charge the owner could not have avoided: **a payment that succeeds after the
+erasure was requested** — `invoice.payment_succeeded` with `paid_at >=` the tenant's
+`erasure_requested_at` while the erasure is still pending. That happens only when the request lands in
+the roughly hour before a renewal, after Stripe has already finalized that period's invoice (setting
+`cancel_at_period_end` stops the *next* invoice, not one already created). Those payments are
+**refund due**; every other payment is not. A payment made before the request is never refund-due,
+however recent.
+
+**Manual first.** Nothing is refunded automatically. When a refund-due payment is recorded the
+backend (1) flags the receipt, (2) logs one `error`-level line naming the tenant and invoice, and
+(3) lists it in the **"Charged after a deletion request"** panel on the admin Billing page (invoice
+number, amount, date, business). An admin refunds the invoice in Stripe's dashboard, then clicks
+**Mark handled**, which stamps who and when and removes it from the panel. "Handled" also covers a
+deliberate decision not to refund — the panel is a to-do list, not a ledger of refunds; Stripe is the
+source of truth for money. Automating the refund (`POST /v1/refunds` against the invoice's charge)
+is a later, separate decision; the flag and the queue are what it would hang off.
+
+The flag is computed **in the same `INSERT`** that records the receipt (a subquery against `tenants`),
+so a replayed webhook — the insert is idempotent on `stripe_invoice_id` — can neither flag twice nor
+log twice. The subquery looks at the erasure *window*, not just the tenant's state when the webhook
+is processed: either an erasure still pending when the payment landed, or the most recent cancelled
+one (`tenants.last_erasure_requested_at`/`last_erasure_cancelled_at`, written by both cancel paths).
+That matters because Stripe retries a failed webhook for days — the owner may well have restored the
+business by the time the retry arrives, and the charge was still taken during the erasure. A $0
+invoice is never flagged (nothing to refund). Only the most recent cancelled window is remembered.
 
 ## Webhook activity: paginated, search-side lists only the handled event types
 

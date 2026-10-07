@@ -9,11 +9,10 @@ import { PlatformActivityLogCard } from "@/app/admin/activity/_components/platfo
 import { BillingWebhookEventsCard } from "@/app/admin/billing/_components/billing-webhook-events-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-/** Same URL-as-single-source-of-truth pattern as `AdminSettingsView`. Platform activity and
- *  webhook activity are both log-style views an admin comes back to on their own — worth their
- *  own dedicated nav item, but distinct enough concerns (admin actions vs. Stripe deliveries) to
- *  stay as two tabs rather than one merged feed. Each tab owns its own paginated fetch
- *  (`PlatformActivityLogCard`/`BillingWebhookEventsCard`), not a shared query. */
+/**
+ * Same URL-as-source-of-truth pattern as `AdminSettingsView`. Two tabs rather than one merged feed
+ * (admin actions vs. Stripe deliveries), each owning its own paginated fetch.
+ */
 const TABS = ["platformActivity", "webhookActivity"] as const;
 
 export function AdminActivityView() {

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { toast } from "sonner";
 
 
 import { AuthDivider } from "@/app/(auth)/_components/auth-divider";
@@ -22,38 +23,34 @@ import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { useOtpVerification } from "@/hooks/auth/use-otp-verification";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 
-type LoginStep = "credentials" | "otp";
+type LoginStep = "credentials" | "otp" | "restore";
 
 /**
- * Login screen — tenant users only. Platform admins sign in at `ROUTES.ADMIN_LOGIN` instead: see
- * `separate-admin-login-design.md` for why the two are split rather than sharing this screen. A
- * small, deliberately low-key link to that screen sits below the sign-up prompt — without it,
- * nothing on screen tells an admin they're on the wrong form; they'd just see "Invalid email or
- * password" for a perfectly correct password, indistinguishable from an actual typo, with no path
- * off that dead end short of already knowing `/admin-login` exists.
+ * Tenant users only; platform admins sign in at `ROUTES.ADMIN_LOGIN`. A low-key link to it sits
+ * below the sign-up prompt, since otherwise an admin on the wrong form just sees "Invalid email or
+ * password" with no path off that dead end.
  *
- * The password form is always available, unconditionally, regardless of the platform's
- * ssoLoginEnabled/socialLoginEnabled settings — those gate only the SSO/social *buttons* below it.
+ * The password form is always available regardless of the ssoLoginEnabled/socialLoginEnabled
+ * settings, which gate only the buttons below it. A `pending_verification` account gets a fresh OTP
+ * from the backend instead of an error, so this screen swaps to `OtpVerificationStage`; verifying
+ * there issues tokens directly (the password was already proven).
  *
- * The password path can land on a still-`pending_verification` account —
- * the backend resends a fresh OTP and reports that instead of erroring, so
- * this screen swaps to the same `OtpVerificationStage` the signup wizard
- * uses rather than showing a login error. Verifying there issues tokens
- * directly (this login attempt already proved the password), and routes on
- * to the dashboard or the connect-business stepper depending on whether
- * this tenant has already connected a Google Business Profile.
- *
- * When both SSO and social are enabled, they sit side by side in one row
- * at the bottom (short "Microsoft"/"Google" labels) rather than each
- * getting a full-width row with a divider of its own — that layout is
- * reserved for a single SSO-like method standing alone.
+ * When both SSO and social are enabled they share one row; a full-width row with a divider is for a
+ * single SSO-like method alone.
  */
 export function LoginView() {
   const t = useTranslations("auth.login");
   useOAuthErrorToast();
   const router = useRouter();
-  const { loginWithPassword, startGoogleLogin, verifySignupOtp, resendSignupOtp, isLoading } =
-    useAuth();
+  const {
+    loginWithPassword,
+    restoreAccount,
+    startGoogleLogin,
+    verifySignupOtp,
+    resendSignupOtp,
+    isLoading,
+  } = useAuth();
+  const tToasts = useTranslations("auth.toasts");
   const {
     data: platformSettings,
     isError: platformSettingsError,
@@ -61,14 +58,18 @@ export function LoginView() {
   } = usePlatformSettings();
   const [step, setStep] = useState<LoginStep>("credentials");
   const [pendingEmail, setPendingEmail] = useState("");
+  // Held only for the restore step (the route is public, so the password proven by the sign-in is
+  // needed again); cleared on leaving the step, never persisted.
+  const [restoreContext, setRestoreContext] = useState<{
+    email: string;
+    password: string;
+    message: string;
+  } | null>(null);
 
-  // Defaults to hidden while `platformSettings` is still loading — these are additive
-  // conveniences, so popping in a beat after the (always-present) password form is a non-issue,
-  // unlike blocking the whole screen on this fetch the way an earlier version did. A *failed*
-  // fetch (retry: false, never recovers on its own) defaults the same way, which is the one case
-  // worth a visible retry rather than just quietly staying hidden below: an SSO-only tenant has no
-  // password, so a persistently-hidden SSO button is that tenant's only way in going dark with no
-  // explanation. See the retry affordance rendered for `platformSettingsError` below.
+  // Hidden while `platformSettings` loads: these are additive, so popping in after the password
+  // form is fine. A failed fetch (retry: false) defaults the same way, which is worth a visible
+  // retry (see `platformSettingsError` below) because an SSO-only tenant has no password and would
+  // otherwise lose their only way in silently.
   const ssoEnabled = platformSettings?.ssoLoginEnabled ?? false;
   const socialEnabled = platformSettings?.socialLoginEnabled ?? false;
   const bothSsoLike = ssoEnabled && socialEnabled;
@@ -84,11 +85,32 @@ export function LoginView() {
       return;
     }
 
+    if (result.kind === "scheduled_for_deletion") {
+      setRestoreContext({ email, password, message: result.message });
+      setStep("restore");
+      return;
+    }
+
     // Drops the router cache so the destination renders with the locale cookie sign-in may have
-    // just restored (`AuthService.loginWithPassword`) rather than a payload built before it —
-    // see the same call in `AdminLoginView`.
+    // just restored (`AuthService.loginWithPassword`); see `AdminLoginView`.
     router.refresh();
     router.push(result.hasConnectedBusiness ? ROUTES.DASHBOARD : ROUTES.ONBOARDING_CONNECT);
+  };
+
+  const leaveRestore = () => {
+    setRestoreContext(null);
+    setStep("credentials");
+  };
+
+  const handleRestore = async () => {
+    if (!restoreContext) return;
+    const { email, password } = restoreContext;
+    if (!(await restoreAccount(email, password))) return;
+
+    toast.success(tToasts("restored"));
+    setRestoreContext(null);
+    setStep("credentials");
+    await handlePasswordSubmit(email, password);
   };
 
   const { handleVerify: handleVerifyOtp, handleResend: handleResendOtp } = useOtpVerification({
@@ -179,6 +201,23 @@ export function LoginView() {
               </Link>
             </div>
           </>
+        ) : step === "restore" && restoreContext ? (
+          <div className="flex flex-col gap-5">
+            <h1 className="text-gradient text-center text-xl font-semibold">
+              {t("scheduledForDeletion.title")}
+            </h1>
+            <p className="text-muted-foreground text-center text-sm">{restoreContext.message}</p>
+            <Button
+              type="button"
+              size="block"
+              disabled={isLoading}
+              onClick={() => void handleRestore()}>
+              {isLoading ? t("scheduledForDeletion.restoring") : t("scheduledForDeletion.restore")}
+            </Button>
+            <Button type="button" variant="ghost" size="block" onClick={leaveRestore}>
+              {t("scheduledForDeletion.back")}
+            </Button>
+          </div>
         ) : (
           <OtpVerificationStage
             email={pendingEmail}

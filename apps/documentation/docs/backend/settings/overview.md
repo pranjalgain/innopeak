@@ -142,7 +142,9 @@ and `erasure_requested_at` is set, but nothing is anonymized until a separate ni
 (`CronJobName.ERASURE_PURGE`, see [Review pipeline — Retention and erasure
 jobs](../review-pipeline/overview.md#retention-and-erasure-jobs)) runs, `ERASURE_GRACE_PERIOD_DAYS`
 (default 21) after the request — and only if the owner hasn't cancelled it first. Cancelling before
-then is a clean, full undo, since nothing was touched yet.
+then is a clean, full undo, since nothing was touched yet. When the purge does run, the member's
+refresh tokens and any unconsumed OTP/invite/reset tokens are deleted along with their identity, so
+an anonymized account has no way back in.
 
 **Two guards exist specifically because a tenant with no owner is unrecoverable:** an owner can
 never remove themself through this flow (`CANNOT_REMOVE_SELF` — there is a different, unrelated

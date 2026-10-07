@@ -25,46 +25,28 @@ export class CronScheduler implements OnModuleInit {
     await this.cronQueue.addAuthTokenCleanupJob();
   }
 
-  /**
-   * PLAN.md §4.1's 15-minute poll. A raw expression, not a `CronExpression` member — this
-   * library's enum has no 15-minute constant (confirmed against the installed
-   * `@nestjs/schedule` package; the closest are `EVERY_10_MINUTES`/`EVERY_30_MINUTES`). Six
-   * fields, seconds-first, matching every other entry in that enum (each starts with a literal
-   * `0` seconds field) — a five-field unix-cron expression would be silently misread here.
-   */
+  /** `CronExpression` has no 15-minute member. Six fields, seconds first: a five-field expression would be misread. */
   @Cron('0 */15 * * * *')
   async scheduleReviewSyncPoll(): Promise<void> {
     this.logger.debug('Scheduling review sync poll job');
     await this.cronQueue.addReviewSyncPollJob();
   }
 
-  /**
-   * `PLAN.md` §6's nightly reviewer-retention purge. Off both the midnight and 3am slots, same
-   * reasoning as `scheduleAuthTokenCleanup` — three daily jobs sharing one worker tick would be
-   * needless contention for no benefit.
-   */
+  /** Own slot, off midnight and 3am, to avoid contending for the same worker tick. */
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async scheduleReviewerRetentionPurge(): Promise<void> {
     this.logger.debug('Scheduling reviewer retention purge job');
     await this.cronQueue.addReviewerRetentionPurgeJob();
   }
 
-  /** GDPR erasure grace-period sweep — its own slot, off every other daily job, same reasoning as
-   *  `scheduleAuthTokenCleanup`/`scheduleReviewerRetentionPurge`. */
+  /** Own slot, off every other daily job. */
   @Cron(CronExpression.EVERY_DAY_AT_4AM)
   async scheduleErasurePurge(): Promise<void> {
     this.logger.debug('Scheduling erasure purge job');
     await this.cronQueue.addErasurePurgeJob();
   }
 
-  /**
-   * Safety net for a Stripe webhook that was missed or delayed past Stripe's own retry window —
-   * see `BillingReconciliationService`'s own doc comment for the full three-layer design. Daily is
-   * generous, not urgent: Stripe's retry window is itself measured in hours/days, and the
-   * synchronous checkout-redirect path (`POST /v1/billing/checkout/reconcile`) already closes the
-   * common case instantly. Its own slot, off every other daily job, same reasoning as
-   * `scheduleErasurePurge`.
-   */
+  /** Safety net for a Stripe webhook missed past its retry window; daily is enough since the checkout-redirect reconcile covers the common case. Own slot. */
   @Cron(CronExpression.EVERY_DAY_AT_5AM)
   async scheduleBillingReconciliationSweep(): Promise<void> {
     this.logger.debug('Scheduling billing reconciliation sweep job');

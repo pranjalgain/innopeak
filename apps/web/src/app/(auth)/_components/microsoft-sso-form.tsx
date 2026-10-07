@@ -16,13 +16,7 @@ interface MicrosoftSsoFormProps {
   onSubmit: (email: string) => void;
 }
 
-/**
- * The mock Microsoft sign-in fields (icon, title, notice, email/password,
- * submit) shared by the Login flow's `/login/microsoft` step and Signup's
- * step 1 — the two differ only in what happens after submit (Login redirects
- * straight to the dashboard; Signup advances to step 2), so that behavior
- * stays with each caller via `onSubmit` rather than living here.
- */
+/** Shared by Login's `/login/microsoft` step and Signup step 1; what happens after submit stays with each caller via `onSubmit`. */
 export function MicrosoftSsoForm({ isLoading, onSubmit }: MicrosoftSsoFormProps) {
   const t = useTranslations("auth.microsoftMock");
   const [email, setEmail] = useState("");

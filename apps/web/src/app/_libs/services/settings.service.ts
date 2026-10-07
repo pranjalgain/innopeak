@@ -67,18 +67,10 @@ function mapNotificationRecipient(dto: NotificationRecipientDto): NotificationRe
   };
 }
 
-/**
- * Blocklist: `GET`/`POST`/`DELETE /v1/settings/blocklist-terms`.
- * General (including `aiReplyCount`): `GET`/`PUT /v1/settings`.
- * Notification recipients: `GET`/`PATCH /v1/settings/notification-recipients` — list and
- * per-row channel/active edits only; there is no add/remove route yet, matching the shipped UI.
- * Connection state comes from `GET /v1/connections`.
- */
+/** No add/remove route for notification recipients yet (list and per-row edits only), matching the shipped UI. */
 export class SettingsService {
   static async getSettings(): Promise<SettingsData> {
-    // Connection state is best-effort: a failure there should not blank the whole Settings page,
-    // and the mock default stands in. The others are not caught — an empty list would be
-    // indistinguishable from "you have none", which is a different claim.
+    // Connection state is best-effort so a failure does not blank Settings; the others are not caught, since an empty list would read as "you have none".
     const [blocklist, general, recipients, state] = await Promise.all([
       this.listBlocklistTerms(),
       this.getGeneralSettings(),
@@ -91,10 +83,8 @@ export class SettingsService {
     settings.general = general;
     settings.notificationRecipients = recipients;
 
-    // Resolved live from GET /v1/connections — the same call the dashboard guard reads, so this
-    // tab can never disagree with whether the app actually let the user in. `needs_reauth` is
-    // narrowed to "disconnected" here because the shipped ConnectionInfo union has only two
-    // values; the reconnect affordance for that state lives in the guard's banner.
+    // Resolved live from GET /v1/connections so this tab cannot disagree with the dashboard guard. `needs_reauth` narrows to
+    // "disconnected" because ConnectionInfo has two values; the guard's banner handles reconnect.
     if (state) {
       settings.connection.status = state.status === "connected" ? "connected" : "disconnected";
       if (state.location) {
@@ -114,9 +104,7 @@ export class SettingsService {
 
   static async updateGeneralSettings(write: TenantSettingsWrite): Promise<GeneralSettings> {
     const response = await settingsApi.tenantSettingsControllerReplaceV1({
-      // The backend's `@ApiPropertyOptional` for this field has no explicit `type`, so the
-      // generator falls back to `object | null` for `reviewDataRetentionMonths` — a documentation
-      // gap, not a real contract change; the field is a plain nullable number on the wire.
+      // The backend's `@ApiPropertyOptional` has no explicit `type`, so the generator emits `object | null`; on the wire it is a plain nullable number.
       updateTenantSettingsDto: write as unknown as UpdateTenantSettingsDto,
     });
     return mapGeneral(unwrap<ApiTenantSettings>(response.data));
@@ -146,9 +134,7 @@ export class SettingsService {
     return data.items.map(mapNotificationRecipient);
   }
 
-  /** Both fields optional — the caller sends only what changed (channel toggle vs. active
-   *  switch fire independently), matching the backend's own "at least one, never both required"
-   *  contract. */
+  /** The caller sends only what changed; the backend requires at least one field, never both. */
   static async updateNotificationRecipient(
     id: string,
     patch: { channel?: NotificationChannel; isActive?: boolean },

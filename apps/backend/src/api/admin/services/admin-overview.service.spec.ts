@@ -115,8 +115,6 @@ describe('AdminOverviewService', () => {
       expect(adminOverviewDbService.getBusinessesNeedingAttention).not.toHaveBeenCalled();
     });
 
-    // Filtering/ordering/capping now happens in SQL (`AdminBusinessesRepository.findNeedingAttention`)
-    // rather than here, so this only needs to verify the passthrough + DTO mapping.
     it('maps whatever the DB service already filtered/ordered/capped', async () => {
       const disconnected = {
         id: 'tenant-disconnected',

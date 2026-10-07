@@ -32,25 +32,10 @@ interface RowActionsMenuProps {
   cancelLabel: string;
   destructive?: boolean;
   onConfirm: () => void;
-  /** A second menu item + its own confirm dialog — e.g. a business row's "Suspend"/"Reactivate"
-   *  alongside "Request erasure"/"Cancel erasure", each needing an independent confirmation.
-   *  Omitted by every other caller of this component. */
   secondaryAction?: SecondaryRowAction;
 }
 
-/**
- * A single-action row menu (ghost icon-button trigger + one `DropdownMenuItem`) paired with its
- * own confirm dialog — used for admin-table rows with one confirmable state-changing action
- * (suspend/reactivate a business, activate/deactivate a user, and any future admin row with a
- * single confirmable destructive/non-destructive action).
- *
- * The confirm dialog is rendered as a sibling of `DropdownMenu`, not nested inside
- * `DropdownMenuContent` — see `ConfirmActionDialog`'s own doc comment: a dialog nested inside a
- * menu's subtree gets unmounted along with the menu once it closes, which happens moments after
- * opening even when `onSelect` closes the menu "immediately." `DropdownMenuItem`'s `onSelect` just
- * opens `confirmOpen`; Radix's default close-on-select behavior is fine here since nothing needs
- * to survive inside the menu's own subtree anymore.
- */
+/** The confirm dialog is a sibling of `DropdownMenu`, not nested in `DropdownMenuContent`; see `ConfirmActionDialog`. */
 export function RowActionsMenu({
   ariaLabel,
   actionLabel,

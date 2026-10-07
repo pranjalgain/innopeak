@@ -3,9 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { AuthenticatedUserDto } from './authenticated-user.dto';
 
 /**
- * Deliberately narrower than `TokenResponseDto`: this reissues the access token alone (see
- * `TokenService.reissueAccessToken`), never a refresh token, so there is no `refresh_token` cookie
- * rotation to describe here and no `hasConnectedBusiness` (unchanged by a locale update).
+ * Narrower than `TokenResponseDto`: reissues the access token only, so no refresh-cookie rotation
+ * and no `hasConnectedBusiness`.
  */
 export class UpdateLocaleResponseDto {
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIs...' })

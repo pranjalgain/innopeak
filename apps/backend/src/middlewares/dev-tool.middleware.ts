@@ -6,29 +6,16 @@ import type { ConfigService } from '@nestjs/config';
 import type { JwtService } from '@nestjs/jwt';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
-/**
- * Path prefixes the ops guard protects. The important one — Bull Board at `admin/queues` — is a
- * separate Express sub-app that Nest's router does not know about, so a `MiddlewareConsumer`
- * binding never attaches to it (verified: a per-route binding fired for the Nest-routed health UI
- * but never for Bull Board). This guard is therefore registered as raw Express middleware in
- * `bootstrap.ts`, which runs for every request — sub-apps included — before routing.
- *
- * `dev-tools/queues` lives under `dev-tools`, so the base prefix covers it. Swagger (`api`) is
- * deliberately absent: it carries no runtime data and is only mounted outside production.
- */
+// Bull Board is an Express sub-app Nest's router doesn't know about, so a `MiddlewareConsumer`
+// binding never attaches to it; the guard is registered as raw Express middleware in `bootstrap.ts`.
+// Swagger (`api`) is deliberately absent: no runtime data, and only mounted outside production.
 const PROTECTED_PREFIXES = [
   `/${RouteNames.QUEUES_UI}`,
   `/${RouteNames.DEV_TOOLS}`,
   `/${RouteNames.HEALTH}/${RouteNames.HEALTH_UI}`,
 ];
 
-/**
- * Case-insensitive: Express's own router matches routes case-insensitively by default (`case
- * sensitive routing` is off unless a app explicitly enables it, and neither this app nor Bull
- * Board's sub-app does), so `/Admin/Queues` still reaches Bull Board even though it doesn't
- * equal the lowercase prefix below. Comparing case-sensitively let a differently-cased request
- * skip this guard entirely while still being routed to the protected sub-app underneath it.
- */
+// Case-insensitive because Express routes that way by default: `/Admin/Queues` still reaches Bull Board.
 function isProtectedPath(path: string): boolean {
   const lowerPath = path.toLowerCase();
   return PROTECTED_PREFIXES.some(
@@ -53,17 +40,9 @@ function deny(res: Response, statusCode: number, message: string): void {
 }
 
 /**
- * Builds the auth guard for the out-of-band operational surfaces (Bull Board, the dev-tools
- * dashboard, the health UI). Those bypass the global `JwtAuthGuard`/`RolesGuard` — Bull Board
- * because it is an Express sub-app, the others because this guard historically fronted them — and
- * the previous implementation was a no-op that left all of them world-readable in every
- * environment, production included. Bull Board's email-OTP job payloads made that an
- * account-takeover path.
- *
- * The returned handler requires a valid platform-admin access token, verified exactly as
- * `JwtStrategy` does: same secret, HS256 pinned so a token cannot pick its own algorithm, expiry
- * enforced, and `type` required to be `platform_admin` (a tenant-user token is rejected). Requests
- * to anything outside the protected prefixes pass straight through.
+ * Guards the out-of-band ops surfaces, which bypass the global `JwtAuthGuard`/`RolesGuard`. Bull
+ * Board's email-OTP job payloads make it an account-takeover path if left open.
+ * Verified like `JwtStrategy`: same secret, HS256 pinned, expiry enforced, `type` must be `platform_admin`.
  */
 export function createOpsToolsGuard(
   jwtService: JwtService,

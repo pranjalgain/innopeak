@@ -8,11 +8,9 @@ import type {
 } from './types/admin-billing.type';
 
 const AT_RISK_LIMIT = 10;
+const POST_ERASURE_CHARGES_LIMIT = 20;
 
-/** Composes `AdminBillingRepository`'s independent queries into the one payload the admin Billing
- *  page's whole first screen is built from — mirrors `AdminStatisticsDbService.getSummary()`'s own
- *  shape and reasoning. Webhook events are a separate, paginated concern — see
- *  `listWebhookEvents` below — not part of this one-shot summary. */
+/** Composes the repository's queries into the one payload the admin Billing first screen needs; webhook events are paginated separately. */
 @Injectable()
 export class AdminBillingDbService {
   constructor(private readonly adminBillingRepository: AdminBillingRepository) {}
@@ -22,13 +20,15 @@ export class AdminBillingDbService {
   }
 
   async getSummary(monthsBack: number): Promise<AdminBillingSummary> {
-    const [planSplit, statusCounts, cancelingCount, upgradeTrend, atRisk] = await Promise.all([
-      this.adminBillingRepository.getPlanSplit(),
-      this.adminBillingRepository.getSubscriptionStatusCounts(),
-      this.adminBillingRepository.getCancelingCount(),
-      this.adminBillingRepository.getUpgradeTrend(monthsBack),
-      this.adminBillingRepository.getAtRiskSubscriptions(AT_RISK_LIMIT),
-    ]);
+    const [planSplit, statusCounts, cancelingCount, upgradeTrend, atRisk, postErasureCharges] =
+      await Promise.all([
+        this.adminBillingRepository.getPlanSplit(),
+        this.adminBillingRepository.getSubscriptionStatusCounts(),
+        this.adminBillingRepository.getCancelingCount(),
+        this.adminBillingRepository.getUpgradeTrend(monthsBack),
+        this.adminBillingRepository.getAtRiskSubscriptions(AT_RISK_LIMIT),
+        this.adminBillingRepository.getUnresolvedPostErasureCharges(POST_ERASURE_CHARGES_LIMIT),
+      ]);
 
     return {
       ...planSplit,
@@ -36,7 +36,12 @@ export class AdminBillingDbService {
       cancelingCount,
       upgradeTrend: this.fillUpgradeTrendWindow(upgradeTrend, monthsBack),
       atRisk,
+      postErasureCharges,
     };
+  }
+
+  resolvePostErasureCharge(input: { receiptId: string; adminId: string }): Promise<boolean> {
+    return this.adminBillingRepository.resolvePostErasureCharge(input);
   }
 
   listWebhookEvents(input: {
@@ -47,9 +52,7 @@ export class AdminBillingDbService {
     return this.adminBillingRepository.listWebhookEvents(input);
   }
 
-  /** Same zero-fill reasoning as `fillSignupTrendWindow` (`admin-overview`'s own util) — a month
-   *  with no upgrades must render as a real zero bar, not be skipped and drawn as if adjacent to
-   *  the next month that does have one. */
+  /** Zero-fills months so one with no upgrades renders as a real zero bar instead of being skipped. */
   private fillUpgradeTrendWindow(
     points: UpgradeTrendPoint[],
     monthsBack: number

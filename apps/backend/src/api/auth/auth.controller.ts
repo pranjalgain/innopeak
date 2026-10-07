@@ -42,15 +42,19 @@ import {
 } from './constants/google-auth.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
+import { Roles } from './decorators/roles.decorator';
 import { AcceptMemberInviteDto } from './dto/accept-member-invite.dto';
 import { AuthenticatedUserDto } from './dto/authenticated-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CompleteGoogleSignupDto } from './dto/complete-google-signup.dto';
+import { DeleteAccountResponseDto } from './dto/delete-account-response.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { GoogleAuthorizeQueryDto } from './dto/google-authorize-query.dto';
 import { LoginPendingVerificationDto } from './dto/login-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { MemberInvitePreviewDto } from './dto/member-invite-preview.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
+import { RestoreAccountDto } from './dto/restore-account.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { SignupResponseDto } from './dto/signup-response.dto';
 import { SignupDto } from './dto/signup.dto';
@@ -58,13 +62,16 @@ import { TokenResponseDto } from './dto/token-response.dto';
 import { UpdateLocaleResponseDto } from './dto/update-locale-response.dto';
 import { UpdateLocaleDto } from './dto/update-locale.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { UserRole } from './enums/user-role.enum';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import { InvalidRefreshTokenException } from './exceptions/auth.exceptions';
+import { AccountDeletionService } from './services/account-deletion.service';
 import { AuthService } from './services/auth.service';
 import {
   ApiAcceptMemberInvite,
   ApiChangePassword,
   ApiCompleteGoogleSignup,
+  ApiDeleteAccount,
   ApiGoogleAuthorize,
   ApiGoogleCallback,
   ApiInviteGoogleAuthorize,
@@ -72,8 +79,10 @@ import {
   ApiLogout,
   ApiMe,
   ApiRefresh,
+  ApiRequestDeleteAccountOtp,
   ApiRequestSetPasswordOtp,
   ApiResendOtp,
+  ApiRestoreAccount,
   ApiSetPassword,
   ApiSignup,
   ApiUpdateLocale,
@@ -87,7 +96,10 @@ import { buildCookieOptions, buildSessionHintCookieOptions } from './utils/cooki
 @Controller({ path: RouteNames.AUTH, version: '1' })
 @ApiTags('Auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly accountDeletionService: AccountDeletionService
+  ) {}
 
   @Post(RouteNames.SIGNUP)
   @Public()
@@ -123,12 +135,7 @@ export class AuthController {
     return ResponseUtil.success(response, response.message, HttpStatus.OK);
   }
 
-  /**
-   * Tenant-user login only — a platform admin has their own route,
-   * `POST /v1/admin/auth/login` (`PlatformAdminAuthController.login`). See
-   * `apps/documentation/docs/backend/auth/separate-admin-login-design.md` for why the two are
-   * split rather than one endpoint resolving which identity space an email belongs to.
-   */
+  /** Tenant users only; platform admins log in at `POST /v1/admin/auth/login`. */
   @Post(RouteNames.LOGIN)
   @Public()
   @Throttle({ short: { limit: 10, ttl: 60000 } })
@@ -149,24 +156,11 @@ export class AuthController {
   }
 
   /**
-   * When the session is definitively gone — no cookie at all, a revoked/expired token, a row a
-   * dev DB reset deleted, a disabled user, a suspended tenant — `clearSessionCookies` runs before
-   * the 401 propagates.
-   *
-   * Without it, only the two real token cookies go stale; `session` (the frontend edge
-   * middleware's routing hint — see `proxy.ts`) has its own 7-day `maxAge` set once at login and
-   * nothing about a failed refresh ever touches it. The client then hard-redirects to `/login` on
-   * the 401, the middleware sees the still-present hint and bounces straight back to `/dashboard`,
-   * that remount retries the now-permanently-dead refresh, and the two sides fight forever —
-   * `POST /v1/auth/refresh` firing on every bounce until `@Throttle` starts rejecting it outright.
-   *
-   * **`RefreshTokenSupersededException` is the deliberate exception to that.** A token that lost
-   * a concurrent rotation race is also "not active", but the winner has already issued a valid
-   * successor and the browser is holding it — clearing there would throw away a live session and
-   * log the user out of every open tab, which is exactly what happens with two idle dashboard
-   * tabs waking at once (the frontend's single-flight is per-tab, so both refresh). That case
-   * gets the same 401 and the same message, and keeps its cookies; the client simply retries and
-   * succeeds with the successor. See `TokenService.rotate` for how the two are told apart.
+   * Clears the session cookies when the session is definitively dead. Otherwise the `session` hint
+   * (7-day maxAge, read by edge middleware) outlives it and /login and /dashboard bounce forever,
+   * hammering refresh until the throttler rejects it.
+   * `RefreshTokenSupersededException` is exempt: it lost a concurrent rotation and the browser
+   * already holds the winner's valid cookies.
    */
   @Post(RouteNames.REFRESH)
   @Public()
@@ -189,8 +183,8 @@ export class AuthController {
       this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
       return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
     } catch (error) {
-      // Order matters: the superseded subclass IS an UnauthorizedException, so it has to be
-      // excluded explicitly or a lost race would clear the winner's cookies.
+      // The superseded exception is an UnauthorizedException subclass; exclude it or a lost race
+      // clears the winner's cookies.
       if (
         error instanceof UnauthorizedException &&
         !(error instanceof RefreshTokenSupersededException)
@@ -202,10 +196,8 @@ export class AuthController {
   }
 
   /**
-   * `@Public()` on purpose: the session most in need of revoking is one whose access token has
-   * already expired, and a JWT-guarded logout would 401 before revoking anything — leaving a live
-   * 7-day refresh token behind a UI that says "signed out". Authority comes from the refresh
-   * cookie instead (see AuthService.logout), and cookies are cleared either way.
+   * `@Public()` on purpose: a JWT-guarded logout would 401 on an expired access token before
+   * revoking the live refresh token. Authority comes from the refresh cookie instead.
    */
   @Post(RouteNames.LOGOUT)
   @Public()
@@ -220,11 +212,7 @@ export class AuthController {
     return ResponseUtil.success(response, response.message, HttpStatus.OK);
   }
 
-  /**
-   * Who is signed in, read from the database rather than reconstructed client-side. Settings'
-   * Profile tab reads this instead of trusting whatever its last sign-in happened to leave in
-   * localStorage.
-   */
+  /** Read from the database so Settings does not trust whatever localStorage holds. */
   @Get(RouteNames.ME)
   @ApiMe()
   async me(@CurrentUser() user: AuthUser): Promise<ApiResponse<AuthenticatedUserDto>> {
@@ -232,7 +220,6 @@ export class AuthController {
     return ResponseUtil.success(profile, undefined, HttpStatus.OK);
   }
 
-  /** Settings → Profile. Not `@Public()` — JwtAuthGuard supplies `user`. */
   @Post(RouteNames.CHANGE_PASSWORD)
   @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
@@ -247,12 +234,7 @@ export class AuthController {
     return ResponseUtil.success(result.body, MESSAGES.AUTH.PASSWORD_CHANGED, HttpStatus.OK);
   }
 
-  /** Settings → Profile, "Add password" — only for an account with no `password_hash` yet. */
-  /**
-   * Step-up verification `setPassword` requires — see `AuthService.requestSetPasswordOtp`'s doc
-   * comment for why an access token alone isn't proof enough to grant a passwordless account its
-   * first password. Same throttle shape as `resendOtp`.
-   */
+  /** Step-up OTP: an access token alone is not proof enough to grant a passwordless account its first password. */
   @Post(RouteNames.REQUEST_SET_PASSWORD_OTP)
   @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
@@ -278,12 +260,47 @@ export class AuthController {
     return ResponseUtil.success(result.body, MESSAGES.AUTH.PASSWORD_SET, HttpStatus.OK);
   }
 
-  /**
-   * Settings → Profile, language preference. Not `@Public()` — JwtAuthGuard supplies `user`.
-   * Re-signs only the access token cookie — see `AuthService.updateLocale`'s doc comment for why
-   * this deliberately does not touch the refresh token the way every other token-issuing route
-   * here does.
-   */
+  /** Step-up OTP for an owner with no password. */
+  @Post(RouteNames.REQUEST_DELETE_ACCOUNT_OTP)
+  @Roles(UserRole.OWNER)
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiRequestDeleteAccountOtp()
+  async requestDeleteAccountOtp(
+    @CurrentUser() user: AuthUser
+  ): Promise<ApiResponse<{ message: string }>> {
+    const result = await this.accountDeletionService.requestOtp(user);
+    return ResponseUtil.success(result, result.message, HttpStatus.OK);
+  }
+
+  /** Signs the caller out afterwards; their session is dead anyway. */
+  @Post(RouteNames.DELETE_ACCOUNT)
+  @Roles(UserRole.OWNER)
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiDeleteAccount()
+  async deleteAccount(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: DeleteAccountDto,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<ApiResponse<DeleteAccountResponseDto>> {
+    const result = await this.accountDeletionService.deleteAccount(user, dto);
+    this.clearSessionCookies(res);
+    return ResponseUtil.success(result, MESSAGES.AUTH.ACCOUNT_DELETION_SCHEDULED, HttpStatus.OK);
+  }
+
+  /** Public — the owner's session is gone, so this proves them with email + password instead. */
+  @Post(RouteNames.RESTORE_ACCOUNT)
+  @Public()
+  @Throttle({ short: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiRestoreAccount()
+  async restoreAccount(@Body() dto: RestoreAccountDto): Promise<ApiResponse<{ message: string }>> {
+    const result = await this.accountDeletionService.restoreAccount(dto);
+    return ResponseUtil.success(result, result.message, HttpStatus.OK);
+  }
+
+  /** Re-signs only the access token cookie; deliberately leaves the refresh token alone (see `AuthService.updateLocale`). */
   @Post(RouteNames.UPDATE_LOCALE)
   @Throttle({ short: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
@@ -298,12 +315,7 @@ export class AuthController {
     return ResponseUtil.success(result, MESSAGES.AUTH.LOCALE_UPDATED, HttpStatus.OK);
   }
 
-  /**
-   * Step one of Google sign-in. A `GET` because the browser navigates here directly — the SPA sets
-   * `window.location`, so the access cookie rides along and there is no CORS preflight.
-   *
-   * `@Public()`: signup has no session yet, and login by definition does not either.
-   */
+  /** A GET because the browser navigates here directly, so there is no CORS preflight. */
   @Get(RouteNames.GOOGLE)
   @Public()
   @Throttle({ short: { limit: 10, ttl: 60000 } })
@@ -328,11 +340,8 @@ export class AuthController {
   }
 
   /**
-   * Step two. `@Public()` because Google — not the SPA — sends the browser here, carrying no
-   * bearer token; all context comes from the signed `state` plus the Redis record it names.
-   *
-   * Every outcome is a 302, success included: the browser is mid-navigation and would render a
-   * JSON body as a document. Success sets the session cookies on the way past.
+   * Google, not the SPA, sends the browser here with no bearer token; context comes from the signed
+   * `state` plus its Redis record. Every outcome is a 302 because the browser is mid-navigation.
    */
   @Get(RouteNames.GOOGLE_CALLBACK)
   @Public()
@@ -376,11 +385,6 @@ export class AuthController {
     res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.SUCCESS);
   }
 
-  /**
-   * Read-only preview so the accept screen can show "You've been invited as `<email>`" before
-   * ever asking for a name or password. `@Public()` — the invitee has no session yet. See
-   * `apps/documentation/docs/backend/auth/tenant-member-invite-design.md`.
-   */
   @Get(RouteNames.INVITE_VALIDATE)
   @Public()
   @Throttle({ short: { limit: 20, ttl: 60000 } })
@@ -392,10 +396,6 @@ export class AuthController {
     return ResponseUtil.success(result, undefined, HttpStatus.OK);
   }
 
-  /**
-   * The password path for accepting a tenant-member invite. Signs the member in immediately on
-   * success, same as `login` above.
-   */
   @Post(RouteNames.INVITE_ACCEPT)
   @Public()
   @Throttle({ short: { limit: 5, ttl: 60000 } })
@@ -411,10 +411,8 @@ export class AuthController {
   }
 
   /**
-   * The SSO alternative to `acceptMemberInvite` — deliberately its own route, not
-   * `GET /v1/auth/google`, since a first-time invitee has no `user_identities` row yet for that
-   * generic callback branch to find. Completion happens at the shared
-   * `GET /v1/auth/google/callback` via `OAuthIntent.INVITE`.
+   * Own route rather than `GET /v1/auth/google`: a first-time invitee has no `user_identities` row
+   * for that generic callback branch to find. Completes at the shared callback via `OAuthIntent.INVITE`.
    */
   @Get(RouteNames.INVITE_GOOGLE)
   @Public()
@@ -428,8 +426,7 @@ export class AuthController {
       return;
     }
 
-    // Same binding cookie every entry point into the shared Google callback sets — one cookie
-    // name, one purpose, regardless of which controller starts the round trip.
+    // Same binding cookie as every other entry into the shared Google callback.
     res.cookie(
       GOOGLE_AUTH_SID_COOKIE_NAME,
       redirect.sid,
@@ -438,11 +435,7 @@ export class AuthController {
     res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }
 
-  /**
-   * Step three, only for a genuinely new signup: submits the one thing Google could not supply.
-   * A normal XHR endpoint, unlike the two above — there is no browser navigation to preserve here,
-   * so this returns JSON like every other auth endpoint instead of a redirect.
-   */
+  /** A normal XHR endpoint returning JSON, unlike the two above: no browser navigation to preserve. */
   @Post(RouteNames.GOOGLE_COMPLETE_SIGNUP)
   @Public()
   @Throttle({ short: { limit: 5, ttl: 60000 } })
@@ -475,18 +468,10 @@ export class AuthController {
   }
 
   /**
-   * Three cookies, each with a distinct job:
-   *
-   * - `refresh_token` — the long-lived credential. Never in a JSON body, and scoped to `/v1/auth`
-   *   so a browser only ever sends it to the two routes that need it (refresh, logout).
-   * - `access_token` — scoped to `/` because every authenticated route needs it. The same token
-   *   is *also* returned in the JSON body for non-browser (e.g. future mobile) clients that can't
-   *   rely on this cookie at all; the web frontend relies solely on the cookie, never the body copy.
-   * - `session` — no credential at all, just a flag. Not `httpOnly` (see
-   *   `buildSessionHintCookieOptions`): it exists so both the frontend's edge middleware AND its
-   *   client-side route guards can tell "signed in" from "signed out", and as which principal,
-   *   without being misled by the access cookie's 15-minute expiry into bouncing a
-   *   still-refreshable visitor to /login.
+   * - `refresh_token`: long-lived, never in a JSON body, scoped to `/v1/auth` so only refresh/logout receive it.
+   * - `access_token`: scoped to `/`; also returned in the body for non-browser clients (the web app uses only the cookie).
+   * - `session`: not httpOnly and carries no credential; lets edge middleware and client route guards tell
+   *   signed in from out (and which principal) despite the access cookie's 15-minute expiry.
    */
   private setSessionCookies(res: Response, refreshToken: string, accessToken: string): void {
     res.cookie(
@@ -507,10 +492,8 @@ export class AuthController {
   }
 
   /**
-   * Just the `access_token` cookie — for `updateLocale`, the one route that reissues a token
-   * without also rotating the refresh token or touching the session hint (see
-   * `AuthService.updateLocale`'s doc comment). That reuse is safe there because the signed-in
-   * principal never changes across an `updateLocale` call.
+   * Only `access_token`, for `updateLocale`: safe because the principal never changes there, so the
+   * refresh token and session hint stay untouched.
    */
   private setAccessTokenCookie(res: Response, accessToken: string): void {
     res.cookie(
@@ -521,12 +504,8 @@ export class AuthController {
   }
 
   /**
-   * Clears every session cookie either principal could hold — `refresh_token`/`access_token` for
-   * a tenant, `admin_access_token` for a platform admin, and the shared `session` hint. Clearing
-   * all of them unconditionally (rather than branching on which principal is signing out) is what
-   * lets `POST /v1/auth/logout` stay the one shared logout endpoint for both — a `clearCookie` on
-   * a cookie the browser never had is a harmless no-op, so there's nothing to lose by always
-   * clearing the full set.
+   * Clears every cookie either principal could hold so logout stays one principal-agnostic endpoint;
+   * clearing a cookie the browser never had is a harmless no-op.
    */
   private clearSessionCookies(res: Response): void {
     res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, buildCookieOptions(REFRESH_TOKEN_COOKIE_PATH));

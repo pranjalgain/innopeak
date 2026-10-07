@@ -32,6 +32,16 @@ import {
 // @ts-ignore
 import type { ApproveReplyDto } from '../models';
 // @ts-ignore
+import type { CreateManualReplyDto } from '../models';
+// @ts-ignore
+import type { ManualReplyResponseDto } from '../models';
+// @ts-ignore
+import type { PostQueuedResponseDto } from '../models';
+// @ts-ignore
+import type { PostStatusResponseDto } from '../models';
+// @ts-ignore
+import type { RetryPostResponseDto } from '../models';
+// @ts-ignore
 import type { ReviewDetailResponseDto } from '../models';
 // @ts-ignore
 import type { ReviewListResponseDto } from '../models';
@@ -116,6 +126,140 @@ export const ReviewsApiAxiosParamCreator = function (
         localVarRequestOptions,
         configuration,
       );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Writes a reply instead of approving a generated draft — `source: human_manual`. Lands directly at `status: approved` (the author is the approver; a self-approval step would be theatre), supersedes non-terminal siblings in the same transaction, and queues the post exactly as approve does when `auto_post_enabled` is true. `response_type` is derived server-side from the review\'s classification, never accepted from the client.
+     * @summary Write a reply from scratch
+     * @param {string} reviewId
+     * @param {CreateManualReplyDto} createManualReplyDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    reviewsControllerCreateManualReplyV1: async (
+      reviewId: string,
+      createManualReplyDto: CreateManualReplyDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'reviewId' is not null or undefined
+      assertParamExists(
+        'reviewsControllerCreateManualReplyV1',
+        'reviewId',
+        reviewId,
+      );
+      // verify required parameter 'createManualReplyDto' is not null or undefined
+      assertParamExists(
+        'reviewsControllerCreateManualReplyV1',
+        'createManualReplyDto',
+        createManualReplyDto,
+      );
+      const localVarPath = `/v1/reviews/{reviewId}/responses`.replace(
+        '{reviewId}',
+        encodeURIComponent(String(reviewId)),
+      );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        createManualReplyDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Separate from GET .../reviewId on purpose: polling the detail route every couple of seconds to watch one field would re-read every response row for the review, and this route\'s throttle tier is deliberately looser to make that short-interval polling legitimate. `status` here is the raw seven-value response_status (including posted/post_failed/superseded), not the four-value client projection the other routes in this module return.
+     * @summary Read the outcome of an asynchronous post-back
+     * @param {string} reviewId
+     * @param {string} responseId
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    reviewsControllerGetPostStatusV1: async (
+      reviewId: string,
+      responseId: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'reviewId' is not null or undefined
+      assertParamExists(
+        'reviewsControllerGetPostStatusV1',
+        'reviewId',
+        reviewId,
+      );
+      // verify required parameter 'responseId' is not null or undefined
+      assertParamExists(
+        'reviewsControllerGetPostStatusV1',
+        'responseId',
+        responseId,
+      );
+      const localVarPath =
+        `/v1/reviews/{reviewId}/responses/{responseId}/post-status`
+          .replace('{reviewId}', encodeURIComponent(String(reviewId)))
+          .replace('{responseId}', encodeURIComponent(String(responseId)));
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
 
       return {
         url: toPathString(localVarUrlObj),
@@ -256,6 +400,69 @@ export const ReviewsApiAxiosParamCreator = function (
       };
     },
     /**
+     * The explicit second action for the `auto_post_enabled = false` case: an `approved` response sits until this route (or an approval/manual-reply made while the flag is true) enqueues the post-back job. Not in this module\'s original target spec — added because the existing design note for `auto_post_enabled` directly implies it. No request body.
+     * @summary Post an approved reply to Google (manual trigger)
+     * @param {string} reviewId
+     * @param {string} responseId
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    reviewsControllerPostResponseV1: async (
+      reviewId: string,
+      responseId: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'reviewId' is not null or undefined
+      assertParamExists(
+        'reviewsControllerPostResponseV1',
+        'reviewId',
+        reviewId,
+      );
+      // verify required parameter 'responseId' is not null or undefined
+      assertParamExists(
+        'reviewsControllerPostResponseV1',
+        'responseId',
+        responseId,
+      );
+      const localVarPath = `/v1/reviews/{reviewId}/responses/{responseId}/post`
+        .replace('{reviewId}', encodeURIComponent(String(reviewId)))
+        .replace('{responseId}', encodeURIComponent(String(responseId)));
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * Persists the decision — records who rejected it and when (`rejectedByUserId`/`decidedAt`), no free-text reason. The row is kept, not deleted: a rejected sibling is shown greyed out with its outcome, the same reasoning `superseded` rows already follow.
      * @summary Reject a pending reply draft
      * @param {string} reviewId
@@ -278,6 +485,66 @@ export const ReviewsApiAxiosParamCreator = function (
       );
       const localVarPath =
         `/v1/reviews/{reviewId}/responses/{responseId}/reject`
+          .replace('{reviewId}', encodeURIComponent(String(reviewId)))
+          .replace('{responseId}', encodeURIComponent(String(responseId)));
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * The `post_failed -> approved` arrow in PLAN.md §4.2. Guarded compare-and-swap on `status = \'post_failed\'`, clearing `error_message`, then re-enqueuing the post-back job — including its freshness check, which runs again rather than blindly resending the same API call, since the review may have been answered another way since the failed attempt. No request body.
+     * @summary Retry posting a failed reply
+     * @param {string} reviewId
+     * @param {string} responseId
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    reviewsControllerRetryPostV1: async (
+      reviewId: string,
+      responseId: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'reviewId' is not null or undefined
+      assertParamExists('reviewsControllerRetryPostV1', 'reviewId', reviewId);
+      // verify required parameter 'responseId' is not null or undefined
+      assertParamExists(
+        'reviewsControllerRetryPostV1',
+        'responseId',
+        responseId,
+      );
+      const localVarPath =
+        `/v1/reviews/{reviewId}/responses/{responseId}/retry-post`
           .replace('{reviewId}', encodeURIComponent(String(reviewId)))
           .replace('{responseId}', encodeURIComponent(String(responseId)));
       // use dummy base URL string because the URL constructor only accepts absolute URLs.
@@ -354,6 +621,80 @@ export const ReviewsApiFp = function (configuration?: Configuration) {
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
         operationServerMap['ReviewsApi.reviewsControllerApproveReplyV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Writes a reply instead of approving a generated draft — `source: human_manual`. Lands directly at `status: approved` (the author is the approver; a self-approval step would be theatre), supersedes non-terminal siblings in the same transaction, and queues the post exactly as approve does when `auto_post_enabled` is true. `response_type` is derived server-side from the review\'s classification, never accepted from the client.
+     * @summary Write a reply from scratch
+     * @param {string} reviewId
+     * @param {CreateManualReplyDto} createManualReplyDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async reviewsControllerCreateManualReplyV1(
+      reviewId: string,
+      createManualReplyDto: CreateManualReplyDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<ManualReplyResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.reviewsControllerCreateManualReplyV1(
+          reviewId,
+          createManualReplyDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['ReviewsApi.reviewsControllerCreateManualReplyV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Separate from GET .../reviewId on purpose: polling the detail route every couple of seconds to watch one field would re-read every response row for the review, and this route\'s throttle tier is deliberately looser to make that short-interval polling legitimate. `status` here is the raw seven-value response_status (including posted/post_failed/superseded), not the four-value client projection the other routes in this module return.
+     * @summary Read the outcome of an asynchronous post-back
+     * @param {string} reviewId
+     * @param {string} responseId
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async reviewsControllerGetPostStatusV1(
+      reviewId: string,
+      responseId: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<PostStatusResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.reviewsControllerGetPostStatusV1(
+          reviewId,
+          responseId,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['ReviewsApi.reviewsControllerGetPostStatusV1']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -448,6 +789,43 @@ export const ReviewsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * The explicit second action for the `auto_post_enabled = false` case: an `approved` response sits until this route (or an approval/manual-reply made while the flag is true) enqueues the post-back job. Not in this module\'s original target spec — added because the existing design note for `auto_post_enabled` directly implies it. No request body.
+     * @summary Post an approved reply to Google (manual trigger)
+     * @param {string} reviewId
+     * @param {string} responseId
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async reviewsControllerPostResponseV1(
+      reviewId: string,
+      responseId: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<PostQueuedResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.reviewsControllerPostResponseV1(
+          reviewId,
+          responseId,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['ReviewsApi.reviewsControllerPostResponseV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Persists the decision — records who rejected it and when (`rejectedByUserId`/`decidedAt`), no free-text reason. The row is kept, not deleted: a rejected sibling is shown greyed out with its outcome, the same reasoning `superseded` rows already follow.
      * @summary Reject a pending reply draft
      * @param {string} reviewId
@@ -474,6 +852,43 @@ export const ReviewsApiFp = function (configuration?: Configuration) {
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
         operationServerMap['ReviewsApi.reviewsControllerRejectReplyV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * The `post_failed -> approved` arrow in PLAN.md §4.2. Guarded compare-and-swap on `status = \'post_failed\'`, clearing `error_message`, then re-enqueuing the post-back job — including its freshness check, which runs again rather than blindly resending the same API call, since the review may have been answered another way since the failed attempt. No request body.
+     * @summary Retry posting a failed reply
+     * @param {string} reviewId
+     * @param {string} responseId
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async reviewsControllerRetryPostV1(
+      reviewId: string,
+      responseId: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<RetryPostResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.reviewsControllerRetryPostV1(
+          reviewId,
+          responseId,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['ReviewsApi.reviewsControllerRetryPostV1']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -518,6 +933,44 @@ export const ReviewsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * Writes a reply instead of approving a generated draft — `source: human_manual`. Lands directly at `status: approved` (the author is the approver; a self-approval step would be theatre), supersedes non-terminal siblings in the same transaction, and queues the post exactly as approve does when `auto_post_enabled` is true. `response_type` is derived server-side from the review\'s classification, never accepted from the client.
+     * @summary Write a reply from scratch
+     * @param {ReviewsApiReviewsControllerCreateManualReplyV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    reviewsControllerCreateManualReplyV1(
+      requestParameters: ReviewsApiReviewsControllerCreateManualReplyV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<ManualReplyResponseDto> {
+      return localVarFp
+        .reviewsControllerCreateManualReplyV1(
+          requestParameters.reviewId,
+          requestParameters.createManualReplyDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Separate from GET .../reviewId on purpose: polling the detail route every couple of seconds to watch one field would re-read every response row for the review, and this route\'s throttle tier is deliberately looser to make that short-interval polling legitimate. `status` here is the raw seven-value response_status (including posted/post_failed/superseded), not the four-value client projection the other routes in this module return.
+     * @summary Read the outcome of an asynchronous post-back
+     * @param {ReviewsApiReviewsControllerGetPostStatusV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    reviewsControllerGetPostStatusV1(
+      requestParameters: ReviewsApiReviewsControllerGetPostStatusV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<PostStatusResponseDto> {
+      return localVarFp
+        .reviewsControllerGetPostStatusV1(
+          requestParameters.reviewId,
+          requestParameters.responseId,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Terminal responses are returned deliberately — the UI renders rejected and superseded rows greyed out with their outcome, which is the entire reason `superseded` is a state rather than a deletion. `status` is a projection onto the four values the client understands (draft→pending_approval, posted/post_failed→approved), because the shipped card treats that union as exhaustive and a raw seven-value enum yields an unstyled badge and a missing translation key. `label` (\"A\", \"B\") is derived from position within generationGroupId, not stored. `generationMetadata` is deliberately never returned — it holds model/region/token counts for server-side debugging.
      * @summary One review with every response attached
      * @param {ReviewsApiReviewsControllerGetReviewV1Request} requestParameters Request parameters.
@@ -556,6 +1009,25 @@ export const ReviewsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * The explicit second action for the `auto_post_enabled = false` case: an `approved` response sits until this route (or an approval/manual-reply made while the flag is true) enqueues the post-back job. Not in this module\'s original target spec — added because the existing design note for `auto_post_enabled` directly implies it. No request body.
+     * @summary Post an approved reply to Google (manual trigger)
+     * @param {ReviewsApiReviewsControllerPostResponseV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    reviewsControllerPostResponseV1(
+      requestParameters: ReviewsApiReviewsControllerPostResponseV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<PostQueuedResponseDto> {
+      return localVarFp
+        .reviewsControllerPostResponseV1(
+          requestParameters.reviewId,
+          requestParameters.responseId,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Persists the decision — records who rejected it and when (`rejectedByUserId`/`decidedAt`), no free-text reason. The row is kept, not deleted: a rejected sibling is shown greyed out with its outcome, the same reasoning `superseded` rows already follow.
      * @summary Reject a pending reply draft
      * @param {ReviewsApiReviewsControllerRejectReplyV1Request} requestParameters Request parameters.
@@ -568,6 +1040,25 @@ export const ReviewsApiFactory = function (
     ): AxiosPromise<ReviewResponseItemDto> {
       return localVarFp
         .reviewsControllerRejectReplyV1(
+          requestParameters.reviewId,
+          requestParameters.responseId,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * The `post_failed -> approved` arrow in PLAN.md §4.2. Guarded compare-and-swap on `status = \'post_failed\'`, clearing `error_message`, then re-enqueuing the post-back job — including its freshness check, which runs again rather than blindly resending the same API call, since the review may have been answered another way since the failed attempt. No request body.
+     * @summary Retry posting a failed reply
+     * @param {ReviewsApiReviewsControllerRetryPostV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    reviewsControllerRetryPostV1(
+      requestParameters: ReviewsApiReviewsControllerRetryPostV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<RetryPostResponseDto> {
+      return localVarFp
+        .reviewsControllerRetryPostV1(
           requestParameters.reviewId,
           requestParameters.responseId,
           options,
@@ -594,6 +1085,30 @@ export interface ReviewsApiInterface {
   ): AxiosPromise<ReviewResponseItemDto>;
 
   /**
+   * Writes a reply instead of approving a generated draft — `source: human_manual`. Lands directly at `status: approved` (the author is the approver; a self-approval step would be theatre), supersedes non-terminal siblings in the same transaction, and queues the post exactly as approve does when `auto_post_enabled` is true. `response_type` is derived server-side from the review\'s classification, never accepted from the client.
+   * @summary Write a reply from scratch
+   * @param {ReviewsApiReviewsControllerCreateManualReplyV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  reviewsControllerCreateManualReplyV1(
+    requestParameters: ReviewsApiReviewsControllerCreateManualReplyV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<ManualReplyResponseDto>;
+
+  /**
+   * Separate from GET .../reviewId on purpose: polling the detail route every couple of seconds to watch one field would re-read every response row for the review, and this route\'s throttle tier is deliberately looser to make that short-interval polling legitimate. `status` here is the raw seven-value response_status (including posted/post_failed/superseded), not the four-value client projection the other routes in this module return.
+   * @summary Read the outcome of an asynchronous post-back
+   * @param {ReviewsApiReviewsControllerGetPostStatusV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  reviewsControllerGetPostStatusV1(
+    requestParameters: ReviewsApiReviewsControllerGetPostStatusV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<PostStatusResponseDto>;
+
+  /**
    * Terminal responses are returned deliberately — the UI renders rejected and superseded rows greyed out with their outcome, which is the entire reason `superseded` is a state rather than a deletion. `status` is a projection onto the four values the client understands (draft→pending_approval, posted/post_failed→approved), because the shipped card treats that union as exhaustive and a raw seven-value enum yields an unstyled badge and a missing translation key. `label` (\"A\", \"B\") is derived from position within generationGroupId, not stored. `generationMetadata` is deliberately never returned — it holds model/region/token counts for server-side debugging.
    * @summary One review with every response attached
    * @param {ReviewsApiReviewsControllerGetReviewV1Request} requestParameters Request parameters.
@@ -618,6 +1133,18 @@ export interface ReviewsApiInterface {
   ): AxiosPromise<ReviewListResponseDto>;
 
   /**
+   * The explicit second action for the `auto_post_enabled = false` case: an `approved` response sits until this route (or an approval/manual-reply made while the flag is true) enqueues the post-back job. Not in this module\'s original target spec — added because the existing design note for `auto_post_enabled` directly implies it. No request body.
+   * @summary Post an approved reply to Google (manual trigger)
+   * @param {ReviewsApiReviewsControllerPostResponseV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  reviewsControllerPostResponseV1(
+    requestParameters: ReviewsApiReviewsControllerPostResponseV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<PostQueuedResponseDto>;
+
+  /**
    * Persists the decision — records who rejected it and when (`rejectedByUserId`/`decidedAt`), no free-text reason. The row is kept, not deleted: a rejected sibling is shown greyed out with its outcome, the same reasoning `superseded` rows already follow.
    * @summary Reject a pending reply draft
    * @param {ReviewsApiReviewsControllerRejectReplyV1Request} requestParameters Request parameters.
@@ -628,6 +1155,18 @@ export interface ReviewsApiInterface {
     requestParameters: ReviewsApiReviewsControllerRejectReplyV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<ReviewResponseItemDto>;
+
+  /**
+   * The `post_failed -> approved` arrow in PLAN.md §4.2. Guarded compare-and-swap on `status = \'post_failed\'`, clearing `error_message`, then re-enqueuing the post-back job — including its freshness check, which runs again rather than blindly resending the same API call, since the review may have been answered another way since the failed attempt. No request body.
+   * @summary Retry posting a failed reply
+   * @param {ReviewsApiReviewsControllerRetryPostV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  reviewsControllerRetryPostV1(
+    requestParameters: ReviewsApiReviewsControllerRetryPostV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<RetryPostResponseDto>;
 }
 
 /**
@@ -639,6 +1178,24 @@ export interface ReviewsApiReviewsControllerApproveReplyV1Request {
   readonly responseId: string;
 
   readonly approveReplyDto: ApproveReplyDto;
+}
+
+/**
+ * Request parameters for reviewsControllerCreateManualReplyV1 operation in ReviewsApi.
+ */
+export interface ReviewsApiReviewsControllerCreateManualReplyV1Request {
+  readonly reviewId: string;
+
+  readonly createManualReplyDto: CreateManualReplyDto;
+}
+
+/**
+ * Request parameters for reviewsControllerGetPostStatusV1 operation in ReviewsApi.
+ */
+export interface ReviewsApiReviewsControllerGetPostStatusV1Request {
+  readonly reviewId: string;
+
+  readonly responseId: string;
 }
 
 /**
@@ -675,9 +1232,27 @@ export interface ReviewsApiReviewsControllerListReviewsV1Request {
 }
 
 /**
+ * Request parameters for reviewsControllerPostResponseV1 operation in ReviewsApi.
+ */
+export interface ReviewsApiReviewsControllerPostResponseV1Request {
+  readonly reviewId: string;
+
+  readonly responseId: string;
+}
+
+/**
  * Request parameters for reviewsControllerRejectReplyV1 operation in ReviewsApi.
  */
 export interface ReviewsApiReviewsControllerRejectReplyV1Request {
+  readonly reviewId: string;
+
+  readonly responseId: string;
+}
+
+/**
+ * Request parameters for reviewsControllerRetryPostV1 operation in ReviewsApi.
+ */
+export interface ReviewsApiReviewsControllerRetryPostV1Request {
   readonly reviewId: string;
 
   readonly responseId: string;
@@ -703,6 +1278,46 @@ export class ReviewsApi extends BaseAPI implements ReviewsApiInterface {
         requestParameters.reviewId,
         requestParameters.responseId,
         requestParameters.approveReplyDto,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Writes a reply instead of approving a generated draft — `source: human_manual`. Lands directly at `status: approved` (the author is the approver; a self-approval step would be theatre), supersedes non-terminal siblings in the same transaction, and queues the post exactly as approve does when `auto_post_enabled` is true. `response_type` is derived server-side from the review\'s classification, never accepted from the client.
+   * @summary Write a reply from scratch
+   * @param {ReviewsApiReviewsControllerCreateManualReplyV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public reviewsControllerCreateManualReplyV1(
+    requestParameters: ReviewsApiReviewsControllerCreateManualReplyV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return ReviewsApiFp(this.configuration)
+      .reviewsControllerCreateManualReplyV1(
+        requestParameters.reviewId,
+        requestParameters.createManualReplyDto,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Separate from GET .../reviewId on purpose: polling the detail route every couple of seconds to watch one field would re-read every response row for the review, and this route\'s throttle tier is deliberately looser to make that short-interval polling legitimate. `status` here is the raw seven-value response_status (including posted/post_failed/superseded), not the four-value client projection the other routes in this module return.
+   * @summary Read the outcome of an asynchronous post-back
+   * @param {ReviewsApiReviewsControllerGetPostStatusV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public reviewsControllerGetPostStatusV1(
+    requestParameters: ReviewsApiReviewsControllerGetPostStatusV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return ReviewsApiFp(this.configuration)
+      .reviewsControllerGetPostStatusV1(
+        requestParameters.reviewId,
+        requestParameters.responseId,
         options,
       )
       .then((request) => request(this.axios, this.basePath));
@@ -749,6 +1364,26 @@ export class ReviewsApi extends BaseAPI implements ReviewsApiInterface {
   }
 
   /**
+   * The explicit second action for the `auto_post_enabled = false` case: an `approved` response sits until this route (or an approval/manual-reply made while the flag is true) enqueues the post-back job. Not in this module\'s original target spec — added because the existing design note for `auto_post_enabled` directly implies it. No request body.
+   * @summary Post an approved reply to Google (manual trigger)
+   * @param {ReviewsApiReviewsControllerPostResponseV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public reviewsControllerPostResponseV1(
+    requestParameters: ReviewsApiReviewsControllerPostResponseV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return ReviewsApiFp(this.configuration)
+      .reviewsControllerPostResponseV1(
+        requestParameters.reviewId,
+        requestParameters.responseId,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
    * Persists the decision — records who rejected it and when (`rejectedByUserId`/`decidedAt`), no free-text reason. The row is kept, not deleted: a rejected sibling is shown greyed out with its outcome, the same reasoning `superseded` rows already follow.
    * @summary Reject a pending reply draft
    * @param {ReviewsApiReviewsControllerRejectReplyV1Request} requestParameters Request parameters.
@@ -761,6 +1396,26 @@ export class ReviewsApi extends BaseAPI implements ReviewsApiInterface {
   ) {
     return ReviewsApiFp(this.configuration)
       .reviewsControllerRejectReplyV1(
+        requestParameters.reviewId,
+        requestParameters.responseId,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * The `post_failed -> approved` arrow in PLAN.md §4.2. Guarded compare-and-swap on `status = \'post_failed\'`, clearing `error_message`, then re-enqueuing the post-back job — including its freshness check, which runs again rather than blindly resending the same API call, since the review may have been answered another way since the failed attempt. No request body.
+   * @summary Retry posting a failed reply
+   * @param {ReviewsApiReviewsControllerRetryPostV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public reviewsControllerRetryPostV1(
+    requestParameters: ReviewsApiReviewsControllerRetryPostV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return ReviewsApiFp(this.configuration)
+      .reviewsControllerRetryPostV1(
         requestParameters.reviewId,
         requestParameters.responseId,
         options,

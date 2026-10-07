@@ -1,12 +1,8 @@
 /**
- * The one source of truth for password rules on the client, mirroring the backend's
- * `Length(8, 128)` + `PASSWORD_PATTERN` (apps/backend/src/api/auth/constants/auth.constants.ts)
- * one rule at a time.
- *
- * Split into individual rules rather than reusing the backend's single combined regex on purpose:
- * the live checklist has to tell the user *which* rule is unmet, which a pass/fail regex cannot.
- * Both `checkPasswordRequirements` (the checklist) and the zod form schemas consume these, so a
- * password can never show all-green in the UI and then be rejected by the API.
+ * Mirrors the backend's `Length(8, 128)` + `PASSWORD_PATTERN`
+ * (apps/backend/src/api/auth/constants/auth.constants.ts) one rule at a time, so the live checklist
+ * can say which rule is unmet (a combined regex cannot). The checklist and the zod schemas both
+ * consume these, so a password cannot show all-green and then be rejected by the API.
  */
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;

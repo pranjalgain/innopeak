@@ -26,10 +26,8 @@ export class TracingInterceptor implements NestInterceptor {
       const url = request.url;
       const userAgent = request.get('User-Agent') ?? 'unknown';
 
-      // Get the current tracer
       const tracer = trace.getTracer('nestjs-http', '1.0.0');
 
-      // Start a new span for this request
       const span = tracer.startSpan(`${method} ${url}`, {
         attributes: {
           'http.method': method,
@@ -42,7 +40,6 @@ export class TracingInterceptor implements NestInterceptor {
         },
       });
 
-      // Add request ID to span if available
       const requestId = request.headers['x-request-id'];
       if (requestId) {
         span.setAttributes({
@@ -57,14 +54,12 @@ export class TracingInterceptor implements NestInterceptor {
           next: (data: unknown) => {
             const duration = Date.now() - startTime;
 
-            // Safely calculate response size
             let responseSize = 0;
             if (data !== undefined && data !== null) {
               try {
                 responseSize = JSON.stringify(data).length;
               } catch (_error) {
-                // If data can't be stringified (e.g. circular refs), fall back to a safe
-                // string representation without relying on the object's own toString().
+                // Circular refs etc.: avoid relying on the object's own toString().
                 responseSize =
                   typeof data === 'string'
                     ? data.length
@@ -112,15 +107,10 @@ export class TracingInterceptor implements NestInterceptor {
       );
     } catch (error) {
       this.logger.error('Failed to initialize tracing interceptor:', error);
-      // If tracing fails, just return the original observable without tracing
       return next.handle();
     }
   }
 
-  /**
-   * Safely extracts status code, message, and name from an unknown thrown error
-   * without assuming a particular error shape (HttpException, plain Error, etc.).
-   */
   private extractErrorDetails(error: unknown): TracedErrorDetails {
     const record =
       typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : {};

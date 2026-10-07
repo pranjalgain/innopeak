@@ -15,9 +15,7 @@ interface UseAcceptMemberInviteResult {
   /** Set once validation fails — a dead link gets its own message, not the name/password form. */
   invalid: boolean;
   isSubmitting: boolean;
-  /** Returns whether it succeeded, and whether this tenant has a connected Google Business
-   *  Profile already — the view needs the latter to route to the dashboard or the connect
-   *  stepper, same as `useAuth().loginWithPassword`. A toast is already shown on failure. */
+  /** Returns whether it succeeded, and whether a Google Business Profile is already connected (the view routes on it). A toast is already shown on failure. */
   acceptWithPassword: (
     name: string,
     password: string,
@@ -29,12 +27,7 @@ interface UseAcceptMemberInviteResult {
   retryValidation: () => void;
 }
 
-/**
- * Tenant-member invite acceptance — validates the token on mount (so a dead link fails before
- * the invitee ever types anything), then offers the two ways to finish: a name + password, or
- * Google. Wraps `AuthService` the same way `useAcceptAdminInvite` does, so the accept page never
- * calls it directly.
- */
+/** Validates the token on mount (so a dead link fails before anything is typed), then offers name + password or Google. */
 export function useAcceptMemberInvite(token: string): UseAcceptMemberInviteResult {
   const t = useTranslations("auth.toasts");
   const t2 = useTranslations("auth.acceptMemberInvite.errors");
@@ -55,10 +48,8 @@ export function useAcceptMemberInvite(token: string): UseAcceptMemberInviteResul
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        // Only a 404 means the invite itself is dead — the dead-end screen this sets is a hard
-        // stop with no retry, so a network drop, a 5xx, or the validate route's own rate limit
-        // (429) must not land there too. Those show a toast instead and leave the loading state,
-        // so a refresh can succeed once the transient condition clears.
+        // Only a 404 means the invite is dead (a hard stop with no retry); a network drop, 5xx or 429
+        // toasts instead so a refresh can succeed.
         if (error instanceof ApiError && error.statusCode === 404) {
           setInvalid(true);
         } else {

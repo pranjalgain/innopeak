@@ -13,12 +13,8 @@ import {
 import type { LocationDto } from '../dto/connection-response.dto';
 
 /**
- * `SameSite=Lax`, not Strict: the callback arrives as a top-level GET navigation from Google,
- * which Lax permits and Strict does not — Strict would drop the cookie on exactly the request
- * that needs it and make every legitimate connect fail as INVALID_STATE.
- *
- * Path-scoped to /v1/connections so it is never sent on any other request, and short-lived
- * because a consent round trip that takes more than ten minutes has been abandoned.
+ * `SameSite=Lax`, not Strict: the callback is a top-level GET from Google, and Strict would drop
+ * the cookie there and fail every connect as INVALID_STATE. Path-scoped and short-lived.
  */
 export function buildOauthSidCookieOptions(): CookieOptions {
   return {
@@ -30,10 +26,7 @@ export function buildOauthSidCookieOptions(): CookieOptions {
   };
 }
 
-/**
- * A token response with no `scope` field is accepted: Google only omits it when every requested
- * scope was granted, so absence is not the same signal as a list that lacks `business.manage`.
- */
+/** A missing `scope` is accepted: Google omits it only when every requested scope was granted. */
 export function hasRequiredOAuthScope(granted: string | undefined): boolean {
   if (!granted) {
     return true;
@@ -61,11 +54,7 @@ export function toLocationDto(location: LocationRow): LocationDto {
   };
 }
 
-/**
- * `null` whenever there is no denominator **or the denominator is zero** — never a synthesized
- * percentage. A location with zero reviews would otherwise divide by zero and produce `NaN`,
- * which serializes to `null` in JSON anyway but only by accident.
- */
+/** `null` when there is no denominator or it is zero, rather than a `NaN` that only happens to serialize as null. */
 export function computeBackfillProgress(run: SyncRunRow | null): number | null {
   if (!run?.reviewsTotal) {
     return null;
@@ -76,20 +65,15 @@ export function computeBackfillProgress(run: SyncRunRow | null): number | null {
 }
 
 /**
- * Measured from the last *progress* write, not from `started_at` — the job updates
- * `reviews_fetched` (and `updated_at`) after every page, so a legitimately long import is not
- * reported as stale simply for being long. Uses `startedAt` when a run has written nothing yet.
- *
- * The UI treats this as "taking longer than usual" copy rather than a failure, because the run
- * may still be alive; what makes it actionable is that acquisition will now reclaim it.
+ * Measured from the last progress write, not `started_at`, so a long but advancing import isn't
+ * stale. The UI shows "taking longer than usual", not failure, since the run may still be alive.
  */
 export function isSyncRunStale(run: SyncRunRow | null): boolean {
   if (run?.status !== SyncRunStatus.RUNNING) {
     return false;
   }
 
-  // Same predicate the database reclaim uses — GREATEST(started_at, updated_at) — so the API
-  // and the lock can never disagree about whether a run is wedged.
+  // Same predicate as the DB reclaim, GREATEST(started_at, updated_at), so API and lock agree.
   const lastActivity = Math.max(
     new Date(run.startedAt).getTime(),
     new Date(run.updatedAt).getTime()

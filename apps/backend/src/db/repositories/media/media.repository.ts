@@ -23,12 +23,6 @@ function ownerCondition(owner: MediaOwner): SQL {
     : eq(schema.media.platformAdminId, owner.platformAdminId);
 }
 
-/**
- * `media` — one row per uploaded asset (avatars today), owned by exactly one of `users`/
- * `platform_admins`. The unique partial indexes on `(owner, kind)` mean "this owner's current
- * avatar" is always at most one row, so every method here reads/writes that single row directly
- * rather than a list plus a "which one is current" filter.
- */
 @Injectable()
 export class MediaRepository {
   constructor(private readonly dbService: DBService) {}
@@ -44,19 +38,13 @@ export class MediaRepository {
   }
 
   /**
-   * Point this owner's avatar row at `asset`, creating the row if there isn't one, and report
-   * whichever asset the row held beforehand so the caller can clean it up.
+   * Points the avatar row at `asset` (creating it if needed) and returns what it held before so
+   * the caller can clean it up.
    *
-   * Read-and-write in one transaction behind a per-owner advisory lock (same shape as
-   * `PlatformAdminRepository.setStatusGuardingLastActive`), because the read-then-write this
-   * replaced had two live races:
-   *  - two concurrent *first* uploads both saw no row, both inserted, and the loser hit the
-   *    `(owner, kind)` partial unique index as a raw 23505 — a 500 plus an orphaned asset;
-   *  - two concurrent *replacements* both read the same previous row and both reported it, so the
-   *    old asset was deleted twice and whichever upload lost the write was orphaned forever.
-   *
-   * The lock is keyed on the owner id, so two different people uploading at the same time never
-   * wait on each other — only the same owner's own concurrent confirms serialize.
+   * Runs under a per-owner advisory lock because without it concurrent first uploads both insert
+   * (the loser hits the unique index as a raw 23505 and orphans its asset), and concurrent
+   * replacements both report the same previous asset. Keyed on owner id, so only one owner's own
+   * confirms serialize.
    */
   async upsertAvatar(
     owner: MediaOwner,
@@ -106,9 +94,7 @@ export class MediaRepository {
     });
   }
 
-  /** Deletes this owner's avatar row outright (GDPR anonymization — there is no successor asset to
-   *  point at), returning what was deleted so the caller can clean up the storage side. `null` when
-   *  there was no avatar to begin with, which is the common case, not an error. */
+  /** GDPR anonymization: no successor asset. Returns what was deleted for storage cleanup, or null when there was none (the common case). */
   async deleteAvatar(owner: MediaOwner): Promise<ReplacedAsset | null> {
     const rows = await this.dbService.db
       .delete(schema.media)

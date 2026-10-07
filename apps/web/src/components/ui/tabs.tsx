@@ -7,9 +7,7 @@ import { type ComponentProps, createContext, useContext, useId, useState } from 
 
 import { cn } from "@/app/_libs/utils/cn";
 
-/** Tracks the active tab value in JS (Radix only exposes it as a `data-state` DOM attribute) so
- *  `TabsTrigger` knows whether to render the sliding indicator, and a per-`Tabs` id so multiple
- *  `Tabs` instances on the same page never share (and fight over) one `layoutId`. */
+/** Tracks the active tab in JS (Radix exposes it only as `data-state`) for the sliding indicator, plus a per-`Tabs` id so instances don't share one `layoutId`. */
 interface TabsIndicatorContextValue {
   activeValue: string | undefined;
   indicatorId: string;
@@ -81,16 +79,8 @@ function TabsTrigger({
         <motion.div
           layoutId={context ? `tabs-active-bg-${context.indicatorId}` : undefined}
           transition={{ type: "spring", stiffness: 380, damping: 32 }}
-          // `dark:bg-input/30` (the original static-background value this replaced) read as
-          // almost black: `--input` composited at 30% opacity over `TabsList`'s own `bg-muted`
-          // works out to only a ~0.03 lightness bump — invisible enough that switching tabs looked
-          // like nothing happened. `shadow-sm` is what actually sells "raised card" in light mode
-          // (shadows barely register on a dark surface), so dark mode needs a real background jump
-          // instead of leaning on it. A plain neutral fill (`dark:bg-input` at full strength) fixed
-          // the contrast but still read as flat; a light `primary` tint (the same hue already used
-          // for other "selected" states — the sidebar's active indicator, a selected toggle) gives
-          // the same visibility with a color cue tying it to that convention, without going full
-          // solid `primary`, which would misread as a call-to-action rather than a neutral tab.
+          // `dark:bg-input/30` read as almost black (~0.03 lightness bump) and `shadow-sm` barely registers on
+          // dark surfaces; a light `primary` tint matches other "selected" states without looking like a CTA.
           className="border-border dark:border-primary/40 absolute inset-0 z-0 rounded-md border bg-card shadow-sm dark:bg-primary/25"
         />
       )}

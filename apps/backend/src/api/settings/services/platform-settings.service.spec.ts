@@ -51,20 +51,9 @@ describe('PlatformSettingsService', () => {
     await expect(target.get()).rejects.toThrow(MESSAGES.SETTINGS.PLATFORM_CONFIG_MISSING);
   });
 
-  /**
-   * This route is `@Public()` — the sign-in screen calls it before any session exists — so the
-   * response is world-readable and must carry nothing but the five feature toggles.
-   * `platform_settings.updated_by_platform_admin_id` is deliberately not among them: it is an
-   * internal `platform_admins.id`, and `PlatformSettingsResponseDto` is shared verbatim with the
-   * admin-only PATCH, so the DTO is the only thing standing between that column and an
-   * unauthenticated caller.
-   *
-   * Asserted as an exact key set rather than a `not.toHaveProperty` on today's one risky field:
-   * the boundary that matters is "nothing new leaks here by accident", and `from()` whitelists by
-   * explicit assignment, so any future column that gets mapped in shows up as a new key and fails
-   * this. Without it, adding two innocuous-looking lines to `from()` republished an internal id on
-   * a public endpoint with every existing test still green.
-   */
+  // The route is `@Public()` and the DTO is shared with the admin-only PATCH, so the DTO is all that
+  // keeps `updated_by_platform_admin_id` off an unauthenticated response. Exact key set (not a
+  // `not.toHaveProperty`) so any column newly mapped in `from()` fails here.
   it('exposes only the five public toggles — never the internal actor id', async () => {
     platformSettingsDbService.get.mockResolvedValue(row);
 

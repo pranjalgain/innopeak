@@ -3,15 +3,9 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { businessSearchCondition } from './admin-businesses.repository';
 
 /**
- * `businessSearchCondition` (and the `ownerPredicate()` it shares with `ownerName`/`ownerEmail`)
- * has no coverage anywhere else: `admin-businesses.db-service.spec.ts` mocks the repository
- * entirely, so it never executes this function's actual SQL-building code. These tests render the
- * real generated SQL via `PgDialect` (no live database needed — `.sqlToQuery` is a pure compile
- * step) specifically to catch the one regression this file's own comments warn is easy to
- * reintroduce silently: swapping the correlation's literal `tenants.id` for an interpolated
- * `${schema.tenants.id}`, which renders as a bare, wrong-table column reference and would make
- * every owner-name search silently return zero or wrong matches, with no compiler or runtime
- * error and no existing test to catch it.
+ * Renders the real SQL via `PgDialect` (the db-service spec mocks the repository). Guards: swapping the
+ * correlation's literal `tenants.id` for an interpolated `${schema.tenants.id}` renders a wrong-table
+ * column reference and silently breaks owner-name search.
  */
 describe('businessSearchCondition', () => {
   const dialect = new PgDialect();
@@ -19,9 +13,7 @@ describe('businessSearchCondition', () => {
   it('correlates the owner EXISTS subquery against the outer tenants.id, unqualified', () => {
     const { sql } = dialect.sqlToQuery(businessSearchCondition('acme'));
 
-    // The safe, correct form: a bare, unqualified `tenants.id` on the right-hand side — see
-    // `ownerPredicate`'s own comment for why an interpolated `${schema.tenants.id}` here would
-    // instead render as `"tenants"."id"` and resolve to the wrong (inner) table.
+    // Bare `tenants.id` on the right-hand side; an interpolated `${schema.tenants.id}` would render `"tenants"."id"` and resolve to the inner table.
     expect(sql).toContain('"users"."tenant_id" = tenants.id');
     expect(sql).not.toContain('"tenants"."id"');
   });
@@ -39,8 +31,7 @@ describe('businessSearchCondition', () => {
 
     expect(sql).toContain('"tenants"."name" ilike $1');
     expect(sql).toContain('"users"."name" ilike $3');
-    // `%`/`_` in the caller's own search term must be escaped before the wildcard `%...%` wrapping
-    // is added — an unescaped `%` here would turn a literal search into a broader wildcard match.
+    // `%`/`_` in the search term are escaped before wildcard wrapping; unescaped they would broaden the match.
     expect(params[0]).toBe('%50\\% off%');
     expect(params[0]).toBe(params[2]);
   });

@@ -3,10 +3,8 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsEnum, IsOptional } from 'class-validator';
 
 /**
- * Both fields optional — the Settings UI's channel toggle and active switch fire independently
- * (`onChannelChange`/`onToggleActive` in `notifications-settings-section.tsx`), never together. A
- * body with neither is rejected in the service, not here: "at least one of two optional fields"
- * is a whole-object rule, not a per-property one.
+ * Both fields optional because the UI's channel toggle and active switch fire independently. A body
+ * with neither is rejected in the service: "at least one of two" is a whole-object rule.
  */
 export class UpdateNotificationRecipientDto {
   @ApiPropertyOptional({

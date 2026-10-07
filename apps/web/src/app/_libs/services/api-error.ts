@@ -20,11 +20,8 @@ export class ApiError extends Error {
 }
 
 /**
- * Every generated SDK method's declared return type is the *inner* DTO (e.g. `TokenResponseDto`),
- * but the backend actually wraps every response in `ApiEnvelope` — the generator has no way to know
- * that from the OpenAPI schema, so at runtime `axios`'s own `response.data` is really the envelope,
- * one level up from what the type says. This unwraps it, matching how the old hand-written
- * `ApiClient.request` used to parse `envelope.data` itself.
+ * The SDK declares the inner DTO as the return type, but the backend wraps every response in `ApiEnvelope`
+ * (invisible to the OpenAPI schema), so `response.data` is really the envelope; this unwraps it.
  */
 export function unwrap<T>(envelopeData: unknown): T {
   return (envelopeData as ApiEnvelope<T>).data as T;

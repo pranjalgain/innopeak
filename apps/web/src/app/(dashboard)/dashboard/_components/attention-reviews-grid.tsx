@@ -19,8 +19,7 @@ interface AttentionReviewsGridProps {
 export function AttentionReviewsGrid({ reviews }: AttentionReviewsGridProps) {
   const t = useTranslations("dashboard.attention");
 
-  // Nothing needs attention — an empty "Needs your attention" heading over a blank grid is worse
-  // than no section at all, so this collapses away entirely rather than showing a hollow header.
+  // Nothing needs attention: collapse the section rather than show a heading over a blank grid.
   if (reviews.length === 0) return null;
 
   return (
@@ -32,8 +31,7 @@ export function AttentionReviewsGrid({ reviews }: AttentionReviewsGridProps) {
             key={review.id}
             className={cn(
               "animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards duration-500 ease-fluid",
-              // A blocklist hit gets a stronger visual cue than the badge alone — a low rating's
-              // badge is enough signal on its own.
+              // A blocklist hit gets a stronger cue; a low rating's badge is signal enough on its own.
               review.escalationReason === "blocklist_match" && "border-l-4 border-l-destructive",
             )}
             style={{ animationDelay: `${index * 60}ms` }}
@@ -57,8 +55,7 @@ export function AttentionReviewsGrid({ reviews }: AttentionReviewsGridProps) {
                 {review.escalationReason ? (
                   <EscalationBadge reason={review.escalationReason} short className="py-1.5" />
                 ) : (
-                  // Empty span, not nothing: `justify-between` needs a first child or the CTA
-                  // slides left and the card stops lining up with its neighbours.
+                  // Empty span, not nothing: `justify-between` needs a first child or the CTA slides left.
                   <span />
                 )}
                 <Button asChild variant="outline" size="sm" className="shrink-0">

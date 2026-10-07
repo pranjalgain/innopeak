@@ -21,7 +21,10 @@ import {
 import { AiSettingsSection } from "@/app/(dashboard)/settings/_components/ai-settings-section";
 import { BillingSettingsSection } from "@/app/(dashboard)/settings/_components/billing-settings-section";
 import { BlocklistSettingsSection } from "@/app/(dashboard)/settings/_components/blocklist-settings-section";
+import { CheckoutStatusBanner } from "@/app/(dashboard)/settings/_components/checkout-status-banner";
 import { ConnectionSettingsSection } from "@/app/(dashboard)/settings/_components/connection-settings-section";
+import { DeleteBusinessSection } from "@/app/(dashboard)/settings/_components/delete-business-section";
+import { ExportDataSection } from "@/app/(dashboard)/settings/_components/export-data-section";
 import { GeneralSettingsSection } from "@/app/(dashboard)/settings/_components/general-settings-section";
 import { MembersSettingsSection } from "@/app/(dashboard)/settings/_components/members-settings-section";
 import { NotificationsSettingsSection } from "@/app/(dashboard)/settings/_components/notifications-settings-section";
@@ -63,10 +66,7 @@ export function SettingsView() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  // Every tab but Profile and Members reads from `GET /v1/settings`, which is
-  // `@Roles(UserRole.OWNER)` on the backend — a `member` caller gets a 403 there today, the exact
-  // shape of route this invite feature was the first to make reachable by a non-owner. `enabled`
-  // below stops `useSettings()` from ever making that doomed request for one.
+  // `GET /v1/settings` is owner-only on the backend, so `enabled` keeps a member from making a doomed request.
   const { profile } = useTenantOwnerProfile();
   const isMember = profile?.role === "member";
   const {
@@ -79,66 +79,29 @@ export function SettingsView() {
     toggleRecipientActive,
     disconnect,
   } = useSettings(!isMember);
-  // Deliberately NOT part of the loading gate below (nor `settings` itself, which is required):
-  // General/Blocklist/Notifications/Connection/AI need nothing from it, only whether the
-  // Profile/Members tabs are offered does. Gating the whole page on it meant a failed
-  // `GET /v1/settings/platform-config` — which runs with `retry: false` and never recovers on its
-  // own — left every tab permanently stuck on a skeleton. Treating it as "not yet known" (same as
-  // still loading) and simply not offering those two tabs yet degrades far more gracefully.
+  // Deliberately not part of the loading gate: only Profile/Members need it, and gating on it left every tab stuck on a
+  // skeleton when this query (`retry: false`) failed.
   const { data: platformSettings } = usePlatformSettings();
-  // Same reasoning as `useSettings(!isMember)` above — `GET /v1/billing/subscription` is also
-  // owner-only on the backend.
+  // Also owner-only on the backend.
   const { data: subscription } = useSubscription(!isMember);
-  // One-shot: reconciles billing status against Stripe when the browser lands back here from a
-  // Checkout success redirect — see that hook's own doc comment. A no-op on every other render
-  // (neither `checkout=success` nor `session_id` is present).
-  useCheckoutReconciliation();
+  // One-shot: reconciles with Stripe after a Checkout success redirect; a no-op otherwise.
+  const checkoutReconciliation = useCheckoutReconciliation();
   /**
-   * The Billing tab's own availability rule — deliberately broader than a bare
-   * `platformSettings.paymentFeatureEnabled` check. That flag only gates *starting a new
-   * checkout* on the backend (`BillingService.createCheckoutSession`); it was never meant to
-   * revoke an already-Paid tenant's ability to see or cancel a subscription that keeps
-   * auto-renewing regardless of this app's own flag — Stripe has no idea the flag exists. Hiding
-   * the tab outright for a tenant already on Paid would strand them: still being charged every
-   * cycle, with no in-app way to even see that, let alone stop it. A Free tenant still only sees
-   * this tab (and its "Upgrade" button, which would otherwise just 403) while the flag is on.
+   * Broader than `paymentFeatureEnabled`: that flag only gates starting a checkout, and hiding the tab for a Paid tenant
+   * would leave them charged every cycle with no in-app way to cancel.
    */
   const billingTabAvailable =
     platformSettings?.paymentFeatureEnabled === true || subscription?.planCode === "paid";
 
-  /**
-   * `Tabs` is **controlled from the URL** (mirrors `AdminSettingsView`'s identical pattern) —
-   * `?tab=` is the single source of truth for which tab is showing, and clicking a tab writes it
-   * back. This also covers the OAuth callback redirecting to
-   * `/settings?tab=connection&connected=1` after a reconnect: the tenant lands wherever the URL
-   * says, not on a hardcoded default.
-   *
-   * An earlier, uncontrolled shape (`defaultValue={initialTab}` plus `key={initialTab}` to force a
-   * remount when the resolved tab changed) broke in two ways a controlled `Tabs` doesn't: clicking
-   * a tab was invisible to `initialTab` (which only reads the URL) until the URL sync round-tripped
-   * back through a remount, and that remount reset anything else `TabsList`/`TabsContent` carried
-   * as local state — including the tab strip's own horizontal scroll position, so scrolling right to
-   * reach a later tab and clicking it snapped the strip back to the start. `AppShell` renders an
-   * entirely different element tree per `useBreakpoint()` bucket (mobile vs. tablet/desktop — see
-   * its own file), so crossing a breakpoint while resizing the window still unmounts and remounts
-   * this whole page — but a controlled `Tabs` recovers from that for free, by simply re-reading the
-   * same URL on the fresh mount, with no `key` trick and no in-between remount on every click.
-   */
-  /**
-   * Falls back to "general" not just for an unknown `?tab=`, but also for "profile"/"members"
-   * when that tab isn't actually available (passwordLoginEnabled/inviteMembersEnabled off) —
-   * requesting a tab with no matching `TabsTrigger` would otherwise leave Radix with nothing
-   * selected at all (a blank Settings page), which is exactly what happens if a stale link/bookmark
-   * carries `?tab=profile` from before a Super Admin turned password login off.
-   */
+  /** `Tabs` is controlled from `?tab=`, so OAuth redirects land on the right tab and an AppShell breakpoint remount just re-reads the URL without resetting the tab strip's scroll. */
+  /** Falls back to "general" for an unknown tab and for profile/members when unavailable: a value with no `TabsTrigger` leaves Radix with nothing selected (e.g. a stale bookmark). */
   const requestedTab = searchParams.get("tab");
   const activeTab = useMemo(() => {
     if (!TABS.includes(requestedTab as (typeof TABS)[number])) return "general";
     if (requestedTab === "profile" && !platformSettings?.passwordLoginEnabled) return "general";
     if (requestedTab === "members" && !platformSettings?.inviteMembersEnabled) return "general";
     if (requestedTab === "billing" && !billingTabAvailable) return "general";
-    // `TABS.includes` above already confirmed membership; it just doesn't narrow `requestedTab`'s
-    // `string | null` type for TypeScript the way a custom type guard would.
+    // `TABS.includes` doesn't narrow `string | null` for TypeScript.
     return requestedTab!;
   }, [
     requestedTab,
@@ -149,22 +112,15 @@ export function SettingsView() {
 
   const handleTabChange = useCallback(
     (value: string) => {
-      // `typedRoutes` cannot see that this interpolation only ever produces `/settings?tab=` plus
-      // one of the `TABS` literals — same narrow, intentional cast `AdminSettingsView`'s own
-      // `handleTabChange` uses for the identical pattern.
+      // `typedRoutes` can't see that this only produces `/settings?tab=` plus a `TABS` literal.
       router.replace(`${pathname}?tab=${value}` as Route, { scroll: false });
     },
     [router, pathname],
   );
 
   if (isMember) {
-    // Profile is the one tab this route ever offers a member — every other tab reads from
-    // `GET /v1/settings`, `@Roles(UserRole.OWNER)` on the backend, and that query is disabled
-    // entirely for a member (see the `useSettings()` call above), so `settings` never loads for
-    // one. Returning here, ahead of the `!settings` skeleton-gate below, is what stops that from
-    // reading as a permanently-stuck loading state instead of ever reaching a tab. Still gated on
-    // `passwordLoginEnabled`, same as the owner path: a member's Profile tab has nothing to show
-    // when password sign-in itself is off platform-wide.
+    // Profile is the only tab offered to a member: the settings query is disabled for them, so return before the
+    // `!settings` skeleton gate to avoid a permanent loading state. Still gated on `passwordLoginEnabled`.
     if (!platformSettings?.passwordLoginEnabled) {
       return (
         <div className="p-fluid-page flex flex-col gap-6">
@@ -239,7 +195,11 @@ export function SettingsView() {
         </TabsList>
 
         <TabsContent value="general">
-          <GeneralSettingsSection general={settings.general} onSave={saveGeneral} />
+          <div className="flex flex-col gap-5">
+            <GeneralSettingsSection general={settings.general} onSave={saveGeneral} />
+            <ExportDataSection />
+            <DeleteBusinessSection />
+          </div>
         </TabsContent>
 
         <TabsContent value="blocklist">
@@ -283,6 +243,11 @@ export function SettingsView() {
 
         {billingTabAvailable ? (
           <TabsContent value="billing">
+            <CheckoutStatusBanner
+              outcome={checkoutReconciliation.outcome}
+              isChecking={checkoutReconciliation.isChecking}
+              onRecheck={checkoutReconciliation.recheck}
+            />
             <BillingSettingsSection />
           </TabsContent>
         ) : null}

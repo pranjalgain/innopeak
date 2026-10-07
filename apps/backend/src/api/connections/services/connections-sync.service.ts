@@ -46,9 +46,8 @@ export class ConnectionsSyncService {
       errorMessage: run?.errorMessage ?? null,
       isStale: isSyncRunStale(run),
       onboardingBackfillCompletedAt: location.onboardingBackfillCompletedAt,
-      // The only correct signal for advancing the UI to "done". `status === 'ok'` means the job
-      // finished; this means the poller is actually un-gated (PLAN.md §8.2). Advancing on `ok`
-      // alone shows "you're all set" for a location the scheduler still refuses to enqueue.
+      // `status === 'ok'` only means the job finished; this means the poller is actually un-gated, so
+      // advancing on `ok` alone would say "all set" for a location the scheduler still won't enqueue.
       livePollingEnabled: location.onboardingBackfillCompletedAt !== null,
     };
   }
@@ -71,8 +70,8 @@ export class ConnectionsSyncService {
 
     return {
       locationId: location.id,
-      // "Never synced" is not unhealthy — a location confirmed 30 seconds ago has no sync history
-      // and reporting it as broken would light up a warning on every fresh onboarding.
+      // "Never synced" is not unhealthy: a freshly confirmed location has no history, and flagging it
+      // would warn on every new onboarding.
       healthy:
         location.status === LocationStatus.ACTIVE &&
         connectionStatus === ReviewProviderConnectionStatus.ACTIVE &&
@@ -128,8 +127,7 @@ export class ConnectionsSyncService {
         reviewsFetched: run.reviewsFetched,
         errorMessage: run.errorMessage,
       })),
-      // Nested inside `data` — TransformInterceptor rebuilds the envelope and would drop a
-      // top-level `meta`.
+      // Nested inside `data` because TransformInterceptor rebuilds the envelope and drops a top-level `meta`.
       meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
     };
   }

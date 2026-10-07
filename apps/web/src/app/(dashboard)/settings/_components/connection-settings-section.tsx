@@ -39,27 +39,18 @@ export function ConnectionSettingsSection({
   const [isConfirming, setIsConfirming] = useState(false);
   const { isRedirecting, startAuthorize } = useConnectionAuthorize();
   const isConnected = connection.status === "connected";
-  // Read-only: this tab only shows what's confirmed, it doesn't switch between them (that's the
-  // header's BusinessSwitcher, already visible on this page) — reusing its hook avoids a second
-  // fetch of the same `["connections", "locations"]` data.
+  // Read-only; reuses the header switcher's hook to avoid a second fetch of the same locations data.
   const { locations, activeLocationId } = useBusinessSwitcher();
   const activeLocation = locations.find((location) => location.id === activeLocationId) ?? null;
   const otherLocations = locations.filter((location) => location.id !== activeLocation?.id);
 
-  // The tile below names the active location from the SAME data that decides which locations are
-  // "other", never from the `connection` prop alone. That prop comes from the `["settings"]` query,
-  // a separate cached copy of the same server state, and switching business from the header's
-  // BusinessSwitcher writes only `["connection"]` — so the two disagree until Settings happens to
-  // refetch (5-minute staleTime, no refetch on focus). While they disagreed, the just-deselected
-  // location was rendered as the connected one AND listed under "other connected locations", with
-  // the genuinely active one shown nowhere. Falls back to the prop whenever the locations list
-  // hasn't loaded (or a single-location tenant has nothing to switch between).
+  // Name the active location from the same data that decides the "other" list, not the `connection` prop: that comes
+  // from the separate ["settings"] query, which disagrees with ["connection"] after a header switch until Settings
+  // refetches. Falls back to the prop when locations haven't loaded.
   const activeBusinessName = activeLocation?.businessName ?? connection.businessName;
   const activeLastSyncedAt = activeLocation?.lastSyncedAt ?? connection.lastSyncedAt;
 
-  // A full-page navigation into the OAuth flow, returning to this tab via the backend's
-  // `?tab=connection` redirect. Previously the only way back from "disconnected" was the
-  // onboarding screen, which meant Settings could break a connection but never repair one.
+  // Full-page navigation into the OAuth flow, returning via the backend's `?tab=connection` redirect.
   const handleConnect = () => startAuthorize("settings");
 
   return (
@@ -160,9 +151,8 @@ export function ConnectionSettingsSection({
               onClick={() => {
                 onDisconnect();
                 setIsConfirming(false);
-                // The (dashboard) layout's access guard is already mounted and
-                // won't re-check on its own — leave immediately rather than
-                // sit on a "connected-only" screen while actually disconnected.
+                // The (dashboard) layout's access guard won't re-check on its own; leave immediately rather than sit on a
+                // connected-only screen while disconnected.
                 router.push(ROUTES.ONBOARDING_CONNECT as Route);
               }}>
               {t("disconnectButton")}

@@ -9,14 +9,9 @@ import { ConnectionsSyncController } from './connections-sync.controller';
 import { BACKFILL_POLL_THROTTLE } from '../constants/connections.constants';
 
 /**
- * `ThrottlerGuard` evaluates every configured tier per request, and `@Throttle` overrides only the
- * tiers it names. The onboarding progress poll asks for 120 req/min, which blows through the
- * global `medium` (100 / 5 min), `long` (500 / 30 min) and `very-long` (1000 / hr) tiers while an
- * import is still legitimately running — so those have to be explicitly skipped on this handler.
- *
- * Asserted against the reflected metadata rather than by firing requests at a live server: the
- * tiers are minutes-to-hours long, so an HTTP probe cannot distinguish "correctly skipped" from
- * "bucket happened to be empty" without waiting out the longest window.
+ * `@Throttle` overrides only the tiers it names, and the 120 req/min onboarding poll would exhaust the
+ * global medium/long/very-long tiers mid-import, so those must be skipped. Asserted via reflected
+ * metadata: the tiers last minutes to hours, so an HTTP probe cannot tell "skipped" from "bucket empty".
  */
 describe('ConnectionsSyncController throttling', () => {
   const getBackfill = ConnectionsSyncController.prototype.getBackfill;
@@ -41,7 +36,6 @@ describe('ConnectionsSyncController throttling', () => {
     expect(Reflect.getMetadata(`${THROTTLER_SKIP}short`, getBackfill)).toBeUndefined();
   });
 
-  /** The sibling routes are ordinary reads and must stay on the global tiers. */
   it.each(['getSyncHealth', 'listSyncRuns'] as const)('leaves %s on the global tiers', method => {
     const handler = ConnectionsSyncController.prototype[method];
     for (const tier of ['short', 'medium', 'long', 'very-long']) {

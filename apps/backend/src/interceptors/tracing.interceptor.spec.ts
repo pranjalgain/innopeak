@@ -97,9 +97,6 @@ describe('TracingInterceptor', () => {
 
     await firstValueFrom(interceptor.intercept(context, callHandler));
 
-    // For strings, JSON.stringify succeeds (adding surrounding quotes), so the
-    // `typeof data === 'string'` branch inside the catch is only reached when
-    // JSON.stringify itself throws — which a plain string never does.
     expect(span.setAttributes).toHaveBeenCalledWith(
       expect.objectContaining({ 'response.size': JSON.stringify('plain-text').length })
     );
@@ -113,7 +110,7 @@ describe('TracingInterceptor', () => {
 
     await firstValueFrom(interceptor.intercept(context, callHandler));
 
-    const expectedSize = Object.prototype.toString.call(circular).length; // "[object Object]".length
+    const expectedSize = Object.prototype.toString.call(circular).length;
     expect(span.setAttributes).toHaveBeenCalledWith(
       expect.objectContaining({ 'response.size': expectedSize })
     );

@@ -22,24 +22,14 @@ interface ConfirmActionDialogProps {
   confirmLabel: string;
   cancelLabel: string;
   onConfirm: () => void;
-  /** Styles the confirm button as destructive (e.g. suspend/deactivate) instead of the default. */
   destructive?: boolean;
-  /** Disables the confirm button — pass the caller's own mutation `isPending` so a rapid
-   *  double-click (or double-Enter) can't fire the same destructive action twice while the first
-   *  call is still in flight. Cancel stays enabled either way. */
+  /** Pass the caller's mutation `isPending` so a double-click can't fire the action twice. Cancel stays enabled. */
   confirmDisabled?: boolean;
 }
 
 /**
- * A confirm-before-you-act dialog for actions that change something's state
- * (suspend/reactivate a business, activate/deactivate a user) — controlled
- * (`open`/`onOpenChange`) rather than taking a `trigger` to wrap, and rendered
- * as a sibling of whatever opens it (never nested inside a `DropdownMenuContent`):
- * a dropdown menu unmounts its content after its own close animation even when
- * `onSelect` closes it "immediately," and a `AlertDialog` root living inside that
- * subtree gets unmounted along with it moments after opening — this looks like the
- * confirm dialog "closing itself" for no reason. Keeping this dialog outside the
- * menu's subtree avoids that entirely.
+ * Controlled and rendered as a sibling of whatever opens it, never inside a `DropdownMenuContent`:
+ * the menu unmounts its content after its close animation, taking the `AlertDialog` with it.
  */
 export function ConfirmActionDialog({
   open,
@@ -75,16 +65,10 @@ export function ConfirmActionDialog({
 }
 
 interface ConfirmActionButtonProps extends Omit<ConfirmActionDialogProps, "open" | "onOpenChange"> {
-  /** A single element (usually a `Button`) cloned to open the dialog on click. */
   trigger: ReactElement<{ onClick?: () => void }>;
 }
 
-/**
- * Convenience wrapper for the common case: a plain, always-visible button that opens the confirm
- * dialog. NOT for a trigger nested inside something that can unmount around it (a
- * `DropdownMenuItem`) — see `ConfirmActionDialog`'s own doc comment for why that case needs the
- * controlled dialog rendered as a sibling of the menu instead.
- */
+/** For an always-visible trigger only; not one inside something that can unmount (see `ConfirmActionDialog`). */
 export function ConfirmActionButton({ trigger, ...dialogProps }: ConfirmActionButtonProps) {
   const [open, setOpen] = useState(false);
 

@@ -32,9 +32,6 @@ class SentryExampleFrontendError extends Error {
   }
 }
 
-/**
- * Interactive diagnostics for the configured Sentry client and API instrumentation.
- */
 export default function SentryExamplePage() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("checking");
   const [hasSentServerError, setHasSentServerError] = useState(false);

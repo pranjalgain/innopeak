@@ -1,13 +1,8 @@
 /**
- * In-memory, process-lifetime store of "what's currently posted as the reply to this review" —
- * stateful on purpose, unlike the Azure mock below, because the whole point of building the real
- * GBP write path against this server is to exercise the freshness-check-then-post round trip
- * end-to-end: a PUT here must be visible to a later GET for the same review id, exactly like the
- * real Google API, so `ReviewPostQueueService`'s "read current state, abort if someone already
- * replied externally" logic has something real to read.
- *
- * Resets on process restart — acceptable for a dev-only emulator, and `reset()` below gives tests
- * an explicit way to clear it between runs without restarting the process.
+ * In-memory store of the reply currently posted per review. Stateful on purpose: a PUT must be
+ * visible to a later GET for the same review id, like the real Google API, so
+ * `ReviewPostQueueService`'s read-current-state-then-abort-if-replied logic has something real to
+ * read. Resets on restart; `reset()` clears it between test runs.
  */
 
 export interface GbpReply {
@@ -17,9 +12,10 @@ export interface GbpReply {
 
 const replies = new Map<string, GbpReply>();
 
-/** One-shot failure injection for `PUT .../reply` — set via `/gbp/__force-failure`, consumed (and
- *  cleared) by the very next reply attempt, so a test can force exactly one `post_failed` without
- *  the mock server staying broken afterward. */
+/**
+ * One-shot failure injection for `PUT .../reply`, set via `/gbp/__force-failure` and cleared by the
+ * next reply attempt so a test forces exactly one `post_failed`.
+ */
 let forceNextReplyFailure = false;
 
 export function getReply(reviewId: string): GbpReply | undefined {
@@ -43,7 +39,7 @@ export function armNextReplyFailure(): void {
   forceNextReplyFailure = true;
 }
 
-/** Consumes the armed failure, if any — returns whether THIS call should fail. */
+/** Returns whether THIS call should fail. */
 export function consumeForcedFailure(): boolean {
   if (!forceNextReplyFailure) {
     return false;

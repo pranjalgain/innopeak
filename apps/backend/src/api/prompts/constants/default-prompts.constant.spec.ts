@@ -8,9 +8,8 @@ import {
 } from './prompts.constants';
 
 /**
- * The point of keeping the defaults in TypeScript rather than SQL: they can be held to the same
- * rules `POST /prompts/:id/versions` enforces. A provisioned template that failed validation
- * would be a template the owner cannot re-save without rewriting it from scratch.
+ * Defaults are TypeScript rather than SQL so they are held to the same rules as `POST
+ * /prompts/:id/versions`; a template failing them could not be re-saved.
  */
 describe('DEFAULT_PROMPTS', () => {
   it('covers each category exactly once', () => {
@@ -23,10 +22,8 @@ describe('DEFAULT_PROMPTS', () => {
   });
 
   /**
-   * The reply-language behaviour lives in the template text itself, not in a wrapper the
-   * generation module adds — so it is only guaranteed for as long as every default carries it.
-   * A German reviewer getting an English reply is the failure this prevents, and it would be
-   * invisible until someone read a generated reply.
+   * Reply-language behaviour lives in the template text, not a wrapper, so every default must carry
+   * it; otherwise a German reviewer getting an English reply goes unnoticed.
    */
   it('every default tells the model to answer in the language the review was written in', () => {
     for (const prompt of DEFAULT_PROMPTS) {

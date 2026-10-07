@@ -1,23 +1,11 @@
 import type { MessageCatalog } from './message-catalog.type';
 
 /**
- * German translations. Typed against `MessageCatalog` (not `typeof messagesEn`) so a missing or
- * extra key here is a compile error rather than a silent gap.
- *
- * **Drafted, not reviewed.** This is a professional-register best-effort translation, not a
- * native-speaker/legal review — per the multilingual design doc, that review is still required
- * before anything security- or legally-sensitive here ships to real users. Two properties a
- * reviewer must preserve, not just the wording:
- *
- *  1. **Anti-enumeration pairs must stay identical.** `SIGNUP_OTP_SENT` and `LOGIN_OTP_SENT` are
- *     deliberately the same text in English so a caller cannot tell a signup attempt from a login
- *     attempt from the response alone — a German synonym for one but not the other would
- *     reintroduce that oracle. `message-registry.spec.ts` asserts this pair stays equal; a
- *     reviewer changing the wording must keep both branches identical.
- *  2. **Deliberately-vague messages must stay vague.** `INVALID_CREDENTIALS`,
- *     `INVALID_OR_EXPIRED_OTP`, `RESEND_OTP_ACK`, and `TENANT_ONLY` (which never names the
- *     caller's actual token type) are worded to avoid confirming which specific case applies —
- *     see the English file's comments at each key for the exact scenario each one is hiding.
+ * Drafted, not native-speaker/legal reviewed. A reviewer must preserve two properties:
+ * 1. `SIGNUP_OTP_SENT` and `LOGIN_OTP_SENT` stay identical (enforced in message-registry.spec.ts),
+ *    so a response can't distinguish signup from login.
+ * 2. Deliberately vague messages (`INVALID_CREDENTIALS`, `INVALID_OR_EXPIRED_OTP`, `RESEND_OTP_ACK`,
+ *    `TENANT_ONLY`) stay vague; see the English file's comment at each key.
  */
 export const messagesDe: MessageCatalog = {
   AUTH: {
@@ -43,6 +31,15 @@ export const messagesDe: MessageCatalog = {
     PASSWORD_CHANGED: 'Passwort geändert. Andere Sitzungen werden abgemeldet.',
     PASSWORD_SET: 'Passwort festgelegt. Sie können sich jetzt auch mit einem Passwort anmelden.',
     SET_PASSWORD_OTP_ACK: 'Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren.',
+    BUSINESS_NAME_MISMATCH: 'Der eingegebene Unternehmensname stimmt nicht überein.',
+    PASSWORD_REQUIRED_TO_DELETE: 'Bestätigen Sie mit Ihrem Passwort statt mit einem Code.',
+    DELETE_ACCOUNT_OTP_ACK: 'Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren.',
+    ACCOUNT_DELETION_NOT_POSSIBLE:
+      'Die Löschung dieses Unternehmens kann derzeit nicht vorgemerkt werden.',
+    ACCOUNT_DELETION_SCHEDULED: 'Löschung vorgemerkt. Sie wurden abgemeldet.',
+    ACCOUNT_SCHEDULED_FOR_DELETION: (date: string): string =>
+      `Dieses Unternehmen ist zur Löschung am ${date} vorgemerkt. Bis dahin können Sie es wiederherstellen.`,
+    ACCOUNT_RESTORED: 'Ihr Unternehmen wurde wiederhergestellt. Sie können sich jetzt anmelden.',
     LOCALE_UPDATED: 'Spracheinstellung aktualisiert.',
     AVATAR_UPDATED: 'Avatar aktualisiert.',
     TENANT_ONLY: 'Diese Aktion steht nur Mandantenbenutzern zur Verfügung.',
@@ -78,7 +75,8 @@ export const messagesDe: MessageCatalog = {
       'Dieser Standort ist für das verbundene Google-Konto nicht sichtbar. Verbinden Sie sich erneut und versuchen Sie es noch einmal.',
     CONNECTION_NEEDS_REAUTH:
       'Die Google-Verbindung ist abgelaufen. Verbinden Sie Ihr Google Business-Profil erneut, um fortzufahren.',
-    LOCATION_LIMIT_REACHED: 'Zu viele Standorte für dieses Konto.',
+    LOCATION_LIMIT_REACHED:
+      'Sie haben das Standortlimit Ihres Tarifs erreicht. Führen Sie ein Upgrade durch, um weitere hinzuzufügen.',
     BACKFILL_ENQUEUE_FAILED:
       'Standort verbunden, aber der Rezensionsimport konnte nicht gestartet werden. Bitte bestätigen Sie diesen Standort erneut.',
     PROVIDER_UNAVAILABLE:
@@ -196,6 +194,8 @@ export const messagesDe: MessageCatalog = {
     STRIPE_ONLY_FEATURE: 'Dies ist in dieser Umgebung nicht verfügbar.',
     STRIPE_WEBHOOK_TENANT_NOT_FOUND: 'Kein passender Mandant für dieses Stripe-Ereignis gefunden',
     CHECKOUT_SESSION_TENANT_MISMATCH: 'Checkout-Sitzung nicht gefunden',
+    PAYMENT_METHOD_NOT_USABLE:
+      'Diese Zahlungsmethode kann für dieses Konto nicht verwendet werden. Fügen Sie die Karte erneut hinzu.',
     CHECKOUT_RECONCILED: 'Abrechnungsstatus aktualisiert',
   },
   SETTINGS: {
@@ -203,6 +203,8 @@ export const messagesDe: MessageCatalog = {
     BLOCKLIST_TERM_CREATED: 'Sperrlisteneintrag hinzugefügt',
     BLOCKLIST_TERM_REMOVED: 'Sperrlisteneintrag entfernt',
     BLOCKLIST_TERM_EXISTS: 'Dieser Begriff steht bereits auf der Sperrliste',
+    BLOCKLIST_LIMIT_REACHED:
+      'Sie haben das Limit von 100 Sperrlisten-Begriffen erreicht. Entfernen Sie einen, um einen weiteren hinzuzufügen.',
     BLOCKLIST_TERM_NOT_FOUND: 'Sperrlisteneintrag nicht gefunden',
     TENANT_ONLY: 'Einstellungen stehen nur Mandantenbenutzern zur Verfügung.',
     RETRIEVED: 'Einstellungen erfolgreich abgerufen',
@@ -237,6 +239,8 @@ export const messagesDe: MessageCatalog = {
     USER_NOT_FOUND: 'Benutzer nicht gefunden.',
     USER_STATUS_UPDATED: 'Benutzerstatus aktualisiert.',
     BUSINESS_NOT_FOUND: 'Unternehmen nicht gefunden.',
+    POST_ERASURE_CHARGE_NOT_FOUND: 'Diese Abbuchung wurde nicht gefunden oder bereits bearbeitet.',
+    POST_ERASURE_CHARGE_RESOLVED: 'Als bearbeitet markiert.',
     BUSINESS_STATUS_UPDATED: 'Unternehmensstatus aktualisiert.',
     BUSINESS_ERASURE_REQUESTED: (days: number): string =>
       `Löschung angefordert. Jeder Benutzer dieses Unternehmens verliert sofort den Zugriff, und die Daten werden in ${days} Tagen endgültig gelöscht, sofern Sie nicht vorher abbrechen.`,

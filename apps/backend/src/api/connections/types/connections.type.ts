@@ -14,8 +14,6 @@ export interface CallbackInput {
   sid?: string | undefined;
 }
 
-// ─── OAuth state ──────────────────────────────────────────────────────────────
-
 /** Everything the callback's write path needs. Read from Redis, never from the client's blob. */
 export interface OAuthStateRecord {
   tenantId: string;

@@ -14,8 +14,7 @@ import { useNotifications } from "../use-notifications";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
-// A fresh QueryClient per render so one test's cached `["notifications"]` pages can never leak
-// into the next.
+// Fresh QueryClient per render so cached pages can't leak between tests.
 function wrapper({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={createQueryClient()}>
@@ -27,11 +26,8 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe("useNotifications", () => {
-  // `NotificationService.list` is a real backend call now, not mock-data-backed — these tests
-  // are about the hook's own paging/dedup/StrictMode behavior, not the service, so this default
-  // implementation reproduces exactly what the service used to do by itself (page through
-  // `MOCK_NOTIFICATIONS`), leaving individual tests free to layer `mockResolvedValueOnce`/
-  // `mockRejectedValueOnce` on top for one call at a time.
+  // Default `NotificationService.list` implementation pages through `MOCK_NOTIFICATIONS`; tests
+  // layer `mockResolvedValueOnce`/`mockRejectedValueOnce` on top.
   beforeEach(() => {
     vi.spyOn(NotificationService, "list").mockImplementation(async (offset, limit) => {
       const items = structuredClone(MOCK_NOTIFICATIONS).slice(offset, offset + limit);
@@ -56,8 +52,7 @@ describe("useNotifications", () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    // StrictMode mounts effects twice in dev — without the initial-load guard, offset 0 would be
-    // fetched twice and every row in the list would be duplicated.
+    // StrictMode mounts effects twice; without the initial-load guard offset 0 is fetched twice and rows duplicate.
     expect(result.current.notifications).toHaveLength(3);
     expect(new Set(result.current.notifications.map((n) => n.id)).size).toBe(3);
     expect(result.current.hasMore).toBe(true);
@@ -74,18 +69,15 @@ describe("useNotifications", () => {
       result.current.fetchNextPage();
     });
 
-    // Waits on the actual page arriving rather than `isFetchingNextPage` flipping back to
-    // `false`: react-query notifies subscribers a tick later than a plain `useState` setter would,
-    // so a `waitFor` racing that flag alone could observe "not fetching" before the fetch has
-    // even started, not after it finished.
+    // Waits on the page arriving, not `isFetchingNextPage` flipping back: react-query notifies a tick
+    // later, so `waitFor` on that flag could see "not fetching" before the fetch even started.
     await waitFor(() => expect(result.current.notifications).toHaveLength(5));
     expect(new Set(result.current.notifications.map((n) => n.id)).size).toBe(5);
     expect(result.current.hasMore).toBe(false);
   });
 
   test("unreadCount is the whole feed's total, not just the loaded rows", async () => {
-    // Every unread notification sits past the first page, so a count derived from loaded rows
-    // would report zero and hide the bell's dot entirely.
+    // Every unread notification is past the first page, so a count from loaded rows would hide the bell dot.
     vi.spyOn(NotificationService, "list").mockResolvedValueOnce({
       items: [{ ...MOCK_NOTIFICATIONS[0]!, isRead: true }],
       hasMore: true,
@@ -107,23 +99,16 @@ describe("useNotifications", () => {
 
     const before = result.current.unreadCount;
     const unread = result.current.notifications.find((n) => !n.isRead);
-    // Stubbed to echo the optimistic value back, so this test stays about the optimistic
-    // decrement itself. The reconcile is covered separately below.
+    // Echoes the optimistic value back; the reconcile is covered separately below.
     vi.spyOn(NotificationService, "markAsRead").mockResolvedValue(before - 1);
 
     act(() => result.current.markAsRead(unread!.id));
 
-    // Same react-query-notifies-a-tick-later reasoning as above — `waitFor` rather than an
-    // immediate assertion.
+    // `waitFor`, not an immediate assertion (same react-query timing as above).
     await waitFor(() => expect(result.current.unreadCount).toBe(before - 1));
   });
 
-  /**
-   * The badge covers the whole feed while this client holds only the pages it fetched, so the
-   * optimistic decrement is a guess and the server's post-write count is the truth. Before both
-   * mark routes existed the write was a `setTimeout` stub: the badge cleared, and a reload
-   * brought every notification back unread.
-   */
+  /** Regression: the write was a `setTimeout` stub, so a reload brought every notification back unread; the server's post-write count is the truth. */
   test("replaces the optimistic unread guess with the server's own count", async () => {
     const { result } = renderHook(() => useNotifications(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));

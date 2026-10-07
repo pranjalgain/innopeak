@@ -1,23 +1,21 @@
--- Migration: tenant_auth
--- Google Business Profile Review Management — tenant provisioning & user auth module
--- Source of truth: apps/backend/docs/PLAN.md + apps/backend/docs/schema.dbml
--- Depends on: 0000_foundation.sql (enum types), 0001_platform_admin.sql
---   (tenants.created_by_platform_admin_id references platform_admins)
-
--- ───────────────────────────────────────────────────────────────────────
--- tenants — depends on: platform_admins (nullable — only set for support-created tenants)
--- ───────────────────────────────────────────────────────────────────────
-
 CREATE TABLE IF NOT EXISTS tenants (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     name VARCHAR(255) NOT NULL,
     created_by_platform_admin_id UUID REFERENCES platform_admins(id) ON DELETE SET NULL,
     status tenant_status NOT NULL DEFAULT 'pending_activation',
-    -- Set when a platform admin requests GDPR erasure of this tenant (AdminBusinessesService
-    -- .requestErasure); the tenant is suspended immediately but not yet anonymized. Cleared by
-    -- cancelErasure, or by the nightly purge once it actually anonymizes every user and flips
-    -- status to 'erased'. NULL means "no erasure pending."
+    -- Set when erasure is requested; NULL = none pending. The tenant is suspended meanwhile and
+    -- anonymized only after the grace period.
     erasure_requested_at TIMESTAMPTZ,
+    -- NULL for a platform admin's request. No FK: users is created after tenants, and the value is
+    -- only compared for equality.
+    erasure_requested_by_user_id UUID,
+    -- Set once the 'N days left' reminder is claimed; cleared when an erasure is requested or
+    -- cancelled.
+    erasure_reminder_sent_at TIMESTAMPTZ,
+    -- The most recent erasure that was cancelled, kept so a payment whose webhook arrives after the
+    -- cancel can still be recognised as taken during it.
+    last_erasure_requested_at TIMESTAMPTZ,
+    last_erasure_cancelled_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -25,10 +23,6 @@ CREATE TABLE IF NOT EXISTS tenants (
 CREATE INDEX idx_tenants_created_by_platform_admin_id ON tenants(created_by_platform_admin_id);
 CREATE INDEX idx_tenants_status ON tenants(status);
 CREATE INDEX idx_tenants_erasure_requested_at ON tenants(erasure_requested_at) WHERE erasure_requested_at IS NOT NULL;
-
--- ───────────────────────────────────────────────────────────────────────
--- tenant_identity_providers — depends on: tenants
--- ───────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS tenant_identity_providers (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -43,21 +37,11 @@ CREATE TABLE IF NOT EXISTS tenant_identity_providers (
 CREATE INDEX idx_tenant_identity_providers_tenant_id ON tenant_identity_providers(tenant_id);
 CREATE UNIQUE INDEX idx_tenant_identity_providers_provider_tenant_id ON tenant_identity_providers(provider, provider_tenant_id);
 
--- ───────────────────────────────────────────────────────────────────────
--- users — depends on: tenants
--- ───────────────────────────────────────────────────────────────────────
-
--- invited_by_user_id is a self-reference, which needs no special handling — it's nullable and
--- the column and its own table exist together in this single CREATE TABLE. NULL for a
--- self-registered owner (§4.3a) and for a platform-admin-provisioned owner (§4.3d, whose
--- inviter is a platform_admins row, not a users row); set only when a member is invited by an
--- owner (§4.3b), which is the only case where the inviter genuinely is another users row.
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    -- Nullable, not NOT NULL: GDPR anonymize-in-place (AccountAnonymizationService) nulls this
-    -- rather than deleting the row, so review_responses.approved_by_user_id/created_by_user_id
-    -- keep a valid FK target and the "who approved this reply" accountability trail survives.
+    -- Nullable: anonymization nulls PII in place instead of deleting the row, which keeps approver
+    -- foreign keys valid.
     name VARCHAR(255),
     email VARCHAR(255),
     password_hash VARCHAR(255),
@@ -66,14 +50,10 @@ CREATE TABLE IF NOT EXISTS users (
     role user_role NOT NULL,
     status user_status NOT NULL,
     anonymized_at TIMESTAMPTZ,
-    -- Set when an owner requests removal of this member (TenantMembersService.requestRemoval) or
-    -- when this user belongs to a tenant a platform admin requested erasure of; access is revoked
-    -- immediately (status: disabled) but anonymization waits for the grace period. Cleared on
-    -- cancel, or by the nightly purge once it actually anonymizes the row. NULL means "not pending."
+    -- Set when removal of this member is requested; access ends now, anonymization after the grace
+    -- period.
     erasure_requested_at TIMESTAMPTZ,
-    -- NULL means "never chose" — that's what makes Accept-Language negotiation legitimate for
-    -- this user. A DEFAULT 'en' would silently pin every existing/self-registered user to English
-    -- instead of letting the request's own header decide.
+    -- NULL means the user never chose a language; Accept-Language decides.
     locale user_locale,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -86,30 +66,12 @@ CREATE INDEX idx_users_status ON users(status);
 CREATE INDEX idx_users_invited_by_user_id ON users(invited_by_user_id);
 CREATE INDEX idx_users_erasure_requested_at ON users(erasure_requested_at) WHERE erasure_requested_at IS NOT NULL;
 
--- ───────────────────────────────────────────────────────────────────────
--- tenant_settings — depends on: tenants
--- ───────────────────────────────────────────────────────────────────────
-
 CREATE TABLE IF NOT EXISTS tenant_settings (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    -- DEFAULT 3 so the product default lives in exactly one place. Without it the column was
-    -- NOT NULL with no default, forcing every writer to restate the number — signup's
-    -- insertTenantSettings and the dev-admin migration both did, with nothing keeping them in
-    -- step. Edited here rather than added as a follow-up ALTER: nothing is deployed, so a local
-    -- database is recreated rather than upgraded. Recreate yours if it predates this line —
-    -- drizzle never re-reads an applied migration, so it will not pick this up on its own.
     escalation_rating_threshold INTEGER NOT NULL DEFAULT 3,
     auto_post_enabled BOOLEAN NOT NULL DEFAULT false,
     review_data_retention_months INTEGER,
-    -- How many AI-drafted reply variants to generate per review — Settings' AI tab. DEFAULT 1
-    -- for the same reason as escalation_rating_threshold above. Added by editing this file rather
-    -- than as a follow-up ALTER, same convention as that column — but note this one is *queried*
-    -- (tenant_settings.repository selects it), so a database that predates this line does not
-    -- merely lack a default: `GET`/`PUT /v1/settings` will fail outright with
-    -- `column "ai_reply_count" does not exist`. Recreate yours (`pnpm db:dev:rm && pnpm db:dev:up`,
-    -- then `pnpm db:migrate`) — drizzle never re-reads an applied migration, so `db:migrate`
-    -- alone reports success and changes nothing.
     ai_reply_count SMALLINT NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -119,17 +81,6 @@ CREATE TABLE IF NOT EXISTS tenant_settings (
 
 CREATE UNIQUE INDEX idx_tenant_settings_tenant_id ON tenant_settings(tenant_id);
 
--- ───────────────────────────────────────────────────────────────────────
--- blocklist_terms — depends on: tenants
--- ───────────────────────────────────────────────────────────────────────
-
--- No `is_active`: a term is either configured or it is removed, and removal is a hard DELETE.
--- The column existed and was never written by any code path — the Blocklist tab only adds and
--- removes — so it read as "every stored term is active" while inviting a reader to assume the
--- classifier filtered on it. It does not. Dropped rather than filtered, so the schema cannot
--- imply a mute feature the product does not have. The audit trigger below preserves the history
--- a soft delete would have kept, and `reviews.matched_keywords` stores matched terms as plain
--- text with no FK, so removing a term never orphans the escalation it caused.
 CREATE TABLE IF NOT EXISTS blocklist_terms (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -140,10 +91,6 @@ CREATE TABLE IF NOT EXISTS blocklist_terms (
 
 CREATE INDEX idx_blocklist_terms_tenant_id ON blocklist_terms(tenant_id);
 CREATE UNIQUE INDEX idx_blocklist_terms_tenant_id_lower_term ON blocklist_terms(tenant_id, lower(term));
-
--- ───────────────────────────────────────────────────────────────────────
--- user_identities — depends on: users
--- ───────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS user_identities (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -157,10 +104,6 @@ CREATE TABLE IF NOT EXISTS user_identities (
 
 CREATE INDEX idx_user_identities_user_id ON user_identities(user_id);
 CREATE UNIQUE INDEX idx_user_identities_provider_provider_user_id ON user_identities(provider, provider_user_id);
-
--- ───────────────────────────────────────────────────────────────────────
--- password_reset_tokens — depends on: users
--- ───────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id UUID PRIMARY KEY DEFAULT uuidv7(),

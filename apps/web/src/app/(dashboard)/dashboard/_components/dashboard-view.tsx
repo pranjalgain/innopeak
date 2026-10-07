@@ -26,9 +26,7 @@ export function DashboardView() {
     useDashboardStats(range);
 
   const statsLoading = isLoading || !stats;
-  // Each stat counts up from 0 once its real value arrives, matching the admin overview's stat
-  // tiles. The rating is scaled by 10 so the counter can animate to one decimal place rather than
-  // rounding it away mid-count.
+  // Counts up from 0 once the value arrives (like the admin overview tiles); the rating is scaled by 10 to animate one decimal.
   const reviewCountAnimated = useCountUp(stats?.reviewCount ?? 0, statsLoading);
   const averageRatingAnimated = useCountUp(Math.round((stats?.averageRating ?? 0) * 10), statsLoading);
   const pendingApprovalAnimated = useCountUp(stats?.pendingApproval ?? 0, statsLoading);

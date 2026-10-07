@@ -66,7 +66,6 @@ describe("BusinessSwitcher", () => {
 
     renderSwitcher();
 
-    // Give the queries a tick to settle, then assert nothing rendered.
     await waitFor(() => expect(ConnectionService.listLocations).toHaveBeenCalled());
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
@@ -114,8 +113,7 @@ describe("BusinessSwitcher", () => {
 
     const activeItem = await screen.findByRole("menuitem", { name: /downtown store/i });
     const otherItem = screen.getByRole("menuitem", { name: /uptown store/i });
-    // Radix renders the check icon as a sibling within the item — presence of the svg is the
-    // simplest faithful signal here, since the icon carries no accessible name of its own.
+    // The check icon has no accessible name, so the presence of the svg is the signal.
     expect(activeItem.querySelector("svg")).not.toBeNull();
     expect(otherItem.querySelector("svg")).toBeNull();
   });
@@ -155,8 +153,7 @@ describe("BusinessSwitcher", () => {
       location({ id: "loc-1", businessName: "Downtown Store" }),
       location({ id: "loc-2", businessName: "Uptown Store" }),
     ]);
-    // A member hitting the owner-only endpoint, or any other failure — the trigger must not
-    // silently drift to a location the write never actually persisted.
+    // On failure the trigger must not drift to a location the write never persisted.
     vi.spyOn(ConnectionService, "setActiveLocation").mockRejectedValue(new Error("Forbidden"));
 
     renderSwitcher();

@@ -26,11 +26,7 @@ const DATE_FORMAT = {
   minute: "2-digit",
 } as const;
 
-/**
- * Full, unclipped view of one historical version's template — the history list itself keeps each
- * entry's preview to a few lines (`max-h-24 overflow-hidden`) so the collapsed list stays scannable,
- * which means a long template gets cut off there with no way to read the rest. This is that way.
- */
+/** Unclipped view of one version's template; the history list clips previews to a few lines. */
 export function PromptVersionPreviewDialog({ version, stats, onClose }: PromptVersionPreviewDialogProps) {
   const t = useTranslations("promptManagement.history");
   const format = useFormatter();

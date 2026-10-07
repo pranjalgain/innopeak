@@ -36,14 +36,7 @@ interface ActivityLogQueryParams {
 const activityLogQueryKey = (params: ActivityLogQueryParams) =>
   [...adminOverviewActivityLogQueryKey, params] as const;
 
-/**
- * Platform-admin action history, paginated and filtered **server-side** — same reasoning as
- * `useAdminBillingWebhookEvents`/`useReviewQueue`'s own doc comments. Real `platform_activity_log`
- * rows only, distinct from the Overview glance card's own merged feed (`useAdminOverview`'s
- * `activityFeed`, synthesized "business joined" entries included), which has no server-side
- * pagination of its own — see `AdminOverviewRepository.listActivity`'s own comment for why the two
- * stay separate.
- */
+/** Paginated and filtered server-side; real `platform_activity_log` rows only, unlike the Overview's merged feed (see `AdminOverviewRepository.listActivity`). */
 export function useAdminPlatformActivityLog(): UseAdminPlatformActivityLogResult {
   const t = useTranslations("adminOverview.toasts");
   const [page, setPageState] = useState(1);
@@ -51,7 +44,7 @@ export function useAdminPlatformActivityLog(): UseAdminPlatformActivityLogResult
 
   const type = filter !== "all" ? filter : undefined;
 
-  // A filter change invalidates the current page — same reasoning as the webhook-events hook.
+  // A filter change can leave the current page out of range (see the webhook-events hook).
   const paramsKey = filter;
   const [lastParamsKey, setLastParamsKey] = useState(paramsKey);
   if (lastParamsKey !== paramsKey) {
@@ -84,10 +77,8 @@ export function useAdminPlatformActivityLog(): UseAdminPlatformActivityLogResult
     activities: activityQuery.data?.activities ?? [],
     filter,
     setFilter: setFilterState,
-    // The genuine first load only — `activityQuery.isFetching` also flips true on every filter/page
-    // change once data already exists, and the card hides its Pagination footer whenever this is
-    // true. `placeholderData: keepPreviousData` already keeps the previous page's rows/`total` on
-    // screen while the next one loads, so Pagination has no reason to disappear on every click.
+    // First load only: `isFetching` also flips on every filter/page change, and `keepPreviousData`
+    // already keeps the old rows on screen, so Pagination shouldn't vanish on each click.
     isLoading: activityQuery.isLoading,
     isError: activityQuery.isError,
     retry: () => {

@@ -19,14 +19,12 @@ vi.mock("next/navigation", () => ({
 }));
 
 beforeAll(() => {
-  // Radix Popover needs these; jsdom implements neither.
+  // jsdom implements neither, and Radix Popover needs both.
   Element.prototype.hasPointerCapture = vi.fn(() => false);
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-// `NotificationService.list` is a real backend call now — this component test is about the
-// panel's own rendering/paging, not the service, so this reproduces exactly what the service
-// used to do by itself (page through `MOCK_NOTIFICATIONS`).
+// Pages through `MOCK_NOTIFICATIONS` so the test covers the panel's paging, not the backend call.
 beforeEach(() => {
   vi.spyOn(NotificationService, "list").mockImplementation(async (offset, limit) => {
     const items = structuredClone(MOCK_NOTIFICATIONS).slice(offset, offset + limit);
@@ -54,23 +52,18 @@ function renderPanel() {
 
 describe("NotificationPanel", () => {
   test("keeps loading pages while the list does not overflow its container", async () => {
-    // The regression this guards: paging was driven only by `onScroll`, so a first page that
-    // fits inside the 320px box produced no scroll event, never called `fetchNextPage`, and left
-    // every later notification unreachable behind a spinner. jsdom reports every element as
-    // zero-height, which is exactly that "nothing to scroll" case.
+    // Regression: paging driven only by `onScroll` never fired when page one fit the box. jsdom's zero-height elements reproduce that.
     const user = userEvent.setup();
     renderPanel();
 
     await user.click(screen.getByRole("button", { name: messages.appShell.notifications }));
 
-    // All five mock notifications, not just the first page of three.
     await waitFor(() => {
       expect(screen.getByText("Google sync delayed")).toBeInTheDocument();
     });
     expect(screen.getByText("Review escalated")).toBeInTheDocument();
     expect(screen.getByText("Reply sent")).toBeInTheDocument();
 
-    // And it stops once the feed runs out, rather than spinning forever.
     expect(screen.queryByText(messages.appShell.notificationPanel.loadingMore)).not.toBeInTheDocument();
   });
 });

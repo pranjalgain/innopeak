@@ -46,23 +46,15 @@ import {
   ReviewResponseNotFoundException,
 } from './exceptions/reviews.exceptions';
 
-/** `idx_review_responses_review_id_live_reply` — Postgres reports the index name as `constraint`
- *  for a unique-index (not a named-constraint) violation. Matches the constant `ReviewSyncDbService`
- *  itself guards this index against, kept local here since `isUniqueViolation` is checked at this
- *  layer, not the DB service (see `approveReply`'s own comment for why). */
+/** Postgres reports a unique-index (not named-constraint) violation's index name as `constraint`; checked at
+ *  this layer, not the DB service (see `approveReply`). */
 const LIVE_REPLY_INDEX = 'idx_review_responses_review_id_live_reply';
 
 /**
- * The seven-value `response_status` enum projected onto the four the shipped frontend understands.
- *
- * `reply-draft-card.tsx` treats its `ReplyDraftStatus` union as exhaustive — its badge lookup is a
- * `Record<ReviewReplyDraft["status"], string>` and its label comes from a translation key that
- * exists for exactly these four values. Emitting a raw `posted`, `post_failed` or `draft` yields an
- * unstyled badge and a missing translation key; `draft` additionally renders as un-actionable,
- * because the card computes `isDecided = status !== "pending_approval"`.
- *
- * `posted` and `post_failed` both fold into `approved` because they are the same *decision* —
- * delivery is an implementation detail of it, and belongs on the dedicated post-status route.
+ * The seven `response_status` values folded onto the four the frontend understands: `reply-draft-card.tsx`
+ * treats its status union as exhaustive (badge map + translation keys), so a raw `posted`/`post_failed`/`draft`
+ * would render unstyled and untranslated. `posted`/`post_failed` fold into `approved`; delivery belongs on the
+ * post-status route.
  */
 const RESPONSE_STATUS_PROJECTION: Record<ResponseStatus, ClientResponseStatus> = {
   [ResponseStatus.DRAFT]: ClientResponseStatus.PENDING_APPROVAL,
@@ -110,8 +102,7 @@ export class ReviewsService {
       search: input.search,
     });
 
-    // One query for the whole page's responses rather than one per review — a 20-item queue would
-    // otherwise be 21 round trips just to render its status badges.
+    // One query for the page's responses, not one per review (a 20-item queue would be 21 round trips).
     const responses = await this.reviewSyncDbService.findResponsesForReviews({
       reviewIds: reviews.map(review => review.id),
       tenantId: tenantUser.tenantId,
@@ -127,16 +118,14 @@ export class ReviewsService {
           latestResponse: this.pickLatestResponse(reviewResponses),
         };
       }),
-      // Nested inside data — TransformInterceptor rebuilds the envelope and would drop a
-      // top-level meta.
+      // Nested inside data: TransformInterceptor rebuilds the envelope and would drop a top-level meta.
       meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
     };
   }
 
   /**
-   * Returns **every** response, terminal ones included. Rejected and superseded rows are shown
-   * greyed out with their outcome copy — the audit value of showing a user what happened to the
-   * sibling they did not pick is the whole reason `superseded` is a state rather than a delete.
+   * Returns every response, terminal ones included: showing what happened to the sibling a user did not
+   * pick is why `superseded` is a state rather than a delete.
    */
   async getReview(input: { user: AuthUser; reviewId: string }): Promise<ReviewDetailResponseDto> {
     const tenantUser = requireTenantUser(input.user, MESSAGES.REVIEWS.TENANT_ONLY);
@@ -185,9 +174,8 @@ export class ReviewsService {
   }
 
   /**
-   * "Latest" is the highest-precedence *live* row, not simply the newest: a `posted`/`approved` row
-   * if one exists (at most one can), otherwise the most recently created. Taking the newest row
-   * outright would let a later `rejected` sibling shadow the reply that is actually live on Google.
+   * "Latest" is the highest-precedence live row (`posted`/`approved`, at most one), else the newest; the
+   * newest outright would let a later `rejected` sibling shadow the reply that is live on Google.
    */
   private pickLatestResponse(responses: ReviewResponseRow[]): LatestResponseDto | null {
     if (responses.length === 0) {
@@ -211,16 +199,14 @@ export class ReviewsService {
   }
 
   /**
-   * `label` is derived, not stored — there is no label column. The frontend's "Snippet A" /
-   * "Snippet B" is the row's position within its `generationGroupId`, computed server-side so the
-   * letter is stable across clients rather than depending on receive order.
+   * `label` is derived (no column): the row's position within its `generationGroupId`, computed server-side
+   * so the letter is stable across clients.
    */
   private toResponseItems(responses: ReviewResponseRow[]): ReviewResponseItemDto[] {
     const positionInGroup = new Map<string, number>();
 
     return responses.map(response => {
-      // A null group — a lone auto-reply suggestion, a manual reply, an imported reply — is its
-      // own group of one and gets 'A'.
+      // A null group (lone suggestion, manual or imported reply) is its own group of one.
       const groupKey = response.generationGroupId ?? response.id;
       const index = positionInGroup.get(groupKey) ?? 0;
       positionInGroup.set(groupKey, index + 1);
@@ -229,10 +215,7 @@ export class ReviewsService {
     });
   }
 
-  /** The per-item half of `toResponseItems`, pulled out so `approveReply`/`rejectReply` can map a
-   *  single decided row without re-deriving every sibling's label — a decision response's own
-   *  label never changes, so `'A'` here is a placeholder the client will overwrite on its next
-   *  `getReview` refetch, not something a caller should rely on being correct in isolation. */
+  /** The `'A'` default is a placeholder the client overwrites on its next `getReview` refetch. */
   private toResponseItem(response: ReviewResponseRow, label = 'A'): ReviewResponseItemDto {
     return {
       id: response.id,
@@ -254,19 +237,10 @@ export class ReviewsService {
   }
 
   /**
-   * Approves a pending draft, optionally with edited content — landing it at `status = 'approved'`.
-   *
-   * `isUniqueViolation` is caught at this layer, not `ReviewSyncDbService`'s — the same
-   * service-not-DB-service split `PromptsService.createVersion` already established for its own
-   * equivalent conflict, keeping NestJS HTTP exception classes out of the data layer.
-   *
-   * Posting is then gated on `tenant_settings.auto_post_enabled` — see `postIfAutoPostEnabled`'s
-   * own comment. This applies after **any** human approval through this route, escalation snippet
-   * included: the product decision to keep escalated reviews behind an explicit human action only
-   * exempts the *system's own* auto-approve step (`AiReplyGenerationService
-   * .maybeAutoApproveAndPost`, scoped to non-escalated drafts) from running unattended — once a
-   * human has actually clicked approve here, `auto_post_enabled` governs posting the same way for
-   * every response type, exactly as it does for the system's own non-escalated auto-approval.
+   * `isUniqueViolation` is caught here, not in `ReviewSyncDbService`, to keep HTTP exception classes out of
+   * the data layer (same split as `PromptsService.createVersion`).
+   * Posting is then gated on `auto_post_enabled` after any human approval, escalation snippets included;
+   * only the system's own auto-approve (`AiReplyGenerationService.maybeAutoApproveAndPost`) skips escalated drafts.
    */
   async approveReply(input: {
     user: AuthUser;
@@ -286,9 +260,7 @@ export class ReviewsService {
     }
 
     const finalContent = input.content ?? existing.content;
-    // `originalContent` is null for human_manual/imported rows, which never had an AI draft to
-    // diverge from — comparing against `existing.content` in that case makes "edited" correctly
-    // unreachable for them, rather than comparing against a fabricated original.
+    // `originalContent` is null for human_manual/imported rows (no AI draft), so "edited" is unreachable for them.
     const baseline = existing.originalContent ?? existing.content;
     const source = finalContent !== baseline ? ResponseSource.HUMAN_EDITED : existing.source;
 
@@ -319,13 +291,8 @@ export class ReviewsService {
   }
 
   /**
-   * The "second click" gate: once a response is `approved` (by a human here, or by the system in
-   * `AiReplyGenerationService.maybeAutoApproveAndPost` for a non-escalated auto-generated draft),
-   * `tenant_settings.auto_post_enabled` decides whether that also posts immediately or waits for
-   * the explicit `.../responses/:responseId/post` route. Deliberately best-effort: a failure here
-   * must not undo an approval that already committed — the response stays a legitimate `approved`
-   * row either way, just without a job queued behind it, and the manual `post` route is always
-   * available as a fallback.
+   * The "second click" gate: once approved, `auto_post_enabled` decides whether to post now or wait for the
+   * manual `post` route. Best-effort: a failure must not undo an approval that already committed.
    */
   private async postIfAutoPostEnabled(
     tenantId: string,
@@ -366,8 +333,7 @@ export class ReviewsService {
     );
   }
 
-  /** Dismissed and removed-on-Google reviews cannot take a reply: fail up front with a clear error
-   *  instead of queueing a post Google will reject. */
+  /** Dismissed and removed-on-Google reviews cannot take a reply; fail up front rather than queue a post Google will reject. */
   private assertReviewAcceptsReply(review: {
     status: ReviewStatus;
     removedUpstreamAt: string | null;
@@ -380,8 +346,7 @@ export class ReviewsService {
     }
   }
 
-  /** No free-text rejection reason — only who rejected it and when (`rejectedByUserId`/`decidedAt`),
-   *  mirroring `approvedByUserId`'s own tracking shape. */
+  /** No free-text reason; only who rejected it and when, mirroring `approvedByUserId`. */
   async rejectReply(input: {
     user: AuthUser;
     reviewId: string;
@@ -411,10 +376,8 @@ export class ReviewsService {
   }
 
   /**
-   * The `post_failed -> approved` arrow in PLAN.md §4.2. Re-enqueues the identical post-back job,
-   * including its freshness check — re-running that check, not just the raw API call, is the whole
-   * point of retrying through this route rather than a blind resend: by the time someone clicks
-   * retry, the review may well have been answered another way since the failed attempt.
+   * `post_failed -> approved`. Re-enqueues the identical post-back job so its freshness check re-runs:
+   * the review may have been answered another way since the failed attempt.
    */
   async retryPost(input: {
     user: AuthUser;
@@ -452,8 +415,7 @@ export class ReviewsService {
       });
     } catch (error) {
       if (isUniqueViolation(error, LIVE_REPLY_INDEX)) {
-        // A different sibling was approved while this one sat at post_failed — see
-        // `api-reference.md`'s own callout for this exact ordering hazard.
+        // A different sibling was approved while this one sat at post_failed.
         throw new ReviewAlreadyHasLiveReplyException();
       }
       throw error;
@@ -482,12 +444,7 @@ export class ReviewsService {
     };
   }
 
-  /**
-   * The manual trigger for the `auto_post_enabled = false` case — the "second click"
-   * `postIfAutoPostEnabled`'s own comment describes. Not part of this module's originally
-   * documented spec (which predates `auto_post_enabled` being wired to anything); added because
-   * the existing design note for that flag directly implies it.
-   */
+  /** Manual trigger for the `auto_post_enabled = false` case (see `postIfAutoPostEnabled`). */
   async postResponse(input: {
     user: AuthUser;
     reviewId: string;
@@ -539,10 +496,7 @@ export class ReviewsService {
     };
   }
 
-  /** Reads the outcome of the asynchronous post-back — separate from `getReview` so a client that
-   *  wants to poll delivery state does not have to re-read every response row for the review on
-   *  every tick; see this route's own Swagger description for the looser throttle tier that makes
-   *  that polling legitimate. */
+  /** Separate from `getReview` so a client polling delivery state need not re-read every response row each tick. */
   async getPostStatus(input: {
     user: AuthUser;
     reviewId: string;
@@ -578,10 +532,8 @@ export class ReviewsService {
   }
 
   /**
-   * Writes a reply from scratch instead of approving a generated one — `source = 'human_manual'`.
-   * `response_type` is never accepted from the client: it is derived from the review's own
-   * classification (`escalation_snippet` when escalated, `auto_reply_suggestion` otherwise), since
-   * it records *why a reply exists*, a property of the review, not of who typed the text.
+   * `response_type` is never client-supplied: it is derived from the review's classification
+   * (`escalation_snippet` when escalated, else `auto_reply_suggestion`) since it records why a reply exists.
    */
   async createManualReply(input: {
     user: AuthUser;

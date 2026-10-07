@@ -1,8 +1,4 @@
-/**
- * Exactly two locales, per the multilingual design doc
- * (`apps/documentation/docs/meta/multilingual.md`) — not a locale framework with one locale
- * plugged in. Bare BCP-47 primary subtags, no region (`de-AT`/`de-CH` are out of scope).
- */
+// Bare BCP-47 primary subtags; regional variants (`de-AT`/`de-CH`) are out of scope.
 export const SUPPORTED_LOCALES = ['en', 'de'] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
@@ -12,15 +8,7 @@ export function isSupportedLocale(value: unknown): value is Locale {
   return typeof value === 'string' && (SUPPORTED_LOCALES as readonly string[]).includes(value);
 }
 
-/**
- * Negotiates a request's `Accept-Language` header against `SUPPORTED_LOCALES`, falling back to
- * `DEFAULT_LOCALE`. This is the resolution order's step 2 (anonymous traffic, or a signed-in user
- * who never set `users.locale`) — see `resolveRequestLocale` for the full 3-step order.
- *
- * A small hand-rolled parser rather than a negotiation library: with exactly two locales and no
- * region subtags, the only thing that matters is "does any weighted entry's primary subtag match
- * `en` or `de`, ordered by q-value" — a library's generality buys nothing here.
- */
+/** Hand-rolled instead of a negotiation library: two locales and no regions need only primary-subtag matching ordered by q. */
 export function resolveLocale(acceptLanguageHeader: string[] | string | undefined): Locale {
   const header = Array.isArray(acceptLanguageHeader)
     ? acceptLanguageHeader[0]
@@ -48,9 +36,7 @@ export function resolveLocale(acceptLanguageHeader: string[] | string | undefine
       return { primary, q };
     })
     .filter((candidate): candidate is { primary: string; q: number } => Boolean(candidate.primary))
-    // Stable sort by descending q — Array.prototype.sort is stable per spec (ES2019+), so ties
-    // keep the header's own left-to-right order, which is itself a tie-break convention senders
-    // rely on.
+    // Sort is stable (ES2019+), so ties keep the header's left-to-right order, which senders rely on.
     .sort((a, b) => b.q - a.q);
 
   for (const candidate of candidates) {
@@ -63,12 +49,9 @@ export function resolveLocale(acceptLanguageHeader: string[] | string | undefine
 }
 
 /**
- * The full 3-step resolution order from the design doc: 1) the authenticated user's stored
- * preference (embedded in the access token's `locale` claim — see `TokenService.signTokenPair`),
- * 2) `Accept-Language` negotiation, 3) `DEFAULT_LOCALE`. `userLocale` is `undefined` for requests
- * with no authenticated user at all (a `@Public()` route reached before `JwtAuthGuard` ran, or an
- * exception thrown ahead of it) and `null` for an authenticated user who never chose one — both
- * fall through to step 2 identically.
+ * Order: the user's stored preference (the access token's `locale` claim), then `Accept-Language`,
+ * then `DEFAULT_LOCALE`. `userLocale` is `undefined` with no authenticated user and `null` when
+ * they never chose one; both fall through identically.
  */
 export function resolveRequestLocale(
   userLocale: Locale | null | undefined,

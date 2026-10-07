@@ -92,14 +92,12 @@ describe('AdminSettingsService', () => {
       revokeInvite: jest.fn(),
       deleteExpiredInvite: jest.fn(),
       findStatusById: jest.fn(),
-      // Nobody is root by default, so the root-admin guard is inert for every test that isn't
-      // specifically about it.
+      // Default: nobody is root, so the root-admin guard stays inert unless a test targets it.
       isRootAdmin: jest.fn().mockResolvedValue(false),
       putSetPasswordOtp: jest.fn(),
       consumeSetPasswordOtp: jest.fn(),
       setStatusGuardingLastActive: jest.fn(),
-      // No Google-only admins by default, so the social-login lockout guard is inert for every
-      // test that isn't specifically about it.
+      // Default: no Google-only admins, so the social-login lockout guard stays inert.
       countActiveGoogleOnlyAdmins: jest.fn().mockResolvedValue(0),
       updateLocale: jest.fn(),
     };
@@ -120,8 +118,7 @@ describe('AdminSettingsService', () => {
         .fn()
         .mockReturnValue({ accessToken: 'admin-access-token', expiresIn: 900 }),
     };
-    // No attempts spent, no cap hit, and a fresh resend always allowed by default — inert unless
-    // a test is specifically about the add-password OTP flow.
+    // Defaults leave the OTP attempt/resend limits inert unless a test targets the add-password flow.
     otpAttemptService = {
       consumeAttempt: jest.fn().mockResolvedValue(true),
       claimResend: jest.fn().mockResolvedValue(true),
@@ -196,9 +193,8 @@ describe('AdminSettingsService', () => {
       });
     });
 
-    // Guards the session-extension hole: an admin has no refresh token, so if this route reset the
-    // clock every call, anyone holding a leaked access token could ping it just under the expiry
-    // and never be logged out. The replacement must die when the presented token would have.
+    // Guards the session-extension hole: admins have no refresh token, so a full-TTL replacement
+    // would let a leaked access token be kept alive by pinging this route.
     it("re-signs to the presented token's own deadline rather than a fresh TTL", async () => {
       platformAdminDbService.updateLocale.mockResolvedValue({ ...profileRow, locale: 'de' });
       const sixtySecondsLeft = Math.floor(Date.now() / 1000) + 60;
@@ -269,8 +265,7 @@ describe('AdminSettingsService', () => {
       expect(result.message).toBe(MESSAGES.AUTH.SET_PASSWORD_OTP_ACK);
     });
 
-    // Same "spend the resend budget, not the account" shape as the tenant flow — a cooldown that
-    // hasn't elapsed acks without minting a second code or sending a second email.
+    // A live resend cooldown acks without minting a second code or email.
     it('acknowledges without minting a new code when the resend cooldown is still live', async () => {
       platformAdminDbService.findById.mockResolvedValue({ ...profileRow, passwordHash: null });
       otpAttemptService.claimResend.mockResolvedValue(false);
@@ -324,20 +319,14 @@ describe('AdminSettingsService', () => {
         'admin-1',
         'new-hashed-password'
       );
-      // Releases the attempt budget the comparison spent — without this a code accepted on the
-      // last allowed try leaves the account locked out for the rest of the window.
+      // Releases the attempt budget, else a code accepted on the last try leaves the account locked out.
       expect(otpAttemptService.reset).toHaveBeenCalledWith(admin.email);
-      // The success message is the service's to own, not the controller's.
       expect(result).toEqual({ message: MESSAGES.AUTH.PASSWORD_SET });
     });
 
     /**
-     * These OTPs share `platform_admin_invites.token_hash`, which is UNIQUE across the whole
-     * table. A 6-digit code is nowhere near unique enough for that on its own — and in
-     * development `DEV_VERIFY_EMAIL_TOKEN` hands *every* admin the same code — so the digest is
-     * bound to the admin it was issued for. Two admins holding the identical code must still
-     * produce two different stored hashes, or the second write dies on a constraint that isn't
-     * its upsert target.
+     * `platform_admin_invites.token_hash` is UNIQUE and OTPs are 6 digits (in dev every admin gets the same
+     * code), so the digest is bound to the admin: identical codes must still store different hashes.
      */
     it('stores a digest bound to the admin, so an identical code from two admins cannot collide', async () => {
       platformAdminDbService.findById.mockResolvedValue({ ...profileRow, passwordHash: null });
@@ -366,11 +355,7 @@ describe('AdminSettingsService', () => {
       expect(platformAdminDbService.createInvite).not.toHaveBeenCalled();
     });
 
-    /**
-     * Nothing expires or sweeps `platform_admin_invites`, so before this an invite that was never
-     * accepted claimed its address permanently — every resend answered 409 and the only escape was
-     * to spot the dead row in the roster and revoke it by hand.
-     */
+    // Nothing sweeps `platform_admin_invites`, so a lapsed invite must not claim its address forever.
     it('replaces a lapsed invite instead of refusing the address forever', async () => {
       platformAdminDbService.findByEmail.mockResolvedValue({
         id: 'stale-1',
@@ -406,15 +391,7 @@ describe('AdminSettingsService', () => {
       expect(platformAdminDbService.deleteExpiredInvite).not.toHaveBeenCalled();
     });
 
-    /**
-     * The other half of the dual-identity decision (`separate-admin-login-design.md`). This used
-     * to 409: a single shared `login` had to resolve one email to exactly one identity table, so
-     * an accepted invite would have shadowed the tenant account. Post-split there are two routes,
-     * two cookies and two lockout scopes, and tenant `signup` dropped its mirror of the same
-     * guard — leaving this one in place would have made the relaxation one-directional, blocking
-     * exactly the case that matters: staffing the console with someone who already uses the
-     * product.
-     */
+    // Allowed: tenant and admin logins are separate routes, cookies and lockout scopes, so nothing is shadowed.
     it('invites an email that already belongs to a tenant user, since the two identities are independent', async () => {
       platformAdminDbService.findByEmail.mockResolvedValue(null);
       platformAdminDbService.createInvite.mockResolvedValue({
@@ -465,12 +442,7 @@ describe('AdminSettingsService', () => {
       );
     });
 
-    /**
-     * `!isProduction()` — this codebase's one dev/prod gate — additionally logs the raw invite
-     * link, so the flow is exercisable locally without a working mailbox. `NODE_ENV` is not
-     * `'production'` in this test process, so this is the path every other test above already
-     * runs; this test is the one that actually asserts the log happened.
-     */
+    // `!isProduction()` additionally logs the raw invite link; this is the test that asserts it.
     it('[dev] logs the invite link directly, in addition to queuing the email', async () => {
       const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
       platformAdminDbService.findByEmail.mockResolvedValue(null);
@@ -499,11 +471,7 @@ describe('AdminSettingsService', () => {
       expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
     });
 
-    /**
-     * Distinct from 404 on purpose: the admin is looking straight at this row in the roster, so
-     * "Invite not found" describes something they can see is there. This is the one path that
-     * reaches `INVITE_NOT_REVOCABLE`, which was previously defined in both locales but unreachable.
-     */
+    // 409, not 404: the admin sees this row in the roster, so "not found" would be misleading.
     it('throws 409 when the admin exists but has already accepted', async () => {
       platformAdminDbService.revokeInvite.mockResolvedValue({ outcome: 'not_invited' });
 
@@ -585,10 +553,8 @@ describe('AdminSettingsService', () => {
     });
 
     /**
-     * The guard itself is enforced atomically inside `setStatusGuardingLastActive` (see that
-     * repository method's own comment on why a plain count-then-write can't prevent two
-     * concurrent disables of two *different* admins from both succeeding) — this only checks that
-     * the service correctly turns a `last_active` outcome into the right HTTP error.
+     * The guard is atomic inside `setStatusGuardingLastActive`; this only checks that a `last_active`
+     * outcome maps to the right HTTP error.
      */
     it('refuses to disable the last active admin', async () => {
       platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.ACTIVE);
@@ -629,12 +595,7 @@ describe('AdminSettingsService', () => {
       expect(platformAdminDbService.setStatusGuardingLastActive).not.toHaveBeenCalled();
     });
 
-    /**
-     * Regression: the root admin used to have no protection beyond the last-active-admin guard,
-     * which stops applying the moment a third admin exists — a non-root admin could disable root
-     * outright as long as some other admin stayed active. This checks the guard fires even while
-     * others remain active, not just when root would otherwise be the last one.
-     */
+    // Regression: root could be disabled once a third admin existed; the guard must fire even while others are active.
     it('refuses to disable the root admin, even when other admins remain active', async () => {
       platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.ACTIVE);
       platformAdminDbService.isRootAdmin.mockResolvedValue(true);
@@ -777,13 +738,7 @@ describe('AdminSettingsService', () => {
       ).resolves.toMatchObject({ passwordLoginEnabled: false });
     });
 
-    /**
-     * Third member of the same lockout-prevention family as the two checks above and
-     * `setAdminStatus`'s guards. An admin who accepted their invite through Google has no
-     * `password_hash` at all, so this setting — which decides whether the login screen offers a
-     * Google button — is the only thing between them and no way in, and there is no admin
-     * equivalent of the tenant `set-password` flow to add a password with.
-     */
+    // Lockout prevention: a Google-only admin has no password_hash, so `socialLoginEnabled` is their only way in.
     it('refuses to turn off Google sign-in while an admin has no other credential', async () => {
       platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
       platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(2);
@@ -794,7 +749,6 @@ describe('AdminSettingsService', () => {
       expect(platformSettingsDbService.update).not.toHaveBeenCalled();
     });
 
-    /** The count rides along in the message so the admin knows how many accounts to deal with. */
     it('names how many admins would be stranded', async () => {
       platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
       platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(3);
@@ -817,11 +771,7 @@ describe('AdminSettingsService', () => {
       ).resolves.toMatchObject({ socialLoginEnabled: false });
     });
 
-    /**
-     * Scoped to the transition, not the resulting state: an admin stranded by Google already
-     * being off is recovered by turning it back on, and answering 400 to a no-op re-assertion
-     * would make that state look like this guard's doing.
-     */
+    // Scoped to the transition: re-asserting an already-off setting is a no-op, not a 400.
     it('does not block a no-op when Google sign-in is already off', async () => {
       const socialOffRow = { ...allEnabledRow, socialLoginEnabled: false };
       platformSettingsDbService.get.mockResolvedValue(socialOffRow);

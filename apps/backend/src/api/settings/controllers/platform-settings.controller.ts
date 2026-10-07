@@ -10,10 +10,11 @@ import { PlatformSettingsResponseDto } from '../dto/platform-settings-response.d
 import { PlatformSettingsService } from '../services/platform-settings.service';
 import { ApiGetPlatformSettings } from '../swagger/platform-settings.swagger';
 
-/** Its own controller (rather than a route inside `TenantSettingsController`/
- * `BlocklistTermsController`) specifically so it carries no class-level `@Roles()` — those
- * controllers' `@Roles(UserRole.OWNER)` would otherwise still apply to an unauthenticated
- * request here, since `@Public()` only skips `JwtAuthGuard`, not `RolesGuard`. */
+/**
+ * Its own controller so it carries no class-level `@Roles()`: `@Public()` skips only
+ * `JwtAuthGuard`, so the owner-only guards on sibling controllers would still reject an
+ * unauthenticated request.
+ */
 @Controller({
   path: `${RouteNames.SETTINGS}/${RouteNames.PLATFORM_CONFIG}`,
   version: '1',

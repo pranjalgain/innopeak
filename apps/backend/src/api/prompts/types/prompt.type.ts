@@ -15,7 +15,7 @@ export interface PromptVersionRecord {
   template: string;
   createdAt: Date;
   createdByUserId: string | null;
-  /** Resolved from `users.name`. Null when the author was never recorded (seeded rows) or has since been deleted — `created_by_user_id` is ON DELETE SET NULL. */
+  /** Null when the author was never recorded (seeded rows) or was deleted (`created_by_user_id` is ON DELETE SET NULL). */
   createdByName: string | null;
 }
 
@@ -44,14 +44,12 @@ export interface AppendedPromptVersion {
   createdByName: string | null;
 }
 
-/** Groups `PromptsRepository`/`PromptsDbService`'s `updateTone` trailing scalars (rule 12). */
 export interface UpdatePromptToneInput {
   promptId: string;
   tenantId: string;
   tone: PromptToneValue;
 }
 
-/** Groups `PromptsRepository`/`PromptsDbService`'s `appendVersion` trailing scalars (rule 12). */
 export interface AppendPromptVersionInput {
   promptId: string;
   tenantId: string;
@@ -59,10 +57,7 @@ export interface AppendPromptVersionInput {
   createdByUserId: string | null;
 }
 
-/** What `PromptsDbService.findCurrentForCategory` resolves for a (tenant, category) pair — the
- *  live tone plus the current version's template, which is all `AiReplyGenerationService` needs.
- *  Distinct from `PromptWithVersions`: that carries every version for the Settings → Prompts UI,
- *  this carries only what generation actually reads. */
+/** Only what generation reads: live tone plus the current version's template. */
 export interface CurrentPromptForCategory {
   promptId: string;
   tone: PromptTone;

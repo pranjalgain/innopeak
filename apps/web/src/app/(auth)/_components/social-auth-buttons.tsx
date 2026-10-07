@@ -10,11 +10,7 @@ interface SocialAuthButtonsProps {
   label: string;
 }
 
-/**
- * Mock social sign-in — gated behind the platform's socialLoginEnabled setting, off by default.
- * No email is collected here, so a social login always resolves to a tenant
- * identity, never the super-admin mock (see `AuthService`).
- */
+/** Mock; gated behind `socialLoginEnabled` (off by default). No email is collected, so it always resolves to a tenant identity, never the super-admin mock. */
 export function SocialAuthButtons({ isLoading, onGoogleClick, label }: SocialAuthButtonsProps) {
   return (
     <Button type="button" variant="outline" size="block" disabled={isLoading} onClick={onGoogleClick}>

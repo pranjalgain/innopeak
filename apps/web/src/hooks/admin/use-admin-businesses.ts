@@ -17,9 +17,7 @@ interface UseAdminBusinessesResult {
   businesses: AdminBusiness[];
   search: string;
   setSearch: (search: string) => void;
-  /** Whether a search is currently in effect — derived from the exact (trimmed, debounced) value
-   *  the query itself is keyed on, not the raw input, so this can never disagree with what
-   *  `businesses` actually reflects (see `useSearchInput`'s own comment for why that matters). */
+  /** Derived from the trimmed, debounced value the query is keyed on, so it never disagrees with `businesses`. */
   isSearching: boolean;
   isLoading: boolean;
   isError: boolean;
@@ -36,12 +34,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 const businessesQueryKey = (search: string) => [...adminBusinessesQueryKey, { search }] as const;
 
-/**
- * Every business, searched **server-side** — an earlier version loaded the whole list once and
- * filtered it in the browser via `useSearchFilter`. This fetches exactly the matching rows using
- * `GET /v1/admin/businesses`'s own `search` param, rather than shipping every tenant to the
- * browser just to filter most of them back out.
- */
+/** Searched server-side via `GET /v1/admin/businesses`'s `search` param. */
 export function useAdminBusinesses(): UseAdminBusinessesResult {
   const t = useTranslations("adminBusinesses.toasts");
   const queryClient = useQueryClient();
@@ -63,12 +56,8 @@ export function useAdminBusinesses(): UseAdminBusinessesResult {
       AdminBusinessService.setStatus(id, status),
   });
 
-  // Shared by every mutation below: the search term is part of the query key, so a single
-  // `setQueryData` can no longer reach every cached page a business might appear under —
-  // invalidating the whole `adminBusinessesQueryKey` prefix refetches all of them instead,
-  // current search included. The activity feed (both the Overview glance card and the dedicated,
-  // paginated Activity page) is derived server-side from these writes too, so both of its query
-  // keys need invalidating as well — omitting either left it stale until its own staleTime elapsed.
+  // The search term is part of the query key, so `setQueryData` can't reach every cached page:
+  // invalidate the whole prefix instead. Both activity feed keys are derived from these writes too.
   const invalidateAfterWrite = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: adminBusinessesQueryKey });
     void queryClient.invalidateQueries({ queryKey: adminOverviewActivityQueryKey });
@@ -127,11 +116,8 @@ export function useAdminBusinesses(): UseAdminBusinessesResult {
     search,
     setSearch,
     isSearching,
-    // The genuine first load only (no cached data yet) — `businessesQuery.isFetching` would also
-    // flip true on every debounced search, and this view swaps its *entire* content area (search
-    // bar and result count included, not just the rows) to a full skeleton whenever this is true.
-    // `placeholderData: keepPreviousData` already keeps the previous rows on screen while a search
-    // is in flight, so a background refetch needs no loading state of its own here.
+    // First load only: `isFetching` also flips on every debounced search, and this view swaps its
+    // entire content area for a skeleton while true; `keepPreviousData` covers background refetches.
     isLoading: businessesQuery.isLoading,
     isError: businessesQuery.isError,
     refetch: () => void businessesQuery.refetch(),

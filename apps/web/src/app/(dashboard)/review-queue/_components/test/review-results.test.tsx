@@ -43,9 +43,8 @@ function renderResults(props: Partial<ComponentProps<typeof ReviewResults>> = {}
 
 describe("ReviewResults", () => {
   test("shows the error state, not the empty state, when the fetch failed", () => {
-    // Regression: a failed page/filter fetch leaves `reviews` at `[]`, same shape as a genuinely
-    // empty result — `isError` must take precedence, or a real failure renders as "no reviews
-    // match these filters" with a "clear filters" button that fixes nothing.
+    // Regression: a failed fetch leaves `reviews` at `[]` like an empty result; `isError` must win or a real failure
+    // renders "no reviews match" with a "clear filters" button that fixes nothing.
     renderResults({ isError: true, reviews: [] });
 
     expect(screen.getByText("Couldn't load reviews")).toBeInTheDocument();

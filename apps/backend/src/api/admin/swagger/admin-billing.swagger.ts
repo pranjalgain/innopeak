@@ -1,5 +1,5 @@
 import { applyDecorators, HttpStatus } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
 import { AdminBillingSummaryResponseDto } from '../dto/admin-billing-summary-response.dto';
 import { BillingWebhookEventListResponseDto } from '../dto/billing-webhook-event-response.dto';
@@ -123,6 +123,41 @@ export function ApiListBillingWebhookEvents(): ReturnType<typeof applyDecorators
           },
         },
       },
+    }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })
+  );
+}
+
+export function ApiResolvePostErasureCharge(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Mark a charged-after-deletion-request payment as handled',
+      description:
+        "Removes one entry from the billing summary's `postErasureCharges` queue once an admin " +
+        'has refunded the invoice in Stripe (or decided not to). Records who and when. Does not ' +
+        'call Stripe. A repeat, an unknown id and a never-flagged receipt are all 404.',
+    }),
+    ApiParam({ name: 'receiptId', description: 'The `receiptId` from `postErasureCharges`.' }),
+    ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Marked handled.',
+      examples: {
+        default: {
+          summary: 'Handled',
+          value: {
+            statusCode: 200,
+            status: 'Success',
+            message: 'Marked as handled.',
+            data: { message: 'Marked as handled.' },
+          },
+        },
+      },
+    }),
+    ApiResponse({
+      status: HttpStatus.NOT_FOUND,
+      description: 'No unresolved, flagged receipt with that id.',
     }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })

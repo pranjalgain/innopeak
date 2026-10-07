@@ -13,13 +13,6 @@ export class DeadLetterProcessor extends WorkerHost {
     this.logger.error(logString_, 'DeadLetterProcessor');
     if (typeof job.log === 'function') void job.log(logString_);
 
-    // Here you could:
-    // - Log to an external error tracking system (e.g., Sentry, LogRocket)
-    // - Send a notification (e.g., Slack, email)
-    // - Store in a database for easier querying/review
-    // - If you want to automatically retry, you'd put that logic here (but typically DLQ is for manual intervention)
-
-    // For now, we'll just log and consider it processed.
     return Promise.resolve('DLQ job processed for review');
   }
 

@@ -31,9 +31,7 @@ interface UsageRowProps {
   max: number | null;
 }
 
-/** One capped-dimension row — a plain count for an unlimited (`max === null`) dimension, a
- *  count + progress bar for a capped one. `unlimitedLabel` never applies: this repo has no
- *  "0 of unlimited" string to translate, an unlimited dimension just shows the raw usage number. */
+/** `unlimitedLabel` never applies: an unlimited dimension just shows the raw usage count. */
 function UsageRow({ label, used, max }: UsageRowProps) {
   const percent = max ? Math.min(100, Math.round((used / max) * 100)) : 0;
   return (
@@ -47,9 +45,7 @@ function UsageRow({ label, used, max }: UsageRowProps) {
   );
 }
 
-/** Masked card metadata only (Stripe's own `brand`/`last4`/expiry) — never a raw card number, so
- *  this carries no PCI scope. `brand` renders capitalized via CSS since Stripe reports it
- *  lowercase (`"visa"`). */
+/** Masked card metadata only, so no PCI scope; `brand` is capitalized via CSS because Stripe reports it lowercase. */
 function PaymentMethodRow({ paymentMethod }: { paymentMethod: PaymentMethodSummary }) {
   const t = useTranslations("settings.billing.paymentMethod");
   const expiry = formatCardExpiryMonth(paymentMethod.expMonth);
@@ -70,18 +66,8 @@ function PaymentMethodRow({ paymentMethod }: { paymentMethod: PaymentMethodSumma
 }
 
 /**
- * Owner-only, mounted while `platformSettings.paymentFeatureEnabled` is true OR the tenant is
- * already on the Paid plan (see `SettingsView`'s `billingTabAvailable` tab gate) — the flag only
- * ever gates *starting a new checkout*, never an already-Paid tenant's ability to see or cancel a
- * subscription that keeps auto-renewing on Stripe's own schedule regardless of this app's flag.
- * Current plan + entitlement usage, the upgrade/manage entry points, and the §3a "choose your
- * active location" section when the tenant is over their plan's cap. The "Upgrade" button (the
- * only entry point the flag actually needs to gate) is only ever reachable here for a Free
- * tenant, and a Free tenant only ever reaches this tab at all while the flag is genuinely on.
- *
- * `ChooseActiveLocationCard` reads each location's real `billingPausedAt` from
- * `GET /v1/connections/locations` (`ConnectionService.listLocations`) for its active/paused badge
- * and default selection — the backend's `toLocationDto` mapping now carries that field through.
+ * Owner-only. Mounted while the payment flag is on OR the tenant is already Paid: the flag only gates starting a new
+ * checkout, never a Paid tenant's ability to see or cancel a subscription that keeps renewing on Stripe.
  */
 export function BillingSettingsSection() {
   const t = useTranslations("settings.billing");
@@ -89,9 +75,7 @@ export function BillingSettingsSection() {
   const { data: subscription, isLoading, isError, refetch } = useSubscription();
   const { data: plansResult } = useBillingPlans();
   const { data: receipts } = useReceipts();
-  // Same active-location pool the Business Switcher dropdown reads — reused rather than a second
-  // `useQuery` against the same `connectionLocationsQueryKey` (already filtered to `status ===
-  // "active"`, which is what every use of it below assumed anyway).
+  // Same pool as the Business Switcher, reused instead of a second `useQuery` on the same key.
   const { locations: connectedLocations } = useBusinessSwitcher();
   const checkoutMutation = useCreateCheckoutSession();
   const portalMutation = useCreatePortalSession();
@@ -99,15 +83,11 @@ export function BillingSettingsSection() {
   const tToasts = useTranslations("settings.billing.toasts");
   const tCancelDialog = useTranslations("settings.billing.cancelDialog");
   const [manageBillingOpen, setManageBillingOpen] = useState(false);
-  // Hidden as soon as `cancelMutation` succeeds, ahead of the subscription refetch actually
-  // confirming `cancelAtPeriodEnd` — Stripe's own webhook is what flips that field server-side and
-  // can land a moment later, so without this a tenant could still see (and click) "Cancel
-  // subscription" again in that gap. See `useCancelSubscription`'s own doc comment.
+  // Hidden as soon as `cancelMutation` succeeds: the webhook that flips `cancelAtPeriodEnd` can land later, and
+  // "Cancel subscription" must not be clickable again in that gap.
   const [cancelRequested, setCancelRequested] = useState(false);
-  // Synchronous re-entrancy guards for the checkout/portal redirect buttons — `mutation.isPending`
-  // only flips true after a React state update round-trip, so a fast double-click (or automation
-  // double-fire) landing inside the same task can still call `mutate()` twice before either
-  // `disabled` prop re-renders. Mirrors the dummy-checkout page's own `hasStarted` ref guard.
+  // Synchronous re-entrancy guards: `mutation.isPending` flips only after a React state round-trip, so a fast
+  // double-click can call `mutate()` twice.
   const checkoutStarted = useRef(false);
   const portalStarted = useRef(false);
 
@@ -118,13 +98,10 @@ export function BillingSettingsSection() {
   const freePlan = plansResult?.plans.find((plan) => plan.code === "free");
   const connectedLocationCount = connectedLocations.length;
 
-  // Reactive: already back on a capped plan and holding more connections than it allows (some are
-  // silently `billing_paused_at`-paused server-side already — see this component's top note).
+  // Reactive: already on a capped plan holding more connections than it allows (some already `billing_paused_at`-paused).
   const overCapReactive =
     subscription.maxLocations !== null && connectedLocationCount > subscription.maxLocations;
-  // Proactive: still fully Paid (unlimited) but has canceled — shown ahead of the actual downgrade
-  // so there's no surprise auto-pick, per §3a. Compares against the Free plan's own cap, since
-  // `subscription.maxLocations` is still `null` (unlimited) during the grace period.
+  // Proactive: still Paid but canceled. Compares against Free's cap since `subscription.maxLocations` is null during the grace period.
   const overCapProactive =
     subscription.cancelAtPeriodEnd &&
     freePlan?.maxLocations != null &&
@@ -156,9 +133,7 @@ export function BillingSettingsSection() {
                   type="button"
                   variant="outline"
                   onClick={() => {
-                    // Stripe: manage billing entirely in-app (see ManageBillingDialog's own doc
-                    // comment). Dummy: no real Stripe customer to edit, so this keeps the old
-                    // redirect to the simulated /billing/dummy-portal confirmation page.
+                    // Stripe: manage billing in-app. Dummy: no real Stripe customer to edit, so keep the redirect to the simulated portal page.
                     if (subscription.paymentProvider === "stripe") {
                       setManageBillingOpen(true);
                       return;
@@ -247,9 +222,7 @@ export function BillingSettingsSection() {
               used={subscription.teamMemberCount}
               max={subscription.maxTeamMembers}
             />
-            {/* Per the plan's own caveat: no AI-generation pipeline exists yet, so this line only
-             *  renders once the plan actually caps the dimension — showing "0 of 20" for a metric
-             *  nothing can ever increment yet would read as a broken counter, not an unused one. */}
+            {/* Only rendered once the plan caps the dimension: "0 of 20" for a metric nothing increments yet would read as a broken counter. */}
             {subscription.maxAiDraftsPerMonth !== null ? (
               <UsageRow
                 label={t("usage.aiDrafts")}

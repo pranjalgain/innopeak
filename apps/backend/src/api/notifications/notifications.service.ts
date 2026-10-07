@@ -19,11 +19,7 @@ import type { AuthUser } from '../auth/types/auth.type';
 export class NotificationsService {
   constructor(private readonly notificationsDbService: NotificationsDbService) {}
 
-  /**
-   * Scoped to `tenant_id` **and** `user_id` from the token — there is no parameter anywhere that
-   * reads another user's feed, at any role. An owner has no privileged view of a member's
-   * notifications; that would be a different resource with a different justification.
-   */
+  /** Scoped to `tenant_id` and `user_id` from the token; no role, owner included, can read another user's feed. */
   async list(
     user: AuthUser,
     query: ListNotificationsQueryDto
@@ -42,11 +38,7 @@ export class NotificationsService {
     return NotificationListResponseDto.from(page);
   }
 
-  /**
-   * Scoped the same way `list` is: the row has to belong to this tenant *and* this user, so a
-   * notification id belonging to someone else is a 404 rather than a silent write. Idempotent —
-   * marking an already-read notification succeeds and leaves its original timestamp alone.
-   */
+  /** A notification belonging to someone else is a 404, not a silent write. Idempotent: an already-read row keeps its original timestamp. */
   async markRead(user: AuthUser, notificationId: string): Promise<NotificationReadResponseDto> {
     const tenantUser = requireTenantUser(user);
 
@@ -63,7 +55,7 @@ export class NotificationsService {
     return NotificationReadResponseDto.from(result);
   }
 
-  /** Every unread row in the caller's own feed — never anyone else's, for the same reason. */
+  /** Only the caller's own feed. */
   async markAllRead(user: AuthUser): Promise<NotificationReadResponseDto> {
     const tenantUser = requireTenantUser(user);
 

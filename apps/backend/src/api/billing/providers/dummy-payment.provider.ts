@@ -19,8 +19,7 @@ import type {
   UpdateBillingProfileInput,
 } from '../types/billing.type';
 
-/** A fixed fixture card — every `dummy_cus_*` "customer" shows the same one, since there is no
- *  real card to fetch. Test-network digits (Stripe's own `4242` Visa), never a real PAN. */
+/** Fixture card shown for every `dummy_cus_*` customer; Stripe's test `4242` Visa, never a real PAN. */
 const DUMMY_PAYMENT_METHOD: PaymentMethodSummary = {
   brand: 'visa',
   last4: '4242',
@@ -29,20 +28,11 @@ const DUMMY_PAYMENT_METHOD: PaymentMethodSummary = {
 };
 
 /**
- * The default `PaymentProvider` — a no-op/simulated backend so the whole upgrade/manage/cancel
- * flow can be exercised end-to-end with zero real Stripe keys, the same role
- * `NoopStorageProvider`/`NoopEmailProvider` play for their own features. Every id it mints is
- * fabricated (`dummy_cus_*`/`dummy_sub_*`) and never touches a real payment network.
+ * Simulated provider for running the billing flow without Stripe keys; ids are fabricated.
  *
- * `createCheckoutSession`/`createPortalSession` point at local confirmation routes
- * (`DummyCheckoutPage`/`DummyPortalPage`) instead of a real Stripe redirect — they read the
- * `tenantId`/`customerId`/`subscriptionId` query params the URL carries and call the relevant
- * `BillingService` method directly (`completeDummyCheckout`, or — same as the Settings page's own
- * "Cancel subscription" button now uses for every provider — `cancelSubscription`), since there is
- * no external webhook caller for Dummy to deliver one on its own. `cancelSubscription` applies the
- * `customer.subscription.updated`-equivalent (`cancelAtPeriodEnd: true`) state change itself for
- * this provider. `constructWebhookEvent` is therefore never called on this provider and throws if
- * it somehow is.
+ * Checkout/portal sessions point at local confirmation pages that call `BillingService` directly,
+ * since nothing delivers webhooks for Dummy. So `constructWebhookEvent` is never called and the
+ * Stripe-only methods below throw rather than fake a response that would hide a caller bug.
  */
 @Injectable()
 export class DummyPaymentProvider extends PaymentProvider {
@@ -82,6 +72,25 @@ export class DummyPaymentProvider extends PaymentProvider {
     return Promise.resolve({ url });
   }
 
+  resumeSubscription(subscriptionId: string): Promise<void> {
+    this.logger.log(
+      `[dev] "Resuming" dummy subscription ${subscriptionId} — no real Stripe object exists.`
+    );
+    return Promise.resolve();
+  }
+
+  voidOpenInvoices(subscriptionId: string): Promise<number> {
+    this.logger.log(`[dev] No open invoices to void on dummy subscription ${subscriptionId}.`);
+    return Promise.resolve(0);
+  }
+
+  deleteCustomer(customerId: string): Promise<void> {
+    this.logger.log(
+      `[dev] "Deleting" dummy customer ${customerId} — no real Stripe object exists.`
+    );
+    return Promise.resolve();
+  }
+
   cancelSubscription(subscriptionId: string, atPeriodEnd: boolean): Promise<void> {
     this.logger.log(
       `[dev] "Canceling" dummy subscription ${subscriptionId} (atPeriodEnd=${atPeriodEnd}) — ` +
@@ -94,14 +103,7 @@ export class DummyPaymentProvider extends PaymentProvider {
     return Promise.resolve(DUMMY_PAYMENT_METHOD);
   }
 
-  /**
-   * In-app "manage billing" (profile edit + card update via Stripe Elements/SetupIntent) is
-   * Stripe-only — `BillingService` guards on `paymentProvider.type === 'stripe'` before ever
-   * reaching these, so none of the four methods below should execute in practice. They throw
-   * rather than fake a working response: a `dummy_cus_*` id has no real Stripe Customer object
-   * behind it, so there is nothing genuine to read a profile from or attach a real card to — unlike
-   * `getPaymentMethodSummary`'s fixture above, faking this would silently hide a real caller bug.
-   */
+  // In-app billing management is Stripe-only; `BillingService` guards on `type === 'stripe'`.
   getBillingProfile(_customerId: string): Promise<BillingProfile> {
     return Promise.reject(
       new Error(
@@ -143,10 +145,7 @@ export class DummyPaymentProvider extends PaymentProvider {
     );
   }
 
-  /** Same "no real Stripe object to read" reasoning as `getBillingProfile` et al. above — Dummy's
-   *  checkout flow redirects to `DUMMY_CHECKOUT`, never `success_url`, so this is never actually
-   *  reached in practice; `completeDummyCheckout` is Dummy's own equivalent of this reconciliation
-   *  path, driven by the query params its own confirmation page already carries. */
+  // Never reached: Dummy checkout redirects to `DUMMY_CHECKOUT`, and `completeDummyCheckout` replaces this reconciliation.
   retrieveCheckoutSession(_sessionId: string): Promise<CheckoutSessionSnapshot> {
     return Promise.reject(
       new Error(

@@ -8,12 +8,8 @@ import { ROUTES } from "@/app/_libs/constants/routes";
 import { useAuth } from "@/hooks/auth/use-auth";
 
 /**
- * Mock Microsoft sign-in step. There is no real Entra ID app registered yet
- * (see apps/documentation/docs/backend/auth/api-reference.md) — this stands
- * in for the redirect-to-Microsoft-and-back OAuth round trip so the login
- * flow can be demoed end-to-end. Any email/password is accepted; submitting
- * calls the same `useAuth().loginWithMicrosoft()` the real integration will
- * use once it exists.
+ * Stand-in for the Microsoft redirect round trip (no Entra ID app is registered yet); accepts any
+ * email/password and calls `useAuth().loginWithMicrosoft()`, as the real integration will.
  */
 export function MockMicrosoftSsoView() {
   const t = useTranslations("auth.microsoftMock");

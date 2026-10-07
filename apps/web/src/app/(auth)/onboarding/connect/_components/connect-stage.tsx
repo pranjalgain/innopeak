@@ -5,12 +5,7 @@ import { Button } from "@/components/ui/button";
 
 interface ConnectStageProps {
   onConnect: () => void;
-  /**
-   * True while the browser is being sent to Google. Needed because this is a full-page navigation,
-   * not a fetch — there is a real gap between the click and the page leaving (the access-token
-   * refresh), and without feedback an impatient owner clicks again and starts a second OAuth flow
-   * whose state invalidates the first.
-   */
+  /** True while the browser is sent to Google; a full-page navigation has a gap after the click, and without feedback a second click starts another OAuth flow whose state invalidates the first. */
   isLoading?: boolean;
 }
 

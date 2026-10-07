@@ -21,17 +21,14 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime("2026-09-03T11:59:30.000Z", "en-US", now)).toBe("30 seconds ago");
   });
 
-  // The regression this guards: the formatter used to be a module-level constant pinned to
-  // "en-US", so a German reader saw "3 hours ago" in an otherwise fully German UI. The locale
-  // is a required argument now precisely so it can't silently fall back to English again.
+  // Regression: the formatter was pinned to "en-US", so German readers saw "3 hours ago".
   test("renders in the locale it is given, not a hardcoded English one", () => {
     expect(formatRelativeTime("2026-09-03T09:00:00.000Z", "de", now)).toBe("vor 3 Stunden");
     expect(formatRelativeTime("2026-09-01T12:00:00.000Z", "de", now)).toBe("vorgestern");
   });
 
   test("caches one formatter per locale without leaking between them", () => {
-    // Same input, different locales, interleaved — a shared/incorrectly-keyed cache would
-    // return the first locale's wording for the second call.
+    // Interleaved locales: an incorrectly keyed cache would return the first locale's wording.
     const iso = "2026-09-03T11:45:00.000Z";
     expect(formatRelativeTime(iso, "en-US", now)).toBe("15 minutes ago");
     expect(formatRelativeTime(iso, "de", now)).toBe("vor 15 Minuten");

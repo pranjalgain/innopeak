@@ -29,14 +29,8 @@ import { setAdminSessionCookies } from './utils/admin-session-cookies.util';
 import { buildCookieOptions } from './utils/cookie-options.util';
 
 /**
- * Platform-admin authentication — its own controller, its own route namespace
- * (`/v1/admin/auth/*`), entirely public (the caller has no session yet by definition). Split out
- * from the shared `AuthController` so admin login has nothing left to disambiguate — see
- * `apps/documentation/docs/backend/auth/separate-admin-login-design.md`.
- *
- * Deliberately not under `RouteNames.ADMIN_SETTINGS` — that path is `@Roles(PLATFORM_ADMIN)`-gated
- * and requires the caller to already *be* one, which is exactly backwards for a login/invite-accept
- * surface.
+ * Public (the caller has no session yet). Not under `RouteNames.ADMIN_SETTINGS`: that path is
+ * `@Roles(PLATFORM_ADMIN)`-gated, which is backwards for a login/invite-accept surface.
  */
 @Controller({ path: RouteNames.ADMIN_AUTH, version: '1' })
 @ApiTags('Admin Auth')
@@ -58,10 +52,8 @@ export class PlatformAdminAuthController {
   }
 
   /**
-   * The Google button on the admin sign-in screen. An admin who accepted their invite through
-   * Google has no password, so the form above can never sign them in — this is their way back.
-   * Its own intent rather than the tenant `GET /v1/auth/google`, so the admin screen can never
-   * resolve to a tenant session and its failures never land on the tenant login page.
+   * Admin Google sign-in for admins who accepted their invite via Google and so have no password.
+   * Its own intent, so it never resolves to a tenant session and failures never land on the tenant login page.
    */
   @Get(RouteNames.GOOGLE)
   @Public()
@@ -83,10 +75,6 @@ export class PlatformAdminAuthController {
     res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }
 
-  /**
-   * Read-only preview so the accept screen can show "You've been invited as `<email>`" before
-   * ever asking for a password. `@Public()` — the invitee has no session yet.
-   */
   @Get(RouteNames.INVITE_VALIDATE)
   @Public()
   @Throttle({ short: { limit: 20, ttl: 60000 } })
@@ -98,10 +86,6 @@ export class PlatformAdminAuthController {
     return ResponseUtil.success(result, undefined, HttpStatus.OK);
   }
 
-  /**
-   * The password path for accepting a platform-admin invite. Signs the admin in immediately on
-   * success, same as `login` above.
-   */
   @Post(RouteNames.INVITE_ACCEPT)
   @Public()
   @Throttle({ short: { limit: 5, ttl: 60000 } })
@@ -117,10 +101,8 @@ export class PlatformAdminAuthController {
   }
 
   /**
-   * The SSO alternative to `acceptAdminInvite` — deliberately its own route, not
-   * `GET /v1/auth/google`, since a first-time invitee has no `platform_admin_identities` row yet
-   * for that generic callback branch to find. Completion happens at the shared
-   * `GET /v1/auth/google/callback` (still on `AuthController`) via `OAuthIntent.ADMIN_INVITE`.
+   * Own route rather than `GET /v1/auth/google`: a first-time invitee has no `platform_admin_identities`
+   * row for that generic callback branch to find. Completes at the shared callback via `OAuthIntent.ADMIN_INVITE`.
    */
   @Get(RouteNames.INVITE_GOOGLE)
   @Public()
@@ -134,8 +116,7 @@ export class PlatformAdminAuthController {
       return;
     }
 
-    // Same binding cookie every entry point into the shared Google callback sets — one cookie
-    // name, one purpose, regardless of which controller starts the round trip.
+    // Same binding cookie as every other entry into the shared Google callback.
     res.cookie(
       GOOGLE_AUTH_SID_COOKIE_NAME,
       redirect.sid,

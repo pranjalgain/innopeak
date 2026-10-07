@@ -3,16 +3,13 @@ import type { BusinessConnectionStatus } from '@common/enums/business-connection
 import type { BusinessStatus } from '@common/enums/business-status.enum';
 import type { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 
-// ─── Repository ───────────────────────────────────────────────────────────
-
 export interface SetBusinessStatusInput {
   tenantId: string;
   status: TenantStatus;
 }
 
-/** `erasure_pending` is distinct from `not_found` — the tenant exists, but has a pending erasure
- *  request (`erasure_requested_at` set); plain suspend/reactivate must never run alongside that,
- *  or a later status change leaves the timestamp stale — see `AdminBusinessesRepository.setStatus`. */
+/** `erasure_pending` is distinct from `not_found`: plain suspend/reactivate must not run while an erasure
+ *  is pending, or the status change leaves `erasure_requested_at` stale. */
 export type SetBusinessStatusOutcome =
   { outcome: 'erasure_pending' } | { outcome: 'not_found' } | { outcome: 'updated' };
 
@@ -24,7 +21,7 @@ export interface AdminBusinessRow {
   ownerEmail: string | null;
   userCount: number;
   createdAt: string;
-  /** Raw status of the tenant's most-recent connection row — `null` if it has never connected at all. */
+  /** Raw status of the most-recent connection row; null if the tenant never connected. */
   latestConnectionStatus: ReviewProviderConnectionStatus | null;
   /** Whether that most-recent connection row is disconnected — `null` alongside `latestConnectionStatus`. */
   latestConnectionDisconnectedAt: string | null;
@@ -32,13 +29,10 @@ export interface AdminBusinessRow {
   erasureRequestedAt: string | null;
 }
 
-/** Just the pair `toConnectionStatus` needs — see `findConnectionStates`. */
 export interface ConnectionStateRow {
   latestConnectionStatus: ReviewProviderConnectionStatus | null;
   latestConnectionDisconnectedAt: string | null;
 }
-
-// ─── DB Service ───────────────────────────────────────────────────────────
 
 export interface AdminBusinessSummary {
   id: string;
@@ -52,10 +46,8 @@ export interface AdminBusinessSummary {
   erasureRequestedAt: string | null;
 }
 
-/** `AdminBusinessesDbService.setStatus`'s own outcome — derived from `SetBusinessStatusOutcome`
- *  rather than redeclared, so a future failure branch added to the repository's type can never be
- *  forgotten here; only the success case is overridden, carrying the mapped summary instead of
- *  nothing. */
+/** Derived from `SetBusinessStatusOutcome` so a future failure branch cannot be forgotten here; only the
+ *  success case is overridden, to carry the mapped summary. */
 export type SetBusinessStatusResult =
   | Exclude<SetBusinessStatusOutcome, { outcome: 'updated' }>
   | { outcome: 'updated'; summary: AdminBusinessSummary };

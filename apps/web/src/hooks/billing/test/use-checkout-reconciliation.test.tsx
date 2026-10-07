@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { type ReactNode, StrictMode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { BillingService } from "@/app/_libs/services/billing.service";
@@ -112,5 +112,49 @@ describe("useCheckoutReconciliation", () => {
     expect(replace).not.toHaveBeenCalled();
     resolve(subscription("paid"));
     await waitFor(() => expect(replace).toHaveBeenCalled());
+  });
+
+  /**
+   * Regression: the toast and URL clean-up hung off per-call `mutate()` callbacks, which react-query drops when
+   * Strict Mode detaches the observer mid-flight, so the page showed nothing and kept its `session_id`.
+   */
+  test("still reports the outcome and strips the params under Strict Mode", async () => {
+    vi.spyOn(BillingService, "reconcileCheckoutSession").mockResolvedValue(subscription("free"));
+
+    renderHook(() => useCheckoutReconciliation(), {
+      wrapper: ({ children }) => <StrictMode>{wrapper({ children })}</StrictMode>,
+    });
+
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith("checkoutReconcilePending"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/settings?tab=billing", { scroll: false }));
+  });
+
+  test("exposes a pending outcome that stays after the toast, and can be re-checked", async () => {
+    const reconcile = vi
+      .spyOn(BillingService, "reconcileCheckoutSession")
+      .mockResolvedValueOnce(subscription("free"))
+      .mockResolvedValueOnce(subscription("paid"));
+
+    const { result } = renderHook(() => useCheckoutReconciliation(), { wrapper });
+
+    await waitFor(() => expect(result.current.outcome).toBe("pending"));
+
+    await act(async () => {
+      result.current.recheck();
+    });
+
+    await waitFor(() => expect(result.current.outcome).toBeNull());
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(reconcile).toHaveBeenLastCalledWith("cs_test_1");
+    expect(toast.success).toHaveBeenCalledWith("checkoutReconciled");
+  });
+
+  test("exposes a failed outcome once every retry is spent", async () => {
+    vi.spyOn(BillingService, "reconcileCheckoutSession").mockRejectedValue(new Error("down"));
+
+    const { result } = renderHook(() => useCheckoutReconciliation(), { wrapper });
+
+    await waitFor(() => expect(result.current.outcome).toBe("failed"), { timeout: 6000 });
+    expect(toast.error).toHaveBeenCalledWith("checkoutReconcileFailed");
   });
 });

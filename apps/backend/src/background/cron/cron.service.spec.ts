@@ -1,4 +1,5 @@
 import { AccountAnonymizationService } from '@auth/services/account-anonymization.service';
+import { ErasureNoticeService } from '@auth/services/erasure-notice.service';
 import { CronJobName } from '@bg/constants/job.constant';
 import type { ICronJob } from '@bg/interfaces/job.interface';
 import { BillingReconciliationService } from '@billing/services/billing-reconciliation.service';
@@ -15,6 +16,7 @@ import { Test } from '@nestjs/testing';
 import { ReviewSyncQueue } from '@review-sync-queue/review-sync.queue';
 
 import { CronService } from './cron.service';
+import { TenantErasureCleanupService } from './tenant-erasure-cleanup.service';
 
 describe('CronService', () => {
   let target: CronService;
@@ -30,6 +32,13 @@ describe('CronService', () => {
   let tenantSubscriptionsDbService: jest.Mocked<
     Pick<TenantSubscriptionsDbService, 'findStaleFreeWithStripeCustomer'>
   >;
+  let erasureNoticeService: {
+    sendDueReminders: jest.Mock;
+    findRecipients: jest.Mock;
+    notifyErased: jest.Mock;
+    notifyPurgeSkipped: jest.Mock;
+  };
+  let tenantErasureCleanupService: { releaseExternalResources: jest.Mock };
   let configService: { get: jest.Mock };
   let acquireLock: jest.Mock;
 
@@ -80,6 +89,17 @@ describe('CronService', () => {
       findStaleFreeWithStripeCustomer: jest.fn().mockResolvedValue([]),
     };
 
+    tenantErasureCleanupService = {
+      releaseExternalResources: jest.fn().mockResolvedValue(undefined),
+    };
+
+    erasureNoticeService = {
+      sendDueReminders: jest.fn().mockResolvedValue(0),
+      findRecipients: jest.fn().mockResolvedValue([]),
+      notifyErased: jest.fn().mockResolvedValue(undefined),
+      notifyPurgeSkipped: jest.fn().mockResolvedValue(undefined),
+    };
+
     configService = { get: jest.fn().mockReturnValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -93,6 +113,8 @@ describe('CronService', () => {
         { provide: AdminOverviewDbService, useValue: adminOverviewDbService },
         { provide: BillingReconciliationService, useValue: billingReconciliationService },
         { provide: TenantSubscriptionsDbService, useValue: tenantSubscriptionsDbService },
+        { provide: TenantErasureCleanupService, useValue: tenantErasureCleanupService },
+        { provide: ErasureNoticeService, useValue: erasureNoticeService },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -189,11 +211,7 @@ describe('CronService', () => {
       expect(reviewSyncQueue.addPollJob).not.toHaveBeenCalled();
     });
 
-    /**
-     * The cron queue is `attempts: 1, removeOnFail: true`, so a throw escaping this loop would
-     * drop every *later* location's poll for the cycle with no retry — one transient Redis blip
-     * starving every tenant after it in the list.
-     */
+    // The cron queue is `attempts: 1`, so a throw escaping the loop would drop every later location's poll.
     it('keeps enqueueing the remaining locations when one enqueue fails', async () => {
       connectionsDbService.findLocationsDueForPoll.mockResolvedValue([
         {
@@ -256,7 +274,7 @@ describe('CronService', () => {
 
     it('anonymizes every non-anonymized user in a due tenant before flipping it to erased', async () => {
       authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
-        { id: 'tenant-1', name: 'The Coastal Table' },
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: null },
       ]);
       authDbService.findNonAnonymizedUserIdsForTenant.mockResolvedValue(['user-1', 'user-2']);
       authDbService.markTenantErased.mockResolvedValue({ name: 'The Coastal Table' });
@@ -269,9 +287,138 @@ describe('CronService', () => {
       expect(authDbService.markTenantErased).toHaveBeenCalledWith('tenant-1');
     });
 
+    it("releases the tenant's external resources before anonymizing anyone", async () => {
+      authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: null },
+      ]);
+      authDbService.findNonAnonymizedUserIdsForTenant.mockResolvedValue(['user-1']);
+      authDbService.markTenantErased.mockResolvedValue({ name: 'The Coastal Table' });
+
+      await target.purgeErasureRequests();
+
+      expect(tenantErasureCleanupService.releaseExternalResources).toHaveBeenCalledWith('tenant-1');
+      expect(
+        tenantErasureCleanupService.releaseExternalResources.mock.invocationCallOrder[0]
+      ).toBeLessThan(accountAnonymizationService.anonymizeUser.mock.invocationCallOrder[0] ?? 0);
+    });
+
+    // Erasing before a failed release would leave a tenant still billed or connected that nobody can sign in to.
+    it('leaves the tenant alone, to be retried, when its resources cannot be released', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: null },
+      ]);
+      authDbService.findNonAnonymizedUserIdsForTenant.mockResolvedValue(['user-1']);
+      tenantErasureCleanupService.releaseExternalResources.mockRejectedValue(
+        new Error('stripe unreachable')
+      );
+
+      await target.purgeErasureRequests();
+
+      expect(accountAnonymizationService.anonymizeUser).not.toHaveBeenCalled();
+      expect(authDbService.markTenantErased).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('skipped 1 tenant(s)'));
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('tenant-1'));
+    });
+
+    it('reads the owners to confirm to before anonymizing them, and mails them once the tenant is erased', async () => {
+      const owners = [{ email: 'o@example.com', name: 'Owen', locale: 'de' }];
+      authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: null },
+      ]);
+      authDbService.findNonAnonymizedUserIdsForTenant.mockResolvedValue(['user-1']);
+      authDbService.markTenantErased.mockResolvedValue({ name: 'The Coastal Table' });
+      erasureNoticeService.findRecipients.mockResolvedValue(owners);
+
+      await target.purgeErasureRequests();
+
+      expect(erasureNoticeService.notifyErased).toHaveBeenCalledWith({
+        recipients: owners,
+        businessName: 'The Coastal Table',
+      });
+      expect(erasureNoticeService.findRecipients.mock.invocationCallOrder[0]).toBeLessThan(
+        accountAnonymizationService.anonymizeUser.mock.invocationCallOrder[0] ?? 0
+      );
+    });
+
+    it('sends no confirmation for a tenant that was skipped', async () => {
+      jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: null },
+      ]);
+      tenantErasureCleanupService.releaseExternalResources.mockRejectedValue(new Error('down'));
+
+      await target.purgeErasureRequests();
+
+      expect(erasureNoticeService.notifyErased).not.toHaveBeenCalled();
+    });
+
+    it('sends the reminders before purging', async () => {
+      await target.purgeErasureRequests();
+
+      expect(erasureNoticeService.sendDueReminders).toHaveBeenCalledTimes(1);
+      expect(erasureNoticeService.sendDueReminders.mock.invocationCallOrder[0]).toBeLessThan(
+        authDbService.runWithErasurePurgeLock.mock.invocationCallOrder[0] ?? 0
+      );
+    });
+
+    it('alerts the platform admins about a skipped tenant, with how overdue it is and why', async () => {
+      jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      const longAgo = new Date(Date.now() - 25 * 86_400_000).toISOString(); // grace 21 → 4 days over
+      authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: longAgo },
+      ]);
+      tenantErasureCleanupService.releaseExternalResources.mockRejectedValue(
+        new Error('stripe unreachable\n  at somewhere')
+      );
+
+      await target.purgeErasureRequests();
+
+      expect(erasureNoticeService.notifyPurgeSkipped).toHaveBeenCalledWith([
+        {
+          name: 'The Coastal Table',
+          daysOverdue: 4,
+          reason: 'stripe unreachable at somewhere',
+        },
+      ]);
+    });
+
+    it('carries on with later tenants, and still sends the alert, when one tenant fails to anonymize', async () => {
+      jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
+        { id: 'tenant-1', name: 'Broken Co', erasureRequestedAt: null },
+        { id: 'tenant-2', name: 'Fine Co', erasureRequestedAt: null },
+      ]);
+      authDbService.findNonAnonymizedUserIdsForTenant
+        .mockResolvedValueOnce(['user-1'])
+        .mockResolvedValueOnce([]);
+      accountAnonymizationService.anonymizeUser.mockRejectedValueOnce(new Error('cloudinary down'));
+      authDbService.markTenantErased.mockResolvedValue({ name: 'Fine Co' });
+
+      await expect(target.purgeErasureRequests()).resolves.toBeUndefined();
+
+      expect(authDbService.markTenantErased).toHaveBeenCalledTimes(1);
+      expect(authDbService.markTenantErased).toHaveBeenCalledWith('tenant-2');
+      expect(erasureNoticeService.notifyPurgeSkipped).toHaveBeenCalledWith([
+        expect.objectContaining({ name: 'Broken Co', reason: 'cloudinary down' }),
+      ]);
+    });
+
+    it('sends no alert when nothing was skipped', async () => {
+      authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: null },
+      ]);
+      authDbService.findNonAnonymizedUserIdsForTenant.mockResolvedValue([]);
+      authDbService.markTenantErased.mockResolvedValue({ name: 'The Coastal Table' });
+
+      await target.purgeErasureRequests();
+
+      expect(erasureNoticeService.notifyPurgeSkipped).not.toHaveBeenCalled();
+    });
+
     it('logs BUSINESS_ERASED with no human admin actor once a tenant is fully erased', async () => {
       authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
-        { id: 'tenant-1', name: 'The Coastal Table' },
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: null },
       ]);
       authDbService.findNonAnonymizedUserIdsForTenant.mockResolvedValue([]);
       authDbService.markTenantErased.mockResolvedValue({ name: 'The Coastal Table' });
@@ -289,7 +436,7 @@ describe('CronService', () => {
 
     it('does not log an activity when the tenant was not actually flipped (already erased)', async () => {
       authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
-        { id: 'tenant-1', name: 'The Coastal Table' },
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: null },
       ]);
       authDbService.findNonAnonymizedUserIdsForTenant.mockResolvedValue([]);
       authDbService.markTenantErased.mockResolvedValue(null);
@@ -299,16 +446,10 @@ describe('CronService', () => {
       expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
     });
 
-    /**
-     * Closes the race this per-tenant lock exists for: the initial `findTenantsDueForErasurePurge`
-     * read can be stale by the time the lock is actually acquired (an admin's concurrent
-     * `cancelErasure` call, say). Re-verifying under the lock and bailing out — instead of trusting
-     * the earlier read — is what stops the cron from anonymizing users of a tenant an admin just
-     * un-erased.
-     */
+    // The due-tenants read can be stale by lock time (a concurrent `cancelErasure`); re-verifying under the lock keeps an un-erased tenant safe.
     it('takes the per-tenant lock and skips a tenant that is no longer due once re-verified', async () => {
       authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
-        { id: 'tenant-1', name: 'The Coastal Table' },
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: null },
       ]);
       authDbService.isTenantStillDueForErasure.mockResolvedValue(false);
 
@@ -325,11 +466,7 @@ describe('CronService', () => {
       expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
     });
 
-    /**
-     * The standalone member-removal loop gets the exact same per-resource lock + re-verify
-     * treatment as the tenant loop above, closing the identical TOCTOU race against a concurrent
-     * `cancelMemberRemoval` call for one of these same user ids.
-     */
+    // Same lock + re-verify as the tenant loop, against a concurrent `cancelMemberRemoval`.
     it('takes the per-member lock and skips a standalone user that is no longer due once re-verified', async () => {
       authDbService.findUsersDueForErasurePurge.mockResolvedValue(['user-3']);
       authDbService.isUserStillDueForErasure.mockResolvedValue(false);
@@ -397,8 +534,7 @@ describe('CronService', () => {
       expect(billingReconciliationService.reconcileTenantSubscription).not.toHaveBeenCalled();
     });
 
-    /** Same reasoning as `pollDueLocations`'s own isolation test — one tenant's Stripe lookup
-     *  failing must not starve every other candidate in the same sweep. */
+    // One tenant's Stripe lookup failing must not starve the other candidates.
     it('keeps reconciling the remaining candidates when one fails', async () => {
       tenantSubscriptionsDbService.findStaleFreeWithStripeCustomer.mockResolvedValue([
         { tenantId: 'tenant-1', stripeCustomerId: 'cus_1' },

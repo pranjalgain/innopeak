@@ -24,28 +24,20 @@ interface UseBusinessSwitcherResult {
 }
 
 /**
- * Backs the Business Switcher dropdown. Reads off the same two endpoints the onboarding flow
- * already uses (`useConnection()` for "which one is active", `listLocations()` for "what can I
- * choose from") and adds the one thing neither exposes: switching it.
- *
- * `tenants.active_location_id` is a single value shared by the whole tenant, not per-user —
- * switching here changes what every member sees, which is why the backend restricts the write to
- * an owner. This hook doesn't pre-check that itself (there is no app-wide "am I the owner" read
- * today); a member's attempt 403s server-side and surfaces as the toast below, the same way every
- * other owner-only action in this app already relies on the backend to enforce its own guard.
+ * Reads `useConnection()` (active) and `listLocations()` (choices) and adds switching. `tenants.active_location_id` is
+ * tenant-wide, so the backend restricts the write to an owner; this hook doesn't pre-check, a member's attempt 403s.
  */
 export function useBusinessSwitcher(): UseBusinessSwitcherResult {
   const t = useTranslations("businessSwitcher");
   const queryClient = useQueryClient();
   const { state } = useConnection();
-  /** Monotonic id of the most recent `switchTo` call — see the race note inside it. */
+    /** Monotonic id of the latest `switchTo` call, for the race noted inside it. */
   const latestSwitchRef = useRef(0);
 
   const locationsQuery = useQuery({
     queryKey: connectionLocationsQueryKey,
     queryFn: ({ signal }) => ConnectionService.listLocations(signal),
-    // Nothing to list before there is even a connection — avoids a request that would just 200
-    // with an empty array on every signed-out-feeling render (pre-onboarding, or mid-reconnect).
+    // Nothing to list before there is a connection (pre-onboarding, mid-reconnect).
     enabled: state?.connectionId != null,
   });
 
@@ -55,28 +47,22 @@ export function useBusinessSwitcher(): UseBusinessSwitcherResult {
 
   const switchTo = useCallback(
     async (locationId: string) => {
-      // Last *click* wins, not last response. Two switches in quick succession settle in whatever
-      // order the server answers, and the loser used to overwrite the winner — leaving the cache
-      // (and so the dashboard's query key, and the switcher's own checkmark) on a location that is
-      // not the one `tenants.active_location_id` now holds, with nothing to correct it until
-      // `["connection"]` next refetches: 5-minute staleTime, no refetch on focus.
+      // Last click wins, not last response: out-of-order replies let the loser overwrite the winner, leaving the cache on a
+      // location that isn't `tenants.active_location_id` until `["connection"]` refetches (5-minute staleTime, no refetch on focus).
       const requestId = ++latestSwitchRef.current;
 
       try {
         const updated = await switchMutation.mutateAsync(locationId);
         if (requestId !== latestSwitchRef.current) return;
 
-        // Direct cache write, not an invalidate-and-refetch: `connectionQueryKey` is shared
-        // app-wide (dashboard guard, Settings), and this is the one field of it that changed —
-        // no need to re-ask the server for the rest.
+        // Direct cache write, not invalidate-and-refetch: `connectionQueryKey` is shared app-wide and only this field changed.
         queryClient.setQueryData<ConnectionState>(connectionQueryKey, (current) =>
           current ? { ...current, location: updated } : current,
         );
       } catch (error) {
         if (requestId !== latestSwitchRef.current) return;
-        // See this hook's own doc comment: a member's attempt 403s server-side, since the switch
-        // is tenant-wide and owner-only — the generic "please try again" told a member to keep
-        // retrying an action the backend will never let them do.
+        // A member's attempt 403s (switching is tenant-wide and owner-only); a generic "please try again" would tell them to
+        // retry an action the backend will never allow.
         if (error instanceof ApiError && error.statusCode === 403) {
           toast.error(t("switchForbidden"));
         } else {

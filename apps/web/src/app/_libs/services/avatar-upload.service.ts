@@ -2,15 +2,10 @@ import type { AvatarUploadAuthorizationResponseDto } from "@innopeak/client-sdk"
 
 import { ApiError } from "@/app/_libs/services/api-error";
 
-/**
- * Thrown when the provider itself refuses the file — a size cap, a rejected format, a network
- * failure mid-upload. Distinct from the backend's own `ApiError` so callers can tell "your file is
- * the problem" (worth repeating to the user verbatim) from "our API is the problem".
- */
+/** The provider itself refused the file (size cap, format, mid-upload failure), as opposed to our API's `ApiError`. */
 export class AvatarUploadError extends Error {}
 
-/** Mirrors the backend's own `MAX_UPLOAD_BYTES` (`CloudinaryStorageProvider`), which is where the
- *  cap is actually enforced — this copy only exists to fail fast before spending the upload. */
+/** Mirrors the backend's `MAX_UPLOAD_BYTES` (enforced in `CloudinaryStorageProvider`); this copy only fails fast. */
 const MAX_AVATAR_BYTES = 10 * 1024 * 1024;
 
 interface CloudinaryUploadResponse {
@@ -18,8 +13,7 @@ interface CloudinaryUploadResponse {
   error?: { message?: string };
 }
 
-/** Cloudinary answers JSON on success *and* on a rejected upload, but a proxy 502 or an empty 413
- *  is neither — parsing has to be allowed to fail without masking the status we already have. */
+/** Cloudinary answers JSON on success and rejection, but a proxy 502 or empty 413 is neither; parsing may fail without masking the status. */
 async function readJsonBody(response: Response): Promise<CloudinaryUploadResponse | null> {
   try {
     return (await response.json()) as CloudinaryUploadResponse;
@@ -28,12 +22,7 @@ async function readJsonBody(response: Response): Promise<CloudinaryUploadRespons
   }
 }
 
-/**
- * Uploads straight to the provider with the fields the backend signed — the file never touches our
- * own API. Everything in `formFields` is sent verbatim: the signature covers those values, so
- * editing or dropping one makes the provider reject the upload (which is exactly what stops a
- * client uploading outside its own owner-scoped folder).
- */
+/** Sends `formFields` verbatim: the signature covers them, which is what keeps a client in its owner-scoped folder. */
 async function uploadToProvider(
   file: File,
   authorization: AvatarUploadAuthorizationResponseDto,
@@ -61,29 +50,13 @@ async function uploadToProvider(
   return body.public_id;
 }
 
-/**
- * The direct-to-provider half of the avatar upload flow, and the one thing this file's other
- * exports don't fit as static methods of: `AvatarUploadError` is its own error class (same
- * separate-from-the-service-class shape as `ApiError`/`SettingsApiError`), and neither method here
- * goes through the generated SDK/`unwrap()` the way every other `*Service` does — this talks
- * straight to the provider (Cloudinary), never the backend.
- */
 export class AvatarUploadService {
-  /**
-   * Returns the id the caller then hands to the backend's confirm route — which re-verifies it
-   * against the provider rather than trusting it, so a wrong id here fails there rather than
-   * persisting something bogus.
-   *
-   * An empty `uploadUrl` means the offline `noop` provider: there is nothing to upload to, so the
-   * sentinel id it already handed us is what gets confirmed.
-   */
+  /** Returns the id to confirm with the backend, which re-verifies it. An empty `uploadUrl` means the offline `noop` provider: confirm its sentinel id. */
   static async upload(
     file: File,
     authorization: AvatarUploadAuthorizationResponseDto,
   ): Promise<string> {
-    // Checked here purely so an oversized file fails instantly instead of after a slow upload the
-    // backend would reject anyway — the authoritative cap is the one `verifyUpload` enforces,
-    // since nothing client-side is trustworthy.
+    // Fails oversized files fast; the authoritative cap is the one `verifyUpload` enforces.
     if (file.size > MAX_AVATAR_BYTES) {
       throw new AvatarUploadError("That image is too large. Please choose a file under 10 MB.");
     }
@@ -98,13 +71,7 @@ export class AvatarUploadService {
     return uploadToProvider(file, authorization);
   }
 
-  /**
-   * What to actually show the user when an avatar upload fails. Both failure sources carry a
-   * message worth repeating verbatim — the provider's ("File size too large") tells them to pick a
-   * different file, and the backend's 400 from confirm is already localized ("This image format is
-   * not supported…"). Everything else is a server or transport fault the user can do nothing
-   * about, so it falls back to the caller's generic copy.
-   */
+  /** Provider and backend-confirm (400) messages are worth showing verbatim; anything else falls back to the caller's generic copy. */
   static errorMessage(error: unknown, fallback: string): string {
     if (error instanceof AvatarUploadError) return error.message;
     if (error instanceof ApiError && error.statusCode === 400) return error.message;

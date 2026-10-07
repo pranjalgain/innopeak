@@ -20,12 +20,7 @@ import {
 
 import type { AuthUser } from '../auth/types/auth.type';
 
-/**
- * No `@Roles()` gate — every authenticated tenant user reads their own feed, owner or member
- * alike. `NotificationsService.list` is what actually scopes a query to the caller's own
- * `user_id`, the same "checked in the service, not left to the guard" shape as
- * `TenantAvatarController`.
- */
+/** No `@Roles()` gate: every tenant user reads their own feed; scoping to `user_id` is done in the service. */
 @Controller({
   path: RouteNames.NOTIFICATIONS,
   version: '1',

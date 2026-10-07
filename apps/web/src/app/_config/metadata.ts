@@ -2,10 +2,6 @@ import type { Metadata } from "next";
 
 import { env } from "env";
 
-/**
- * @description Metadata for the website
- * @returns {Metadata} Metadata for the website
- */
 export const metadata: Metadata = {
   title: {
     template: `%s - ${env.NEXT_PUBLIC_APP_TITLE}`,

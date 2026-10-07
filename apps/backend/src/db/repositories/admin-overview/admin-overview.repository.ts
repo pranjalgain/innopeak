@@ -15,19 +15,14 @@ const ACTIVITY_COLUMNS = {
   id: schema.platformActivityLog.id,
   type: schema.platformActivityLog.type,
   actorEmail: schema.platformActivityLog.actorEmail,
-  // The snapshot taken at write time, not a join against `tenants` — a joined name would vanish
-  // when the business is deleted and would silently rewrite itself when the business is renamed.
+  // The snapshot taken at write time, not a join against `tenants`: a joined name would vanish when the business is
+  // deleted and silently change when it is renamed.
   businessName: schema.platformActivityLog.businessName,
   targetEmail: schema.platformActivityLog.targetEmail,
   occurredAt: schema.platformActivityLog.occurredAt,
 } as const;
 
-/**
- * `reviews`/`review_responses` aggregated platform-wide (no `tenantId` filter — the one place in
- * this codebase those two tables are queried across every tenant at once), plus
- * `platform_activity_log`, a purpose-built log of platform-admin actions (see
- * `0009_admin_overview.sql` for why it's written explicitly rather than trigger-populated).
- */
+/** Platform-wide aggregates (no `tenantId` filter) plus `platform_activity_log`; see `0009_admin_overview.sql` for why it's written explicitly. */
 @Injectable()
 export class AdminOverviewRepository {
   constructor(private readonly dbService: DBService) {}
@@ -35,10 +30,8 @@ export class AdminOverviewRepository {
   async getReviewStats(): Promise<PlatformReviewStats> {
     const [reviewRows, replyRows] = await Promise.all([
       this.dbService.db.select({ value: count() }).from(schema.reviews),
-      // `posted_at IS NOT NULL`, not `status = 'posted'` — kept identical to
-      // `AdminStatisticsRepository.getReviewsTrend`'s own filter so the Overview headline and the
-      // Statistics trend can never disagree about what "replies sent" counts. See that method for
-      // why the mutable `status` is the wrong key (`posted -> superseded on a later edit`).
+      // `posted_at IS NOT NULL`, not the mutable `status = 'posted'` (becomes `superseded` on edit): matches
+      // `AdminStatisticsRepository.getReviewsTrend` so Overview and Statistics agree on "replies sent".
       this.dbService.db
         .select({ value: count() })
         .from(schema.reviewResponses)
@@ -52,20 +45,13 @@ export class AdminOverviewRepository {
   }
 
   /**
-   * Tenant signups aggregated by calendar month, over the trailing `monthsBack` months (the
-   * current month counts as one). UTC, matching the app's `TZ=UTC` runtime, so a tenant created at
-   * `2026-02-01T00:30:00Z` always lands in February regardless of which timezone the requesting
-   * admin is in.
-   *
-   * `EXTRACT(...)` is the accepted `sql<T>` exception here (see `admin-businesses.repository.ts`'s
-   * own comment on that convention) — the query builder has no month/year grouping primitive.
-   * Reusing the same `sql<T>` expression objects in both `select` and `groupBy` keeps the two
-   * provably identical; Postgres groups by the expression itself, not by its output alias.
+   * UTC (app runs `TZ=UTC`) so a signup's month never depends on the admin's timezone; the current month counts as one of
+   * `monthsBack`. `EXTRACT(...)` is the accepted `sql<T>` exception; reusing the same expression objects in `select` and
+   * `groupBy` keeps them identical, since Postgres groups by expression, not alias.
    */
   async getSignupTrend(monthsBack: number): Promise<SignupTrendPoint[]> {
     const now = new Date();
-    // `tenants.createdAt` is a `mode: 'string'` timestamp column — Drizzle compares it against a
-    // string, not a `Date`, so the window start is serialized before being passed to `gte`.
+    // `createdAt` is a `mode: 'string'` column, so the window start is serialized before `gte`.
     const windowStart = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (monthsBack - 1), 1)
     ).toISOString();
@@ -96,9 +82,7 @@ export class AdminOverviewRepository {
   async getRecentActivity(limit: number): Promise<PlatformActivityRow[]> {
     const rows = await this.dbService.db
       .select(ACTIVITY_COLUMNS)
-      // No join to `platform_admins`: every column this returns is stored on the log row itself.
-      // An inner join would also have silently dropped entries whose admin has since been deleted
-      // — exactly the history the snapshot columns exist to preserve.
+      // No join to `platform_admins`: columns are snapshotted on the row, and an inner join would drop entries whose admin was deleted.
       .from(schema.platformActivityLog)
       .orderBy(desc(schema.platformActivityLog.occurredAt), desc(schema.platformActivityLog.id))
       .limit(limit);
@@ -106,14 +90,7 @@ export class AdminOverviewRepository {
     return rows as PlatformActivityRow[];
   }
 
-  /**
-   * Paginated, filterable history — distinct from `getRecentActivity` above (a bounded "top N"
-   * read for the Overview glance card, no offset/total/type filter). Real `platform_activity_log`
-   * rows only: the Overview card's synthesized `business_joined` entries (see
-   * `buildActivityFeed` on the frontend) aren't a real row here and aren't part of this table, so
-   * they're deliberately out of scope for this method — see this session's own research into why
-   * paginating a UNION of two independently-queried sources isn't attempted here.
-   */
+  /** Paginated, filterable history of real `platform_activity_log` rows only; the synthesized `business_joined` entries aren't rows here. */
   async listActivity(input: {
     page: number;
     pageSize: number;

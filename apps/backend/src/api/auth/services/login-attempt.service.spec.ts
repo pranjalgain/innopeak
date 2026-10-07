@@ -7,9 +7,8 @@ import { LoginAttemptScope, LoginAttemptService } from './login-attempt.service'
 import { LOGIN_LOCKOUT_THRESHOLD } from '../constants/auth.constants';
 
 /**
- * The counters are scoped per credential space, not per email. One address can now be both a
- * platform admin and, separately, a tenant business owner (the dual-identity decision in
- * `separate-admin-login-design.md`) — two unrelated passwords behind two unrelated login routes.
+ * Counters are scoped per credential space: one address can be both a platform admin and a tenant
+ * owner.
  */
 describe('LoginAttemptService', () => {
   const EMAIL = 'shared@innopeak.com';
@@ -57,11 +56,8 @@ describe('LoginAttemptService', () => {
   });
 
   /**
-   * The security regression this scoping exists to close. `reset` runs on every successful login,
-   * and the key used to be the bare email hash — so one successful *tenant* login wiped the
-   * counter guarding the *admin* password on the same address. Anyone holding the self-service
-   * tenant password could clear the admin lockout after each failed batch and brute-force the
-   * admin password indefinitely, leaving only the per-IP throttle in the way.
+   * Regression: a successful tenant login must not reset the counter guarding the admin password on
+   * the same address.
    */
   it('does not let a successful tenant login clear the admin lockout on the same address', async () => {
     await exhaust(LoginAttemptScope.ADMIN);

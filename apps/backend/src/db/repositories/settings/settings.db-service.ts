@@ -8,6 +8,7 @@ import type {
   BlocklistTermRecord,
   CreateBlocklistTermInput,
   DeleteBlocklistTermInput,
+  InsertBlocklistTermResult,
   NotificationRecipientRecord,
   TenantSettingsRecord,
   TenantSettingsWrite,
@@ -26,7 +27,7 @@ export class SettingsDbService {
     return this.blocklistTermsRepository.listByTenant(tenantId);
   }
 
-  async insertBlocklistTerm(input: CreateBlocklistTermInput): Promise<BlocklistTermRecord | null> {
+  async insertBlocklistTerm(input: CreateBlocklistTermInput): Promise<InsertBlocklistTermResult> {
     return this.blocklistTermsRepository.insertTerm(input);
   }
 

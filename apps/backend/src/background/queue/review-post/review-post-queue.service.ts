@@ -16,8 +16,10 @@ import { ReviewProvider } from '@review-provider/providers/review-provider.provi
 import { ReviewPostQueue } from './review-post.queue';
 import { normalizeReplyText } from './review-post.util';
 
-/** Total tries (first attempt included) for a transient provider failure or a post-success DB
- *  failure before the response is given up on. */
+/**
+ * Total tries, first attempt included, for a transient provider failure or a post-success DB
+ * failure.
+ */
 const MAX_POST_ATTEMPTS = 3;
 
 /** Wait before the 2nd and 3rd attempt after a transient provider error (429 / 5xx / network). */
@@ -27,26 +29,16 @@ const TRANSIENT_RETRY_DELAYS_MS = [60_000, 5 * 60_000];
  *  outlast the claim's staleness window, or the re-check could not claim the still-held row. */
 const RECORD_RECHECK_DELAY_MS = (POST_CLAIM_STALE_MINUTES + 1) * 60_000;
 
-/** What talking to Google established, before anything is written locally. */
 type PostOutcome =
   | { kind: 'external'; content: string; postedAt: string }
   | { kind: 'posted'; content: string; postedAt: string };
 
 /**
- * The freshness-check-then-post business logic PLAN.md §8.12 and `review-pipeline/overview.md`'s
- * "Posting back to Google" section both describe — the one genuinely new piece of logic in this
- * queue; the processor/consumer/queue files around it are adapt-and-rename boilerplate from the
- * `email` queue's shape (see that queue's own module doc comments).
- *
- * Transport-agnostic, like `ReviewSyncQueueService`: both the BullMQ processor and the SQS
- * consumer call `postResponse` and neither contains logic of its own.
- *
- * **Retries are this class's own, not the queue's.** The queue runs `attempts: 1`: a blind
- * transport retry would replay a stale decision instead of re-running the freshness check, per
- * `review-pipeline/overview.md`'s explicit warning. Instead a *transient* failure (rate limit,
- * 5xx, network) releases the claim and re-enqueues a fresh job with `attempt + 1` and a delay —
- * every attempt starts again at the claim and the freshness check. Anything else (a dead grant, an
- * unmappable response) is terminal for this attempt and is left for the user's `retry-post`.
+ * Transport-agnostic: the BullMQ processor and the SQS consumer both just call `postResponse`.
+ * Retries are this class's own: the queue runs `attempts: 1` because a blind transport retry would
+ * replay a stale decision instead of re-running the freshness check. A transient failure (rate
+ * limit, 5xx, network) releases the claim and re-enqueues with `attempt + 1` and a delay; anything
+ * else is terminal for the attempt, left to the user's `retry-post`.
  */
 @Injectable()
 export class ReviewPostQueueService {
@@ -81,15 +73,15 @@ export class ReviewPostQueueService {
     });
 
     if (!review) {
-      // Should not happen — the response row FKs to it — but fail loudly rather than leave the
-      // claim stuck at `approved` with a `post_attempted_at` nothing will ever clear.
+      // Should not happen (FK), but fail loudly rather than leave the claim stuck at `approved`
+      // with a `post_attempted_at` nothing will clear.
       const message = `Review ${job.reviewId} not found while posting response ${job.responseId}`;
       await this.markFailedSafely(job.responseId, message);
       throw new Error(message);
     }
 
     if (review.removedUpstreamAt !== null) {
-      // Nothing to send the reply to — fail it up front with a clear reason instead of a Google 404.
+      // No reply target: fail up front with a clear reason instead of a Google 404.
       await this.markFailedSafely(job.responseId, MESSAGES.REVIEWS.POST_FAILED_REVIEW_REMOVED);
       this.logger.warn(
         `Not posting response ${job.responseId}: review ${job.reviewId} was removed on Google.`
@@ -113,8 +105,8 @@ export class ReviewPostQueueService {
   }
 
   /**
-   * Everything that talks to Google, kept apart from the local writes so a database failure can
-   * never be mistaken for a failed post (the reply may already be live by then).
+   * Kept apart from the local writes so a database failure is never mistaken for a failed post (the
+   * reply may already be live).
    */
   private async postOrResolve(
     job: IReviewPostJob,
@@ -150,25 +142,22 @@ export class ReviewPostQueueService {
       externalReviewId: review.externalReviewId,
     };
 
-    // PLAN.md §8.12 — fetched fresh, immediately before posting, never from our own last-polled
-    // copy of the review.
+    // Fetched fresh immediately before posting, never from our last-polled copy of the review.
     const existingReply = await this.provider.getReviewReply(accessToken, providerInput);
 
     if (existingReply !== null) {
       if (normalizeReplyText(existingReply.comment) === normalizeReplyText(content)) {
-        // Our own reply from a prior attempt that crashed between the Google PUT succeeding and
-        // this response's own `markResponsePosted` committing — see `0004_reviews.sql`'s
-        // `post_attempted_at` comment. Recorded as posted rather than re-sent: Google's reply
-        // endpoint is an unconditional upsert, so re-posting identical content would be harmless
-        // but is still a pointless second write.
+        // Our own reply from a prior attempt that crashed between the Google PUT and
+        // `markResponsePosted` committing. Recorded as posted rather than re-sent, which would be a
+        // pointless second write.
         this.logger.log(
           `Response ${job.responseId} was already live on Google from a prior attempt; recording it as posted without re-sending.`
         );
         return { kind: 'posted', content, postedAt: existingReply.updatedAt };
       }
 
-      // Someone replied another way (directly on Google, or a race with another worker) — abort
-      // rather than overwrite it. See ReviewSyncRepository.supersedeForExternalReply.
+      // Someone replied another way (directly on Google, or a race with another worker): abort
+      // rather than overwrite it.
       return {
         kind: 'external',
         content: existingReply.comment,
@@ -184,10 +173,9 @@ export class ReviewPostQueueService {
   }
 
   /**
-   * The local writes after Google has been dealt with. A lost compare-and-swap here (the response
-   * stopped being `approved` while the worker was talking to Google — a human rejected or edited
-   * it) is not success: the reply is, or already was, live on Google, so what Google actually has
-   * is imported rather than left out of the record.
+   * A lost compare-and-swap (the response stopped being `approved`, e.g. a human rejected or edited
+   * it mid-call) is not success: the reply is or was live on Google, so what Google has is
+   * imported.
    */
   private async recordOutcome(job: IReviewPostJob, outcome: PostOutcome): Promise<void> {
     if (outcome.kind === 'posted') {
@@ -241,9 +229,8 @@ export class ReviewPostQueueService {
   }
 
   /**
-   * A failure before or during the Google call. Transient ones are rescheduled (up to
-   * `MAX_POST_ATTEMPTS`); the rest — and an exhausted transient — mark the response `post_failed`
-   * and rethrow so the queue's failed-job handling still sees them.
+   * Transient failures are rescheduled up to `MAX_POST_ATTEMPTS`; the rest, and an exhausted
+   * transient, mark `post_failed` and rethrow so the queue's failed-job handling still sees them.
    */
   private async handleProviderFailure(
     job: IReviewPostJob,
@@ -251,8 +238,8 @@ export class ReviewPostQueueService {
     error: unknown
   ): Promise<void> {
     if (error instanceof ProviderAuthError) {
-      // PLAN.md §8.14 — the same "record a dead grant on the connection, not just report it"
-      // requirement ReviewSyncQueueService.handleSyncFailure honours for the read path.
+      // Record a dead grant on the connection, not just report it (as
+      // `ReviewSyncQueueService.handleSyncFailure` does for reads).
       try {
         const connection = await this.connectionsDbService.findConnectionByTenant(job.tenantId);
         if (connection) {
@@ -285,12 +272,10 @@ export class ReviewPostQueueService {
   }
 
   /**
-   * A local write failed *after* Google was dealt with, so the reply is — or may be — already live.
-   * Marking the response `post_failed` would be wrong (it is not failed, and the database may be the
-   * very thing that is down). The claim is left in place; a re-check job after the claim goes stale
-   * runs the freshness check, finds the reply, and records it. Only once attempts are exhausted
-   * does this give up loudly, leaving the row `approved` for a manual post or retry (which hits the
-   * same own-reply check).
+   * Not marked `post_failed`: the reply may already be live and the database may be what is down.
+   * The claim stays; a re-check job after it goes stale finds the reply and records it. Once
+   * attempts are exhausted it gives up loudly, leaving the row `approved` for a manual post or
+   * retry.
    */
   private async handleRecordFailure(
     job: IReviewPostJob,
@@ -346,7 +331,7 @@ export class ReviewPostQueueService {
     return base;
   }
 
-  /** Records `post_failed` without letting a failure of that write mask the error that caused it. */
+  /** Records `post_failed` without letting a failure of that write mask the original error. */
   private async markFailedSafely(responseId: string, errorMessage: string): Promise<void> {
     try {
       await this.reviewSyncDbService.markResponsePostFailed({ responseId, errorMessage });

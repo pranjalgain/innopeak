@@ -11,8 +11,10 @@ export const REQUIRED_PROMPT_PLACEHOLDERS = [
   'review_text',
 ] as const;
 
-/** Names that may appear in a template but are not required. Empty today so a later
- *  optional variable can be added without invalidating stored templates. */
+/**
+ * Allowed in a template but not required; empty today so an optional variable can be added without
+ * invalidating stored templates.
+ */
 export const OPTIONAL_PROMPT_PLACEHOLDERS = [] as const;
 
 export const PROMPT_PLACEHOLDER_ALLOWLIST = [
@@ -32,10 +34,10 @@ export const PROMPT_TONES = [
   'empathetic',
 ] as const;
 
-/** Runtime companion to `PromptCategory` (`types/prompt.type.ts`) — that's a hand-written union
- *  with nothing to validate a request body against; the `prompts` table's own Postgres enum was
- *  the only enforcement point before this, which is fine for a column write but no help to a DTO.
- *  Keep in sync with `PromptCategory` by hand — three fixed values, unlikely to change. */
+/**
+ * Runtime companion to `PromptCategory` so a DTO has something to validate against. Keep in sync by
+ * hand.
+ */
 export const PROMPT_CATEGORIES = ['positive', 'neutral', 'escalated'] as const;
 
 export type PromptToneValue = (typeof PROMPT_TONES)[number];
@@ -43,12 +45,9 @@ export type PromptToneValue = (typeof PROMPT_TONES)[number];
 export const PROMPT_VERSION_APPEND_RETRY_LIMIT = 1;
 
 /**
- * A factory, not a shared instance: a `g`-flagged `RegExp` is stateful (`lastIndex`), and while
- * both of this pattern's current call sites (`String.replace`/`String.matchAll`) happen to reset
- * that state safely on their own, handing out one shared mutable instance across module
- * boundaries is a footgun for the next call site that doesn't. `fillPromptTemplate`
- * (`@ai/utils/prompt-template.util.ts`) is exactly that next call site — it gets its own instance
- * from here instead of hand-authoring a second, easily-divergent copy of this pattern.
+ * A factory, not a shared instance: a `g`-flagged `RegExp` is stateful (`lastIndex`), so one shared
+ * instance across modules is a footgun. `fillPromptTemplate` gets its own from here rather than a
+ * divergent copy.
  */
 export function createPlaceholderPattern(): RegExp {
   return /\{\{([^}]*)\}\}/g;

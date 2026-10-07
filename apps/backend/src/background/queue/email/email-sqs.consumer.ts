@@ -1,6 +1,8 @@
 import { JobName, QueueName } from '@bg/constants/job.constant';
 import {
   IAdminInviteEmailJob,
+  IErasureNoticeEmailJob,
+  IErasurePurgeAlertEmailJob,
   IMemberInviteEmailJob,
   IOtpEmailJob,
 } from '@bg/interfaces/job.interface';
@@ -25,11 +27,9 @@ export class EmailSqsConsumer extends SqsQueueConsumerBase {
   }
 
   /**
-   * Must stay in step with `EmailProcessor`'s own switch — the two are the same queue under two
-   * transports (BullMQ locally, SQS on `aws`), so a job name handled in only one of them fails
-   * hard in the other. That is exactly what happened to `CronSqsConsumer` before the audit;
-   * `admin-invite-email` is the case that would otherwise have gone straight to the DLQ in `aws`
-   * mode, silently dropping every platform-admin invite email.
+   * Must stay in step with `EmailProcessor`'s switch: it is the same queue over two transports (BullMQ
+   * locally, SQS on `aws`), so a job name handled in only one fails hard in the other (an unhandled
+   * `admin-invite-email` would go straight to the DLQ).
    */
   protected async process(jobName: string, data: unknown): Promise<void> {
     switch (jobName as JobName) {
@@ -42,6 +42,12 @@ export class EmailSqsConsumer extends SqsQueueConsumerBase {
         break;
       case JobName.MEMBER_INVITE_EMAIL:
         await this.emailQueueService.sendMemberInviteEmail(data as IMemberInviteEmailJob);
+        break;
+      case JobName.ERASURE_NOTICE_EMAIL:
+        await this.emailQueueService.sendErasureNoticeEmail(data as IErasureNoticeEmailJob);
+        break;
+      case JobName.ERASURE_PURGE_ALERT_EMAIL:
+        await this.emailQueueService.sendErasurePurgeAlertEmail(data as IErasurePurgeAlertEmailJob);
         break;
       default:
         throw new Error(`Unknown job name: ${jobName}`);

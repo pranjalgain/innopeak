@@ -60,6 +60,7 @@ Class | Method | HTTP request | Description
 *AdminBillingApi* | [**adminBillingControllerGetSummaryV1**](docs/AdminBillingApi.md#adminbillingcontrollergetsummaryv1) | **GET** /v1/admin/billing/summary | Platform-wide billing statistics
 *AdminBillingApi* | [**adminBillingControllerHasPaidTenantsV1**](docs/AdminBillingApi.md#adminbillingcontrollerhaspaidtenantsv1) | **GET** /v1/admin/billing/has-paid-tenants | Whether any tenant is currently on the Paid plan
 *AdminBillingApi* | [**adminBillingControllerListWebhookEventsV1**](docs/AdminBillingApi.md#adminbillingcontrollerlistwebhookeventsv1) | **GET** /v1/admin/billing/webhook-events | Paginated, filterable Stripe webhook activity
+*AdminBillingApi* | [**adminBillingControllerResolvePostErasureChargeV1**](docs/AdminBillingApi.md#adminbillingcontrollerresolveposterasurechargev1) | **POST** /v1/admin/billing/post-erasure-charges/{receiptId}/resolve | Mark a charged-after-deletion-request payment as handled
 *AdminBusinessesApi* | [**adminBusinessesControllerCancelErasureV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollercancelerasurev1) | **POST** /v1/admin/businesses/{tenantId}/cancel-erasure | Cancel a pending tenant erasure
 *AdminBusinessesApi* | [**adminBusinessesControllerListV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollerlistv1) | **GET** /v1/admin/businesses | List every tenant, as a Super Admin \&quot;business\&quot;
 *AdminBusinessesApi* | [**adminBusinessesControllerRequestErasureV1**](docs/AdminBusinessesApi.md#adminbusinessescontrollerrequesterasurev1) | **POST** /v1/admin/businesses/{tenantId}/request-erasure | Request erasure of a whole tenant
@@ -88,6 +89,7 @@ Class | Method | HTTP request | Description
 *AuthApi* | [**authControllerAcceptMemberInviteV1**](docs/AuthApi.md#authcontrolleracceptmemberinvitev1) | **POST** /v1/auth/invite/accept | Accept a tenant-member invite by setting a name and password
 *AuthApi* | [**authControllerChangePasswordV1**](docs/AuthApi.md#authcontrollerchangepasswordv1) | **POST** /v1/auth/change-password | Change the current user’s password
 *AuthApi* | [**authControllerCompleteGoogleSignupV1**](docs/AuthApi.md#authcontrollercompletegooglesignupv1) | **POST** /v1/auth/google/complete-signup | Finish a Google signup with a business name
+*AuthApi* | [**authControllerDeleteAccountV1**](docs/AuthApi.md#authcontrollerdeleteaccountv1) | **POST** /v1/auth/delete-account | Schedule the whole business for deletion (owner only)
 *AuthApi* | [**authControllerGoogleAuthorizeV1**](docs/AuthApi.md#authcontrollergoogleauthorizev1) | **GET** /v1/auth/google | Start Google sign-in or signup
 *AuthApi* | [**authControllerGoogleCallbackV1**](docs/AuthApi.md#authcontrollergooglecallbackv1) | **GET** /v1/auth/google/callback | Google sign-in callback
 *AuthApi* | [**authControllerInviteGoogleAuthorizeV1**](docs/AuthApi.md#authcontrollerinvitegoogleauthorizev1) | **GET** /v1/auth/invite/{token}/google | Accept a tenant-member invite via Google
@@ -95,8 +97,10 @@ Class | Method | HTTP request | Description
 *AuthApi* | [**authControllerLogoutV1**](docs/AuthApi.md#authcontrollerlogoutv1) | **POST** /v1/auth/logout | Revoke every refresh token for the current user
 *AuthApi* | [**authControllerMeV1**](docs/AuthApi.md#authcontrollermev1) | **GET** /v1/auth/me | The signed-in tenant user
 *AuthApi* | [**authControllerRefreshV1**](docs/AuthApi.md#authcontrollerrefreshv1) | **POST** /v1/auth/refresh | Rotate the refresh token, mint a fresh access token
+*AuthApi* | [**authControllerRequestDeleteAccountOtpV1**](docs/AuthApi.md#authcontrollerrequestdeleteaccountotpv1) | **POST** /v1/auth/delete-account/request-otp | Request the code that confirms deleting the business (owners without a password)
 *AuthApi* | [**authControllerRequestSetPasswordOtpV1**](docs/AuthApi.md#authcontrollerrequestsetpasswordotpv1) | **POST** /v1/auth/set-password/request-otp | Request the OTP required to set a password on a passwordless account
 *AuthApi* | [**authControllerResendOtpV1**](docs/AuthApi.md#authcontrollerresendotpv1) | **POST** /v1/auth/resend-verification-otp | Resend a verification OTP
+*AuthApi* | [**authControllerRestoreAccountV1**](docs/AuthApi.md#authcontrollerrestoreaccountv1) | **POST** /v1/auth/restore-account | Restore a business the owner scheduled for deletion
 *AuthApi* | [**authControllerSetPasswordV1**](docs/AuthApi.md#authcontrollersetpasswordv1) | **POST** /v1/auth/set-password | Set a password for an account that has never had one
 *AuthApi* | [**authControllerSignupV1**](docs/AuthApi.md#authcontrollersignupv1) | **POST** /v1/auth/signup | Owner self-registration (password path)
 *AuthApi* | [**authControllerUpdateLocaleV1**](docs/AuthApi.md#authcontrollerupdatelocalev1) | **POST** /v1/auth/locale | Set the language responses are rendered in
@@ -140,15 +144,20 @@ Class | Method | HTTP request | Description
 *PromptsApi* | [**promptsControllerListV1**](docs/PromptsApi.md#promptscontrollerlistv1) | **GET** /v1/prompts | List tenant prompts
 *PromptsApi* | [**promptsControllerUpdateToneV1**](docs/PromptsApi.md#promptscontrollerupdatetonev1) | **PUT** /v1/prompts/{promptId}/tone | Update prompt tone
 *ReviewsApi* | [**reviewsControllerApproveReplyV1**](docs/ReviewsApi.md#reviewscontrollerapprovereplyv1) | **POST** /v1/reviews/{reviewId}/responses/{responseId}/approve | Approve a pending reply draft
+*ReviewsApi* | [**reviewsControllerCreateManualReplyV1**](docs/ReviewsApi.md#reviewscontrollercreatemanualreplyv1) | **POST** /v1/reviews/{reviewId}/responses | Write a reply from scratch
+*ReviewsApi* | [**reviewsControllerGetPostStatusV1**](docs/ReviewsApi.md#reviewscontrollergetpoststatusv1) | **GET** /v1/reviews/{reviewId}/responses/{responseId}/post-status | Read the outcome of an asynchronous post-back
 *ReviewsApi* | [**reviewsControllerGetReviewV1**](docs/ReviewsApi.md#reviewscontrollergetreviewv1) | **GET** /v1/reviews/{reviewId} | One review with every response attached
 *ReviewsApi* | [**reviewsControllerListReviewsV1**](docs/ReviewsApi.md#reviewscontrollerlistreviewsv1) | **GET** /v1/reviews | The review queue listing
+*ReviewsApi* | [**reviewsControllerPostResponseV1**](docs/ReviewsApi.md#reviewscontrollerpostresponsev1) | **POST** /v1/reviews/{reviewId}/responses/{responseId}/post | Post an approved reply to Google (manual trigger)
 *ReviewsApi* | [**reviewsControllerRejectReplyV1**](docs/ReviewsApi.md#reviewscontrollerrejectreplyv1) | **POST** /v1/reviews/{reviewId}/responses/{responseId}/reject | Reject a pending reply draft
+*ReviewsApi* | [**reviewsControllerRetryPostV1**](docs/ReviewsApi.md#reviewscontrollerretrypostv1) | **POST** /v1/reviews/{reviewId}/responses/{responseId}/retry-post | Retry posting a failed reply
 *SettingsApi* | [**blocklistTermsControllerCreateV1**](docs/SettingsApi.md#blocklisttermscontrollercreatev1) | **POST** /v1/settings/blocklist-terms | Add a blocklist term
 *SettingsApi* | [**blocklistTermsControllerListV1**](docs/SettingsApi.md#blocklisttermscontrollerlistv1) | **GET** /v1/settings/blocklist-terms | List blocklist terms
 *SettingsApi* | [**blocklistTermsControllerRemoveV1**](docs/SettingsApi.md#blocklisttermscontrollerremovev1) | **DELETE** /v1/settings/blocklist-terms/{id} | Remove a blocklist term
 *SettingsApi* | [**notificationRecipientsControllerListV1**](docs/SettingsApi.md#notificationrecipientscontrollerlistv1) | **GET** /v1/settings/notification-recipients | List escalation notification recipients
 *SettingsApi* | [**notificationRecipientsControllerUpdateV1**](docs/SettingsApi.md#notificationrecipientscontrollerupdatev1) | **PATCH** /v1/settings/notification-recipients/{recipientId} | Update a notification recipient
 *SettingsApi* | [**platformSettingsControllerGetV1**](docs/SettingsApi.md#platformsettingscontrollergetv1) | **GET** /v1/settings/platform-config | Get platform-wide feature settings
+*SettingsApi* | [**tenantExportControllerExportDataV1**](docs/SettingsApi.md#tenantexportcontrollerexportdatav1) | **GET** /v1/settings/export | Download a copy of the business\&#39;s data (owner only)
 *SettingsApi* | [**tenantMembersControllerCancelRemovalV1**](docs/SettingsApi.md#tenantmemberscontrollercancelremovalv1) | **POST** /v1/settings/members/{memberId}/cancel-removal | Cancel a pending team-member removal
 *SettingsApi* | [**tenantMembersControllerInviteV1**](docs/SettingsApi.md#tenantmemberscontrollerinvitev1) | **POST** /v1/settings/members | Invite a teammate
 *SettingsApi* | [**tenantMembersControllerListV1**](docs/SettingsApi.md#tenantmemberscontrollerlistv1) | **GET** /v1/settings/members | List this tenant\&#39;s team, owner included
@@ -201,9 +210,12 @@ Class | Method | HTTP request | Description
  - [ConnectionStatusResponseDto](docs/ConnectionStatusResponseDto.md)
  - [ConnectionSummaryDto](docs/ConnectionSummaryDto.md)
  - [CreateBlocklistTermDto](docs/CreateBlocklistTermDto.md)
+ - [CreateManualReplyDto](docs/CreateManualReplyDto.md)
  - [CreatePromptVersionDto](docs/CreatePromptVersionDto.md)
  - [CreatePromptVersionResponseDto](docs/CreatePromptVersionResponseDto.md)
  - [CurrentRunDto](docs/CurrentRunDto.md)
+ - [DeleteAccountDto](docs/DeleteAccountDto.md)
+ - [DeleteAccountResponseDto](docs/DeleteAccountResponseDto.md)
  - [DeleteBlocklistTermResponseDto](docs/DeleteBlocklistTermResponseDto.md)
  - [DisconnectResponseDto](docs/DisconnectResponseDto.md)
  - [GenerateReplyDryRunDto](docs/GenerateReplyDryRunDto.md)
@@ -215,6 +227,7 @@ Class | Method | HTTP request | Description
  - [LocationDto](docs/LocationDto.md)
  - [LocationListResponseDto](docs/LocationListResponseDto.md)
  - [LoginDto](docs/LoginDto.md)
+ - [ManualReplyResponseDto](docs/ManualReplyResponseDto.md)
  - [MemberInvitePreviewDto](docs/MemberInvitePreviewDto.md)
  - [MetricsDto](docs/MetricsDto.md)
  - [MockReviewDto](docs/MockReviewDto.md)
@@ -228,6 +241,9 @@ Class | Method | HTTP request | Description
  - [PlatformActivityListResponseDto](docs/PlatformActivityListResponseDto.md)
  - [PlatformActivityResponseDto](docs/PlatformActivityResponseDto.md)
  - [PlatformSettingsResponseDto](docs/PlatformSettingsResponseDto.md)
+ - [PostErasureChargeResponseDto](docs/PostErasureChargeResponseDto.md)
+ - [PostQueuedResponseDto](docs/PostQueuedResponseDto.md)
+ - [PostStatusResponseDto](docs/PostStatusResponseDto.md)
  - [PromptCreatedByDto](docs/PromptCreatedByDto.md)
  - [PromptCurrentVersionDto](docs/PromptCurrentVersionDto.md)
  - [PromptDto](docs/PromptDto.md)
@@ -244,6 +260,8 @@ Class | Method | HTTP request | Description
  - [ReconcileCheckoutSessionDto](docs/ReconcileCheckoutSessionDto.md)
  - [RedirectUrlResponseDto](docs/RedirectUrlResponseDto.md)
  - [ResendOtpDto](docs/ResendOtpDto.md)
+ - [RestoreAccountDto](docs/RestoreAccountDto.md)
+ - [RetryPostResponseDto](docs/RetryPostResponseDto.md)
  - [ReviewDetailResponseDto](docs/ReviewDetailResponseDto.md)
  - [ReviewListItemDto](docs/ReviewListItemDto.md)
  - [ReviewListResponseDto](docs/ReviewListResponseDto.md)

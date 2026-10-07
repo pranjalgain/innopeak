@@ -24,11 +24,7 @@ interface ChangePasswordFormProps {
 export function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) {
   const t = useTranslations("settings.profile");
   const schema = useMemo(() => changePasswordSchema(t), [t]);
-  // Collapsed by default — see `AddPasswordForm`'s own doc comment for the same pattern on the
-  // SSO-only path. The fields are a sensitive, rarely-used action; showing three password inputs
-  // on every visit to a page whose main purpose is just *viewing* your name/email/business is
-  // noise (and a bigger target for shoulder-surfing) for the common case where nobody's changing
-  // anything.
+  // Collapsed by default: a rarely-used sensitive action, and three password inputs on every visit is noise.
   const [expanded, setExpanded] = useState(false);
 
   const {
@@ -46,7 +42,7 @@ export function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) 
   // checklist needs the value on every keystroke, and `watch` cannot be memoized safely.
   const [newPasswordValue, setNewPasswordValue] = useState("");
   const requirements = checkPasswordRequirements(newPasswordValue);
-  // Hidden again once every rule passes — a column of green ticks is noise, not information.
+  // Hidden once every rule passes: a column of green ticks is noise.
   const showRequirements =
     Boolean(touchedFields.newPassword) &&
     newPasswordValue.length > 0 &&

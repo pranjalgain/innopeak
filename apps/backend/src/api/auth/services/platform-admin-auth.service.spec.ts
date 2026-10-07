@@ -104,8 +104,8 @@ describe('PlatformAdminAuthService', () => {
         body: {
           accessToken: 'admin-access',
           expiresIn: 900,
-          // `locale` rides along on sign-in so the client can restore the admin's saved language
-          // before its own cookie exists — see `PlatformAdminSummaryDto.locale`.
+          // `locale` rides along so the client can restore the admin's saved language before its
+          // own cookie exists.
           admin: { id: 'admin-1', email: activeAdmin.email, locale: activeAdmin.locale },
         },
       });
@@ -131,9 +131,8 @@ describe('PlatformAdminAuthService', () => {
     });
 
     /**
-     * An invited admin has no password at all, so this must fail the same way and in the same
-     * time as a wrong password — never a distinct "not accepted yet" answer, which would confirm
-     * the address is a real invite.
+     * An invited admin has no password, so this must fail the same way and in the same time as a
+     * wrong password, never a distinct "not accepted yet" that confirms a real invite.
      */
     it('throws 401 for an invited admin with no password set yet, same message as a wrong password', async () => {
       platformAdminDbService.findForLogin.mockResolvedValue({
@@ -260,11 +259,7 @@ describe('PlatformAdminAuthService', () => {
     });
   });
 
-  /**
-   * An admin who accepted their invite through Google has no `password_hash` at all, so the
-   * password form on the admin sign-in screen can never sign them in — this route is their only
-   * way back. Before it existed the only Google button lived on the *tenant* login screen.
-   */
+  /** An admin who accepted via Google has no `password_hash`; this route is their only way back. */
   describe('buildAdminLoginGoogleRedirect', () => {
     it('mints state carrying the ADMIN_LOGIN intent and no invite token', async () => {
       const redirect = await target.buildAdminLoginGoogleRedirect();
@@ -275,7 +270,7 @@ describe('PlatformAdminAuthService', () => {
       expect(redirect).toMatchObject({ ok: true });
     });
 
-    /** Back to the admin screen, never the tenant `/login` — that page has no admin path on it. */
+    /** Back to the admin screen, never the tenant `/login`, which has no admin path. */
     it('sends an unconfigured client back to the admin sign-in page, not the tenant login', async () => {
       googleIdentityProvider.isConfigured.mockReturnValue(false);
 
@@ -318,8 +313,8 @@ describe('PlatformAdminAuthService', () => {
     });
 
     /**
-     * The check that stops someone other than the invited person from redeeming this link with
-     * their own unrelated Google account.
+     * Stops someone other than the invited person redeeming the link with an unrelated Google
+     * account.
      */
     it('rejects a Google account whose verified email does not match the invited address, without linking anything', async () => {
       platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({

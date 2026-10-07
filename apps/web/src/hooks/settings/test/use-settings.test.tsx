@@ -55,13 +55,7 @@ describe("useSettings", () => {
     });
   });
 
-  /**
-   * Regression: `updateRecipientChannel`/`toggleRecipientActive` used to call `toast.success`
-   * unconditionally, right after kicking off the background persist — so a persist that went on to
-   * fail still showed a false "updated" toast a moment before the real `updateFailed` error toast.
-   * The fix moves the success toast into the mutation's own `onSuccess`, so it only fires once the
-   * write actually confirms.
-   */
+  /** Regression: the success toast fired before the persist settled, so a failed write showed a false "updated" toast first. */
   test("does not show a success toast when the background persist fails", async () => {
     const original = settings();
     vi.spyOn(SettingsService, "getSettings").mockResolvedValue(original);

@@ -17,30 +17,22 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCancelSubscription } from "@/hooks/billing/use-cancel-subscription";
 import { useSubscription } from "@/hooks/billing/use-subscription";
 
-/** Where the backend's own `BILLING_REDIRECT_PATHS.PORTAL_RETURN` points — kept in sync by hand
- *  since that constant isn't shared with the frontend build. */
+/**
+ * Mirrors the backend's `BILLING_REDIRECT_PATHS.PORTAL_RETURN`, which isn't shared with the
+ * frontend build; keep in sync by hand.
+ */
 const PORTAL_RETURN_PATH = `${ROUTES.SETTINGS}?tab=billing`;
 
 /**
- * `DummyPaymentProvider.createPortalSession` points here instead of a real Stripe Customer Portal
- * redirect — this page stands in for the whole portal, so "Cancel subscription" is the one action
- * it offers (a simple inline confirm, not customer-facing polish; mirrors the confirm pattern in
- * `ConnectionSettingsSection`'s disconnect action). It calls the same owner-authenticated,
- * provider-agnostic `POST /v1/billing/cancel` the Settings page's own "Cancel subscription"
- * button uses, then returns to `BILLING_REDIRECT_PATHS.PORTAL_RETURN` on success.
+ * Target of `DummyPaymentProvider.createPortalSession`; stands in for the whole Stripe portal, so
+ * "Cancel subscription" (via the provider-agnostic `POST /v1/billing/cancel`) is its one action.
+ * Under `(auth)` for the same reason as `dummy-checkout/page.tsx`.
  *
- * Lives under `(auth)`, not `(dashboard)` — see `dummy-checkout/page.tsx`'s own comment on why:
- * a real Stripe-hosted Portal page has no dashboard chrome either, and this page must also stay
- * reachable for a tenant who has not connected a business yet.
- *
- * Gated on `subscription.paymentProvider === "dummy"`: nothing about the URL itself ties it to the
- * Dummy provider (unlike `/billing/dummy/complete-checkout` on the backend, which 404s outside
- * `PAYMENT_PROVIDER=dummy`), and `POST /v1/billing/cancel` behind it genuinely cancels a real
- * Stripe subscription too — so a Stripe-provider tenant landing here via a stale bookmark or a
- * crafted link could otherwise cancel their real subscription through a page styled and worded as
- * a disposable dev tool, with no plan-specific context and a `customerId` reference that's only
- * ever read from the query string (never validated) and so is trivially spoofable. A Stripe tenant
- * is bounced back to the real Settings → Billing page instead, where the actual cancel flow lives.
+ * Gated on `subscription.paymentProvider === "dummy"`: nothing in the URL ties it to the dummy
+ * provider and `POST /v1/billing/cancel` genuinely cancels a real Stripe subscription, so a Stripe
+ * tenant arriving via a stale bookmark or crafted link (the `customerId` query param is never
+ * validated) could cancel through a page styled as a dev tool. They are bounced to Settings →
+ * Billing instead.
  */
 function DummyPortalPage() {
   const t = useTranslations("settings.billing.dummyPortal");
@@ -62,8 +54,7 @@ function DummyPortalPage() {
 
   const handleCancel = () => {
     mutate(undefined, {
-      // Full-page redirect, not `router.push` — see the matching comment on the dummy-checkout
-      // page for why.
+      // Full-page redirect, not `router.push`, for the same reason as on dummy-checkout.
       onSuccess: () => {
         window.location.href = PORTAL_RETURN_PATH;
       },

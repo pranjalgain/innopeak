@@ -9,15 +9,9 @@ import {
   PASSWORD_UPPERCASE_REGEX,
 } from "@/app/_libs/constants/password-rules";
 
-/** Resolves one error-message key. Matches next-intl's `useTranslations` return shape. */
 type Translate = (key: string) => string;
 
-/**
- * Same password rules as `setPasswordSchema` (Settings → Profile's "Add password") — no `otp`
- * field here, since the invite token in the URL is itself the proof, the same way a signup's
- * emailed link stands in for a password on that flow. A factory for the same reason: built at
- * render with the caller's translator, memoized (`useMemo`) to keep the resolver identity stable.
- */
+// Same rules as setPasswordSchema, minus the otp: the invite token is the proof.
 export function acceptInviteSchema(t: Translate) {
   return z
     .object({

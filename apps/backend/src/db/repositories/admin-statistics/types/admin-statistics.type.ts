@@ -1,9 +1,6 @@
 import type { ReviewClassification } from '@common/enums/review-classification.enum';
 
-// ─── Repository ───────────────────────────────────────────────────────────
-
-/** One calendar month's review-volume figures — same "only non-zero months returned" contract as
- *  `SignupTrendPoint` (`admin-overview.repository.ts`); `AdminStatisticsDbService` zero-fills. */
+/** The repository returns only non-zero months; `AdminStatisticsDbService` zero-fills. */
 export interface ReviewsTrendPoint {
   year: number;
   /** 1-12. */
@@ -26,8 +23,6 @@ export interface SyncHealthCounts {
   ok: number;
   error: number;
 }
-
-// ─── DB Service ───────────────────────────────────────────────────────────
 
 export interface ConnectionHealthCounts {
   connected: number;

@@ -6,14 +6,8 @@ import { useQueryErrorToast } from "../use-query-error-toast";
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
 
-/**
- * Regression: this hook exists specifically because a plain `useEffect(() => { if (isError)
- * toast.error(...) }, [isError])` shows the same toast once per mounted component, not once per
- * actual failure — e.g. `useTenantOwnerProfile`'s load-failure toast used to fire twice on any
- * dashboard page (shell layout + settings page both reading the same query) and four times on
- * `/settings?tab=profile`. Each test below uses its own query key so the module-level dedup map
- * doesn't leak state between them.
- */
+// Regression: a plain useEffect toast fires once per mounted caller, not once per failure.
+// Each test uses its own query key so the module-level dedup map doesn't leak between them.
 describe("useQueryErrorToast", () => {
   beforeEach(() => {
     toast.error.mockClear();
@@ -39,7 +33,6 @@ describe("useQueryErrorToast", () => {
     );
     expect(toast.error).toHaveBeenCalledTimes(1);
 
-    // A retry succeeds in between, then a later, distinct attempt fails again.
     rerender({ query: { isError: false, errorUpdatedAt: 1 } });
     rerender({ query: { isError: true, errorUpdatedAt: 2 } });
 

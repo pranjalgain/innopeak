@@ -49,11 +49,7 @@ describe('DeadLetterQueueService', () => {
       );
     });
 
-    /**
-     * The regression this guards: a failed OTP email job used to sit in the DLQ (days-long
-     * retention) with the plaintext, still-live OTP in `originalJobData` — a real credential
-     * leaking into a longer-retention, lower-scrutiny queue than the one it failed out of.
-     */
+    // Regression: a failed OTP email job left its plaintext, live OTP in the DLQ's longer-retention `originalJobData`.
     it('redacts a plaintext otp field before publishing to the DLQ', async () => {
       queuePublisher.publish.mockResolvedValue(undefined);
       const otpJobData: IDLQFailedJobData = {

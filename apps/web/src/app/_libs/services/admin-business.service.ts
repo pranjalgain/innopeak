@@ -6,21 +6,13 @@ export interface ListAdminBusinessesParams {
   search?: string;
 }
 
-/** The SDK types `erasureRequestedAt` as `object | null` (a generator quirk with every
- *  nullable-string `@ApiPropertyOptional` in this backend — see `tenant-member.service.ts`'s own
- *  `ApiTenantMember` for the same workaround), so the real shape is declared locally. */
+// The SDK types `erasureRequestedAt` as `object | null` (generator quirk with nullable `@ApiPropertyOptional` strings), so declare the real shape.
 type ApiAdminBusiness = Omit<AdminBusiness, "erasureRequestedAt"> & {
   erasureRequestedAt: string | null;
 };
 
-/**
- * Super Admin business management ("business" is this area's user-facing
- * term for a tenant), against the real `GET/POST /v1/admin/businesses*`
- * endpoints. Hooks/components only ever call `useAdminBusinesses`, never
- * this class directly.
- */
 export class AdminBusinessService {
-  /** `search` is applied server-side — see `ListAdminBusinessesQueryDto`'s own comment. */
+  /** `search` is applied server-side. */
   static async getBusinesses(params: ListAdminBusinessesParams = {}): Promise<AdminBusiness[]> {
     const response = await adminBusinessesApi.adminBusinessesControllerListV1({
       search: params.search,
@@ -36,11 +28,7 @@ export class AdminBusinessService {
     return unwrap<ApiAdminBusiness>(response.data);
   }
 
-  /**
-   * Suspends the business immediately and starts its grace period; the actual anonymization of
-   * every user in it runs later, in a nightly job — see the backend's `ERASURE_GRACE_PERIOD_DAYS`.
-   * Platform-admin only. Throws `ApiError` on 404 (no such tenant, or already erased).
-   */
+  /** Suspends immediately and starts the grace period; a nightly job anonymizes later (`ERASURE_GRACE_PERIOD_DAYS`). 404 if no such tenant or already erased. */
   static async requestErasure(id: string): Promise<AdminBusiness> {
     const response = await adminBusinessesApi.adminBusinessesControllerRequestErasureV1({
       tenantId: id,
@@ -48,8 +36,7 @@ export class AdminBusinessService {
     return unwrap<ApiAdminBusiness>(response.data);
   }
 
-  /** Undoes `requestErasure` — restores the business to active. Throws `ApiError` on 404
-   *  (no such tenant, or it has no erasure pending). */
+  /** Restores the business to active. 404 if no erasure is pending. */
   static async cancelErasure(id: string): Promise<AdminBusiness> {
     const response = await adminBusinessesApi.adminBusinessesControllerCancelErasureV1({
       tenantId: id,

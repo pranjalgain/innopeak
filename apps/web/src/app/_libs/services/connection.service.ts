@@ -2,15 +2,7 @@ import { refreshSession } from "@/app/_libs/api-sdk/config";
 import { connectionsApi, connectionsSyncApi } from "@/app/_libs/api-sdk/connections-api";
 import { unwrap } from "@/app/_libs/services/api-error";
 
-/**
- * Three states, not two.
- *
- * The old `ConnectionStatus` union was `connected | disconnected`, but the backend's
- * `google_connection_status` is `active | needs_reauth` — a broken-but-present connection had no
- * faithful representation, and collapsing `needs_reauth` into `connected` hides precisely the
- * failure that enum value exists to surface. Widening it here is what lets the dashboard guard
- * render a reconnect banner instead of either blanking the app or pretending everything is fine.
- */
+/** Three states, not two: `needs_reauth` (broken-but-present) must not collapse into `connected`, so the dashboard guard can show a reconnect banner. */
 export type ConnectionStatus = "connected" | "disconnected" | "needs_reauth";
 
 export interface ConnectedLocation {
@@ -24,11 +16,7 @@ export interface ConnectedLocation {
   lastSyncStatus: "ok" | "error" | null;
   lastSyncError: string | null;
   onboardingBackfillCompletedAt: string | null;
-  /** Set when a billing plan downgrade left this location over the plan's cap — still a live,
-   *  owned connection (see `status`), just excluded from the 15-minute poll until a plan change or
-   *  `PUT /v1/billing/active-location` clears it. `null` means the location is active under the
-   *  current plan cap. Only ever populated on `GET /v1/connections/locations`'s rows today — see
-   *  `ConnectionStatusResponse`'s own comment. */
+  /** Set when a plan downgrade left this location over the cap: still a live connection but excluded from the 15-minute poll until a plan change or `PUT /v1/billing/active-location` clears it. `null` = active under the cap. Populated only on `GET /v1/connections/locations` rows. */
   billingPausedAt: string | null;
 }
 
@@ -67,7 +55,6 @@ export interface ConfirmedLocation extends ConnectedLocation {
   backfillAlreadyRunning: boolean;
 }
 
-/** The raw backend shape, before it is flattened at this boundary. */
 interface ConnectionStatusResponse {
   connected: boolean;
   status: "connected" | "disconnected";
@@ -91,28 +78,18 @@ interface ConfirmLocationsResponse {
   locations: ConfirmLocationResponse[];
 }
 
-/** The raw backend shape for one row of `GET /v1/connections/locations`. */
 interface PersistedLocationResponse extends Omit<ConnectedLocation, "businessName"> {
   name: string;
 }
 
-/**
- * The single source of truth for "is this tenant connected".
- *
- * Replaces `GoogleConnectionService`, which read a `localStorage` flag. That flag disagreed with
- * the real `hasConnectedBusiness` the login response already carried, so a genuinely connected
- * tenant signing in from a fresh browser — a new laptop, a private window, after clearing site
- * data — was bounced back through onboarding with no way to tell they were already set up.
- */
+/** Single source of truth for "is this tenant connected"; not a `localStorage` flag, which is wrong on a fresh browser. */
 export class ConnectionService {
   static async getState(signal?: AbortSignal): Promise<ConnectionState> {
     const apiResponse = await connectionsApi.connectionsControllerGetConnectionV1({ signal });
     const response = unwrap<ConnectionStatusResponse>(apiResponse.data);
 
     return {
-      // Flattened at this boundary so no component has to know that `connected` and
-      // `connectionStatus` are two different facts. `needs_reauth` deliberately survives as its
-      // own state rather than collapsing into "disconnected".
+      // Flattened here so no component has to know `connected` and `connectionStatus` are separate facts; `needs_reauth` stays its own state.
       status: this.resolveStatus(response),
       connectionId: response.connection?.id ?? null,
       providerAccountId: response.connection?.providerAccountId ?? null,
@@ -122,19 +99,12 @@ export class ConnectionService {
   }
 
   /**
-   * A full browser navigation, not an SDK call: this is an OAuth grant, so the browser has to
-   * actually travel to Google and come back through our callback. The access token rides along in
-   * its httpOnly cookie (scoped `/`), and `/v1/*` is rewritten to the backend by `next.config.ts`,
-   * so the request is authenticated without a Bearer header and without a popup.
-   *
-   * The refresh first is best-effort but load-bearing: the access-token cookie lives 15 minutes,
-   * and a navigation that 401s lands the user on a raw JSON error page rather than a screen.
+   * Full browser navigation (OAuth grant); the access-token cookie authenticates it without a Bearer header. The refresh first
+   * is best-effort but load-bearing: the cookie lives 15 minutes and a 401 navigation lands on a raw JSON error page.
    */
   static async startAuthorize(returnTo: "onboarding" | "settings" = "onboarding"): Promise<void> {
     await refreshSession().catch(() => false);
-    // Not a Next page: `/v1/*` is rewritten to the NestJS backend, which answers with a 302 to
-    // Google's consent screen. `router.push` would ask the Next router to resolve a route that
-    // does not exist in the app, and the browser must genuinely leave the origin for OAuth at all.
+    // Not a Next page: `/v1/*` is rewritten to the backend, which 302s to Google; `router.push` would try to resolve a nonexistent route.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`/v1/connections/google/authorize?returnTo=${returnTo}`);
   }
@@ -155,11 +125,7 @@ export class ConnectionService {
     return response.locations.map(({ name, ...rest }) => ({ ...rest, businessName: name }));
   }
 
-  /**
-   * Every location the tenant has ever confirmed, active or not — used by onboarding's resume
-   * logic to find which of several confirmed locations still need their backfill polled, since
-   * `GET /v1/connections` only ever reports the tenant's single currently-selected one.
-   */
+  /** Every confirmed location, active or not: onboarding resume must find those whose backfill still needs polling, and `GET /v1/connections` reports only the selected one. */
   static async listLocations(signal?: AbortSignal): Promise<ConnectedLocation[]> {
     const apiResponse = await connectionsApi.connectionsControllerListLocationsV1(
       {},
@@ -170,12 +136,7 @@ export class ConnectionService {
     return response.locations.map(({ name, ...rest }) => ({ ...rest, businessName: name }));
   }
 
-  /**
-   * The tenant-wide "currently viewed" business (`tenants.active_location_id` on the backend) —
-   * a single shared value, not per-user: every member's Dashboard/Review Queue reads whatever this
-   * sets. Owner-only server-side (a member's attempt 403s); this method itself doesn't pre-check
-   * the caller's role, matching how the rest of this service leaves authorization to the backend.
-   */
+  /** The tenant-wide "currently viewed" business (`tenants.active_location_id`), shared by all members. Owner-only server-side (a member gets 403); not pre-checked here. */
   static async setActiveLocation(locationId: string): Promise<ConnectedLocation> {
     const apiResponse = await connectionsApi.connectionsControllerSetActiveLocationV1({
       setActiveLocationDto: { locationId },

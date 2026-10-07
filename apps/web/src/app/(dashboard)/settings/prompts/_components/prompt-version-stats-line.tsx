@@ -22,12 +22,7 @@ function StatChip({ label, tone = "neutral" }: { label: string; tone?: "neutral"
   );
 }
 
-/**
- * What actually happened to a prompt (version)'s drafts — generated count, approval rate, how
- * often owners had to edit before approving, and average time-to-decision — as small stat chips
- * rather than one run-on sentence, so each figure reads as its own data point. Renders
- * progressively: no drafts yet, drafts but none decided, or a full breakdown.
- */
+/** Stat chips (generated, approval rate, edit rate, time-to-decision); renders progressively: no drafts, drafts but none decided, or full breakdown. */
 export function PromptVersionStatsLine({ stats }: PromptVersionStatsLineProps) {
   const t = useTranslations("promptManagement.stats");
 

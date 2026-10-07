@@ -12,12 +12,8 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 /**
- * Step 1 of the locale resolution order: the authenticated caller's own stored preference,
- * embedded in the access token by `TokenService.signTokenPair`/`signPlatformAdminAccessToken` —
- * a tenant user's `users.locale` or a platform admin's `platform_admins.locale`, whichever
- * principal the token belongs to. `undefined` only for an unauthenticated caller —
- * `resolveRequestLocale` falls through to `Accept-Language` for that case exactly as it does for
- * a signed-in caller who never chose one (`locale: null`).
+ * Step 1 of locale resolution: the caller's stored preference, embedded in the access token.
+ * `undefined` only when unauthenticated; both it and `null` (never chose) fall through to `Accept-Language`.
  */
 export function requestUserLocale(request: Request): Locale | null | undefined {
   const user = request.user as AuthUser | undefined;
@@ -30,12 +26,10 @@ export function requestUserLocale(request: Request): Locale | null | undefined {
 @Injectable()
 export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T>> {
   intercept(context: ExecutionContext, next: CallHandler): Observable<ApiResponse<T>> {
-    // Check if the request is an HTTP request
     if (context.getType() === 'http') {
       const request = context.switchToHttp().getRequest<Request>();
 
-      // Exclude specific routes (Prometheus metrics, health checks, and binary downloads that
-      // manage their own response via @Res() — a receipt PDF has no ApiResponse<T> shape to wrap).
+      // Skip metrics, health and binary downloads that manage their own response via @Res().
       const pathname = request.url.split('?')[0] ?? '';
       const isMetricsOrHealth =
         pathname === `/${RouteNames.METRICS}` ||
@@ -48,17 +42,16 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
         pathname.includes(`/${RouteNames.BILLING}/${RouteNames.BILLING_RECEIPTS}/`) &&
         pathname.endsWith('/pdf');
 
-      if (isMetricsOrHealth || isReceiptPdf) {
-        // These endpoints intentionally bypass response transformation, so the returned stream is
-        // genuinely not shaped like `ApiResponse<T>` — `CallHandler.handle()` itself is typed
-        // `Observable<any>` by Nest, which is what the linter is (correctly) flagging.
+      // The data export is the file itself, not an `ApiResponse`.
+      const isDataExport = pathname === `/v1/${RouteNames.SETTINGS}/${RouteNames.SETTINGS_EXPORT}`;
+
+      if (isMetricsOrHealth || isReceiptPdf || isDataExport) {
+        // These bypass transformation; `CallHandler.handle()` is typed `Observable<any>`.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-return
         return next.handle();
       }
 
-      // Resolved once per request, not per field — the same locale renders both `message` below
-      // and (via HttpExceptionFilter, on the error path) whatever this request's error response
-      // carries, so a client never sees one field in English and another in German.
+      // Resolved once per request so `message` and HttpExceptionFilter's error response share a locale.
       const locale = resolveRequestLocale(
         requestUserLocale(request),
         request.headers['accept-language']
@@ -70,11 +63,8 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
           const partial =
             typeof data === 'object' && data !== null ? (data as Partial<ApiResponse<T>>) : {};
           const rawMessage = partial.message ?? MESSAGES.COMMON.REQUEST_SUCCESSFUL;
-          // `partial.data ?? data` was wrong for an already-wrapped payload whose own `data` is
-          // legitimately `null` (e.g. `ResponseUtil.success(null, ...)` for a void mutation): `??`
-          // can't tell "the key is present and null" from "the key is absent", so it fell through
-          // to `data` — the whole outer envelope — and double-wrapped the response. Checking for
-          // the key directly distinguishes the two.
+          // Check the key directly: `partial.data ?? data` would double-wrap an envelope whose own
+          // `data` is legitimately null.
           const hasDataKey = Object.prototype.hasOwnProperty.call(partial, 'data');
           const resolvedData = renderNestedMessage((hasDataKey ? partial.data : data) as T, locale);
 
@@ -101,8 +91,7 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
       );
     }
 
-    // For other contexts, pass through without modification — same reasoning as the
-    // health/metrics bypass above: `CallHandler.handle()` is genuinely `Observable<any>`.
+    // Other contexts pass through; `CallHandler.handle()` is typed `Observable<any>`.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return next.handle();
   }

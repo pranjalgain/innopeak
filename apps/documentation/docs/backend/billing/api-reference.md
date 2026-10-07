@@ -28,9 +28,13 @@ turns them into request/response contracts.
   plans/upgrades are a business-level decision, not something any team member should trigger. The
   one exception is `POST /v1/billing/webhooks/stripe`, which is `@Public()` — see
   [§ Stripe webhook](#post-v1billingwebhooksstripe) below for its own trust model.
-- **Throttle**: no route in either controller carries a `@Throttle()` override, so every route
+- **Throttle**: no route in `BillingController` carries a `@Throttle()` override, so every route
   falls back to the global `short` tier — 30 requests/minute (`ThrottlerModule.forRoot`,
-  `app.module.ts`), shared with every other unthrottled route in the app.
+  `app.module.ts`), shared with every other unthrottled route in the app. The webhook controller
+  is the exception: it is skipped by **every** tier (`@SkipThrottle(SKIP_ALL_THROTTLERS)`). A bare
+  `@SkipThrottle()` only skips a tier named `default`, which this app does not register, so it
+  skipped nothing and a burst of Stripe retries after an outage was answered `429` — which Stripe
+  counts as a failed delivery. Health and metrics use the same constant.
 - **Envelopes**: success payloads shown below are the *inner* `data` — `TransformInterceptor` wraps
   every 2xx as `{ statusCode, status, message, data }`. Every non-2xx is
   `{ statusCode, status, message, error, traceId, data: null }` via `HttpExceptionFilter` +
@@ -294,13 +298,15 @@ that surfaces them belongs to a different module.
 | `403` | `BILLING_NOT_ENABLED` | `POST /v1/billing/checkout` | `platform_settings.billing_enabled` is not `true` — the platform isn't currently offering upgrades. Never blocks an already-Paid tenant's Portal access. |
 | `404` | `PLAN_NOT_FOUND` | `POST /v1/billing/checkout`, any `BillingEntitlementsService.getEntitlements` call | The Paid plan row, or the tenant's own plan row, is missing — should never fire against a correctly-seeded `billing_plans` table. |
 | `404` | `SUBSCRIPTION_NOT_FOUND` | `GET /v1/billing/plans`, `GET /v1/billing/subscription`, `POST /v1/billing/checkout`, `POST /v1/billing/portal` | No `tenant_subscriptions` row for this tenant. Should never fire in practice — every tenant gets a `free` subscription row in the same transaction that creates it (`AuthDbService.signup`/`completeGoogleSignup`). |
-| `403` | `LOCATION_LIMIT_REACHED` | `POST /v1/connections/google/available-locations` confirm flow (`ConnectionsService.assertLocationLimit`, `ConnectionsDbService.confirmLocations`'s recheck) — not a billing-module route | The tenant's active, unpaused location count is already at `billing_plans.max_locations` for their plan. |
+| `409` | `LOCATION_LIMIT_REACHED` | `POST /v1/connections/locations` confirm flow (`ConnectionsService.assertLocationLimit`, `ConnectionsDbService.confirmLocations`'s recheck) — not a billing-module route | The tenant's active, unpaused location count is already at `billing_plans.max_locations` for their plan. Reported as `409` by the connections module (a conflict with current state) with the plan-aware "upgrade to add more" message; a `403` of the same code is only raised by billing's own `LocationLimitReachedException` for the active-location choice. |
 | `403` | `TEAM_MEMBER_LIMIT_REACHED` | `POST /v1/settings/members` (`TenantMembersService.sendInvite`) — not a billing-module route | The tenant's roster count is already at `max_team_members`. Distinct from `MEMBER_INVITES_DISABLED` (the platform-wide `invite_members_enabled` switch), since the two need different upsell copy. |
 | `403` | `CUSTOM_PROMPTS_NOT_ON_PLAN` | `POST /v1/prompts/:promptId/versions` (`PromptsService.createVersion`) — not a billing-module route | The tenant's plan has `custom_prompts_enabled = false` (Free). Checked before the submitted template is even validated. |
 | `403` | `AI_DRAFT_LIMIT_REACHED` | `POST /v1/ai/dry-run` (not a billing-module route) | `BillingEntitlementsService.canGenerateAiDraft` returned false — see [AI Module § Billing entitlement check](../ai/overview.md#billing-entitlement-check-everywhere-generation-can-run). Fires once the tenant's real generation path (`generateForClassifiedReviews`) has persisted 20 `ai_generated` drafts this month — the dry-run route shares the check but never contributes to the count itself. |
 | `400` | `STRIPE_WEBHOOK_SIGNATURE_INVALID` | `POST /v1/billing/webhooks/stripe` | Missing `req.rawBody`/`Stripe-Signature` header, or `Stripe.webhooks.constructEvent` rejected the signature. |
 | `404` | `STRIPE_WEBHOOK_TENANT_NOT_FOUND` | `POST /v1/billing/webhooks/stripe` | No `tenant_subscriptions` row for the event's Stripe customer, and the event is less than an hour old. Rolled back so Stripe retries. |
-| `404` | `CHECKOUT_SESSION_TENANT_MISMATCH` | `POST /v1/billing/checkout/reconcile` | The Checkout Session's `metadata.tenantId` isn't the caller's tenant. |
+| `404` | `CHECKOUT_SESSION_TENANT_MISMATCH` | `POST /v1/billing/checkout/reconcile` | The Checkout Session's `metadata.tenantId` isn't the caller's tenant, **or Stripe has no such session** — a made-up id is indistinguishable from someone else's, and never a `500` echoing Stripe's own wording. |
+| `400` | `Validation Error` | `POST /v1/billing/checkout/reconcile` | `checkoutSessionId` isn't 1–255 characters of `A–Z a–z 0–9 _ -`. |
+| `400` | `PAYMENT_METHOD_NOT_USABLE` | `PUT /v1/billing/payment-method` | Stripe rejected the id: it doesn't exist, or isn't attached to this tenant's customer. (A body that isn't a `pm_…` id at all is a `400 Validation Error` before Stripe is called.) |
 | `403` | `STRIPE_ONLY_FEATURE` | `POST /v1/billing/checkout/reconcile` (and the in-app profile/card routes) | `PAYMENT_PROVIDER` is not `stripe`. |
 | `400` | `LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION` | `PUT /v1/billing/active-location` | The given `locationId` isn't this tenant's own, or isn't `status = 'active'` (disconnected). |
 | `400` | `Validation Error` | `PUT /v1/billing/active-location` | `locationId` missing or not a UUID. `message` is the comma-joined list of violations. |
