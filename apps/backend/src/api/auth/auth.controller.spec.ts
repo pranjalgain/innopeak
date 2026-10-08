@@ -369,6 +369,7 @@ describe('AuthController — Microsoft sign-in', () => {
   let controller: AuthController;
   const buildMicrosoftAuthorizeRedirect = jest.fn();
   const handleMicrosoftCallback = jest.fn();
+  const completeSsoSignup = jest.fn();
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -378,7 +379,7 @@ describe('AuthController — Microsoft sign-in', () => {
       providers: [
         {
           provide: AuthService,
-          useValue: { buildMicrosoftAuthorizeRedirect, handleMicrosoftCallback },
+          useValue: { buildMicrosoftAuthorizeRedirect, handleMicrosoftCallback, completeSsoSignup },
         },
         { provide: AccountDeletionService, useValue: {} },
       ],
@@ -487,6 +488,51 @@ describe('AuthController — Microsoft sign-in', () => {
       expect(res.clearCookie).toHaveBeenCalledWith('microsoft_auth_sid', expect.anything());
       expect(res.cookie).not.toHaveBeenCalled();
       expect(res.redirect).toHaveBeenCalledWith(302, '/login?error=EMAIL_NOT_VERIFIED');
+    });
+
+    it('tags even the unexpected-outcome fallback with the provider, like every other failure', async () => {
+      handleMicrosoftCallback.mockResolvedValue({ ok: true, kind: 'admin_signed_in', tokens: {} });
+      const res = mockResponse();
+
+      await controller.microsoftCallback(request({ code: 'c', state: 's' }), res);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        302,
+        '/login?error=PROVIDER_ERROR&provider=microsoft'
+      );
+    });
+  });
+
+  describe('complete signup', () => {
+    const tokens = { refreshToken: 'refresh', body: { accessToken: 'access' } };
+
+    it('reads the shared pending-signup cookie', async () => {
+      completeSsoSignup.mockResolvedValue(tokens);
+      const res = mockResponse();
+
+      await controller.completeSsoSignup(
+        { businessName: 'Acme' },
+        request({}, { sso_pending_signup: 'new-nonce' }),
+        res
+      );
+
+      expect(completeSsoSignup).toHaveBeenCalledWith('new-nonce', 'Acme');
+    });
+
+    // TRANSITIONAL: a Google signup on the business-name step at deploy time still holds the pre-rename cookie.
+    it('falls back to the pre-rename Google cookie and clears both', async () => {
+      completeSsoSignup.mockResolvedValue(tokens);
+      const res = mockResponse();
+
+      await controller.completeSsoSignup(
+        { businessName: 'Acme' },
+        request({}, { google_pending_signup: 'old-nonce' }),
+        res
+      );
+
+      expect(completeSsoSignup).toHaveBeenCalledWith('old-nonce', 'Acme');
+      expect(res.clearCookie).toHaveBeenCalledWith('sso_pending_signup', expect.anything());
+      expect(res.clearCookie).toHaveBeenCalledWith('google_pending_signup', expect.anything());
     });
   });
 });

@@ -8,6 +8,7 @@ import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import type { TenantRow } from '@db/repositories/auth/types/auth.type';
+import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import { MediaService } from '@media/media.service';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -75,6 +76,14 @@ import { requireTenantUser } from '../utils/require-tenant-user.util';
 import { isTenantLoginBlocked } from '../utils/tenant-status.util';
 import { hashToken } from '../utils/token.utils';
 
+/**
+ * Only an explicit `access_denied` means the person backed out; anything else the provider reports (`server_error`,
+ * `temporarily_unavailable`, a consent-policy error) is a failure on its side, and "cancelled" would mislead.
+ */
+function providerErrorFailure(error: string): SsoAuthFailure {
+  return error === 'access_denied' ? SsoAuthFailure.ACCESS_DENIED : SsoAuthFailure.PROVIDER_ERROR;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -93,7 +102,8 @@ export class AuthService {
     private readonly oauthStateService: OAuthStateService,
     private readonly pendingSsoSignupService: PendingSsoSignupService,
     private readonly platformAdminAuthService: PlatformAdminAuthService,
-    private readonly mediaService: MediaService
+    private readonly mediaService: MediaService,
+    private readonly platformSettingsDbService: PlatformSettingsDbService
   ) {}
 
   /**
@@ -694,7 +704,7 @@ export class AuthService {
     const inviteToken = consumed.ok ? consumed.record.inviteToken : undefined;
 
     if (input.error !== undefined) {
-      return this.ssoFailureRedirect(SsoAuthFailure.ACCESS_DENIED, intent, inviteToken);
+      return this.ssoFailureRedirect(providerErrorFailure(input.error), intent, inviteToken);
     }
 
     if (!consumed.ok) {
@@ -864,7 +874,10 @@ export class AuthService {
 
   /** Tenant sign-in/sign-up with Microsoft; same shape as the Google pair, minus invites and admins. */
   async buildMicrosoftAuthorizeRedirect(input: SsoAuthorizeInput): Promise<SsoAuthorizeRedirect> {
-    if (!this.microsoftIdentityProvider.isConfigured()) {
+    if (
+      !this.microsoftIdentityProvider.isConfigured() ||
+      !(await this.isMicrosoftSignInEnabled())
+    ) {
       const base = input.intent === OAuthIntent.SIGNUP ? SSO_REDIRECT.SIGNUP : SSO_REDIRECT.LOGIN;
       return {
         ok: false,
@@ -893,6 +906,16 @@ export class AuthService {
   }
 
   /**
+   * `platform_settings.sso_login_enabled` is the platform's Microsoft switch; enforced here, not only by hiding the button, so
+   * a bookmarked or crafted URL can't sign anyone in or create a tenant once it is off. A missing row reads as on (the column
+   * default).
+   */
+  private async isMicrosoftSignInEnabled(): Promise<boolean> {
+    const settings = await this.platformSettingsDbService.get();
+    return settings?.ssoLoginEnabled !== false;
+  }
+
+  /**
    * Never throws for an expected failure (the browser is mid-navigation). The state is consumed
    * before the code is exchanged so a replayed callback is rejected without a round trip.
    */
@@ -918,11 +941,16 @@ export class AuthService {
         : undefined;
 
     if (input.error !== undefined) {
-      return this.ssoFailureRedirect(SsoAuthFailure.ACCESS_DENIED, intent);
+      return this.ssoFailureRedirect(providerErrorFailure(input.error), intent);
     }
 
     if (!consumed.ok || intent === undefined) {
       return this.ssoFailureRedirect(SsoAuthFailure.INVALID_STATE);
+    }
+
+    // Re-checked here: the switch may have been turned off while this person was at Microsoft.
+    if (!(await this.isMicrosoftSignInEnabled())) {
+      return this.ssoFailureRedirect(SsoAuthFailure.NOT_CONFIGURED, intent);
     }
 
     if (

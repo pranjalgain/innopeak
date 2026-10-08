@@ -5,8 +5,10 @@ import type Redis from 'ioredis';
 import { randomBytes } from 'crypto';
 
 import {
+  LEGACY_GOOGLE_PENDING_SIGNUP_KEY_PREFIX,
   SSO_PENDING_SIGNUP_KEY_PREFIX,
   SSO_PENDING_SIGNUP_TTL_SECONDS,
+  SsoProvider,
 } from '../constants/sso-auth.constants';
 import type { ConsumePendingSsoSignupResult, PendingSsoSignupIdentity } from '../types/auth.type';
 
@@ -51,10 +53,17 @@ export class PendingSsoSignupService {
     }
 
     const raw = await this.redis.getdel(`${SSO_PENDING_SIGNUP_KEY_PREFIX}${nonce}`);
-    if (raw === null) {
-      return { ok: false };
+    if (raw !== null) {
+      return { ok: true, identity: JSON.parse(raw) as PendingSsoSignupIdentity };
     }
 
-    return { ok: true, identity: JSON.parse(raw) as PendingSsoSignupIdentity };
+    // TRANSITIONAL (see `LEGACY_GOOGLE_PENDING_SIGNUP_KEY_PREFIX`): a record minted before the rename, which was always
+    // Google's and carried no provider.
+    const legacy = await this.redis.getdel(`${LEGACY_GOOGLE_PENDING_SIGNUP_KEY_PREFIX}${nonce}`);
+    if (legacy === null) {
+      return { ok: false };
+    }
+    const identity = JSON.parse(legacy) as Omit<PendingSsoSignupIdentity, 'provider'>;
+    return { ok: true, identity: { ...identity, provider: SsoProvider.GOOGLE } };
   }
 }

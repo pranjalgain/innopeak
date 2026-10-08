@@ -32,8 +32,11 @@ interface Jwk {
 }
 
 const KEY_CACHE_TTL_MS = 60 * 60 * 1000;
-/** A token with an unknown `kid` triggers one refetch, but never more than one per this window. */
-const REFETCH_COOLDOWN_MS = 60 * 1000;
+/** An unknown `kid` refetches at once (a rotated key must not wait), but never twice within this window overall... */
+const REFETCH_FLOOR_MS = 5 * 1000;
+/** ...and a `kid` that a refetch did not turn up is not retried for this long. */
+const MISSED_KID_COOLDOWN_MS = 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 10 * 1000;
 const CLOCK_SKEW_SECONDS = 60;
 
 /**
@@ -48,10 +51,14 @@ export class IdTokenVerifier {
   private keys = new Map<string, KeyObject>();
   private loadedAt = 0;
   private lastRefetchAt = 0;
+  /** One request at a time: concurrent callbacks that all find the cache stale share it. */
+  private loading: Promise<void> | null = null;
+  private missedKids = new Map<string, number>();
 
   constructor(
     private readonly jwksUri: string,
-    private readonly fetchImpl: typeof fetch = fetch
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS
   ) {}
 
   async verify(
@@ -113,23 +120,40 @@ export class IdTokenVerifier {
   }
 
   private async keyFor(kid: string, now: number): Promise<KeyObject> {
-    const fresh = now - this.loadedAt < KEY_CACHE_TTL_MS;
     const cached = this.keys.get(kid);
+    const fresh = this.loadedAt !== 0 && now - this.loadedAt < KEY_CACHE_TTL_MS;
     if (cached !== undefined && fresh) {
       return cached;
     }
 
-    // Unknown kid, or a stale cache: Microsoft rotates keys, so refetch — but rate-limited, so a
-    // stream of bad tokens cannot turn this into a request amplifier against the JWKS endpoint.
-    if (
-      cached === undefined &&
-      now - this.lastRefetchAt < REFETCH_COOLDOWN_MS &&
-      this.loadedAt !== 0
-    ) {
+    if (cached !== undefined) {
+      // Stale: refresh, but an unreachable JWKS endpoint must not block a key that still verifies. A key the refreshed set
+      // no longer lists has been retired, so it is not used.
+      try {
+        await this.reload(now);
+      } catch {
+        return cached;
+      }
+      return this.requireLoaded(kid);
+    }
+
+    // Unknown kid, usually a rotation: refetch straight away, but rate-limited so a run of unknown kids cannot turn this
+    // into a stream of requests against the JWKS endpoint.
+    const missedAt = this.missedKids.get(kid);
+    const recentlyMissed = missedAt !== undefined && now - missedAt < MISSED_KID_COOLDOWN_MS;
+    const justFetched = this.loadedAt !== 0 && now - this.lastRefetchAt < REFETCH_FLOOR_MS;
+    if (recentlyMissed || justFetched) {
       throw new Error('ID token signing key is unknown');
     }
-    await this.load(now);
+    await this.reload(now);
 
+    if (!this.keys.has(kid)) {
+      this.rememberMiss(kid, now);
+    }
+    return this.requireLoaded(kid);
+  }
+
+  private requireLoaded(kid: string): KeyObject {
     const loaded = this.keys.get(kid);
     if (loaded === undefined) {
       throw new Error('ID token signing key is unknown');
@@ -137,9 +161,25 @@ export class IdTokenVerifier {
     return loaded;
   }
 
+  private rememberMiss(kid: string, now: number): void {
+    for (const [missed, at] of this.missedKids) {
+      if (now - at >= MISSED_KID_COOLDOWN_MS) this.missedKids.delete(missed);
+    }
+    this.missedKids.set(kid, now);
+  }
+
+  private reload(now: number): Promise<void> {
+    this.loading ??= this.load(now).finally(() => {
+      this.loading = null;
+    });
+    return this.loading;
+  }
+
   private async load(now: number): Promise<void> {
     this.lastRefetchAt = now;
-    const response = await this.fetchImpl(this.jwksUri);
+    const response = await this.fetchImpl(this.jwksUri, {
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
     if (!response.ok) {
       throw new Error(`JWKS request failed with ${response.status}`);
     }

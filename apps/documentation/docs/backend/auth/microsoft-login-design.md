@@ -13,7 +13,8 @@ Microsoft accounts"**, so the authority is `https://login.microsoftonline.com/co
 work/school (Entra ID) and personal (outlook.com, hotmail.com, live.com, Xbox) accounts can sign in.
 
 **In scope:** tenant sign-in, tenant sign-up, linking by verified email, disabled/suspended
-handling, session issuance, web buttons, config, docs, tests, a local mock authority.
+handling, session issuance, web buttons, config, docs, tests. There is no dev stand-in: Microsoft
+sign-in only ever runs against Microsoft.
 
 **Out of scope (deliberately, can follow):** platform-admin sign-in with Microsoft, accepting a
 member invite with Microsoft (`/invite/:token/microsoft`), and any Microsoft Graph access. The
@@ -108,10 +109,18 @@ No schema change: `user_identity_provider` already has `entra_id`, and `user_ide
 
 ## New code
 
-- `MicrosoftIdentityProvider` (abstract) / `MicrosoftOidcProvider` (real) / `MockMicrosoftIdentityProvider`
-  (dev) — the same DI-swap as Google, chosen in `AuthModule`.
-- `IdTokenVerifier` — JWKS fetch + cache (with a refetch on unknown `kid`), RS256 verification,
-  claim checks; pure and unit-tested with a generated key pair.
+- `MicrosoftIdentityProvider` (abstract) / `MicrosoftOidcProvider`, bound directly in `AuthModule`. There is
+  no mock provider for either SSO provider: `DEV_GOOGLE_AUTH_MOCK` was removed along with Microsoft's.
+- `IdTokenVerifier` — JWKS fetch + cache, RS256 verification, claim checks; pure and unit-tested with a
+  generated key pair. An unknown `kid` (a rotation) refetches at once, with at most one request per
+  5 s and a kid that is still missing not retried for 60 s; concurrent verifications share one request;
+  a failed refresh of a stale set keeps using the cached key; requests time out after 10 s.
+- The token exchange times out after 10 s too, ending in `?error=PROVIDER_ERROR` rather than a
+  callback that never answers.
+- `platform_settings.sso_login_enabled` is enforced on both routes (authorize and callback answer
+  `?error=NOT_CONFIGURED` while it is off), not only by hiding the button.
+- Only `error=access_denied` from Microsoft reads as a cancellation; any other `error` is
+  `PROVIDER_ERROR`.
 - Routes `GET /v1/auth/microsoft` and `GET /v1/auth/microsoft/callback`; swagger composition for both.
 - `AuthService.buildMicrosoftAuthorizeRedirect` / `handleMicrosoftCallback`.
 
@@ -121,9 +130,8 @@ No schema change: `user_identity_provider` already has `entra_id`, and `user_ide
 |---|---|
 | `MICROSOFT_CLIENT_ID` | Application (client) ID |
 | `MICROSOFT_CLIENT_SECRET` | Client secret **value** (not the secret ID) |
-| `MICROSOFT_CALLBACK_URL` | Must equal a redirect URI registered in Azure, e.g. `http://localhost:3000/v1/auth/microsoft/callback` |
-| `MICROSOFT_AUTHORITY` | Optional; defaults to `https://login.microsoftonline.com/common`. Set to `http://localhost:4100/microsoft/common` to use the local mock authority. |
-| `DEV_MICROSOFT_AUTH_MOCK`, `DEV_MICROSOFT_AUTH_MOCK_EMAIL` | Dev-only fabricated profile, Joi-forbidden in production, mirroring Google's. |
+| `MICROSOFT_CALLBACK_URL` | Must equal a redirect URI registered in Azure, on the **web app's origin** (e.g. `http://localhost:3002/v1/auth/microsoft/callback`; production `https://<web-domain>/v1/auth/microsoft/callback`). Not the API's origin: the browser starts the flow through the web app's `/v1/*` proxy, so the `microsoft_auth_sid` binding cookie lives on the web origin and must come back with the callback, or every sign-in fails with `INVALID_STATE`. |
+| `MICROSOFT_AUTHORITY` | Optional; defaults to `https://login.microsoftonline.com/common`. Production only accepts `https://login.microsoftonline.com/<tenant>`: the JWKS, token endpoint and issuer all derive from it, so any other host would be trusted to vouch for any identity. |
 
 The state secret is the existing `GOOGLE_AUTH_STATE_SECRET` (required in production) — shared by all
 SSO providers and documented as such. Unconfigured → the routes redirect with `?error=NOT_CONFIGURED`
@@ -151,26 +159,32 @@ instead of failing at boot.
   `EMAIL_NOT_VERIFIED` copy says it can be a Microsoft email-verification issue.
 - `auth.googleErrors` became `auth.ssoErrors` (en and de), since one toast hook serves both providers; the mock Microsoft SSO strings were removed. Failure redirects from the Google and Microsoft callbacks carry `&provider=google|microsoft`; the hook looks up `ssoErrors.<provider>.<code>` first, then the shared `ssoErrors.<code>`, so each provider can word the same code differently (e.g. Microsoft's `EMAIL_NOT_VERIFIED` points at the account admin). The tag is added at one place per provider (`AuthService.withFailureProvider`), not at every call site.
 
-## Local development without Azure
+## Local development
 
-`apps/mock-external-apis` gains a small Microsoft authority (authorize → code, token → a really
-RS256-signed ID token, JWKS), so the **real** `MicrosoftOidcProvider` — signature, issuer, audience,
-nonce, PKCE — runs against it end to end with `MICROSOFT_AUTHORITY` pointing at the mock. The simpler
-`DEV_MICROSOFT_AUTH_MOCK` provider skips the token step entirely, like Google's.
+There is no mock: local development uses a real Azure app registration (the same setup as above, with
+the `localhost:3002` callback registered). A personal Microsoft account works for testing.
+
+## Rename compatibility (transitional)
+
+`POST /v1/auth/sso/complete-signup` also reads the pre-rename `google_pending_signup` cookie, and the
+pending-signup service falls back to the old `auth:google-pending-signup:` Redis prefix (such records
+were always Google's), so a Google signup sitting on the business-name step at deploy time can
+finish. Delete both fallbacks one release after this ships.
 
 ## Testing
 
 Unit: `IdTokenVerifier` (good token; wrong `aud`, `iss`/`tid` mismatch, expired, bad signature, wrong
 `nonce`, unknown `kid` refetch), the provider (token exchange, PKCE, missing `xms_edov` →
 unverified), `OAuthStateService` (cross-provider replay refused), `AuthService` (all outcomes),
-controller. Opt-in real-DB specs for the generalized identity methods. End to end against a scratch
-stack and the mock authority: sign-up with business name, sign-in, link by verified email,
-unverified email refused, disabled/suspended refused, state replay refused, browser binding refused.
+controller. Opt-in real-DB specs (`repositories.db.spec.ts`) for the generalized identity methods:
+a Microsoft signup stored under `entra_id` and found by `sub` for Microsoft only, linking to a stalled
+password signup (activates it, drops the unproven password), and Google and Microsoft identities side
+by side on one user. Verified by hand against a real Azure app with a personal account.
 
 ## Known limitations
 
-- **Tested against Azure only by you:** the real Microsoft endpoints can't be exercised from here; the
-  mock authority proves our protocol handling, not Azure's configuration (hence the setup checklist).
+- **No automated end-to-end test against Microsoft:** the protocol handling is unit-tested, and the
+  real flow has been checked by hand against Azure (hence the setup checklist).
 - An Entra user with no mail attribute gets no `email` (and no `xms_edov`) claim and is refused with
   `EMAIL_NOT_VERIFIED`; they can use email/password or Google, or an admin can set the user's Email.
   Personal accounts carry both claims (observed with a real personal account).

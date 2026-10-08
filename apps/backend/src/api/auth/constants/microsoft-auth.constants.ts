@@ -1,6 +1,6 @@
 /**
  * Deliberately `common`: the app registration accepts any organizational directory and personal
- * Microsoft accounts. Overridable (`MICROSOFT_AUTHORITY`) so the local mock authority can stand in.
+ * Microsoft accounts. Overridable (`MICROSOFT_AUTHORITY`), e.g. to a single directory; production only accepts Microsoft's host.
  */
 export const MICROSOFT_AUTH = {
   DEFAULT_AUTHORITY: 'https://login.microsoftonline.com/common',
@@ -9,6 +9,8 @@ export const MICROSOFT_AUTH = {
   AUTHORIZE_PATH: '/oauth2/v2.0/authorize',
   TOKEN_PATH: '/oauth2/v2.0/token',
   JWKS_PATH: '/discovery/v2.0/keys',
+  /** A stalled Microsoft endpoint must end in `?error=PROVIDER_ERROR`, not a callback that never answers. */
+  HTTP_TIMEOUT_MS: 10_000,
 } as const;
 
 /** Same role as `GOOGLE_AUTH_SID_COOKIE_*`: binds the round trip to the browser that started it. SameSite=Lax, since Microsoft returns via a top-level GET. */

@@ -49,7 +49,11 @@ export class MicrosoftOidcProvider extends MicrosoftIdentityProvider {
     // `https://login.microsoftonline.com/common` -> `https://login.microsoftonline.com`; the issuer
     // of a multi-tenant token is `<base>/<tid>/v2.0`.
     this.authorityBase = this.authority.replace(/\/[^/]+$/, '');
-    this.verifier = new IdTokenVerifier(`${this.authority}${MICROSOFT_AUTH.JWKS_PATH}`);
+    this.verifier = new IdTokenVerifier(
+      `${this.authority}${MICROSOFT_AUTH.JWKS_PATH}`,
+      fetch,
+      MICROSOFT_AUTH.HTTP_TIMEOUT_MS
+    );
   }
 
   isConfigured(): boolean {
@@ -76,6 +80,7 @@ export class MicrosoftOidcProvider extends MicrosoftIdentityProvider {
   async fetchIdentity(code: string, context: MicrosoftTokenContext): Promise<SsoIdentity> {
     const response = await fetch(`${this.authority}${MICROSOFT_AUTH.TOKEN_PATH}`, {
       method: 'POST',
+      signal: AbortSignal.timeout(MICROSOFT_AUTH.HTTP_TIMEOUT_MS),
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         code,

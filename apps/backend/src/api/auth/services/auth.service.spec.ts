@@ -2,6 +2,7 @@ import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import { MediaService } from '@media/media.service';
 import {
   BadRequestException,
@@ -47,6 +48,7 @@ describe('AuthService', () => {
   let queueManager: jest.Mocked<AddingJobsToQueueManager>;
   let platformAdminAuthService: jest.Mocked<PlatformAdminAuthService>;
   let mediaService: jest.Mocked<MediaService>;
+  let platformSettingsDbService: { get: jest.Mock };
 
   const tokenPair = { accessToken: 'access', refreshToken: 'refresh', expiresIn: 900 };
 
@@ -156,6 +158,8 @@ describe('AuthService', () => {
       getUserAvatarUrl: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<MediaService>;
 
+    platformSettingsDbService = { get: jest.fn().mockResolvedValue({ ssoLoginEnabled: true }) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -173,6 +177,7 @@ describe('AuthService', () => {
         { provide: PendingSsoSignupService, useValue: pendingSsoSignupService },
         { provide: PlatformAdminAuthService, useValue: platformAdminAuthService },
         { provide: MediaService, useValue: mediaService },
+        { provide: PlatformSettingsDbService, useValue: platformSettingsDbService },
       ],
     }).compile();
 
@@ -1049,6 +1054,20 @@ describe('AuthService', () => {
         expect(authDbService.findTenantStatus).not.toHaveBeenCalled();
       });
 
+      it('reports an error Google raises on its side as PROVIDER_ERROR, not as a cancellation', async () => {
+        oauthStateService.consume.mockResolvedValue(signupState);
+
+        const outcome = await target.handleGoogleCallback({
+          code: undefined,
+          state: 's',
+          error: 'server_error',
+          sid: 'sid',
+        });
+
+        expect(outcome).toMatchObject({ ok: false, failure: SsoAuthFailure.PROVIDER_ERROR });
+        expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+      });
+
       it('reports a declined consent without calling Google at all', async () => {
         oauthStateService.consume.mockResolvedValue(signupState);
 
@@ -1269,6 +1288,33 @@ describe('AuthService', () => {
         expect(redirect).toMatchObject({ ok: true, sid: 'raw-sid' });
       });
 
+      // Regression: the platform switch only hid the button, so a direct link still signed people in.
+      it('refuses with NOT_CONFIGURED while the platform has Microsoft SSO switched off', async () => {
+        platformSettingsDbService.get.mockResolvedValue({ ssoLoginEnabled: false });
+
+        await expect(
+          target.buildMicrosoftAuthorizeRedirect({ intent: OAuthIntent.SIGNUP })
+        ).resolves.toEqual({
+          ok: false,
+          redirectUrl: `${SSO_REDIRECT.SIGNUP}?error=${SsoAuthFailure.NOT_CONFIGURED}&provider=microsoft`,
+        });
+        expect(oauthStateService.mint).not.toHaveBeenCalled();
+      });
+
+      it('treats a missing platform settings row as switched on, the column default', async () => {
+        platformSettingsDbService.get.mockResolvedValue(null);
+        oauthStateService.mint.mockResolvedValue({
+          state: 'signed-state',
+          sid: 'raw-sid',
+          nonce: 'oidc-nonce',
+          codeChallenge: 'challenge',
+        });
+
+        await expect(
+          target.buildMicrosoftAuthorizeRedirect({ intent: OAuthIntent.LOGIN })
+        ).resolves.toMatchObject({ ok: true });
+      });
+
       it('redirects with NOT_CONFIGURED to the screen the click came from', async () => {
         microsoftIdentityProvider.isConfigured.mockReturnValue(false);
 
@@ -1329,6 +1375,29 @@ describe('AuthService', () => {
         await expect(callback()).resolves.toMatchObject({ failure: SsoAuthFailure.INVALID_STATE });
         expect(microsoftIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
       });
+
+      it('refuses a callback once Microsoft SSO was switched off mid-flight, without exchanging the code', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.SIGNUP));
+        platformSettingsDbService.get.mockResolvedValue({ ssoLoginEnabled: false });
+
+        await expect(callback()).resolves.toEqual({
+          ok: false,
+          failure: SsoAuthFailure.NOT_CONFIGURED,
+          redirectUrl: `${SSO_REDIRECT.SIGNUP}?error=${SsoAuthFailure.NOT_CONFIGURED}&provider=microsoft`,
+        });
+        expect(microsoftIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+      });
+
+      it.each(['server_error', 'temporarily_unavailable', 'consent_required'])(
+        'reports a Microsoft-side %s as PROVIDER_ERROR, not as a cancellation',
+        async error => {
+          oauthStateService.consume.mockResolvedValue(record(OAuthIntent.LOGIN));
+
+          await expect(callback({ code: undefined, error })).resolves.toMatchObject({
+            failure: SsoAuthFailure.PROVIDER_ERROR,
+          });
+        }
+      );
 
       it('sends a declined consent back to the screen it started from', async () => {
         oauthStateService.consume.mockResolvedValue(record(OAuthIntent.SIGNUP));
