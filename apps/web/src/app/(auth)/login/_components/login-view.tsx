@@ -46,6 +46,7 @@ export function LoginView() {
     loginWithPassword,
     restoreAccount,
     startGoogleLogin,
+    startMicrosoftLogin,
     verifySignupOtp,
     resendSignupOtp,
     isLoading,
@@ -141,11 +142,14 @@ export function LoginView() {
 
                 {bothSsoLike ? (
                   <div className="grid grid-cols-2 gap-3">
-                    <Button asChild variant="outline" size="block">
-                      <Link href={ROUTES.LOGIN_MICROSOFT}>
-                        <MicrosoftLogo />
-                        {t("microsoft")}
-                      </Link>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="block"
+                      disabled={isLoading}
+                      onClick={startMicrosoftLogin}>
+                      <MicrosoftLogo />
+                      {t("microsoft")}
                     </Button>
                     <SocialAuthButtons
                       isLoading={isLoading}
@@ -156,11 +160,14 @@ export function LoginView() {
                 ) : (
                   <>
                     {ssoEnabled ? (
-                      <Button asChild variant="outline" size="block">
-                        <Link href={ROUTES.LOGIN_MICROSOFT}>
-                          <MicrosoftLogo />
-                          {t("continueWithMicrosoft")}
-                        </Link>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="block"
+                        disabled={isLoading}
+                        onClick={startMicrosoftLogin}>
+                        <MicrosoftLogo />
+                        {t("continueWithMicrosoft")}
                       </Button>
                     ) : null}
 

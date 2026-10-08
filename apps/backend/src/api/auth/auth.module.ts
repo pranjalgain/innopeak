@@ -17,17 +17,20 @@ import { PlatformAdminAuthController } from './platform-admin-auth.controller';
 import { FixedVerifyEmailTokenProvider } from './providers/fixed-verify-email-token.provider';
 import { GoogleIdentityProvider } from './providers/google-identity.provider';
 import { GoogleOidcProvider } from './providers/google-oidc.provider';
+import { MicrosoftIdentityProvider } from './providers/microsoft-identity.provider';
+import { MicrosoftOidcProvider } from './providers/microsoft-oidc.provider';
 import { MockGoogleIdentityProvider } from './providers/mock-google-identity.provider';
+import { MockMicrosoftIdentityProvider } from './providers/mock-microsoft-identity.provider';
 import { RandomVerifyEmailTokenProvider } from './providers/random-verify-email-token.provider';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
 import { AccountAnonymizationService } from './services/account-anonymization.service';
 import { AccountDeletionService } from './services/account-deletion.service';
 import { AuthService } from './services/auth.service';
 import { ErasureNoticeService } from './services/erasure-notice.service';
-import { GoogleOAuthStateService } from './services/google-oauth-state.service';
 import { LoginAttemptService } from './services/login-attempt.service';
+import { OAuthStateService } from './services/oauth-state.service';
 import { OtpAttemptService } from './services/otp-attempt.service';
-import { PendingGoogleSignupService } from './services/pending-google-signup.service';
+import { PendingSsoSignupService } from './services/pending-sso-signup.service';
 import { PlatformAdminAuthService } from './services/platform-admin-auth.service';
 import { TokenService } from './services/token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -64,6 +67,22 @@ const googleIdentityProviderFactory = {
   inject: [ConfigService],
 };
 
+// Same DI-swap as Google's: DEV_MICROSOFT_AUTH_MOCK routes the whole sign-in through the real
+// callback against a fabricated identity. Joi forbids the flag in production.
+const microsoftIdentityProviderFactory = {
+  provide: MicrosoftIdentityProvider,
+  useFactory: (configService: ConfigService<EnvConfig>): MicrosoftIdentityProvider => {
+    const useMock = configService.get<string>('DEV_MICROSOFT_AUTH_MOCK') === 'true';
+
+    if (useMock && !isProduction()) {
+      return new MockMicrosoftIdentityProvider(configService);
+    }
+
+    return new MicrosoftOidcProvider(configService);
+  },
+  inject: [ConfigService],
+};
+
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
@@ -76,7 +95,7 @@ const googleIdentityProviderFactory = {
       inject: [ConfigService],
     }),
     QueueUIModule, // for AddingJobsToQueueManager — signup/login enqueue the verification OTP
-    RedisModule, // OtpAttemptService's, GoogleOAuthStateService's, and PendingGoogleSignupService's stores
+    RedisModule, // OtpAttemptService's, OAuthStateService's, and PendingSsoSignupService's stores
     BillingReconciliationModule, // AccountDeletionService stops/resumes the subscription on a self-service erasure
     MediaModule, // AuthService.me/toTokenIssuanceResult read the caller's current avatarUrl
   ],
@@ -90,8 +109,9 @@ const googleIdentityProviderFactory = {
     JwtStrategy,
     verifyEmailTokenProviderFactory,
     googleIdentityProviderFactory,
-    GoogleOAuthStateService,
-    PendingGoogleSignupService,
+    microsoftIdentityProviderFactory,
+    OAuthStateService,
+    PendingSsoSignupService,
     AccountAnonymizationService,
     AccountDeletionService,
     ErasureNoticeService,

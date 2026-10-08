@@ -43,8 +43,7 @@ export const messagesEn: MessageCatalog = {
     // A platform-admin token reached a tenant route; deliberately doesn't name the token type.
     GOOGLE_NOT_CONFIGURED:
       'Google sign-in is not configured on this server. Contact support or use email and password.',
-    GOOGLE_PENDING_SIGNUP_EXPIRED:
-      'This signup has expired. Start again with "Continue with Google".',
+    SSO_PENDING_SIGNUP_EXPIRED: 'This signup has expired. Start again from the sign-up page.',
     TENANT_CONTEXT_REQUIRED: 'This endpoint is not available for this account type.',
     // Same message whether the token never existed, was used, or expired (no enumeration).
     INVALID_OR_EXPIRED_INVITE: 'This invite link is invalid or has expired.',

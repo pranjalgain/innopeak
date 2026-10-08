@@ -127,7 +127,7 @@ export interface SetActiveLocationIdInput {
  * login, a pending signup on signup). `firstActivation` is true only when this call just promoted a
  * `pending_verification` row to `active`, the moment a brand-new tenant finished signing up.
  */
-export type GoogleIdentityLookup =
+export type SsoIdentityLookup =
   { kind: 'known'; user: VerifiedUser; firstActivation: boolean } | { kind: 'unknown' };
 
 export interface InsertUserIdentityInput {

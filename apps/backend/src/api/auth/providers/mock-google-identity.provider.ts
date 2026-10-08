@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { GoogleIdentityProvider } from './google-identity.provider';
 
-import type { GoogleIdentity } from '../types/auth.type';
+import type { SsoIdentity } from '../types/auth.type';
 
 /**
  * Dev-only (`DEV_GOOGLE_AUTH_MOCK=true`, Joi-forbidden in production). Does not bypass the callback:
@@ -33,7 +33,7 @@ export class MockGoogleIdentityProvider extends GoogleIdentityProvider {
     return `${this.callbackUrl}?${params.toString()}`;
   }
 
-  fetchIdentity(code: string): Promise<GoogleIdentity> {
+  fetchIdentity(code: string): Promise<SsoIdentity> {
     const seed = code.replace(/^mock-code:/, '').slice(0, 12) || 'devuser';
     const email =
       this.fixedEmail !== '' ? this.fixedEmail : `google.${seed.toLowerCase()}@example.com`;

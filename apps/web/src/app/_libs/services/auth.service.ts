@@ -10,7 +10,6 @@ import { adminAuthApi } from "@/app/_libs/api-sdk/admin-auth-api";
 import { adminSettingsApi } from "@/app/_libs/api-sdk/admin-settings-api";
 import { authApi } from "@/app/_libs/api-sdk/auth-api";
 import { refreshSession } from "@/app/_libs/api-sdk/config";
-import { SUPER_ADMIN_EMAIL } from "@/app/_libs/constants/current-owner";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError, unwrap } from "@/app/_libs/services/api-error";
 import { PendingSignupService } from "@/app/_libs/services/pending-signup.service";
@@ -91,20 +90,8 @@ export interface VerifyOtpResult {
   errorMessage?: string;
 }
 
-/**
- * Hooks and components never call the backend, SDK or `TokenService` directly. `resolveLoginDestination` (mocked Microsoft
- * SSO only) still guesses "admin" from the email; real Microsoft SSO does not exist in the backend yet.
- */
+/** Hooks and components never call the backend, SDK or `TokenService` directly. */
 export class AuthService {
-  private static resolveLoginDestination(email: string): string {
-    const isSuperAdmin = email.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
-    return isSuperAdmin ? ROUTES.ADMIN : ROUTES.DASHBOARD;
-  }
-
-  static async loginWithMicrosoft(email: string): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    window.location.assign(this.resolveLoginDestination(email));
-  }
 
   /** Also refreshes the locally cached display name so the shell's first paint matches the server. */
   static async me(): Promise<AuthenticatedUser> {
@@ -189,9 +176,16 @@ export class AuthService {
     window.location.assign("/v1/admin/auth/google");
   }
 
-  /** Never redirects: the wizard still has a Google Business Profile step. Always creates a tenant, never a super admin. */
-  static async signupWithMicrosoft(): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 600));
+  /** Same contract as `startGoogleLogin`: a full-page navigation, never resolves, and an unknown identity returns `?error=NO_ACCOUNT`. */
+  static startMicrosoftLogin(): void {
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
+    window.location.assign("/v1/auth/microsoft?intent=login");
+  }
+
+  /** Same contract as `startGoogleSignup`: a new person lands on `/onboarding/business-name` via the callback. Never resolves. */
+  static startMicrosoftSignup(): void {
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
+    window.location.assign("/v1/auth/microsoft?intent=signup");
   }
 
   /** Throws ApiError (409 on an already-registered email). */
@@ -220,12 +214,10 @@ export class AuthService {
     window.location.assign("/v1/auth/google?intent=signup");
   }
 
-  /** Submits the business name Google could not supply; the `google_pending_signup` cookie rides via `withCredentials`. ApiError 400: pending signup expired/used; 409: email claimed meanwhile. */
-  static async completeGoogleSignup(
-    businessName: string,
-  ): Promise<{ hasConnectedBusiness: boolean }> {
-    const response = await authApi.authControllerCompleteGoogleSignupV1(
-      { completeGoogleSignupDto: { businessName } },
+  /** Submits the business name the SSO provider could not supply (Google or Microsoft); the `sso_pending_signup` cookie rides via `withCredentials`. ApiError 400: pending signup expired/used; 409: email claimed meanwhile. */
+  static async completeSsoSignup(businessName: string): Promise<{ hasConnectedBusiness: boolean }> {
+    const response = await authApi.authControllerCompleteSsoSignupV1(
+      { completeSsoSignupDto: { businessName } },
       { authOptional: true },
     );
     const data = unwrap<TokenResponse>(response.data);

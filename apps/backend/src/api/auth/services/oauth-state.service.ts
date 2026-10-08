@@ -7,14 +7,15 @@ import type Redis from 'ioredis';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 
 import {
-  GOOGLE_AUTH_STATE_KEY_PREFIX,
-  GOOGLE_AUTH_STATE_TTL_SECONDS,
-} from '../constants/google-auth.constants';
+  OAUTH_STATE_TTL_SECONDS,
+  oauthStateKey,
+  SsoProvider,
+} from '../constants/sso-auth.constants';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 import type {
-  ConsumeGoogleStateResult,
-  GoogleAuthStateRecord,
-  MintedGoogleState,
+  ConsumeOAuthStateResult,
+  MintedOAuthState,
+  OAuthStateRecord,
 } from '../types/auth.type';
 
 /**
@@ -24,10 +25,13 @@ import type {
  * with `GETDEL` before the code is exchanged, so a replay finds nothing and concurrent callbacks
  * cannot both pass; (3) a `google_auth_sid` cookie binds the round trip to the browser that began
  * it, defeating a mailed consent link.
+ *
+ * Shared by every SSO provider: the record, the Redis key and the signature all carry the provider,
+ * so a state minted for Google is rejected at the Microsoft callback and the reverse.
  */
 @Injectable()
-export class GoogleOAuthStateService {
-  private readonly logger = new Logger(GoogleOAuthStateService.name);
+export class OAuthStateService {
+  private readonly logger = new Logger(OAuthStateService.name);
   private readonly secret: string;
 
   constructor(
@@ -39,29 +43,43 @@ export class GoogleOAuthStateService {
     this.secret =
       configService.get<string>('GOOGLE_AUTH_STATE_SECRET') ??
       configService.get<string>('JWT_SECRET') ??
-      'insecure-local-google-auth-state-secret';
+      'insecure-local-oauth-state-secret';
   }
 
-  async mint(input: { intent: OAuthIntent; inviteToken?: string }): Promise<MintedGoogleState> {
+  /**
+   * `pkce` is for providers that recommend it (Microsoft): the verifier is stored only in the Redis
+   * record and only its S256 challenge leaves the server. `nonce` is the OIDC replay binding the
+   * provider echoes in its ID token.
+   */
+  async mint(input: {
+    provider: SsoProvider;
+    intent: OAuthIntent;
+    inviteToken?: string;
+    pkce?: boolean;
+  }): Promise<MintedOAuthState> {
     const nonce = randomBytes(24).toString('base64url');
     const sid = randomBytes(32).toString('base64url');
+    const codeVerifier = input.pkce === true ? randomBytes(48).toString('base64url') : undefined;
 
     // Built conditionally: `exactOptionalPropertyTypes` rejects assigning a literal `undefined`,
     // which would also be a real key on the record.
-    const record: GoogleAuthStateRecord = {
+    const record: OAuthStateRecord = {
+      provider: input.provider,
       intent: input.intent,
       sidHash: this.hashSid(sid),
+      nonce,
       ...(input.inviteToken !== undefined ? { inviteToken: input.inviteToken } : {}),
+      ...(codeVerifier !== undefined ? { codeVerifier } : {}),
     };
 
     // `NX` so a nonce collision fails rather than overwriting another in-flight consent. Checked
     // rather than assumed: a silent miss would return a state whose Redis record is someone else's,
     // later failing as an indistinguishable INVALID_STATE. Not expected to fire at 192 bits.
     const claimed = await this.redis.set(
-      `${GOOGLE_AUTH_STATE_KEY_PREFIX}${nonce}`,
+      oauthStateKey(input.provider, nonce),
       JSON.stringify(record),
       'EX',
-      GOOGLE_AUTH_STATE_TTL_SECONDS,
+      OAUTH_STATE_TTL_SECONDS,
       'NX'
     );
 
@@ -70,7 +88,14 @@ export class GoogleOAuthStateService {
       throw new Error('Failed to mint OAuth state: nonce collision');
     }
 
-    return { state: this.sign(nonce), sid };
+    return {
+      state: this.sign(input.provider, nonce),
+      sid,
+      nonce,
+      ...(codeVerifier !== undefined
+        ? { codeChallenge: createHash('sha256').update(codeVerifier).digest('base64url') }
+        : {}),
+    };
   }
 
   /**
@@ -78,28 +103,29 @@ export class GoogleOAuthStateService {
    * deliberately indistinguishable to the caller.
    */
   async consume(
+    provider: SsoProvider,
     state: string | undefined,
     sid: string | undefined
-  ): Promise<ConsumeGoogleStateResult> {
+  ): Promise<ConsumeOAuthStateResult> {
     if (state === undefined || state === '') {
       return { ok: false };
     }
 
-    const nonce = this.verify(state);
+    const nonce = this.verify(provider, state);
     if (nonce === null) {
       return { ok: false };
     }
 
-    const raw = await this.redis.getdel(`${GOOGLE_AUTH_STATE_KEY_PREFIX}${nonce}`);
+    const raw = await this.redis.getdel(oauthStateKey(provider, nonce));
     if (raw === null) {
       return { ok: false };
     }
 
-    const record = JSON.parse(raw) as GoogleAuthStateRecord;
+    const record = JSON.parse(raw) as OAuthStateRecord;
 
     if (sid === undefined || !this.sidMatches(sid, record.sidHash)) {
       this.logger.warn(
-        'Google auth callback rejected: browser-binding cookie missing or mismatched. This is the expected outcome of a mailed consent link.'
+        `${provider} auth callback rejected: browser-binding cookie missing or mismatched. This is the expected outcome of a mailed consent link.`
       );
       return { ok: false };
     }
@@ -107,21 +133,21 @@ export class GoogleOAuthStateService {
     return { ok: true, record };
   }
 
-  private sign(nonce: string): string {
+  private sign(provider: SsoProvider, nonce: string): string {
     const issuedAt = Date.now().toString();
     const payload = `${nonce}.${issuedAt}`;
-    return `${payload}.${this.hmac(payload)}`;
+    return `${payload}.${this.hmac(provider, payload)}`;
   }
 
   /** Returns the nonce, or null if the blob is forged, malformed, or past its TTL. */
-  private verify(state: string): string | null {
+  private verify(provider: SsoProvider, state: string): string | null {
     const parts = state.split('.');
     if (parts.length !== 3) {
       return null;
     }
 
     const [nonce, issuedAt, signature] = parts as [string, string, string];
-    const expected = this.hmac(`${nonce}.${issuedAt}`);
+    const expected = this.hmac(provider, `${nonce}.${issuedAt}`);
 
     // Constant-time: `===` leaks how many leading bytes matched through timing, which is enough to
     // forge a signature byte by byte given enough attempts.
@@ -135,15 +161,16 @@ export class GoogleOAuthStateService {
     }
 
     // The Redis record's TTL is the real expiry; this is a cheap pre-filter.
-    if (Date.now() - Number(issuedAt) > GOOGLE_AUTH_STATE_TTL_SECONDS * 1000) {
+    if (Date.now() - Number(issuedAt) > OAUTH_STATE_TTL_SECONDS * 1000) {
       return null;
     }
 
     return nonce;
   }
 
-  private hmac(payload: string): string {
-    return createHmac('sha256', this.secret).update(payload).digest('base64url');
+  /** The provider is part of what is signed, so a state from one provider never verifies at another's. */
+  private hmac(provider: SsoProvider, payload: string): string {
+    return createHmac('sha256', this.secret).update(`${provider}:${payload}`).digest('base64url');
   }
 
   /** Only the hash is persisted, so a Redis dump does not hand out live round-trip bindings. */

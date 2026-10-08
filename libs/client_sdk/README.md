@@ -88,7 +88,7 @@ Class | Method | HTTP request | Description
 *AdminUsersApi* | [**adminUsersControllerToggleActiveV1**](docs/AdminUsersApi.md#adminuserscontrollertoggleactivev1) | **POST** /v1/admin/users/{userId}/toggle-active | Toggle a user\&#39;s active status
 *AuthApi* | [**authControllerAcceptMemberInviteV1**](docs/AuthApi.md#authcontrolleracceptmemberinvitev1) | **POST** /v1/auth/invite/accept | Accept a tenant-member invite by setting a name and password
 *AuthApi* | [**authControllerChangePasswordV1**](docs/AuthApi.md#authcontrollerchangepasswordv1) | **POST** /v1/auth/change-password | Change the current user’s password
-*AuthApi* | [**authControllerCompleteGoogleSignupV1**](docs/AuthApi.md#authcontrollercompletegooglesignupv1) | **POST** /v1/auth/google/complete-signup | Finish a Google signup with a business name
+*AuthApi* | [**authControllerCompleteSsoSignupV1**](docs/AuthApi.md#authcontrollercompletessosignupv1) | **POST** /v1/auth/sso/complete-signup | Finish an SSO (Google or Microsoft) signup with a business name
 *AuthApi* | [**authControllerDeleteAccountV1**](docs/AuthApi.md#authcontrollerdeleteaccountv1) | **POST** /v1/auth/delete-account | Schedule the whole business for deletion (owner only)
 *AuthApi* | [**authControllerGoogleAuthorizeV1**](docs/AuthApi.md#authcontrollergoogleauthorizev1) | **GET** /v1/auth/google | Start Google sign-in or signup
 *AuthApi* | [**authControllerGoogleCallbackV1**](docs/AuthApi.md#authcontrollergooglecallbackv1) | **GET** /v1/auth/google/callback | Google sign-in callback
@@ -96,6 +96,8 @@ Class | Method | HTTP request | Description
 *AuthApi* | [**authControllerLoginV1**](docs/AuthApi.md#authcontrollerloginv1) | **POST** /v1/auth/login | Password login
 *AuthApi* | [**authControllerLogoutV1**](docs/AuthApi.md#authcontrollerlogoutv1) | **POST** /v1/auth/logout | Revoke every refresh token for the current user
 *AuthApi* | [**authControllerMeV1**](docs/AuthApi.md#authcontrollermev1) | **GET** /v1/auth/me | The signed-in tenant user
+*AuthApi* | [**authControllerMicrosoftAuthorizeV1**](docs/AuthApi.md#authcontrollermicrosoftauthorizev1) | **GET** /v1/auth/microsoft | Start Microsoft (Entra ID) sign-in or signup
+*AuthApi* | [**authControllerMicrosoftCallbackV1**](docs/AuthApi.md#authcontrollermicrosoftcallbackv1) | **GET** /v1/auth/microsoft/callback | Microsoft sign-in callback
 *AuthApi* | [**authControllerRefreshV1**](docs/AuthApi.md#authcontrollerrefreshv1) | **POST** /v1/auth/refresh | Rotate the refresh token, mint a fresh access token
 *AuthApi* | [**authControllerRequestDeleteAccountOtpV1**](docs/AuthApi.md#authcontrollerrequestdeleteaccountotpv1) | **POST** /v1/auth/delete-account/request-otp | Request the code that confirms deleting the business (owners without a password)
 *AuthApi* | [**authControllerRequestSetPasswordOtpV1**](docs/AuthApi.md#authcontrollerrequestsetpasswordotpv1) | **POST** /v1/auth/set-password/request-otp | Request the OTP required to set a password on a passwordless account
@@ -199,7 +201,7 @@ Class | Method | HTTP request | Description
  - [ChangePasswordDto](docs/ChangePasswordDto.md)
  - [ClassificationBreakdownPointResponseDto](docs/ClassificationBreakdownPointResponseDto.md)
  - [CompleteDummyCheckoutDto](docs/CompleteDummyCheckoutDto.md)
- - [CompleteGoogleSignupDto](docs/CompleteGoogleSignupDto.md)
+ - [CompleteSsoSignupDto](docs/CompleteSsoSignupDto.md)
  - [ConfirmAvatarDto](docs/ConfirmAvatarDto.md)
  - [ConfirmAvatarResponseDto](docs/ConfirmAvatarResponseDto.md)
  - [ConfirmLocationDto](docs/ConfirmLocationDto.md)

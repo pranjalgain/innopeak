@@ -35,7 +35,7 @@ export interface MessageCatalog {
     AVATAR_UPDATED: string;
     TENANT_ONLY: string;
     GOOGLE_NOT_CONFIGURED: string;
-    GOOGLE_PENDING_SIGNUP_EXPIRED: string;
+    SSO_PENDING_SIGNUP_EXPIRED: string;
     TENANT_CONTEXT_REQUIRED: string;
     /** One message for never-existed, used, or expired tokens (no enumeration), across all invite accept paths. */
     INVALID_OR_EXPIRED_INVITE: string;

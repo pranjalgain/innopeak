@@ -48,9 +48,9 @@ export function OnboardingSignupView() {
   useOAuthErrorToast();
   const router = useRouter();
   const {
-    signupWithMicrosoft,
     signupWithPassword,
     startGoogleSignup,
+    startMicrosoftSignup,
     verifySignupOtp,
     resendSignupOtp,
     isLoading,
@@ -91,14 +91,6 @@ export function OnboardingSignupView() {
     },
     [router],
   );
-
-  const handleSsoSubmit = async () => {
-    const succeeded = await signupWithMicrosoft();
-    if (succeeded) {
-      PendingSignupService.clear();
-      handOffToPlan("sso");
-    }
-  };
 
   const handlePasswordSubmit = async (values: CreateAccountFormValues) => {
     const succeeded = await signupWithPassword(values);
@@ -167,7 +159,8 @@ export function OnboardingSignupView() {
                       type="button"
                       variant="outline"
                       size="block"
-                      onClick={() => void handleSsoSubmit()}>
+                      disabled={isLoading}
+                      onClick={startMicrosoftSignup}>
                       <MicrosoftLogo />
                       {tLogin("microsoft")}
                     </Button>
@@ -185,7 +178,7 @@ export function OnboardingSignupView() {
                         variant="outline"
                         size="block"
                         disabled={isLoading}
-                        onClick={() => void handleSsoSubmit()}>
+                        onClick={startMicrosoftSignup}>
                         <MicrosoftLogo />
                         {tLogin("continueWithMicrosoft")}
                       </Button>

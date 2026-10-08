@@ -91,9 +91,9 @@ export class InvalidOrExpiredInviteException extends BadRequestException {
   }
 }
 
-export class GooglePendingSignupExpiredException extends BadRequestException {
-  constructor(message: string = MESSAGES.AUTH.GOOGLE_PENDING_SIGNUP_EXPIRED) {
-    super({ message, code: 'GOOGLE_PENDING_SIGNUP_EXPIRED' });
+export class SsoPendingSignupExpiredException extends BadRequestException {
+  constructor(message: string = MESSAGES.AUTH.SSO_PENDING_SIGNUP_EXPIRED) {
+    super({ message, code: 'SSO_PENDING_SIGNUP_EXPIRED' });
   }
 }
 

@@ -38,10 +38,9 @@ const SESSION_HINT_LEGACY_TENANT_VALUE = "1";
 const REDIRECT_IF_AUTHENTICATED_PATHS: string[] = [
   ROUTES.HOME,
   ROUTES.LOGIN,
-  ROUTES.LOGIN_MICROSOFT,
   ROUTES.ADMIN_LOGIN,
   ROUTES.ONBOARDING_SIGNUP,
-  // Reachable only via a `google_pending_signup` cookie, but a signed-in visitor landing here (stale
+  // Reachable only via a `sso_pending_signup` cookie, but a signed-in visitor landing here (stale
   // tab, back button) has nothing left to do: the pending signup is consumed once a session exists.
   ROUTES.ONBOARDING_BUSINESS_NAME,
 ];
@@ -107,7 +106,6 @@ export const config = {
   matcher: [
     "/",
     "/login",
-    "/login/microsoft",
     "/admin-login",
     "/onboarding/signup",
     "/onboarding/business-name",

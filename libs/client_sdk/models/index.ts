@@ -29,7 +29,7 @@ export * from './change-admin-password-dto';
 export * from './change-password-dto';
 export * from './classification-breakdown-point-response-dto';
 export * from './complete-dummy-checkout-dto';
-export * from './complete-google-signup-dto';
+export * from './complete-sso-signup-dto';
 export * from './confirm-avatar-dto';
 export * from './confirm-avatar-response-dto';
 export * from './confirm-location-dto';

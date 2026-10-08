@@ -262,16 +262,6 @@
         "passwordRequired": "Geben Sie Ihr Passwort ein."
       }
     },
-    "microsoftMock": {
-      "title": "Mit Microsoft anmelden",
-      "notice": "Simuliertes Anmeldefenster für diesen Prototyp — geben Sie eine beliebige E-Mail-Adresse und ein beliebiges Passwort ein, um fortzufahren.",
-      "emailLabel": "E-Mail",
-      "emailPlaceholder": "sie@unternehmen.de",
-      "passwordLabel": "Passwort",
-      "signIn": "Anmelden",
-      "signingIn": "Anmeldung läuft…",
-      "backToLogin": "← Zurück zur InnoPeak-Anmeldung"
-    },
     "toasts": {
       "signInFailed": "Bei der Anmeldung ist etwas schiefgelaufen. Bitte versuchen Sie es erneut.",
       "signUpFailed": "Beim Erstellen Ihres Kontos ist etwas schiefgelaufen. Bitte versuchen Sie es erneut.",
@@ -279,18 +269,34 @@
       "restoreFailed": "Das Unternehmen konnte nicht wiederhergestellt werden. Prüfen Sie Ihr Passwort und versuchen Sie es erneut.",
       "restored": "Ihr Unternehmen wurde wiederhergestellt."
     },
-    "googleErrors": {
-      "NO_ACCOUNT": "Für diese Google-Adresse wurde kein Konto gefunden. Bitte zuerst registrieren.",
+    "ssoErrors": {
+      "NO_ACCOUNT": "Für diese E-Mail-Adresse wurde kein Konto gefunden. Bitte zuerst registrieren.",
       "INVALID_STATE": "Dieser Anmeldelink ist abgelaufen oder wurde bereits verwendet. Bitte versuchen Sie es erneut.",
-      "ACCESS_DENIED": "Die Google-Anmeldung wurde abgebrochen.",
-      "EMAIL_NOT_VERIFIED": "Google hat diese Adresse nicht verifiziert. Verifizieren Sie sie bei Google, oder nutzen Sie E-Mail und Passwort.",
+      "ACCESS_DENIED": "Die Anmeldung wurde abgebrochen.",
+      "EMAIL_NOT_VERIFIED": "Ihr Google- oder Microsoft-Konto hat diese E-Mail-Adresse nicht verifiziert. Verifizieren Sie sie dort, oder nutzen Sie E-Mail und Passwort.",
       "ACCOUNT_UNAVAILABLE": "Dieses Konto ist nicht verfügbar. Kontaktieren Sie den Support.",
-      "PROVIDER_ERROR": "Google konnte nicht erreicht werden. Bitte versuchen Sie es erneut.",
-      "NOT_CONFIGURED": "Die Google-Anmeldung ist derzeit nicht verfügbar. Nutzen Sie E-Mail und Passwort.",
+      "PROVIDER_ERROR": "Die Anmeldung beim Anbieter konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
+      "NOT_CONFIGURED": "Diese Anmeldemethode ist derzeit nicht verfügbar. Nutzen Sie E-Mail und Passwort.",
       "INVALID_OR_EXPIRED_INVITE": "Dieser Einladungslink ist ungültig oder abgelaufen.",
       "INVITE_EMAIL_MISMATCH": "Die E-Mail-Adresse dieses Google-Kontos stimmt nicht mit der eingeladenen Adresse überein. Melden Sie sich bei Google mit der Adresse an, an die die Einladung gesendet wurde.",
       "GOOGLE_IDENTITY_ALREADY_LINKED": "Dieses Google-Konto ist bereits mit einem anderen Konto verknüpft.",
-      "fallback": "Die Google-Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
+      "google": {
+        "NO_ACCOUNT": "Für diese Google-Adresse wurde kein Konto gefunden. Bitte zuerst registrieren.",
+        "ACCESS_DENIED": "Die Google-Anmeldung wurde abgebrochen.",
+        "EMAIL_NOT_VERIFIED": "Google hat diese Adresse nicht verifiziert. Verifizieren Sie sie bei Google, oder nutzen Sie E-Mail und Passwort.",
+        "PROVIDER_ERROR": "Google konnte nicht erreicht werden. Bitte versuchen Sie es erneut.",
+        "NOT_CONFIGURED": "Die Google-Anmeldung ist derzeit nicht verfügbar. Nutzen Sie E-Mail und Passwort.",
+        "fallback": "Die Google-Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
+      },
+      "microsoft": {
+        "NO_ACCOUNT": "Für diese Microsoft-E-Mail-Adresse wurde kein Konto gefunden. Bitte zuerst registrieren.",
+        "ACCESS_DENIED": "Die Microsoft-Anmeldung wurde abgebrochen.",
+        "EMAIL_NOT_VERIFIED": "Microsoft hat für dieses Konto keine verifizierte E-Mail-Adresse bestätigt. Bitten Sie Ihre Microsoft-Administration, die E-Mail-Adresse des Kontos festzulegen und zu verifizieren, oder nutzen Sie E-Mail und Passwort.",
+        "PROVIDER_ERROR": "Die Anmeldung bei Microsoft konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
+        "NOT_CONFIGURED": "Die Microsoft-Anmeldung ist derzeit nicht verfügbar. Nutzen Sie E-Mail und Passwort.",
+        "fallback": "Die Microsoft-Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
+      },
+      "fallback": "Die Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
     }
   },
   "onboardingConnect": {

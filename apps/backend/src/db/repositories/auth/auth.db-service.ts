@@ -1,4 +1,4 @@
-import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
+import { IDENTITY_PROVIDER_FOR, SsoProvider } from '@auth/constants/sso-auth.constants';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
 import { type DrizzleTransaction } from '@db/db.service';
@@ -12,7 +12,6 @@ import type {
   CancelMemberRemovalOutcome,
   ErasureNoticeRecipient,
   ErasureReminderCandidate,
-  GoogleIdentityLookup,
   InsertRefreshTokenInput,
   MemberInviteStatusRow,
   PurgeStaleTokensResult,
@@ -23,6 +22,7 @@ import type {
   SetActiveLocationIdInput,
   SignupInput,
   SignupResult,
+  SsoIdentityLookup,
   TenantMemberRow,
   TenantRow,
   UpdateLocaleInput,
@@ -115,14 +115,17 @@ export class AuthDbService {
   /**
    * Resolves a Google identity by `sub` alone (the returning-user case); a pure read.
    *
-   * Split from `linkGoogleIdentityByEmail` because that one writes, and which accounts may reach it
+   * Split from `linkSsoIdentityByEmail` because that one writes, and which accounts may reach it
    * is a security decision the caller must make in between (see `AuthService.handleGoogleCallback`).
    * `{ kind: 'unknown' }` means no tenant identity exists; what that implies depends on intent,
    * which this service does not decide.
    */
-  async findGoogleIdentityBySub(providerUserId: string): Promise<GoogleIdentityLookup> {
+  async findSsoIdentityBySub(
+    provider: SsoProvider,
+    providerUserId: string
+  ): Promise<SsoIdentityLookup> {
     const existingIdentity = await this.authRepository.findUserIdByIdentity(
-      UserIdentityProvider.GOOGLE,
+      IDENTITY_PROVIDER_FOR[provider],
       providerUserId
     );
 
@@ -147,10 +150,11 @@ export class AuthDbService {
    * matches on email, which nothing proves before the OTP, so the caller must decide who may reach
    * it; `AuthService.handleGoogleCallback` withholds it from platform-admin Google accounts.
    */
-  async linkGoogleIdentityByEmail(input: {
+  async linkSsoIdentityByEmail(input: {
+    provider: SsoProvider;
     providerUserId: string;
     email: string;
-  }): Promise<GoogleIdentityLookup> {
+  }): Promise<SsoIdentityLookup> {
     const byEmail = await this.authRepository.findUserByEmail(input.email);
     if (byEmail) {
       // Google verified the address, so linking also finishes a signup stalled at the OTP screen
@@ -158,7 +162,7 @@ export class AuthDbService {
       const activated = await this.authRepository.transaction(async tx => {
         await this.authRepository.upsertUserIdentity(tx, {
           userId: byEmail.id,
-          provider: UserIdentityProvider.GOOGLE,
+          provider: IDENTITY_PROVIDER_FOR[input.provider],
           providerUserId: input.providerUserId,
           email: input.email,
         });
@@ -203,7 +207,8 @@ export class AuthDbService {
    * Returns null on the same race `signup` guards against (email registered between the OAuth
    * callback and this call); the caller reports a conflict rather than a 500.
    */
-  async completeGoogleSignup(input: {
+  async completeSsoSignup(input: {
+    provider: SsoProvider;
     providerUserId: string;
     email: string;
     name: string | null;
@@ -229,7 +234,7 @@ export class AuthDbService {
         });
         await this.authRepository.upsertUserIdentity(tx, {
           userId: user.id,
-          provider: UserIdentityProvider.GOOGLE,
+          provider: IDENTITY_PROVIDER_FOR[input.provider],
           providerUserId: input.providerUserId,
           email: input.email,
         });

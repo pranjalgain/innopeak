@@ -11,7 +11,7 @@ import {
 import { AcceptMemberInviteDto } from '../dto/accept-member-invite.dto';
 import { AuthenticatedUserDto } from '../dto/authenticated-user.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
-import { CompleteGoogleSignupDto } from '../dto/complete-google-signup.dto';
+import { CompleteSsoSignupDto } from '../dto/complete-sso-signup.dto';
 import { DeleteAccountResponseDto } from '../dto/delete-account-response.dto';
 import { DeleteAccountDto } from '../dto/delete-account.dto';
 import type { LoginPendingVerificationDto } from '../dto/login-response.dto';
@@ -578,7 +578,7 @@ export function ApiGoogleAuthorize(): ReturnType<typeof applyDecorators> {
         "Redirects (302) to Google's consent screen and sets the `google_auth_sid` cookie that " +
         'binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so ' +
         'the response is a redirect rather than JSON. Carries no business name: a genuinely new ' +
-        'signup collects one afterward, at `POST /v1/auth/google/complete-signup`.',
+        'signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.',
     }),
     ApiQuery({ name: 'intent', enum: OAuthIntent, required: true, example: OAuthIntent.SIGNUP }),
     ApiResponse({ status: 302, description: 'Redirect to Google' }),
@@ -594,10 +594,50 @@ export function ApiGoogleCallback(): ReturnType<typeof applyDecorators> {
         'Where Google returns the browser. Consumes the one-time state *before* exchanging the ' +
         'code, then resolves the identity: a known `user_identities` row signs in; a matching ' +
         'email links the identity and signs in; neither, under `intent=login`, is `?error=' +
-        'NO_ACCOUNT`; neither, under `intent=signup`, sets a `google_pending_signup` cookie and ' +
+        'NO_ACCOUNT`; neither, under `intent=signup`, sets a `sso_pending_signup` cookie and ' +
         'redirects to /onboarding/business-name to collect the one thing Google cannot supply. ' +
         'Always a 302 — success sets the session cookies, every failure appends `?error=` to ' +
         '/login or /onboarding/signup, because a JSON body would paint as a document here.',
+    }),
+    ApiResponse({
+      status: 302,
+      description: 'Signed in, sent to collect a business name, or redirected with ?error=',
+    })
+  );
+}
+
+export function ApiMicrosoftAuthorize(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Start Microsoft (Entra ID) sign-in or signup',
+      description:
+        "Redirects (302) to Microsoft's sign-in with an OIDC `nonce` and a PKCE (S256) challenge, " +
+        'and sets the `microsoft_auth_sid` cookie that binds the round trip to this browser. Not an ' +
+        'XHR endpoint — the SPA navigates here. Accepts work/school and personal Microsoft ' +
+        'accounts. Carries no business name: a genuinely new signup collects one afterward, at ' +
+        '`POST /v1/auth/sso/complete-signup`.',
+    }),
+    ApiQuery({ name: 'intent', enum: OAuthIntent, required: true, example: OAuthIntent.SIGNUP }),
+    ApiResponse({
+      status: 302,
+      description:
+        'Redirect to Microsoft, or to /login or /onboarding/signup with ?error=NOT_CONFIGURED',
+    })
+  );
+}
+
+export function ApiMicrosoftCallback(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Microsoft sign-in callback',
+      description:
+        'Where Microsoft returns the browser. Consumes the one-time state *before* exchanging the ' +
+        'code, validates the ID token (RS256 signature, audience, issuer, expiry, nonce), then ' +
+        "resolves the identity by the token's `sub`: a known `user_identities` row signs in; a " +
+        'matching **domain-verified** email (the `xms_edov` claim) links the identity and signs in; ' +
+        'an unverified email is `?error=EMAIL_NOT_VERIFIED`; no match under `intent=login` is ' +
+        '`?error=NO_ACCOUNT`; under `intent=signup` it sets a `sso_pending_signup` cookie and ' +
+        'redirects to /onboarding/business-name. Always a 302.',
     }),
     ApiResponse({
       status: 302,
@@ -684,18 +724,18 @@ export function ApiInviteGoogleAuthorize(): ReturnType<typeof applyDecorators> {
   );
 }
 
-export function ApiCompleteGoogleSignup(): ReturnType<typeof applyDecorators> {
+export function ApiCompleteSsoSignup(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
     ApiOperation({
-      summary: 'Finish a Google signup with a business name',
+      summary: 'Finish an SSO (Google or Microsoft) signup with a business name',
       description:
-        'Only reachable after the callback set a `google_pending_signup` cookie for a ' +
-        'genuinely new person — Google returns a person, not a business, and `tenants.name` is ' +
+        'Only reachable after the callback set a `sso_pending_signup` cookie for a ' +
+        'genuinely new person — the provider returns a person, not a business, and `tenants.name` is ' +
         'NOT NULL. Creates the tenant + owner + settings + default prompts and issues session ' +
         'cookies, same as every other successful auth endpoint (unlike the two Google endpoints ' +
         'above, this is a normal XHR call, not a redirect).',
     }),
-    ApiBody({ type: CompleteGoogleSignupDto }),
+    ApiBody({ type: CompleteSsoSignupDto }),
     ApiResponse({
       status: 200,
       description: 'Tenant created and signed in',

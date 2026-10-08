@@ -2,10 +2,12 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { REDIS_CLIENT } from '@redis/redis.provider';
 
-import { PendingGoogleSignupService } from './pending-google-signup.service';
+import { PendingSsoSignupService } from './pending-sso-signup.service';
 
-describe('PendingGoogleSignupService', () => {
-  let target: PendingGoogleSignupService;
+import { SsoProvider } from '../constants/sso-auth.constants';
+
+describe('PendingSsoSignupService', () => {
+  let target: PendingSsoSignupService;
   let store: Map<string, string>;
   let redis: { set: jest.Mock; getdel: jest.Mock };
 
@@ -27,15 +29,16 @@ describe('PendingGoogleSignupService', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [PendingGoogleSignupService, { provide: REDIS_CLIENT, useValue: redis }],
+      providers: [PendingSsoSignupService, { provide: REDIS_CLIENT, useValue: redis }],
     }).compile();
 
-    target = module.get(PendingGoogleSignupService);
+    target = module.get(PendingSsoSignupService);
   });
 
   it('round-trips the identity the completion endpoint depends on', async () => {
     const nonce = await target.mint({
-      providerUserId: 'google-sub-1',
+      provider: SsoProvider.MICROSOFT,
+      providerUserId: 'ms-sub-1',
       email: 'owner@example.com',
       name: 'Jordan Lee',
     });
@@ -44,8 +47,10 @@ describe('PendingGoogleSignupService', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
+      // The provider travels with the identity, so the business-name step links the right one.
       expect(result.identity).toEqual({
-        providerUserId: 'google-sub-1',
+        provider: SsoProvider.MICROSOFT,
+        providerUserId: 'ms-sub-1',
         email: 'owner@example.com',
         name: 'Jordan Lee',
       });
@@ -60,12 +65,18 @@ describe('PendingGoogleSignupService', () => {
     redis.set.mockResolvedValueOnce(null);
 
     await expect(
-      target.mint({ providerUserId: 'google-sub-1', email: 'owner@example.com', name: null })
+      target.mint({
+        provider: SsoProvider.GOOGLE,
+        providerUserId: 'google-sub-1',
+        email: 'owner@example.com',
+        name: null,
+      })
     ).rejects.toThrow('nonce collision');
   });
 
   it('rejects a replay — a second completion attempt finds no nonce', async () => {
     const nonce = await target.mint({
+      provider: SsoProvider.GOOGLE,
       providerUserId: 'google-sub-1',
       email: 'owner@example.com',
       name: null,

@@ -17,17 +17,17 @@ export interface ResendOtpResult {
 }
 
 interface UseAuthResult {
-  loginWithMicrosoft: (email: string) => Promise<void>;
   /** Returns null on failure (a toast is already shown) — the caller only needs to branch on a non-null result. */
   loginWithPassword: (email: string, password: string) => Promise<LoginResult | null>;
   /** Undoes the owner's own pending deletion. Returns whether it worked — a toast is already shown on failure. */
   restoreAccount: (email: string, password: string) => Promise<boolean>;
   startGoogleLogin: () => void;
-  signupWithMicrosoft: () => Promise<boolean>;
+  startMicrosoftLogin: () => void;
   signupWithPassword: (values: CreateAccountFormValues) => Promise<boolean>;
   startGoogleSignup: () => void;
+  startMicrosoftSignup: () => void;
   /** Returns whether it succeeded — a toast is already shown on failure. */
-  completeGoogleSignup: (businessName: string) => Promise<boolean>;
+  completeSsoSignup: (businessName: string) => Promise<boolean>;
   verifySignupOtp: (email: string, code: string) => Promise<VerifyOtpResult>;
   /** Resolves to `{ sent: false }` (never rejects) so the OTP screen can always report an outcome. */
   resendSignupOtp: (email: string) => Promise<ResendOtpResult>;
@@ -50,7 +50,7 @@ export function useAuth(): UseAuthResult {
   const t = useTranslations("auth.toasts");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Google login/signup navigate away, but browser-back can restore this page from bfcache with
+  // Google/Microsoft login/signup navigate away, but browser-back can restore this page from bfcache with
   // `isLoading: true` and no remount, leaving every social-auth button disabled.
   useEffect(() => {
     const handlePageShow = (event: PageTransitionEvent) => {
@@ -59,20 +59,6 @@ export function useAuth(): UseAuthResult {
     window.addEventListener("pageshow", handlePageShow);
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
-
-  const loginWithMicrosoft = useCallback(
-    async (email: string) => {
-      setIsLoading(true);
-      try {
-        await AuthService.loginWithMicrosoft(email);
-      } catch (error) {
-        toast.error(authErrorMessage(error, t("signInFailed")));
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [t],
-  );
 
   const loginWithPassword = useCallback(
     async (email: string, password: string) => {
@@ -114,19 +100,10 @@ export function useAuth(): UseAuthResult {
     AuthService.startGoogleLogin();
   }, []);
 
-  /** Returns whether it succeeded, so the signup wizard knows to advance to step 2. */
-  const signupWithMicrosoft = useCallback(async () => {
+  const startMicrosoftLogin = useCallback(() => {
     setIsLoading(true);
-    try {
-      await AuthService.signupWithMicrosoft();
-      return true;
-    } catch (error) {
-      toast.error(authErrorMessage(error, t("signUpFailed")));
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [t]);
+    AuthService.startMicrosoftLogin();
+  }, []);
 
   const signupWithPassword = useCallback(
     async (values: CreateAccountFormValues) => {
@@ -149,11 +126,16 @@ export function useAuth(): UseAuthResult {
     AuthService.startGoogleSignup();
   }, []);
 
-  const completeGoogleSignup = useCallback(
+  const startMicrosoftSignup = useCallback(() => {
+    setIsLoading(true);
+    AuthService.startMicrosoftSignup();
+  }, []);
+
+  const completeSsoSignup = useCallback(
     async (businessName: string) => {
       setIsLoading(true);
       try {
-        await AuthService.completeGoogleSignup(businessName);
+        await AuthService.completeSsoSignup(businessName);
         return true;
       } catch (error) {
         toast.error(authErrorMessage(error, t("signUpFailed")));
@@ -195,14 +177,14 @@ export function useAuth(): UseAuthResult {
   }, [t]);
 
   return {
-    loginWithMicrosoft,
     loginWithPassword,
     restoreAccount,
     startGoogleLogin,
-    signupWithMicrosoft,
+    startMicrosoftLogin,
     signupWithPassword,
     startGoogleSignup,
-    completeGoogleSignup,
+    startMicrosoftSignup,
+    completeSsoSignup,
     verifySignupOtp,
     resendSignupOtp,
     logout,

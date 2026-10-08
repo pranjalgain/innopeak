@@ -4,7 +4,6 @@ export const ROUTES = {
   SENTRY_EXAMPLE: "/sentry-example-page",
   USERS: "/users",
   LOGIN: "/login",
-  LOGIN_MICROSOFT: "/login/microsoft",
   // Deliberately not /admin/login: a path under /admin/* could suggest it is inside the guarded
   // admin shell when it must be public.
   ADMIN_LOGIN: "/admin-login",

@@ -144,7 +144,7 @@ if (process.env['NODE_ENV'] === 'production' && !process.env['GBP_STATE_SECRET']
   throw new Error('GBP_STATE_SECRET must be set in production.');
 }
 
-// Google sign-in OAuth state (`GoogleOAuthStateService`): a missing var would silently sign with JWT_SECRET instead.
+// Google sign-in OAuth state (`OAuthStateService`): a missing var would silently sign with JWT_SECRET instead.
 // It need not differ from JWT_SECRET: it only signs an anti-replay nonce, never a JWT with a `type` claim.
 if (process.env['NODE_ENV'] === 'production' && !process.env['GOOGLE_AUTH_STATE_SECRET']) {
   throw new Error('GOOGLE_AUTH_STATE_SECRET must be set in production.');
@@ -224,6 +224,21 @@ const validationSchema = Joi.object({
     otherwise: Joi.string().valid('true', 'false').allow(null, ''),
   }),
   DEV_GOOGLE_AUTH_MOCK_EMAIL: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.forbidden(),
+    otherwise: Joi.string().allow(null, ''),
+  }),
+  MICROSOFT_CLIENT_ID: Joi.string().allow(null, ''),
+  MICROSOFT_CLIENT_SECRET: Joi.string().allow(null, ''),
+  MICROSOFT_CALLBACK_URL: Joi.string().uri().allow(null, ''),
+  MICROSOFT_AUTHORITY: Joi.string().uri().allow(null, ''),
+  // Forbidden in production, like DEV_GOOGLE_AUTH_MOCK: a mocked sign-in must never ship.
+  DEV_MICROSOFT_AUTH_MOCK: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.forbidden(),
+    otherwise: Joi.string().valid('true', 'false').allow(null, ''),
+  }),
+  DEV_MICROSOFT_AUTH_MOCK_EMAIL: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.forbidden(),
     otherwise: Joi.string().allow(null, ''),

@@ -38,7 +38,7 @@ import type { AvatarUploadAuthorizationResponseDto } from '../models';
 // @ts-ignore
 import type { ChangePasswordDto } from '../models';
 // @ts-ignore
-import type { CompleteGoogleSignupDto } from '../models';
+import type { CompleteSsoSignupDto } from '../models';
 // @ts-ignore
 import type { ConfirmAvatarDto } from '../models';
 // @ts-ignore
@@ -191,23 +191,23 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
-     * Only reachable after the callback set a `google_pending_signup` cookie for a genuinely new person — Google returns a person, not a business, and `tenants.name` is NOT NULL. Creates the tenant + owner + settings + default prompts and issues session cookies, same as every other successful auth endpoint (unlike the two Google endpoints above, this is a normal XHR call, not a redirect).
-     * @summary Finish a Google signup with a business name
-     * @param {CompleteGoogleSignupDto} completeGoogleSignupDto
+     * Only reachable after the callback set a `sso_pending_signup` cookie for a genuinely new person — the provider returns a person, not a business, and `tenants.name` is NOT NULL. Creates the tenant + owner + settings + default prompts and issues session cookies, same as every other successful auth endpoint (unlike the two Google endpoints above, this is a normal XHR call, not a redirect).
+     * @summary Finish an SSO (Google or Microsoft) signup with a business name
+     * @param {CompleteSsoSignupDto} completeSsoSignupDto
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
-    authControllerCompleteGoogleSignupV1: async (
-      completeGoogleSignupDto: CompleteGoogleSignupDto,
+    authControllerCompleteSsoSignupV1: async (
+      completeSsoSignupDto: CompleteSsoSignupDto,
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
-      // verify required parameter 'completeGoogleSignupDto' is not null or undefined
+      // verify required parameter 'completeSsoSignupDto' is not null or undefined
       assertParamExists(
-        'authControllerCompleteGoogleSignupV1',
-        'completeGoogleSignupDto',
-        completeGoogleSignupDto,
+        'authControllerCompleteSsoSignupV1',
+        'completeSsoSignupDto',
+        completeSsoSignupDto,
       );
-      const localVarPath = `/v1/auth/google/complete-signup`;
+      const localVarPath = `/v1/auth/sso/complete-signup`;
       // use dummy base URL string because the URL constructor only accepts absolute URLs.
       const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
       let baseOptions;
@@ -235,7 +235,7 @@ export const AuthApiAxiosParamCreator = function (
         ...options.headers,
       };
       localVarRequestOptions.data = serializeDataIfNeeded(
-        completeGoogleSignupDto,
+        completeSsoSignupDto,
         localVarRequestOptions,
         configuration,
       );
@@ -305,9 +305,9 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
-     * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/google/complete-signup`.
+     * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.
      * @summary Start Google sign-in or signup
-     * @param {AuthControllerGoogleAuthorizeV1IntentEnum} intent Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/google/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
+     * @param {AuthControllerGoogleAuthorizeV1IntentEnum} intent Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/sso/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
@@ -352,7 +352,7 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
-     * Where Google returns the browser. Consumes the one-time state *before* exchanging the code, then resolves the identity: a known `user_identities` row signs in; a matching email links the identity and signs in; neither, under `intent=login`, is `?error=NO_ACCOUNT`; neither, under `intent=signup`, sets a `google_pending_signup` cookie and redirects to /onboarding/business-name to collect the one thing Google cannot supply. Always a 302 — success sets the session cookies, every failure appends `?error=` to /login or /onboarding/signup, because a JSON body would paint as a document here.
+     * Where Google returns the browser. Consumes the one-time state *before* exchanging the code, then resolves the identity: a known `user_identities` row signs in; a matching email links the identity and signs in; neither, under `intent=login`, is `?error=NO_ACCOUNT`; neither, under `intent=signup`, sets a `sso_pending_signup` cookie and redirects to /onboarding/business-name to collect the one thing Google cannot supply. Always a 302 — success sets the session cookies, every failure appends `?error=` to /login or /onboarding/signup, because a JSON body would paint as a document here.
      * @summary Google sign-in callback
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -566,6 +566,92 @@ export const AuthApiAxiosParamCreator = function (
       await setBearerAuthToObject(localVarHeaderParameter, configuration);
 
       localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Redirects (302) to Microsoft\'s sign-in with an OIDC `nonce` and a PKCE (S256) challenge, and sets the `microsoft_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here. Accepts work/school and personal Microsoft accounts. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.
+     * @summary Start Microsoft (Entra ID) sign-in or signup
+     * @param {AuthControllerMicrosoftAuthorizeV1IntentEnum} intent Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/sso/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerMicrosoftAuthorizeV1: async (
+      intent: AuthControllerMicrosoftAuthorizeV1IntentEnum,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'intent' is not null or undefined
+      assertParamExists('authControllerMicrosoftAuthorizeV1', 'intent', intent);
+      const localVarPath = `/v1/auth/microsoft`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      if (intent !== undefined) {
+        localVarQueryParameter['intent'] = intent;
+      }
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Where Microsoft returns the browser. Consumes the one-time state *before* exchanging the code, validates the ID token (RS256 signature, audience, issuer, expiry, nonce), then resolves the identity by the token\'s `sub`: a known `user_identities` row signs in; a matching **domain-verified** email (the `xms_edov` claim) links the identity and signs in; an unverified email is `?error=EMAIL_NOT_VERIFIED`; no match under `intent=login` is `?error=NO_ACCOUNT`; under `intent=signup` it sets a `sso_pending_signup` cookie and redirects to /onboarding/business-name. Always a 302.
+     * @summary Microsoft sign-in callback
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerMicrosoftCallbackV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/auth/microsoft/callback`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
 
       setSearchParams(localVarUrlObj, localVarQueryParameter);
       let headersFromBaseOptions =
@@ -1276,26 +1362,26 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Only reachable after the callback set a `google_pending_signup` cookie for a genuinely new person — Google returns a person, not a business, and `tenants.name` is NOT NULL. Creates the tenant + owner + settings + default prompts and issues session cookies, same as every other successful auth endpoint (unlike the two Google endpoints above, this is a normal XHR call, not a redirect).
-     * @summary Finish a Google signup with a business name
-     * @param {CompleteGoogleSignupDto} completeGoogleSignupDto
+     * Only reachable after the callback set a `sso_pending_signup` cookie for a genuinely new person — the provider returns a person, not a business, and `tenants.name` is NOT NULL. Creates the tenant + owner + settings + default prompts and issues session cookies, same as every other successful auth endpoint (unlike the two Google endpoints above, this is a normal XHR call, not a redirect).
+     * @summary Finish an SSO (Google or Microsoft) signup with a business name
+     * @param {CompleteSsoSignupDto} completeSsoSignupDto
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
-    async authControllerCompleteGoogleSignupV1(
-      completeGoogleSignupDto: CompleteGoogleSignupDto,
+    async authControllerCompleteSsoSignupV1(
+      completeSsoSignupDto: CompleteSsoSignupDto,
       options?: RawAxiosRequestConfig,
     ): Promise<
       (axios?: AxiosInstance, basePath?: string) => AxiosPromise<any>
     > {
       const localVarAxiosArgs =
-        await localVarAxiosParamCreator.authControllerCompleteGoogleSignupV1(
-          completeGoogleSignupDto,
+        await localVarAxiosParamCreator.authControllerCompleteSsoSignupV1(
+          completeSsoSignupDto,
           options,
         );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
-        operationServerMap['AuthApi.authControllerCompleteGoogleSignupV1']?.[
+        operationServerMap['AuthApi.authControllerCompleteSsoSignupV1']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -1341,9 +1427,9 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/google/complete-signup`.
+     * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.
      * @summary Start Google sign-in or signup
-     * @param {AuthControllerGoogleAuthorizeV1IntentEnum} intent Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/google/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
+     * @param {AuthControllerGoogleAuthorizeV1IntentEnum} intent Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/sso/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
@@ -1372,7 +1458,7 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Where Google returns the browser. Consumes the one-time state *before* exchanging the code, then resolves the identity: a known `user_identities` row signs in; a matching email links the identity and signs in; neither, under `intent=login`, is `?error=NO_ACCOUNT`; neither, under `intent=signup`, sets a `google_pending_signup` cookie and redirects to /onboarding/business-name to collect the one thing Google cannot supply. Always a 302 — success sets the session cookies, every failure appends `?error=` to /login or /onboarding/signup, because a JSON body would paint as a document here.
+     * Where Google returns the browser. Consumes the one-time state *before* exchanging the code, then resolves the identity: a known `user_identities` row signs in; a matching email links the identity and signs in; neither, under `intent=login`, is `?error=NO_ACCOUNT`; neither, under `intent=signup`, sets a `sso_pending_signup` cookie and redirects to /onboarding/business-name to collect the one thing Google cannot supply. Always a 302 — success sets the session cookies, every failure appends `?error=` to /login or /onboarding/signup, because a JSON body would paint as a document here.
      * @summary Google sign-in callback
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -1507,6 +1593,65 @@ export const AuthApiFp = function (configuration?: Configuration) {
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
       const localVarOperationServerBasePath =
         operationServerMap['AuthApi.authControllerMeV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Redirects (302) to Microsoft\'s sign-in with an OIDC `nonce` and a PKCE (S256) challenge, and sets the `microsoft_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here. Accepts work/school and personal Microsoft accounts. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.
+     * @summary Start Microsoft (Entra ID) sign-in or signup
+     * @param {AuthControllerMicrosoftAuthorizeV1IntentEnum} intent Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/sso/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerMicrosoftAuthorizeV1(
+      intent: AuthControllerMicrosoftAuthorizeV1IntentEnum,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerMicrosoftAuthorizeV1(
+          intent,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.authControllerMicrosoftAuthorizeV1']?.[
+          localVarOperationServerIndex
+        ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Where Microsoft returns the browser. Consumes the one-time state *before* exchanging the code, validates the ID token (RS256 signature, audience, issuer, expiry, nonce), then resolves the identity by the token\'s `sub`: a known `user_identities` row signs in; a matching **domain-verified** email (the `xms_edov` claim) links the identity and signs in; an unverified email is `?error=EMAIL_NOT_VERIFIED`; no match under `intent=login` is `?error=NO_ACCOUNT`; under `intent=signup` it sets a `sso_pending_signup` cookie and redirects to /onboarding/business-name. Always a 302.
+     * @summary Microsoft sign-in callback
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerMicrosoftCallbackV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerMicrosoftCallbackV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap['AuthApi.authControllerMicrosoftCallbackV1']?.[
           localVarOperationServerIndex
         ]?.url;
       return (axios, basePath) =>
@@ -1949,19 +2094,19 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Only reachable after the callback set a `google_pending_signup` cookie for a genuinely new person — Google returns a person, not a business, and `tenants.name` is NOT NULL. Creates the tenant + owner + settings + default prompts and issues session cookies, same as every other successful auth endpoint (unlike the two Google endpoints above, this is a normal XHR call, not a redirect).
-     * @summary Finish a Google signup with a business name
-     * @param {AuthApiAuthControllerCompleteGoogleSignupV1Request} requestParameters Request parameters.
+     * Only reachable after the callback set a `sso_pending_signup` cookie for a genuinely new person — the provider returns a person, not a business, and `tenants.name` is NOT NULL. Creates the tenant + owner + settings + default prompts and issues session cookies, same as every other successful auth endpoint (unlike the two Google endpoints above, this is a normal XHR call, not a redirect).
+     * @summary Finish an SSO (Google or Microsoft) signup with a business name
+     * @param {AuthApiAuthControllerCompleteSsoSignupV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
-    authControllerCompleteGoogleSignupV1(
-      requestParameters: AuthApiAuthControllerCompleteGoogleSignupV1Request,
+    authControllerCompleteSsoSignupV1(
+      requestParameters: AuthApiAuthControllerCompleteSsoSignupV1Request,
       options?: RawAxiosRequestConfig,
     ): AxiosPromise<any> {
       return localVarFp
-        .authControllerCompleteGoogleSignupV1(
-          requestParameters.completeGoogleSignupDto,
+        .authControllerCompleteSsoSignupV1(
+          requestParameters.completeSsoSignupDto,
           options,
         )
         .then((request) => request(axios, basePath));
@@ -1985,7 +2130,7 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/google/complete-signup`.
+     * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.
      * @summary Start Google sign-in or signup
      * @param {AuthApiAuthControllerGoogleAuthorizeV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -2000,7 +2145,7 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Where Google returns the browser. Consumes the one-time state *before* exchanging the code, then resolves the identity: a known `user_identities` row signs in; a matching email links the identity and signs in; neither, under `intent=login`, is `?error=NO_ACCOUNT`; neither, under `intent=signup`, sets a `google_pending_signup` cookie and redirects to /onboarding/business-name to collect the one thing Google cannot supply. Always a 302 — success sets the session cookies, every failure appends `?error=` to /login or /onboarding/signup, because a JSON body would paint as a document here.
+     * Where Google returns the browser. Consumes the one-time state *before* exchanging the code, then resolves the identity: a known `user_identities` row signs in; a matching email links the identity and signs in; neither, under `intent=login`, is `?error=NO_ACCOUNT`; neither, under `intent=signup`, sets a `sso_pending_signup` cookie and redirects to /onboarding/business-name to collect the one thing Google cannot supply. Always a 302 — success sets the session cookies, every failure appends `?error=` to /login or /onboarding/signup, because a JSON body would paint as a document here.
      * @summary Google sign-in callback
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -2066,6 +2211,34 @@ export const AuthApiFactory = function (
     ): AxiosPromise<AuthenticatedUserDto> {
       return localVarFp
         .authControllerMeV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Redirects (302) to Microsoft\'s sign-in with an OIDC `nonce` and a PKCE (S256) challenge, and sets the `microsoft_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here. Accepts work/school and personal Microsoft accounts. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.
+     * @summary Start Microsoft (Entra ID) sign-in or signup
+     * @param {AuthApiAuthControllerMicrosoftAuthorizeV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerMicrosoftAuthorizeV1(
+      requestParameters: AuthApiAuthControllerMicrosoftAuthorizeV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .authControllerMicrosoftAuthorizeV1(requestParameters.intent, options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Where Microsoft returns the browser. Consumes the one-time state *before* exchanging the code, validates the ID token (RS256 signature, audience, issuer, expiry, nonce), then resolves the identity by the token\'s `sub`: a known `user_identities` row signs in; a matching **domain-verified** email (the `xms_edov` claim) links the identity and signs in; an unverified email is `?error=EMAIL_NOT_VERIFIED`; no match under `intent=login` is `?error=NO_ACCOUNT`; under `intent=signup` it sets a `sso_pending_signup` cookie and redirects to /onboarding/business-name. Always a 302.
+     * @summary Microsoft sign-in callback
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerMicrosoftCallbackV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .authControllerMicrosoftCallbackV1(options)
         .then((request) => request(axios, basePath));
     },
     /**
@@ -2281,14 +2454,14 @@ export interface AuthApiInterface {
   ): AxiosPromise<TokenResponseDto>;
 
   /**
-   * Only reachable after the callback set a `google_pending_signup` cookie for a genuinely new person — Google returns a person, not a business, and `tenants.name` is NOT NULL. Creates the tenant + owner + settings + default prompts and issues session cookies, same as every other successful auth endpoint (unlike the two Google endpoints above, this is a normal XHR call, not a redirect).
-   * @summary Finish a Google signup with a business name
-   * @param {AuthApiAuthControllerCompleteGoogleSignupV1Request} requestParameters Request parameters.
+   * Only reachable after the callback set a `sso_pending_signup` cookie for a genuinely new person — the provider returns a person, not a business, and `tenants.name` is NOT NULL. Creates the tenant + owner + settings + default prompts and issues session cookies, same as every other successful auth endpoint (unlike the two Google endpoints above, this is a normal XHR call, not a redirect).
+   * @summary Finish an SSO (Google or Microsoft) signup with a business name
+   * @param {AuthApiAuthControllerCompleteSsoSignupV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    */
-  authControllerCompleteGoogleSignupV1(
-    requestParameters: AuthApiAuthControllerCompleteGoogleSignupV1Request,
+  authControllerCompleteSsoSignupV1(
+    requestParameters: AuthApiAuthControllerCompleteSsoSignupV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<any>;
 
@@ -2305,7 +2478,7 @@ export interface AuthApiInterface {
   ): AxiosPromise<DeleteAccountResponseDto>;
 
   /**
-   * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/google/complete-signup`.
+   * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.
    * @summary Start Google sign-in or signup
    * @param {AuthApiAuthControllerGoogleAuthorizeV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -2317,7 +2490,7 @@ export interface AuthApiInterface {
   ): AxiosPromise<void>;
 
   /**
-   * Where Google returns the browser. Consumes the one-time state *before* exchanging the code, then resolves the identity: a known `user_identities` row signs in; a matching email links the identity and signs in; neither, under `intent=login`, is `?error=NO_ACCOUNT`; neither, under `intent=signup`, sets a `google_pending_signup` cookie and redirects to /onboarding/business-name to collect the one thing Google cannot supply. Always a 302 — success sets the session cookies, every failure appends `?error=` to /login or /onboarding/signup, because a JSON body would paint as a document here.
+   * Where Google returns the browser. Consumes the one-time state *before* exchanging the code, then resolves the identity: a known `user_identities` row signs in; a matching email links the identity and signs in; neither, under `intent=login`, is `?error=NO_ACCOUNT`; neither, under `intent=signup`, sets a `sso_pending_signup` cookie and redirects to /onboarding/business-name to collect the one thing Google cannot supply. Always a 302 — success sets the session cookies, every failure appends `?error=` to /login or /onboarding/signup, because a JSON body would paint as a document here.
    * @summary Google sign-in callback
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -2367,6 +2540,28 @@ export interface AuthApiInterface {
   authControllerMeV1(
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<AuthenticatedUserDto>;
+
+  /**
+   * Redirects (302) to Microsoft\'s sign-in with an OIDC `nonce` and a PKCE (S256) challenge, and sets the `microsoft_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here. Accepts work/school and personal Microsoft accounts. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.
+   * @summary Start Microsoft (Entra ID) sign-in or signup
+   * @param {AuthApiAuthControllerMicrosoftAuthorizeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerMicrosoftAuthorizeV1(
+    requestParameters: AuthApiAuthControllerMicrosoftAuthorizeV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
+
+  /**
+   * Where Microsoft returns the browser. Consumes the one-time state *before* exchanging the code, validates the ID token (RS256 signature, audience, issuer, expiry, nonce), then resolves the identity by the token\'s `sub`: a known `user_identities` row signs in; a matching **domain-verified** email (the `xms_edov` claim) links the identity and signs in; an unverified email is `?error=EMAIL_NOT_VERIFIED`; no match under `intent=login` is `?error=NO_ACCOUNT`; under `intent=signup` it sets a `sso_pending_signup` cookie and redirects to /onboarding/business-name. Always a 302.
+   * @summary Microsoft sign-in callback
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerMicrosoftCallbackV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
 
   /**
    * No request body — the refresh token comes from the httpOnly `refresh_token` cookie (set by login/verify-email/a prior refresh), never from a payload a script could construct. Single-use rotation: the presented refresh token is revoked in the same call a new pair is issued (and the cookie replaced). Re-checks the owning user/tenant standing every time (disabled/suspended revokes every refresh token that user has). Re-presenting an already-spent token is judged by age: within a short grace window it is treated as a lost two-tab race and the session is preserved; older than that, every refresh token for that user is revoked as suspected reuse of a leaked token.
@@ -2520,10 +2715,10 @@ export interface AuthApiAuthControllerChangePasswordV1Request {
 }
 
 /**
- * Request parameters for authControllerCompleteGoogleSignupV1 operation in AuthApi.
+ * Request parameters for authControllerCompleteSsoSignupV1 operation in AuthApi.
  */
-export interface AuthApiAuthControllerCompleteGoogleSignupV1Request {
-  readonly completeGoogleSignupDto: CompleteGoogleSignupDto;
+export interface AuthApiAuthControllerCompleteSsoSignupV1Request {
+  readonly completeSsoSignupDto: CompleteSsoSignupDto;
 }
 
 /**
@@ -2538,7 +2733,7 @@ export interface AuthApiAuthControllerDeleteAccountV1Request {
  */
 export interface AuthApiAuthControllerGoogleAuthorizeV1Request {
   /**
-   * Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/google/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
+   * Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/sso/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
    */
   readonly intent: AuthControllerGoogleAuthorizeV1IntentEnum;
 }
@@ -2558,6 +2753,16 @@ export interface AuthApiAuthControllerInviteGoogleAuthorizeV1Request {
  */
 export interface AuthApiAuthControllerLoginV1Request {
   readonly loginDto: LoginDto;
+}
+
+/**
+ * Request parameters for authControllerMicrosoftAuthorizeV1 operation in AuthApi.
+ */
+export interface AuthApiAuthControllerMicrosoftAuthorizeV1Request {
+  /**
+   * Which button started this. &#x60;signup&#x60; may end in a new tenant; &#x60;login&#x60; never creates one and rejects an unknown identity with &#x60;?error&#x3D;NO_ACCOUNT&#x60;. Neither carries a business name here — see &#x60;POST /v1/auth/sso/complete-signup&#x60;, which is where a genuinely new signup supplies one, after Google has already verified the identity. Accepting a platform-admin invite through Google is NOT one of these — that has its own route, &#x60;GET /v1/auth/invite/:token/google&#x60;, which carries the invite token.
+   */
+  readonly intent: AuthControllerMicrosoftAuthorizeV1IntentEnum;
 }
 
 /**
@@ -2662,19 +2867,19 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
-   * Only reachable after the callback set a `google_pending_signup` cookie for a genuinely new person — Google returns a person, not a business, and `tenants.name` is NOT NULL. Creates the tenant + owner + settings + default prompts and issues session cookies, same as every other successful auth endpoint (unlike the two Google endpoints above, this is a normal XHR call, not a redirect).
-   * @summary Finish a Google signup with a business name
-   * @param {AuthApiAuthControllerCompleteGoogleSignupV1Request} requestParameters Request parameters.
+   * Only reachable after the callback set a `sso_pending_signup` cookie for a genuinely new person — the provider returns a person, not a business, and `tenants.name` is NOT NULL. Creates the tenant + owner + settings + default prompts and issues session cookies, same as every other successful auth endpoint (unlike the two Google endpoints above, this is a normal XHR call, not a redirect).
+   * @summary Finish an SSO (Google or Microsoft) signup with a business name
+   * @param {AuthApiAuthControllerCompleteSsoSignupV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    */
-  public authControllerCompleteGoogleSignupV1(
-    requestParameters: AuthApiAuthControllerCompleteGoogleSignupV1Request,
+  public authControllerCompleteSsoSignupV1(
+    requestParameters: AuthApiAuthControllerCompleteSsoSignupV1Request,
     options?: RawAxiosRequestConfig,
   ) {
     return AuthApiFp(this.configuration)
-      .authControllerCompleteGoogleSignupV1(
-        requestParameters.completeGoogleSignupDto,
+      .authControllerCompleteSsoSignupV1(
+        requestParameters.completeSsoSignupDto,
         options,
       )
       .then((request) => request(this.axios, this.basePath));
@@ -2700,7 +2905,7 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
-   * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/google/complete-signup`.
+   * Redirects (302) to Google\'s consent screen and sets the `google_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here, so the response is a redirect rather than JSON. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.
    * @summary Start Google sign-in or signup
    * @param {AuthApiAuthControllerGoogleAuthorizeV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -2716,7 +2921,7 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   }
 
   /**
-   * Where Google returns the browser. Consumes the one-time state *before* exchanging the code, then resolves the identity: a known `user_identities` row signs in; a matching email links the identity and signs in; neither, under `intent=login`, is `?error=NO_ACCOUNT`; neither, under `intent=signup`, sets a `google_pending_signup` cookie and redirects to /onboarding/business-name to collect the one thing Google cannot supply. Always a 302 — success sets the session cookies, every failure appends `?error=` to /login or /onboarding/signup, because a JSON body would paint as a document here.
+   * Where Google returns the browser. Consumes the one-time state *before* exchanging the code, then resolves the identity: a known `user_identities` row signs in; a matching email links the identity and signs in; neither, under `intent=login`, is `?error=NO_ACCOUNT`; neither, under `intent=signup`, sets a `sso_pending_signup` cookie and redirects to /onboarding/business-name to collect the one thing Google cannot supply. Always a 302 — success sets the session cookies, every failure appends `?error=` to /login or /onboarding/signup, because a JSON body would paint as a document here.
    * @summary Google sign-in callback
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -2780,6 +2985,34 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   public authControllerMeV1(options?: RawAxiosRequestConfig) {
     return AuthApiFp(this.configuration)
       .authControllerMeV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Redirects (302) to Microsoft\'s sign-in with an OIDC `nonce` and a PKCE (S256) challenge, and sets the `microsoft_auth_sid` cookie that binds the round trip to this browser. Not an XHR endpoint — the SPA navigates here. Accepts work/school and personal Microsoft accounts. Carries no business name: a genuinely new signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.
+   * @summary Start Microsoft (Entra ID) sign-in or signup
+   * @param {AuthApiAuthControllerMicrosoftAuthorizeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerMicrosoftAuthorizeV1(
+    requestParameters: AuthApiAuthControllerMicrosoftAuthorizeV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .authControllerMicrosoftAuthorizeV1(requestParameters.intent, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Where Microsoft returns the browser. Consumes the one-time state *before* exchanging the code, validates the ID token (RS256 signature, audience, issuer, expiry, nonce), then resolves the identity by the token\'s `sub`: a known `user_identities` row signs in; a matching **domain-verified** email (the `xms_edov` claim) links the identity and signs in; an unverified email is `?error=EMAIL_NOT_VERIFIED`; no match under `intent=login` is `?error=NO_ACCOUNT`; under `intent=signup` it sets a `sso_pending_signup` cookie and redirects to /onboarding/business-name. Always a 302.
+   * @summary Microsoft sign-in callback
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerMicrosoftCallbackV1(options?: RawAxiosRequestConfig) {
+    return AuthApiFp(this.configuration)
+      .authControllerMicrosoftCallbackV1(options)
       .then((request) => request(this.axios, this.basePath));
   }
 
@@ -2979,3 +3212,12 @@ export const AuthControllerGoogleAuthorizeV1IntentEnum = {
 } as const;
 export type AuthControllerGoogleAuthorizeV1IntentEnum =
   (typeof AuthControllerGoogleAuthorizeV1IntentEnum)[keyof typeof AuthControllerGoogleAuthorizeV1IntentEnum];
+export const AuthControllerMicrosoftAuthorizeV1IntentEnum = {
+  Login: 'login',
+  Signup: 'signup',
+  AdminInvite: 'admin_invite',
+  AdminLogin: 'admin_login',
+  Invite: 'invite',
+} as const;
+export type AuthControllerMicrosoftAuthorizeV1IntentEnum =
+  (typeof AuthControllerMicrosoftAuthorizeV1IntentEnum)[keyof typeof AuthControllerMicrosoftAuthorizeV1IntentEnum];

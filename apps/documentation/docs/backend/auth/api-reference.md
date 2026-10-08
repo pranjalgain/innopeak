@@ -231,9 +231,31 @@ stated as a hard requirement here and not a style preference.
 | `GET` | `/v1/auth/microsoft` | Public | 30 / min |
 | `GET` | `/v1/auth/microsoft/callback` | Public | 30 / min |
 | `GET` | `/v1/auth/google/signup` + `/v1/auth/google` + `/v1/auth/google/callback` | Public | 30 / min |
+| `POST` | `/v1/auth/sso/complete-signup` | Public | 5 / min |
 | `POST` | `/v1/auth/refresh` | Public | 20 / min |
 | `POST` | `/v1/auth/logout` | Bearer | 30 / min |
 | `GET` | `/v1/auth/me` | Bearer | 30 / min |
+
+> **What is implemented today (tenant Microsoft sign-in/sign-up).** The Microsoft routes below are
+> the original target design; what shipped is narrower and differs in places. Authoritative contract:
+> [Microsoft sign-in](./microsoft-login-design.md). In short:
+>
+> - Entry is `GET /v1/auth/microsoft?intent=login|signup` (no `/microsoft/signup`, no `businessName`
+>   in the query); a new person is sent to `/onboarding/business-name` and finishes with
+>   `POST /v1/auth/sso/complete-signup { businessName }`, which reads the `sso_pending_signup`
+>   cookie (shared with Google; replaces `google/complete-signup` and `google_pending_signup`).
+> - The callback is `GET /v1/auth/microsoft/callback`, tenant `login`/`signup` only; tokens are set as
+>   httpOnly cookies, never in the redirect URL. Failures are `${FRONTEND_URL}/login|onboarding/signup?error=<code>`
+>   with `INVALID_STATE`, `ACCESS_DENIED`, `PROVIDER_ERROR`, `EMAIL_NOT_VERIFIED`, `NO_ACCOUNT`,
+>   `ACCOUNT_UNAVAILABLE`, `NOT_CONFIGURED`. Google and Microsoft callback failures also carry
+>   `&provider=google|microsoft`, so the web can show that provider's own wording for the same code
+>   (for example, Microsoft's `EMAIL_NOT_VERIFIED` tells the user to ask their admin to set the
+>   account's email).
+> - Identity is the ID token's `sub` (`user_identities`, provider `entra_id`). The email is trusted only
+>   when the token carries `xms_edov` (and an `email` claim); otherwise `EMAIL_NOT_VERIFIED`. There is no per-tenant directory
+>   check yet.
+> - Config: `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_CALLBACK_URL`, optional
+>   `MICROSOFT_AUTHORITY`. The Azure app needs the `email` and `xms_edov` optional ID-token claims.
 
 Every OAuth entry route below — signup, login, and (further down)
 [invite-accept](#get-v1authinvitetokenmicrosoft) — funnels into **one** callback per provider,
