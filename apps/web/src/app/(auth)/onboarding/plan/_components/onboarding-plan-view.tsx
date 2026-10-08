@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useEffect, useState } from "react";
 import { LuCheck, LuLoaderCircle } from "react-icons/lu";
+import { toast } from "sonner";
 
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
 import type { OnboardingStep } from "@/app/(auth)/onboarding/_components/onboarding-step.types";
@@ -59,8 +60,9 @@ function PlanCard({ name, description, features, action, highlighted = false }: 
 /**
  * Step 3, between signup/business-name and /onboarding/connect: shows the Free/Paid choice before the location-picker so the
  * Free 1-location cap isn't a surprise rejection (still enforced in `ConnectionsDbService.confirmLocations`).
- * "Continue with Free" makes no backend call (the tenant is already on Free); on return from checkout `ConnectionGuard`
- * bounces to /onboarding/connect. Only for fresh signups; returning owners and invite acceptors skip it.
+ * "Continue with Free" makes no backend call (the tenant is already on Free); it records the choice so /onboarding/connect
+ * opens. A completed checkout is recorded by `ConnectionGuard` on return; a cancelled one is sent back here, so the user never
+ * reaches the connect screen on Free without having chosen it. Only for fresh signups; returning owners and invite acceptors skip it.
  */
 export function OnboardingPlanView() {
   const t = useTranslations("onboardingPlan");
@@ -86,7 +88,16 @@ export function OnboardingPlanView() {
   } = useBillingPlans();
   const { mutate: createCheckoutSession, isPending: isRedirecting } = useCreateCheckoutSession();
 
+  // Coming back from a cancelled checkout lands here (see `ConnectionGuard`); say why instead of showing the plans unexplained.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") !== "cancel") return;
+    toast.info(t("checkoutCancelled"));
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [t]);
+
   const handleContinueFree = () => {
+    OnboardingContextService.setPlan("free");
     router.push(ROUTES.ONBOARDING_CONNECT);
   };
 
@@ -109,6 +120,18 @@ export function OnboardingPlanView() {
   const freePlan = plansResult?.plans.find((plan) => plan.code === "free");
   const paidPlan = plansResult?.plans.find((plan) => plan.code === "paid");
   const showPaidCard = paymentFeatureEnabled && Boolean(paidPlan);
+  // Once paid (by the server's word, or by this wizard having come back from a completed checkout) there is nothing left to choose
+  // here, and the Upgrade button would invite a second payment.
+  const isAlreadyPaid =
+    context?.plan === "paid" ||
+    (paidPlan !== undefined && plansResult?.currentPlanId === paidPlan.id);
+
+  useEffect(() => {
+    if (!isAlreadyPaid) return;
+    // Recorded before leaving: the connect screen stays closed to a signup with no plan choice.
+    OnboardingContextService.setPlan("paid");
+    router.replace(ROUTES.ONBOARDING_CONNECT);
+  }, [isAlreadyPaid, router]);
 
   return (
     <>
@@ -133,7 +156,7 @@ export function OnboardingPlanView() {
                 void refetchPlans();
               }}
             />
-          ) : isLoading || !freePlan ? (
+          ) : isLoading || !freePlan || isAlreadyPaid ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Skeleton className="h-64 w-full rounded-xl" />
               <Skeleton className="h-64 w-full rounded-xl" />

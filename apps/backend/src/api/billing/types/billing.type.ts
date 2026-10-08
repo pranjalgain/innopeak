@@ -54,6 +54,12 @@ export interface CheckoutSessionSnapshot {
   subscription: SubscriptionSnapshot | null;
 }
 
+/** What `PaymentProvider.prepareNewCheckout` found before a new Checkout is opened. */
+export interface NewCheckoutPreparation {
+  /** The customer already has a live subscription the local row may not know about yet (webhook not landed). */
+  hasLiveSubscription: boolean;
+}
+
 /** Card metadata only, never the PAN, so showing it carries no PCI scope. */
 export interface PaymentMethodSummary {
   brand: string;

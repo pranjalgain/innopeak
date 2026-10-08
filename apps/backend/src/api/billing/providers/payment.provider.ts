@@ -4,6 +4,7 @@ import type {
   CreateCheckoutSessionInput,
   CreateCustomerInput,
   CreatePortalSessionInput,
+  NewCheckoutPreparation,
   PaymentMethodSummary,
   PaymentProviderType,
   PaymentWebhookEvent,
@@ -60,6 +61,13 @@ export abstract class PaymentProvider {
 
   /** Independent of whether the `checkout.session.completed` webhook has arrived, so a missed one doesn't leave a paid tenant reading as unpaid. */
   abstract retrieveCheckoutSession(sessionId: string): Promise<CheckoutSessionSnapshot>;
+
+  /**
+   * Called before every Checkout for an existing customer. Reports a live subscription the local row may not have recorded
+   * yet, and otherwise expires the customer's still-open Checkouts: an older one left open (another tab, or the page Back
+   * returns to) could be paid too and start a second subscription.
+   */
+  abstract prepareNewCheckout(customerId: string): Promise<NewCheckoutPreparation>;
 
   /** For tenants whose local row has no (or a stale) `stripe_subscription_id`. `null` means no active subscription, not an error. */
   abstract retrieveActiveSubscriptionForCustomer(

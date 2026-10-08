@@ -414,7 +414,7 @@ export const tenantSettings = pgTable(
     escalationRatingThreshold: integer('escalation_rating_threshold').default(3).notNull(),
     autoPostEnabled: boolean('auto_post_enabled').default(false).notNull(),
     reviewDataRetentionMonths: integer('review_data_retention_months'),
-    aiReplyCount: smallint('ai_reply_count').default(1).notNull(),
+    aiReplyCount: smallint('ai_reply_count').default(2).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),

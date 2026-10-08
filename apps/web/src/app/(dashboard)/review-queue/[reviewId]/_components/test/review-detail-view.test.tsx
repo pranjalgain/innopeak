@@ -96,4 +96,37 @@ describe("ReviewDetailView — manual reply availability", () => {
 
     expect(screen.queryByText(manualTitle)).toBeNull();
   });
+
+  describe("draft layout", () => {
+    const pending = (id: string, label: string) =>
+      draft({ id, label, status: "pending_approval", decidedAt: null });
+    const gridOf = () => screen.getByText("Snippet A").closest(".grid");
+
+    test.each([
+      ["a lone draft", [pending("d1", "A")]],
+      ["two drafts", [pending("d1", "A"), pending("d2", "B")]],
+      ["an odd number of drafts", [pending("d1", "A"), pending("d2", "B"), pending("d3", "C")]],
+    ])("lays out %s in a two-column grid, every card the same half width", (_label, drafts) => {
+      show(review(drafts));
+
+      // No card is stretched across both columns, so an odd one out sits at half width like the rest.
+      expect(gridOf()).toHaveClass("md:grid-cols-2");
+      expect(gridOf()?.className).not.toContain("col-span-2");
+    });
+
+    test("keeps the drafts and the manual reply form in separate containers", () => {
+      show(review([pending("d1", "A")]));
+
+      const draftsContainer = screen
+        .getByRole("heading", { name: "Suggested replies" })
+        .closest("[data-slot=card]");
+      const manualContainer = screen.getByText(manualTitle).closest("[data-slot=card]");
+
+      expect(draftsContainer).not.toBeNull();
+      expect(draftsContainer).not.toBe(manualContainer);
+      expect(draftsContainer?.contains(screen.getByText("Snippet A"))).toBe(true);
+      expect(draftsContainer?.contains(screen.getByText(manualTitle))).toBe(false);
+      expect(manualContainer?.contains(screen.getByText("Snippet A"))).toBe(false);
+    });
+  });
 });

@@ -1,6 +1,6 @@
 import { motion, useMotionValue, useReducedMotion, useSpring } from "motion/react";
 import { useTranslations } from "next-intl";
-import type { PointerEvent } from "react";
+import { type PointerEvent, useId } from "react";
 import { LuMapPin } from "react-icons/lu";
 
 import type { AvailableLocation } from "@/app/_libs/services/connection.service";
@@ -9,25 +9,34 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 interface ConfirmLocationStageProps {
   locations: AvailableLocation[];
   selectedLocationIds: string[];
+  /** The plan has room for one location only (Free): pick one with radio buttons instead of ticking several. */
+  isSingleSelect?: boolean;
   onToggle: (externalLocationId: string) => void;
   onContinue: () => void;
   isSubmitting?: boolean;
 }
 
-/** One location renders as a single card, several behind a checkbox; a franchise's account really does return several. */
+/**
+ * One location renders as a single card, several behind a checkbox; a franchise's account really does return several. When
+ * the plan only has room for one (`isSingleSelect`) the several become a radio group, so the limit is visible up front rather
+ * than a rejection on Continue.
+ */
 export function ConfirmLocationStage({
   locations,
   selectedLocationIds,
+  isSingleSelect = false,
   onToggle,
   onContinue,
   isSubmitting = false,
 }: ConfirmLocationStageProps) {
   const t = useTranslations("onboardingConnect.confirmLocation");
   const isSingle = locations.length === 1;
+  const titleId = useId();
   const selectedCount = selectedLocationIds.length;
 
   return (
@@ -36,14 +45,41 @@ export function ConfirmLocationStage({
         <LuMapPin className="size-6 text-primary" />
       </div>
       <div className="flex flex-col gap-1">
-        <h1 className="text-gradient text-lg font-semibold">{t("title")}</h1>
+        <h1 id={titleId} className="text-gradient text-lg font-semibold">
+          {t("title")}
+        </h1>
         <p className="text-[13px] text-muted-foreground">
-          {isSingle ? t("subtitle") : t("subtitleMultiple")}
+          {isSingle
+            ? t("subtitle")
+            : isSingleSelect
+              ? t("subtitleSingleChoice")
+              : t("subtitleMultiple")}
         </p>
       </div>
 
       {isSingle ? (
         <LocationCard location={locations[0]} isSelected />
+      ) : isSingleSelect ? (
+        <RadioGroup
+          aria-labelledby={titleId}
+          value={selectedLocationIds[0] ?? ""}
+          onValueChange={onToggle}
+          className="w-full gap-2"
+        >
+          {locations.map((location) => (
+            <label
+              key={location.externalLocationId}
+              className="flex w-full cursor-pointer items-center gap-3"
+            >
+              <RadioGroupItem value={location.externalLocationId} className="shrink-0" />
+              <LocationCard
+                location={location}
+                isSelected={selectedLocationIds.includes(location.externalLocationId)}
+                className="w-auto min-w-0 flex-1"
+              />
+            </label>
+          ))}
+        </RadioGroup>
       ) : (
         <div className="flex w-full flex-col gap-2">
           {locations.map((location) => {

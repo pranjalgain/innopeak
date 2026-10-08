@@ -77,6 +77,55 @@ describe("ConfirmLocationStage", () => {
     expect(onToggle).toHaveBeenCalledWith(UPTOWN.externalLocationId);
   });
 
+  describe("when the plan has room for one location", () => {
+    test("renders radio buttons instead of checkboxes, with the current choice selected", () => {
+      renderStage({ isSingleSelect: true, selectedLocationIds: [DOWNTOWN.externalLocationId] });
+
+      expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+      const radios = screen.getAllByRole("radio");
+      expect(radios).toHaveLength(2);
+      expect(radios[0]).toBeChecked();
+      expect(radios[1]).not.toBeChecked();
+      expect(
+        screen.getByText("Your plan includes 1 location. Choose the one you'd like InnoPeak to manage."),
+      ).toBeInTheDocument();
+    });
+
+    test("names the radio group after the stage's heading", () => {
+      renderStage({ isSingleSelect: true, selectedLocationIds: [DOWNTOWN.externalLocationId] });
+
+      expect(screen.getByRole("radiogroup", { name: "We found your business" })).toBeInTheDocument();
+    });
+
+    test("choosing another location reports its id", async () => {
+      const user = userEvent.setup();
+      const { onToggle } = renderStage({
+        isSingleSelect: true,
+        selectedLocationIds: [DOWNTOWN.externalLocationId],
+      });
+
+      await user.click(screen.getAllByRole("radio")[1]!);
+
+      expect(onToggle).toHaveBeenCalledWith(UPTOWN.externalLocationId);
+    });
+
+    test("labels the button for one location, never a count", () => {
+      renderStage({ isSingleSelect: true, selectedLocationIds: [DOWNTOWN.externalLocationId] });
+
+      expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    });
+
+    test("a lone location is still the plain confirmation card", () => {
+      renderStage({
+        isSingleSelect: true,
+        locations: [DOWNTOWN],
+        selectedLocationIds: [DOWNTOWN.externalLocationId],
+      });
+
+      expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    });
+  });
+
   test("continue is disabled once every location is deselected", () => {
     renderStage({ selectedLocationIds: [] });
 

@@ -181,7 +181,22 @@ Success `201` (`DummyPaymentProvider`, the default):
 | `url` | string | Redirect URL — the frontend navigates the browser to it. Real Stripe Checkout, or a local Dummy confirmation page carrying `tenantId`/`customerId`/`subscriptionId` as query params (see [Overview § payment-provider plugin pattern](./overview.md#the-payment-provider-plugin-pattern-dummy-vs-stripe)) |
 
 Errors: `403` `BILLING_NOT_ENABLED` (platform is not currently offering upgrades), `404`
-`PLAN_NOT_FOUND` / `SUBSCRIPTION_NOT_FOUND`, `401`, `429`.
+`PLAN_NOT_FOUND` / `SUBSCRIPTION_NOT_FOUND`, `409` `ALREADY_SUBSCRIBED`, `401`, `429`.
+
+**One paid subscription, even before the webhook lands.** `tenant_subscriptions.stripe_subscription_id`
+stays `NULL` between a completed Checkout and its webhook (or a reconcile), so checking the row alone
+would let a second Checkout through: pressing Back from Stripe, or a second tab, could buy a second
+subscription. For a tenant that already has a Stripe customer, the route first calls
+`PaymentProvider.prepareNewCheckout`:
+
+- If Stripe reports a live subscription (`active`, `trialing`, `past_due`, `unpaid` or `incomplete`),
+  it is recorded on the row straight away (`BillingReconciliationService.reconcileTenantSubscription`;
+  a failure there is logged and left to the webhook) and the request answers `409 ALREADY_SUBSCRIBED`.
+- Otherwise every still-open Checkout Session for the customer is expired before the new one is
+  created, so only the newest can be paid.
+
+Dummy (`PAYMENT_PROVIDER=dummy`) records a completed Checkout on the row synchronously, so it has
+nothing to ask and always reports no live subscription.
 
 ### `POST /v1/billing/checkout/reconcile`
 

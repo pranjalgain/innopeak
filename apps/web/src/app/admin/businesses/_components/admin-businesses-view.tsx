@@ -73,7 +73,7 @@ function ErasurePendingNote({ erasureRequestedAt }: { erasureRequestedAt: string
   );
 
   return (
-    <p className="text-[12.5px] text-muted-foreground">
+    <p className="mt-1 text-[12.5px] text-muted-foreground">
       {t("erasurePending", { date: format.dateTime(takesEffectOn, DATE_FORMAT) })}
     </p>
   );
@@ -209,7 +209,7 @@ export function AdminBusinessesView() {
               <TableHeader>
                 <TableRow className="bg-muted/55 hover:bg-muted/55">
                   <TableHead>{t("columns.name")}</TableHead>
-                  <TableHead className="w-32">{t("columns.status")}</TableHead>
+                  <TableHead className="w-44">{t("columns.status")}</TableHead>
                   <TableHead className="w-44">{t("columns.owner")}</TableHead>
                   <TableHead className="w-24">{t("columns.users")}</TableHead>
                   <TableHead className="w-28">{t("columns.created")}</TableHead>
@@ -230,7 +230,8 @@ export function AdminBusinessesView() {
                       className="hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors"
                     >
                       <TableCell className="font-medium whitespace-normal">{business.name}</TableCell>
-                      <TableCell>
+                      {/* `whitespace-normal`: cells never wrap by default, so the erasure note ran on past this fixed-width column into Owner. */}
+                      <TableCell className="whitespace-normal">
                         <Badge variant="outline" className={STATUS_BADGE_CLASSNAME[business.status]}>
                           {tStatus(business.status)}
                         </Badge>

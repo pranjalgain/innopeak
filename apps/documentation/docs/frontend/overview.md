@@ -241,6 +241,25 @@ the next time translated text meets a fixed-width container.
 - **A guarded admin route with no session goes to `/admin-login`**, matching what the edge
   (`proxy.ts`) does for a fresh visit — so signing out and pressing Back no longer lands on the
   tenant sign-in page.
+- **A fresh signup must choose a plan before connecting a business.** `/onboarding/plan` records the
+  choice in the wizard's session context (`OnboardingContextService`, `plan: "free" | "paid"`):
+  Continue with Free sets `free`; a completed checkout sets `paid`. `/onboarding/connect` sends a
+  signup with no recorded plan back to the plan screen, and only then mounts the connect flow. A
+  returning owner reconnecting from Settings has no wizard context and is never gated. A context
+  saved before this gate shipped carries no `planGated` marker and reads as Free, so anyone
+  mid-wizard at deploy time isn't bounced (transitional; removable a week after deploy).
+- **Returning from Checkout during signup.** Stripe returns to `/settings?…&checkout=…`, which
+  `ConnectionGuard` bounces for an owner with no connected business, so the guard handles it: a
+  cancelled checkout goes back to `/onboarding/plan?checkout=cancel` (with a toast) and forgets the
+  choice; a completed one is reconciled with Stripe first (the Billing tab never renders to do it),
+  then continues to `/onboarding/connect`. A skeleton shows meanwhile, and the redirect is dropped
+  if the guard is gone before the reconcile answers. Once Paid, `/onboarding/plan` forwards to
+  connect so its Upgrade button can't be offered again; the backend refuses a second Checkout
+  regardless (`409 ALREADY_SUBSCRIBED`). On Free, the connect screen offers "Back to plan
+  selection" until locations are being imported.
+- **The location picker is a radio group when the plan has room for exactly one more location**
+  (Free), checkboxes otherwise. It follows the server's remaining capacity only, never the
+  wizard's recorded choice.
 - **After Stripe Checkout, the Billing tab says where the payment stands.** Landing on
   `?checkout=success&session_id=…` reconciles with Stripe; unless the plan is confirmed Paid, a
   banner stays above the Billing tab ("still processing" or "couldn't confirm") with a **Check

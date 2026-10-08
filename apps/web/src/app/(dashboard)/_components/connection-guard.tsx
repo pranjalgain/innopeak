@@ -1,20 +1,50 @@
 "use client";
 
 
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { LuTriangleAlert } from "react-icons/lu";
 
 
 import { ShellSkeleton } from "@/app/_components/shell-skeleton";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError } from "@/app/_libs/services/api-error";
+import { BillingService } from "@/app/_libs/services/billing.service";
+import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
 import { Button } from "@/components/ui/button";
+import { subscriptionQueryKey } from "@/hooks/billing/use-subscription";
 import { useConnection } from "@/hooks/connections/use-connection";
 import { useConnectionAuthorize } from "@/hooks/connections/use-connection-authorize";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
+
+/**
+ * Where a disconnected owner is sent. Returning from Stripe lands on /settings, which this guard bounces; the checkout
+ * outcome in the URL decides the destination, otherwise a fresh signup who backed out of checkout would reach the connect
+ * screen on Free without ever having chosen Free. Outside a signup wizard (no context) the outcome changes nothing.
+ *
+ * A completed checkout is reconciled with Stripe here: this guard keeps /settings (which normally does it) from ever rendering,
+ * and without it the plan still reads Free until the webhook lands, so a paying customer would be offered Free's one location.
+ */
+async function disconnectedDestination(search: string): Promise<string> {
+  const params = new URLSearchParams(search);
+  const checkout = params.get("checkout");
+  if (checkout === "success") {
+    OnboardingContextService.setPlan("paid");
+    const sessionId = params.get("session_id");
+    if (sessionId) {
+      // The webhook is still the primary path; a failed reconcile must not block the user.
+      await BillingService.reconcileCheckoutSession(sessionId).catch(() => undefined);
+    }
+  } else if (checkout === "cancel" && OnboardingContextService.get()) {
+    OnboardingContextService.clearPlan();
+    return `${ROUTES.ONBOARDING_PLAN}?checkout=cancel`;
+  }
+  return ROUTES.ONBOARDING_CONNECT;
+}
 
 interface ConnectionGuardProps {
   children: ReactNode;
@@ -37,6 +67,10 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
   const { profile, isLoading: isProfileLoading } = useTenantOwnerProfile();
   const isMember = profile?.role === "member";
   const router = useRouter();
+  const queryClient = useQueryClient();
+  // One destination per mount, however often the effect re-runs (StrictMode, dependency changes): the work behind it reconciles
+  // with Stripe and edits the wizard context, neither of which should happen twice.
+  const destinationRef = useRef<Promise<string> | null>(null);
 
   const isForbidden = error instanceof ApiError && error.statusCode === 403;
   const isDisconnected = !isLoading && !error && state?.status === "disconnected";
@@ -44,14 +78,30 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
   const shouldExplainToMember = isDisconnected && !isProfileLoading && isMember;
 
   useEffect(() => {
-    if (shouldRedirect) router.replace(ROUTES.ONBOARDING_CONNECT);
+    if (shouldRedirect) {
+      // Dropped if this run is cleaned up first, so a slow reconcile can't yank someone who has since moved on.
+      let isCurrent = true;
+      destinationRef.current ??= disconnectedDestination(window.location.search);
+      void destinationRef.current.then((destination) => {
+        if (!isCurrent) return;
+        void queryClient.invalidateQueries({ queryKey: subscriptionQueryKey });
+        router.replace(destination as Route);
+      });
+      return () => {
+        isCurrent = false;
+      };
+    }
     // Hard redirect, not router.replace(): /login would bounce a signed-in visitor straight back into this same rejection.
-    else if (isForbidden) window.location.href = ROUTES.FORBIDDEN;
-  }, [shouldRedirect, isForbidden, router]);
+    if (isForbidden) window.location.href = ROUTES.FORBIDDEN;
+    return undefined;
+  }, [shouldRedirect, isForbidden, router, queryClient]);
 
   if (isLoading || (isDisconnected && isProfileLoading)) return <ShellSkeleton />;
 
-  if (shouldRedirect || isForbidden) return null;
+  // A skeleton, not nothing: returning from checkout waits on a Stripe reconcile before the redirect.
+  if (shouldRedirect) return <ShellSkeleton />;
+
+  if (isForbidden) return null;
 
   if (shouldExplainToMember) return <WaitingOnOwnerScreen />;
 
