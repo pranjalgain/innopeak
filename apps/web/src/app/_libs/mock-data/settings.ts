@@ -5,7 +5,7 @@ export const MOCK_SETTINGS: SettingsData = {
     escalationRatingThreshold: 3,
     autoPostApprovedReplies: false,
     reviewDataRetentionMonths: 24,
-    aiReplyCount: 1,
+    aiReplyCount: 2,
   },
   blocklistTerms: [],
   notificationRecipients: [{ id: "nrecip_1", name: "Maria Delgado", initials: "MD", channel: "both", isActive: true }],

@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS tenant_settings (
     escalation_rating_threshold INTEGER NOT NULL DEFAULT 3,
     auto_post_enabled BOOLEAN NOT NULL DEFAULT false,
     review_data_retention_months INTEGER,
-    ai_reply_count SMALLINT NOT NULL DEFAULT 1,
+    ai_reply_count SMALLINT NOT NULL DEFAULT 2,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT tenant_settings_escalation_rating_threshold_check CHECK (escalation_rating_threshold BETWEEN 1 AND 5),

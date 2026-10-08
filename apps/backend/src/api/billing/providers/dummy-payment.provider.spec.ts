@@ -99,4 +99,10 @@ describe('DummyPaymentProvider', () => {
     await expect(target.createSetupIntent('dummy_cus_abc')).rejects.toThrow();
     await expect(target.setDefaultPaymentMethod('dummy_cus_abc', 'pm_1')).rejects.toThrow();
   });
+
+  it('never reports a live subscription before Checkout: Dummy records a completed one on the row synchronously', async () => {
+    await expect(target.prepareNewCheckout('dummy_cus_abc')).resolves.toEqual({
+      hasLiveSubscription: false,
+    });
+  });
 });

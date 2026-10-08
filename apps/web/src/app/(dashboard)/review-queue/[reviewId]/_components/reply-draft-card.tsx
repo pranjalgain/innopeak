@@ -93,7 +93,7 @@ export function ReplyDraftCard({
   };
 
   return (
-    <Card className={cn("h-full", draft.status === "superseded" && "opacity-55")}>
+    <Card className={cn("h-full shadow-none", draft.status === "superseded" && "opacity-55")}>
       <CardContent className="flex h-full flex-col gap-3">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground text-[13px] font-semibold">

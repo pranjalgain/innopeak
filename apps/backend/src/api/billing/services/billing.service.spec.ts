@@ -85,7 +85,10 @@ describe('BillingService', () => {
   >;
   let billingWebhooksService: jest.Mocked<Pick<BillingWebhooksService, 'handleEvent'>>;
   let billingReconciliationService: jest.Mocked<
-    Pick<BillingReconciliationService, 'reconcileFromCheckoutSession'>
+    Pick<
+      BillingReconciliationService,
+      'reconcileFromCheckoutSession' | 'reconcileTenantSubscription'
+    >
   >;
   let billingReceiptsDbService: jest.Mocked<
     Pick<BillingReceiptsDbService, 'findByIdForTenant' | 'listByTenantId'>
@@ -96,6 +99,7 @@ describe('BillingService', () => {
     type: PaymentProvider['type'];
     createCustomer: jest.Mock;
     createCheckoutSession: jest.Mock;
+    prepareNewCheckout: jest.Mock;
     createPortalSession: jest.Mock;
     cancelSubscription: jest.Mock;
     getPaymentMethodSummary: jest.Mock;
@@ -138,6 +142,7 @@ describe('BillingService', () => {
     billingWebhooksService = { handleEvent: jest.fn() };
     billingReconciliationService = {
       reconcileFromCheckoutSession: jest.fn().mockResolvedValue(undefined),
+      reconcileTenantSubscription: jest.fn().mockResolvedValue(undefined),
     };
     billingReceiptsDbService = {
       listByTenantId: jest.fn().mockResolvedValue([]),
@@ -150,6 +155,7 @@ describe('BillingService', () => {
       type: 'dummy',
       createCustomer: jest.fn(),
       createCheckoutSession: jest.fn(),
+      prepareNewCheckout: jest.fn().mockResolvedValue({ hasLiveSubscription: false }),
       createPortalSession: jest.fn(),
       cancelSubscription: jest.fn().mockResolvedValue(undefined),
       getPaymentMethodSummary: jest.fn().mockResolvedValue(null),
@@ -239,6 +245,8 @@ describe('BillingService', () => {
 
       expect(paymentProvider.createCustomer).not.toHaveBeenCalled();
       expect(tenantSubscriptionsDbService.attachStripeCustomerId).not.toHaveBeenCalled();
+      // Asked first: an older open Checkout is expired and a not-yet-recorded subscription is caught.
+      expect(paymentProvider.prepareNewCheckout).toHaveBeenCalledWith('cus_existing');
       expect(paymentProvider.createCheckoutSession).toHaveBeenCalledWith(
         expect.objectContaining({ customerId: 'cus_existing' })
       );
@@ -265,6 +273,75 @@ describe('BillingService', () => {
         AlreadySubscribedException
       );
       expect(paymentProvider.createCheckoutSession).not.toHaveBeenCalled();
+    });
+
+    describe('when Stripe already has a subscription the local row has not recorded', () => {
+      const paidPlanRow = {
+        id: 'plan-paid',
+        code: BillingPlanCode.PAID,
+        stripeProductId: null,
+        stripePriceId: 'price_paid',
+        maxLocations: null,
+        maxAiDraftsPerMonth: null,
+        maxTeamMembers: null,
+        customPromptsEnabled: true,
+      };
+
+      beforeEach(() => {
+        // Checkout completed, webhook not landed yet: customer known, no subscription id.
+        tenantSubscriptionsDbService.findByTenantId.mockResolvedValue({
+          ...baseSubscription,
+          stripeCustomerId: 'cus_1',
+          stripeSubscriptionId: null,
+        });
+        billingPlansDbService.findByCode.mockResolvedValue(paidPlanRow);
+        paymentProvider.prepareNewCheckout.mockResolvedValue({ hasLiveSubscription: true });
+      });
+
+      // Regression: a Back press from Stripe Checkout before the webhook landed could buy a second subscription.
+      it('refuses a second Checkout and records the subscription it found', async () => {
+        await expect(target.createCheckoutSession(tenantUser)).rejects.toBeInstanceOf(
+          AlreadySubscribedException
+        );
+        expect(paymentProvider.createCheckoutSession).not.toHaveBeenCalled();
+        expect(billingReconciliationService.reconcileTenantSubscription).toHaveBeenCalledWith({
+          tenantId: tenantUser.tenantId,
+          stripeCustomerId: 'cus_1',
+        });
+      });
+
+      it('still refuses when recording it fails, leaving that to the webhook', async () => {
+        billingReconciliationService.reconcileTenantSubscription.mockRejectedValue(
+          new Error('stripe down')
+        );
+
+        await expect(target.createCheckoutSession(tenantUser)).rejects.toBeInstanceOf(
+          AlreadySubscribedException
+        );
+        expect(paymentProvider.createCheckoutSession).not.toHaveBeenCalled();
+      });
+    });
+
+    it('does not ask Stripe about a customer it is only now creating', async () => {
+      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(baseSubscription);
+      billingPlansDbService.findByCode.mockResolvedValue({
+        id: 'plan-paid',
+        code: BillingPlanCode.PAID,
+        stripeProductId: null,
+        stripePriceId: 'price_paid',
+        maxLocations: null,
+        maxAiDraftsPerMonth: null,
+        maxTeamMembers: null,
+        customPromptsEnabled: true,
+      });
+      paymentProvider.createCustomer.mockResolvedValue({ customerId: 'dummy_cus_new' });
+      paymentProvider.createCheckoutSession.mockResolvedValue({
+        url: 'https://example.com/checkout',
+      });
+
+      await target.createCheckoutSession(tenantUser);
+
+      expect(paymentProvider.prepareNewCheckout).not.toHaveBeenCalled();
     });
 
     it('prefers STRIPE_PRICE_ID_PAID over billing_plans.stripe_price_id when both are set', async () => {

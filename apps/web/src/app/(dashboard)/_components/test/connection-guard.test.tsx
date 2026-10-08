@@ -1,11 +1,13 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError } from "@/app/_libs/services/api-error";
+import { BillingService } from "@/app/_libs/services/billing.service";
 import { ConnectionService, type ConnectionState } from "@/app/_libs/services/connection.service";
+import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
 import { TenantOwnerProfileService } from "@/app/_libs/services/tenant-owner-profile.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
 import { connectionQueryKey } from "@/hooks/connections/use-connection";
@@ -83,6 +85,106 @@ describe("ConnectionGuard", () => {
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
     expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+  });
+
+  describe("returning from Stripe checkout during signup", () => {
+    function renderDisconnectedOwnerWithContainer(search: string) {
+      window.history.replaceState(null, "", `/settings${search}`);
+      vi.spyOn(ConnectionService, "getState").mockResolvedValue(state({ status: "disconnected" }));
+      const queryClient = createQueryClient();
+      queryClient.setQueryData(tenantOwnerProfileQueryKey, profile({ role: "owner" }));
+      return renderGuard(queryClient);
+    }
+
+    function renderDisconnectedOwner(search: string) {
+      renderDisconnectedOwnerWithContainer(search);
+    }
+
+    beforeEach(() => {
+      window.sessionStorage.clear();
+      OnboardingContextService.set({ from: "signup", via: "sso" });
+    });
+
+    afterEach(() => {
+      window.history.replaceState(null, "", "/");
+    });
+
+    // Regression: backing out of Stripe sent a fresh signup to the connect screen on Free without choosing it.
+    test("a cancelled checkout goes back to the plan screen and forgets any plan choice", async () => {
+      OnboardingContextService.setPlan("free");
+      renderDisconnectedOwner("?tab=billing&checkout=cancel");
+
+      await waitFor(() =>
+        expect(replace).toHaveBeenCalledWith(`${ROUTES.ONBOARDING_PLAN}?checkout=cancel`),
+      );
+      expect(OnboardingContextService.get()?.plan).toBeUndefined();
+    });
+
+    test("a completed checkout records the paid choice and continues to connect", async () => {
+      vi.spyOn(BillingService, "reconcileCheckoutSession").mockResolvedValue(
+        {} as Awaited<ReturnType<typeof BillingService.reconcileCheckoutSession>>,
+      );
+      renderDisconnectedOwner("?tab=billing&checkout=success&session_id=cs_test_1");
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
+      expect(OnboardingContextService.get()?.plan).toBe("paid");
+    });
+
+    // Regression: the plan still read Free until the webhook landed, so a paying customer was offered one location.
+    test("reconciles the checkout with Stripe before sending the owner on", async () => {
+      const reconcile = vi.spyOn(BillingService, "reconcileCheckoutSession").mockResolvedValue(
+        {} as Awaited<ReturnType<typeof BillingService.reconcileCheckoutSession>>,
+      );
+      renderDisconnectedOwner("?tab=billing&checkout=success&session_id=cs_test_1");
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
+      expect(reconcile).toHaveBeenCalledWith("cs_test_1");
+    });
+
+    test("carries on to connect when the reconcile fails, leaving it to the webhook", async () => {
+      vi.spyOn(BillingService, "reconcileCheckoutSession").mockRejectedValue(new ApiError(503, "down"));
+      renderDisconnectedOwner("?tab=billing&checkout=success&session_id=cs_test_1");
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
+      expect(OnboardingContextService.get()?.plan).toBe("paid");
+    });
+
+    test("shows a skeleton, not a blank page, while the checkout is being reconciled", async () => {
+      vi.spyOn(BillingService, "reconcileCheckoutSession").mockReturnValue(new Promise(() => undefined));
+      const { container } = renderDisconnectedOwnerWithContainer(
+        "?tab=billing&checkout=success&session_id=cs_test_1",
+      );
+
+      await waitFor(() => expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull());
+      expect(replace).not.toHaveBeenCalled();
+    });
+
+    test("does not navigate once the guard is gone before a slow reconcile finishes", async () => {
+      let finish: () => void = () => undefined;
+      const reconcile = vi.spyOn(BillingService, "reconcileCheckoutSession").mockReturnValue(
+        new Promise((resolve) => {
+          finish = () =>
+            resolve({} as Awaited<ReturnType<typeof BillingService.reconcileCheckoutSession>>);
+        }),
+      );
+      const { unmount } = renderDisconnectedOwnerWithContainer(
+        "?tab=billing&checkout=success&session_id=cs_test_1",
+      );
+      await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+
+      unmount();
+      finish();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(replace).not.toHaveBeenCalled();
+    });
+
+    test("an owner outside a signup wizard who cancels checkout still goes to connect", async () => {
+      OnboardingContextService.clear();
+      renderDisconnectedOwner("?tab=billing&checkout=cancel");
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
+    });
   });
 
   // Regression: members were sent to the owner-only connect stepper, where no button could succeed.

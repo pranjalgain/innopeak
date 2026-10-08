@@ -29,6 +29,7 @@ import {
   GENERATION_BATCH_LIMIT,
   MAX_AI_REPLY_COUNT,
   MAX_CONSECUTIVE_GENERATION_FAILURES,
+  MIN_AI_REPLY_COUNT,
 } from './constants/ai.constants';
 import {
   AiGenerationFailedException,
@@ -455,7 +456,7 @@ export class AiReplyGenerationService {
       aiReplyCount:
         aiReplyCountRaw === null
           ? DEFAULT_AI_REPLY_COUNT
-          : Math.min(Math.max(aiReplyCountRaw, DEFAULT_AI_REPLY_COUNT), MAX_AI_REPLY_COUNT),
+          : Math.min(Math.max(aiReplyCountRaw, MIN_AI_REPLY_COUNT), MAX_AI_REPLY_COUNT),
       autoPostEnabled: autoPostEnabled === true,
     };
   }

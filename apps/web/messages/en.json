@@ -294,6 +294,7 @@
     }
   },
   "onboardingConnect": {
+    "changePlan": "← Back to plan selection",
     "connect": {
       "title": "Connect your Google Business Profile",
       "description": "InnoPeak needs access to your Google Business Profile to read and respond to reviews on your behalf. You'll be asked to grant permission to manage reviews for your locations.",
@@ -305,6 +306,7 @@
       "subtitle": "Confirm this is the location you'd like InnoPeak to manage.",
       "button": "Continue",
       "buttonMultiple": "Continue with {count} locations",
+      "subtitleSingleChoice": "Your plan includes 1 location. Choose the one you'd like InnoPeak to manage.",
       "subtitleMultiple": "Choose the locations you'd like InnoPeak to manage.",
       "noAddress": "No address on file",
       "alreadyConnected": "Already connected"
@@ -410,6 +412,7 @@
     }
   },
   "onboardingPlan": {
+    "checkoutCancelled": "Checkout wasn't completed. Choose a plan to continue.",
     "title": "Choose your plan",
     "subtitle": "Pick how you'd like to get started — you can change this any time from Settings.",
     "features": {

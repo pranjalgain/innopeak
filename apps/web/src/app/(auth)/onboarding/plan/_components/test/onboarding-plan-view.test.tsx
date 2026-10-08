@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { BillingService } from "@/app/_libs/services/billing.service";
+import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
 import { PlatformSettingsService } from "@/app/_libs/services/platform-settings.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
 
@@ -13,9 +14,15 @@ import messages from "../../../../../../../messages/en.json";
 import { OnboardingPlanView } from "../onboarding-plan-view";
 
 const push = vi.fn();
+const replace = vi.fn();
+// Stable across renders, like Next's own: the view's effect depends on `router`.
+const router = { push, replace };
+const toastInfo = vi.fn();
+
+vi.mock("sonner", () => ({ toast: { info: (message: string) => toastInfo(message) } }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, replace: vi.fn() }),
+  useRouter: () => router,
 }));
 
 const FREE_PLAN = {
@@ -50,6 +57,7 @@ function renderView() {
 describe("OnboardingPlanView", () => {
   beforeEach(() => {
     push.mockClear();
+    replace.mockClear();
     vi.spyOn(BillingService, "getPlans").mockResolvedValue({
       plans: [FREE_PLAN, PAID_PLAN],
       currentPlanId: FREE_PLAN.id,
@@ -73,6 +81,88 @@ describe("OnboardingPlanView", () => {
     expect(screen.getByText("Default prompt only")).toBeInTheDocument();
     expect(screen.queryByText("Paid plan")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Upgrade to Paid" })).not.toBeInTheDocument();
+  });
+
+  describe("once the plan is Paid", () => {
+    const paymentEnabled = {
+      ssoLoginEnabled: true,
+      passwordLoginEnabled: true,
+      socialLoginEnabled: true,
+      inviteMembersEnabled: true,
+      paymentFeatureEnabled: true,
+    };
+
+    // Regression: the Upgrade button stayed reachable after paying, inviting a second payment.
+    test("leaves for the connect screen instead of offering the upgrade again", async () => {
+      window.sessionStorage.clear();
+      OnboardingContextService.set({ from: "signup", via: "sso" });
+      vi.spyOn(PlatformSettingsService, "get").mockResolvedValue(paymentEnabled);
+      vi.spyOn(BillingService, "getPlans").mockResolvedValue({
+        plans: [FREE_PLAN, PAID_PLAN],
+        currentPlanId: PAID_PLAN.id,
+      });
+      renderView();
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
+      // Recorded, or the connect screen would send a signup with no plan choice straight back here.
+      expect(OnboardingContextService.get()?.plan).toBe("paid");
+      expect(screen.queryByRole("button", { name: "Upgrade to Paid" })).not.toBeInTheDocument();
+    });
+
+    test("also leaves when this wizard came back from a completed checkout, before the plan reads Paid", async () => {
+      window.sessionStorage.clear();
+      OnboardingContextService.set({ from: "signup", via: "sso", plan: "paid" });
+      vi.spyOn(PlatformSettingsService, "get").mockResolvedValue(paymentEnabled);
+      renderView();
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
+      expect(screen.queryByRole("button", { name: "Upgrade to Paid" })).not.toBeInTheDocument();
+    });
+
+    test("stays put on Free, where both plans are still on offer", async () => {
+      window.sessionStorage.clear();
+      OnboardingContextService.set({ from: "signup", via: "sso" });
+      vi.spyOn(PlatformSettingsService, "get").mockResolvedValue(paymentEnabled);
+      renderView();
+
+      expect(await screen.findByRole("button", { name: "Upgrade to Paid" })).toBeInTheDocument();
+      expect(replace).not.toHaveBeenCalled();
+    });
+  });
+
+  test("continuing with Free records the choice, which is what opens the connect screen", async () => {
+    window.sessionStorage.clear();
+    OnboardingContextService.set({ from: "signup", via: "sso" });
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
+      ssoLoginEnabled: true,
+      passwordLoginEnabled: true,
+      socialLoginEnabled: true,
+      inviteMembersEnabled: true,
+      paymentFeatureEnabled: false,
+    });
+    const user = userEvent.setup();
+    renderView();
+
+    expect(OnboardingContextService.get()?.plan).toBeUndefined();
+    await user.click(await screen.findByRole("button", { name: "Continue with Free" }));
+
+    expect(OnboardingContextService.get()?.plan).toBe("free");
+  });
+
+  test("explains a cancelled checkout and removes the marker from the URL", async () => {
+    toastInfo.mockClear();
+    window.history.replaceState(null, "", "/onboarding/plan?checkout=cancel");
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
+      ssoLoginEnabled: true,
+      passwordLoginEnabled: true,
+      socialLoginEnabled: true,
+      inviteMembersEnabled: true,
+      paymentFeatureEnabled: true,
+    });
+    renderView();
+
+    await waitFor(() => expect(toastInfo).toHaveBeenCalledWith(messages.onboardingPlan.checkoutCancelled));
+    expect(window.location.search).toBe("");
   });
 
   test("continuing with Free navigates straight to /onboarding/connect with no backend call", async () => {

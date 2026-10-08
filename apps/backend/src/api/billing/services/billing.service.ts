@@ -9,7 +9,7 @@ import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { BillingPlansDbService } from '@db/repositories/billing/billing-plans.db-service';
 import { BillingReceiptsDbService } from '@db/repositories/billing/billing-receipts.db-service';
 import { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { randomUUID } from 'crypto';
@@ -40,6 +40,7 @@ import { buildReceiptFilename, renderReceiptPdf } from '../utils/receipt-pdf.uti
 
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
   private readonly frontendUrl: string;
   /** Deploy-level master switch, read once at construction. */
   private readonly paymentFeatureEnabled: boolean;
@@ -141,7 +142,7 @@ export class BillingService {
       throw new PlanNotFoundException();
     }
 
-    const customerId = await this.tenantSubscriptionsDbService.withCheckoutLock(
+    const checkout = await this.tenantSubscriptionsDbService.withCheckoutLock(
       tenantUser.tenantId,
       async (tx, subscription) => {
         if (!subscription) {
@@ -151,7 +152,15 @@ export class BillingService {
           throw new AlreadySubscribedException();
         }
         if (subscription.stripeCustomerId !== null) {
-          return subscription.stripeCustomerId;
+          // `stripe_subscription_id` stays null until the webhook (or a reconcile) lands, so a completed Checkout is
+          // invisible above; Stripe is asked directly, or a Back press from Checkout could buy a second subscription.
+          const preparation = await this.paymentProvider.prepareNewCheckout(
+            subscription.stripeCustomerId
+          );
+          return {
+            customerId: subscription.stripeCustomerId,
+            hasLiveSubscription: preparation.hasLiveSubscription,
+          };
         }
 
         const created = await this.paymentProvider.createCustomer({
@@ -167,15 +176,36 @@ export class BillingService {
         // `null` means another write attached a customer id meanwhile (shouldn't happen under the
         // lock); reuse that id rather than proceed on our now-orphaned one.
         if (attached) {
-          return created.customerId;
+          return { customerId: created.customerId, hasLiveSubscription: false };
         }
         const refreshed = await this.tenantSubscriptionsDbService.findByTenantId(
           tenantUser.tenantId,
           tx
         );
-        return refreshed?.stripeCustomerId ?? created.customerId;
+        return {
+          customerId: refreshed?.stripeCustomerId ?? created.customerId,
+          hasLiveSubscription: false,
+        };
       }
     );
+
+    if (checkout.hasLiveSubscription) {
+      // Recorded now rather than left for the webhook, so the next read already says Paid.
+      await this.billingReconciliationService
+        .reconcileTenantSubscription({
+          tenantId: tenantUser.tenantId,
+          stripeCustomerId: checkout.customerId,
+        })
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Could not record the live subscription found for tenant ${tenantUser.tenantId}; the webhook will: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        });
+      throw new AlreadySubscribedException();
+    }
+    const { customerId } = checkout;
 
     // Stamped before the session exists: if this write failed afterwards, a payment could land on a session the nightly sweep can't see.
     await this.tenantSubscriptionsDbService.touchCheckoutStartedAt(tenantUser.tenantId);

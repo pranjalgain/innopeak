@@ -294,6 +294,7 @@
     }
   },
   "onboardingConnect": {
+    "changePlan": "← Zurück zur Tarifauswahl",
     "connect": {
       "title": "Google Unternehmensprofil verbinden",
       "description": "InnoPeak benötigt Zugriff auf Ihr Google Unternehmensprofil, um Bewertungen in Ihrem Namen zu lesen und zu beantworten. Sie werden gebeten, die Berechtigung zur Verwaltung von Bewertungen für Ihre Standorte zu erteilen.",
@@ -305,6 +306,7 @@
       "subtitle": "Bestätigen Sie, dass dies der Standort ist, den InnoPeak verwalten soll.",
       "button": "Weiter",
       "buttonMultiple": "Weiter mit {count} Standorten",
+      "subtitleSingleChoice": "Ihr Tarif umfasst 1 Standort. Wählen Sie den Standort, den InnoPeak verwalten soll.",
       "subtitleMultiple": "Wählen Sie die Standorte, die InnoPeak verwalten soll.",
       "noAddress": "Keine Adresse hinterlegt",
       "alreadyConnected": "Bereits verbunden"
@@ -410,6 +412,7 @@
     }
   },
   "onboardingPlan": {
+    "checkoutCancelled": "Der Bezahlvorgang wurde nicht abgeschlossen. Wählen Sie einen Tarif, um fortzufahren.",
     "title": "Tarif wählen",
     "subtitle": "Wählen Sie, wie Sie starten möchten — Sie können dies jederzeit in den Einstellungen ändern.",
     "features": {

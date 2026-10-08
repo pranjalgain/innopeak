@@ -49,6 +49,8 @@ interface UseOnboardingConnectFlowResult {
   error: ConnectFlowError | null;
   locations: AvailableLocation[];
   selectedLocationIds: string[];
+  /** True when the plan has room for exactly one more location, so the picker is a radio group rather than checkboxes. */
+  isSingleSelect: boolean;
   /** Summed across every location currently backfilling. */
   progress: number | null;
   reviewsFetched: number;
@@ -100,6 +102,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
   const [error, setError] = useState<ConnectFlowError | null>(null);
   const [locations, setLocations] = useState<AvailableLocation[]>([]);
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
+  const [isSingleSelect, setIsSingleSelect] = useState(false);
   const [confirmedLocationIds, setConfirmedLocationIds] = useState<string[]>([]);
   const [progress, setProgress] = useState<number | null>(null);
   const [reviewsFetched, setReviewsFetched] = useState(0);
@@ -301,11 +304,13 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
       // an empty selection would strand the user with Continue disabled, so fall back to all.
       const notYetConnected = available.filter((location) => !location.alreadyConnected);
       const candidates = notYetConnected.length > 0 ? notYetConnected : available;
-      // Capped at plan capacity, or a Free tenant with two locations hits the limit on the first Continue.
+      // Capped at plan capacity, or a Free tenant with two locations hits the limit on the first Continue. The server's
+      // capacity is the only input: the backend enforces the same limit on confirm, so anything looser just fails there.
       const capacity = await remainingLocationCapacity();
       if (!mountedRef.current || signal?.aborted) return;
       const preselected = capacity === null ? candidates : candidates.slice(0, capacity);
       setSelectedLocationIds(preselected.map((location) => location.externalLocationId));
+      setIsSingleSelect(capacity === 1);
       setStage("confirm_location");
     } catch (caught) {
       // Cancellation by a newer `resume()` (see `RESUME_ABORT_KEY`), not a failure; otherwise StrictMode's double-invoke would flash an error screen.
@@ -398,13 +403,19 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     void ConnectionService.startAuthorize("onboarding");
   }, []);
 
-  const toggleLocation = useCallback((externalLocationId: string) => {
-    setSelectedLocationIds((current) =>
-      current.includes(externalLocationId)
-        ? current.filter((id) => id !== externalLocationId)
-        : [...current, externalLocationId],
-    );
-  }, []);
+  // With room for one location, choosing replaces the selection (a radio group); otherwise it toggles.
+  const toggleLocation = useCallback(
+    (externalLocationId: string) => {
+      setSelectedLocationIds((current) =>
+        isSingleSelect
+          ? [externalLocationId]
+          : current.includes(externalLocationId)
+            ? current.filter((id) => id !== externalLocationId)
+            : [...current, externalLocationId],
+      );
+    },
+    [isSingleSelect],
+  );
 
   const confirmLocation = useCallback(() => {
     if (selectedLocationIds.length === 0) return;
@@ -460,6 +471,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     error,
     locations,
     selectedLocationIds,
+    isSingleSelect,
     progress,
     reviewsFetched,
     totalToImport,

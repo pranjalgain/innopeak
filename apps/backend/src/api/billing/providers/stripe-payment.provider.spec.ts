@@ -3,9 +3,11 @@ import type { ConfigService } from '@nestjs/config';
 
 const mockStripeInstance = {
   customers: { create: jest.fn(), retrieve: jest.fn(), update: jest.fn(), del: jest.fn() },
-  checkout: { sessions: { create: jest.fn(), retrieve: jest.fn() } },
+  checkout: {
+    sessions: { create: jest.fn(), retrieve: jest.fn(), list: jest.fn(), expire: jest.fn() },
+  },
   billingPortal: { sessions: { create: jest.fn() } },
-  subscriptions: { update: jest.fn(), cancel: jest.fn() },
+  subscriptions: { update: jest.fn(), cancel: jest.fn(), list: jest.fn() },
   paymentMethods: { list: jest.fn() },
   setupIntents: { create: jest.fn() },
   webhooks: { constructEvent: jest.fn() },
@@ -422,6 +424,44 @@ describe('StripePaymentProvider', () => {
       expect(mockStripeInstance.customers.update).toHaveBeenCalledWith('cus_1', {
         invoice_settings: { default_payment_method: 'pm_1' },
       });
+    });
+  });
+
+  describe('prepareNewCheckout', () => {
+    // Regression: a Checkout completed before its webhook landed left the local row without a subscription id, so a Back
+    // press from Stripe could open, and pay for, a second one.
+    it.each(['active', 'past_due', 'incomplete', 'trialing', 'unpaid'])(
+      'reports a %s subscription as live and leaves open Checkouts alone',
+      async status => {
+        mockStripeInstance.subscriptions.list.mockResolvedValue({ data: [{ status }] });
+
+        await expect(target.prepareNewCheckout('cus_1')).resolves.toEqual({
+          hasLiveSubscription: true,
+        });
+        expect(mockStripeInstance.subscriptions.list).toHaveBeenCalledWith(
+          expect.objectContaining({ customer: 'cus_1', status: 'all' })
+        );
+        expect(mockStripeInstance.checkout.sessions.expire).not.toHaveBeenCalled();
+      }
+    );
+
+    it('expires every still-open Checkout when there is no live subscription, so only the new one can be paid', async () => {
+      mockStripeInstance.subscriptions.list.mockResolvedValue({
+        data: [{ status: 'canceled' }, { status: 'incomplete_expired' }],
+      });
+      mockStripeInstance.checkout.sessions.list.mockResolvedValue({
+        data: [{ id: 'cs_old_tab' }, { id: 'cs_back_button' }],
+      });
+      mockStripeInstance.checkout.sessions.expire.mockResolvedValue({});
+
+      await expect(target.prepareNewCheckout('cus_1')).resolves.toEqual({
+        hasLiveSubscription: false,
+      });
+      expect(mockStripeInstance.checkout.sessions.list).toHaveBeenCalledWith(
+        expect.objectContaining({ customer: 'cus_1', status: 'open' })
+      );
+      expect(mockStripeInstance.checkout.sessions.expire).toHaveBeenCalledWith('cs_old_tab');
+      expect(mockStripeInstance.checkout.sessions.expire).toHaveBeenCalledWith('cs_back_button');
     });
   });
 });

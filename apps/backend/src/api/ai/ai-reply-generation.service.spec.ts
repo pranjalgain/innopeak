@@ -564,6 +564,31 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
     expect(result.generated).toBe(3);
   });
 
+  // Regression: the fallback said 1 while the column default is 2, so a tenant missing its settings row got fewer drafts.
+  it('falls back to the column default of 2 snippets when the tenant has no settings row', async () => {
+    settingsDbService.findAiReplyCount.mockResolvedValue(null);
+    reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([escalatedCandidate]);
+    aiProvider.generateReply.mockResolvedValue({
+      ...providerResult,
+      content: JSON.stringify(['Option A', 'Option B']),
+    });
+
+    const result = await target.generateForClassifiedReviews({ tenantId, locationId });
+
+    expect(reviewSyncDbService.insertGeneratedResponse).toHaveBeenCalledTimes(2);
+    expect(result.generated).toBe(2);
+  });
+
+  it('clamps a stored count below the minimum up to one snippet, not to the default', async () => {
+    settingsDbService.findAiReplyCount.mockResolvedValue(0);
+    reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([escalatedCandidate]);
+
+    const result = await target.generateForClassifiedReviews({ tenantId, locationId });
+
+    expect(reviewSyncDbService.insertGeneratedResponse).toHaveBeenCalledTimes(1);
+    expect(result.generated).toBe(1);
+  });
+
   it('fails the candidate (not the batch) when the model does not return valid multi-option JSON', async () => {
     settingsDbService.findAiReplyCount.mockResolvedValue(3);
     reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([escalatedCandidate]);

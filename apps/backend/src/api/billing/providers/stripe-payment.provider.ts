@@ -19,6 +19,7 @@ import type {
   CreateCheckoutSessionInput,
   CreateCustomerInput,
   CreatePortalSessionInput,
+  NewCheckoutPreparation,
   PaymentMethodSummary,
   PaymentWebhookEvent,
   SubscriptionSnapshot,
@@ -35,6 +36,14 @@ const STRIPE_STATUS_MAP: Partial<Record<Stripe.Subscription.Status, Subscription
   canceled: SubscriptionStatus.CANCELED,
   incomplete: SubscriptionStatus.INCOMPLETE,
 };
+
+const LIVE_SUBSCRIPTION_STATUSES: ReadonlySet<Stripe.Subscription.Status> = new Set([
+  'active',
+  'trialing',
+  'past_due',
+  'unpaid',
+  'incomplete',
+]);
 
 @Injectable()
 export class StripePaymentProvider extends PaymentProvider {
@@ -258,6 +267,28 @@ export class StripePaymentProvider extends PaymentProvider {
   }
 
   // `limit: 1`: only one live subscription is stored per tenant.
+  async prepareNewCheckout(customerId: string): Promise<NewCheckoutPreparation> {
+    // Wider than `active`: a past-due or incomplete (e.g. awaiting 3-D Secure) subscription is still one a second Checkout would duplicate.
+    const subscriptions = await this.stripe.subscriptions.list({
+      customer: customerId,
+      status: 'all',
+      limit: 10,
+    });
+    if (
+      subscriptions.data.some(subscription => LIVE_SUBSCRIPTION_STATUSES.has(subscription.status))
+    ) {
+      return { hasLiveSubscription: true };
+    }
+
+    const open = await this.stripe.checkout.sessions.list({
+      customer: customerId,
+      status: 'open',
+      limit: 100,
+    });
+    await Promise.all(open.data.map(session => this.stripe.checkout.sessions.expire(session.id)));
+    return { hasLiveSubscription: false };
+  }
+
   async retrieveActiveSubscriptionForCustomer(
     customerId: string
   ): Promise<SubscriptionSnapshot | null> {

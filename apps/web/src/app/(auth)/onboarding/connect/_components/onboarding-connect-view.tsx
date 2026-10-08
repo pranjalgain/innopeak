@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
 
@@ -19,6 +20,7 @@ import {
   type OnboardingContext,
   OnboardingContextService,
 } from "@/app/_libs/services/onboarding-context.service";
+import { Button } from "@/components/ui/button";
 import { useOnboardingConnectFlow } from "@/hooks/onboarding/use-onboarding-connect-flow";
 
 const PASSWORD_STEPS: OnboardingStep[] = ["identity", "otp", "plan", "connect"];
@@ -27,16 +29,56 @@ const SSO_LIKE_STEPS: OnboardingStep[] = ["identity", "plan", "connect"];
 /**
  * Final signup step and the standalone reconnect screen: the OAuth round trip can't happen on /onboarding/signup because
  * `proxy.ts` REDIRECT_IF_AUTHENTICATED_PATHS bounces authenticated users to /dashboard. The stepper only shows mid-wizard.
+ *
+ * A fresh signup that has not picked a plan is sent back to choose one; with no wizard context (a returning owner reconnecting
+ * from Settings) there is nothing to gate. The connect flow mounts only once the gate opens, so a bounced visit never starts it
+ * (its resume calls the API and handles the OAuth callback's query params).
  */
 export function OnboardingConnectView() {
   const router = useRouter();
-  const flow = useOnboardingConnectFlow();
-  const [context, setContext] = useState<OnboardingContext | null>(null);
+  const [gate, setGate] = useState<{ context: OnboardingContext | null } | null>(null);
 
   // Read in an effect: sessionStorage doesn't exist on the server, and reading it inline would mismatch the server HTML.
   useEffect(() => {
-    setContext(OnboardingContextService.get());
-  }, []);
+    const stored = OnboardingContextService.get();
+    if (stored && !stored.plan) {
+      router.replace(ROUTES.ONBOARDING_PLAN);
+      return;
+    }
+    setGate({ context: stored });
+  }, [router]);
+
+  if (!gate) {
+    return (
+      <>
+        <AuthLogo />
+        <div className="p-fluid-page border-border bg-card shadow-elevated w-full max-w-[480px] rounded-xl border">
+          <ConnectSkeleton />
+        </div>
+      </>
+    );
+  }
+
+  return <OnboardingConnectFlow context={gate.context} />;
+}
+
+function OnboardingConnectFlow({ context }: { context: OnboardingContext | null }) {
+  const router = useRouter();
+  const t = useTranslations("onboardingConnect");
+  const flow = useOnboardingConnectFlow();
+
+  // Free can still be changed until locations are being imported; Paid cannot, since the plan screen would offer a second payment.
+  const canChangePlan =
+    context?.plan === "free" &&
+    (flow.stage === "connect" ||
+      flow.stage === "redirecting" ||
+      flow.stage === "confirm_location");
+
+  const handleChangePlan = () => {
+    // Forgotten, so the connect screen stays closed until a plan is chosen again.
+    OnboardingContextService.clearPlan();
+    router.push(ROUTES.ONBOARDING_PLAN);
+  };
 
   const handleGoToDashboard = () => {
     // The wizard is over; leaving this would redraw the stepper on a later reconnect visit from Settings.
@@ -89,6 +131,7 @@ export function OnboardingConnectView() {
                 <ConfirmLocationStage
                   locations={flow.locations}
                   selectedLocationIds={flow.selectedLocationIds}
+                  isSingleSelect={flow.isSingleSelect}
                   onToggle={flow.toggleLocation}
                   onContinue={flow.confirmLocation}
                   isSubmitting={flow.stage === "submitting_location"}
@@ -117,6 +160,18 @@ export function OnboardingConnectView() {
               ) : null}
             </motion.div>
           </AnimatePresence>
+          {canChangePlan ? (
+            <div className="mt-4 text-center">
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                disabled={flow.stage === "redirecting"}
+                onClick={handleChangePlan}>
+                {t("changePlan")}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
     </>

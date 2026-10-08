@@ -13,6 +13,7 @@ import type {
   CreateCheckoutSessionInput,
   CreateCustomerInput,
   CreatePortalSessionInput,
+  NewCheckoutPreparation,
   PaymentMethodSummary,
   PaymentWebhookEvent,
   SubscriptionSnapshot,
@@ -152,6 +153,11 @@ export class DummyPaymentProvider extends PaymentProvider {
         "DummyPaymentProvider has no real Checkout Session to retrieve — see this class's own doc comment."
       )
     );
+  }
+
+  /** Dummy completes a Checkout synchronously and records it on the row, so `stripe_subscription_id` is already the whole truth. */
+  prepareNewCheckout(_customerId: string): Promise<NewCheckoutPreparation> {
+    return Promise.resolve({ hasLiveSubscription: false });
   }
 
   retrieveActiveSubscriptionForCustomer(_customerId: string): Promise<SubscriptionSnapshot | null> {

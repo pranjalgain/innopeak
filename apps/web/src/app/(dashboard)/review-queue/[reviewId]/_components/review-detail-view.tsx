@@ -12,6 +12,7 @@ import { getReplyDeliveryState } from "@/app/_libs/utils/reply-delivery";
 import { BackLink } from "@/components/common/back-link";
 import { ReviewStatusBadge } from "@/components/common/review-status-badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useReviewDetail } from "@/hooks/reviews/use-review-detail";
 
@@ -90,39 +91,42 @@ export function ReviewDetailView({ reviewId }: ReviewDetailViewProps) {
       <ReviewSummaryCard review={review} />
 
       {review.replyDrafts.length > 0 ? (
-        <div className="flex flex-col gap-4">
-          <div>
-            <h2 className="text-fluid-heading font-semibold">{t("replies.title")}</h2>
-            {pendingCount > 0 ? (
-              <p className="text-[13px] text-muted-foreground">
-                {pendingCount === 1
-                  ? t("replies.descriptionOne")
-                  : t("replies.descriptionMany", { count: pendingCount })}
-              </p>
-            ) : null}
-          </div>
+        <Card>
+          <CardContent className="flex flex-col gap-4">
+            <div>
+              <h2 className="text-sm font-semibold">{t("replies.title")}</h2>
+              {pendingCount > 0 ? (
+                <p className="text-muted-foreground text-[13px]">
+                  {pendingCount === 1
+                    ? t("replies.descriptionOne")
+                    : t("replies.descriptionMany", { count: pendingCount })}
+                </p>
+              ) : null}
+            </div>
 
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-            {review.replyDrafts.map((draft, index) => (
-              <div
-                key={draft.id}
-                className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards h-full duration-500 ease-fluid"
-                style={{ animationDelay: `${index * 60}ms` }}
-              >
-                <ReplyDraftCard
-                  draft={draft}
-                  onApprove={approveDraft}
-                  onReject={rejectDraft}
-                  onPost={postDraft}
-                  onRetry={retryDraft}
-                  isPosting={postingDraftIds.has(draft.id)}
-                  isDeciding={decidingDraftIds.has(draft.id)}
-                  canRetry={!hasLiveReply}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
+            {/* All drafts share one container, two columns that wrap; a lone or leftover draft stays at half width rather than stretching. */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {review.replyDrafts.map((draft, index) => (
+                <div
+                  key={draft.id}
+                  className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards ease-fluid h-full duration-500"
+                  style={{ animationDelay: `${index * 60}ms` }}
+                >
+                  <ReplyDraftCard
+                    draft={draft}
+                    onApprove={approveDraft}
+                    onReject={rejectDraft}
+                    onPost={postDraft}
+                    onRetry={retryDraft}
+                    isPosting={postingDraftIds.has(draft.id)}
+                    isDeciding={decidingDraftIds.has(draft.id)}
+                    canRetry={!hasLiveReply}
+                  />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       ) : null}
 
       {canWriteManualReply ? (

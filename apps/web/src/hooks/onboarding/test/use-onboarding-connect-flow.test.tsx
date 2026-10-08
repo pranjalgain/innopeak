@@ -8,6 +8,7 @@ import {
   ConnectionService,
   type ConnectionState,
 } from "@/app/_libs/services/connection.service";
+import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
 
 import { useOnboardingConnectFlow } from "../use-onboarding-connect-flow";
 
@@ -289,6 +290,21 @@ describe("useOnboardingConnectFlow", () => {
         expect(result.current.selectedLocationIds).toEqual(["locations/1"]);
       });
 
+      // Regression: a "paid" recorded only in the browser (a reconcile that failed, or a hand-typed success URL) overrode
+      // the server's Free capacity, so every location was ticked and Continue was refused by the backend.
+      test("follows the server's capacity even when the wizard recorded a Paid choice", async () => {
+        window.sessionStorage.clear();
+        OnboardingContextService.set({ from: "signup", via: "sso", plan: "paid" });
+        mockPlan(1);
+
+        const { result } = renderHook(() => useOnboardingConnectFlow());
+        await waitFor(() => expect(result.current.stage).toBe("confirm_location"));
+
+        expect(result.current.isSingleSelect).toBe(true);
+        expect(result.current.selectedLocationIds).toEqual(["locations/1"]);
+        window.sessionStorage.clear();
+      });
+
       test("preselects everything on an unlimited plan", async () => {
         mockPlan(null);
 
@@ -296,6 +312,42 @@ describe("useOnboardingConnectFlow", () => {
 
         await waitFor(() => expect(result.current.stage).toBe("confirm_location"));
         expect(result.current.selectedLocationIds).toEqual(["locations/1", "locations/2"]);
+      });
+
+      test("is a single choice when the plan has room for exactly one more location", async () => {
+        mockPlan(1);
+
+        const { result } = renderHook(() => useOnboardingConnectFlow());
+        await waitFor(() => expect(result.current.stage).toBe("confirm_location"));
+
+        expect(result.current.isSingleSelect).toBe(true);
+        // Choosing replaces the selection rather than ticking a second one.
+        act(() => result.current.toggleLocation("locations/2"));
+        expect(result.current.selectedLocationIds).toEqual(["locations/2"]);
+        act(() => result.current.toggleLocation("locations/1"));
+        expect(result.current.selectedLocationIds).toEqual(["locations/1"]);
+      });
+
+      test("counts the room left, so a plan with one slot free is also a single choice", async () => {
+        mockPlan(3, 2);
+
+        const { result } = renderHook(() => useOnboardingConnectFlow());
+        await waitFor(() => expect(result.current.stage).toBe("confirm_location"));
+
+        expect(result.current.isSingleSelect).toBe(true);
+      });
+
+      test("is a multiple choice on an unlimited plan or when the plan cannot be read", async () => {
+        mockPlan(null);
+        const unlimited = renderHook(() => useOnboardingConnectFlow());
+        await waitFor(() => expect(unlimited.result.current.stage).toBe("confirm_location"));
+        expect(unlimited.result.current.isSingleSelect).toBe(false);
+        unlimited.unmount();
+
+        vi.spyOn(BillingService, "getSubscription").mockRejectedValue(new Error("down"));
+        const unknown = renderHook(() => useOnboardingConnectFlow());
+        await waitFor(() => expect(unknown.result.current.stage).toBe("confirm_location"));
+        expect(unknown.result.current.isSingleSelect).toBe(false);
       });
 
       test("falls back to preselecting everything when the plan cannot be read", async () => {

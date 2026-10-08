@@ -40,7 +40,8 @@ export const GENERATION_BATCH_LIMIT = 20;
  */
 export const MAX_CONSECUTIVE_GENERATION_FAILURES = 3;
 
-/** Fallback when the `tenant_settings` row is missing (matches the column's `DEFAULT 1`). Also the
- *  clamp range, as defense in depth against the `CHECK (ai_reply_count BETWEEN 1 AND 3)`. */
-export const DEFAULT_AI_REPLY_COUNT = 1;
+/** Fallback when the `tenant_settings` row is missing; matches the column's `DEFAULT 2`. */
+export const DEFAULT_AI_REPLY_COUNT = 2;
+/** Clamp range, as defense in depth against the `CHECK (ai_reply_count BETWEEN 1 AND 3)`. */
+export const MIN_AI_REPLY_COUNT = 1;
 export const MAX_AI_REPLY_COUNT = 3;
