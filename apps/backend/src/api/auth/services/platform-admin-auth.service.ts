@@ -7,11 +7,11 @@ import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
 
-import { GoogleOAuthStateService } from './google-oauth-state.service';
 import { LoginAttemptScope, LoginAttemptService } from './login-attempt.service';
+import { OAuthStateService } from './oauth-state.service';
 import { TokenService } from './token.service';
 
-import { GOOGLE_AUTH_REDIRECT, GoogleAuthFailure } from '../constants/google-auth.constants';
+import { SSO_REDIRECT, SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
 import { AcceptAdminInviteDto } from '../dto/accept-admin-invite.dto';
 import { AdminInvitePreviewDto } from '../dto/admin-invite-preview.dto';
 import { LoginDto } from '../dto/login.dto';
@@ -27,10 +27,10 @@ import {
 } from '../exceptions/auth.exceptions';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
 import type {
-  GoogleAuthorizeRedirect,
-  GoogleIdentity,
   LinkedAdminLookup,
   PlatformAdminLoginResult,
+  SsoAuthorizeRedirect,
+  SsoIdentity,
 } from '../types/auth.type';
 import { buildAdminInviteLink } from '../utils/admin-invite-link.util';
 import { normalizeEmail } from '../utils/email.utils';
@@ -48,7 +48,7 @@ export class PlatformAdminAuthService {
     private readonly hashingService: HashingService,
     private readonly tokenService: TokenService,
     private readonly loginAttemptService: LoginAttemptService,
-    private readonly googleOAuthStateService: GoogleOAuthStateService,
+    private readonly oauthStateService: OAuthStateService,
     private readonly googleIdentityProvider: GoogleIdentityProvider,
     private readonly configService: ConfigService<EnvConfig>
   ) {}
@@ -128,7 +128,7 @@ export class PlatformAdminAuthService {
    * Never throws for an expected failure (the browser is mid-navigation); validates the token
    * before redirecting so a dead link fails fast.
    */
-  async buildAdminInviteGoogleRedirect(inviteToken: string): Promise<GoogleAuthorizeRedirect> {
+  async buildAdminInviteGoogleRedirect(inviteToken: string): Promise<SsoAuthorizeRedirect> {
     const invite = await this.platformAdminDbService.findInviteEmailByTokenHash(
       hashToken(inviteToken)
     );
@@ -137,7 +137,7 @@ export class PlatformAdminAuthService {
         ok: false,
         redirectUrl: this.adminInviteFailureUrl(
           inviteToken,
-          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+          SsoAuthFailure.INVALID_OR_EXPIRED_INVITE
         ),
       };
     }
@@ -145,11 +145,12 @@ export class PlatformAdminAuthService {
     if (!this.googleIdentityProvider.isConfigured()) {
       return {
         ok: false,
-        redirectUrl: this.adminInviteFailureUrl(inviteToken, GoogleAuthFailure.NOT_CONFIGURED),
+        redirectUrl: this.adminInviteFailureUrl(inviteToken, SsoAuthFailure.NOT_CONFIGURED),
       };
     }
 
-    const { state, sid } = await this.googleOAuthStateService.mint({
+    const { state, sid } = await this.oauthStateService.mint({
+      provider: SsoProvider.GOOGLE,
       intent: OAuthIntent.ADMIN_INVITE,
       inviteToken,
     });
@@ -166,15 +167,16 @@ export class PlatformAdminAuthService {
    * only way back in. Uses `OAuthIntent.ADMIN_LOGIN`, not `LOGIN` (see the enum). Never throws; the
    * browser is mid-navigation.
    */
-  async buildAdminLoginGoogleRedirect(): Promise<GoogleAuthorizeRedirect> {
+  async buildAdminLoginGoogleRedirect(): Promise<SsoAuthorizeRedirect> {
     if (!this.googleIdentityProvider.isConfigured()) {
       return {
         ok: false,
-        redirectUrl: `${GOOGLE_AUTH_REDIRECT.ADMIN_LOGIN}?error=${GoogleAuthFailure.NOT_CONFIGURED}`,
+        redirectUrl: `${SSO_REDIRECT.ADMIN_LOGIN}?error=${SsoAuthFailure.NOT_CONFIGURED}`,
       };
     }
 
-    const { state, sid } = await this.googleOAuthStateService.mint({
+    const { state, sid } = await this.oauthStateService.mint({
+      provider: SsoProvider.GOOGLE,
       intent: OAuthIntent.ADMIN_LOGIN,
     });
 
@@ -208,18 +210,18 @@ export class PlatformAdminAuthService {
    */
   async completeAdminInviteGoogle(
     inviteToken: string | undefined,
-    identity: GoogleIdentity
+    identity: SsoIdentity
   ): Promise<
-    | { ok: false; failure: GoogleAuthFailure; redirectUrl: string }
+    | { ok: false; failure: SsoAuthFailure; redirectUrl: string }
     | { ok: true; tokens: PlatformAdminLoginResult }
   > {
     if (inviteToken === undefined) {
       return {
         ok: false,
-        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
         // No token to build an invite-page URL from, so this failure lands on the admin sign-in
         // page; the tenant `/login` has no admin path.
-        redirectUrl: `${GOOGLE_AUTH_REDIRECT.ADMIN_LOGIN}?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
+        redirectUrl: `${SSO_REDIRECT.ADMIN_LOGIN}?error=${SsoAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
       };
     }
 
@@ -229,10 +231,10 @@ export class PlatformAdminAuthService {
     if (!invite) {
       return {
         ok: false,
-        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
         redirectUrl: this.adminInviteFailureUrl(
           inviteToken,
-          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+          SsoAuthFailure.INVALID_OR_EXPIRED_INVITE
         ),
       };
     }
@@ -242,11 +244,8 @@ export class PlatformAdminAuthService {
     if (normalizeEmail(identity.email) !== normalizeEmail(invite.email)) {
       return {
         ok: false,
-        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
-        redirectUrl: this.adminInviteFailureUrl(
-          inviteToken,
-          GoogleAuthFailure.INVITE_EMAIL_MISMATCH
-        ),
+        failure: SsoAuthFailure.INVITE_EMAIL_MISMATCH,
+        redirectUrl: this.adminInviteFailureUrl(inviteToken, SsoAuthFailure.INVITE_EMAIL_MISMATCH),
       };
     }
 
@@ -258,20 +257,20 @@ export class PlatformAdminAuthService {
     if (result.outcome === 'identity_already_linked') {
       return {
         ok: false,
-        failure: GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
+        failure: SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
         redirectUrl: this.adminInviteFailureUrl(
           inviteToken,
-          GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED
+          SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED
         ),
       };
     }
     if (result.outcome !== 'accepted') {
       return {
         ok: false,
-        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
         redirectUrl: this.adminInviteFailureUrl(
           inviteToken,
-          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+          SsoAuthFailure.INVALID_OR_EXPIRED_INVITE
         ),
       };
     }
@@ -283,7 +282,7 @@ export class PlatformAdminAuthService {
    * `${FRONTEND_URL}/invite/:token?error=<code>`. Public: `AuthService.googleFailureRedirect` calls
    * it for `ADMIN_INVITE` too.
    */
-  adminInviteFailureUrl(inviteToken: string, failure: GoogleAuthFailure): string {
+  adminInviteFailureUrl(inviteToken: string, failure: SsoAuthFailure): string {
     const link = buildAdminInviteLink(this.configService.get<string>('FRONTEND_URL'), inviteToken);
     return `${link}?error=${failure}`;
   }

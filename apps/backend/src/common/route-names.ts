@@ -48,7 +48,10 @@ export enum RouteNames {
   AVATAR_CONFIRM = 'avatar/confirm',
   VERIFY_EMAIL = 'verify-email',
   RESEND_VERIFICATION_OTP = 'resend-verification-otp',
-  GOOGLE_COMPLETE_SIGNUP = 'google/complete-signup',
+  SSO_COMPLETE_SIGNUP = 'sso/complete-signup',
+  // Microsoft (Entra ID) tenant sign-in/sign-up — mirrors GOOGLE / GOOGLE_CALLBACK below.
+  MICROSOFT = 'microsoft',
+  MICROSOFT_CALLBACK = 'microsoft/callback',
   // Platform-admin login + invite acceptance, all public on ADMIN_AUTH (not ADMIN_SETTINGS, which is
   // PLATFORM_ADMIN-gated). ':token' is the raw invite token, not an id.
   //

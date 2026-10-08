@@ -1,6 +1,6 @@
 import type { Locale } from '@common/i18n/locale';
 
-import type { GoogleAuthFailure } from '../constants/google-auth.constants';
+import type { SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
 import type { PlatformAdminTokenResponseDto } from '../dto/platform-admin-token-response.dto';
 import type { TokenResponseDto } from '../dto/token-response.dto';
 import type { JwtTokenType } from '../enums/jwt-token-type.enum';
@@ -124,7 +124,7 @@ export interface PlatformAdminLoginResult {
   body: PlatformAdminTokenResponseDto;
 }
 
-export interface GoogleIdentity {
+export interface SsoIdentity {
   /** Google's stable `sub`. The identity key, deliberately not the email, which can be reassigned within a Workspace domain. */
   providerUserId: string;
   email: string;
@@ -143,16 +143,23 @@ export interface GoogleCallbackRequest {
 }
 
 /** Failure is a redirect, not an exception: the browser navigated here directly, so a JSON error body would render as a document. */
-export type GoogleAuthorizeRedirect =
+export type SsoAuthorizeRedirect =
   { ok: false; redirectUrl: string } | { ok: true; authorizationUrl: string; sid: string };
 
-export interface GoogleAuthorizeInput {
+export interface SsoAuthorizeInput {
   intent: OAuthIntent;
 }
 
-export type GoogleCallbackOutcome =
-  /** `redirectUrl` is already the full `<page>?error=<failure>` target. */
-  | { ok: false; failure: GoogleAuthFailure; redirectUrl: string }
+export interface SsoCallbackInput {
+  code: string | undefined;
+  state: string | undefined;
+  error: string | undefined;
+  sid: string | undefined;
+}
+
+export type SsoCallbackOutcome =
+  /** `redirectUrl` is already the full `<page>?error=<failure>&provider=<provider>` target. */
+  | { ok: false; failure: SsoAuthFailure; redirectUrl: string }
   /** `ADMIN_INVITE` completed, or a returning Google-linked admin signed in on an ordinary login/signup round trip. */
   | { ok: true; kind: 'admin_signed_in'; tokens: PlatformAdminLoginResult }
   /** A genuinely new person — the caller sets `pendingSignupCookie` and redirects to collect a business name. */
@@ -160,32 +167,43 @@ export type GoogleCallbackOutcome =
   | { ok: true; kind: 'signed_in'; tokens: TokenIssuanceResult };
 
 /** Everything the callback's write path needs. Read from Redis, never from the client's blob. */
-export interface GoogleAuthStateRecord {
+export interface OAuthStateRecord {
+  provider: SsoProvider;
   intent: OAuthIntent;
+  /** The OIDC `nonce` sent to the provider; an ID token that does not echo it is refused. */
+  nonce: string;
+  /** PKCE verifier, for providers that use it. Server-side only: never in a URL or cookie. */
+  codeVerifier?: string;
   /** SHA-256 of the browser-binding cookie value. The cookie itself is never stored. */
   sidHash: string;
   /** `ADMIN_INVITE` only — the invite being redeemed; kept server-side, never exposed beyond the opaque signed `state`. */
   inviteToken?: string;
 }
 
-export interface MintedGoogleState {
-  /** Goes to Google as the `state` query param. */
+export interface MintedOAuthState {
+  /** Goes to the provider as the `state` query param. */
   state: string;
-  /** Goes to the browser as the `google_auth_sid` cookie. */
+  /** Goes to the browser as the provider's `*_auth_sid` cookie. */
   sid: string;
+  /** Goes to the provider as the OIDC `nonce`. */
+  nonce: string;
+  /** S256 PKCE challenge, present only when `pkce` was requested. */
+  codeChallenge?: string;
 }
 
-export type ConsumeGoogleStateResult = { ok: false } | { ok: true; record: GoogleAuthStateRecord };
+export type ConsumeOAuthStateResult = { ok: false } | { ok: true; record: OAuthStateRecord };
 
 /** A Google-verified identity with no tenant yet. */
-export interface PendingGoogleSignupIdentity {
+export interface PendingSsoSignupIdentity {
+  /** Which provider verified it, so the business-name step links the right identity. */
+  provider: SsoProvider;
   providerUserId: string;
   email: string;
   name: string | null;
 }
 
-export type ConsumePendingGoogleSignupResult =
-  { ok: false } | { ok: true; identity: PendingGoogleSignupIdentity };
+export type ConsumePendingSsoSignupResult =
+  { ok: false } | { ok: true; identity: PendingSsoSignupIdentity };
 
 /** Lets the login/signup callback detect a *returning* admin before consulting tenant tables. Not used for `ADMIN_INVITE`, which is always a first-time link. */
 export type LinkedAdminLookup =

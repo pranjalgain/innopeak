@@ -11,6 +11,7 @@ import {
   SESSION_HINT_COOKIE_NAME,
 } from './constants/auth.constants';
 import { JwtTokenType } from './enums/jwt-token-type.enum';
+import { OAuthIntent } from './enums/oauth-intent.enum';
 import { UserRole } from './enums/user-role.enum';
 import { RefreshTokenSupersededException } from './errors/refresh-token.error';
 import { AccountDeletionService } from './services/account-deletion.service';
@@ -361,5 +362,131 @@ describe('AuthController.inviteGoogleAuthorize', () => {
       302,
       'https://accounts.google.com/o/oauth2/v2/auth?...'
     );
+  });
+});
+
+describe('AuthController — Microsoft sign-in', () => {
+  let controller: AuthController;
+  const buildMicrosoftAuthorizeRedirect = jest.fn();
+  const handleMicrosoftCallback = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [
+        {
+          provide: AuthService,
+          useValue: { buildMicrosoftAuthorizeRedirect, handleMicrosoftCallback },
+        },
+        { provide: AccountDeletionService, useValue: {} },
+      ],
+    }).compile();
+
+    controller = moduleRef.get(AuthController);
+  });
+
+  const request = (query: Record<string, string>, cookies: Record<string, string> = {}): Request =>
+    ({ query, cookies }) as unknown as Request;
+
+  describe('authorize', () => {
+    it('sets the Microsoft binding cookie and redirects to Microsoft', async () => {
+      buildMicrosoftAuthorizeRedirect.mockResolvedValue({
+        ok: true,
+        authorizationUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?x=1',
+        sid: 'sid-value',
+      });
+      const res = mockResponse();
+
+      await controller.microsoftAuthorize({ intent: OAuthIntent.LOGIN }, res);
+
+      expect(res.cookie).toHaveBeenCalledWith('microsoft_auth_sid', 'sid-value', expect.anything());
+      expect(res.redirect).toHaveBeenCalledWith(
+        302,
+        'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?x=1'
+      );
+    });
+
+    it('redirects with the error and sets no cookie when unconfigured', async () => {
+      buildMicrosoftAuthorizeRedirect.mockResolvedValue({
+        ok: false,
+        redirectUrl: '/login?error=NOT_CONFIGURED',
+      });
+      const res = mockResponse();
+
+      await controller.microsoftAuthorize({ intent: OAuthIntent.LOGIN }, res);
+
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(302, '/login?error=NOT_CONFIGURED');
+    });
+  });
+
+  describe('callback', () => {
+    it('reads the binding cookie, clears it whatever the outcome, and signs in with the session cookies', async () => {
+      handleMicrosoftCallback.mockResolvedValue({
+        ok: true,
+        kind: 'signed_in',
+        tokens: { refreshToken: 'refresh', body: { accessToken: 'access' } },
+      });
+      const res = mockResponse();
+
+      await controller.microsoftCallback(
+        request({ code: 'c', state: 's' }, { microsoft_auth_sid: 'sid-1' }),
+        res
+      );
+
+      expect(handleMicrosoftCallback).toHaveBeenCalledWith({
+        code: 'c',
+        state: 's',
+        error: undefined,
+        sid: 'sid-1',
+      });
+      expect(res.clearCookie).toHaveBeenCalledWith('microsoft_auth_sid', expect.anything());
+      expect(res.cookie).toHaveBeenCalledWith(
+        REFRESH_TOKEN_COOKIE_NAME,
+        'refresh',
+        expect.anything()
+      );
+      expect(res.cookie).toHaveBeenCalledWith(
+        ACCESS_TOKEN_COOKIE_NAME,
+        'access',
+        expect.anything()
+      );
+      expect(res.redirect).toHaveBeenCalledWith(302, '/dashboard');
+    });
+
+    it('hands a brand-new person the shared pending-signup cookie and the business-name step', async () => {
+      handleMicrosoftCallback.mockResolvedValue({
+        ok: true,
+        kind: 'needs_business_name',
+        pendingSignupCookie: 'pending-nonce',
+      });
+      const res = mockResponse();
+
+      await controller.microsoftCallback(request({ code: 'c', state: 's' }), res);
+
+      expect(res.cookie).toHaveBeenCalledWith(
+        'sso_pending_signup',
+        'pending-nonce',
+        expect.anything()
+      );
+      expect(res.redirect).toHaveBeenCalledWith(302, '/onboarding/business-name');
+    });
+
+    it('redirects a failure with its error and sets no session', async () => {
+      handleMicrosoftCallback.mockResolvedValue({
+        ok: false,
+        failure: 'EMAIL_NOT_VERIFIED',
+        redirectUrl: '/login?error=EMAIL_NOT_VERIFIED',
+      });
+      const res = mockResponse();
+
+      await controller.microsoftCallback(request({ code: 'c', state: 's' }), res);
+
+      expect(res.clearCookie).toHaveBeenCalledWith('microsoft_auth_sid', expect.anything());
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(302, '/login?error=EMAIL_NOT_VERIFIED');
+    });
   });
 });

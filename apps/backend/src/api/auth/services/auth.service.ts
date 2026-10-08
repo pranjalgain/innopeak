@@ -14,14 +14,14 @@ import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
 
-import { GoogleOAuthStateService } from './google-oauth-state.service';
 import { LoginAttemptScope, LoginAttemptService } from './login-attempt.service';
+import { OAuthStateService } from './oauth-state.service';
 import { OtpAttemptService } from './otp-attempt.service';
-import { PendingGoogleSignupService } from './pending-google-signup.service';
+import { PendingSsoSignupService } from './pending-sso-signup.service';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { TokenService } from './token.service';
 
-import { GOOGLE_AUTH_REDIRECT, GoogleAuthFailure } from '../constants/google-auth.constants';
+import { SSO_REDIRECT, SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
 import { AcceptMemberInviteDto } from '../dto/accept-member-invite.dto';
 import { AuthenticatedUserDto } from '../dto/authenticated-user.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
@@ -44,7 +44,6 @@ import {
   AccountDisabledException,
   AccountScheduledForDeletionException,
   EmailAlreadyRegisteredException,
-  GooglePendingSignupExpiredException,
   InvalidAccessTokenException,
   InvalidCredentialsException,
   InvalidCurrentPasswordException,
@@ -53,18 +52,21 @@ import {
   InviteNotFoundException,
   NoPasswordSetException,
   PasswordAlreadySetException,
+  SsoPendingSignupExpiredException,
   TenantSuspendedException,
 } from '../exceptions/auth.exceptions';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
+import { MicrosoftIdentityProvider } from '../providers/microsoft-identity.provider';
 import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
 import type {
   AuthUser,
-  GoogleAuthorizeInput,
-  GoogleAuthorizeRedirect,
-  GoogleCallbackOutcome,
-  GoogleIdentity,
   IssueOtpInput,
   SendOtpEmailInput,
+  SsoAuthorizeInput,
+  SsoAuthorizeRedirect,
+  SsoCallbackInput,
+  SsoCallbackOutcome,
+  SsoIdentity,
   TokenIssuanceResult,
 } from '../types/auth.type';
 import { normalizeEmail } from '../utils/email.utils';
@@ -87,8 +89,9 @@ export class AuthService {
     private readonly queueManager: AddingJobsToQueueManager,
     private readonly configService: ConfigService<EnvConfig>,
     private readonly googleIdentityProvider: GoogleIdentityProvider,
-    private readonly googleOAuthStateService: GoogleOAuthStateService,
-    private readonly pendingGoogleSignupService: PendingGoogleSignupService,
+    private readonly microsoftIdentityProvider: MicrosoftIdentityProvider,
+    private readonly oauthStateService: OAuthStateService,
+    private readonly pendingSsoSignupService: PendingSsoSignupService,
     private readonly platformAdminAuthService: PlatformAdminAuthService,
     private readonly mediaService: MediaService
   ) {}
@@ -487,7 +490,7 @@ export class AuthService {
    * Never throws for an expected failure (the browser is mid-navigation); validates the token
    * before redirecting so a dead link fails fast on the accept screen.
    */
-  async buildMemberInviteGoogleRedirect(inviteToken: string): Promise<GoogleAuthorizeRedirect> {
+  async buildMemberInviteGoogleRedirect(inviteToken: string): Promise<SsoAuthorizeRedirect> {
     const invite = await this.authDbService.findMemberInviteEmailByTokenHash(
       hashToken(inviteToken)
     );
@@ -496,7 +499,7 @@ export class AuthService {
         ok: false,
         redirectUrl: this.memberInviteFailureUrl(
           inviteToken,
-          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+          SsoAuthFailure.INVALID_OR_EXPIRED_INVITE
         ),
       };
     }
@@ -504,11 +507,12 @@ export class AuthService {
     if (!this.googleIdentityProvider.isConfigured()) {
       return {
         ok: false,
-        redirectUrl: this.memberInviteFailureUrl(inviteToken, GoogleAuthFailure.NOT_CONFIGURED),
+        redirectUrl: this.memberInviteFailureUrl(inviteToken, SsoAuthFailure.NOT_CONFIGURED),
       };
     }
 
-    const { state, sid } = await this.googleOAuthStateService.mint({
+    const { state, sid } = await this.oauthStateService.mint({
+      provider: SsoProvider.GOOGLE,
       intent: OAuthIntent.INVITE,
       inviteToken,
     });
@@ -528,13 +532,13 @@ export class AuthService {
    */
   private async completeMemberInviteGoogle(
     inviteToken: string | undefined,
-    identity: GoogleIdentity
-  ): Promise<GoogleCallbackOutcome> {
+    identity: SsoIdentity
+  ): Promise<SsoCallbackOutcome> {
     if (inviteToken === undefined) {
       return {
         ok: false,
-        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
-        redirectUrl: `${GOOGLE_AUTH_REDIRECT.MEMBER_INVITE}?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
+        failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        redirectUrl: `${SSO_REDIRECT.MEMBER_INVITE}?error=${SsoAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
       };
     }
 
@@ -544,10 +548,10 @@ export class AuthService {
     if (!invite) {
       return {
         ok: false,
-        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
         redirectUrl: this.memberInviteFailureUrl(
           inviteToken,
-          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+          SsoAuthFailure.INVALID_OR_EXPIRED_INVITE
         ),
       };
     }
@@ -557,11 +561,8 @@ export class AuthService {
     if (normalizeEmail(identity.email) !== normalizeEmail(invite.email)) {
       return {
         ok: false,
-        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
-        redirectUrl: this.memberInviteFailureUrl(
-          inviteToken,
-          GoogleAuthFailure.INVITE_EMAIL_MISMATCH
-        ),
+        failure: SsoAuthFailure.INVITE_EMAIL_MISMATCH,
+        redirectUrl: this.memberInviteFailureUrl(inviteToken, SsoAuthFailure.INVITE_EMAIL_MISMATCH),
       };
     }
 
@@ -572,11 +573,8 @@ export class AuthService {
     if (isTenantLoginBlocked(tenant)) {
       return {
         ok: false,
-        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-        redirectUrl: this.memberInviteFailureUrl(
-          inviteToken,
-          GoogleAuthFailure.ACCOUNT_UNAVAILABLE
-        ),
+        failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE,
+        redirectUrl: this.memberInviteFailureUrl(inviteToken, SsoAuthFailure.ACCOUNT_UNAVAILABLE),
       };
     }
 
@@ -590,20 +588,20 @@ export class AuthService {
     if (result.outcome === 'identity_already_linked') {
       return {
         ok: false,
-        failure: GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
+        failure: SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
         redirectUrl: this.memberInviteFailureUrl(
           inviteToken,
-          GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED
+          SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED
         ),
       };
     }
     if (result.outcome !== 'accepted') {
       return {
         ok: false,
-        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
         redirectUrl: this.memberInviteFailureUrl(
           inviteToken,
-          GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE
+          SsoAuthFailure.INVALID_OR_EXPIRED_INVITE
         ),
       };
     }
@@ -623,10 +621,10 @@ export class AuthService {
   }
 
   /**
-   * `${FRONTEND_URL}/accept-invite/:token?error=<code>`. Public: `googleFailureRedirect` calls it
+   * `${FRONTEND_URL}/accept-invite/:token?error=<code>`. Public: `ssoFailureRedirect` calls it
    * too.
    */
-  private memberInviteFailureUrl(inviteToken: string, failure: GoogleAuthFailure): string {
+  private memberInviteFailureUrl(inviteToken: string, failure: SsoAuthFailure): string {
     const link = buildMemberInviteLink(this.configService.get<string>('FRONTEND_URL'), inviteToken);
     return `${link}?error=${failure}`;
   }
@@ -651,18 +649,22 @@ export class AuthService {
    * Returns a result rather than throwing for an unconfigured Google client: the browser navigated
    * here directly, so the controller must redirect either way.
    */
-  async buildGoogleAuthorizeRedirect(
-    input: GoogleAuthorizeInput
-  ): Promise<GoogleAuthorizeRedirect> {
+  async buildGoogleAuthorizeRedirect(input: SsoAuthorizeInput): Promise<SsoAuthorizeRedirect> {
     if (!this.googleIdentityProvider.isConfigured()) {
-      const base =
-        input.intent === OAuthIntent.SIGNUP
-          ? GOOGLE_AUTH_REDIRECT.SIGNUP
-          : GOOGLE_AUTH_REDIRECT.LOGIN;
-      return { ok: false, redirectUrl: `${base}?error=${GoogleAuthFailure.NOT_CONFIGURED}` };
+      const base = input.intent === OAuthIntent.SIGNUP ? SSO_REDIRECT.SIGNUP : SSO_REDIRECT.LOGIN;
+      return {
+        ok: false,
+        redirectUrl: this.withProviderParam(
+          `${base}?error=${SsoAuthFailure.NOT_CONFIGURED}`,
+          SsoProvider.GOOGLE
+        ),
+      };
     }
 
-    const { state, sid } = await this.googleOAuthStateService.mint({ intent: input.intent });
+    const { state, sid } = await this.oauthStateService.mint({
+      provider: SsoProvider.GOOGLE,
+      intent: input.intent,
+    });
 
     return {
       ok: true,
@@ -676,29 +678,32 @@ export class AuthService {
    * document. The state is consumed before the code is exchanged so a replayed callback is rejected
    * without a round trip to Google.
    */
-  async handleGoogleCallback(input: {
-    code: string | undefined;
-    state: string | undefined;
-    error: string | undefined;
-    sid: string | undefined;
-  }): Promise<GoogleCallbackOutcome> {
+  async handleGoogleCallback(input: SsoCallbackInput): Promise<SsoCallbackOutcome> {
+    return this.withFailureProvider(SsoProvider.GOOGLE, await this.processGoogleCallback(input));
+  }
+
+  private async processGoogleCallback(input: SsoCallbackInput): Promise<SsoCallbackOutcome> {
     // Consumed before the `error` branch: the state carries the intent (a cancelled signup must
     // redirect to signup, not /login), and it is single-use regardless of outcome.
-    const consumed = await this.googleOAuthStateService.consume(input.state, input.sid);
+    const consumed = await this.oauthStateService.consume(
+      SsoProvider.GOOGLE,
+      input.state,
+      input.sid
+    );
     const intent = consumed.ok ? consumed.record.intent : undefined;
     const inviteToken = consumed.ok ? consumed.record.inviteToken : undefined;
 
     if (input.error !== undefined) {
-      return this.googleFailureRedirect(GoogleAuthFailure.ACCESS_DENIED, intent, inviteToken);
+      return this.ssoFailureRedirect(SsoAuthFailure.ACCESS_DENIED, intent, inviteToken);
     }
 
     if (!consumed.ok) {
-      return this.googleFailureRedirect(GoogleAuthFailure.INVALID_STATE);
+      return this.ssoFailureRedirect(SsoAuthFailure.INVALID_STATE);
     }
 
     if (input.code === undefined || input.code === '') {
-      return this.googleFailureRedirect(
-        GoogleAuthFailure.PROVIDER_ERROR,
+      return this.ssoFailureRedirect(
+        SsoAuthFailure.PROVIDER_ERROR,
         consumed.record.intent,
         inviteToken
       );
@@ -709,8 +714,8 @@ export class AuthService {
       identity = await this.googleIdentityProvider.fetchIdentity(input.code);
     } catch (error) {
       this.logger.warn(`Google identity exchange failed: ${(error as Error).message}`);
-      return this.googleFailureRedirect(
-        GoogleAuthFailure.PROVIDER_ERROR,
+      return this.ssoFailureRedirect(
+        SsoAuthFailure.PROVIDER_ERROR,
         consumed.record.intent,
         inviteToken
       );
@@ -719,8 +724,8 @@ export class AuthService {
     // Refused rather than trusted: an unverified address would let someone claim an account by
     // registering a Google profile against an email they do not control.
     if (!identity.emailVerified) {
-      return this.googleFailureRedirect(
-        GoogleAuthFailure.EMAIL_NOT_VERIFIED,
+      return this.ssoFailureRedirect(
+        SsoAuthFailure.EMAIL_NOT_VERIFIED,
         consumed.record.intent,
         inviteToken
       );
@@ -748,44 +753,44 @@ export class AuthService {
     if (consumed.record.intent === OAuthIntent.ADMIN_LOGIN) {
       const admin = await this.platformAdminAuthService.findLinkedAdmin(identity.providerUserId);
       if (!admin.linked) {
-        return this.googleFailureRedirect(GoogleAuthFailure.NO_ACCOUNT, consumed.record.intent);
+        return this.ssoFailureRedirect(SsoAuthFailure.NO_ACCOUNT, consumed.record.intent);
       }
       if (!admin.active) {
-        return this.googleFailureRedirect(
-          GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-          consumed.record.intent
-        );
+        return this.ssoFailureRedirect(SsoAuthFailure.ACCOUNT_UNAVAILABLE, consumed.record.intent);
       }
       return { ok: true, kind: 'admin_signed_in', tokens: admin.tokens };
     }
 
     // Tenant resolution is split in two with the admin-identity check between: the first step
-    // matches on Google's `sub` and reads, the second matches on email and writes
-    // (`linkGoogleIdentityByEmail`). Which accounts may reach the second step is the security
+    // matches on the provider's `sub` and reads, the second matches on email and writes
+    // (`linkSsoIdentityByEmail`). Which accounts may reach the second step is the security
     // decision this ordering expresses.
-    const email = normalizeEmail(identity.email);
-    let lookup = await this.authDbService.findGoogleIdentityBySub(identity.providerUserId);
+    return this.resolveTenantSsoIdentity({
+      provider: SsoProvider.GOOGLE,
+      identity,
+      intent: consumed.record.intent,
+      beforeEmailLink: async email => {
+        // A linked platform admin takes over before the email fallback, which matches on address
+        // alone: an admin's address is exactly what an attacker can seed a `pending_verification`
+        // signup with, so the fallback would enrol them as owner of a tenant they never created.
+        const linkedAdmin = await this.platformAdminAuthService.findLinkedAdmin(
+          identity.providerUserId
+        );
+        if (!linkedAdmin.linked) {
+          return null;
+        }
 
-    if (lookup.kind === 'unknown') {
-      // A linked platform admin takes over before the email fallback, which matches on address
-      // alone: an admin's address is exactly what an attacker can seed a `pending_verification`
-      // signup with, so the fallback would enrol them as owner of a tenant they never created.
-      const linkedAdmin = await this.platformAdminAuthService.findLinkedAdmin(
-        identity.providerUserId
-      );
-
-      if (linkedAdmin.linked) {
         // A platform admin signing up their own separate tenant is intentional (dual identity), so
         // this mints a new tenant rather than returning an admin session. Admin status, even
         // disabled, is not consulted, and a stalled tenant signup under this address is not
         // adopted: it can't be told apart from a seeded one.
         if (consumed.record.intent === OAuthIntent.SIGNUP) {
-          return this.mintPendingGoogleSignup(identity, email);
+          return this.mintPendingSsoSignup(SsoProvider.GOOGLE, identity, email);
         }
 
         if (!linkedAdmin.active) {
-          return this.googleFailureRedirect(
-            GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+          return this.ssoFailureRedirect(
+            SsoAuthFailure.ACCOUNT_UNAVAILABLE,
             consumed.record.intent
           );
         }
@@ -793,55 +798,166 @@ export class AuthService {
         // Without this, a Google-accepted admin's session would end after one access-token
         // lifetime: no `password_hash` and no refresh token to come back with.
         return { ok: true, kind: 'admin_signed_in', tokens: linkedAdmin.tokens };
+      },
+    });
+  }
+
+  /**
+   * The provider-independent tail of a tenant sign-in/sign-up: find by the provider's `sub`, else
+   * link by verified email, else (signup) hand back a pending identity or (login) refuse; then the
+   * same standing checks as password login. `beforeEmailLink` lets Google run its platform-admin
+   * carve-out between the read and the write; Microsoft has none, since no admin has a Microsoft identity.
+   */
+  private async resolveTenantSsoIdentity(input: {
+    provider: SsoProvider;
+    identity: SsoIdentity;
+    intent: OAuthIntent;
+    beforeEmailLink?: (email: string) => Promise<SsoCallbackOutcome | null>;
+  }): Promise<SsoCallbackOutcome> {
+    const { provider, identity, intent } = input;
+    const email = normalizeEmail(identity.email);
+    let lookup = await this.authDbService.findSsoIdentityBySub(provider, identity.providerUserId);
+
+    if (lookup.kind === 'unknown') {
+      // An address decides who someone is only here (first link, or a new tenant), so it must be
+      // verified here. A returning identity matched on `sub` above needs no such proof.
+      if (!identity.emailVerified) {
+        return this.ssoFailureRedirect(SsoAuthFailure.EMAIL_NOT_VERIFIED, intent);
       }
 
-      // Not an admin, so the email fallback is safe: it links this Google account to the tenant
-      // user holding the address, finishing a signup that stalled at the OTP screen and dropping
-      // its unproven password.
-      lookup = await this.authDbService.linkGoogleIdentityByEmail({
+      const takeover = await input.beforeEmailLink?.(email);
+      if (takeover) {
+        return takeover;
+      }
+
+      // Links this provider's identity to the tenant user holding the address, finishing a signup
+      // that stalled at the OTP screen and dropping its unproven password.
+      lookup = await this.authDbService.linkSsoIdentityByEmail({
+        provider,
         providerUserId: identity.providerUserId,
         email,
       });
 
       if (lookup.kind === 'unknown') {
-        if (consumed.record.intent === OAuthIntent.SIGNUP) {
-          return this.mintPendingGoogleSignup(identity, email);
+        if (intent === OAuthIntent.SIGNUP) {
+          return this.mintPendingSsoSignup(provider, identity, email);
         }
         // Login can never create a tenant it has no name for.
-        return this.googleFailureRedirect(GoogleAuthFailure.NO_ACCOUNT, consumed.record.intent);
+        return this.ssoFailureRedirect(SsoAuthFailure.NO_ACCOUNT, intent);
       }
     }
 
     // Same standing check as password login and `TokenService.rotate`; without it a disabled
-    // account could sign in via Google, the one entry point that never looked at `users.status`.
+    // account could sign in via SSO, the one entry point that never looked at `users.status`.
     if (lookup.user.status === UserStatus.DISABLED) {
-      return this.googleFailureRedirect(
-        GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-        consumed.record.intent
-      );
+      return this.ssoFailureRedirect(SsoAuthFailure.ACCOUNT_UNAVAILABLE, intent);
     }
 
     const tenant = await this.authDbService.findTenantStatus(lookup.user.tenantId);
     if (isTenantLoginBlocked(tenant)) {
-      return this.googleFailureRedirect(
-        GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-        consumed.record.intent
-      );
+      return this.ssoFailureRedirect(SsoAuthFailure.ACCOUNT_UNAVAILABLE, intent);
     }
 
     const tokens = await this.buildTokenIssuanceResult(lookup.user, tenant);
     return { ok: true, kind: 'signed_in', tokens };
   }
 
+  /** Tenant sign-in/sign-up with Microsoft; same shape as the Google pair, minus invites and admins. */
+  async buildMicrosoftAuthorizeRedirect(input: SsoAuthorizeInput): Promise<SsoAuthorizeRedirect> {
+    if (!this.microsoftIdentityProvider.isConfigured()) {
+      const base = input.intent === OAuthIntent.SIGNUP ? SSO_REDIRECT.SIGNUP : SSO_REDIRECT.LOGIN;
+      return {
+        ok: false,
+        redirectUrl: this.withProviderParam(
+          `${base}?error=${SsoAuthFailure.NOT_CONFIGURED}`,
+          SsoProvider.MICROSOFT
+        ),
+      };
+    }
+
+    const minted = await this.oauthStateService.mint({
+      provider: SsoProvider.MICROSOFT,
+      intent: input.intent,
+      pkce: true,
+    });
+
+    return {
+      ok: true,
+      authorizationUrl: this.microsoftIdentityProvider.buildAuthorizationUrl({
+        state: minted.state,
+        nonce: minted.nonce,
+        codeChallenge: minted.codeChallenge ?? '',
+      }),
+      sid: minted.sid,
+    };
+  }
+
+  /**
+   * Never throws for an expected failure (the browser is mid-navigation). The state is consumed
+   * before the code is exchanged so a replayed callback is rejected without a round trip.
+   */
+  async handleMicrosoftCallback(input: SsoCallbackInput): Promise<SsoCallbackOutcome> {
+    return this.withFailureProvider(
+      SsoProvider.MICROSOFT,
+      await this.processMicrosoftCallback(input)
+    );
+  }
+
+  private async processMicrosoftCallback(input: SsoCallbackInput): Promise<SsoCallbackOutcome> {
+    const consumed = await this.oauthStateService.consume(
+      SsoProvider.MICROSOFT,
+      input.state,
+      input.sid
+    );
+    // Only the two intents the authorize route can mint; anything else is not ours to act on.
+    const intent =
+      consumed.ok &&
+      (consumed.record.intent === OAuthIntent.LOGIN ||
+        consumed.record.intent === OAuthIntent.SIGNUP)
+        ? consumed.record.intent
+        : undefined;
+
+    if (input.error !== undefined) {
+      return this.ssoFailureRedirect(SsoAuthFailure.ACCESS_DENIED, intent);
+    }
+
+    if (!consumed.ok || intent === undefined) {
+      return this.ssoFailureRedirect(SsoAuthFailure.INVALID_STATE);
+    }
+
+    if (
+      input.code === undefined ||
+      input.code === '' ||
+      consumed.record.codeVerifier === undefined
+    ) {
+      return this.ssoFailureRedirect(SsoAuthFailure.PROVIDER_ERROR, intent);
+    }
+
+    let identity: SsoIdentity;
+    try {
+      identity = await this.microsoftIdentityProvider.fetchIdentity(input.code, {
+        codeVerifier: consumed.record.codeVerifier,
+        nonce: consumed.record.nonce,
+      });
+    } catch (error) {
+      this.logger.warn(`Microsoft identity exchange failed: ${(error as Error).message}`);
+      return this.ssoFailureRedirect(SsoAuthFailure.PROVIDER_ERROR, intent);
+    }
+
+    return this.resolveTenantSsoIdentity({ provider: SsoProvider.MICROSOFT, identity, intent });
+  }
+
   /**
    * Hands a verified-but-unknown Google identity back so the caller can collect the business name
-   * Google can't supply (see `completeGoogleSignup`).
+   * Google can't supply (see `completeSsoSignup`).
    */
-  private async mintPendingGoogleSignup(
-    identity: GoogleIdentity,
+  private async mintPendingSsoSignup(
+    provider: SsoProvider,
+    identity: SsoIdentity,
     email: string
-  ): Promise<GoogleCallbackOutcome> {
-    const pendingSignupCookie = await this.pendingGoogleSignupService.mint({
+  ): Promise<SsoCallbackOutcome> {
+    const pendingSignupCookie = await this.pendingSsoSignupService.mint({
+      provider,
       providerUserId: identity.providerUserId,
       email,
       name: identity.name,
@@ -850,16 +966,33 @@ export class AuthService {
   }
 
   /**
+   * Tells the web which provider's copy to show: the same code reads differently for Google
+   * ("verify it with Google") and Microsoft ("ask your admin to set the account's email").
+   */
+  private withProviderParam(redirectUrl: string, provider: SsoProvider): string {
+    return `${redirectUrl}&provider=${provider}`;
+  }
+
+  private withFailureProvider(
+    provider: SsoProvider,
+    outcome: SsoCallbackOutcome
+  ): SsoCallbackOutcome {
+    return outcome.ok
+      ? outcome
+      : { ...outcome, redirectUrl: this.withProviderParam(outcome.redirectUrl, provider) };
+  }
+
+  /**
    * Defaults to the login page: with no known `intent` the state was never validly consumed, so the
    * original screen is unknown and login is the safe fallback (it never invents a tenant).
    * `ADMIN_INVITE` targets the accept-invite page only when `inviteToken` came back with the
    * consumed record.
    */
-  private googleFailureRedirect(
-    failure: GoogleAuthFailure,
+  private ssoFailureRedirect(
+    failure: SsoAuthFailure,
     intent?: OAuthIntent,
     inviteToken?: string
-  ): GoogleCallbackOutcome {
+  ): SsoCallbackOutcome {
     if (intent === OAuthIntent.ADMIN_INVITE && inviteToken !== undefined) {
       return {
         ok: false,
@@ -877,26 +1010,27 @@ export class AuthService {
     // missing.
     const base =
       intent === OAuthIntent.SIGNUP
-        ? GOOGLE_AUTH_REDIRECT.SIGNUP
+        ? SSO_REDIRECT.SIGNUP
         : intent === OAuthIntent.ADMIN_LOGIN || intent === OAuthIntent.ADMIN_INVITE
-          ? GOOGLE_AUTH_REDIRECT.ADMIN_LOGIN
+          ? SSO_REDIRECT.ADMIN_LOGIN
           : intent === OAuthIntent.INVITE
-            ? GOOGLE_AUTH_REDIRECT.MEMBER_INVITE
-            : GOOGLE_AUTH_REDIRECT.LOGIN;
+            ? SSO_REDIRECT.MEMBER_INVITE
+            : SSO_REDIRECT.LOGIN;
     return { ok: false, failure, redirectUrl: `${base}?error=${failure}` };
   }
 
-  /** `pendingSignupCookie` is the `google_pending_signup` cookie value set by the callback. */
-  async completeGoogleSignup(
+  /** `pendingSignupCookie` is the `sso_pending_signup` cookie value set by the callback. */
+  async completeSsoSignup(
     pendingSignupCookie: string | undefined,
     businessName: string
   ): Promise<TokenIssuanceResult> {
-    const pending = await this.pendingGoogleSignupService.consume(pendingSignupCookie);
+    const pending = await this.pendingSsoSignupService.consume(pendingSignupCookie);
     if (!pending.ok) {
-      throw new GooglePendingSignupExpiredException();
+      throw new SsoPendingSignupExpiredException();
     }
 
-    const user = await this.authDbService.completeGoogleSignup({
+    const user = await this.authDbService.completeSsoSignup({
+      provider: pending.identity.provider,
       providerUserId: pending.identity.providerUserId,
       email: pending.identity.email,
       name: pending.identity.name,

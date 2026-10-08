@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { adminAuthApi } from "@/app/_libs/api-sdk/admin-auth-api";
 import { authApi } from "@/app/_libs/api-sdk/auth-api";
@@ -242,5 +242,49 @@ describe("AuthService.logout", () => {
     await AuthService.logout();
 
     expect(assign).toHaveBeenCalledWith("/login");
+  });
+});
+
+describe("AuthService — SSO navigation", () => {
+  const assign = vi.fn();
+
+  beforeEach(() => {
+    assign.mockClear();
+    vi.stubGlobal("location", { ...window.location, assign });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends Microsoft sign-in to the backend with the login intent", () => {
+    AuthService.startMicrosoftLogin();
+
+    expect(assign).toHaveBeenCalledWith("/v1/auth/microsoft?intent=login");
+  });
+
+  it("sends Microsoft sign-up to the backend with the signup intent", () => {
+    AuthService.startMicrosoftSignup();
+
+    expect(assign).toHaveBeenCalledWith("/v1/auth/microsoft?intent=signup");
+  });
+
+  it("completes a new SSO signup with just the business name, whichever provider it came from", async () => {
+    const complete = vi.spyOn(authApi, "authControllerCompleteSsoSignupV1").mockResolvedValue(
+      envelope({
+        accessToken: "tenant-access-token",
+        expiresIn: 900,
+        user: { id: "u1", name: "Jane Doe" },
+        hasConnectedBusiness: false,
+      }) as never,
+    );
+
+    await expect(AuthService.completeSsoSignup("The Coastal Table")).resolves.toEqual({
+      hasConnectedBusiness: false,
+    });
+    expect(complete).toHaveBeenCalledWith(
+      { completeSsoSignupDto: { businessName: "The Coastal Table" } },
+      { authOptional: true },
+    );
   });
 });

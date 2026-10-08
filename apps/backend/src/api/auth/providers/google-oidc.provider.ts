@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { GoogleIdentityProvider } from './google-identity.provider';
 
 import { GOOGLE_AUTH } from '../constants/google-auth.constants';
-import type { GoogleIdentity } from '../types/auth.type';
+import type { SsoIdentity } from '../types/auth.type';
 
 interface TokenResponse {
   access_token?: string;
@@ -53,7 +53,7 @@ export class GoogleOidcProvider extends GoogleIdentityProvider {
     return `${GOOGLE_AUTH.AUTH_URL}?${params.toString()}`;
   }
 
-  async fetchIdentity(code: string): Promise<GoogleIdentity> {
+  async fetchIdentity(code: string): Promise<SsoIdentity> {
     const tokenResponse = await fetch(GOOGLE_AUTH.TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

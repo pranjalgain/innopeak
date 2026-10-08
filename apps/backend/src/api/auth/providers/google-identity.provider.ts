@@ -1,4 +1,4 @@
-import type { GoogleIdentity } from '../types/auth.type';
+import type { SsoIdentity } from '../types/auth.type';
 
 export abstract class GoogleIdentityProvider {
   /** False when the client is unconfigured; the routes answer 503 rather than failing at boot. */
@@ -12,5 +12,5 @@ export abstract class GoogleIdentityProvider {
    * that to a `PROVIDER_ERROR` redirect, since the browser is mid-navigation and cannot render a
    * JSON error.
    */
-  abstract fetchIdentity(code: string): Promise<GoogleIdentity>;
+  abstract fetchIdentity(code: string): Promise<SsoIdentity>;
 }

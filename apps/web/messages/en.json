@@ -262,16 +262,6 @@
         "passwordRequired": "Enter your password."
       }
     },
-    "microsoftMock": {
-      "title": "Sign in with Microsoft",
-      "notice": "Mock sign-in screen for this prototype — enter any email and password to continue.",
-      "emailLabel": "Email",
-      "emailPlaceholder": "you@company.com",
-      "passwordLabel": "Password",
-      "signIn": "Sign in",
-      "signingIn": "Signing in…",
-      "backToLogin": "← Back to InnoPeak sign in"
-    },
     "toasts": {
       "signInFailed": "Something went wrong signing in. Please try again.",
       "signUpFailed": "Something went wrong creating your account. Please try again.",
@@ -279,18 +269,34 @@
       "restoreFailed": "We couldn't restore this business. Check your password and try again.",
       "restored": "Your business has been restored."
     },
-    "googleErrors": {
-      "NO_ACCOUNT": "No account found for that Google address. Sign up first.",
+    "ssoErrors": {
+      "NO_ACCOUNT": "No account found for that email address. Sign up first.",
       "INVALID_STATE": "That sign-in link expired or was already used. Please try again.",
-      "ACCESS_DENIED": "Google sign-in was cancelled.",
-      "EMAIL_NOT_VERIFIED": "Google has not verified that address. Verify it with Google, or use email and password.",
+      "ACCESS_DENIED": "Sign-in was cancelled.",
+      "EMAIL_NOT_VERIFIED": "Your Google or Microsoft account has not verified that email address. Verify it there, or use email and password.",
       "ACCOUNT_UNAVAILABLE": "This account is not available. Contact support.",
-      "PROVIDER_ERROR": "Could not reach Google. Please try again.",
-      "NOT_CONFIGURED": "Google sign-in is not available right now. Use email and password.",
+      "PROVIDER_ERROR": "Could not complete sign-in with your provider. Please try again.",
+      "NOT_CONFIGURED": "That sign-in method is not available right now. Use email and password.",
       "INVALID_OR_EXPIRED_INVITE": "This invite link is invalid or has expired.",
       "INVITE_EMAIL_MISMATCH": "That Google account's email doesn't match the invited address. Sign in to Google with the address the invite was sent to.",
       "GOOGLE_IDENTITY_ALREADY_LINKED": "That Google account is already linked to a different account.",
-      "fallback": "Google sign-in did not complete. Please try again."
+      "google": {
+        "NO_ACCOUNT": "No account found for that Google address. Sign up first.",
+        "ACCESS_DENIED": "Google sign-in was cancelled.",
+        "EMAIL_NOT_VERIFIED": "Google has not verified that address. Verify it with Google, or use email and password.",
+        "PROVIDER_ERROR": "Could not reach Google. Please try again.",
+        "NOT_CONFIGURED": "Google sign-in is not available right now. Use email and password.",
+        "fallback": "Google sign-in did not complete. Please try again."
+      },
+      "microsoft": {
+        "NO_ACCOUNT": "No account found for that Microsoft email address. Sign up first.",
+        "ACCESS_DENIED": "Microsoft sign-in was cancelled.",
+        "EMAIL_NOT_VERIFIED": "Microsoft did not confirm a verified email address for this account. Ask your Microsoft admin to set and verify the account's email, or use email and password.",
+        "PROVIDER_ERROR": "Could not complete sign-in with Microsoft. Please try again.",
+        "NOT_CONFIGURED": "Microsoft sign-in is not available right now. Use email and password.",
+        "fallback": "Microsoft sign-in did not complete. Please try again."
+      },
+      "fallback": "Sign-in did not complete. Please try again."
     }
   },
   "onboardingConnect": {

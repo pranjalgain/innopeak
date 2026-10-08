@@ -55,7 +55,7 @@ models/change-admin-password-dto.ts
 models/change-password-dto.ts
 models/classification-breakdown-point-response-dto.ts
 models/complete-dummy-checkout-dto.ts
-models/complete-google-signup-dto.ts
+models/complete-sso-signup-dto.ts
 models/confirm-avatar-dto.ts
 models/confirm-avatar-response-dto.ts
 models/confirm-location-dto.ts

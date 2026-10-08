@@ -6,12 +6,12 @@ import { ConfigService } from '@nestjs/config';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
-import { GoogleOAuthStateService } from './google-oauth-state.service';
 import { LoginAttemptService } from './login-attempt.service';
+import { OAuthStateService } from './oauth-state.service';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { TokenService } from './token.service';
 
-import { GoogleAuthFailure } from '../constants/google-auth.constants';
+import { SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 import { PlatformAdminStatus } from '../enums/platform-admin-status.enum';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
@@ -22,7 +22,7 @@ describe('PlatformAdminAuthService', () => {
   let hashingService: jest.Mocked<HashingService>;
   let tokenService: jest.Mocked<TokenService>;
   let loginAttemptService: jest.Mocked<LoginAttemptService>;
-  let googleOAuthStateService: jest.Mocked<GoogleOAuthStateService>;
+  let oauthStateService: jest.Mocked<OAuthStateService>;
   let googleIdentityProvider: jest.Mocked<GoogleIdentityProvider>;
 
   beforeEach(async () => {
@@ -51,9 +51,9 @@ describe('PlatformAdminAuthService', () => {
       reset: jest.fn(),
     } as unknown as jest.Mocked<LoginAttemptService>;
 
-    googleOAuthStateService = {
+    oauthStateService = {
       mint: jest.fn().mockResolvedValue({ state: 'signed-state', sid: 'raw-sid' }),
-    } as unknown as jest.Mocked<GoogleOAuthStateService>;
+    } as unknown as jest.Mocked<OAuthStateService>;
 
     googleIdentityProvider = {
       isConfigured: jest.fn().mockReturnValue(true),
@@ -75,7 +75,7 @@ describe('PlatformAdminAuthService', () => {
         { provide: HashingService, useValue: hashingService },
         { provide: TokenService, useValue: tokenService },
         { provide: LoginAttemptService, useValue: loginAttemptService },
-        { provide: GoogleOAuthStateService, useValue: googleOAuthStateService },
+        { provide: OAuthStateService, useValue: oauthStateService },
         { provide: GoogleIdentityProvider, useValue: googleIdentityProvider },
         { provide: ConfigService, useValue: configService },
       ],
@@ -226,9 +226,9 @@ describe('PlatformAdminAuthService', () => {
 
       expect(redirect).toEqual({
         ok: false,
-        redirectUrl: `https://app.innopeak.test/invite/bad-token?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
+        redirectUrl: `https://app.innopeak.test/invite/bad-token?error=${SsoAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
       });
-      expect(googleOAuthStateService.mint).not.toHaveBeenCalled();
+      expect(oauthStateService.mint).not.toHaveBeenCalled();
     });
 
     it('answers with a redirect rather than throwing when the client is unconfigured', async () => {
@@ -241,7 +241,7 @@ describe('PlatformAdminAuthService', () => {
 
       expect(redirect).toEqual({
         ok: false,
-        redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${GoogleAuthFailure.NOT_CONFIGURED}`,
+        redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${SsoAuthFailure.NOT_CONFIGURED}`,
       });
     });
 
@@ -252,7 +252,8 @@ describe('PlatformAdminAuthService', () => {
 
       await target.buildAdminInviteGoogleRedirect('raw-token-1');
 
-      expect(googleOAuthStateService.mint).toHaveBeenCalledWith({
+      expect(oauthStateService.mint).toHaveBeenCalledWith({
+        provider: SsoProvider.GOOGLE,
         intent: OAuthIntent.ADMIN_INVITE,
         inviteToken: 'raw-token-1',
       });
@@ -264,7 +265,8 @@ describe('PlatformAdminAuthService', () => {
     it('mints state carrying the ADMIN_LOGIN intent and no invite token', async () => {
       const redirect = await target.buildAdminLoginGoogleRedirect();
 
-      expect(googleOAuthStateService.mint).toHaveBeenCalledWith({
+      expect(oauthStateService.mint).toHaveBeenCalledWith({
+        provider: SsoProvider.GOOGLE,
         intent: OAuthIntent.ADMIN_LOGIN,
       });
       expect(redirect).toMatchObject({ ok: true });
@@ -278,9 +280,9 @@ describe('PlatformAdminAuthService', () => {
 
       expect(redirect).toEqual({
         ok: false,
-        redirectUrl: `/admin-login?error=${GoogleAuthFailure.NOT_CONFIGURED}`,
+        redirectUrl: `/admin-login?error=${SsoAuthFailure.NOT_CONFIGURED}`,
       });
-      expect(googleOAuthStateService.mint).not.toHaveBeenCalled();
+      expect(oauthStateService.mint).not.toHaveBeenCalled();
     });
   });
 
@@ -328,8 +330,8 @@ describe('PlatformAdminAuthService', () => {
 
       expect(outcome).toMatchObject({
         ok: false,
-        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
-        redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${GoogleAuthFailure.INVITE_EMAIL_MISMATCH}`,
+        failure: SsoAuthFailure.INVITE_EMAIL_MISMATCH,
+        redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${SsoAuthFailure.INVITE_EMAIL_MISMATCH}`,
       });
       expect(platformAdminDbService.acceptInviteWithGoogleIdentity).not.toHaveBeenCalled();
     });
@@ -346,7 +348,7 @@ describe('PlatformAdminAuthService', () => {
 
       expect(outcome).toMatchObject({
         ok: false,
-        failure: GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
+        failure: SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
       });
     });
 
@@ -357,7 +359,7 @@ describe('PlatformAdminAuthService', () => {
 
       expect(outcome).toMatchObject({
         ok: false,
-        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
       });
       expect(platformAdminDbService.acceptInviteWithGoogleIdentity).not.toHaveBeenCalled();
     });
@@ -367,7 +369,7 @@ describe('PlatformAdminAuthService', () => {
 
       expect(outcome).toMatchObject({
         ok: false,
-        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
       });
       expect(platformAdminDbService.findInviteEmailByTokenHash).not.toHaveBeenCalled();
     });

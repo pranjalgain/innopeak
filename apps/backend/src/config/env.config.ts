@@ -199,6 +199,35 @@ export class EnvConfig {
   @IsString()
   DEV_GOOGLE_AUTH_MOCK_EMAIL?: string;
 
+  @IsOptional()
+  @IsString()
+  MICROSOFT_CLIENT_ID?: string;
+
+  /** The client secret's *value*, not its ID. */
+  @IsOptional()
+  @IsString()
+  MICROSOFT_CLIENT_SECRET?: string;
+
+  /** Must equal a redirect URI registered on the Azure app, e.g. `http://localhost:3002/v1/auth/microsoft/callback`. */
+  @IsOptional()
+  @IsString()
+  MICROSOFT_CALLBACK_URL?: string;
+
+  /** Defaults to `https://login.microsoftonline.com/common` (any organizational directory and personal accounts). Lets the local mock authority stand in. */
+  @IsOptional()
+  @IsString()
+  MICROSOFT_AUTHORITY?: string;
+
+  /** Dev-only: skips Microsoft entirely while still routing through the real callback. */
+  @IsOptional()
+  @IsString()
+  DEV_MICROSOFT_AUTH_MOCK?: string;
+
+  /** Dev-only: pins the mock's email, so repeated sign-ins resolve to one account. */
+  @IsOptional()
+  @IsString()
+  DEV_MICROSOFT_AUTH_MOCK_EMAIL?: string;
+
   // Separate from GOOGLE_*: sign-in and the review-data grant need different scopes, and sharing one client would let revoking review access break sign-in.
   @IsOptional()
   @IsString()

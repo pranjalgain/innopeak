@@ -32,24 +32,30 @@ import {
   SESSION_HINT_TENANT_VALUE,
 } from './constants/auth.constants';
 import {
-  GOOGLE_AUTH_REDIRECT,
   GOOGLE_AUTH_SID_COOKIE_NAME,
   GOOGLE_AUTH_SID_COOKIE_PATH,
-  GOOGLE_AUTH_STATE_TTL_SECONDS,
-  GOOGLE_PENDING_SIGNUP_COOKIE_NAME,
-  GOOGLE_PENDING_SIGNUP_COOKIE_PATH,
-  GOOGLE_PENDING_SIGNUP_TTL_SECONDS,
 } from './constants/google-auth.constants';
+import {
+  MICROSOFT_AUTH_SID_COOKIE_NAME,
+  MICROSOFT_AUTH_SID_COOKIE_PATH,
+} from './constants/microsoft-auth.constants';
+import {
+  OAUTH_STATE_TTL_SECONDS,
+  SSO_PENDING_SIGNUP_COOKIE_NAME,
+  SSO_PENDING_SIGNUP_COOKIE_PATH,
+  SSO_PENDING_SIGNUP_TTL_SECONDS,
+  SSO_REDIRECT,
+  SsoAuthFailure,
+} from './constants/sso-auth.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
 import { Roles } from './decorators/roles.decorator';
 import { AcceptMemberInviteDto } from './dto/accept-member-invite.dto';
 import { AuthenticatedUserDto } from './dto/authenticated-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { CompleteGoogleSignupDto } from './dto/complete-google-signup.dto';
+import { CompleteSsoSignupDto } from './dto/complete-sso-signup.dto';
 import { DeleteAccountResponseDto } from './dto/delete-account-response.dto';
 import { DeleteAccountDto } from './dto/delete-account.dto';
-import { GoogleAuthorizeQueryDto } from './dto/google-authorize-query.dto';
 import { LoginPendingVerificationDto } from './dto/login-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { MemberInvitePreviewDto } from './dto/member-invite-preview.dto';
@@ -58,6 +64,7 @@ import { RestoreAccountDto } from './dto/restore-account.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { SignupResponseDto } from './dto/signup-response.dto';
 import { SignupDto } from './dto/signup.dto';
+import { SsoAuthorizeQueryDto } from './dto/sso-authorize-query.dto';
 import { TokenResponseDto } from './dto/token-response.dto';
 import { UpdateLocaleResponseDto } from './dto/update-locale-response.dto';
 import { UpdateLocaleDto } from './dto/update-locale.dto';
@@ -70,7 +77,7 @@ import { AuthService } from './services/auth.service';
 import {
   ApiAcceptMemberInvite,
   ApiChangePassword,
-  ApiCompleteGoogleSignup,
+  ApiCompleteSsoSignup,
   ApiDeleteAccount,
   ApiGoogleAuthorize,
   ApiGoogleCallback,
@@ -78,6 +85,8 @@ import {
   ApiLogin,
   ApiLogout,
   ApiMe,
+  ApiMicrosoftAuthorize,
+  ApiMicrosoftCallback,
   ApiRefresh,
   ApiRequestDeleteAccountOtp,
   ApiRequestSetPasswordOtp,
@@ -320,10 +329,7 @@ export class AuthController {
   @Public()
   @Throttle({ short: { limit: 10, ttl: 60000 } })
   @ApiGoogleAuthorize()
-  async googleAuthorize(
-    @Query() query: GoogleAuthorizeQueryDto,
-    @Res() res: Response
-  ): Promise<void> {
+  async googleAuthorize(@Query() query: SsoAuthorizeQueryDto, @Res() res: Response): Promise<void> {
     const redirect = await this.authService.buildGoogleAuthorizeRedirect({ intent: query.intent });
 
     if (!redirect.ok) {
@@ -334,7 +340,7 @@ export class AuthController {
     }
 
     res.cookie(GOOGLE_AUTH_SID_COOKIE_NAME, redirect.sid, {
-      ...buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, GOOGLE_AUTH_STATE_TTL_SECONDS),
+      ...buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS),
     });
     res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }
@@ -368,21 +374,90 @@ export class AuthController {
     }
 
     if (outcome.kind === 'needs_business_name') {
-      res.cookie(GOOGLE_PENDING_SIGNUP_COOKIE_NAME, outcome.pendingSignupCookie, {
-        ...buildCookieOptions(GOOGLE_PENDING_SIGNUP_COOKIE_PATH, GOOGLE_PENDING_SIGNUP_TTL_SECONDS),
+      res.cookie(SSO_PENDING_SIGNUP_COOKIE_NAME, outcome.pendingSignupCookie, {
+        ...buildCookieOptions(SSO_PENDING_SIGNUP_COOKIE_PATH, SSO_PENDING_SIGNUP_TTL_SECONDS),
       });
-      res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.NEEDS_BUSINESS_NAME);
+      res.redirect(HttpStatus.FOUND, SSO_REDIRECT.NEEDS_BUSINESS_NAME);
       return;
     }
 
     if (outcome.kind === 'admin_signed_in') {
       setAdminSessionCookies(res, outcome.tokens.body.accessToken);
-      res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.ADMIN_SUCCESS);
+      res.redirect(HttpStatus.FOUND, SSO_REDIRECT.ADMIN_SUCCESS);
       return;
     }
 
     this.setSessionCookies(res, outcome.tokens.refreshToken, outcome.tokens.body.accessToken);
-    res.redirect(HttpStatus.FOUND, GOOGLE_AUTH_REDIRECT.SUCCESS);
+    res.redirect(HttpStatus.FOUND, SSO_REDIRECT.SUCCESS);
+  }
+
+  /** A GET because the browser navigates here directly, so there is no CORS preflight. */
+  @Get(RouteNames.MICROSOFT)
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiMicrosoftAuthorize()
+  async microsoftAuthorize(
+    @Query() query: SsoAuthorizeQueryDto,
+    @Res() res: Response
+  ): Promise<void> {
+    const redirect = await this.authService.buildMicrosoftAuthorizeRedirect({
+      intent: query.intent,
+    });
+
+    if (!redirect.ok) {
+      res.redirect(HttpStatus.FOUND, redirect.redirectUrl);
+      return;
+    }
+
+    res.cookie(
+      MICROSOFT_AUTH_SID_COOKIE_NAME,
+      redirect.sid,
+      buildCookieOptions(MICROSOFT_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS)
+    );
+    res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
+  }
+
+  /** Microsoft, not the SPA, sends the browser here; every outcome is a 302 because it is mid-navigation. */
+  @Get(RouteNames.MICROSOFT_CALLBACK)
+  @Public()
+  @ApiMicrosoftCallback()
+  async microsoftCallback(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const query = req.query as Record<string, string | undefined>;
+    const outcome = await this.authService.handleMicrosoftCallback({
+      code: query['code'],
+      state: query['state'],
+      error: query['error'],
+      sid: (req.cookies as Record<string, string | undefined> | undefined)?.[
+        MICROSOFT_AUTH_SID_COOKIE_NAME
+      ],
+    });
+
+    // Cleared unconditionally: single-use by design, see the Google callback.
+    res.clearCookie(MICROSOFT_AUTH_SID_COOKIE_NAME, { path: MICROSOFT_AUTH_SID_COOKIE_PATH });
+
+    if (!outcome.ok) {
+      res.redirect(HttpStatus.FOUND, outcome.redirectUrl);
+      return;
+    }
+
+    if (outcome.kind === 'needs_business_name') {
+      res.cookie(
+        SSO_PENDING_SIGNUP_COOKIE_NAME,
+        outcome.pendingSignupCookie,
+        buildCookieOptions(SSO_PENDING_SIGNUP_COOKIE_PATH, SSO_PENDING_SIGNUP_TTL_SECONDS)
+      );
+      res.redirect(HttpStatus.FOUND, SSO_REDIRECT.NEEDS_BUSINESS_NAME);
+      return;
+    }
+
+    // `admin_signed_in` is unreachable: the Microsoft path never resolves a platform admin.
+    if (outcome.kind === 'signed_in') {
+      this.setSessionCookies(res, outcome.tokens.refreshToken, outcome.tokens.body.accessToken);
+      res.redirect(HttpStatus.FOUND, SSO_REDIRECT.SUCCESS);
+      return;
+    }
+
+    res.redirect(HttpStatus.FOUND, `${SSO_REDIRECT.LOGIN}?error=${SsoAuthFailure.PROVIDER_ERROR}`);
   }
 
   @Get(RouteNames.INVITE_VALIDATE)
@@ -430,33 +505,30 @@ export class AuthController {
     res.cookie(
       GOOGLE_AUTH_SID_COOKIE_NAME,
       redirect.sid,
-      buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, GOOGLE_AUTH_STATE_TTL_SECONDS)
+      buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS)
     );
     res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }
 
   /** A normal XHR endpoint returning JSON, unlike the two above: no browser navigation to preserve. */
-  @Post(RouteNames.GOOGLE_COMPLETE_SIGNUP)
+  @Post(RouteNames.SSO_COMPLETE_SIGNUP)
   @Public()
   @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
-  @ApiCompleteGoogleSignup()
-  async completeGoogleSignup(
-    @Body() dto: CompleteGoogleSignupDto,
+  @ApiCompleteSsoSignup()
+  async completeSsoSignup(
+    @Body() dto: CompleteSsoSignupDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response
   ): Promise<ApiResponse<TokenResponseDto>> {
     const pendingSignupCookie = (req.cookies as Record<string, string | undefined> | undefined)?.[
-      GOOGLE_PENDING_SIGNUP_COOKIE_NAME
+      SSO_PENDING_SIGNUP_COOKIE_NAME
     ];
 
-    const result = await this.authService.completeGoogleSignup(
-      pendingSignupCookie,
-      dto.businessName
-    );
+    const result = await this.authService.completeSsoSignup(pendingSignupCookie, dto.businessName);
 
     // Cleared unconditionally, same reasoning as the OAuth binding cookie: single-use by design.
-    res.clearCookie(GOOGLE_PENDING_SIGNUP_COOKIE_NAME, { path: GOOGLE_PENDING_SIGNUP_COOKIE_PATH });
+    res.clearCookie(SSO_PENDING_SIGNUP_COOKIE_NAME, { path: SSO_PENDING_SIGNUP_COOKIE_PATH });
     this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
     return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
   }

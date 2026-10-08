@@ -62,7 +62,7 @@ this document on purpose (see the note below the table for why):
 
 | Kind | Method | Schema support | Status in this codebase |
 |---|---|---|---|
-| **SSO** | Microsoft (Entra ID) | `user_identity_provider.entra_id`, `tenant_identity_provider.entra_id` | **Not implemented yet** — this is the only method exposed for MVP (see [Frontend / backend boundary](#frontend--backend-boundary)) |
+| **SSO** | Microsoft (Entra ID) | `user_identity_provider.entra_id`, `tenant_identity_provider.entra_id` | **Tenant sign-in and sign-up implemented** (see [Microsoft sign-in](./microsoft-login-design.md)); directory-checked tenant IdPs, admin sign-in and member invites with Microsoft are not (see [Frontend / backend boundary](#frontend--backend-boundary)) |
 | **Password** | Email + password | `users.password_hash`, `password_reset_tokens` | Implemented (generic boilerplate) — needs tenant-scoping, see [Gap](#gap-between-current-code-and-target-design) |
 | **Social auth** | Google | `user_identity_provider.google` | Implemented (generic boilerplate), needs tenant-scoping |
 | **Social auth** | GitHub / Apple | Not modeled in `user_identity_provider` | Present in current code as unrelated boilerplate leftovers; not part of this product's scope — would slot in alongside Google if a future engagement wants them |
@@ -179,8 +179,9 @@ Auth-specific overrides on top of the `short` window (`apps/backend/src/api/auth
 | `POST /v1/auth/set-password/request-otp` | 5 / minute |
 | `POST /v1/auth/set-password` | 5 / minute |
 | `GET /v1/auth/google` | 10 / minute |
-| `POST /v1/auth/google/complete-signup` | 5 / minute |
-| `POST /v1/auth/logout`, `GET /v1/auth/me`, `GET /v1/auth/google/callback` | no override — falls back to the global `short` default (30 / minute) |
+| `GET /v1/auth/microsoft` | 10 / minute |
+| `POST /v1/auth/sso/complete-signup` | 5 / minute |
+| `POST /v1/auth/logout`, `GET /v1/auth/me`, `GET /v1/auth/google/callback`, `GET /v1/auth/microsoft/callback` | no override — falls back to the global `short` default (30 / minute) |
 
 The login/register/change-password limits exist specifically to blunt credential-stuffing and
 brute-force attempts against the password path — they matter less once Microsoft SSO is the only
@@ -216,7 +217,9 @@ for what needs to change before it matches the InnoPeak tenant model.
 | `POST` | `/v1/auth/set-password` | Bearer | For an account that has never had one (Google-only). Takes `otp` from the route above — an access token alone is not proof enough to grant a permanent credential. |
 | `GET` | `/v1/auth/google` | `@Public()` | Redirects into Google's consent screen. Bare OIDC over `fetch`, not a passport strategy. |
 | `GET` | `/v1/auth/google/callback` | `@Public()` | Google callback; every outcome is a `302`. |
-| `POST` | `/v1/auth/google/complete-signup` | `@Public()` | Supplies the business name Google cannot, against the `google_pending_signup` cookie. |
+| `GET` | `/v1/auth/microsoft` | `@Public()` | Redirects into Microsoft's (Entra ID) sign-in. `?intent=login\|signup`; state is signed, single-use and carries a PKCE verifier and OIDC nonce. Design: [Microsoft sign-in](./microsoft-login-design.md). |
+| `GET` | `/v1/auth/microsoft/callback` | `@Public()` | Microsoft callback; verifies the ID token, then every outcome is a `302`. Tenant users only. |
+| `POST` | `/v1/auth/sso/complete-signup` | `@Public()` | Supplies the business name an SSO provider (Google or Microsoft) cannot, against the `sso_pending_signup` cookie. |
 
 > **Not implemented, despite appearing in earlier drafts of this document:** `/v1/auth/register`
 > (superseded by `signup`), `/v1/auth/github*`, `/v1/auth/mfa/*`, and
@@ -226,8 +229,8 @@ for what needs to change before it matches the InnoPeak tenant model.
 
 Not yet present, needed for the target design:
 
-- `GET /v1/auth/microsoft` + `GET /v1/auth/microsoft/callback` — Entra ID SSO, mirroring the
-  Google OAuth pair.
+- Microsoft SSO for platform admins and member invites (tenant sign-in/sign-up exists — see
+  [Microsoft sign-in](./microsoft-login-design.md)).
 - `POST /v1/auth/signup` (or equivalent) — tenant self-registration: creates the `tenants` row,
   the `owner` `users` row, and (for the password path) a `verify_email` token; for the SSO path,
   creates the `user_identities` row directly since Entra/Google already verified the email.
@@ -364,12 +367,11 @@ Mapped to the schema tables above, independent of which login method is used:
 not yet adapted to this schema. It compiles and the tests pass, but it models a different product.
 Before this module can be considered done for InnoPeak:
 
-- **Add** an Entra ID (Microsoft) Passport strategy and `/v1/auth/microsoft` +
-  `/v1/auth/microsoft/callback` routes, mirroring `GoogleOAuthStrategy` — this is the one
-  provider the frontend actually calls.
-- **Add** `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_CALLBACK_URL`, and a
-  tenant/directory identifier to `apps/backend/src/config/env.config.ts` (no Microsoft/Entra env
-  vars exist there today — only `GOOGLE_*` and `GITHUB_*`).
+- **Done for tenant users:** Entra ID sign-in and sign-up (`/v1/auth/microsoft` +
+  `/v1/auth/microsoft/callback`, `MICROSOFT_*` config) — bare OIDC over `fetch` with a hand-rolled,
+  `crypto`-only ID-token verifier, not a Passport strategy. Still to do: directory-checked
+  tenant IdPs, Microsoft for platform admins and for member invites. See
+  [Microsoft sign-in](./microsoft-login-design.md).
 - **Replace** `RolesGuard`'s `roles: string[]` model with the schema's single `user_role` enum
   (`owner` \| `member`). **Drop `PermissionsGuard`, `@Permissions()`, and the `permissions` JWT
   claim entirely — not adapt them.** There are no `roles`/`permissions`/`user_roles`/

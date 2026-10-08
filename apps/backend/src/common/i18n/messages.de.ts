@@ -45,8 +45,8 @@ export const messagesDe: MessageCatalog = {
     TENANT_ONLY: 'Diese Aktion steht nur Mandantenbenutzern zur Verfügung.',
     GOOGLE_NOT_CONFIGURED:
       'Die Google-Anmeldung ist auf diesem Server nicht konfiguriert. Wenden Sie sich an den Support oder verwenden Sie E-Mail-Adresse und Passwort.',
-    GOOGLE_PENDING_SIGNUP_EXPIRED:
-      'Diese Registrierung ist abgelaufen. Beginnen Sie erneut mit „Mit Google fortfahren“.',
+    SSO_PENDING_SIGNUP_EXPIRED:
+      'Diese Registrierung ist abgelaufen. Beginnen Sie erneut auf der Registrierungsseite.',
     TENANT_CONTEXT_REQUIRED: 'Dieser Endpunkt ist für diesen Kontotyp nicht verfügbar.',
     INVALID_OR_EXPIRED_INVITE: 'Dieser Einladungslink ist ungültig oder abgelaufen.',
     INVITE_ACCEPTED: 'Einladung angenommen. Sie sind angemeldet.',

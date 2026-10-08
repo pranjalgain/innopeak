@@ -15,27 +15,29 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
 import { AuthService } from './auth.service';
-import { GoogleOAuthStateService } from './google-oauth-state.service';
 import { LoginAttemptService } from './login-attempt.service';
+import { OAuthStateService } from './oauth-state.service';
 import { OtpAttemptService } from './otp-attempt.service';
-import { PendingGoogleSignupService } from './pending-google-signup.service';
+import { PendingSsoSignupService } from './pending-sso-signup.service';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { TokenService } from './token.service';
 
-import { GOOGLE_AUTH_REDIRECT, GoogleAuthFailure } from '../constants/google-auth.constants';
+import { SSO_REDIRECT, SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
+import { MicrosoftIdentityProvider } from '../providers/microsoft-identity.provider';
 import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
 
 describe('AuthService', () => {
   let target: AuthService;
   let googleIdentityProvider: jest.Mocked<GoogleIdentityProvider>;
-  let googleOAuthStateService: jest.Mocked<GoogleOAuthStateService>;
-  let pendingGoogleSignupService: jest.Mocked<PendingGoogleSignupService>;
+  let microsoftIdentityProvider: jest.Mocked<MicrosoftIdentityProvider>;
+  let oauthStateService: jest.Mocked<OAuthStateService>;
+  let pendingSsoSignupService: jest.Mocked<PendingSsoSignupService>;
   let authDbService: jest.Mocked<AuthDbService>;
   let hashingService: jest.Mocked<HashingService>;
   let verifyEmailTokenProvider: jest.Mocked<VerifyEmailTokenProvider>;
@@ -63,11 +65,11 @@ describe('AuthService', () => {
       putSetPasswordOtp: jest.fn(),
       consumeSetPasswordOtp: jest.fn().mockResolvedValue(true),
       insertRefreshToken: jest.fn(),
-      findGoogleIdentityBySub: jest.fn(),
+      findSsoIdentityBySub: jest.fn(),
       // Defaults to "no tenant user holds this address" so tests that only care about the sub
       // lookup need not stub the fallback.
-      linkGoogleIdentityByEmail: jest.fn().mockResolvedValue({ kind: 'unknown' }),
-      completeGoogleSignup: jest.fn(),
+      linkSsoIdentityByEmail: jest.fn().mockResolvedValue({ kind: 'unknown' }),
+      completeSsoSignup: jest.fn(),
       findMemberInviteEmailByTokenHash: jest.fn(),
       acceptMemberInviteWithPassword: jest.fn(),
       acceptMemberInviteWithGoogleIdentity: jest.fn(),
@@ -124,6 +126,14 @@ describe('AuthService', () => {
       get: jest.fn((key: string) => (key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : 10)),
     } as unknown as ConfigService;
 
+    microsoftIdentityProvider = {
+      isConfigured: jest.fn().mockReturnValue(true),
+      buildAuthorizationUrl: jest
+        .fn()
+        .mockReturnValue('https://login.microsoftonline.com/common/oauth2/v2.0/authorize?x=1'),
+      fetchIdentity: jest.fn(),
+    };
+
     googleIdentityProvider = {
       isConfigured: jest.fn().mockReturnValue(true),
       buildAuthorizationUrl: jest
@@ -132,15 +142,15 @@ describe('AuthService', () => {
       fetchIdentity: jest.fn(),
     };
 
-    googleOAuthStateService = {
+    oauthStateService = {
       mint: jest.fn().mockResolvedValue({ state: 'signed-state', sid: 'raw-sid' }),
       consume: jest.fn(),
-    } as unknown as jest.Mocked<GoogleOAuthStateService>;
+    } as unknown as jest.Mocked<OAuthStateService>;
 
-    pendingGoogleSignupService = {
+    pendingSsoSignupService = {
       mint: jest.fn().mockResolvedValue('pending-nonce'),
       consume: jest.fn(),
-    } as unknown as jest.Mocked<PendingGoogleSignupService>;
+    } as unknown as jest.Mocked<PendingSsoSignupService>;
 
     mediaService = {
       getUserAvatarUrl: jest.fn().mockResolvedValue(null),
@@ -158,8 +168,9 @@ describe('AuthService', () => {
         { provide: AddingJobsToQueueManager, useValue: queueManager },
         { provide: ConfigService, useValue: configService },
         { provide: GoogleIdentityProvider, useValue: googleIdentityProvider },
-        { provide: GoogleOAuthStateService, useValue: googleOAuthStateService },
-        { provide: PendingGoogleSignupService, useValue: pendingGoogleSignupService },
+        { provide: MicrosoftIdentityProvider, useValue: microsoftIdentityProvider },
+        { provide: OAuthStateService, useValue: oauthStateService },
+        { provide: PendingSsoSignupService, useValue: pendingSsoSignupService },
         { provide: PlatformAdminAuthService, useValue: platformAdminAuthService },
         { provide: MediaService, useValue: mediaService },
       ],
@@ -897,18 +908,26 @@ describe('AuthService', () => {
     };
     const signupState = {
       ok: true as const,
-      record: { intent: OAuthIntent.SIGNUP, sidHash: 'h' },
+      record: {
+        provider: SsoProvider.GOOGLE,
+        nonce: 'n',
+        intent: OAuthIntent.SIGNUP,
+        sidHash: 'h',
+      },
     };
     const loginState = {
       ok: true as const,
-      record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+      record: { provider: SsoProvider.GOOGLE, nonce: 'n', intent: OAuthIntent.LOGIN, sidHash: 'h' },
     };
 
     describe('authorize', () => {
       it('mints state for the given intent — no business name travels here any more', async () => {
         await target.buildGoogleAuthorizeRedirect({ intent: OAuthIntent.SIGNUP });
 
-        expect(googleOAuthStateService.mint).toHaveBeenCalledWith({ intent: OAuthIntent.SIGNUP });
+        expect(oauthStateService.mint).toHaveBeenCalledWith({
+          provider: SsoProvider.GOOGLE,
+          intent: OAuthIntent.SIGNUP,
+        });
       });
 
       it('answers with a redirect rather than throwing when the client is unconfigured', async () => {
@@ -918,16 +937,16 @@ describe('AuthService', () => {
 
         expect(redirect).toEqual({
           ok: false,
-          redirectUrl: `${GOOGLE_AUTH_REDIRECT.LOGIN}?error=${GoogleAuthFailure.NOT_CONFIGURED}`,
+          redirectUrl: `${SSO_REDIRECT.LOGIN}?error=${SsoAuthFailure.NOT_CONFIGURED}&provider=google`,
         });
       });
     });
 
     describe('callback', () => {
       it('signs in an existing account and normalizes the email first', async () => {
-        googleOAuthStateService.consume.mockResolvedValue(loginState);
+        oauthStateService.consume.mockResolvedValue(loginState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-        authDbService.findGoogleIdentityBySub.mockResolvedValue({
+        authDbService.findSsoIdentityBySub.mockResolvedValue({
           kind: 'known',
           user: resolvedUser,
           firstActivation: false,
@@ -945,11 +964,14 @@ describe('AuthService', () => {
         });
 
         expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
-        expect(authDbService.findGoogleIdentityBySub).toHaveBeenCalledWith(identity.providerUserId);
+        expect(authDbService.findSsoIdentityBySub).toHaveBeenCalledWith(
+          SsoProvider.GOOGLE,
+          identity.providerUserId
+        );
       });
 
       it('consumes the state before exchanging the code, so a replay costs no round trip', async () => {
-        googleOAuthStateService.consume.mockResolvedValue({ ok: false });
+        oauthStateService.consume.mockResolvedValue({ ok: false });
 
         const outcome = await target.handleGoogleCallback({
           code: 'c',
@@ -960,14 +982,14 @@ describe('AuthService', () => {
 
         expect(outcome).toEqual({
           ok: false,
-          failure: GoogleAuthFailure.INVALID_STATE,
-          redirectUrl: `${GOOGLE_AUTH_REDIRECT.LOGIN}?error=${GoogleAuthFailure.INVALID_STATE}`,
+          failure: SsoAuthFailure.INVALID_STATE,
+          redirectUrl: `${SSO_REDIRECT.LOGIN}?error=${SsoAuthFailure.INVALID_STATE}&provider=google`,
         });
         expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
       });
 
       it('refuses an email Google has not verified', async () => {
-        googleOAuthStateService.consume.mockResolvedValue(signupState);
+        oauthStateService.consume.mockResolvedValue(signupState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue({
           ...identity,
           emailVerified: false,
@@ -980,14 +1002,14 @@ describe('AuthService', () => {
           sid: 'sid',
         });
 
-        expect(outcome).toMatchObject({ failure: GoogleAuthFailure.EMAIL_NOT_VERIFIED });
-        expect(authDbService.findGoogleIdentityBySub).not.toHaveBeenCalled();
+        expect(outcome).toMatchObject({ failure: SsoAuthFailure.EMAIL_NOT_VERIFIED });
+        expect(authDbService.findSsoIdentityBySub).not.toHaveBeenCalled();
       });
 
       it('returns NO_ACCOUNT rather than starting a pending signup on a login', async () => {
-        googleOAuthStateService.consume.mockResolvedValue(loginState);
+        oauthStateService.consume.mockResolvedValue(loginState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-        authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+        authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
 
         const outcome = await target.handleGoogleCallback({
           code: 'c',
@@ -996,15 +1018,15 @@ describe('AuthService', () => {
           sid: 'sid',
         });
 
-        expect(outcome).toMatchObject({ failure: GoogleAuthFailure.NO_ACCOUNT });
-        expect(pendingGoogleSignupService.mint).not.toHaveBeenCalled();
+        expect(outcome).toMatchObject({ failure: SsoAuthFailure.NO_ACCOUNT });
+        expect(pendingSsoSignupService.mint).not.toHaveBeenCalled();
       });
 
       it('mints a pending signup rather than a tenant for a genuinely new signup', async () => {
-        googleOAuthStateService.consume.mockResolvedValue(signupState);
+        oauthStateService.consume.mockResolvedValue(signupState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-        authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
-        pendingGoogleSignupService.mint.mockResolvedValue('pending-nonce');
+        authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+        pendingSsoSignupService.mint.mockResolvedValue('pending-nonce');
 
         const outcome = await target.handleGoogleCallback({
           code: 'c',
@@ -1018,7 +1040,8 @@ describe('AuthService', () => {
           kind: 'needs_business_name',
           pendingSignupCookie: 'pending-nonce',
         });
-        expect(pendingGoogleSignupService.mint).toHaveBeenCalledWith({
+        expect(pendingSsoSignupService.mint).toHaveBeenCalledWith({
+          provider: SsoProvider.GOOGLE,
           providerUserId: 'google-sub-1',
           email: 'owner@example.com',
           name: 'Jane Doe',
@@ -1027,7 +1050,7 @@ describe('AuthService', () => {
       });
 
       it('reports a declined consent without calling Google at all', async () => {
-        googleOAuthStateService.consume.mockResolvedValue(signupState);
+        oauthStateService.consume.mockResolvedValue(signupState);
 
         const outcome = await target.handleGoogleCallback({
           code: undefined,
@@ -1040,14 +1063,14 @@ describe('AuthService', () => {
         // (single-use).
         expect(outcome).toEqual({
           ok: false,
-          failure: GoogleAuthFailure.ACCESS_DENIED,
-          redirectUrl: `${GOOGLE_AUTH_REDIRECT.SIGNUP}?error=${GoogleAuthFailure.ACCESS_DENIED}`,
+          failure: SsoAuthFailure.ACCESS_DENIED,
+          redirectUrl: `${SSO_REDIRECT.SIGNUP}?error=${SsoAuthFailure.ACCESS_DENIED}&provider=google`,
         });
         expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
       });
 
       it('still reports a declined consent when the state is unusable, falling back to the login page', async () => {
-        googleOAuthStateService.consume.mockResolvedValue({ ok: false });
+        oauthStateService.consume.mockResolvedValue({ ok: false });
 
         const outcome = await target.handleGoogleCallback({
           code: undefined,
@@ -1058,14 +1081,14 @@ describe('AuthService', () => {
 
         expect(outcome).toEqual({
           ok: false,
-          failure: GoogleAuthFailure.ACCESS_DENIED,
-          redirectUrl: `${GOOGLE_AUTH_REDIRECT.LOGIN}?error=${GoogleAuthFailure.ACCESS_DENIED}`,
+          failure: SsoAuthFailure.ACCESS_DENIED,
+          redirectUrl: `${SSO_REDIRECT.LOGIN}?error=${SsoAuthFailure.ACCESS_DENIED}&provider=google`,
         });
         expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
       });
 
       it('maps a provider failure to a redirect rather than throwing mid-navigation', async () => {
-        googleOAuthStateService.consume.mockResolvedValue(signupState);
+        oauthStateService.consume.mockResolvedValue(signupState);
         googleIdentityProvider.fetchIdentity.mockRejectedValue(new Error('google is down'));
 
         const outcome = await target.handleGoogleCallback({
@@ -1076,15 +1099,15 @@ describe('AuthService', () => {
         });
 
         expect(outcome).toMatchObject({
-          failure: GoogleAuthFailure.PROVIDER_ERROR,
-          redirectUrl: `${GOOGLE_AUTH_REDIRECT.SIGNUP}?error=${GoogleAuthFailure.PROVIDER_ERROR}`,
+          failure: SsoAuthFailure.PROVIDER_ERROR,
+          redirectUrl: `${SSO_REDIRECT.SIGNUP}?error=${SsoAuthFailure.PROVIDER_ERROR}&provider=google`,
         });
       });
 
       it('refuses a disabled account, the same standing check password login applies', async () => {
-        googleOAuthStateService.consume.mockResolvedValue(loginState);
+        oauthStateService.consume.mockResolvedValue(loginState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-        authDbService.findGoogleIdentityBySub.mockResolvedValue({
+        authDbService.findSsoIdentityBySub.mockResolvedValue({
           kind: 'known',
           user: { ...resolvedUser, status: UserStatus.DISABLED },
           firstActivation: false,
@@ -1099,17 +1122,17 @@ describe('AuthService', () => {
 
         expect(outcome).toEqual({
           ok: false,
-          failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-          redirectUrl: `${GOOGLE_AUTH_REDIRECT.LOGIN}?error=${GoogleAuthFailure.ACCOUNT_UNAVAILABLE}`,
+          failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE,
+          redirectUrl: `${SSO_REDIRECT.LOGIN}?error=${SsoAuthFailure.ACCOUNT_UNAVAILABLE}&provider=google`,
         });
         // Refused before any token is minted — not merely revoked on the next refresh.
         expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
       });
 
       it('refuses a suspended tenant even though the identity is valid', async () => {
-        googleOAuthStateService.consume.mockResolvedValue(loginState);
+        oauthStateService.consume.mockResolvedValue(loginState);
         googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-        authDbService.findGoogleIdentityBySub.mockResolvedValue({
+        authDbService.findSsoIdentityBySub.mockResolvedValue({
           kind: 'known',
           user: resolvedUser,
           firstActivation: false,
@@ -1126,25 +1149,27 @@ describe('AuthService', () => {
           sid: 'sid',
         });
 
-        expect(outcome).toMatchObject({ failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE });
+        expect(outcome).toMatchObject({ failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE });
       });
     });
 
-    describe('completeGoogleSignup', () => {
+    describe('completeSsoSignup', () => {
       it('creates the tenant from the pending identity and issues tokens', async () => {
-        pendingGoogleSignupService.consume.mockResolvedValue({
+        pendingSsoSignupService.consume.mockResolvedValue({
           ok: true,
           identity: {
+            provider: SsoProvider.GOOGLE,
             providerUserId: 'google-sub-1',
             email: 'owner@example.com',
             name: 'Jane Doe',
           },
         });
-        authDbService.completeGoogleSignup.mockResolvedValue(resolvedUser);
+        authDbService.completeSsoSignup.mockResolvedValue(resolvedUser);
 
-        const result = await target.completeGoogleSignup('pending-nonce', 'The Coastal Table');
+        const result = await target.completeSsoSignup('pending-nonce', 'The Coastal Table');
 
-        expect(authDbService.completeGoogleSignup).toHaveBeenCalledWith({
+        expect(authDbService.completeSsoSignup).toHaveBeenCalledWith({
+          provider: SsoProvider.GOOGLE,
           providerUserId: 'google-sub-1',
           email: 'owner@example.com',
           name: 'Jane Doe',
@@ -1154,24 +1179,289 @@ describe('AuthService', () => {
       });
 
       it('rejects a missing, expired, or already-consumed pending signup', async () => {
-        pendingGoogleSignupService.consume.mockResolvedValue({ ok: false });
+        pendingSsoSignupService.consume.mockResolvedValue({ ok: false });
 
-        await expect(target.completeGoogleSignup(undefined, 'The Coastal Table')).rejects.toThrow(
-          MESSAGES.AUTH.GOOGLE_PENDING_SIGNUP_EXPIRED
+        await expect(target.completeSsoSignup(undefined, 'The Coastal Table')).rejects.toThrow(
+          MESSAGES.AUTH.SSO_PENDING_SIGNUP_EXPIRED
         );
-        expect(authDbService.completeGoogleSignup).not.toHaveBeenCalled();
+        expect(authDbService.completeSsoSignup).not.toHaveBeenCalled();
       });
 
       it('reports a conflict when the email was claimed in the meantime', async () => {
-        pendingGoogleSignupService.consume.mockResolvedValue({
+        pendingSsoSignupService.consume.mockResolvedValue({
           ok: true,
-          identity: { providerUserId: 'google-sub-1', email: 'owner@example.com', name: null },
+          identity: {
+            provider: SsoProvider.GOOGLE,
+            providerUserId: 'google-sub-1',
+            email: 'owner@example.com',
+            name: null,
+          },
         });
-        authDbService.completeGoogleSignup.mockResolvedValue(null);
+        authDbService.completeSsoSignup.mockResolvedValue(null);
 
         await expect(
-          target.completeGoogleSignup('pending-nonce', 'The Coastal Table')
+          target.completeSsoSignup('pending-nonce', 'The Coastal Table')
         ).rejects.toThrow(MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED);
+      });
+    });
+  });
+
+  describe('Microsoft sign-in', () => {
+    const identity = {
+      providerUserId: 'ms-sub-1',
+      email: 'Owner@Acme.test',
+      emailVerified: true,
+      name: 'Jane Doe',
+    };
+    const resolvedUser = {
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      email: 'owner@acme.test',
+      name: 'Jane Doe',
+      role: UserRole.OWNER,
+      passwordHash: null,
+      status: UserStatus.ACTIVE,
+      locale: null,
+    };
+    const record = (intent: OAuthIntent) => ({
+      ok: true as const,
+      record: {
+        provider: SsoProvider.MICROSOFT,
+        nonce: 'oidc-nonce',
+        codeVerifier: 'verifier',
+        intent,
+        sidHash: 'h',
+      },
+    });
+    const callback = (overrides: Record<string, string | undefined> = {}) =>
+      target.handleMicrosoftCallback({
+        code: 'c',
+        state: 's',
+        error: undefined,
+        sid: 'sid',
+        ...overrides,
+      });
+    const activeTenant = { status: TenantStatus.ACTIVE, name: 'Test Tenant' };
+
+    describe('authorize', () => {
+      it('mints a provider-bound state with PKCE and hands the nonce and challenge to Microsoft', async () => {
+        oauthStateService.mint.mockResolvedValue({
+          state: 'signed-state',
+          sid: 'raw-sid',
+          nonce: 'oidc-nonce',
+          codeChallenge: 'challenge',
+        });
+
+        const redirect = await target.buildMicrosoftAuthorizeRedirect({
+          intent: OAuthIntent.SIGNUP,
+        });
+
+        expect(oauthStateService.mint).toHaveBeenCalledWith({
+          provider: SsoProvider.MICROSOFT,
+          intent: OAuthIntent.SIGNUP,
+          pkce: true,
+        });
+        expect(microsoftIdentityProvider.buildAuthorizationUrl).toHaveBeenCalledWith({
+          state: 'signed-state',
+          nonce: 'oidc-nonce',
+          codeChallenge: 'challenge',
+        });
+        expect(redirect).toMatchObject({ ok: true, sid: 'raw-sid' });
+      });
+
+      it('redirects with NOT_CONFIGURED to the screen the click came from', async () => {
+        microsoftIdentityProvider.isConfigured.mockReturnValue(false);
+
+        await expect(
+          target.buildMicrosoftAuthorizeRedirect({ intent: OAuthIntent.SIGNUP })
+        ).resolves.toEqual({
+          ok: false,
+          redirectUrl: `${SSO_REDIRECT.SIGNUP}?error=${SsoAuthFailure.NOT_CONFIGURED}&provider=microsoft`,
+        });
+        await expect(
+          target.buildMicrosoftAuthorizeRedirect({ intent: OAuthIntent.LOGIN })
+        ).resolves.toMatchObject({
+          redirectUrl: `${SSO_REDIRECT.LOGIN}?error=NOT_CONFIGURED&provider=microsoft`,
+        });
+        expect(oauthStateService.mint).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('callback', () => {
+      it('consumes the state for the Microsoft provider and passes the nonce and verifier to the exchange', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.LOGIN));
+        microsoftIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.findSsoIdentityBySub.mockResolvedValue({
+          kind: 'known',
+          user: resolvedUser,
+          firstActivation: false,
+        });
+        authDbService.findTenantStatus.mockResolvedValue(activeTenant);
+
+        const outcome = await callback();
+
+        expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
+        expect(oauthStateService.consume).toHaveBeenCalledWith(SsoProvider.MICROSOFT, 's', 'sid');
+        expect(microsoftIdentityProvider.fetchIdentity).toHaveBeenCalledWith('c', {
+          codeVerifier: 'verifier',
+          nonce: 'oidc-nonce',
+        });
+        expect(authDbService.findSsoIdentityBySub).toHaveBeenCalledWith(
+          SsoProvider.MICROSOFT,
+          'ms-sub-1'
+        );
+      });
+
+      it('rejects a replayed or foreign state before any code exchange', async () => {
+        oauthStateService.consume.mockResolvedValue({ ok: false });
+
+        await expect(callback()).resolves.toEqual({
+          ok: false,
+          failure: SsoAuthFailure.INVALID_STATE,
+          redirectUrl: `${SSO_REDIRECT.LOGIN}?error=${SsoAuthFailure.INVALID_STATE}&provider=microsoft`,
+        });
+        expect(microsoftIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+      });
+
+      it('refuses a state whose intent is not one this route mints', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.ADMIN_LOGIN));
+
+        await expect(callback()).resolves.toMatchObject({ failure: SsoAuthFailure.INVALID_STATE });
+        expect(microsoftIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+      });
+
+      it('sends a declined consent back to the screen it started from', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.SIGNUP));
+
+        await expect(callback({ code: undefined, error: 'access_denied' })).resolves.toEqual({
+          ok: false,
+          failure: SsoAuthFailure.ACCESS_DENIED,
+          redirectUrl: `${SSO_REDIRECT.SIGNUP}?error=${SsoAuthFailure.ACCESS_DENIED}&provider=microsoft`,
+        });
+      });
+
+      it('maps any provider or ID-token failure to PROVIDER_ERROR instead of throwing mid-navigation', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.LOGIN));
+        microsoftIdentityProvider.fetchIdentity.mockRejectedValue(new Error('nonce mismatch'));
+
+        await expect(callback()).resolves.toMatchObject({ failure: SsoAuthFailure.PROVIDER_ERROR });
+        await expect(callback({ code: '' })).resolves.toMatchObject({
+          failure: SsoAuthFailure.PROVIDER_ERROR,
+        });
+      });
+
+      /** The nOAuth defence: an address Microsoft has not domain-verified must never link or create anything. */
+      it.each([OAuthIntent.LOGIN, OAuthIntent.SIGNUP])(
+        'refuses an unverified email for a first-time identity (%s) without linking or creating',
+        async intent => {
+          oauthStateService.consume.mockResolvedValue(record(intent));
+          microsoftIdentityProvider.fetchIdentity.mockResolvedValue({
+            ...identity,
+            emailVerified: false,
+          });
+          authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+
+          await expect(callback()).resolves.toMatchObject({
+            failure: SsoAuthFailure.EMAIL_NOT_VERIFIED,
+          });
+          expect(authDbService.linkSsoIdentityByEmail).not.toHaveBeenCalled();
+          expect(pendingSsoSignupService.mint).not.toHaveBeenCalled();
+        }
+      );
+
+      it('still signs in a returning identity matched on sub when the token carries no verified email', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.LOGIN));
+        microsoftIdentityProvider.fetchIdentity.mockResolvedValue({
+          ...identity,
+          emailVerified: false,
+        });
+        authDbService.findSsoIdentityBySub.mockResolvedValue({
+          kind: 'known',
+          user: resolvedUser,
+          firstActivation: false,
+        });
+        authDbService.findTenantStatus.mockResolvedValue(activeTenant);
+
+        await expect(callback()).resolves.toMatchObject({ ok: true, kind: 'signed_in' });
+      });
+
+      it('links a verified email to the existing account, normalizing it first', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.LOGIN));
+        microsoftIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+        authDbService.linkSsoIdentityByEmail.mockResolvedValue({
+          kind: 'known',
+          user: resolvedUser,
+          firstActivation: false,
+        });
+        authDbService.findTenantStatus.mockResolvedValue(activeTenant);
+
+        await expect(callback()).resolves.toMatchObject({ ok: true, kind: 'signed_in' });
+        expect(authDbService.linkSsoIdentityByEmail).toHaveBeenCalledWith({
+          provider: SsoProvider.MICROSOFT,
+          providerUserId: 'ms-sub-1',
+          email: 'owner@acme.test',
+        });
+      });
+
+      it('never consults platform-admin identities: no admin has a Microsoft identity', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.LOGIN));
+        microsoftIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+
+        await callback();
+
+        expect(platformAdminAuthService.findLinkedAdmin).not.toHaveBeenCalled();
+      });
+
+      it('answers NO_ACCOUNT for an unknown login, and a pending business-name step for a signup', async () => {
+        microsoftIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+        authDbService.linkSsoIdentityByEmail.mockResolvedValue({ kind: 'unknown' });
+
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.LOGIN));
+        await expect(callback()).resolves.toMatchObject({ failure: SsoAuthFailure.NO_ACCOUNT });
+
+        pendingSsoSignupService.mint.mockResolvedValue('pending-nonce');
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.SIGNUP));
+        await expect(callback()).resolves.toEqual({
+          ok: true,
+          kind: 'needs_business_name',
+          pendingSignupCookie: 'pending-nonce',
+        });
+        expect(pendingSsoSignupService.mint).toHaveBeenCalledWith({
+          provider: SsoProvider.MICROSOFT,
+          providerUserId: 'ms-sub-1',
+          email: 'owner@acme.test',
+          name: 'Jane Doe',
+        });
+      });
+
+      it('refuses a disabled user and a suspended tenant, minting no tokens', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.LOGIN));
+        microsoftIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.findSsoIdentityBySub.mockResolvedValue({
+          kind: 'known',
+          user: { ...resolvedUser, status: UserStatus.DISABLED },
+          firstActivation: false,
+        });
+        await expect(callback()).resolves.toMatchObject({
+          failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE,
+        });
+
+        authDbService.findSsoIdentityBySub.mockResolvedValue({
+          kind: 'known',
+          user: resolvedUser,
+          firstActivation: false,
+        });
+        authDbService.findTenantStatus.mockResolvedValue({
+          status: TenantStatus.SUSPENDED,
+          name: 'Test Tenant',
+        });
+        await expect(callback()).resolves.toMatchObject({
+          failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE,
+        });
+        expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
       });
     });
   });
@@ -1270,9 +1560,9 @@ describe('AuthService', () => {
 
       expect(redirect).toEqual({
         ok: false,
-        redirectUrl: `https://app.innopeak.test/accept-invite/bad-token?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
+        redirectUrl: `https://app.innopeak.test/accept-invite/bad-token?error=${SsoAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
       });
-      expect(googleOAuthStateService.mint).not.toHaveBeenCalled();
+      expect(oauthStateService.mint).not.toHaveBeenCalled();
     });
 
     it('answers with a redirect rather than throwing when the client is unconfigured', async () => {
@@ -1286,7 +1576,7 @@ describe('AuthService', () => {
 
       expect(redirect).toEqual({
         ok: false,
-        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.NOT_CONFIGURED}`,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.NOT_CONFIGURED}`,
       });
     });
 
@@ -1298,7 +1588,8 @@ describe('AuthService', () => {
 
       await target.buildMemberInviteGoogleRedirect('raw-token-1');
 
-      expect(googleOAuthStateService.mint).toHaveBeenCalledWith({
+      expect(oauthStateService.mint).toHaveBeenCalledWith({
+        provider: SsoProvider.GOOGLE,
         intent: OAuthIntent.INVITE,
         inviteToken: 'raw-token-1',
       });
@@ -1314,9 +1605,15 @@ describe('AuthService', () => {
     };
 
     function consumeInviteState(): void {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.INVITE, sidHash: 'h', inviteToken: 'raw-token-1' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.INVITE,
+          sidHash: 'h',
+          inviteToken: 'raw-token-1',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
     }
@@ -1354,7 +1651,7 @@ describe('AuthService', () => {
       });
       expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
       // Never falls through to tenant login/signup resolution for this intent.
-      expect(authDbService.findGoogleIdentityBySub).not.toHaveBeenCalled();
+      expect(authDbService.findSsoIdentityBySub).not.toHaveBeenCalled();
     });
 
     it('redirects to the accept page with an error for a dead token', async () => {
@@ -1370,8 +1667,8 @@ describe('AuthService', () => {
 
       expect(outcome).toEqual({
         ok: false,
-        failure: GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE,
-        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
+        failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.INVALID_OR_EXPIRED_INVITE}&provider=google`,
       });
       expect(authDbService.acceptMemberInviteWithGoogleIdentity).not.toHaveBeenCalled();
     });
@@ -1396,8 +1693,8 @@ describe('AuthService', () => {
 
       expect(outcome).toEqual({
         ok: false,
-        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
-        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.INVITE_EMAIL_MISMATCH}`,
+        failure: SsoAuthFailure.INVITE_EMAIL_MISMATCH,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.INVITE_EMAIL_MISMATCH}&provider=google`,
       });
       expect(authDbService.acceptMemberInviteWithGoogleIdentity).not.toHaveBeenCalled();
     });
@@ -1426,8 +1723,8 @@ describe('AuthService', () => {
 
       expect(outcome).toEqual({
         ok: false,
-        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.ACCOUNT_UNAVAILABLE}`,
+        failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.ACCOUNT_UNAVAILABLE}&provider=google`,
       });
       expect(authDbService.acceptMemberInviteWithGoogleIdentity).not.toHaveBeenCalled();
     });
@@ -1451,15 +1748,21 @@ describe('AuthService', () => {
 
       expect(outcome).toEqual({
         ok: false,
-        failure: GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
-        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED}`,
+        failure: SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED}&provider=google`,
       });
     });
 
     it('sends an intent-agnostic failure (e.g. access denied) to the accept page, not /login', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.INVITE, sidHash: 'h', inviteToken: 'raw-token-1' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.INVITE,
+          sidHash: 'h',
+          inviteToken: 'raw-token-1',
+        },
       });
 
       const outcome = await target.handleGoogleCallback({
@@ -1471,8 +1774,8 @@ describe('AuthService', () => {
 
       expect(outcome).toEqual({
         ok: false,
-        failure: GoogleAuthFailure.ACCESS_DENIED,
-        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${GoogleAuthFailure.ACCESS_DENIED}`,
+        failure: SsoAuthFailure.ACCESS_DENIED,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.ACCESS_DENIED}&provider=google`,
       });
     });
   });
@@ -1496,9 +1799,14 @@ describe('AuthService', () => {
     };
 
     function consumeAdminLoginState(): void {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.ADMIN_LOGIN, sidHash: 'h' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.ADMIN_LOGIN,
+          sidHash: 'h',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
     }
@@ -1536,11 +1844,11 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(authDbService.findGoogleIdentityBySub).not.toHaveBeenCalled();
+      expect(authDbService.findSsoIdentityBySub).not.toHaveBeenCalled();
       expect(outcome).toEqual({
         ok: false,
-        failure: GoogleAuthFailure.NO_ACCOUNT,
-        redirectUrl: `/admin-login?error=${GoogleAuthFailure.NO_ACCOUNT}`,
+        failure: SsoAuthFailure.NO_ACCOUNT,
+        redirectUrl: `/admin-login?error=${SsoAuthFailure.NO_ACCOUNT}&provider=google`,
       });
     });
 
@@ -1557,8 +1865,8 @@ describe('AuthService', () => {
 
       expect(outcome).toEqual({
         ok: false,
-        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
-        redirectUrl: `/admin-login?error=${GoogleAuthFailure.ACCOUNT_UNAVAILABLE}`,
+        failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE,
+        redirectUrl: `/admin-login?error=${SsoAuthFailure.ACCOUNT_UNAVAILABLE}&provider=google`,
       });
     });
 
@@ -1567,9 +1875,14 @@ describe('AuthService', () => {
      * admin can act on; `/login` carries no admin path.
      */
     it('sends an intent-agnostic ADMIN_LOGIN failure to the admin page, not the tenant login', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.ADMIN_LOGIN, sidHash: 'h' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.ADMIN_LOGIN,
+          sidHash: 'h',
+        },
       });
 
       const outcome = await target.handleGoogleCallback({
@@ -1581,15 +1894,21 @@ describe('AuthService', () => {
 
       expect(outcome).toEqual({
         ok: false,
-        failure: GoogleAuthFailure.ACCESS_DENIED,
-        redirectUrl: `/admin-login?error=${GoogleAuthFailure.ACCESS_DENIED}`,
+        failure: SsoAuthFailure.ACCESS_DENIED,
+        redirectUrl: `/admin-login?error=${SsoAuthFailure.ACCESS_DENIED}&provider=google`,
       });
     });
 
     it('delegates OAuthIntent.ADMIN_INVITE entirely to PlatformAdminAuthService, on success', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.ADMIN_INVITE, sidHash: 'h', inviteToken: 'raw-token-1' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.ADMIN_INVITE,
+          sidHash: 'h',
+          inviteToken: 'raw-token-1',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
       const tokens = {
@@ -1615,18 +1934,24 @@ describe('AuthService', () => {
       );
       expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
       // Never falls through to tenant resolution for this intent.
-      expect(authDbService.findGoogleIdentityBySub).not.toHaveBeenCalled();
+      expect(authDbService.findSsoIdentityBySub).not.toHaveBeenCalled();
     });
 
     it('maps a PlatformAdminAuthService failure straight through, on ADMIN_INVITE', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.ADMIN_INVITE, sidHash: 'h', inviteToken: 'raw-token-1' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.ADMIN_INVITE,
+          sidHash: 'h',
+          inviteToken: 'raw-token-1',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
       platformAdminAuthService.completeAdminInviteGoogle.mockResolvedValue({
         ok: false,
-        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
+        failure: SsoAuthFailure.INVITE_EMAIL_MISMATCH,
         redirectUrl: 'https://app.innopeak.test/invite/raw-token-1?error=INVITE_EMAIL_MISMATCH',
       });
 
@@ -1639,8 +1964,9 @@ describe('AuthService', () => {
 
       expect(outcome).toEqual({
         ok: false,
-        failure: GoogleAuthFailure.INVITE_EMAIL_MISMATCH,
-        redirectUrl: 'https://app.innopeak.test/invite/raw-token-1?error=INVITE_EMAIL_MISMATCH',
+        failure: SsoAuthFailure.INVITE_EMAIL_MISMATCH,
+        redirectUrl:
+          'https://app.innopeak.test/invite/raw-token-1?error=INVITE_EMAIL_MISMATCH&provider=google',
       });
     });
 
@@ -1649,9 +1975,15 @@ describe('AuthService', () => {
      * `PlatformAdminAuthService.adminInviteFailureUrl`.
      */
     it('targets the accept-invite page, not /login, for an intent-agnostic failure under ADMIN_INVITE', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.ADMIN_INVITE, sidHash: 'h', inviteToken: 'raw-token-1' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.ADMIN_INVITE,
+          sidHash: 'h',
+          inviteToken: 'raw-token-1',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue({ ...identity, emailVerified: false });
 
@@ -1664,23 +1996,28 @@ describe('AuthService', () => {
 
       expect(platformAdminAuthService.adminInviteFailureUrl).toHaveBeenCalledWith(
         'raw-token-1',
-        GoogleAuthFailure.EMAIL_NOT_VERIFIED
+        SsoAuthFailure.EMAIL_NOT_VERIFIED
       );
       expect(outcome).toEqual({
         ok: false,
-        failure: GoogleAuthFailure.EMAIL_NOT_VERIFIED,
-        redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${GoogleAuthFailure.EMAIL_NOT_VERIFIED}`,
+        failure: SsoAuthFailure.EMAIL_NOT_VERIFIED,
+        redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${SsoAuthFailure.EMAIL_NOT_VERIFIED}&provider=google`,
       });
       expect(platformAdminAuthService.completeAdminInviteGoogle).not.toHaveBeenCalled();
     });
 
     it('signs a Google-linked admin in on a plain login round trip once tenant resolution comes back unknown', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.LOGIN,
+          sidHash: 'h',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+      authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
       const tokens = {
         admin: true as const,
         body: {
@@ -1704,25 +2041,30 @@ describe('AuthService', () => {
 
       // Tenant resolution first; an admin-only account falls back to its admin session only once
       // the `sub` lookup comes back empty.
-      expect(authDbService.findGoogleIdentityBySub).toHaveBeenCalled();
+      expect(authDbService.findSsoIdentityBySub).toHaveBeenCalled();
       expect(platformAdminAuthService.findLinkedAdmin).toHaveBeenCalledWith('google-sub-1');
       // And the email fallback is never reached: see the seeded-tenant regression test below.
-      expect(authDbService.linkGoogleIdentityByEmail).not.toHaveBeenCalled();
+      expect(authDbService.linkSsoIdentityByEmail).not.toHaveBeenCalled();
       expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
     });
 
     /**
-     * Regression: `linkGoogleIdentityByEmail` matches on address alone and writes, and anyone can
+     * Regression: `linkSsoIdentityByEmail` matches on address alone and writes, and anyone can
      * seed a signup under an address they don't own, so an admin's Google account would be enrolled
      * as owner of someone else's tenant. The admin check must come first.
      */
     it('never adopts a tenant row seeded under an admin’s address on a login round trip', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.LOGIN,
+          sidHash: 'h',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+      authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
       const tokens = {
         admin: true as const,
         body: {
@@ -1744,17 +2086,22 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(authDbService.linkGoogleIdentityByEmail).not.toHaveBeenCalled();
+      expect(authDbService.linkSsoIdentityByEmail).not.toHaveBeenCalled();
       expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
     });
 
     it('refuses a disabled linked admin rather than signing them in', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.LOGIN,
+          sidHash: 'h',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+      authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
       platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: true, active: false });
 
       const outcome = await target.handleGoogleCallback({
@@ -1766,7 +2113,7 @@ describe('AuthService', () => {
 
       expect(outcome).toMatchObject({
         ok: false,
-        failure: GoogleAuthFailure.ACCOUNT_UNAVAILABLE,
+        failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE,
       });
     });
 
@@ -1776,14 +2123,19 @@ describe('AuthService', () => {
      * Admin status is not consulted, so a disabled admin can still become a customer.
      */
     it('creates a new tenant on signup even when the Google account is a linked admin', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.SIGNUP, sidHash: 'h' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.SIGNUP,
+          sidHash: 'h',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+      authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
       platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: true, active: false });
-      pendingGoogleSignupService.mint.mockResolvedValue('pending-signup-cookie');
+      pendingSsoSignupService.mint.mockResolvedValue('pending-signup-cookie');
 
       const outcome = await target.handleGoogleCallback({
         code: 'auth-code',
@@ -1792,8 +2144,8 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(authDbService.linkGoogleIdentityByEmail).not.toHaveBeenCalled();
-      expect(pendingGoogleSignupService.mint).toHaveBeenCalled();
+      expect(authDbService.linkSsoIdentityByEmail).not.toHaveBeenCalled();
+      expect(pendingSsoSignupService.mint).toHaveBeenCalled();
       expect(outcome).toEqual({
         ok: true,
         kind: 'needs_business_name',
@@ -1802,12 +2154,17 @@ describe('AuthService', () => {
     });
 
     it('signs into the existing tenant, not the admin console, when a Google account is linked to both', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.LOGIN,
+          sidHash: 'h',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      authDbService.findGoogleIdentityBySub.mockResolvedValue({
+      authDbService.findSsoIdentityBySub.mockResolvedValue({
         kind: 'known',
         user: {
           id: 'user-1',
@@ -1840,13 +2197,18 @@ describe('AuthService', () => {
     });
 
     it('falls through to ordinary tenant resolution when the identity is not linked to any admin', async () => {
-      googleOAuthStateService.consume.mockResolvedValue({
+      oauthStateService.consume.mockResolvedValue({
         ok: true as const,
-        record: { intent: OAuthIntent.LOGIN, sidHash: 'h' },
+        record: {
+          provider: SsoProvider.GOOGLE,
+          nonce: 'n',
+          intent: OAuthIntent.LOGIN,
+          sidHash: 'h',
+        },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
       platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: false });
-      authDbService.findGoogleIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+      authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
 
       const outcome = await target.handleGoogleCallback({
         code: 'auth-code',
@@ -1855,8 +2217,8 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(authDbService.findGoogleIdentityBySub).toHaveBeenCalled();
-      expect(outcome).toMatchObject({ failure: GoogleAuthFailure.NO_ACCOUNT });
+      expect(authDbService.findSsoIdentityBySub).toHaveBeenCalled();
+      expect(outcome).toMatchObject({ failure: SsoAuthFailure.NO_ACCOUNT });
     });
   });
 });

@@ -10,8 +10,8 @@ import type { Response } from 'express';
 import {
   GOOGLE_AUTH_SID_COOKIE_NAME,
   GOOGLE_AUTH_SID_COOKIE_PATH,
-  GOOGLE_AUTH_STATE_TTL_SECONDS,
 } from './constants/google-auth.constants';
+import { OAUTH_STATE_TTL_SECONDS } from './constants/sso-auth.constants';
 import { Public } from './decorators/public.decorator';
 import { AcceptAdminInviteDto } from './dto/accept-admin-invite.dto';
 import { AdminInvitePreviewDto } from './dto/admin-invite-preview.dto';
@@ -70,7 +70,7 @@ export class PlatformAdminAuthController {
     res.cookie(
       GOOGLE_AUTH_SID_COOKIE_NAME,
       redirect.sid,
-      buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, GOOGLE_AUTH_STATE_TTL_SECONDS)
+      buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS)
     );
     res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }
@@ -120,7 +120,7 @@ export class PlatformAdminAuthController {
     res.cookie(
       GOOGLE_AUTH_SID_COOKIE_NAME,
       redirect.sid,
-      buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, GOOGLE_AUTH_STATE_TTL_SECONDS)
+      buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS)
     );
     res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }

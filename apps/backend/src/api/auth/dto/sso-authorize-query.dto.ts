@@ -10,14 +10,14 @@ import { OAuthIntent } from '../enums/oauth-intent.enum';
  */
 const AUTHORIZE_INTENTS = [OAuthIntent.LOGIN, OAuthIntent.SIGNUP] as const;
 
-export class GoogleAuthorizeQueryDto {
+export class SsoAuthorizeQueryDto {
   @ApiProperty({
     example: OAuthIntent.SIGNUP,
     enum: AUTHORIZE_INTENTS,
     description:
       'Which button started this. `signup` may end in a new tenant; `login` never creates one ' +
       'and rejects an unknown identity with `?error=NO_ACCOUNT`. Neither carries a business ' +
-      'name here — see `POST /v1/auth/google/complete-signup`, which is where a genuinely new ' +
+      'name here — see `POST /v1/auth/sso/complete-signup`, which is where a genuinely new ' +
       'signup supplies one, after Google has already verified the identity. Accepting a ' +
       'platform-admin invite through Google is NOT one of these — that has its own route, ' +
       '`GET /v1/auth/invite/:token/google`, which carries the invite token.',

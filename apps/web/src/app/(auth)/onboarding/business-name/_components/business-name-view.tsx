@@ -17,14 +17,14 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/auth/use-auth";
 
 /**
- * Screen between the Google OAuth callback and /onboarding/plan: Google returns a person, not a business, and `tenants.name` is NOT NULL.
- * Reachable only via the `google_pending_signup` cookie, so nothing is guarded client-side; a missing or used cookie makes
- * `completeGoogleSignup` throw with the backend's start-over message.
+ * Screen between the Google/Microsoft OAuth callback and /onboarding/plan: an SSO provider returns a person, not a business, and `tenants.name` is NOT NULL.
+ * Reachable only via the `sso_pending_signup` cookie, so nothing is guarded client-side; a missing or used cookie makes
+ * `completeSsoSignup` throw with the backend's start-over message.
  */
 export function BusinessNameView() {
   const t = useTranslations("onboardingBusinessName");
   const router = useRouter();
-  const { completeGoogleSignup, isLoading } = useAuth();
+  const { completeSsoSignup, isLoading } = useAuth();
   const [businessName, setBusinessName] = useState("");
   // Set only on submit, never blur: the input is `autoFocus`, so an incidental blur (autofill, password manager)
   // must not paint it red.
@@ -38,7 +38,7 @@ export function BusinessNameView() {
     setSubmitted(true);
     if (trimmed === "") return;
 
-    const succeeded = await completeGoogleSignup(trimmed);
+    const succeeded = await completeSsoSignup(trimmed);
     if (succeeded) {
       // Same handoff as onboarding-signup-view's SSO path (the stepper reads this). Goes to /onboarding/plan so every
       // fresh signup sees the Free/Paid choice first (see its `handOffToPlan`).

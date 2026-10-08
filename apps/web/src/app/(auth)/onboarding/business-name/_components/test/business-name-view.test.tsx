@@ -38,19 +38,19 @@ describe("BusinessNameView", () => {
   });
 
   test("shows a required-field error rather than submitting an empty name", async () => {
-    const completeGoogleSignup = vi.spyOn(AuthService, "completeGoogleSignup");
+    const completeSsoSignup = vi.spyOn(AuthService, "completeSsoSignup");
     const user = userEvent.setup();
     renderView();
 
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(screen.getByText("Enter your business name.")).toBeInTheDocument();
-    expect(completeGoogleSignup).not.toHaveBeenCalled();
+    expect(completeSsoSignup).not.toHaveBeenCalled();
   });
 
   test("submits the trimmed name, then hands off to /onboarding/plan as the SSO path", async () => {
-    const completeGoogleSignup = vi
-      .spyOn(AuthService, "completeGoogleSignup")
+    const completeSsoSignup = vi
+      .spyOn(AuthService, "completeSsoSignup")
       .mockResolvedValueOnce({ hasConnectedBusiness: false });
     const user = userEvent.setup();
     renderView();
@@ -58,15 +58,15 @@ describe("BusinessNameView", () => {
     await user.type(screen.getByLabelText("Business name"), "  The Coastal Table  ");
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(completeGoogleSignup).toHaveBeenCalledWith("The Coastal Table");
+    expect(completeSsoSignup).toHaveBeenCalledWith("The Coastal Table");
     await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_PLAN));
     // /onboarding/plan's stepper reads this — same handoff shape the Microsoft SSO path uses.
     expect(OnboardingContextService.get()).toEqual({ from: "signup", via: "sso" });
   });
 
   test("a failed completion (expired pending signup) shows a toast and does not redirect", async () => {
-    vi.spyOn(AuthService, "completeGoogleSignup").mockRejectedValueOnce(
-      new ApiError(400, "This signup has expired. Start again with \"Continue with Google\"."),
+    vi.spyOn(AuthService, "completeSsoSignup").mockRejectedValueOnce(
+      new ApiError(400, "This signup has expired. Start again from the sign-up page."),
     );
     const user = userEvent.setup();
     renderView();
@@ -76,7 +76,7 @@ describe("BusinessNameView", () => {
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
-        'This signup has expired. Start again with "Continue with Google".',
+        'This signup has expired. Start again from the sign-up page.',
       ),
     );
     expect(replace).not.toHaveBeenCalled();
