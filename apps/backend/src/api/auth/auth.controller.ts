@@ -40,12 +40,14 @@ import {
   MICROSOFT_AUTH_SID_COOKIE_PATH,
 } from './constants/microsoft-auth.constants';
 import {
+  LEGACY_GOOGLE_PENDING_SIGNUP_COOKIE_NAME,
   OAUTH_STATE_TTL_SECONDS,
   SSO_PENDING_SIGNUP_COOKIE_NAME,
   SSO_PENDING_SIGNUP_COOKIE_PATH,
   SSO_PENDING_SIGNUP_TTL_SECONDS,
   SSO_REDIRECT,
   SsoAuthFailure,
+  SsoProvider,
 } from './constants/sso-auth.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
@@ -457,7 +459,10 @@ export class AuthController {
       return;
     }
 
-    res.redirect(HttpStatus.FOUND, `${SSO_REDIRECT.LOGIN}?error=${SsoAuthFailure.PROVIDER_ERROR}`);
+    res.redirect(
+      HttpStatus.FOUND,
+      `${SSO_REDIRECT.LOGIN}?error=${SsoAuthFailure.PROVIDER_ERROR}&provider=${SsoProvider.MICROSOFT}`
+    );
   }
 
   @Get(RouteNames.INVITE_VALIDATE)
@@ -521,14 +526,19 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response
   ): Promise<ApiResponse<TokenResponseDto>> {
-    const pendingSignupCookie = (req.cookies as Record<string, string | undefined> | undefined)?.[
-      SSO_PENDING_SIGNUP_COOKIE_NAME
-    ];
+    const cookies = req.cookies as Record<string, string | undefined> | undefined;
+    // TRANSITIONAL: a Google signup that reached the business-name step before the rename still holds the old cookie.
+    const pendingSignupCookie =
+      cookies?.[SSO_PENDING_SIGNUP_COOKIE_NAME] ??
+      cookies?.[LEGACY_GOOGLE_PENDING_SIGNUP_COOKIE_NAME];
 
     const result = await this.authService.completeSsoSignup(pendingSignupCookie, dto.businessName);
 
     // Cleared unconditionally, same reasoning as the OAuth binding cookie: single-use by design.
     res.clearCookie(SSO_PENDING_SIGNUP_COOKIE_NAME, { path: SSO_PENDING_SIGNUP_COOKIE_PATH });
+    res.clearCookie(LEGACY_GOOGLE_PENDING_SIGNUP_COOKIE_NAME, {
+      path: SSO_PENDING_SIGNUP_COOKIE_PATH,
+    });
     this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
     return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
   }

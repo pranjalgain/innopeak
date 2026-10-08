@@ -136,23 +136,88 @@ describe('IdTokenVerifier', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it('refetches once for a rotated key, but not again within the cooldown', async () => {
+  // Regression: a token signed with a just-rotated key was refused for a minute after any JWKS load.
+  it('refetches straight away for a rotated key, even shortly after the last load', async () => {
     await target.verify(sign(key.privateKey, goodClaims()), expectations, NOW);
     const rotated = makeKey('k2');
     jwks.keys = [key.jwk, rotated.jwk];
 
     const token = sign(rotated.privateKey, goodClaims(), { alg: 'RS256', kid: 'k2' });
-    await expect(target.verify(token, expectations, NOW + 120_000)).resolves.toMatchObject({
+    await expect(target.verify(token, expectations, NOW + 20_000)).resolves.toMatchObject({
       sub: 'user-sub',
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
 
-    // An unknown kid straight afterwards must not become another request to the JWKS endpoint.
-    const unknown = sign(rotated.privateKey, goodClaims(), { alg: 'RS256', kid: 'unknown' });
-    await expect(target.verify(unknown, expectations, NOW + 121_000)).rejects.toThrow(
+  it('does not refetch for a kid that a refetch just failed to find, nor twice within a few seconds', async () => {
+    await target.verify(sign(key.privateKey, goodClaims()), expectations, NOW);
+    const unknown = sign(key.privateKey, goodClaims(), { alg: 'RS256', kid: 'unknown' });
+
+    await expect(target.verify(unknown, expectations, NOW + 10_000)).rejects.toThrow(
       'key is unknown'
     );
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    // Same missing kid again: remembered, no request.
+    await expect(target.verify(unknown, expectations, NOW + 30_000)).rejects.toThrow(
+      'key is unknown'
+    );
+    // A different unknown kid within the floor of the last request: no request either.
+    const other = sign(key.privateKey, goodClaims(), { alg: 'RS256', kid: 'other' });
+    await expect(target.verify(other, expectations, NOW + 12_000)).rejects.toThrow(
+      'key is unknown'
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps using a cached key when refreshing a stale key set fails', async () => {
+    await target.verify(sign(key.privateKey, goodClaims()), expectations, NOW);
+    fetchImpl.mockResolvedValue({ ok: false, status: 503, json: () => Promise.resolve({}) });
+    const later = NOW + 2 * 60 * 60 * 1000;
+
+    await expect(
+      target.verify(
+        sign(key.privateKey, goodClaims({ exp: later / 1000 + 600, nbf: later / 1000 - 5 })),
+        expectations,
+        later
+      )
+    ).resolves.toMatchObject({ sub: 'user-sub' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops a cached key that a refreshed key set no longer lists', async () => {
+    await target.verify(sign(key.privateKey, goodClaims()), expectations, NOW);
+    jwks.keys = [makeKey('k9').jwk];
+    const later = NOW + 2 * 60 * 60 * 1000;
+
+    await expect(
+      target.verify(
+        sign(key.privateKey, goodClaims({ exp: later / 1000 + 600, nbf: later / 1000 - 5 })),
+        expectations,
+        later
+      )
+    ).rejects.toThrow('key is unknown');
+  });
+
+  it('shares one JWKS request between concurrent verifications', async () => {
+    const token = sign(key.privateKey, goodClaims());
+
+    await Promise.all([
+      target.verify(token, expectations, NOW),
+      target.verify(token, expectations, NOW),
+      target.verify(token, expectations, NOW),
+    ]);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds the JWKS request with a timeout', async () => {
+    await target.verify(sign(key.privateKey, goodClaims()), expectations, NOW);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://keys.test/jwks',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
   });
 
   it('fails when the JWKS endpoint does', async () => {

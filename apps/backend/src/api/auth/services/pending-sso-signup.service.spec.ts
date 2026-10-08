@@ -94,4 +94,28 @@ describe('PendingSsoSignupService', () => {
   it('rejects an unknown nonce', async () => {
     await expect(target.consume('never-minted')).resolves.toEqual({ ok: false });
   });
+
+  // TRANSITIONAL: a Google signup that reached the business-name step before the rename.
+  it('still completes a record minted under the old Google-only prefix, as a Google identity', async () => {
+    store.set(
+      'auth:google-pending-signup:old-nonce',
+      JSON.stringify({
+        providerUserId: 'google-sub-1',
+        email: 'owner@example.com',
+        name: 'Jordan Lee',
+      })
+    );
+
+    await expect(target.consume('old-nonce')).resolves.toEqual({
+      ok: true,
+      identity: {
+        provider: SsoProvider.GOOGLE,
+        providerUserId: 'google-sub-1',
+        email: 'owner@example.com',
+        name: 'Jordan Lee',
+      },
+    });
+    // Single-use under the old prefix too.
+    await expect(target.consume('old-nonce')).resolves.toEqual({ ok: false });
+  });
 });

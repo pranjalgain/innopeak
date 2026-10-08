@@ -19,8 +19,6 @@ import { GoogleIdentityProvider } from './providers/google-identity.provider';
 import { GoogleOidcProvider } from './providers/google-oidc.provider';
 import { MicrosoftIdentityProvider } from './providers/microsoft-identity.provider';
 import { MicrosoftOidcProvider } from './providers/microsoft-oidc.provider';
-import { MockGoogleIdentityProvider } from './providers/mock-google-identity.provider';
-import { MockMicrosoftIdentityProvider } from './providers/mock-microsoft-identity.provider';
 import { RandomVerifyEmailTokenProvider } from './providers/random-verify-email-token.provider';
 import { VerifyEmailTokenProvider } from './providers/verify-email-token.provider';
 import { AccountAnonymizationService } from './services/account-anonymization.service';
@@ -51,36 +49,15 @@ const verifyEmailTokenProviderFactory = {
   inject: [ConfigService],
 };
 
-// Same DI swap: DEV_GOOGLE_AUTH_MOCK runs the real callback against a fabricated profile before an
-// OAuth client exists. Joi forbids it in production.
-const googleIdentityProviderFactory = {
+// No dev stand-ins: Google and Microsoft sign-in only ever run against the real providers.
+const googleIdentityProvider = {
   provide: GoogleIdentityProvider,
-  useFactory: (configService: ConfigService<EnvConfig>): GoogleIdentityProvider => {
-    const useMock = configService.get<string>('DEV_GOOGLE_AUTH_MOCK') === 'true';
-
-    if (useMock && !isProduction()) {
-      return new MockGoogleIdentityProvider(configService);
-    }
-
-    return new GoogleOidcProvider(configService);
-  },
-  inject: [ConfigService],
+  useClass: GoogleOidcProvider,
 };
 
-// Same DI-swap as Google's: DEV_MICROSOFT_AUTH_MOCK routes the whole sign-in through the real
-// callback against a fabricated identity. Joi forbids the flag in production.
-const microsoftIdentityProviderFactory = {
+const microsoftIdentityProvider = {
   provide: MicrosoftIdentityProvider,
-  useFactory: (configService: ConfigService<EnvConfig>): MicrosoftIdentityProvider => {
-    const useMock = configService.get<string>('DEV_MICROSOFT_AUTH_MOCK') === 'true';
-
-    if (useMock && !isProduction()) {
-      return new MockMicrosoftIdentityProvider(configService);
-    }
-
-    return new MicrosoftOidcProvider(configService);
-  },
-  inject: [ConfigService],
+  useClass: MicrosoftOidcProvider,
 };
 
 @Module({
@@ -108,8 +85,8 @@ const microsoftIdentityProviderFactory = {
     LoginAttemptService,
     JwtStrategy,
     verifyEmailTokenProviderFactory,
-    googleIdentityProviderFactory,
-    microsoftIdentityProviderFactory,
+    googleIdentityProvider,
+    microsoftIdentityProvider,
     OAuthStateService,
     PendingSsoSignupService,
     AccountAnonymizationService,

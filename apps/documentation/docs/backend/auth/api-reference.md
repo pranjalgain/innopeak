@@ -255,7 +255,9 @@ stated as a hard requirement here and not a style preference.
 >   when the token carries `xms_edov` (and an `email` claim); otherwise `EMAIL_NOT_VERIFIED`. There is no per-tenant directory
 >   check yet.
 > - Config: `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_CALLBACK_URL`, optional
->   `MICROSOFT_AUTHORITY`. The Azure app needs the `email` and `xms_edov` optional ID-token claims.
+>   `MICROSOFT_AUTHORITY`.
+> - Both routes honour `platform_settings.sso_login_enabled`: while it is off they answer
+>   `?error=NOT_CONFIGURED&provider=microsoft` instead of signing anyone in. The Azure app needs the `email` and `xms_edov` optional ID-token claims.
 
 Every OAuth entry route below — signup, login, and (further down)
 [invite-accept](#get-v1authinvitetokenmicrosoft) — funnels into **one** callback per provider,

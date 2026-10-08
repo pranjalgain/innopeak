@@ -181,6 +181,20 @@ describe('MicrosoftOidcProvider', () => {
     expect(identity.providerUserId).toBe('stable-sub');
   });
 
+  // Regression: a stalled Microsoft token endpoint held the callback open indefinitely.
+  it('bounds the token exchange with a timeout', async () => {
+    const fetchMock = mockMicrosoft({
+      id_token: idToken({ email: 'a@acme.test', xms_edov: true }),
+    });
+
+    await new MicrosoftOidcProvider(config(baseConfig)).fetchIdentity('c', context);
+
+    const tokenCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith('/oauth2/v2.0/token')
+    );
+    expect((tokenCall?.[1] as { signal?: unknown }).signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('fails without logging the response when the token endpoint refuses', async () => {
     mockMicrosoft({ error: 'invalid_grant', error_description: 'secret detail' }, 400);
 

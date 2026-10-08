@@ -1,3 +1,4 @@
+import { SsoProvider } from '@auth/constants/sso-auth.constants';
 import { SubscriptionCancellationSource } from '@common/enums/subscription-cancellation-source.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import type { DBService } from '@db/db.service';
@@ -6,12 +7,15 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 
 import { AdminBillingRepository } from './admin-billing/admin-billing.repository';
+import { AuthDbService } from './auth/auth.db-service';
 import { AuthRepository } from './auth/auth.repository';
 import { BillingPlansRepository } from './billing/billing-plans.repository';
 import { BillingReceiptsRepository } from './billing/billing-receipts.repository';
 import { TenantSubscriptionsDbService } from './billing/tenant-subscriptions.db-service';
 import { TenantSubscriptionsRepository } from './billing/tenant-subscriptions.repository';
 import { ConnectionsRepository } from './connections/connections.repository';
+import { PromptsDbService } from './prompts/prompts.db-service';
+import { PromptsRepository } from './prompts/prompts.repository';
 import { ReviewSyncRepository } from './review-sync/review-sync.repository';
 import { BlocklistTermsRepository } from './settings/blocklist-terms.repository';
 import { TenantExportRepository } from './tenant-export/tenant-export.repository';
@@ -212,6 +216,113 @@ describeWithDb('repositories against a real database', () => {
       );
       expect(counts.rows[0]).toEqual({ refresh: 0, reset: 0 });
       expect((await repo.anonymizeUser(userId)).outcome).toBe('already_anonymized');
+    });
+  });
+
+  describe('AuthDbService — SSO identities per provider', () => {
+    const authDb = (): AuthDbService =>
+      new AuthDbService(
+        new AuthRepository(dbService),
+        new PromptsDbService(new PromptsRepository(dbService)),
+        new TenantSubscriptionsDbService(
+          new TenantSubscriptionsRepository(dbService),
+          new BillingPlansRepository(dbService)
+        )
+      );
+    const sub = (): string => `sub-${Math.random().toString(36).slice(2)}`;
+    const email = (): string => `sso-${Math.random().toString(36).slice(2)}@example.test`;
+
+    it('creates a Microsoft signup under entra_id and finds it by sub for Microsoft only', async () => {
+      const service = authDb();
+      const providerUserId = sub();
+
+      const user = await service.completeSsoSignup({
+        provider: SsoProvider.MICROSOFT,
+        providerUserId,
+        email: email(),
+        name: 'Ms Owner',
+        businessName: 'Contoso Bistro',
+      });
+      expect(user).not.toBeNull();
+      tenants.push(user?.tenantId as string);
+
+      const { rows } = await pool.query<{ provider: string }>(
+        'SELECT provider FROM user_identities WHERE user_id = $1',
+        [user?.id]
+      );
+      expect(rows).toEqual([{ provider: 'entra_id' }]);
+      await expect(
+        service.findSsoIdentityBySub(SsoProvider.MICROSOFT, providerUserId)
+      ).resolves.toMatchObject({
+        kind: 'known',
+        user: { id: user?.id },
+      });
+      // The same subject under another provider is a different person.
+      await expect(
+        service.findSsoIdentityBySub(SsoProvider.GOOGLE, providerUserId)
+      ).resolves.toEqual({
+        kind: 'unknown',
+      });
+    });
+
+    it('links a Microsoft identity to a stalled password signup, activating it and dropping the unproven password', async () => {
+      const service = authDb();
+      const tenantId = await newTenant('pending_activation');
+      const address = email();
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO users (tenant_id, email, name, role, status, password_hash)
+         VALUES ($1, $2, 'Stalled', 'owner', 'pending_verification', 'unproven-hash') RETURNING id`,
+        [tenantId, address]
+      );
+      const userId = rows[0]?.id as string;
+      const providerUserId = sub();
+
+      const lookup = await service.linkSsoIdentityByEmail({
+        provider: SsoProvider.MICROSOFT,
+        providerUserId,
+        email: address,
+      });
+
+      expect(lookup).toMatchObject({ kind: 'known', firstActivation: true, user: { id: userId } });
+      const user = await pool.query<{ status: string; password_hash: string | null }>(
+        'SELECT status, password_hash FROM users WHERE id = $1',
+        [userId]
+      );
+      expect(user.rows[0]).toEqual({ status: 'active', password_hash: null });
+      const identity = await pool.query<{ provider: string; provider_user_id: string }>(
+        'SELECT provider, provider_user_id FROM user_identities WHERE user_id = $1',
+        [userId]
+      );
+      expect(identity.rows).toEqual([{ provider: 'entra_id', provider_user_id: providerUserId }]);
+    });
+
+    it('keeps a Google and a Microsoft identity on one user side by side', async () => {
+      const service = authDb();
+      const tenantId = await newTenant();
+      const address = email();
+      await pool.query(
+        `INSERT INTO users (tenant_id, email, name, role, status) VALUES ($1, $2, 'Both', 'owner', 'active')`,
+        [tenantId, address]
+      );
+      const shared = sub();
+
+      await service.linkSsoIdentityByEmail({
+        provider: SsoProvider.GOOGLE,
+        providerUserId: shared,
+        email: address,
+      });
+      await service.linkSsoIdentityByEmail({
+        provider: SsoProvider.MICROSOFT,
+        providerUserId: shared,
+        email: address,
+      });
+
+      await expect(service.findSsoIdentityBySub(SsoProvider.GOOGLE, shared)).resolves.toMatchObject(
+        { kind: 'known' }
+      );
+      await expect(
+        service.findSsoIdentityBySub(SsoProvider.MICROSOFT, shared)
+      ).resolves.toMatchObject({ kind: 'known' });
     });
   });
 

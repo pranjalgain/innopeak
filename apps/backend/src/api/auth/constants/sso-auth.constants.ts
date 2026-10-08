@@ -23,6 +23,13 @@ export const oauthStateKey = (provider: SsoProvider, nonce: string): string =>
  * the per-provider `*_auth_sid` cookie it is the sole credential: it never appears in a forwardable
  * URL, so the mailed-consent-link attack doesn't apply.
  */
+/**
+ * TRANSITIONAL: names from before Google's pending signup became provider-neutral, still read so a Google signup sitting on
+ * the business-name step at deploy time can finish (the record lives 15 minutes). Delete one release after this ships.
+ */
+export const LEGACY_GOOGLE_PENDING_SIGNUP_COOKIE_NAME = 'google_pending_signup';
+export const LEGACY_GOOGLE_PENDING_SIGNUP_KEY_PREFIX = 'auth:google-pending-signup:';
+
 export const SSO_PENDING_SIGNUP_COOKIE_NAME = 'sso_pending_signup';
 export const SSO_PENDING_SIGNUP_COOKIE_PATH = '/v1/auth';
 
