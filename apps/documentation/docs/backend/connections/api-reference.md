@@ -8,9 +8,9 @@ sidebar_position: 2
 
 This is the HTTP contract for the connections module, and it **is implemented**: every route below
 is served by `src/api/connections/` (see the overview's
-[Implementation status](./overview.md#implementation-status)). The module runs against fixtures
-under `DEV_GBP_MOCK=true` for local development and against the real Google Business Profile APIs
-once [API access setup](./google-api-setup.md) is complete. Where the running code deliberately
+[Implementation status](./overview.md#implementation-status)). The module always runs against the real
+Google Business Profile APIs; local development needs the [API access setup](./google-api-setup.md)
+done (there is no mock). Where the running code deliberately
 deviates from an earlier draft of this contract, the route's section says so.
 
 It assumes you have read [Connections Module — Overview](./overview.md) for the data model, the
@@ -212,6 +212,17 @@ agency), so there is no global uniqueness check to make here.
 | `state` | string | Signed payload carrying `tenantId`, `userId`, `intent: 'connect'`, `returnTo`, nonce. Signature + TTL verified before anything else. |
 | `error` | string | Provided by Google instead of `code` when consent fails. Mapped to `PROVIDER_ERROR`. |
 
+**Several Business Profile accounts.** The grant is read for *every* account it manages (all pages of
+`accounts`), not the first. While the tenant has a **live** connection only its own account may be connected,
+so nothing is asked: the account is reconnected when the grant includes it, and the callback answers
+`ACCOUNT_MISMATCH` when it does not (every choice would be refused anyway). Otherwise one account connects
+straight away, and with several nothing is connected yet: the grant waits, encrypted, for the owner to choose
+(see [`GET .../accounts/pending`](#get-v1connectionsgoogleaccountspending) and
+[`POST .../accounts/select`](#post-v1connectionsgoogleaccountsselect)), and the callback answers `302` to
+`${FRONTEND_URL}/onboarding/connect?account_choice=pending`. The picker only lives on the onboarding screen;
+`returnTo` is kept with the pending grant, and the select response hands it back so a Settings reconnect still
+ends in Settings.
+
 Success `302`: to `${FRONTEND_URL}/onboarding/connect?connected=1` (or
 `/settings?tab=connection&connected=1` when `state.returnTo` is `settings`). The frontend then
 calls [`GET /v1/connections/google/available-locations`](#get-v1connectionsgoogleavailable-locations)
@@ -220,6 +231,47 @@ callback, this route issues no app session; the user already had one.
 
 Errors: all as `302` with `?error=` — `INVALID_STATE`, `ACCESS_DENIED`, `PROVIDER_ERROR`,
 `ACCOUNT_MISMATCH`. See [Error reference](#error-reference).
+
+### `GET /v1/connections/google/accounts/pending`
+
+`@Roles('owner')`. The Business Profile accounts waiting for the owner's choice after a grant that manages
+several. The choice is one Redis record per tenant (`connections:pending-account:<tenantId>`, **15-minute
+TTL**), AES-256-GCM encrypted because it holds the consented tokens; nothing reaches the credential store until
+an account is chosen, so an abandoned choice leaves only a record that expires. It is bound to the user who
+consented: another user, or none pending, is `410`. The connect screen calls this on every load, not only after
+the callback redirect, so a refresh on the picker brings it back.
+
+Success `200`:
+
+```json
+{
+  "accounts": [
+    { "accountId": "accounts/108327761122", "name": "Jane Doe", "type": "PERSONAL" },
+    { "accountId": "accounts/108327764455", "name": "The Coastal Group", "type": "LOCATION_GROUP" }
+  ]
+}
+```
+
+`name` and `type` are `null` when Google reports none. Errors: `410 ACCOUNT_CHOICE_EXPIRED`.
+
+### `POST /v1/connections/google/accounts/select`
+
+`@Roles('owner')`, 10 / min. Body `{ "accountId": "accounts/108327764455" }` — one of the listed ids. Settles
+the pending choice through the same rules as a one-account callback: the mismatch check, the credential stored
+or replaced, the connection upserted, locations reactivated on a same-account reconnect. The choice is
+**single-use** (claimed with `GETDEL`), so a double click or a second tab connects once. If connecting then
+fails, the grant is put back (with a fresh 15 minutes) so the owner can try again without a new consent.
+
+Success `200`: `{ "connectionId": "…", "accountId": "accounts/108327764455", "returnTo": "onboarding" }`.
+`returnTo` is the screen that started the flow: `onboarding` carries on as after any connection
+([`available-locations`](#get-v1connectionsgoogleavailable-locations)); `settings` goes to
+`/settings?tab=connection&connected=1`, as a one-account reconnect does.
+
+Errors: `400 ACCOUNT_NOT_IN_CHOICE` (not one Google offered; the choice is kept so it can be retried),
+`409 ACCOUNT_MISMATCH` (a live connection to a *different* account appeared meanwhile),
+`409 CONNECTION_NEEDS_REAUTH` (Google rejected the grant; the choice is dropped and the owner consents again),
+`410 ACCOUNT_CHOICE_EXPIRED` (none pending, expired, someone else's, or already used), `502 PROVIDER_UNAVAILABLE`
+or `503` (connecting failed; the choice is kept).
 
 ### `DELETE /v1/connections/google`
 
@@ -668,6 +720,9 @@ is the category string the frontend branches on.
 | `404` | `Not Found` (`EXTERNAL_LOCATION_NOT_FOUND`) | `POST /locations` | The `externalLocationId` isn't visible to this connection on the provider's side. |
 | `409` | `Conflict` (`CONNECTION_NEEDS_REAUTH`) | `available-locations`, `POST /locations` | `review_provider_connections.status = 'needs_reauth'`, or the provider just returned 401/403 and this request set it (`PLAN.md` §8.14). Frontend should route the owner back through [`authorize`](#get-v1connectionsgoogleauthorize). |
 | `409` | `Conflict` (`LOCATION_LIMIT_REACHED`) | `POST /locations` | An `active` location already exists for this tenant. MVP's one-location rule, enforced in the service layer — no database constraint backs it. Checked twice: a cheap pre-check before any transaction opens, then rechecked under a per-tenant advisory lock inside `ConnectionsDbService.confirmLocation` so two concurrent confirms for different locations cannot both slip past the first check and double a tenant past the limit. See the overview's [MVP scope](./overview.md#mvp-scope). |
+| `400` | `Bad Request` (`ACCOUNT_NOT_IN_CHOICE`) | `POST /google/accounts/select` | `accountId` is not one of the pending accounts. The choice is kept. |
+| `409` | `Conflict` (`ACCOUNT_MISMATCH`) | `POST /google/accounts/select` | A live connection to a different Google account exists. Nothing is written. |
+| `410` | `Gone` (`ACCOUNT_CHOICE_EXPIRED`) | `GET /google/accounts/pending`, `POST /google/accounts/select` | No pending choice: it expired (15 minutes), was already used, or belongs to another user's consent. |
 | `429` | `Too Many Requests` | Any route | `ThrottlerGuard` limit exceeded. Note the per-route override on [`GET .../backfill`](#get-v1connectionslocationslocationidbackfill) — a 2-second poll against the global 30/min tier fails here. |
 | `502` | `Bad Gateway` (`PROVIDER_UNAVAILABLE`) | `available-locations` | The provider API errored for a non-auth reason (outage, rate limit, schema drift). Distinct from `CONNECTION_NEEDS_REAUTH` so the UI offers retry rather than re-consent. |
 | `500` | `Internal Server Error` | Any route | Unhandled exception. `traceId` is the only detail safe to show; the rest is server-side, per `ErrorHandlerService`. |

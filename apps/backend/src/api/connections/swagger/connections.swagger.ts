@@ -7,7 +7,11 @@ import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { applyDecorators } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
-import { ConfirmLocationDto, SetActiveLocationDto } from '../dto/connection-request.dto';
+import {
+  ConfirmLocationDto,
+  SelectAccountDto,
+  SetActiveLocationDto,
+} from '../dto/connection-request.dto';
 import {
   AvailableLocationsResponseDto,
   ConfirmLocationsResponseDto,
@@ -15,6 +19,8 @@ import {
   DisconnectResponseDto,
   LocationDto,
   LocationListResponseDto,
+  PendingAccountsResponseDto,
+  SelectAccountResponseDto,
 } from '../dto/connection-response.dto';
 import { ConnectionState } from '../enums/connection-state.enum';
 import { ReturnTo } from '../enums/return-to.enum';
@@ -194,6 +200,79 @@ export function ApiAvailableLocations(): ReturnType<typeof applyDecorators> {
     }),
     ApiResponse({ status: 409, description: 'CONNECTION_NEEDS_REAUTH' }),
     ApiResponse({ status: 502, description: 'PROVIDER_UNAVAILABLE' })
+  );
+}
+
+export function ApiPendingAccounts(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Business Profile accounts waiting for the owner to choose',
+      description:
+        'After consent, when the Google account manages **several** Business Profile accounts, the callback ' +
+        'redirects to the connect screen with `?account_choice=pending` instead of connecting one. This lists ' +
+        'the candidates. The choice is held for 15 minutes and only the user who consented can read it. ' +
+        "`410 ACCOUNT_CHOICE_EXPIRED` when there is none (expired, already settled, or someone else's).",
+    }),
+    ApiResponse({
+      status: 200,
+      type: PendingAccountsResponseDto,
+      examples: {
+        default: {
+          summary: 'Two accounts to choose between',
+          value: {
+            accounts: [
+              { accountId: 'accounts/108327761122', name: 'Jane Doe', type: 'PERSONAL' },
+              {
+                accountId: 'accounts/108327764455',
+                name: 'The Coastal Group',
+                type: 'LOCATION_GROUP',
+              },
+            ],
+          },
+        },
+      },
+    }),
+    ApiResponse({ status: 410, description: 'ACCOUNT_CHOICE_EXPIRED' })
+  );
+}
+
+export function ApiSelectAccount(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Connect the Business Profile account the owner chose',
+      description:
+        'Settles the pending choice. `accountId` must be one of the listed accounts (`400 ' +
+        'ACCOUNT_NOT_IN_CHOICE` otherwise, and the choice stays so it can be retried). The choice is single-use: ' +
+        'a second submission gets `410`. From there it follows the same rules as a one-account callback, so a ' +
+        'live connection to a *different* account is `409 ACCOUNT_MISMATCH`.',
+    }),
+    ApiBody({
+      type: SelectAccountDto,
+      examples: {
+        default: {
+          summary: 'Choose the group account',
+          value: { accountId: 'accounts/108327764455' },
+        },
+      },
+    }),
+    ApiResponse({
+      status: 200,
+      type: SelectAccountResponseDto,
+      examples: {
+        default: {
+          summary: 'Connected',
+          value: {
+            connectionId: '0190f4c1-8a21-7c33-9f01-2b7d5e8a4410',
+            accountId: 'accounts/108327764455',
+          },
+        },
+      },
+    }),
+    ApiResponse({ status: 400, description: 'ACCOUNT_NOT_IN_CHOICE' }),
+    ApiResponse({ status: 409, description: 'ACCOUNT_MISMATCH' }),
+    ApiResponse({ status: 410, description: 'ACCOUNT_CHOICE_EXPIRED' })
   );
 }
 

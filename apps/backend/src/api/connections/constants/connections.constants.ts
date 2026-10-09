@@ -11,6 +11,9 @@ export const CONNECTION_ERROR_CODES = {
   BACKFILL_ENQUEUE_FAILED: 'BACKFILL_ENQUEUE_FAILED',
   PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
   PROVIDER_NOT_CONFIGURED: 'PROVIDER_NOT_CONFIGURED',
+  ACCOUNT_CHOICE_EXPIRED: 'ACCOUNT_CHOICE_EXPIRED',
+  ACCOUNT_NOT_IN_CHOICE: 'ACCOUNT_NOT_IN_CHOICE',
+  ACCOUNT_MISMATCH: 'ACCOUNT_MISMATCH',
 } as const;
 
 /**
@@ -50,6 +53,15 @@ export const DEFAULT_RETURN_TO = ReturnTo.ONBOARDING;
 export const OAUTH_SID_COOKIE_NAME = 'gbp_oauth_sid';
 export const OAUTH_SID_COOKIE_PATH = '/v1/connections';
 export const OAUTH_STATE_TTL_SECONDS = 600;
+
+/**
+ * How long the owner has to pick a Business Profile account after consenting. The grant's tokens wait in
+ * Redis (encrypted) for this long, so it is kept short.
+ */
+export const PENDING_ACCOUNT_CHOICE_TTL_SECONDS = 900;
+
+/** Appended to the connect screen's URL when the grant manages several accounts; the screen then shows the picker. */
+export const ACCOUNT_CHOICE_QUERY = 'account_choice=pending';
 
 /**
  * Sanity ceiling against a pathological Google account or an oversized `externalLocationIds` array.

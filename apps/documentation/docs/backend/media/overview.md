@@ -115,7 +115,7 @@ upload-bandwidth cost on the API tier.
 
 **Why the authorization is a URL plus opaque form fields, and not named provider-specific
 parameters.** `UploadAuthorization` (`src/api/media/types/storage-provider.type.ts`) is
-`{ provider, uploadUrl, formFields, providerAssetId? }`: the client POSTs `file` plus every
+`{ provider, uploadUrl, formFields }`: the client POSTs `file` plus every
 `formFields` entry, verbatim, to `uploadUrl`, and never picks through the bag by key. An earlier
 shape handed back a provider-specific `params` object the client destructured field by field,
 which made every field name a silent contract between two codebases — rename one server-side and
@@ -303,44 +303,30 @@ column is ahead of the code here, not redundant.
 
 ## Storage providers
 
-A three-class abstraction, selected at module-construction time:
+A two-class abstraction with Cloudinary as the only implementation. There is no offline stand-in:
+local development uses a Cloudinary account's free tier.
 
 | Class | Role |
 |---|---|
-| `StorageProvider` (abstract) | The contract: `type`, `createUploadAuthorization`, `verifyUpload`, `delete`. The DI token every consumer injects. |
-| `CloudinaryStorageProvider` | The real one. Signs uploads with the Cloudinary SDK, verifies via its Admin API, deletes via `uploader.destroy` (and checks the result). |
-| `NoopStorageProvider` | The default. No network, no credentials; returns an empty `uploadUrl` plus a generated `providerAssetId` from authorize, a canned inline placeholder avatar from verify, and logs-and-shrugs on delete. |
+| `StorageProvider` (abstract) | The contract: `type`, `isConfigured`, `createUploadAuthorization`, `verifyUpload`, `delete`. The DI token every consumer injects. |
+| `CloudinaryStorageProvider` | Signs uploads with the Cloudinary SDK, verifies via its Admin API, deletes via `uploader.destroy` (and checks the result). |
 
-`MediaModule`'s `storageProviderFactory` reads `STORAGE_PROVIDER` and switches on it, defaulting to
-`noop` for any unset or unrecognized value. `StorageProvider` stays private to this module —
-nothing outside `MediaService` talks to a provider directly.
+`MediaModule` binds `StorageProvider` straight to `CloudinaryStorageProvider`; the class stays
+private to this module, so nothing outside `MediaService` talks to a provider directly.
 
-An **empty `uploadUrl` is the provider-agnostic signal that there is nothing to upload to**: the
-client skips the upload leg entirely and confirms with the `providerAssetId` the authorization
-already handed it. That is the one branch a client has to implement, and it keys off a value
-rather than off the provider name.
+**Credentials are checked when an upload is requested, not at boot.** `isConfigured()` is true only
+when cloud name, API key and API secret are all set. `MediaService.getAvatarUploadAuthorization`
+checks it first and answers `503 STORAGE_NOT_CONFIGURED` otherwise, so a server without Cloudinary
+credentials still boots and everything except avatar upload works. All three variables are required
+in production (Joi); locally they may stay empty.
 
-**`noop` is not forced outside production, unlike `EmailModule`'s equivalent factory, and the
-asymmetry is intentional.** Sending a real unwanted email in dev is actively harmful — a stray
-inbox, an embarrassed test user. Uploading a real image to Cloudinary in dev is the opposite: it
-is exactly what this feature needs to be testable with once credentials exist, and a hard
-non-production override would make that unverifiable right up until the moment it shipped.
-Defaulting to `noop` already achieves the thing the override was protecting: nothing requires
-credentials until an operator explicitly opts in.
-
-The environment variables are in the `// ─── Media ───` block of `src/config/env.config.ts`, all
-`@IsOptional()`:
+The environment variables are in the `// ─── Media ───` block of `src/config/env.config.ts`:
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `STORAGE_PROVIDER` | No, default `noop` | `cloudinary` \| `noop`. Anything else falls through to `noop`. |
-| `CLOUDINARY_CLOUD_NAME` | Only when `STORAGE_PROVIDER=cloudinary` | Cloud name; the `uploadUrl` returned to the client embeds it. |
-| `CLOUDINARY_API_KEY` | Only when `STORAGE_PROVIDER=cloudinary` | Returned to the client inside `formFields`. A public identifier, not a secret. |
-| `CLOUDINARY_API_SECRET` | Only when `STORAGE_PROVIDER=cloudinary` | Signs the upload authorization and authenticates the server-to-Cloudinary verify read. **Never leaves the backend.** |
-
-None of the three Cloudinary vars is validated as required-when-selected: each falls back to `''`,
-so `STORAGE_PROVIDER=cloudinary` with a missing secret boots cleanly and fails at the first
-upload. See [Gap](#gap-between-current-code-and-target-design).
+| `CLOUDINARY_CLOUD_NAME` | Production | Cloud name; the `uploadUrl` returned to the client embeds it. |
+| `CLOUDINARY_API_KEY` | Production | Returned to the client inside `formFields`. A public identifier, not a secret. |
+| `CLOUDINARY_API_SECRET` | Production | Signs the upload authorization and authenticates the server-to-Cloudinary verify read. **Never leaves the backend.** |
 
 ## API surface
 
@@ -402,12 +388,8 @@ What is genuinely missing or inconsistent:
   regret can only upload a different one. (`MediaRepository.deleteById` used to exist unused; it
   has since been removed, so building this means adding the repository method back alongside the
   route, the provider delete, and a decision about what the profile renders in its place.)
-- **`STORAGE_PROVIDER=cloudinary` with missing credentials boots happily.** All three
-  `CLOUDINARY_*` vars are `@IsOptional()` and default to `''`. A conditional validation (required
-  when `STORAGE_PROVIDER === 'cloudinary'`) would turn a first-upload runtime failure into a
-  startup failure, which is where a misconfiguration belongs.
 - **`AWS_S3_BUCKET` / `AWS_S3_REGION` sit in the same `// ─── Media ───` env block with no S3
-  provider behind them.** `StorageProviderType` is `'cloudinary' | 'noop'`. They are leftovers
+  provider behind them.** `StorageProviderType` is `'cloudinary'`. They are leftovers
   from the boilerplate `media` module this feature replaced; either build the provider or drop the
   vars, so nobody sets them expecting an effect.
 - **The `provider` column is written but never read.** `MediaService` deletes the displaced asset
@@ -420,14 +402,13 @@ What is genuinely missing or inconsistent:
   (list the folder tree, diff against `media.provider_asset_id`) is the eventual answer; today the
   only signal is the `MediaService` warning log.
 
-Five stale or contradictory comments found while writing this document, listed so nobody trusts
+Four stale or contradictory comments found while writing this document, listed so nobody trusts
 them over the code:
 
 | Where | Says | Actually |
 |---|---|---|
 | `CreateUploadAuthorizationInput.folder` doc comment (`types/storage-provider.type.ts`) | The folder is "not scoped per-owner, since the asset's own generated id is already unique" | It is scoped per-owner, and that scoping is the module's central security control — see [Security model](#security-model). |
 | `StorageProvider.createUploadAuthorization` doc comment | "see `UploadAuthorization`'s own doc comment for why this return shape is **provider-specific**" | `UploadAuthorization` now says the opposite, and is right: the shape is deliberately provider-*agnostic* (`uploadUrl` + opaque `formFields`) so the client never branches on provider field names. |
-| `ConfirmAvatarDto`'s Swagger description | `noop` returns "the fixed sentinel id" | It returns a fresh `noop-<uuid>` per authorize call. `NoopStorageProvider.verifyUpload` accepts *any* id regardless, so nothing depends on the value. |
 | `StorageProvider.delete` doc comment | Cites `MediaService.replaceAvatar` | No such method; the caller is `MediaService.confirmAvatar`. |
 | `0010_media.sql` header | "updates this same row **after** the application layer deletes the old provider asset" | The code deletes **after** the DB write commits, which is the safer of the two orderings and the one the service comment explains. The migration header has the sequence backwards. |
 
@@ -436,10 +417,3 @@ what a client developer reads first: both confirm routes' `ConfirmAvatarDto` exa
 `avatars/a1b2c3d4-…`, a bare-root id that the folder check would actually reject — a real
 `public_id` carries the owner subfolder; and `ConfirmAvatarResponseDto`'s own `@ApiPropertyOptional`
 example still points at `res.cloudinary.com/demo/…/avatars/user-1.png`, the pre-owner-folder layout.
-
-Finally, one asymmetry that is not a bug but reads like one: `NoopStorageProvider`'s placeholder
-avatar is an inline `image/svg+xml` data URI — the exact format the Cloudinary path excludes for
-stored-XSS reasons. It is safe as written (an SVG loaded via a `data:` URI in an `<img src>` does
-not execute script, and this one is a server-side constant no client can influence), and inlining
-it is what lets the noop flow work with zero network dependencies. It is worth a comment in the
-code so the next reader does not "fix" one of the two.

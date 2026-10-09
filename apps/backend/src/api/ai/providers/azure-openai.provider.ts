@@ -1,5 +1,4 @@
 import { MESSAGES } from '@common/constants/messages.constants';
-import { getLocalMockServerUrl } from '@common/helpers/local-mock-server.util';
 import type { EnvConfig } from '@config/env.config';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -22,12 +21,9 @@ import type { GenerateReplyInput, GenerateReplyResult } from '../types/ai-provid
 /** GDPR requirement, not a preference, so it is validated rather than left to convention. */
 const REQUIRED_AZURE_REGION = 'westeurope';
 
-/** Mock deployment name; only a path segment the mock server ignores, never sent anywhere real. */
-const MOCK_DEPLOYMENT_FALLBACK = 'mock-deployment';
-
 /**
- * Default `AiProvider` (`AI_PROVIDER=azure`). When `getLocalMockServerUrl` is set, calls go to the
- * mock server and none of the real `AZURE_OPENAI_*` config is needed or validated.
+ * Default `AiProvider` (`AI_PROVIDER=azure`). Always calls the configured Azure OpenAI deployment; there
+ * is no local stand-in.
  *
  * Config is read and the SDK client built on the first real call, not in the constructor, so a
  * misconfigured value fails that generation attempt with `AiProviderNotConfiguredException`
@@ -102,18 +98,6 @@ export class AzureOpenAiProvider extends AiProvider {
   /** Memoized: config cannot change without a process restart. */
   private getClient(): { client: OpenAI; deployment: string } {
     if (this.client !== null && this.deployment !== null) {
-      return { client: this.client, deployment: this.deployment };
-    }
-
-    const mockUrl = getLocalMockServerUrl(this.configService);
-    if (mockUrl !== undefined) {
-      const deployment =
-        this.configService.get<string>('AZURE_OPENAI_DEPLOYMENT') ?? MOCK_DEPLOYMENT_FALLBACK;
-      this.client = new OpenAI({
-        apiKey: 'local-mock-server',
-        baseURL: `${mockUrl}/azure-openai/deployments/${deployment}`,
-      });
-      this.deployment = deployment;
       return { client: this.client, deployment: this.deployment };
     }
 

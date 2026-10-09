@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { ApiError } from "@/app/_libs/services/api-error";
 import { BillingService } from "@/app/_libs/services/billing.service";
 import {
   type BackfillProgress,
@@ -74,6 +75,10 @@ describe("useOnboardingConnectFlow", () => {
     searchParams = new URLSearchParams();
     replace.mockClear();
     vi.restoreAllMocks();
+    // Every resume also asks for a waiting account choice; usually there is none.
+    vi.spyOn(ConnectionService, "listPendingAccounts").mockRejectedValue(
+      new ApiError(410, "none pending", "ACCOUNT_CHOICE_EXPIRED"),
+    );
   });
 
   afterEach(() => {
@@ -172,6 +177,188 @@ describe("useOnboardingConnectFlow", () => {
 
     expect(poll.mock.calls.length).toBeGreaterThan(1);
     expect(result.current.progress).toBe(80);
+  });
+
+  describe("choosing between several Business Profile accounts", () => {
+    const ACCOUNTS = [
+      { accountId: "accounts/1", name: "Jane Doe", type: "PERSONAL" },
+      { accountId: "accounts/2", name: "Coastal Group", type: "LOCATION_GROUP" },
+    ];
+
+    beforeEach(() => {
+      searchParams = new URLSearchParams({ account_choice: "pending" });
+    });
+
+    test("lists the accounts when the callback sends the owner here, with nothing preselected", async () => {
+      const getState = vi.spyOn(ConnectionService, "getState");
+      vi.spyOn(ConnectionService, "listPendingAccounts").mockResolvedValue(ACCOUNTS);
+
+      const { result } = renderHook(() => useOnboardingConnectFlow());
+
+      await waitFor(() => expect(result.current.stage).toBe("choose_account"));
+      expect(result.current.accounts).toEqual(ACCOUNTS);
+      expect(result.current.selectedAccountId).toBeNull();
+      // Stripped so a refresh cannot replay it, and the ordinary resume is skipped: nothing is connected yet.
+      expect(replace).toHaveBeenCalledWith("/onboarding/connect");
+      expect(getState).not.toHaveBeenCalled();
+    });
+
+    test("does nothing on Continue until an account is chosen", async () => {
+      vi.spyOn(ConnectionService, "listPendingAccounts").mockResolvedValue(ACCOUNTS);
+      const selectAccount = vi.spyOn(ConnectionService, "selectAccount");
+      const { result } = renderHook(() => useOnboardingConnectFlow());
+      await waitFor(() => expect(result.current.stage).toBe("choose_account"));
+
+      act(() => result.current.confirmAccount());
+
+      expect(selectAccount).not.toHaveBeenCalled();
+      expect(result.current.stage).toBe("choose_account");
+    });
+
+    test("connects the chosen account, then carries on with the ordinary flow", async () => {
+      // Answered once; the choice is used up by the select, as on the server.
+      vi.spyOn(ConnectionService, "listPendingAccounts")
+        .mockResolvedValueOnce(ACCOUNTS)
+        .mockRejectedValue(new ApiError(410, "used", "ACCOUNT_CHOICE_EXPIRED"));
+      const selectAccount = vi
+        .spyOn(ConnectionService, "selectAccount")
+        .mockResolvedValue({ returnTo: "onboarding" });
+      vi.spyOn(ConnectionService, "getState").mockResolvedValue({
+        status: "connected",
+        connectionId: "conn-1",
+        providerAccountId: "accounts/2",
+        connectedAt: "2026-01-01T00:00:00.000Z",
+        location: null,
+      });
+      vi.spyOn(ConnectionService, "listLocations").mockResolvedValue([]);
+      vi.spyOn(ConnectionService, "listAvailableLocations").mockResolvedValue([
+        { externalLocationId: "locations/1", name: "Downtown", address: null, alreadyConnected: false },
+      ]);
+      vi.spyOn(BillingService, "getSubscription").mockResolvedValue({
+        maxLocations: null,
+        activeLocationCount: 0,
+      } as Awaited<ReturnType<typeof BillingService.getSubscription>>);
+      const { result } = renderHook(() => useOnboardingConnectFlow());
+      await waitFor(() => expect(result.current.stage).toBe("choose_account"));
+
+      act(() => result.current.selectAccount("accounts/2"));
+      expect(result.current.selectedAccountId).toBe("accounts/2");
+      act(() => result.current.confirmAccount());
+
+      await waitFor(() => expect(result.current.stage).toBe("confirm_location"));
+      expect(selectAccount).toHaveBeenCalledWith("accounts/2");
+    });
+
+    test("finishes in Settings when the reconnect began there", async () => {
+      vi.spyOn(ConnectionService, "listPendingAccounts").mockResolvedValue(ACCOUNTS);
+      vi.spyOn(ConnectionService, "selectAccount").mockResolvedValue({ returnTo: "settings" });
+      const getState = vi.spyOn(ConnectionService, "getState");
+      const { result } = renderHook(() => useOnboardingConnectFlow());
+      await waitFor(() => expect(result.current.stage).toBe("choose_account"));
+
+      act(() => result.current.selectAccount("accounts/2"));
+      act(() => result.current.confirmAccount());
+
+      await waitFor(() =>
+        expect(replace).toHaveBeenCalledWith("/settings?tab=connection&connected=1"),
+      );
+      expect(getState).not.toHaveBeenCalled();
+    });
+
+    test.each([
+      [410, "ACCOUNT_CHOICE_EXPIRED", "accountChoiceExpired", "restart"],
+      [409, "ACCOUNT_MISMATCH", "ACCOUNT_MISMATCH", "restart"],
+      [409, "CONNECTION_NEEDS_REAUTH", "needsReauth", "reconnect"],
+    ])("a %s %s answer ends in the %s error with a %s recovery", async (status, errorCode, code, recovery) => {
+      vi.spyOn(ConnectionService, "listPendingAccounts").mockResolvedValue(ACCOUNTS);
+      vi.spyOn(ConnectionService, "selectAccount").mockRejectedValue(
+        new ApiError(status, "no", errorCode),
+      );
+      const { result } = renderHook(() => useOnboardingConnectFlow());
+      await waitFor(() => expect(result.current.stage).toBe("choose_account"));
+
+      act(() => result.current.selectAccount("accounts/1"));
+      act(() => result.current.confirmAccount());
+
+      await waitFor(() => expect(result.current.stage).toBe("error"));
+      expect(result.current.error).toEqual({ code, recovery });
+    });
+
+    test("shows the backend's own message for any other failure, and offers a retry", async () => {
+      vi.spyOn(ConnectionService, "listPendingAccounts").mockResolvedValue(ACCOUNTS);
+      vi.spyOn(ConnectionService, "selectAccount").mockRejectedValue(
+        new ApiError(500, "Could not save the connection."),
+      );
+      const { result } = renderHook(() => useOnboardingConnectFlow());
+      await waitFor(() => expect(result.current.stage).toBe("choose_account"));
+
+      act(() => result.current.selectAccount("accounts/1"));
+      act(() => result.current.confirmAccount());
+
+      await waitFor(() => expect(result.current.stage).toBe("error"));
+      expect(result.current.error).toEqual({
+        code: "accountSelectFailed",
+        recovery: "retry",
+        message: "Could not save the connection.",
+      });
+    });
+
+    // The server keeps the choice after such a failure, so "Try again" lands back on the picker.
+    test("returns to the picker on retry after a failed choice", async () => {
+      vi.spyOn(ConnectionService, "listPendingAccounts").mockResolvedValue(ACCOUNTS);
+      vi.spyOn(ConnectionService, "selectAccount").mockRejectedValue(
+        new ApiError(502, "Google is unavailable."),
+      );
+      vi.spyOn(ConnectionService, "getState").mockResolvedValue({
+        status: "disconnected",
+        connectionId: null,
+        providerAccountId: null,
+        connectedAt: null,
+        location: null,
+      });
+      const { result } = renderHook(() => useOnboardingConnectFlow());
+      await waitFor(() => expect(result.current.stage).toBe("choose_account"));
+      act(() => result.current.selectAccount("accounts/1"));
+      act(() => result.current.confirmAccount());
+      await waitFor(() => expect(result.current.stage).toBe("error"));
+
+      act(() => result.current.retry());
+
+      await waitFor(() => expect(result.current.stage).toBe("choose_account"));
+      expect(result.current.accounts).toEqual(ACCOUNTS);
+    });
+
+    test("an expired choice sends the owner to connect again instead of an empty picker", async () => {
+      vi.spyOn(ConnectionService, "listPendingAccounts").mockRejectedValue(
+        new ApiError(410, "expired"),
+      );
+
+      const { result } = renderHook(() => useOnboardingConnectFlow());
+
+      await waitFor(() => expect(result.current.stage).toBe("error"));
+      expect(result.current.error).toEqual({ code: "accountChoiceExpired", recovery: "restart" });
+    });
+  });
+
+  // Regression: the query that opens the picker is stripped on arrival, so a refresh used to land on Connect.
+  test("brings the picker back on a plain visit while a choice is still waiting", async () => {
+    const accounts = [
+      { accountId: "accounts/1", name: "Jane Doe", type: "PERSONAL" },
+      { accountId: "accounts/2", name: "Coastal Group", type: "LOCATION_GROUP" },
+    ];
+    vi.spyOn(ConnectionService, "listPendingAccounts").mockResolvedValue(accounts);
+    vi.spyOn(ConnectionService, "getState").mockResolvedValue({
+      status: "disconnected",
+      connectionId: null,
+      providerAccountId: null,
+      connectedAt: null,
+      location: null,
+    });
+
+    const { result } = renderHook(() => useOnboardingConnectFlow());
+
+    await waitFor(() => expect(result.current.stage).toBe("choose_account"));
+    expect(result.current.accounts).toEqual(accounts);
   });
 
   test("surfaces an OAuth error from the callback and strips it from the URL", async () => {

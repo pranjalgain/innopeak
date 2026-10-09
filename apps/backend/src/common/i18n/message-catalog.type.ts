@@ -53,6 +53,8 @@ export interface MessageCatalog {
     /** Specific for the same reason as `UNSUPPORTED_FORMAT`. */
     FILE_TOO_LARGE: string;
     FAILED_TO_PERSIST_AVATAR: string;
+    /** `CLOUDINARY_*` is unset on this server. */
+    STORAGE_NOT_CONFIGURED: string;
   };
   NOTIFICATIONS: {
     LISTED: string;
@@ -69,6 +71,11 @@ export interface MessageCatalog {
     BACKFILL_ENQUEUE_FAILED: string;
     PROVIDER_UNAVAILABLE: string;
     PROVIDER_NOT_CONFIGURED: string;
+    /** The pending account choice is gone (15-minute TTL, already used, or started by someone else). */
+    ACCOUNT_CHOICE_EXPIRED: string;
+    ACCOUNT_NOT_IN_CHOICE: string;
+    /** A live connection to a different account already exists. */
+    ACCOUNT_MISMATCH: string;
     DISCONNECTED: string;
     LOCATION_CONFIRMED: string;
     LOCATION_INACTIVE: string;
@@ -132,7 +139,7 @@ export interface MessageCatalog {
     PROMPT_NOT_CONFIGURED: string;
     /** `OPENROUTER_API_KEY`/`OPENROUTER_MODEL` unset; checked lazily on first call, not at boot. */
     PROVIDER_NOT_CONFIGURED: string;
-    /** An `AZURE_OPENAI_*` setting is unset; not used when `USE_LOCAL_MOCK_SERVER=true`. */
+    /** An `AZURE_OPENAI_*` setting is unset. */
     AZURE_PROVIDER_NOT_CONFIGURED: string;
     /** A region other than `'westeurope'` is a GDPR violation, not a preference. */
     AZURE_REGION_INVALID: string;
@@ -156,15 +163,14 @@ export interface MessageCatalog {
     AI_DRAFT_LIMIT_REACHED: string;
     STRIPE_WEBHOOK_SIGNATURE_INVALID: string;
     LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION: string;
-    DUMMY_PROVIDER_NOT_ACTIVE: string;
     RECEIPTS_RETRIEVED: string;
     RECEIPT_NOT_FOUND: string;
     BILLING_PROFILE_RETRIEVED: string;
     BILLING_PROFILE_UPDATED: string;
     SETUP_INTENT_CREATED: string;
     PAYMENT_METHOD_UPDATED: string;
-    STRIPE_ONLY_FEATURE: string;
-    CHECKOUT_COMPLETED: string;
+    /** `STRIPE_SECRET_KEY` is unset on this server. */
+    PAYMENT_NOT_CONFIGURED: string;
     SUBSCRIPTION_CANCELED: string;
     FAILED_TO_CREATE_SUBSCRIPTION: string;
     /** Should never happen: the plan row is seeded by migration. */

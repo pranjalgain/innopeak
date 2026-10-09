@@ -33,6 +33,7 @@ import {
   AuthorizeQueryDto,
   ConfirmLocationDto,
   ListLocationsQueryDto,
+  SelectAccountDto,
   SetActiveLocationDto,
 } from '../dto/connection-request.dto';
 import type {
@@ -42,6 +43,8 @@ import type {
   DisconnectResponseDto,
   LocationDto,
   LocationListResponseDto,
+  PendingAccountsResponseDto,
+  SelectAccountResponseDto,
 } from '../dto/connection-response.dto';
 import { ConnectionsService } from '../services/connections.service';
 import {
@@ -52,6 +55,8 @@ import {
   ApiDisconnect,
   ApiGetConnection,
   ApiListLocations,
+  ApiPendingAccounts,
+  ApiSelectAccount,
   ApiSetActiveLocation,
 } from '../swagger/connections.swagger';
 import { buildOauthSidCookieOptions } from '../utils/connections.utils';
@@ -117,6 +122,32 @@ export class ConnectionsController {
   async disconnect(@CurrentUser() user: AuthUser): Promise<ApiResponseDto<DisconnectResponseDto>> {
     const response = await this.connectionsService.disconnect(user);
     return ResponseUtil.success(response, MESSAGES.CONNECTIONS.DISCONNECTED, HttpStatus.OK);
+  }
+
+  @Get(RouteNames.GOOGLE_PENDING_ACCOUNTS)
+  @Roles(UserRole.OWNER)
+  @ApiPendingAccounts()
+  async pendingAccounts(
+    @CurrentUser() user: AuthUser
+  ): Promise<ApiResponseDto<PendingAccountsResponseDto>> {
+    const response = await this.connectionsService.getPendingAccounts(user);
+    return ResponseUtil.success(response, undefined, HttpStatus.OK);
+  }
+
+  @Post(RouteNames.GOOGLE_SELECT_ACCOUNT)
+  @Roles(UserRole.OWNER)
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiSelectAccount()
+  async selectAccount(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SelectAccountDto
+  ): Promise<ApiResponseDto<SelectAccountResponseDto>> {
+    const response = await this.connectionsService.selectAccount({
+      user,
+      accountId: dto.accountId,
+    });
+    return ResponseUtil.success(response, undefined, HttpStatus.OK);
   }
 
   @Get(RouteNames.GOOGLE_AVAILABLE_LOCATIONS)

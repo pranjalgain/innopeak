@@ -17,16 +17,25 @@ import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db
 import { ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
+import { ProviderAuthError } from '@review-provider/errors/provider.error';
 import { ProviderCredentialService } from '@review-provider/provider-credential.service';
 import { ReviewProvider } from '@review-provider/providers/review-provider.provider';
 import { ReviewSyncQueue } from '@review-sync-queue/review-sync.queue';
 
 import { ConnectionsService } from './connections.service';
 import { OAuthStateService } from './oauth-state.service';
+import { PendingAccountChoiceService } from './pending-account-choice.service';
 
 import { ConnectionState } from '../enums/connection-state.enum';
 import { ReturnTo } from '../enums/return-to.enum';
-import { ConnectionNotFoundException } from '../exceptions/connections.exceptions';
+import {
+  AccountChoiceExpiredException,
+  AccountMismatchException,
+  AccountNotInChoiceException,
+  ConnectionNeedsReauthException,
+  ConnectionNotFoundException,
+  ProviderUnavailableException,
+} from '../exceptions/connections.exceptions';
 
 const user: TenantAuthUser = {
   type: JwtTokenType.TENANT_USER,
@@ -136,6 +145,7 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
         { provide: ReviewSyncDbService, useValue: { completeRun } },
         { provide: AuthDbService, useValue: {} },
         { provide: BillingEntitlementsService, useValue: { canAddLocation, getEntitlements } },
+        { provide: PendingAccountChoiceService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('') } },
       ],
     }).compile();
@@ -293,6 +303,9 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
   const replaceCredential = jest.fn();
   const storeNewCredential = jest.fn();
   const addBackfillJob = jest.fn();
+  const save = jest.fn();
+  const peek = jest.fn();
+  const claim = jest.fn();
 
   const tokens = {
     accessToken: 'access-token',
@@ -310,8 +323,9 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
     });
     exchangeCode.mockResolvedValue({
       tokens,
-      account: { externalAccountId: 'accounts/1' },
+      accounts: [{ externalAccountId: 'accounts/1' }],
     });
+    save.mockResolvedValue(undefined);
     upsertConnection.mockResolvedValue(connection);
     replaceCredential.mockResolvedValue('local-redis:secret-1');
     storeNewCredential.mockResolvedValue('local-redis:secret-2');
@@ -338,6 +352,7 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
         { provide: ReviewSyncDbService, useValue: {} },
         { provide: AuthDbService, useValue: {} },
         { provide: BillingEntitlementsService, useValue: {} },
+        { provide: PendingAccountChoiceService, useValue: { save, peek, claim } },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('') } },
       ],
     }).compile();
@@ -463,6 +478,7 @@ describe('ConnectionsService.getConnectionStatus — soft-disconnected connectio
         { provide: ReviewSyncDbService, useValue: {} },
         { provide: AuthDbService, useValue: { findActiveLocationId } },
         { provide: BillingEntitlementsService, useValue: {} },
+        { provide: PendingAccountChoiceService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('') } },
       ],
     }).compile();
@@ -498,5 +514,303 @@ describe('ConnectionsService.getConnectionStatus — soft-disconnected connectio
     expect(result.connected).toBe(false);
     expect(result.connection?.id).toBe('connection-1');
     expect(result.location).toBeNull();
+  });
+});
+
+/** The account picker: a grant that manages several Business Profile accounts waits for the owner to choose. */
+describe('ConnectionsService — choosing between several Business Profile accounts', () => {
+  let service: ConnectionsService;
+  const consume = jest.fn();
+  const exchangeCode = jest.fn();
+  const findConnectionByTenant = jest.fn();
+  const upsertConnection = jest.fn();
+  const reactivateLocationsForConnection = jest.fn();
+  const replaceCredential = jest.fn();
+  const storeNewCredential = jest.fn();
+  const save = jest.fn();
+  const peek = jest.fn();
+  const claim = jest.fn();
+
+  const tokens = {
+    accessToken: 'access-token',
+    refreshToken: 'refresh-token',
+    expiresAt: new Date('2026-01-01T01:00:00.000Z'),
+    scope: 'https://www.googleapis.com/auth/business.manage',
+  };
+  const personal = { externalAccountId: 'accounts/1', name: 'Jane Doe', type: 'PERSONAL' };
+  const group = { externalAccountId: 'accounts/2', name: 'Coastal Group', type: 'LOCATION_GROUP' };
+  const callbackInput = { code: 'auth-code', state: 'state', sid: 'sid' };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    consume.mockResolvedValue({
+      ok: true,
+      record: { tenantId: 'tenant-1', userId: 'user-1', returnTo: ReturnTo.SETTINGS },
+    });
+    exchangeCode.mockResolvedValue({ tokens, accounts: [personal, group] });
+    findConnectionByTenant.mockResolvedValue(null);
+    upsertConnection.mockResolvedValue(connection);
+    storeNewCredential.mockResolvedValue('local-redis:secret-2');
+    replaceCredential.mockResolvedValue('local-redis:secret-1');
+    reactivateLocationsForConnection.mockResolvedValue([]);
+    save.mockResolvedValue(undefined);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConnectionsService,
+        { provide: ReviewProvider, useValue: { exchangeCode } },
+        { provide: ProviderCredentialService, useValue: { replaceCredential, storeNewCredential } },
+        {
+          provide: ConnectionsDbService,
+          useValue: { findConnectionByTenant, upsertConnection, reactivateLocationsForConnection },
+        },
+        { provide: OAuthStateService, useValue: { consume } },
+        { provide: ReviewSyncQueue, useValue: {} },
+        { provide: ReviewSyncDbService, useValue: {} },
+        { provide: AuthDbService, useValue: {} },
+        { provide: BillingEntitlementsService, useValue: {} },
+        { provide: PendingAccountChoiceService, useValue: { save, peek, claim } },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('') } },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ConnectionsService);
+  });
+
+  describe('callback', () => {
+    it('keeps the grant pending and sends the owner to the picker, connecting nothing yet', async () => {
+      const redirect = await service.handleCallback(callbackInput);
+
+      // The picker lives on the onboarding screen; `returnTo` travels with the grant so Settings gets the owner back.
+      expect(save).toHaveBeenCalledWith('tenant-1', {
+        userId: 'user-1',
+        returnTo: ReturnTo.SETTINGS,
+        accounts: [personal, group],
+        tokens,
+      });
+      expect(redirect).toContain('/onboarding/connect');
+      expect(redirect).toContain('account_choice=pending');
+      expect(storeNewCredential).not.toHaveBeenCalled();
+      expect(upsertConnection).not.toHaveBeenCalled();
+    });
+
+    it('connects straight away, with no picker, when the grant manages one account', async () => {
+      exchangeCode.mockResolvedValue({ tokens, accounts: [personal] });
+
+      const redirect = await service.handleCallback(callbackInput);
+
+      expect(save).not.toHaveBeenCalled();
+      expect(upsertConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ providerAccountId: 'accounts/1' })
+      );
+      expect(redirect).toContain('connected=1');
+    });
+
+    it('reconnects to the account the tenant already has, without asking again', async () => {
+      findConnectionByTenant.mockResolvedValue({ ...connection, providerAccountId: 'accounts/2' });
+
+      const redirect = await service.handleCallback(callbackInput);
+
+      expect(save).not.toHaveBeenCalled();
+      expect(replaceCredential).toHaveBeenCalled();
+      expect(upsertConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ providerAccountId: 'accounts/2' })
+      );
+      expect(redirect).toContain('connected=1');
+    });
+
+    // Every choice would be refused while that connection is live, so asking would only waste the grant.
+    it('answers ACCOUNT_MISMATCH, without a picker, when the connected account is not among those offered', async () => {
+      findConnectionByTenant.mockResolvedValue({ ...connection, providerAccountId: 'accounts/9' });
+
+      const redirect = await service.handleCallback(callbackInput);
+
+      expect(save).not.toHaveBeenCalled();
+      expect(storeNewCredential).not.toHaveBeenCalled();
+      expect(upsertConnection).not.toHaveBeenCalled();
+      expect(redirect).toContain('error=ACCOUNT_MISMATCH');
+    });
+
+    it('reads the tenant connection once per callback', async () => {
+      exchangeCode.mockResolvedValue({ tokens, accounts: [personal] });
+
+      await service.handleCallback(callbackInput);
+
+      expect(findConnectionByTenant).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks again after a disconnect, since the old account no longer binds the owner', async () => {
+      findConnectionByTenant.mockResolvedValue({
+        ...connection,
+        providerAccountId: 'accounts/2',
+        disconnectedAt: '2026-01-01T00:00:00.000Z',
+      });
+
+      const redirect = await service.handleCallback(callbackInput);
+
+      // The disconnected row's account is still offered, but a disconnected tenant is free to pick another.
+      expect(save).toHaveBeenCalled();
+      expect(redirect).toContain('account_choice=pending');
+    });
+  });
+
+  describe('getPendingAccounts', () => {
+    it('lists the candidates, with a null for a missing name or type', async () => {
+      peek.mockResolvedValue({
+        userId: 'user-1',
+        accounts: [personal, { externalAccountId: 'accounts/3' }],
+        tokens,
+      });
+
+      await expect(service.getPendingAccounts(user)).resolves.toEqual({
+        accounts: [
+          { accountId: 'accounts/1', name: 'Jane Doe', type: 'PERSONAL' },
+          { accountId: 'accounts/3', name: null, type: null },
+        ],
+      });
+    });
+
+    it('answers expired when nothing is pending', async () => {
+      peek.mockResolvedValue(null);
+
+      await expect(service.getPendingAccounts(user)).rejects.toBeInstanceOf(
+        AccountChoiceExpiredException
+      );
+    });
+
+    it("answers expired for a choice that belongs to another user's consent", async () => {
+      peek.mockResolvedValue({ userId: 'someone-else', accounts: [personal], tokens });
+
+      await expect(service.getPendingAccounts(user)).rejects.toBeInstanceOf(
+        AccountChoiceExpiredException
+      );
+    });
+  });
+
+  describe('selectAccount', () => {
+    const waiting = {
+      userId: 'user-1',
+      returnTo: ReturnTo.SETTINGS,
+      accounts: [personal, group],
+      tokens,
+    };
+
+    it('connects the chosen account through the same path as a one-account callback', async () => {
+      peek.mockResolvedValue(waiting);
+      claim.mockResolvedValue(waiting);
+
+      await expect(service.selectAccount({ user, accountId: 'accounts/2' })).resolves.toEqual({
+        connectionId: 'connection-1',
+        accountId: 'accounts/2',
+        returnTo: ReturnTo.SETTINGS,
+      });
+
+      expect(storeNewCredential).toHaveBeenCalledWith(tokens);
+      expect(upsertConnection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 'tenant-1',
+          connectedByUserId: 'user-1',
+          providerAccountId: 'accounts/2',
+        })
+      );
+    });
+
+    it('refuses an account Google did not offer, and keeps the choice so it can be retried', async () => {
+      peek.mockResolvedValue(waiting);
+
+      await expect(
+        service.selectAccount({ user, accountId: 'accounts/999' })
+      ).rejects.toBeInstanceOf(AccountNotInChoiceException);
+
+      expect(claim).not.toHaveBeenCalled();
+      expect(storeNewCredential).not.toHaveBeenCalled();
+    });
+
+    it('answers expired when nothing is pending, or it belongs to someone else', async () => {
+      peek.mockResolvedValue(null);
+      await expect(service.selectAccount({ user, accountId: 'accounts/1' })).rejects.toBeInstanceOf(
+        AccountChoiceExpiredException
+      );
+
+      peek.mockResolvedValue({ ...waiting, userId: 'someone-else' });
+      await expect(service.selectAccount({ user, accountId: 'accounts/1' })).rejects.toBeInstanceOf(
+        AccountChoiceExpiredException
+      );
+      expect(claim).not.toHaveBeenCalled();
+    });
+
+    // Regression guard for a double click or a second tab: only the first claim gets the tokens.
+    it('is single-use: a submission that loses the claim race connects nothing', async () => {
+      peek.mockResolvedValue(waiting);
+      claim.mockResolvedValue(null);
+
+      await expect(service.selectAccount({ user, accountId: 'accounts/1' })).rejects.toBeInstanceOf(
+        AccountChoiceExpiredException
+      );
+      expect(storeNewCredential).not.toHaveBeenCalled();
+      expect(upsertConnection).not.toHaveBeenCalled();
+    });
+
+    it('applies the mismatch rule: a live connection to another account is a 409', async () => {
+      peek.mockResolvedValue(waiting);
+      claim.mockResolvedValue(waiting);
+      findConnectionByTenant.mockResolvedValue({ ...connection, providerAccountId: 'accounts/9' });
+
+      await expect(service.selectAccount({ user, accountId: 'accounts/2' })).rejects.toBeInstanceOf(
+        AccountMismatchException
+      );
+      expect(upsertConnection).not.toHaveBeenCalled();
+    });
+
+    // Regression: the grant was claimed before connecting, so a transient failure lost it and "Try again" could not work.
+    it('puts the grant back and answers 502 when connecting fails, so the owner can try again', async () => {
+      peek.mockResolvedValue(waiting);
+      claim.mockResolvedValue(waiting);
+      storeNewCredential.mockRejectedValue(new Error('secrets store unavailable'));
+
+      await expect(service.selectAccount({ user, accountId: 'accounts/2' })).rejects.toBeInstanceOf(
+        ProviderUnavailableException
+      );
+      expect(save).toHaveBeenCalledWith('tenant-1', waiting);
+      expect(upsertConnection).not.toHaveBeenCalled();
+    });
+
+    it('passes an already-mapped HTTP error through, after putting the grant back', async () => {
+      peek.mockResolvedValue(waiting);
+      claim.mockResolvedValue(waiting);
+      upsertConnection.mockRejectedValue(new ServiceUnavailableException());
+
+      await expect(service.selectAccount({ user, accountId: 'accounts/2' })).rejects.toBeInstanceOf(
+        ServiceUnavailableException
+      );
+      expect(save).toHaveBeenCalledWith('tenant-1', waiting);
+    });
+
+    it('drops a grant Google rejects and asks for a fresh consent', async () => {
+      peek.mockResolvedValue(waiting);
+      claim.mockResolvedValue(waiting);
+      storeNewCredential.mockRejectedValue(new ProviderAuthError('invalid_grant'));
+
+      await expect(service.selectAccount({ user, accountId: 'accounts/2' })).rejects.toBeInstanceOf(
+        ConnectionNeedsReauthException
+      );
+      expect(save).not.toHaveBeenCalled();
+    });
+
+    it('reactivates locations when the chosen account is the one being reconnected', async () => {
+      peek.mockResolvedValue(waiting);
+      claim.mockResolvedValue(waiting);
+      findConnectionByTenant.mockResolvedValue({
+        ...connection,
+        providerAccountId: 'accounts/2',
+        disconnectedAt: '2026-01-01T00:00:00.000Z',
+      });
+
+      await service.selectAccount({ user, accountId: 'accounts/2' });
+
+      expect(replaceCredential).toHaveBeenCalledWith('local-redis:secret-1', tokens);
+      expect(reactivateLocationsForConnection).toHaveBeenCalledWith('connection-1');
+    });
   });
 });

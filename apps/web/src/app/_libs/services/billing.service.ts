@@ -39,11 +39,6 @@ export class BillingService {
     return unwrap<RedirectUrlResult>(response.data);
   }
 
-  static async createPortalSession(): Promise<RedirectUrlResult> {
-    const response = await billingApi.billingControllerCreatePortalSessionV1();
-    return unwrap<RedirectUrlResult>(response.data);
-  }
-
   /** Applies the Checkout Session read straight from Stripe if `checkout.session.completed` has not landed, so the subscription reads Paid even when that webhook was delayed or missed. */
   static async reconcileCheckoutSession(checkoutSessionId: string): Promise<Subscription> {
     const response = await billingApi.billingControllerReconcileCheckoutSessionV1({
@@ -58,19 +53,12 @@ export class BillingService {
     });
   }
 
-  /** Dev/test only (404s unless `PAYMENT_PROVIDER=dummy`); applies the same transition a real `checkout.session.completed` webhook would. */
-  static async completeDummyCheckout(subscriptionId: string): Promise<void> {
-    await billingApi.billingControllerCompleteDummyCheckoutV1({
-      completeDummyCheckoutDto: { subscriptionId },
-    });
-  }
-
   /** The subscription stays Paid with full entitlements until the current period ends. */
   static async cancelSubscription(): Promise<void> {
     await billingApi.billingControllerCancelSubscriptionV1();
   }
 
-  /** Stripe-only; always empty on `PAYMENT_PROVIDER=dummy` (no real charge). */
+  /** Empty until the tenant has made a real payment. */
   static async listReceipts(): Promise<Receipt[]> {
     const response = await billingApi.billingControllerListReceiptsV1();
     return unwrap<ReceiptListResult>(response.data).receipts;
@@ -95,7 +83,7 @@ export class BillingService {
     };
   }
 
-  /** Stripe-only; 403s as `STRIPE_ONLY_FEATURE` on Dummy (check `Subscription.paymentProvider` first). */
+  /** Updates the Stripe customer's name and email. */
   static async getBillingProfile(): Promise<BillingProfile> {
     const response = await billingApi.billingControllerGetBillingProfileV1();
     return unwrap<BillingProfile>(response.data);

@@ -193,7 +193,7 @@ describe("OnboardingPlanView", () => {
     });
     const createCheckoutSession = vi
       .spyOn(BillingService, "createCheckoutSession")
-      .mockResolvedValue({ url: "http://localhost:3002/billing/dummy-checkout?subscriptionId=dummy_sub_1" });
+      .mockResolvedValue({ url: "https://checkout.stripe.com/c/pay/cs_test_1" });
     const originalLocation = window.location;
     // jsdom rejects assigning `window.location.href`; a settable stand-in lets the hard redirect be observed (as in `require-auth.test.tsx`).
     Object.defineProperty(window, "location", {
@@ -215,7 +215,7 @@ describe("OnboardingPlanView", () => {
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect(window.location.href).toBe(
-        "http://localhost:3002/billing/dummy-checkout?subscriptionId=dummy_sub_1",
+        "https://checkout.stripe.com/c/pay/cs_test_1",
       ),
     );
 

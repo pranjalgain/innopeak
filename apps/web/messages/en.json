@@ -307,6 +307,18 @@
       "button": "Connect Google Business Profile",
       "connecting": "Redirecting to Google…"
     },
+    "accountPicker": {
+      "title": "Which account is your business under?",
+      "subtitle": "Your Google login manages more than one Business Profile account. Choose the one that holds the business you want InnoPeak to manage.",
+      "button": "Continue",
+      "unnamed": "Unnamed account",
+      "types": {
+        "PERSONAL": "Personal account",
+        "LOCATION_GROUP": "Location group",
+        "USER_GROUP": "User group",
+        "ORGANIZATION": "Organization"
+      }
+    },
     "confirmLocation": {
       "title": "We found your business",
       "subtitle": "Confirm this is the location you'd like InnoPeak to manage.",
@@ -340,6 +352,8 @@
       "INSUFFICIENT_SCOPE": "InnoPeak wasn't granted permission to manage reviews. Please reconnect and accept all requested permissions.",
       "SERVER_ERROR": "Something went wrong on our end. Please try again.",
       "UNKNOWN": "Something went wrong connecting your Google Business Profile.",
+      "accountChoiceExpired": "Your account selection expired. Connect your Google Business Profile again.",
+      "accountSelectFailed": "We couldn't connect that account. Please try again.",
       "loadLocationsFailed": "We couldn't load your Google locations. Please try again.",
       "confirmFailed": "We couldn't save that location. Please try again.",
       "needsReauth": "Your Google connection has expired. Please reconnect.",
@@ -805,7 +819,6 @@
       },
       "toasts": {
         "checkoutFailed": "Could not start checkout. Please try again.",
-        "portalFailed": "Could not open the billing portal. Please try again.",
         "cancelFailed": "Could not cancel the subscription. Please try again.",
         "cancelSucceeded": "Cancellation scheduled — you'll keep access until the end of the period.",
         "receiptDownloadFailed": "Could not download the receipt. Please try again.",
@@ -832,25 +845,6 @@
           "updated": "Active location updated.",
           "updateFailed": "Could not update the active location. Please try again."
         }
-      },
-      "dummyCheckout": {
-        "title": "Simulated checkout",
-        "description": "This is the Dummy payment provider's confirmation page, used to exercise the upgrade flow without real Stripe keys.",
-        "reference": "Simulated subscription: {id}",
-        "backToBilling": "Back to Billing",
-        "errorTitle": "Could not complete checkout",
-        "errorDescription": "Something went wrong completing the simulated upgrade. You can try again or go back to Billing.",
-        "retry": "Try again"
-      },
-      "dummyPortal": {
-        "title": "Simulated billing portal",
-        "description": "This is the Dummy payment provider's confirmation page, used to exercise the manage/cancel flow without real Stripe keys.",
-        "reference": "Simulated customer: {id}",
-        "backToBilling": "Back to Billing",
-        "cancelSubscription": "Cancel subscription",
-        "cancelConfirm": "Cancel this simulated subscription? You'll keep full access until the end of the current period, then move to Free.",
-        "keepSubscription": "Keep subscription",
-        "cancelFailed": "Could not cancel the subscription. Please try again."
       },
       "cancelSubscription": "Cancel subscription",
       "paymentMethod": {

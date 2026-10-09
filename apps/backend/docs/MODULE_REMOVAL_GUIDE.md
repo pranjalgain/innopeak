@@ -312,7 +312,7 @@ Drop table: `media` (`0009_create_media.sql`). Remove from `schema.ts`: `media`,
 ### Env vars
 
 Remove: `AWS_S3_BUCKET`, `AWS_S3_REGION`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`,
-`CLOUDINARY_API_SECRET`, `STORAGE_PROVIDER`.
+`CLOUDINARY_API_SECRET`.
 
 ### Packages to remove
 

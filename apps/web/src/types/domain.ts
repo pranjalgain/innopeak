@@ -506,19 +506,17 @@ export interface Subscription {
   customPromptsEnabled: boolean;
   /** `null` for Free tenants, or a Paid tenant with no card on file yet. */
   paymentMethod: PaymentMethodSummary | null;
-  /** The active `PAYMENT_PROVIDER`; in-app card/billing-profile editing is `"stripe"` only (`StripeOnlyFeatureException`), Dummy tenants use `/billing/dummy-portal`. */
-  paymentProvider: "stripe" | "dummy";
 }
 
 /** `GET /v1/billing/profile` — the two Stripe Customer fields this app lets a tenant edit
- *  in-app. Stripe-only, same gating as `Subscription.paymentProvider`. */
+ *  in-app. */
 export interface BillingProfile {
   name: string | null;
   email: string | null;
 }
 
-/** `GET /v1/billing/receipts` — one row per successfully paid Stripe invoice. Stripe-only: always
- *  empty for a Dummy-provider tenant, since there is no real charge behind it to document. */
+/** `GET /v1/billing/receipts` — one row per successfully paid Stripe invoice. Empty until the
+ *  tenant has made a real payment. */
 export interface Receipt {
   id: string;
   amountPaid: number;

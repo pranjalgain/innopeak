@@ -19,7 +19,7 @@ export class PlatformAdminProfileService {
     return unwrap<AvatarUploadAuthorizationResponseDto>(response.data);
   }
 
-  /** Mints an authorization, uploads straight to the provider (or skips to confirm for the offline `noop` one), then confirms with the backend. Returns only the confirmed URL; the caller merges it into its cached profile. */
+  /** Mints an authorization, uploads straight to the provider, then confirms with the backend. Returns only the confirmed URL; the caller merges it into its cached profile. */
   static async updateAvatar(file: File): Promise<string | null> {
     const authorization = await this.getAvatarUploadAuthorization();
     const providerAssetId = await AvatarUploadService.upload(file, authorization);

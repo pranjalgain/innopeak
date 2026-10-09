@@ -8,6 +8,7 @@ import { ConnectionsController } from './controllers/connections.controller';
 import { ConnectionsSyncService } from './services/connections-sync.service';
 import { ConnectionsService } from './services/connections.service';
 import { OAuthStateService } from './services/oauth-state.service';
+import { PendingAccountChoiceService } from './services/pending-account-choice.service';
 
 /**
  * `ReviewProviderModule` and `DBModule` are `@Global()`, so they resolve without import; `BillingModule` is not.
@@ -16,6 +17,11 @@ import { OAuthStateService } from './services/oauth-state.service';
 @Module({
   imports: [RedisModule, ReviewSyncQueueUIModule, BillingModule],
   controllers: [ConnectionsController, ConnectionsSyncController],
-  providers: [ConnectionsService, ConnectionsSyncService, OAuthStateService],
+  providers: [
+    ConnectionsService,
+    ConnectionsSyncService,
+    OAuthStateService,
+    PendingAccountChoiceService,
+  ],
 })
 export class ConnectionsModule {}

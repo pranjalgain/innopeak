@@ -9,6 +9,9 @@ export abstract class StorageProvider {
   /** Persisted on `media.provider`: records which provider holds an asset, independent of the currently active one. */
   abstract readonly type: StorageProviderType;
 
+  /** False until the provider's credentials are set; the upload routes answer 503 rather than hand out an authorization that cannot work. */
+  abstract isConfigured(): boolean;
+
   abstract createUploadAuthorization(
     input: CreateUploadAuthorizationInput
   ): Promise<UploadAuthorization>;

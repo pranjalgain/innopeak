@@ -1,5 +1,5 @@
 /**
- * Google's wire shapes verbatim (`starRating` as a word, `name` as a resource path): DEV_GBP_MOCK
+ * Google's wire shapes verbatim (`starRating` as a word, `name` as a resource path): the mapper test
  * fixtures are typed against them, so the mapper is tested against what Google actually sends.
  * Two different hosts are involved; see `GBP_HOSTS`.
  */

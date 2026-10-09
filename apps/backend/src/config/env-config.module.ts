@@ -75,8 +75,6 @@ const envConfig = registerAs(
       GBP_CALLBACK_URL: process.env['GBP_CALLBACK_URL'],
       GBP_STATE_SECRET: process.env['GBP_STATE_SECRET'],
       CREDENTIAL_ENCRYPTION_KEY: process.env['CREDENTIAL_ENCRYPTION_KEY'],
-      DEV_GBP_MOCK: process.env['DEV_GBP_MOCK'],
-      DEV_GBP_MOCK_ACCOUNT_ID: process.env['DEV_GBP_MOCK_ACCOUNT_ID'],
       ERASURE_GRACE_PERIOD_DAYS: parseInt(
         process.env['ERASURE_GRACE_PERIOD_DAYS'] ?? String(DEFAULT_ERASURE_GRACE_PERIOD_DAYS),
         10
@@ -227,52 +225,31 @@ const validationSchema = Joi.object({
   // "Must be set in production" is the manual check above, keeping both halves of the secret rules in one place.
   GBP_STATE_SECRET: Joi.string().allow(null, ''),
   CREDENTIAL_ENCRYPTION_KEY: Joi.string().base64().allow(null, ''),
-  // Forbidden in production like DEV_VERIFY_EMAIL_TOKEN: a connection with fixture reviews is indistinguishable from a real one in the DB.
-  DEV_GBP_MOCK: Joi.when('NODE_ENV', {
-    is: 'production',
-    then: Joi.forbidden(),
-    otherwise: Joi.string().valid('true', 'false').allow(null, ''),
-  }),
-  DEV_GBP_MOCK_ACCOUNT_ID: Joi.when('NODE_ENV', {
-    is: 'production',
-    then: Joi.forbidden(),
-    otherwise: Joi.string().allow(null, ''),
-  }),
-  // Forbidden in production like DEV_GBP_MOCK: redirecting at a local emulator must never be possible there.
-  USE_LOCAL_MOCK_SERVER: Joi.when('NODE_ENV', {
-    is: 'production',
-    then: Joi.forbidden(),
-    otherwise: Joi.string().valid('true', 'false').allow(null, ''),
-  }),
-  LOCAL_MOCK_SERVER_URL: Joi.when('NODE_ENV', {
-    is: 'production',
-    then: Joi.forbidden(),
-    otherwise: Joi.string().uri().allow(null, ''),
-  }),
   PAYMENT_FEATURE_ENABLED: Joi.string().valid('true', 'false').allow(null, ''),
-  // Required outright in production, not just forbidden-dummy: `/v1/billing/dummy/complete-checkout` flips any tenant to
-  // `paid` and is gated only by `paymentProvider.type === 'dummy'` (not PAYMENT_FEATURE_ENABLED), and `BillingModule`'s
-  // factory defaults to `dummy`, so a forgotten value would allow free upgrades.
-  PAYMENT_PROVIDER: Joi.when('NODE_ENV', {
+  // Required in production, and in any environment that turns payments on: without the webhook secret `StripePaymentProvider`
+  // defaults to an empty string and rejects every real delivery with no boot-time signal. Optional otherwise, so an install
+  // that never takes payments needs no Stripe keys (its client is created on first use).
+  STRIPE_SECRET_KEY: Joi.when('NODE_ENV', {
     is: 'production',
-    then: Joi.string().valid('stripe').required(),
-    otherwise: Joi.string().valid('dummy', 'stripe').allow(null, ''),
-  }),
-  // Required whenever PAYMENT_PROVIDER=stripe, in every environment: without the webhook secret
-  // `StripePaymentProvider` defaults to an empty string and rejects every real delivery with no boot-time signal.
-  STRIPE_SECRET_KEY: Joi.when('PAYMENT_PROVIDER', {
-    is: 'stripe',
     then: Joi.string().required(),
-    otherwise: Joi.string().allow(null, ''),
+    otherwise: Joi.when('PAYMENT_FEATURE_ENABLED', {
+      is: 'true',
+      then: Joi.string().required(),
+      otherwise: Joi.string().allow(null, ''),
+    }),
   }),
-  STRIPE_WEBHOOK_SECRET: Joi.when('PAYMENT_PROVIDER', {
-    is: 'stripe',
+  STRIPE_WEBHOOK_SECRET: Joi.when('NODE_ENV', {
+    is: 'production',
     then: Joi.string().required(),
-    otherwise: Joi.string().allow(null, ''),
+    otherwise: Joi.when('PAYMENT_FEATURE_ENABLED', {
+      is: 'true',
+      then: Joi.string().required(),
+      otherwise: Joi.string().allow(null, ''),
+    }),
   }),
   STRIPE_PRICE_ID_PAID: Joi.string().allow(null, ''),
-  // Optional in every environment, unlike PAYMENT_PROVIDER: providers validate their own config lazily on first call
-  // (a missing key fails that generation with `AiProviderNotConfiguredException`, not app startup), like `STORAGE_PROVIDER`.
+  // Optional in every environment: providers validate their own config lazily on first call (a missing key fails that
+  // generation with `AiProviderNotConfiguredException`, not app startup).
   AI_PROVIDER: Joi.string().valid('openrouter', 'azure').allow(null, ''),
   OPENROUTER_API_KEY: Joi.string().allow(null, ''),
   OPENROUTER_MODEL: Joi.string().allow(null, ''),

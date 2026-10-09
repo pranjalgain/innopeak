@@ -1,8 +1,6 @@
 import type { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import type { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 
-export type PaymentProviderType = 'dummy' | 'stripe';
-
 /** `null` on any `max*` field means unlimited. */
 export interface TenantEntitlements {
   planCode: BillingPlanCode;
@@ -133,7 +131,7 @@ type PaymentWebhookEventBody =
       paidAt: string;
     };
 
-/** `createdAt` is optional because Dummy-provider events have none; used to stop retrying deliveries for an unknown customer once it is clearly not transient. */
+/** `createdAt` is optional; used to stop retrying deliveries for an unknown customer once it is clearly not transient. */
 export type PaymentWebhookEvent = PaymentWebhookEventBody & { createdAt?: string };
 
 /** The 5 event types `handleEvent` acts on; a runtime value so the admin webhook view can tell handled from ignored events. Update alongside `PaymentWebhookEvent`. */

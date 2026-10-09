@@ -240,6 +240,20 @@ describe('StripePaymentProvider', () => {
       expect(mockStripeInstance.paymentMethods.list).not.toHaveBeenCalled();
     });
 
+    it('returns null for a customer Stripe has never heard of', async () => {
+      mockStripeInstance.customers.retrieve.mockRejectedValue(
+        Object.assign(new Error('No such customer'), { code: 'resource_missing' })
+      );
+
+      await expect(target.getPaymentMethodSummary('cus_unknown')).resolves.toBeNull();
+    });
+
+    it('still surfaces any other Stripe failure', async () => {
+      mockStripeInstance.customers.retrieve.mockRejectedValue(new Error('Stripe is down'));
+
+      await expect(target.getPaymentMethodSummary('cus_1')).rejects.toThrow('Stripe is down');
+    });
+
     it('returns null when the customer has no default method and no cards on file', async () => {
       mockStripeInstance.customers.retrieve.mockResolvedValue({
         deleted: false,
@@ -276,6 +290,17 @@ describe('StripePaymentProvider', () => {
       const result = await target.getBillingProfile('cus_1');
 
       expect(result).toEqual({ name: null, email: null });
+    });
+
+    it('returns nulls for a customer Stripe has never heard of', async () => {
+      mockStripeInstance.customers.retrieve.mockRejectedValue(
+        Object.assign(new Error('No such customer'), { code: 'resource_missing' })
+      );
+
+      await expect(target.getBillingProfile('cus_unknown')).resolves.toEqual({
+        name: null,
+        email: null,
+      });
     });
 
     it('returns nulls for a deleted customer rather than throwing', async () => {
@@ -340,6 +365,25 @@ describe('StripePaymentProvider', () => {
       mockStripeInstance.checkout.sessions.retrieve.mockRejectedValue(outage);
 
       await expect(target.retrieveCheckoutSession('cs_test_1')).rejects.toBe(outage);
+    });
+  });
+
+  describe('retrieveActiveSubscriptionForCustomer', () => {
+    // The nightly sweep then stamps the tenant verified instead of failing on it every run.
+    it('answers no subscription for a customer Stripe has never heard of', async () => {
+      mockStripeInstance.subscriptions.list.mockRejectedValue(
+        Object.assign(new Error('No such customer'), { code: 'resource_missing' })
+      );
+
+      await expect(target.retrieveActiveSubscriptionForCustomer('cus_unknown')).resolves.toBeNull();
+    });
+
+    it('still surfaces any other Stripe failure', async () => {
+      mockStripeInstance.subscriptions.list.mockRejectedValue(new Error('Stripe is down'));
+
+      await expect(target.retrieveActiveSubscriptionForCustomer('cus_1')).rejects.toThrow(
+        'Stripe is down'
+      );
     });
   });
 

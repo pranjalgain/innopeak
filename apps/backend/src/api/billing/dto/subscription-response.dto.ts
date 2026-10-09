@@ -3,7 +3,7 @@ import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import type { TenantSubscriptionRow } from '@db/repositories/billing/types/billing.type';
 import { ApiProperty } from '@nestjs/swagger';
 
-import type { PaymentMethodSummary, PaymentProviderType } from '../types/billing.type';
+import type { PaymentMethodSummary } from '../types/billing.type';
 
 /** Card metadata only, safe to render unmasked-adjacent (`•••• 4242`) — never the PAN, so this
  *  carries no PCI scope. See `PaymentProvider.getPaymentMethodSummary`'s own doc comment. */
@@ -79,16 +79,6 @@ export class SubscriptionResponseDto {
   })
   paymentMethod!: PaymentMethodResponseDto | null;
 
-  @ApiProperty({
-    example: 'stripe',
-    enum: ['dummy', 'stripe'],
-    description:
-      'The active PAYMENT_PROVIDER — lets the frontend offer in-app card/billing-profile editing ' +
-      'only for stripe (see StripeOnlyFeatureException), falling back to the simulated Dummy portal ' +
-      'page otherwise.',
-  })
-  paymentProvider!: PaymentProviderType;
-
   static from(
     subscription: TenantSubscriptionRow,
     planCode: BillingPlanCode,
@@ -101,8 +91,7 @@ export class SubscriptionResponseDto {
       teamMemberCount: number;
       aiDraftsUsedThisMonth: number;
     },
-    paymentMethod: PaymentMethodSummary | null,
-    paymentProvider: PaymentProviderType
+    paymentMethod: PaymentMethodSummary | null
   ): SubscriptionResponseDto {
     const dto = new SubscriptionResponseDto();
     dto.planCode = planCode;
@@ -118,7 +107,6 @@ export class SubscriptionResponseDto {
     dto.maxAiDraftsPerMonth = entitlements.maxAiDraftsPerMonth;
     dto.customPromptsEnabled = entitlements.customPromptsEnabled;
     dto.paymentMethod = paymentMethod ? PaymentMethodResponseDto.from(paymentMethod) : null;
-    dto.paymentProvider = paymentProvider;
     return dto;
   }
 }

@@ -19,7 +19,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useBillingPlans } from "@/hooks/billing/use-billing-plans";
 import { useCancelSubscription } from "@/hooks/billing/use-cancel-subscription";
 import { useCreateCheckoutSession } from "@/hooks/billing/use-create-checkout-session";
-import { useCreatePortalSession } from "@/hooks/billing/use-create-portal-session";
 import { useReceipts } from "@/hooks/billing/use-receipts";
 import { useSubscription } from "@/hooks/billing/use-subscription";
 import { useBusinessSwitcher } from "@/hooks/connections/use-business-switcher";
@@ -78,7 +77,6 @@ export function BillingSettingsSection() {
   // Same pool as the Business Switcher, reused instead of a second `useQuery` on the same key.
   const { locations: connectedLocations } = useBusinessSwitcher();
   const checkoutMutation = useCreateCheckoutSession();
-  const portalMutation = useCreatePortalSession();
   const cancelMutation = useCancelSubscription();
   const tToasts = useTranslations("settings.billing.toasts");
   const tCancelDialog = useTranslations("settings.billing.cancelDialog");
@@ -89,7 +87,6 @@ export function BillingSettingsSection() {
   // Synchronous re-entrancy guards: `mutation.isPending` flips only after a React state round-trip, so a fast
   // double-click can call `mutate()` twice.
   const checkoutStarted = useRef(false);
-  const portalStarted = useRef(false);
 
   if (isLoading) return <Skeleton className="h-72 w-full max-w-3xl rounded-xl" />;
   if (isError || !subscription) return <LoadErrorState onRetry={() => void refetch()} />;
@@ -132,21 +129,7 @@ export function BillingSettingsSection() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    // Stripe: manage billing in-app. Dummy: no real Stripe customer to edit, so keep the redirect to the simulated portal page.
-                    if (subscription.paymentProvider === "stripe") {
-                      setManageBillingOpen(true);
-                      return;
-                    }
-                    if (portalStarted.current) return;
-                    portalStarted.current = true;
-                    portalMutation.mutate(undefined, {
-                      onSettled: () => {
-                        portalStarted.current = false;
-                      },
-                    });
-                  }}
-                  disabled={portalMutation.isPending}>
+                  onClick={() => setManageBillingOpen(true)}>
                   <LuSettings />
                   {t("manageBilling")}
                 </Button>

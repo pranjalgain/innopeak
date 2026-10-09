@@ -16,15 +16,12 @@ import type { ConfigService } from '@nestjs/config';
 
 import type { BillingEntitlementsService } from './billing-entitlements.service';
 import type { BillingReconciliationService } from './billing-reconciliation.service';
-import type { BillingWebhooksService } from './billing-webhooks.service';
 import { BillingService } from './billing.service';
 
 import {
   AlreadySubscribedException,
   BillingNotEnabledException,
-  DummyProviderNotActiveException,
   ReceiptNotFoundException,
-  StripeOnlyFeatureException,
   SubscriptionNotFoundException,
 } from '../exceptions/billing.exceptions';
 import type { PaymentProvider } from '../providers/payment.provider';
@@ -83,7 +80,6 @@ describe('BillingService', () => {
   let billingEntitlementsService: jest.Mocked<
     Pick<BillingEntitlementsService, 'getEntitlements' | 'setActiveLocationForPlan'>
   >;
-  let billingWebhooksService: jest.Mocked<Pick<BillingWebhooksService, 'handleEvent'>>;
   let billingReconciliationService: jest.Mocked<
     Pick<
       BillingReconciliationService,
@@ -94,9 +90,7 @@ describe('BillingService', () => {
     Pick<BillingReceiptsDbService, 'findByIdForTenant' | 'listByTenantId'>
   >;
   let authDbService: jest.Mocked<Pick<AuthDbService, 'findTenantStatus'>>;
-  // `type` is readonly on the real PaymentProvider; mutable here so tests can flip the active provider.
   let paymentProvider: {
-    type: PaymentProvider['type'];
     createCustomer: jest.Mock;
     createCheckoutSession: jest.Mock;
     prepareNewCheckout: jest.Mock;
@@ -139,7 +133,6 @@ describe('BillingService', () => {
         aiDraftsUsedThisMonth: 0,
       }),
     };
-    billingWebhooksService = { handleEvent: jest.fn() };
     billingReconciliationService = {
       reconcileFromCheckoutSession: jest.fn().mockResolvedValue(undefined),
       reconcileTenantSubscription: jest.fn().mockResolvedValue(undefined),
@@ -152,7 +145,6 @@ describe('BillingService', () => {
       findTenantStatus: jest.fn().mockResolvedValue({ status: 'active', name: 'Acme Inc' }),
     };
     paymentProvider = {
-      type: 'dummy',
       createCustomer: jest.fn(),
       createCheckoutSession: jest.fn(),
       prepareNewCheckout: jest.fn().mockResolvedValue({ hasLiveSubscription: false }),
@@ -169,7 +161,6 @@ describe('BillingService', () => {
       billingPlansDbService as unknown as BillingPlansDbService,
       tenantSubscriptionsDbService as unknown as TenantSubscriptionsDbService,
       billingEntitlementsService as unknown as BillingEntitlementsService,
-      billingWebhooksService as unknown as BillingWebhooksService,
       billingReconciliationService as unknown as BillingReconciliationService,
       billingReceiptsDbService as unknown as BillingReceiptsDbService,
       authDbService as unknown as AuthDbService,
@@ -184,7 +175,6 @@ describe('BillingService', () => {
         billingPlansDbService as unknown as BillingPlansDbService,
         tenantSubscriptionsDbService as unknown as TenantSubscriptionsDbService,
         billingEntitlementsService as unknown as BillingEntitlementsService,
-        billingWebhooksService as unknown as BillingWebhooksService,
         billingReconciliationService as unknown as BillingReconciliationService,
         billingReceiptsDbService as unknown as BillingReceiptsDbService,
         authDbService as unknown as AuthDbService,
@@ -210,7 +200,7 @@ describe('BillingService', () => {
         maxTeamMembers: null,
         customPromptsEnabled: true,
       });
-      paymentProvider.createCustomer.mockResolvedValue({ customerId: 'dummy_cus_1' });
+      paymentProvider.createCustomer.mockResolvedValue({ customerId: 'cus_test_1' });
       paymentProvider.createCheckoutSession.mockResolvedValue({
         url: 'https://example.com/checkout',
       });
@@ -334,7 +324,7 @@ describe('BillingService', () => {
         maxTeamMembers: null,
         customPromptsEnabled: true,
       });
-      paymentProvider.createCustomer.mockResolvedValue({ customerId: 'dummy_cus_new' });
+      paymentProvider.createCustomer.mockResolvedValue({ customerId: 'cus_test_new' });
       paymentProvider.createCheckoutSession.mockResolvedValue({
         url: 'https://example.com/checkout',
       });
@@ -349,7 +339,6 @@ describe('BillingService', () => {
         billingPlansDbService as unknown as BillingPlansDbService,
         tenantSubscriptionsDbService as unknown as TenantSubscriptionsDbService,
         billingEntitlementsService as unknown as BillingEntitlementsService,
-        billingWebhooksService as unknown as BillingWebhooksService,
         billingReconciliationService as unknown as BillingReconciliationService,
         billingReceiptsDbService as unknown as BillingReceiptsDbService,
         authDbService as unknown as AuthDbService,
@@ -367,7 +356,7 @@ describe('BillingService', () => {
         maxTeamMembers: null,
         customPromptsEnabled: true,
       });
-      paymentProvider.createCustomer.mockResolvedValue({ customerId: 'dummy_cus_1' });
+      paymentProvider.createCustomer.mockResolvedValue({ customerId: 'cus_test_1' });
       paymentProvider.createCheckoutSession.mockResolvedValue({
         url: 'https://example.com/checkout',
       });
@@ -377,46 +366,6 @@ describe('BillingService', () => {
       expect(paymentProvider.createCheckoutSession).toHaveBeenCalledWith(
         expect.objectContaining({ priceId: 'price_from_env' })
       );
-    });
-  });
-
-  describe('completeDummyCheckout', () => {
-    beforeEach(() => {
-      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue({
-        ...baseSubscription,
-        stripeCustomerId: 'dummy_cus_1',
-      });
-    });
-
-    it('throws DummyProviderNotActiveException when the active provider is not dummy', async () => {
-      paymentProvider.type = 'stripe';
-
-      await expect(target.completeDummyCheckout(tenantUser, 'dummy_sub_1')).rejects.toBeInstanceOf(
-        DummyProviderNotActiveException
-      );
-      expect(billingWebhooksService.handleEvent).not.toHaveBeenCalled();
-    });
-
-    it('throws SubscriptionNotFoundException when the tenant has no Stripe customer yet', async () => {
-      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(baseSubscription);
-
-      await expect(target.completeDummyCheckout(tenantUser, 'dummy_sub_1')).rejects.toBeInstanceOf(
-        SubscriptionNotFoundException
-      );
-      expect(billingWebhooksService.handleEvent).not.toHaveBeenCalled();
-    });
-
-    it('hands BillingWebhooksService a checkout.session.completed event for this tenant', async () => {
-      await target.completeDummyCheckout(tenantUser, 'dummy_sub_1');
-
-      expect(billingWebhooksService.handleEvent).toHaveBeenCalledTimes(1);
-      const event = billingWebhooksService.handleEvent.mock.calls[0]?.[0];
-      expect(event).toMatchObject({
-        type: 'checkout.session.completed',
-        customerId: 'dummy_cus_1',
-        subscriptionId: 'dummy_sub_1',
-      });
-      expect(event?.id).toMatch(/^dummy_evt_/);
     });
   });
 
@@ -444,9 +393,7 @@ describe('BillingService', () => {
       expect(paymentProvider.cancelSubscription).not.toHaveBeenCalled();
     });
 
-    it('calls the payment provider to cancel at period end, for any provider', async () => {
-      paymentProvider.type = 'stripe';
-
+    it('calls the payment provider to cancel at period end', async () => {
       await target.cancelSubscription(tenantUser);
 
       expect(paymentProvider.cancelSubscription).toHaveBeenCalledWith('sub_1', true);
@@ -475,26 +422,10 @@ describe('BillingService', () => {
       );
     });
 
-    it('does not touch BillingWebhooksService for a real provider — its own webhook applies the change', async () => {
-      paymentProvider.type = 'stripe';
-
+    it('does not apply the change itself: the Stripe webhook does', async () => {
       await target.cancelSubscription(tenantUser);
 
-      expect(billingWebhooksService.handleEvent).not.toHaveBeenCalled();
-    });
-
-    it('applies the state change itself for Dummy — it has no real webhook caller', async () => {
-      await target.cancelSubscription(tenantUser);
-
-      expect(billingWebhooksService.handleEvent).toHaveBeenCalledTimes(1);
-      const event = billingWebhooksService.handleEvent.mock.calls[0]?.[0];
-      expect(event).toMatchObject({
-        type: 'customer.subscription.updated',
-        customerId: 'cus_1',
-        subscriptionId: 'sub_1',
-        cancelAtPeriodEnd: true,
-      });
-      expect(event?.id).toMatch(/^dummy_evt_/);
+      expect(paymentProvider.cancelSubscription).toHaveBeenCalledWith('sub_1', true);
     });
   });
 
@@ -599,13 +530,36 @@ describe('BillingService', () => {
   });
 
   describe('getSubscription', () => {
-    it('reports the active payment provider so the frontend can gate in-app billing editing', async () => {
-      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(baseSubscription);
-      paymentProvider.type = 'stripe';
+    it('reports the card on file for a tenant with a Stripe customer', async () => {
+      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue({
+        ...baseSubscription,
+        stripeCustomerId: 'cus_1',
+      });
+      paymentProvider.getPaymentMethodSummary.mockResolvedValue({
+        brand: 'visa',
+        last4: '4242',
+        expMonth: 12,
+        expYear: 2030,
+      });
 
       const result = await target.getSubscription(tenantUser);
 
-      expect(result.paymentProvider).toBe('stripe');
+      expect(paymentProvider.getPaymentMethodSummary).toHaveBeenCalledWith('cus_1');
+      expect(result.paymentMethod).toEqual(expect.objectContaining({ last4: '4242' }));
+    });
+
+    // Regression: a customer id Stripe doesn't know (or no Stripe keys) failed the whole read, so Settings -> Billing never loaded.
+    it('still answers, with no card, when the card lookup fails', async () => {
+      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue({
+        ...baseSubscription,
+        stripeCustomerId: 'cus_unknown',
+      });
+      paymentProvider.getPaymentMethodSummary.mockRejectedValue(new Error('No such customer'));
+
+      const result = await target.getSubscription(tenantUser);
+
+      expect(result.paymentMethod).toBeNull();
+      expect(result.planCode).toBeDefined();
     });
   });
 
@@ -615,28 +569,16 @@ describe('BillingService', () => {
         ...baseSubscription,
         planId: 'plan-paid',
       });
-      paymentProvider.type = 'stripe';
-
       const result = await target.reconcileCheckoutSession(tenantUser, 'cs_test_123');
 
       expect(billingReconciliationService.reconcileFromCheckoutSession).toHaveBeenCalledWith({
         tenantId: tenantUser.tenantId,
         checkoutSessionId: 'cs_test_123',
       });
-      expect(result.paymentProvider).toBe('stripe');
-    });
-
-    it('rejects with StripeOnlyFeatureException under the dummy provider, without calling the reconciliation service', async () => {
-      paymentProvider.type = 'dummy';
-
-      await expect(
-        target.reconcileCheckoutSession(tenantUser, 'cs_test_123')
-      ).rejects.toBeInstanceOf(StripeOnlyFeatureException);
-      expect(billingReconciliationService.reconcileFromCheckoutSession).not.toHaveBeenCalled();
+      expect(result.planCode).toBeDefined();
     });
 
     it('propagates whatever BillingReconciliationService throws (e.g. a tenant mismatch) without touching the subscription read', async () => {
-      paymentProvider.type = 'stripe';
       billingReconciliationService.reconcileFromCheckoutSession.mockRejectedValue(
         new Error('CHECKOUT_SESSION_TENANT_MISMATCH')
       );
@@ -654,19 +596,9 @@ describe('BillingService', () => {
         ...baseSubscription,
         stripeCustomerId: 'cus_1',
       });
-      paymentProvider.type = 'stripe';
     });
 
     describe('getBillingProfile', () => {
-      it('throws StripeOnlyFeatureException when the active provider is dummy', async () => {
-        paymentProvider.type = 'dummy';
-
-        await expect(target.getBillingProfile(tenantUser)).rejects.toBeInstanceOf(
-          StripeOnlyFeatureException
-        );
-        expect(paymentProvider.getBillingProfile).not.toHaveBeenCalled();
-      });
-
       it('throws SubscriptionNotFoundException when there is no Stripe customer yet', async () => {
         tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(baseSubscription);
 
@@ -689,17 +621,6 @@ describe('BillingService', () => {
     });
 
     describe('updateBillingProfile', () => {
-      it('throws StripeOnlyFeatureException when the active provider is dummy', async () => {
-        paymentProvider.type = 'dummy';
-
-        await expect(
-          target.updateBillingProfile(tenantUser, {
-            name: 'Jordan Lee',
-            email: 'jordan@example.com',
-          })
-        ).rejects.toBeInstanceOf(StripeOnlyFeatureException);
-      });
-
       it('passes the new name/email straight through to the provider', async () => {
         paymentProvider.updateBillingProfile.mockResolvedValue({
           name: 'Jordan Lee',
@@ -719,14 +640,6 @@ describe('BillingService', () => {
     });
 
     describe('createSetupIntent', () => {
-      it('throws StripeOnlyFeatureException when the active provider is dummy', async () => {
-        paymentProvider.type = 'dummy';
-
-        await expect(target.createSetupIntent(tenantUser)).rejects.toBeInstanceOf(
-          StripeOnlyFeatureException
-        );
-      });
-
       it('returns the client secret the provider mints', async () => {
         paymentProvider.createSetupIntent.mockResolvedValue({ clientSecret: 'seti_1_secret_abc' });
 
@@ -738,14 +651,6 @@ describe('BillingService', () => {
     });
 
     describe('setDefaultPaymentMethod', () => {
-      it('throws StripeOnlyFeatureException when the active provider is dummy', async () => {
-        paymentProvider.type = 'dummy';
-
-        await expect(target.setDefaultPaymentMethod(tenantUser, 'pm_1')).rejects.toBeInstanceOf(
-          StripeOnlyFeatureException
-        );
-      });
-
       it('passes the payment method id straight through to the provider', async () => {
         await target.setDefaultPaymentMethod(tenantUser, 'pm_1');
 

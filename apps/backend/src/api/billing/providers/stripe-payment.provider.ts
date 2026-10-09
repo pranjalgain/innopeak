@@ -11,6 +11,7 @@ import { PaymentProvider } from './payment.provider';
 import {
   CheckoutSessionTenantMismatchException,
   PaymentMethodNotUsableException,
+  PaymentNotConfiguredException,
   StripeWebhookSignatureInvalidException,
 } from '../exceptions/billing.exceptions';
 import type {
@@ -25,6 +26,7 @@ import type {
   SubscriptionSnapshot,
   UpdateBillingProfileInput,
 } from '../types/billing.type';
+import { isResourceMissing } from '../utils/stripe-error.util';
 
 /**
  * `trialing`/`incomplete_expired`/`unpaid` are deliberately omitted: nothing produces them (no
@@ -47,16 +49,26 @@ const LIVE_SUBSCRIPTION_STATUSES: ReadonlySet<Stripe.Subscription.Status> = new 
 
 @Injectable()
 export class StripePaymentProvider extends PaymentProvider {
-  readonly type = 'stripe' as const;
   private readonly logger = new Logger(StripePaymentProvider.name);
-  private readonly stripe: Stripe;
+  private readonly secretKey: string;
   private readonly webhookSecret: string;
+  private client: Stripe | null = null;
 
   constructor(configService: ConfigService<EnvConfig>) {
     super();
-    const secretKey = configService.get<string>('STRIPE_SECRET_KEY') ?? '';
-    this.stripe = new Stripe(secretKey);
+    this.secretKey = configService.get<string>('STRIPE_SECRET_KEY') ?? '';
     this.webhookSecret = configService.get<string>('STRIPE_WEBHOOK_SECRET') ?? '';
+  }
+
+  /** Built on first use: Stripe's SDK throws on an empty key, which would otherwise stop the app booting without one. */
+  private get stripe(): Stripe {
+    if (this.client === null) {
+      if (this.secretKey === '') {
+        throw new PaymentNotConfiguredException();
+      }
+      this.client = new Stripe(this.secretKey);
+    }
+    return this.client;
   }
 
   /**
@@ -170,10 +182,10 @@ export class StripePaymentProvider extends PaymentProvider {
    * first attached card. Returns `null` rather than throwing: this is read-only display data.
    */
   async getPaymentMethodSummary(customerId: string): Promise<PaymentMethodSummary | null> {
-    const customer = await this.stripe.customers.retrieve(customerId, {
-      expand: ['invoice_settings.default_payment_method'],
-    });
-    if (customer.deleted) {
+    const customer = await this.retrieveCustomer(customerId, [
+      'invoice_settings.default_payment_method',
+    ]);
+    if (customer === null || customer.deleted) {
       return null;
     }
 
@@ -187,10 +199,10 @@ export class StripePaymentProvider extends PaymentProvider {
     return firstCard ? this.toPaymentMethodSummary(firstCard) : null;
   }
 
-  // A deleted customer yields nulls rather than throwing (read-only display).
+  // A deleted or unknown customer yields nulls rather than throwing (read-only display).
   async getBillingProfile(customerId: string): Promise<BillingProfile> {
-    const customer = await this.stripe.customers.retrieve(customerId);
-    if (customer.deleted) {
+    const customer = await this.retrieveCustomer(customerId);
+    if (customer === null || customer.deleted) {
       return { name: null, email: null };
     }
     return { name: customer.name ?? null, email: customer.email ?? null };
@@ -292,14 +304,40 @@ export class StripePaymentProvider extends PaymentProvider {
   async retrieveActiveSubscriptionForCustomer(
     customerId: string
   ): Promise<SubscriptionSnapshot | null> {
-    const subscriptions = await this.stripe.subscriptions.list({
-      customer: customerId,
-      status: 'active',
-      limit: 1,
-    });
+    let subscriptions: Stripe.ApiList<Stripe.Subscription>;
+    try {
+      subscriptions = await this.stripe.subscriptions.list({
+        customer: customerId,
+        status: 'active',
+        limit: 1,
+      });
+    } catch (error) {
+      // A customer Stripe doesn't know has no subscription; answering null lets the sweep stamp it verified instead of failing it every night.
+      if (isResourceMissing(error)) {
+        return null;
+      }
+      throw error;
+    }
 
     const subscription = subscriptions.data[0];
     return subscription ? this.toSubscriptionSnapshot(subscription) : null;
+  }
+
+  /** `null` when Stripe has no such customer, e.g. an id written before Stripe was the only provider. */
+  private async retrieveCustomer(
+    customerId: string,
+    expand?: string[]
+  ): Promise<Stripe.Customer | Stripe.DeletedCustomer | null> {
+    try {
+      return expand
+        ? await this.stripe.customers.retrieve(customerId, { expand })
+        : await this.stripe.customers.retrieve(customerId);
+    } catch (error) {
+      if (isResourceMissing(error)) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   private toPaymentMethodSummary(card: Stripe.PaymentMethod.Card): PaymentMethodSummary {

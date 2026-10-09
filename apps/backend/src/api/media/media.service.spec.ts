@@ -7,6 +7,7 @@ import { ForbiddenException } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
+import { StorageNotConfiguredException } from './exceptions/media.exceptions';
 import { MediaService } from './media.service';
 import { StorageProvider } from './providers/storage.provider';
 import { StorageAssetNotFoundError } from './types/storage-provider.type';
@@ -35,6 +36,7 @@ describe('MediaService', () => {
   beforeEach(async () => {
     storageProvider = {
       type: 'cloudinary',
+      isConfigured: jest.fn().mockReturnValue(true),
       createUploadAuthorization: jest.fn(),
       verifyUpload: jest.fn(),
       delete: jest.fn(),
@@ -91,6 +93,23 @@ describe('MediaService', () => {
       expect(storageProvider.createUploadAuthorization).toHaveBeenCalledWith({
         folder: 'avatars/users/user-1',
       });
+    });
+  });
+
+  // Regression guard: without it an unconfigured server handed out an authorization for a blank cloud name.
+  describe('when Cloudinary is not configured', () => {
+    beforeEach(() => {
+      storageProvider.isConfigured.mockReturnValue(false);
+    });
+
+    it('answers 503 instead of minting an upload authorization, for tenants and admins alike', async () => {
+      await expect(target.getAvatarUploadAuthorizationForTenant(tenantUser)).rejects.toBeInstanceOf(
+        StorageNotConfiguredException
+      );
+      await expect(target.getAvatarUploadAuthorizationForAdmin(admin)).rejects.toBeInstanceOf(
+        StorageNotConfiguredException
+      );
+      expect(storageProvider.createUploadAuthorization).not.toHaveBeenCalled();
     });
   });
 

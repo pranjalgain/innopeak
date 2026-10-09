@@ -1,15 +1,14 @@
 import { Logger } from '@nestjs/common';
 import type Redis from 'ioredis';
 
-import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 
 import { CredentialStoreProvider, type StoredCredential } from './credential-store.provider';
 
+import { CREDENTIAL_KEY_BYTES, decryptWithKey, encryptWithKey } from '../utils/credential-crypto';
+
 const SCHEME = 'local-redis';
 const KEY_PREFIX = 'review-credentials:';
-const ALGORITHM = 'aes-256-gcm';
-const IV_BYTES = 12;
-const KEY_BYTES = 32;
 
 /**
  * Local/dev only (the factory refuses it in production): AES-256-GCM at rest only guards against a
@@ -30,9 +29,9 @@ export class LocalRedisCredentialStoreProvider extends CredentialStoreProvider {
     const key = Buffer.from(encryptionKeyBase64, 'base64');
 
     // At construction, not first use: a wrong-length key should fail at boot, not mid-OAuth.
-    if (key.length !== KEY_BYTES) {
+    if (key.length !== CREDENTIAL_KEY_BYTES) {
       throw new Error(
-        `CREDENTIAL_ENCRYPTION_KEY must decode to ${KEY_BYTES} bytes (got ${key.length}). Generate one with: openssl rand -base64 32`
+        `CREDENTIAL_ENCRYPTION_KEY must decode to ${CREDENTIAL_KEY_BYTES} bytes (got ${key.length}). Generate one with: openssl rand -base64 32`
       );
     }
 
@@ -89,32 +88,11 @@ export class LocalRedisCredentialStoreProvider extends CredentialStoreProvider {
     return rest.join(':');
   }
 
-  /** `iv:authTag:ciphertext`, all base64. */
   private encrypt(plaintext: string): string {
-    const iv = randomBytes(IV_BYTES);
-    const cipher = createCipheriv(ALGORITHM, this.key, iv);
-    const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-
-    return [
-      iv.toString('base64'),
-      cipher.getAuthTag().toString('base64'),
-      ciphertext.toString('base64'),
-    ].join(':');
+    return encryptWithKey(this.key, plaintext);
   }
 
   private decrypt(payload: string): string {
-    const [ivB64, tagB64, dataB64] = payload.split(':');
-
-    if (!ivB64 || !tagB64 || !dataB64) {
-      throw new Error('Malformed encrypted credential payload');
-    }
-
-    const decipher = createDecipheriv(ALGORITHM, this.key, Buffer.from(ivB64, 'base64'));
-    decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
-
-    return Buffer.concat([
-      decipher.update(Buffer.from(dataB64, 'base64')),
-      decipher.final(),
-    ]).toString('utf8');
+    return decryptWithKey(this.key, payload);
   }
 }

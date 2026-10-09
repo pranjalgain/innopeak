@@ -128,7 +128,7 @@ export class TenantSubscriptionsDbService {
 
   /**
    * Records that we asked the provider to end this at period end, and why. Written before the provider call (reverted on
-   * failure) so the following webhook always finds a source; also sets the flag since the Dummy provider sends no webhook.
+   * failure) so the following webhook always finds a source.
    */
   markCancellationScheduled(
     tenantId: string,

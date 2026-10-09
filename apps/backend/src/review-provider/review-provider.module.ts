@@ -1,4 +1,3 @@
-import { getLocalMockServerUrl } from '@common/helpers/local-mock-server.util';
 import { isAwsDeploymentTarget, isProduction } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
 import { Global, Logger, Module } from '@nestjs/common';
@@ -12,7 +11,6 @@ import { AwsSecretsManagerCredentialStoreProvider } from './providers/aws-secret
 import { CredentialStoreProvider } from './providers/credential-store.provider';
 import { GoogleBusinessProfileProvider } from './providers/google-business-profile.provider';
 import { LocalRedisCredentialStoreProvider } from './providers/local-redis-credential-store.provider';
-import { MockGoogleBusinessProfileProvider } from './providers/mock-google-business-profile.provider';
 import { ReviewProvider } from './providers/review-provider.provider';
 
 const logger = new Logger('ReviewProviderModule');
@@ -20,32 +18,12 @@ const logger = new Logger('ReviewProviderModule');
 const reviewProviderFactory = {
   provide: ReviewProvider,
   useFactory: (configService: ConfigService<EnvConfig>): ReviewProvider => {
-    const localMockServerUrl = getLocalMockServerUrl(configService);
-    const config = {
+    logger.log('Google Business Profile provider: google');
+    return new GoogleBusinessProfileProvider({
       clientId: configService.get<string>('GBP_CLIENT_ID') ?? '',
       clientSecret: configService.get<string>('GBP_CLIENT_SECRET') ?? '',
       callbackUrl: configService.get<string>('GBP_CALLBACK_URL') ?? '',
-      // Independent of DEV_GBP_MOCK: it only affects the write-path methods the mock subclass doesn't override.
-      ...(localMockServerUrl !== undefined ? { localMockServerUrl } : {}),
-    };
-
-    // Also enforced by the Joi schema; repeated because a mocked connection is indistinguishable from a real one once stored.
-    const mockEnabled = configService.get<string>('DEV_GBP_MOCK') === 'true' && !isProduction();
-
-    if (mockEnabled) {
-      logger.warn(
-        'Google Business Profile provider: MOCK (DEV_GBP_MOCK=true). Connections created now are backed by fixtures, not a real Google account.'
-      );
-      return new MockGoogleBusinessProfileProvider({
-        ...config,
-        // An empty env var means unset; `??` alone would treat '' as a real (blank) account id.
-        accountIdOverride:
-          configService.get<string>('DEV_GBP_MOCK_ACCOUNT_ID')?.trim() ?? undefined,
-      });
-    }
-
-    logger.log('Google Business Profile provider: google');
-    return new GoogleBusinessProfileProvider(config);
+    });
   },
   inject: [ConfigService],
 };

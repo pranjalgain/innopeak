@@ -34,8 +34,6 @@ import type { BillingPlansResponseDto } from '../models';
 // @ts-ignore
 import type { BillingProfileResponseDto } from '../models';
 // @ts-ignore
-import type { CompleteDummyCheckoutDto } from '../models';
-// @ts-ignore
 import type { ReceiptListResponseDto } from '../models';
 // @ts-ignore
 import type { ReconcileCheckoutSessionDto } from '../models';
@@ -59,7 +57,7 @@ export const BillingApiAxiosParamCreator = function (
 ) {
   return {
     /**
-     * In-app cancellation — no redirect to a hosted portal. Calls the active payment provider directly (works the same for PAYMENT_PROVIDER=stripe or dummy); the plan stays Paid with full entitlements until the current billing period actually ends, matching what a real Stripe Customer Portal cancellation would leave the subscription in. Not gated on PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.
+     * In-app cancellation — no redirect to a hosted portal. Calls the active payment provider directly; the plan stays Paid with full entitlements until the current billing period actually ends, matching what a real Stripe Customer Portal cancellation would leave the subscription in. Not gated on PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.
      * @summary Cancel the caller tenant\'s subscription at the end of the current period
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -95,64 +93,6 @@ export const BillingApiAxiosParamCreator = function (
         ...headersFromBaseOptions,
         ...options.headers,
       };
-
-      return {
-        url: toPathString(localVarUrlObj),
-        options: localVarRequestOptions,
-      };
-    },
-    /**
-     * Only reachable when PAYMENT_PROVIDER=dummy — lets the /billing/dummy-checkout confirmation page apply the same state transition a real Stripe checkout.session.completed webhook would, since DummyPaymentProvider has no external caller to deliver one itself.
-     * @summary [Dev/test only] Complete a Dummy checkout session
-     * @param {CompleteDummyCheckoutDto} completeDummyCheckoutDto
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    billingControllerCompleteDummyCheckoutV1: async (
-      completeDummyCheckoutDto: CompleteDummyCheckoutDto,
-      options: RawAxiosRequestConfig = {},
-    ): Promise<RequestArgs> => {
-      // verify required parameter 'completeDummyCheckoutDto' is not null or undefined
-      assertParamExists(
-        'billingControllerCompleteDummyCheckoutV1',
-        'completeDummyCheckoutDto',
-        completeDummyCheckoutDto,
-      );
-      const localVarPath = `/v1/billing/dummy/complete-checkout`;
-      // use dummy base URL string because the URL constructor only accepts absolute URLs.
-      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-      let baseOptions;
-      if (configuration) {
-        baseOptions = configuration.baseOptions;
-      }
-
-      const localVarRequestOptions = {
-        method: 'POST',
-        ...baseOptions,
-        ...options,
-      };
-      const localVarHeaderParameter = {} as any;
-      const localVarQueryParameter = {} as any;
-
-      // authentication bearer required
-      // http bearer authentication required
-      await setBearerAuthToObject(localVarHeaderParameter, configuration);
-
-      localVarHeaderParameter['Content-Type'] = 'application/json';
-
-      setSearchParams(localVarUrlObj, localVarQueryParameter);
-      let headersFromBaseOptions =
-        baseOptions && baseOptions.headers ? baseOptions.headers : {};
-      localVarRequestOptions.headers = {
-        ...localVarHeaderParameter,
-        ...headersFromBaseOptions,
-        ...options.headers,
-      };
-      localVarRequestOptions.data = serializeDataIfNeeded(
-        completeDummyCheckoutDto,
-        localVarRequestOptions,
-        configuration,
-      );
 
       return {
         url: toPathString(localVarUrlObj),
@@ -484,7 +424,7 @@ export const BillingApiAxiosParamCreator = function (
       };
     },
     /**
-     * One row per successfully paid Stripe invoice — Stripe-only, always empty for a tenant on PAYMENT_PROVIDER=dummy or one who has never made a real payment. See 0012_billing_receipts.sql.
+     * One row per successfully paid Stripe invoice — empty for a tenant who has never made a real payment. See 0012_billing_receipts.sql.
      * @summary List the caller tenant\'s payment receipts
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -772,7 +712,7 @@ export const BillingApiFp = function (configuration?: Configuration) {
   const localVarAxiosParamCreator = BillingApiAxiosParamCreator(configuration);
   return {
     /**
-     * In-app cancellation — no redirect to a hosted portal. Calls the active payment provider directly (works the same for PAYMENT_PROVIDER=stripe or dummy); the plan stays Paid with full entitlements until the current billing period actually ends, matching what a real Stripe Customer Portal cancellation would leave the subscription in. Not gated on PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.
+     * In-app cancellation — no redirect to a hosted portal. Calls the active payment provider directly; the plan stays Paid with full entitlements until the current billing period actually ends, matching what a real Stripe Customer Portal cancellation would leave the subscription in. Not gated on PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.
      * @summary Cancel the caller tenant\'s subscription at the end of the current period
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -790,37 +730,6 @@ export const BillingApiFp = function (configuration?: Configuration) {
       const localVarOperationServerBasePath =
         operationServerMap[
           'BillingApi.billingControllerCancelSubscriptionV1'
-        ]?.[localVarOperationServerIndex]?.url;
-      return (axios, basePath) =>
-        createRequestFunction(
-          localVarAxiosArgs,
-          globalAxios,
-          BASE_PATH,
-          configuration,
-        )(axios, localVarOperationServerBasePath || basePath);
-    },
-    /**
-     * Only reachable when PAYMENT_PROVIDER=dummy — lets the /billing/dummy-checkout confirmation page apply the same state transition a real Stripe checkout.session.completed webhook would, since DummyPaymentProvider has no external caller to deliver one itself.
-     * @summary [Dev/test only] Complete a Dummy checkout session
-     * @param {CompleteDummyCheckoutDto} completeDummyCheckoutDto
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    async billingControllerCompleteDummyCheckoutV1(
-      completeDummyCheckoutDto: CompleteDummyCheckoutDto,
-      options?: RawAxiosRequestConfig,
-    ): Promise<
-      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
-    > {
-      const localVarAxiosArgs =
-        await localVarAxiosParamCreator.billingControllerCompleteDummyCheckoutV1(
-          completeDummyCheckoutDto,
-          options,
-        );
-      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-      const localVarOperationServerBasePath =
-        operationServerMap[
-          'BillingApi.billingControllerCompleteDummyCheckoutV1'
         ]?.[localVarOperationServerIndex]?.url;
       return (axios, basePath) =>
         createRequestFunction(
@@ -1046,7 +955,7 @@ export const BillingApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * One row per successfully paid Stripe invoice — Stripe-only, always empty for a tenant on PAYMENT_PROVIDER=dummy or one who has never made a real payment. See 0012_billing_receipts.sql.
+     * One row per successfully paid Stripe invoice — empty for a tenant who has never made a real payment. See 0012_billing_receipts.sql.
      * @summary List the caller tenant\'s payment receipts
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -1220,7 +1129,7 @@ export const BillingApiFactory = function (
   const localVarFp = BillingApiFp(configuration);
   return {
     /**
-     * In-app cancellation — no redirect to a hosted portal. Calls the active payment provider directly (works the same for PAYMENT_PROVIDER=stripe or dummy); the plan stays Paid with full entitlements until the current billing period actually ends, matching what a real Stripe Customer Portal cancellation would leave the subscription in. Not gated on PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.
+     * In-app cancellation — no redirect to a hosted portal. Calls the active payment provider directly; the plan stays Paid with full entitlements until the current billing period actually ends, matching what a real Stripe Customer Portal cancellation would leave the subscription in. Not gated on PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.
      * @summary Cancel the caller tenant\'s subscription at the end of the current period
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -1230,24 +1139,6 @@ export const BillingApiFactory = function (
     ): AxiosPromise<void> {
       return localVarFp
         .billingControllerCancelSubscriptionV1(options)
-        .then((request) => request(axios, basePath));
-    },
-    /**
-     * Only reachable when PAYMENT_PROVIDER=dummy — lets the /billing/dummy-checkout confirmation page apply the same state transition a real Stripe checkout.session.completed webhook would, since DummyPaymentProvider has no external caller to deliver one itself.
-     * @summary [Dev/test only] Complete a Dummy checkout session
-     * @param {BillingApiBillingControllerCompleteDummyCheckoutV1Request} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    billingControllerCompleteDummyCheckoutV1(
-      requestParameters: BillingApiBillingControllerCompleteDummyCheckoutV1Request,
-      options?: RawAxiosRequestConfig,
-    ): AxiosPromise<void> {
-      return localVarFp
-        .billingControllerCompleteDummyCheckoutV1(
-          requestParameters.completeDummyCheckoutDto,
-          options,
-        )
         .then((request) => request(axios, basePath));
     },
     /**
@@ -1347,7 +1238,7 @@ export const BillingApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * One row per successfully paid Stripe invoice — Stripe-only, always empty for a tenant on PAYMENT_PROVIDER=dummy or one who has never made a real payment. See 0012_billing_receipts.sql.
+     * One row per successfully paid Stripe invoice — empty for a tenant who has never made a real payment. See 0012_billing_receipts.sql.
      * @summary List the caller tenant\'s payment receipts
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -1439,24 +1330,12 @@ export const BillingApiFactory = function (
  */
 export interface BillingApiInterface {
   /**
-   * In-app cancellation — no redirect to a hosted portal. Calls the active payment provider directly (works the same for PAYMENT_PROVIDER=stripe or dummy); the plan stays Paid with full entitlements until the current billing period actually ends, matching what a real Stripe Customer Portal cancellation would leave the subscription in. Not gated on PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.
+   * In-app cancellation — no redirect to a hosted portal. Calls the active payment provider directly; the plan stays Paid with full entitlements until the current billing period actually ends, matching what a real Stripe Customer Portal cancellation would leave the subscription in. Not gated on PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.
    * @summary Cancel the caller tenant\'s subscription at the end of the current period
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    */
   billingControllerCancelSubscriptionV1(
-    options?: RawAxiosRequestConfig,
-  ): AxiosPromise<void>;
-
-  /**
-   * Only reachable when PAYMENT_PROVIDER=dummy — lets the /billing/dummy-checkout confirmation page apply the same state transition a real Stripe checkout.session.completed webhook would, since DummyPaymentProvider has no external caller to deliver one itself.
-   * @summary [Dev/test only] Complete a Dummy checkout session
-   * @param {BillingApiBillingControllerCompleteDummyCheckoutV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  billingControllerCompleteDummyCheckoutV1(
-    requestParameters: BillingApiBillingControllerCompleteDummyCheckoutV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<void>;
 
@@ -1533,7 +1412,7 @@ export interface BillingApiInterface {
   ): AxiosPromise<BillingPlansResponseDto>;
 
   /**
-   * One row per successfully paid Stripe invoice — Stripe-only, always empty for a tenant on PAYMENT_PROVIDER=dummy or one who has never made a real payment. See 0012_billing_receipts.sql.
+   * One row per successfully paid Stripe invoice — empty for a tenant who has never made a real payment. See 0012_billing_receipts.sql.
    * @summary List the caller tenant\'s payment receipts
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -1592,13 +1471,6 @@ export interface BillingApiInterface {
 }
 
 /**
- * Request parameters for billingControllerCompleteDummyCheckoutV1 operation in BillingApi.
- */
-export interface BillingApiBillingControllerCompleteDummyCheckoutV1Request {
-  readonly completeDummyCheckoutDto: CompleteDummyCheckoutDto;
-}
-
-/**
  * Request parameters for billingControllerDownloadReceiptPdfV1 operation in BillingApi.
  */
 export interface BillingApiBillingControllerDownloadReceiptPdfV1Request {
@@ -1638,7 +1510,7 @@ export interface BillingApiBillingControllerUpdateBillingProfileV1Request {
  */
 export class BillingApi extends BaseAPI implements BillingApiInterface {
   /**
-   * In-app cancellation — no redirect to a hosted portal. Calls the active payment provider directly (works the same for PAYMENT_PROVIDER=stripe or dummy); the plan stays Paid with full entitlements until the current billing period actually ends, matching what a real Stripe Customer Portal cancellation would leave the subscription in. Not gated on PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.
+   * In-app cancellation — no redirect to a hosted portal. Calls the active payment provider directly; the plan stays Paid with full entitlements until the current billing period actually ends, matching what a real Stripe Customer Portal cancellation would leave the subscription in. Not gated on PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.
    * @summary Cancel the caller tenant\'s subscription at the end of the current period
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -1648,25 +1520,6 @@ export class BillingApi extends BaseAPI implements BillingApiInterface {
   ) {
     return BillingApiFp(this.configuration)
       .billingControllerCancelSubscriptionV1(options)
-      .then((request) => request(this.axios, this.basePath));
-  }
-
-  /**
-   * Only reachable when PAYMENT_PROVIDER=dummy — lets the /billing/dummy-checkout confirmation page apply the same state transition a real Stripe checkout.session.completed webhook would, since DummyPaymentProvider has no external caller to deliver one itself.
-   * @summary [Dev/test only] Complete a Dummy checkout session
-   * @param {BillingApiBillingControllerCompleteDummyCheckoutV1Request} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   */
-  public billingControllerCompleteDummyCheckoutV1(
-    requestParameters: BillingApiBillingControllerCompleteDummyCheckoutV1Request,
-    options?: RawAxiosRequestConfig,
-  ) {
-    return BillingApiFp(this.configuration)
-      .billingControllerCompleteDummyCheckoutV1(
-        requestParameters.completeDummyCheckoutDto,
-        options,
-      )
       .then((request) => request(this.axios, this.basePath));
   }
 
@@ -1766,7 +1619,7 @@ export class BillingApi extends BaseAPI implements BillingApiInterface {
   }
 
   /**
-   * One row per successfully paid Stripe invoice — Stripe-only, always empty for a tenant on PAYMENT_PROVIDER=dummy or one who has never made a real payment. See 0012_billing_receipts.sql.
+   * One row per successfully paid Stripe invoice — empty for a tenant who has never made a real payment. See 0012_billing_receipts.sql.
    * @summary List the caller tenant\'s payment receipts
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}

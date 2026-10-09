@@ -6,8 +6,8 @@ import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 
 import { BillingReconciliationModule } from './billing-reconciliation.module';
-import { DummyPaymentProvider } from './providers/dummy-payment.provider';
 import { PaymentProvider } from './providers/payment.provider';
+import { StripePaymentProvider } from './providers/stripe-payment.provider';
 import { BillingReconciliationService } from './services/billing-reconciliation.service';
 
 @Global()
@@ -25,7 +25,9 @@ class FakeGlobalModule {}
 // The worker process loads this module without `BillingModule`; fails if it grows a dependency only
 // `BillingModule` provides.
 describe('BillingReconciliationModule', () => {
-  it('resolves the reconciliation service and payment provider with only global dependencies', async () => {
+  // No Stripe keys in this config: the provider must still be built (its client is created on first use), or an install
+  // that never takes payments could not boot.
+  it('resolves the reconciliation service and Stripe provider with only global dependencies, and no Stripe keys', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [FakeGlobalModule, BillingReconciliationModule],
     }).compile();
@@ -33,6 +35,6 @@ describe('BillingReconciliationModule', () => {
     expect(moduleRef.get(BillingReconciliationService)).toBeInstanceOf(
       BillingReconciliationService
     );
-    expect(moduleRef.get(PaymentProvider)).toBeInstanceOf(DummyPaymentProvider);
+    expect(moduleRef.get(PaymentProvider)).toBeInstanceOf(StripePaymentProvider);
   });
 });

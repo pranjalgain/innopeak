@@ -22,7 +22,6 @@ import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 
 import type { BillingProfileResponseDto } from '../dto/billing-profile-response.dto';
-import { CompleteDummyCheckoutDto } from '../dto/complete-dummy-checkout.dto';
 import type { BillingPlansResponseDto } from '../dto/plan-response.dto';
 import type { ReceiptListResponseDto } from '../dto/receipt-response.dto';
 import { ReconcileCheckoutSessionDto } from '../dto/reconcile-checkout-session.dto';
@@ -35,7 +34,6 @@ import { UpdateBillingProfileDto } from '../dto/update-billing-profile.dto';
 import { BillingService } from '../services/billing.service';
 import {
   ApiCancelSubscription,
-  ApiCompleteDummyCheckout,
   ApiCreateCheckoutSession,
   ApiCreatePortalSession,
   ApiCreateSetupIntent,
@@ -119,16 +117,6 @@ export class BillingController {
   ): Promise<ApiResponse<null>> {
     await this.billingService.setActiveLocation(user, dto.locationId);
     return ResponseUtil.success(null, MESSAGES.BILLING.ACTIVE_LOCATION_UPDATED);
-  }
-
-  @Post(RouteNames.BILLING_DUMMY_COMPLETE_CHECKOUT)
-  @ApiCompleteDummyCheckout()
-  async completeDummyCheckout(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: CompleteDummyCheckoutDto
-  ): Promise<ApiResponse<null>> {
-    await this.billingService.completeDummyCheckout(user, dto.subscriptionId);
-    return ResponseUtil.success(null, MESSAGES.BILLING.CHECKOUT_COMPLETED);
   }
 
   @Post(RouteNames.BILLING_CANCEL)

@@ -37,16 +37,24 @@ export class CloudinaryStorageProvider extends StorageProvider {
   readonly type = 'cloudinary' as const;
   private readonly logger = new Logger(CloudinaryStorageProvider.name);
   private readonly cloudName: string;
+  private readonly apiKey: string;
+  private readonly apiSecret: string;
 
   constructor(configService: ConfigService<EnvConfig>) {
     super();
     this.cloudName = configService.get<string>('CLOUDINARY_CLOUD_NAME') ?? '';
+    this.apiKey = configService.get<string>('CLOUDINARY_API_KEY') ?? '';
+    this.apiSecret = configService.get<string>('CLOUDINARY_API_SECRET') ?? '';
     cloudinary.config({
       cloud_name: this.cloudName,
-      api_key: configService.get<string>('CLOUDINARY_API_KEY') ?? '',
-      api_secret: configService.get<string>('CLOUDINARY_API_SECRET') ?? '',
+      api_key: this.apiKey,
+      api_secret: this.apiSecret,
       secure: true,
     });
+  }
+
+  isConfigured(): boolean {
+    return this.cloudName !== '' && this.apiKey !== '' && this.apiSecret !== '';
   }
 
   createUploadAuthorization(input: CreateUploadAuthorizationInput): Promise<UploadAuthorization> {

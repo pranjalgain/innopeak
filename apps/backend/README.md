@@ -114,7 +114,7 @@ pnpm start:dev             # Start API + Worker in dev mode
 - **Repository Pattern** — All DB access isolated in repository classes
 - **Strategy/Provider Pattern** — Swappable implementations (S3/Cloudinary, SMTP/SES, Twilio/SNS, Claude/OpenAI, BullMQ/SQS queue transport)
 - **Facade Pattern** — Services orchestrate repositories + providers
-- **Factory Pattern** — Provider selection via environment config (`STORAGE_PROVIDER`, `EMAIL_PROVIDER`, `DEPLOYMENT_TARGET`, ...)
+- **Factory Pattern** — Provider selection via environment config (`EMAIL_PROVIDER`, `DEPLOYMENT_TARGET`, ...)
 
 ### Request lifecycle
 

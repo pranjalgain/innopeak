@@ -286,7 +286,7 @@ one request per focus, never a loop.
 
 When a request must survive a Strict Mode remount (a redirect after a mutation, say), read its
 outcome from the promise `mutateAsync` returns — a per-call `onSuccess` and the mutation's
-`isSuccess` are both lost when the observer detaches mid-flight (see the dummy-checkout page).
+`isSuccess` are both lost when the observer detaches mid-flight.
 
 ## Local dev stack
 

@@ -1,34 +1,12 @@
-import type { EnvConfig } from '@config/env.config';
-import { Logger, Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Module } from '@nestjs/common';
 
-import { DummyPaymentProvider } from './providers/dummy-payment.provider';
 import { PaymentProvider } from './providers/payment.provider';
 import { StripePaymentProvider } from './providers/stripe-payment.provider';
 import { BillingReconciliationService } from './services/billing-reconciliation.service';
-import type { PaymentProviderType } from './types/billing.type';
 
-const logger = new Logger('BillingReconciliationModule');
-
-/** Defaults to `dummy`: real Stripe traffic before real keys/webhook secrets exist is harmful. */
-export const paymentProviderFactory = {
-  provide: PaymentProvider,
-  useFactory: (configService: ConfigService<EnvConfig>): PaymentProvider => {
-    const providerType =
-      (configService.get<string>('PAYMENT_PROVIDER') as PaymentProviderType | undefined) ?? 'dummy';
-
-    logger.log(`Initializing payment provider: ${providerType}`);
-
-    switch (providerType) {
-      case 'stripe':
-        return new StripePaymentProvider(configService);
-      case 'dummy':
-      default:
-        return new DummyPaymentProvider(configService);
-    }
-  },
-  inject: [ConfigService],
-};
+// Stripe only: there is no offline stand-in. Stripe's client is created on first use, so an install without keys boots and
+// the billing routes that need Stripe answer 503.
+export const paymentProviderBinding = { provide: PaymentProvider, useClass: StripePaymentProvider };
 
 /**
  * Split out of `BillingModule` so the worker (`CronModule`) can reach `BillingReconciliationService`
@@ -36,7 +14,7 @@ export const paymentProviderFactory = {
  * there is one `PaymentProvider` per process.
  */
 @Module({
-  providers: [paymentProviderFactory, BillingReconciliationService],
+  providers: [paymentProviderBinding, BillingReconciliationService],
   exports: [PaymentProvider, BillingReconciliationService],
 })
 export class BillingReconciliationModule {}

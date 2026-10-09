@@ -307,6 +307,18 @@
       "button": "Google Unternehmensprofil verbinden",
       "connecting": "Weiterleitung zu Google…"
     },
+    "accountPicker": {
+      "title": "Unter welchem Konto läuft Ihr Unternehmen?",
+      "subtitle": "Ihr Google-Login verwaltet mehr als ein Business-Profil-Konto. Wählen Sie das Konto, das das Unternehmen enthält, das InnoPeak verwalten soll.",
+      "button": "Weiter",
+      "unnamed": "Unbenanntes Konto",
+      "types": {
+        "PERSONAL": "Persönliches Konto",
+        "LOCATION_GROUP": "Standortgruppe",
+        "USER_GROUP": "Benutzergruppe",
+        "ORGANIZATION": "Organisation"
+      }
+    },
     "confirmLocation": {
       "title": "Wir haben Ihr Unternehmen gefunden",
       "subtitle": "Bestätigen Sie, dass dies der Standort ist, den InnoPeak verwalten soll.",
@@ -340,6 +352,8 @@
       "INSUFFICIENT_SCOPE": "InnoPeak wurde keine Berechtigung zur Verwaltung von Bewertungen erteilt. Bitte erneut verbinden und alle angeforderten Berechtigungen akzeptieren.",
       "SERVER_ERROR": "Auf unserer Seite ist etwas schiefgelaufen. Bitte versuchen Sie es erneut.",
       "UNKNOWN": "Beim Verbinden Ihres Google Unternehmensprofils ist etwas schiefgelaufen.",
+      "accountChoiceExpired": "Ihre Kontoauswahl ist abgelaufen. Verbinden Sie Ihr Google Business-Profil erneut.",
+      "accountSelectFailed": "Dieses Konto konnte nicht verbunden werden. Bitte versuchen Sie es erneut.",
       "loadLocationsFailed": "Ihre Google-Standorte konnten nicht geladen werden. Bitte versuchen Sie es erneut.",
       "confirmFailed": "Dieser Standort konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
       "needsReauth": "Ihre Google-Verbindung ist abgelaufen. Bitte erneut verbinden.",
@@ -805,7 +819,6 @@
       },
       "toasts": {
         "checkoutFailed": "Checkout konnte nicht gestartet werden. Bitte erneut versuchen.",
-        "portalFailed": "Abrechnungsportal konnte nicht geöffnet werden. Bitte erneut versuchen.",
         "cancelFailed": "Abonnement konnte nicht gekündigt werden. Bitte erneut versuchen.",
         "cancelSucceeded": "Kündigung geplant — Sie behalten den Zugriff bis zum Ende des Zeitraums.",
         "receiptDownloadFailed": "Der Beleg konnte nicht heruntergeladen werden. Bitte erneut versuchen.",
@@ -832,25 +845,6 @@
           "updated": "Aktiver Standort aktualisiert.",
           "updateFailed": "Aktiver Standort konnte nicht aktualisiert werden. Bitte erneut versuchen."
         }
-      },
-      "dummyCheckout": {
-        "title": "Simulierter Checkout",
-        "description": "Dies ist die Bestätigungsseite des Dummy-Zahlungsanbieters, mit der der Upgrade-Ablauf ohne echte Stripe-Schlüssel getestet wird.",
-        "reference": "Simuliertes Abonnement: {id}",
-        "backToBilling": "Zurück zur Abrechnung",
-        "errorTitle": "Checkout konnte nicht abgeschlossen werden",
-        "errorDescription": "Beim Abschließen des simulierten Upgrades ist ein Fehler aufgetreten. Sie können es erneut versuchen oder zur Abrechnung zurückkehren.",
-        "retry": "Erneut versuchen"
-      },
-      "dummyPortal": {
-        "title": "Simuliertes Abrechnungsportal",
-        "description": "Dies ist die Bestätigungsseite des Dummy-Zahlungsanbieters, mit der der Verwaltungs-/Kündigungsablauf ohne echte Stripe-Schlüssel getestet wird.",
-        "reference": "Simulierter Kunde: {id}",
-        "backToBilling": "Zurück zur Abrechnung",
-        "cancelSubscription": "Abonnement kündigen",
-        "cancelConfirm": "Dieses simulierte Abonnement kündigen? Sie behalten vollen Zugriff bis zum Ende des aktuellen Zeitraums, danach wechseln Sie zu Free.",
-        "keepSubscription": "Abonnement behalten",
-        "cancelFailed": "Abonnement konnte nicht gekündigt werden. Bitte erneut versuchen."
       },
       "cancelSubscription": "Abonnement kündigen",
       "paymentMethod": {

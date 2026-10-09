@@ -14,7 +14,6 @@ function formatReceiptAmount(amountPaid: number, currency: string): string {
   return formatCurrency(amountPaid / 100, currency.toUpperCase());
 }
 
-/** Stripe-only: a Dummy tenant has no real charge to document. */
 export function ReceiptsHistoryCard({ receipts }: { receipts: Receipt[] }) {
   const t = useTranslations("settings.billing.receipts");
   const tToasts = useTranslations("settings.billing.toasts");

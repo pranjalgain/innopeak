@@ -11,6 +11,8 @@ export interface ProviderAccount {
   /** Stored as `review_provider_connections.provider_account_id`. */
   externalAccountId: string;
   name?: string;
+  /** Google's `AccountType` (`PERSONAL`, `LOCATION_GROUP`, `USER_GROUP`, `ORGANIZATION`); shown to the owner when choosing between accounts. */
+  type?: string;
 }
 
 export interface ProviderLocation {
@@ -47,7 +49,8 @@ export interface ProviderReviewPage {
 
 export interface ProviderConnectionResult {
   tokens: ProviderTokenSet;
-  account: ProviderAccount;
+  /** Every account the grant can manage, at least one; the caller chooses when there are several. */
+  accounts: ProviderAccount[];
 }
 
 export interface ListReviewsOptions {

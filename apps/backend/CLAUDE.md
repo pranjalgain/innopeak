@@ -118,9 +118,12 @@ External integrations use abstract base classes with swappable implementations:
 - Auth verification codes (`src/api/auth/providers/`): `VerifyEmailTokenProvider` ->
   RandomVerifyEmailTokenProvider / FixedVerifyEmailTokenProvider (the latter only when
   `DEV_VERIFY_EMAIL_TOKEN` is set outside production)
-- Media storage (`src/api/media/providers/`): `StorageProvider` -> CloudinaryStorageProvider /
-  NoopStorageProvider, selected by `STORAGE_PROVIDER` (defaults to `noop`, unlike Email — real
-  Cloudinary is meant to be exercised in dev too, not forced off outside production)
+- Media storage (`src/api/media/providers/`): `StorageProvider` -> `CloudinaryStorageProvider`, the
+  only implementation (no offline stand-in). Without credentials the server still boots and avatar
+  upload answers `503 STORAGE_NOT_CONFIGURED`
+- Payments (`src/api/billing/providers/`): `PaymentProvider` -> `StripePaymentProvider`, the only
+  implementation (no simulated provider). Its Stripe client is built lazily; without keys, billing
+  calls answer `503 PAYMENT_NOT_CONFIGURED`
 - Queue transport (`src/background/providers/`) — see Queue Transport Pattern below
 
 Provider selection is done via factory in module registration, so services never branch on
@@ -194,7 +197,7 @@ rebuilt from scratch (profile avatar upload, below) — the rest of that list st
 | Module | Path | Purpose |
 |--------|------|---------|
 | Auth | `src/api/auth/` | Tenant signup/login, OTP email verification, JWT access + rotating refresh tokens (data access in `src/db/repositories/auth/`) |
-| Media | `src/api/media/` | Profile avatar upload — direct-to-provider signed upload + server-side verified confirm (`StorageProvider`: `CloudinaryStorageProvider` / `NoopStorageProvider`, selected by `STORAGE_PROVIDER`); one current avatar per owner in the `media` table (data access in `src/db/repositories/media/`). Owns two controllers of its own (`controllers/tenant-avatar.controller.ts`, `controllers/admin-avatar.controller.ts`) mounted under the `auth`/`admin/settings` path prefixes, so a second owner type or media `kind` lands here rather than on another module's controller |
+| Media | `src/api/media/` | Profile avatar upload — direct-to-provider signed upload + server-side verified confirm (`StorageProvider`: `CloudinaryStorageProvider`); one current avatar per owner in the `media` table (data access in `src/db/repositories/media/`). Owns two controllers of its own (`controllers/tenant-avatar.controller.ts`, `controllers/admin-avatar.controller.ts`) mounted under the `auth`/`admin/settings` path prefixes, so a second owner type or media `kind` lands here rather than on another module's controller |
 | Email | `src/email/` | Templated emails (SMTP/SES/Noop, Handlebars) — predates the `src/api/` convention |
 | Health | `src/api/health/` | Health checks (DB, Redis, memory, HTTP) — under `src/api/`, but predates the swagger/constants/types subfolder convention |
 | Metrics | `src/api/metrics/` | Prometheus metrics |

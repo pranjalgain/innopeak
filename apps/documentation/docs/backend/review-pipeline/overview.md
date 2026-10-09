@@ -1099,9 +1099,8 @@ applied.
   and credential resolution via `ProviderCredentialService`/`review_provider_connections
   .credential_reference`. See [Ingestion](#ingestion--the-15-minute-poller--implemented) above for
   the read side and [Posting back to Google](#posting-back-to-google--implemented) for the write
-  side. Both the real provider and `apps/mock-external-apis`'s stand-in (`USE_LOCAL_MOCK_SERVER`,
-  for developing against GBP-posting and Azure OpenAI before real credentials exist) are documented
-  in `apps/mock-external-apis/README.md`.
+  side. Posting always goes to Google; the former local stand-in (`apps/mock-external-apis`,
+  `USE_LOCAL_MOCK_SERVER`) was removed.
 
 **Conventions this work must follow** (`apps/backend/docs/conventions/module-structure.md`,
 `apps/backend/CLAUDE.md`):

@@ -4,12 +4,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 
+import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError } from "@/app/_libs/services/api-error";
 import { BillingService } from "@/app/_libs/services/billing.service";
 import {
   type AvailableLocation,
   type BackfillProgress,
   ConnectionService,
+  type PendingAccount,
 } from "@/app/_libs/services/connection.service";
 
 /** `null` when unlimited or unknown. A failed read must not block the picker (the backend enforces on confirm); at least 1 so Continue stays usable. */
@@ -27,6 +29,8 @@ export type OnboardingConnectStage =
   | "checking"
   | "connect"
   | "redirecting"
+  | "choose_account"
+  | "submitting_account"
   | "loading_locations"
   | "confirm_location"
   | "submitting_location"
@@ -47,6 +51,11 @@ export interface ConnectFlowError {
 interface UseOnboardingConnectFlowResult {
   stage: OnboardingConnectStage;
   error: ConnectFlowError | null;
+  /** The Business Profile accounts to choose between, after a grant that manages several. */
+  accounts: PendingAccount[];
+  selectedAccountId: string | null;
+  selectAccount: (accountId: string) => void;
+  confirmAccount: () => void;
   locations: AvailableLocation[];
   selectedLocationIds: string[];
   /** True when the plan has room for exactly one more location, so the picker is a radio group rather than checkboxes. */
@@ -69,6 +78,18 @@ const SLOW_BACKFILL_GIVE_UP_MS = 10 * 60 * 1000;
 
 /** Key for the resume chain's controller in `abortControllersRef`, alongside location-id keys. */
 const RESUME_ABORT_KEY = "__resume__";
+
+/** Where a reconnect that began in Settings ends, matching the backend's one-account callback redirect. */
+const SETTINGS_CONNECTED_PATH = `${ROUTES.SETTINGS}?tab=connection&connected=1`;
+
+/** The accounts still waiting for a choice, or `null` when none is (410) or the read fails; never blocks resuming. */
+async function readPendingAccounts(signal: AbortSignal): Promise<PendingAccount[] | null> {
+  try {
+    return await ConnectionService.listPendingAccounts(signal);
+  } catch {
+    return null;
+  }
+}
 
 const OAUTH_ERROR_RECOVERY: Record<string, ErrorRecovery> = {
   INVALID_STATE: "restart",
@@ -100,6 +121,8 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
 
   const [stage, setStage] = useState<OnboardingConnectStage>("checking");
   const [error, setError] = useState<ConnectFlowError | null>(null);
+  const [accounts, setAccounts] = useState<PendingAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [locations, setLocations] = useState<AvailableLocation[]>([]);
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
   const [isSingleSelect, setIsSingleSelect] = useState(false);
@@ -140,6 +163,13 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     if (!mountedRef.current) return;
     setError(message !== undefined ? { code, recovery, message } : { code, recovery });
     setStage("error");
+  }, []);
+
+  const showAccountChoice = useCallback((pending: PendingAccount[]) => {
+    setAccounts(pending);
+    // Nothing preselected: connecting the wrong business account is worse than one extra click.
+    setSelectedAccountId(null);
+    setStage("choose_account");
   }, []);
 
   const recomputeAggregate = useCallback(() => {
@@ -333,8 +363,18 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     const { signal } = controller;
 
     try {
-      const state = await ConnectionService.getState(signal);
+      // Read alongside the state: a grant still waiting for the owner's choice wins over anything else, so a
+      // refresh on the picker (or "Try again" after a failed choice) brings the picker back instead of a new consent.
+      const [state, waitingAccounts] = await Promise.all([
+        ConnectionService.getState(signal),
+        readPendingAccounts(signal),
+      ]);
       if (!mountedRef.current || signal.aborted) return;
+
+      if (waitingAccounts !== null) {
+        showAccountChoice(waitingAccounts);
+        return;
+      }
 
       // Branch on the connection row, not `status`: `status` is `disconnected` both for never
       // connected and for consent-granted-no-location-yet, which this flow exists to resolve.
@@ -373,13 +413,67 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
       // Connect stage, not an error screen: "we couldn't check" is a dead end, and the flow can restart.
       setStage("connect");
     }
-  }, [fail, loadLocations, startBackfill]);
+  }, [fail, loadLocations, startBackfill, showAccountChoice]);
+
+  /** After consent for a grant that manages several accounts the backend redirects here to have the owner choose. */
+  const loadPendingAccounts = useCallback(async (signal?: AbortSignal) => {
+    setStage("loading_locations");
+
+    try {
+      const pending = await ConnectionService.listPendingAccounts(signal);
+      if (!mountedRef.current || signal?.aborted) return;
+
+      showAccountChoice(pending);
+    } catch (caught) {
+      if (!mountedRef.current || signal?.aborted) return;
+      fail(
+        caught instanceof ApiError && caught.statusCode === 410 ? "accountChoiceExpired" : "UNKNOWN",
+        caught instanceof ApiError && caught.statusCode === 410 ? "restart" : "retry",
+      );
+    }
+  }, [fail, showAccountChoice]);
+
+  const selectAccount = useCallback((accountId: string) => {
+    setSelectedAccountId(accountId);
+  }, []);
+
+  const confirmAccount = useCallback(() => {
+    if (selectedAccountId === null) return;
+
+    setStage("submitting_account");
+    void (async () => {
+      try {
+        const { returnTo } = await ConnectionService.selectAccount(selectedAccountId);
+        if (!mountedRef.current) return;
+        if (returnTo === "settings") {
+          // Started from Settings: finish there, as a one-account reconnect does.
+          router.replace(SETTINGS_CONNECTED_PATH as Parameters<typeof router.replace>[0]);
+          return;
+        }
+        // Connected: from here it is the ordinary flow (load locations, pick, import).
+        await resume();
+      } catch (caught) {
+        if (!mountedRef.current) return;
+        if (caught instanceof ApiError && caught.statusCode === 410) {
+          fail("accountChoiceExpired", "restart");
+        } else if (caught instanceof ApiError && caught.errorCode === "ACCOUNT_MISMATCH") {
+          fail("ACCOUNT_MISMATCH", "restart");
+        } else if (caught instanceof ApiError && caught.errorCode === "CONNECTION_NEEDS_REAUTH") {
+          fail("needsReauth", "reconnect");
+        } else {
+          // The backend puts the grant back on any other failure, so "Try again" returns to the picker.
+          fail("accountSelectFailed", "retry", caught instanceof ApiError ? caught.message : undefined);
+        }
+      }
+    })();
+  }, [selectedAccountId, resume, fail, router]);
 
   useEffect(() => {
     const oauthError = searchParams.get("error");
     const connected = searchParams.get("connected");
+    const accountChoice = searchParams.get("account_choice");
 
-    if (oauthError || connected) {
+    if (oauthError || connected || accountChoice) {
       // Stripped so a refresh can't replay a stale error or re-enter the post-consent branch.
       // Cast because Next's typed routes reject a runtime `pathname`.
       router.replace(pathname as Parameters<typeof router.replace>[0]);
@@ -390,6 +484,11 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
         oauthError in OAUTH_ERROR_RECOVERY ? oauthError : "UNKNOWN",
         OAUTH_ERROR_RECOVERY[oauthError] ?? "retry",
       );
+      return;
+    }
+
+    if (accountChoice === "pending") {
+      void loadPendingAccounts();
       return;
     }
 
@@ -469,6 +568,10 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
   return {
     stage,
     error,
+    accounts,
+    selectedAccountId,
+    selectAccount,
+    confirmAccount,
     locations,
     selectedLocationIds,
     isSingleSelect,

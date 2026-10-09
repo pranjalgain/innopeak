@@ -5,6 +5,13 @@ import { unwrap } from "@/app/_libs/services/api-error";
 /** Three states, not two: `needs_reauth` (broken-but-present) must not collapse into `connected`, so the dashboard guard can show a reconnect banner. */
 export type ConnectionStatus = "connected" | "disconnected" | "needs_reauth";
 
+/** A Google Business Profile account the owner can choose between. `type` is Google's account type, when it reports one. */
+export interface PendingAccount {
+  accountId: string;
+  name: string | null;
+  type: string | null;
+}
+
 export interface ConnectedLocation {
   id: string;
   provider: "google";
@@ -107,6 +114,25 @@ export class ConnectionService {
     // Not a Next page: `/v1/*` is rewritten to the backend, which 302s to Google; `router.push` would try to resolve a nonexistent route.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`/v1/connections/google/authorize?returnTo=${returnTo}`);
+  }
+
+  /** The accounts waiting for the owner's choice after a grant that manages several. ApiError 410 when none is pending (expired or already settled). */
+  static async listPendingAccounts(signal?: AbortSignal): Promise<PendingAccount[]> {
+    const apiResponse = await connectionsApi.connectionsControllerPendingAccountsV1({ signal });
+
+    return unwrap<{ accounts: PendingAccount[] }>(apiResponse.data).accounts;
+  }
+
+  /**
+   * Connects the chosen account and reports the screen that started the flow. ApiError 410: the choice expired or was
+   * already used; 409 `ACCOUNT_MISMATCH`: a different account is already connected; 409 `CONNECTION_NEEDS_REAUTH`: Google
+   * rejected the grant. On any other failure the choice is kept, so it can be retried.
+   */
+  static async selectAccount(accountId: string): Promise<{ returnTo: "onboarding" | "settings" }> {
+    const apiResponse = await connectionsApi.connectionsControllerSelectAccountV1({
+      selectAccountDto: { accountId },
+    });
+    return { returnTo: unwrap<{ returnTo: "onboarding" | "settings" }>(apiResponse.data).returnTo };
   }
 
   static async listAvailableLocations(signal?: AbortSignal): Promise<AvailableLocation[]> {

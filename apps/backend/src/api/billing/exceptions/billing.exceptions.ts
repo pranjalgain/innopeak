@@ -4,6 +4,7 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 
 /** `PAYMENT_FEATURE_ENABLED` is off; gates checkout only, never existing access. */
@@ -71,24 +72,10 @@ export class LocationNotEligibleForActivationException extends BadRequestExcepti
   }
 }
 
-/** `DummyPaymentProvider` has no real Stripe Customer to read or edit. */
-export class StripeOnlyFeatureException extends ForbiddenException {
-  constructor(message: string = MESSAGES.BILLING.STRIPE_ONLY_FEATURE) {
-    super({ message, code: 'STRIPE_ONLY_FEATURE' });
-  }
-}
-
 /** Missing and other-tenant receipts are deliberately indistinguishable. */
 export class ReceiptNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.BILLING.RECEIPT_NOT_FOUND) {
     super({ message, code: 'RECEIPT_NOT_FOUND' });
-  }
-}
-
-/** Dummy routes would be a free-upgrade path, so they must be unreachable under `PAYMENT_PROVIDER=stripe`. */
-export class DummyProviderNotActiveException extends NotFoundException {
-  constructor(message: string = MESSAGES.BILLING.DUMMY_PROVIDER_NOT_ACTIVE) {
-    super({ message, code: 'DUMMY_PROVIDER_NOT_ACTIVE' });
   }
 }
 
@@ -110,5 +97,12 @@ export class CheckoutSessionTenantMismatchException extends NotFoundException {
 export class PaymentMethodNotUsableException extends BadRequestException {
   constructor(message: string = MESSAGES.BILLING.PAYMENT_METHOD_NOT_USABLE) {
     super({ message, code: 'PAYMENT_METHOD_NOT_USABLE' });
+  }
+}
+
+/** `STRIPE_SECRET_KEY` is unset on this server. */
+export class PaymentNotConfiguredException extends ServiceUnavailableException {
+  constructor(message: string = MESSAGES.BILLING.PAYMENT_NOT_CONFIGURED) {
+    super({ message, code: 'PAYMENT_NOT_CONFIGURED' });
   }
 }

@@ -232,16 +232,6 @@ export class EnvConfig {
   @IsString()
   CREDENTIAL_ENCRYPTION_KEY?: string;
 
-  // Dev-only fixture-backed client that still round-trips through our OAuth callback. Forbidden in production by the Joi schema.
-  @IsOptional()
-  @IsString()
-  DEV_GBP_MOCK?: string;
-
-  // Dev-only: forces the mock's provider account id, so ACCOUNT_MISMATCH can be exercised.
-  @IsOptional()
-  @IsString()
-  DEV_GBP_MOCK_ACCOUNT_ID?: string;
-
   @IsOptional()
   @IsString()
   GITHUB_CLIENT_ID?: string;
@@ -253,10 +243,6 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   GITHUB_CALLBACK_URL?: string;
-
-  @IsOptional()
-  @IsString()
-  STORAGE_PROVIDER?: string;
 
   @IsOptional()
   @IsString()
@@ -399,11 +385,6 @@ export class EnvConfig {
   @IsIn(['true', 'false'])
   PAYMENT_FEATURE_ENABLED?: string;
 
-  /** Selects the `PaymentProvider`; defaults to `'dummy'` (applied via `?? 'dummy'` at the call site, per this file's `ConfigService.get()` convention). */
-  @IsOptional()
-  @IsIn(['dummy', 'stripe'])
-  PAYMENT_PROVIDER?: string;
-
   @IsOptional()
   @IsString()
   STRIPE_SECRET_KEY?: string;
@@ -457,19 +438,6 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   AZURE_OPENAI_REGION?: string;
-
-  /**
-   * Redirects GBP write-path calls and `AzureOpenAiProvider` at `apps/mock-external-apis` while real credentials are unavailable.
-   * Forbidden in production by Joi, and the provider factories also check `!isProduction()`.
-   */
-  @IsOptional()
-  @IsString()
-  USE_LOCAL_MOCK_SERVER?: string;
-
-  /** Only read when `USE_LOCAL_MOCK_SERVER === 'true'`; defaults to `http://localhost:4100` (applied via `??` at the call site), the mock's default port. */
-  @IsOptional()
-  @IsString()
-  LOCAL_MOCK_SERVER_URL?: string;
 
   /**
    * Days between a removal/erasure request and the nightly `ERASURE_PURGE` cron anonymizing the user(s); shared by

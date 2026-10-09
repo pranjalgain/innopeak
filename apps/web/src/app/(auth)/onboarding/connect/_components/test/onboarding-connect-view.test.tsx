@@ -27,6 +27,10 @@ vi.mock("@/hooks/onboarding/use-onboarding-connect-flow", () => ({
 const flowAtConnectStage = () => ({
     stage: "connect",
     error: null,
+    accounts: [],
+    selectedAccountId: null,
+    selectAccount: vi.fn(),
+    confirmAccount: vi.fn(),
     locations: [],
     selectedLocationIds: [],
     isSingleSelect: false,

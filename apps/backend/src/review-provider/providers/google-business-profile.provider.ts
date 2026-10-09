@@ -4,6 +4,7 @@ import { Logger } from '@nestjs/common';
 import { ReviewProvider } from './review-provider.provider';
 
 import {
+  GBP_ACCOUNTS_PAGE_SIZE,
   GBP_HOSTS,
   GBP_LOCATION_READ_MASK,
   GBP_REVIEWS_ORDER_BY,
@@ -30,6 +31,7 @@ import type {
 import type {
   GetReviewReplyInput,
   ListReviewsOptions,
+  ProviderAccount,
   ProviderConnectionResult,
   ProviderLocation,
   ProviderReviewPage,
@@ -42,12 +44,6 @@ export interface GbpProviderConfig {
   clientId: string;
   clientSecret: string;
   callbackUrl: string;
-  /**
-   * Set when `USE_LOCAL_MOCK_SERVER=true`: redirects only `getReviewReply`/`replyToReview` at
-   * `apps/mock-external-apis`. `listLocations`/`listReviews` have their own in-process mock
-   * (`DEV_GBP_MOCK`) and are unaffected.
-   */
-  localMockServerUrl?: string;
 }
 
 /** `error.errors[].reason` values Google's docs name as quota-specific. */
@@ -58,12 +54,7 @@ const QUOTA_EXCEEDED_REASONS = new Set([
   'quotaExceeded',
 ]);
 
-/**
- * Bare `fetch`: a dependency for six requests isn't worth it. Also the mock's base class:
- * `MockGoogleBusinessProfileProvider` overrides only `request()` and the token endpoints, so
- * pagination, the mappers and error classification are inherited and genuinely exercised under
- * `DEV_GBP_MOCK=true`. The write path instead points at `localMockServerUrl`, independent of that flag.
- */
+/** Bare `fetch`: a dependency for six requests isn't worth it. Always talks to Google; there is no stand-in. */
 export class GoogleBusinessProfileProvider extends ReviewProvider {
   readonly providerKey = ReviewProviderKey.GOOGLE;
   protected readonly logger = new Logger(GoogleBusinessProfileProvider.name);
@@ -101,8 +92,8 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
       grant_type: 'authorization_code',
     });
 
-    const account = await this.fetchPrimaryAccount(tokens.accessToken);
-    return { tokens, account };
+    const accounts = await this.fetchAccounts(tokens.accessToken);
+    return { tokens, accounts };
   }
 
   async refreshAccessToken(refreshToken: string): Promise<ProviderTokenSet> {
@@ -187,7 +178,7 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
     input: GetReviewReplyInput
   ): Promise<ProviderReviewReply | null> {
     const response = await this.request<GbpReview>(
-      `${this.legacyV4Base()}/${input.externalAccountId}/${input.externalLocationId}/reviews/${input.externalReviewId}`,
+      `${GBP_HOSTS.LEGACY_V4}/${input.externalAccountId}/${input.externalLocationId}/reviews/${input.externalReviewId}`,
       accessToken
     );
 
@@ -200,7 +191,7 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
     input: ReplyToReviewInput
   ): Promise<ProviderReviewReply> {
     const response = await this.request<GbpReviewReply>(
-      `${this.legacyV4Base()}/${input.externalAccountId}/${input.externalLocationId}/reviews/${input.externalReviewId}/reply`,
+      `${GBP_HOSTS.LEGACY_V4}/${input.externalAccountId}/${input.externalLocationId}/reviews/${input.externalReviewId}/reply`,
       accessToken,
       { method: 'PUT', body: JSON.stringify({ comment: input.comment }) }
     );
@@ -215,14 +206,7 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
     return mapped;
   }
 
-  /** The real v4 host, or the local mock server's equivalent `/v4` path when `localMockServerUrl` is set. */
-  private legacyV4Base(): string {
-    return this.config.localMockServerUrl !== undefined
-      ? `${this.config.localMockServerUrl}/v4`
-      : GBP_HOSTS.LEGACY_V4;
-  }
-
-  /** The single outbound-HTTP seam; `protected` so the mock overrides only this, not the logic around it. */
+  /** The single outbound-HTTP seam. */
   protected async request<T>(
     url: string,
     accessToken: string,
@@ -389,24 +373,36 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
     };
   }
 
-  protected async fetchPrimaryAccount(
-    accessToken: string
-  ): Promise<ProviderConnectionResult['account']> {
-    const response = await this.request<GbpListAccountsResponse>(
-      `${GBP_HOSTS.ACCOUNT_MANAGEMENT}/accounts`,
-      accessToken
-    );
+  /** Every account the grant manages; Google pages this list (20 at a time), so follow `nextPageToken` to the end. */
+  protected async fetchAccounts(accessToken: string): Promise<ProviderAccount[]> {
+    const accounts: ProviderAccount[] = [];
+    let pageToken: string | undefined;
 
-    const account = response.accounts?.[0];
+    do {
+      const params = new URLSearchParams({ pageSize: String(GBP_ACCOUNTS_PAGE_SIZE) });
+      if (pageToken) {
+        params.set('pageToken', pageToken);
+      }
 
-    if (!account) {
+      const response = await this.request<GbpListAccountsResponse>(
+        `${GBP_HOSTS.ACCOUNT_MANAGEMENT}/accounts?${params.toString()}`,
+        accessToken
+      );
+
+      for (const account of response.accounts ?? []) {
+        accounts.push(mapGbpAccount(account));
+      }
+      pageToken = response.nextPageToken === '' ? undefined : response.nextPageToken;
+    } while (pageToken);
+
+    if (accounts.length === 0) {
       // Common when consenting with a personal Google account that never claimed a business.
       throw new ProviderMappingError(
         'The Google account that granted access manages no Business Profile accounts'
       );
     }
 
-    return mapGbpAccount(account);
+    return accounts;
   }
 
   /** Throws on use, not at boot, so developers without GBP credentials can still start the app; connections routes translate it to a 503. */

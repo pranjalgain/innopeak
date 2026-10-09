@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
 import type { OnboardingStep } from "@/app/(auth)/onboarding/_components/onboarding-step.types";
 import { OnboardingStepper } from "@/app/(auth)/onboarding/_components/onboarding-stepper";
+import { AccountPickerStage } from "@/app/(auth)/onboarding/connect/_components/account-picker-stage";
 import { BackfillingStage } from "@/app/(auth)/onboarding/connect/_components/backfilling-stage";
 import { ConfirmLocationStage } from "@/app/(auth)/onboarding/connect/_components/confirm-location-stage";
 import { ConnectErrorStage } from "@/app/(auth)/onboarding/connect/_components/connect-error-stage";
@@ -90,9 +91,11 @@ function OnboardingConnectFlow({ context }: { context: OnboardingContext | null 
   const stageGroup =
     flow.stage === "connect" || flow.stage === "redirecting"
       ? "connect"
-      : flow.stage === "confirm_location" || flow.stage === "submitting_location"
-        ? "confirm_location"
-        : flow.stage;
+      : flow.stage === "choose_account" || flow.stage === "submitting_account"
+        ? "choose_account"
+        : flow.stage === "confirm_location" || flow.stage === "submitting_location"
+          ? "confirm_location"
+          : flow.stage;
 
   return (
     <>
@@ -126,6 +129,16 @@ function OnboardingConnectFlow({ context }: { context: OnboardingContext | null 
               ) : null}
 
               {flow.stage === "loading_locations" ? <ConnectSkeleton /> : null}
+
+              {flow.stage === "choose_account" || flow.stage === "submitting_account" ? (
+                <AccountPickerStage
+                  accounts={flow.accounts}
+                  selectedAccountId={flow.selectedAccountId}
+                  onSelect={flow.selectAccount}
+                  onContinue={flow.confirmAccount}
+                  isSubmitting={flow.stage === "submitting_account"}
+                />
+              ) : null}
 
               {flow.stage === "confirm_location" || flow.stage === "submitting_location" ? (
                 <ConfirmLocationStage
