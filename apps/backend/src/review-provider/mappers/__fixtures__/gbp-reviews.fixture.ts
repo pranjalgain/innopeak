@@ -1,4 +1,4 @@
-import type { GbpListReviewsResponse, GbpReview } from '../types/gbp-wire.type';
+import type { GbpListReviewsResponse, GbpReview } from '../../types/gbp-wire.type';
 
 const LOCATION_PATH = 'accounts/108327761122/locations/12345678901234567890';
 const DAY_MS = 24 * 60 * 60 * 1000;

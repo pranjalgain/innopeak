@@ -111,7 +111,6 @@ Class | Method | HTTP request | Description
 *AuthApi* | [**tenantAvatarControllerAuthorizeV1**](docs/AuthApi.md#tenantavatarcontrollerauthorizev1) | **POST** /v1/auth/avatar/authorize | Get a signed avatar upload authorization
 *AuthApi* | [**tenantAvatarControllerConfirmAvatarV1**](docs/AuthApi.md#tenantavatarcontrollerconfirmavatarv1) | **POST** /v1/auth/avatar/confirm | Confirm an uploaded avatar
 *BillingApi* | [**billingControllerCancelSubscriptionV1**](docs/BillingApi.md#billingcontrollercancelsubscriptionv1) | **POST** /v1/billing/cancel | Cancel the caller tenant\&#39;s subscription at the end of the current period
-*BillingApi* | [**billingControllerCompleteDummyCheckoutV1**](docs/BillingApi.md#billingcontrollercompletedummycheckoutv1) | **POST** /v1/billing/dummy/complete-checkout | [Dev/test only] Complete a Dummy checkout session
 *BillingApi* | [**billingControllerCreateCheckoutSessionV1**](docs/BillingApi.md#billingcontrollercreatecheckoutsessionv1) | **POST** /v1/billing/checkout | Create a Checkout session to upgrade to Paid
 *BillingApi* | [**billingControllerCreatePortalSessionV1**](docs/BillingApi.md#billingcontrollercreateportalsessionv1) | **POST** /v1/billing/portal | Create a Customer Portal session to manage/cancel billing
 *BillingApi* | [**billingControllerCreateSetupIntentV1**](docs/BillingApi.md#billingcontrollercreatesetupintentv1) | **POST** /v1/billing/setup-intent | Start adding/replacing the card on file
@@ -131,6 +130,8 @@ Class | Method | HTTP request | Description
 *ConnectionsApi* | [**connectionsControllerDisconnectV1**](docs/ConnectionsApi.md#connectionscontrollerdisconnectv1) | **DELETE** /v1/connections/google | Disconnect Google Business Profile
 *ConnectionsApi* | [**connectionsControllerGetConnectionV1**](docs/ConnectionsApi.md#connectionscontrollergetconnectionv1) | **GET** /v1/connections | The tenant\&#39;s whole connection picture in one call
 *ConnectionsApi* | [**connectionsControllerListLocationsV1**](docs/ConnectionsApi.md#connectionscontrollerlistlocationsv1) | **GET** /v1/connections/locations | The tenant\&#39;s persisted locations
+*ConnectionsApi* | [**connectionsControllerPendingAccountsV1**](docs/ConnectionsApi.md#connectionscontrollerpendingaccountsv1) | **GET** /v1/connections/google/accounts/pending | Business Profile accounts waiting for the owner to choose
+*ConnectionsApi* | [**connectionsControllerSelectAccountV1**](docs/ConnectionsApi.md#connectionscontrollerselectaccountv1) | **POST** /v1/connections/google/accounts/select | Connect the Business Profile account the owner chose
 *ConnectionsApi* | [**connectionsControllerSetActiveLocationV1**](docs/ConnectionsApi.md#connectionscontrollersetactivelocationv1) | **PATCH** /v1/connections/active-location | Switch the tenant\&#39;s currently-viewed business
 *ConnectionsSyncApi* | [**connectionsSyncControllerGetBackfillV1**](docs/ConnectionsSyncApi.md#connectionssynccontrollergetbackfillv1) | **GET** /v1/connections/locations/{locationId}/backfill | Progress of the one-time historical import
 *ConnectionsSyncApi* | [**connectionsSyncControllerGetSyncHealthV1**](docs/ConnectionsSyncApi.md#connectionssynccontrollergetsynchealthv1) | **GET** /v1/connections/locations/{locationId}/sync-health | Is ingestion working for this location
@@ -200,7 +201,6 @@ Class | Method | HTTP request | Description
  - [ChangeAdminPasswordDto](docs/ChangeAdminPasswordDto.md)
  - [ChangePasswordDto](docs/ChangePasswordDto.md)
  - [ClassificationBreakdownPointResponseDto](docs/ClassificationBreakdownPointResponseDto.md)
- - [CompleteDummyCheckoutDto](docs/CompleteDummyCheckoutDto.md)
  - [CompleteSsoSignupDto](docs/CompleteSsoSignupDto.md)
  - [ConfirmAvatarDto](docs/ConfirmAvatarDto.md)
  - [ConfirmAvatarResponseDto](docs/ConfirmAvatarResponseDto.md)
@@ -240,6 +240,8 @@ Class | Method | HTTP request | Description
  - [NotificationRecipientListResponseDto](docs/NotificationRecipientListResponseDto.md)
  - [PaginationMetaDto](docs/PaginationMetaDto.md)
  - [PaymentMethodResponseDto](docs/PaymentMethodResponseDto.md)
+ - [PendingAccountDto](docs/PendingAccountDto.md)
+ - [PendingAccountsResponseDto](docs/PendingAccountsResponseDto.md)
  - [PlatformActivityListResponseDto](docs/PlatformActivityListResponseDto.md)
  - [PlatformActivityResponseDto](docs/PlatformActivityResponseDto.md)
  - [PlatformSettingsResponseDto](docs/PlatformSettingsResponseDto.md)
@@ -270,6 +272,8 @@ Class | Method | HTTP request | Description
  - [ReviewResponseItemDto](docs/ReviewResponseItemDto.md)
  - [ReviewsMetaDto](docs/ReviewsMetaDto.md)
  - [ReviewsTrendPointResponseDto](docs/ReviewsTrendPointResponseDto.md)
+ - [SelectAccountDto](docs/SelectAccountDto.md)
+ - [SelectAccountResponseDto](docs/SelectAccountResponseDto.md)
  - [SendAdminInviteDto](docs/SendAdminInviteDto.md)
  - [SetActiveLocationDto](docs/SetActiveLocationDto.md)
  - [SetAdminPasswordDto](docs/SetAdminPasswordDto.md)

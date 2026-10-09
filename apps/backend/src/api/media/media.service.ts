@@ -10,6 +10,7 @@ import { ConfirmAvatarResponseDto } from './dto/confirm-avatar-response.dto';
 import {
   AvatarUploadNotVerifiedException,
   MediaFileTooLargeException,
+  StorageNotConfiguredException,
   UnsupportedMediaFormatException,
 } from './exceptions/media.exceptions';
 import { StorageProvider } from './providers/storage.provider';
@@ -30,6 +31,10 @@ export class MediaService {
   private async getAvatarUploadAuthorization(
     owner: MediaOwner
   ): Promise<AvatarUploadAuthorizationResponseDto> {
+    if (!this.storageProvider.isConfigured()) {
+      throw new StorageNotConfiguredException();
+    }
+
     const authorization = await this.storageProvider.createUploadAuthorization({
       folder: avatarFolderFor(owner),
     });

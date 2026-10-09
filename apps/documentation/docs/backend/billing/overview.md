@@ -85,34 +85,24 @@ booleans. As shipped, there is no HTTP path for a Super Admin to actually flip t
 any client to read its current value — the column can only be changed directly at the database.
 See [Known limitations](#known-limitations--follow-up-work).
 
-## The payment-provider plugin pattern: Dummy vs Stripe
+## The payment provider
 
-`PaymentProvider` (`src/api/billing/providers/payment.provider.ts`) is an abstract base class with
-two concrete implementations, selected by the `PAYMENT_PROVIDER` env var (`dummy` | `stripe`,
-default `dummy`) via a factory in `billing.module.ts` — the same DI-swap shape as
-`StorageProvider` → `CloudinaryStorageProvider`/`NoopStorageProvider` in
-`src/api/media/providers/`.
+`PaymentProvider` (`src/api/billing/providers/payment.provider.ts`) is an abstract base class with a
+single implementation, `StripePaymentProvider`, bound in `billing-reconciliation.module.ts`. There
+is no simulated provider: upgrades, cancellation and the billing profile all talk to Stripe (test
+mode locally).
 
-- **`DummyPaymentProvider`** — the default. Mints fabricated ids (`dummy_cus_<uuid>`,
-  `dummy_sub_<uuid>`), and `createCheckoutSession`/`createPortalSession` return a URL pointing at a
-  local confirmation page (`/billing/dummy-checkout`, `/billing/dummy-portal`, under
-  `FRONTEND_URL`) instead of a real Stripe redirect. `constructWebhookEvent` throws if called —
-  Dummy has no external caller to deliver a webhook, so the (not-yet-built) confirmation pages are
-  expected to call the same internal service methods a real webhook would trigger, directly.
-- **`StripePaymentProvider`** — the real integration, via the `stripe` npm SDK: real Checkout/
-  Portal session creation, and real signature verification via `stripe.webhooks.constructEvent`.
-  Maps Stripe's own event/status shapes into this app's normalized `PaymentWebhookEvent`/
-  `SubscriptionStatus` types (`STRIPE_STATUS_MAP` in `stripe-payment.provider.ts`) so
-  `BillingWebhooksService` never touches a raw Stripe type.
+`StripePaymentProvider` uses the `stripe` npm SDK: real Checkout session creation, and real
+signature verification via `stripe.webhooks.constructEvent`. It maps Stripe's own event/status
+shapes into this app's normalized `PaymentWebhookEvent`/`SubscriptionStatus` types
+(`STRIPE_STATUS_MAP` in `stripe-payment.provider.ts`) so `BillingWebhooksService` never touches a
+raw Stripe type.
 
-The reason this exists as a plugin rather than a single Stripe integration: it lets the entire
-upgrade → cap-enforcement → cancel → downgrade flow be built and exercised end-to-end with zero
-real Stripe keys. Ship wired to Dummy; flip `PAYMENT_PROVIDER=stripe` (plus
-`STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`/`STRIPE_PRICE_ID_PAID`) once real Stripe objects exist.
-Dummy is the default (unlike `STORAGE_PROVIDER` defaulting to `noop` for a different reason,
-per `billing.module.ts`'s own comment) because shipping real, unwanted Stripe traffic before real
-keys/webhook secrets exist is actively harmful, whereas Dummy is a fully working simulated flow on
-its own.
+The Stripe client is built lazily, because the SDK throws on an empty key at construction. A server
+with no Stripe keys therefore still boots (Free tenants never touch billing), and any billing call
+that needs Stripe fails with `PAYMENT_NOT_CONFIGURED` (`503`). `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET` are required in production and whenever `PAYMENT_FEATURE_ENABLED=true`;
+`STRIPE_PRICE_ID_PAID` names the Paid plan's price.
 
 ## Webhook state machine
 
@@ -178,15 +168,15 @@ uses, so all three converge on identical state in any order:
    Candidates are free-plan tenants with a Stripe customer whose last checkout started within 4
    days (`checkout_started_at` — a session lives 24h and Stripe retries for up to 3 days) and that
    haven't been verified in the last hour. Each is checked in its own `try/catch`, so one Stripe
-   failure does not starve the rest.
+   failure does not starve the rest. A customer id Stripe doesn't know counts as no subscription, so
+   such a row is stamped verified rather than failing every night.
 
 Both paths only apply a **live** subscription (`active` or `past_due`). A `canceled` one means the
 subscription behind an old success URL has since ended, and an `incomplete` one means the first
 payment hasn't been captured — applying either would grant Paid to a tenant who is not paying. In
 those cases, as when Stripe reports no subscription at all, only `stripe_last_verified_at` is
 stamped. Applying a snapshot (plan, subscription fields, clearing `billing_paused_at`, the verified
-stamp) is one transaction. The reconcile route is Stripe-only (`STRIPE_ONLY_FEATURE` under Dummy,
-whose checkout never reaches `success_url`). The worker process loads only
+stamp) is one transaction. The worker process loads only
 `BillingReconciliationModule` (payment provider + reconciliation service), not the full
 `BillingModule`.
 

@@ -116,3 +116,14 @@ export class ListSyncRunsQueryDto {
   })
   trigger?: SyncTrigger;
 }
+
+export class SelectAccountDto {
+  @ApiProperty({
+    example: 'accounts/108327761122',
+    description:
+      'One of the `accountId`s from `GET /v1/connections/google/accounts/pending`. Anything else is refused.',
+  })
+  @IsString({ message: 'accountId must be a string' })
+  @Length(1, 255, { message: 'accountId must be between 1 and 255 characters' })
+  accountId!: string;
+}

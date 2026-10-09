@@ -1,3 +1,9 @@
+import type { ProviderConnectionRow } from '@db/repositories/connections/types/connections.type';
+import type {
+  ProviderAccount,
+  ProviderTokenSet,
+} from '@review-provider/types/review-provider.type';
+
 import type { OAuthStateFailureReason } from '../enums/oauth-state-failure-reason.enum';
 import type { ReturnTo } from '../enums/return-to.enum';
 
@@ -32,3 +38,21 @@ export interface MintedState {
 
 export type ConsumeResult =
   { ok: false; reason: OAuthStateFailureReason } | { ok: true; record: OAuthStateRecord };
+
+/** What waits in Redis while the owner picks between several Business Profile accounts. */
+export interface PendingAccountChoice {
+  /** Only this user may see or settle the choice. */
+  userId: string;
+  /** The screen that started the flow, where the owner lands once an account is chosen. */
+  returnTo: ReturnTo;
+  accounts: ProviderAccount[];
+  /** The consented grant. Encrypted at rest in Redis, and only stored in the credential store once an account is chosen. */
+  tokens: ProviderTokenSet;
+}
+
+/** How the OAuth callback proceeds with the accounts a grant manages. */
+export type AccountDecision =
+  { kind: 'account'; account: ProviderAccount } | { kind: 'choose' } | { kind: 'mismatch' };
+
+export type ConnectAccountOutcome =
+  { kind: 'connected'; connection: ProviderConnectionRow } | { kind: 'mismatch' };

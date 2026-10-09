@@ -35,10 +35,6 @@ export interface SubscriptionResponseDto {
    * null when there is no Stripe customer yet, or no card on file.
    */
   paymentMethod: PaymentMethodResponseDto | null;
-  /**
-   * The active PAYMENT_PROVIDER — lets the frontend offer in-app card/billing-profile editing only for stripe (see StripeOnlyFeatureException), falling back to the simulated Dummy portal page otherwise.
-   */
-  paymentProvider: SubscriptionResponseDtoPaymentProviderEnum;
 }
 
 export const SubscriptionResponseDtoPlanCodeEnum = {
@@ -57,10 +53,3 @@ export const SubscriptionResponseDtoStatusEnum = {
 
 export type SubscriptionResponseDtoStatusEnum =
   (typeof SubscriptionResponseDtoStatusEnum)[keyof typeof SubscriptionResponseDtoStatusEnum];
-export const SubscriptionResponseDtoPaymentProviderEnum = {
-  Dummy: 'dummy',
-  Stripe: 'stripe',
-} as const;
-
-export type SubscriptionResponseDtoPaymentProviderEnum =
-  (typeof SubscriptionResponseDtoPaymentProviderEnum)[keyof typeof SubscriptionResponseDtoPaymentProviderEnum];

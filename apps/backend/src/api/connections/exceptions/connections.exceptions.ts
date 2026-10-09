@@ -1,7 +1,9 @@
 import { MESSAGES } from '@common/constants/messages.constants';
 import {
   BadGatewayException,
+  BadRequestException,
   ConflictException,
+  GoneException,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -59,5 +61,23 @@ export class ConnectionNeedsReauthException extends ConflictException {
 export class ProviderUnavailableException extends BadGatewayException {
   constructor(message: string = MESSAGES.CONNECTIONS.PROVIDER_UNAVAILABLE) {
     super({ message, code: CONNECTION_ERROR_CODES.PROVIDER_UNAVAILABLE });
+  }
+}
+
+export class AccountChoiceExpiredException extends GoneException {
+  constructor(message: string = MESSAGES.CONNECTIONS.ACCOUNT_CHOICE_EXPIRED) {
+    super({ message, code: CONNECTION_ERROR_CODES.ACCOUNT_CHOICE_EXPIRED });
+  }
+}
+
+export class AccountNotInChoiceException extends BadRequestException {
+  constructor(message: string = MESSAGES.CONNECTIONS.ACCOUNT_NOT_IN_CHOICE) {
+    super({ message, code: CONNECTION_ERROR_CODES.ACCOUNT_NOT_IN_CHOICE });
+  }
+}
+
+export class AccountMismatchException extends ConflictException {
+  constructor(message: string = MESSAGES.CONNECTIONS.ACCOUNT_MISMATCH) {
+    super({ message, code: CONNECTION_ERROR_CODES.ACCOUNT_MISMATCH });
   }
 }

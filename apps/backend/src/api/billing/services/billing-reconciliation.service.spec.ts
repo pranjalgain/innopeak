@@ -32,7 +32,7 @@ describe('BillingReconciliationService', () => {
       | 'retrieveActiveSubscriptionForCustomer'
       | 'retrieveCheckoutSession'
       | 'voidOpenInvoices'
-    > & { type: 'dummy' | 'stripe' }
+    >
   >;
   let tenantSubscriptionsDbService: jest.Mocked<
     Pick<
@@ -55,7 +55,6 @@ describe('BillingReconciliationService', () => {
       deleteCustomer: jest.fn().mockResolvedValue(undefined),
       resumeSubscription: jest.fn().mockResolvedValue(undefined),
       voidOpenInvoices: jest.fn().mockResolvedValue(0),
-      type: 'stripe',
     };
     tenantSubscriptionsDbService = {
       setToPaidFromCheckout: jest.fn().mockResolvedValue(null),
@@ -296,19 +295,6 @@ describe('BillingReconciliationService', () => {
       expect(paymentProvider.cancelSubscription).toHaveBeenCalledWith('sub_1', false);
       expect(paymentProvider.voidOpenInvoices).toHaveBeenCalledWith('sub_1');
       expect(tenantSubscriptionsDbService.markCancellationScheduled).not.toHaveBeenCalled();
-    });
-
-    it('applies the Free state itself on the Dummy provider, which delivers no webhook', async () => {
-      paymentProvider.type = 'dummy';
-      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(
-        row({ status: SubscriptionStatus.PAST_DUE })
-      );
-
-      await target.scheduleCancellationForErasure('tenant-1');
-
-      expect(tenantSubscriptionsDbService.setToFreeFromSubscriptionDeleted).toHaveBeenCalledWith(
-        'tenant-1'
-      );
     });
 
     it('leaves a free tenant, a cancelled subscription and one the owner already ended alone', async () => {

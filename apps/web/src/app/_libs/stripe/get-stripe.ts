@@ -3,8 +3,8 @@ import { env } from "env";
 
 let stripePromise: Promise<Stripe | null> | null = null;
 
-/** Loaded once, lazily. Resolves to `null` (no throw) without `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, expected under
- *  PAYMENT_PROVIDER=dummy since in-app card entry is Stripe-only; callers check `isStripeConfigured()` first. */
+/** Loaded once, lazily. Resolves to `null` (no throw) without `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, expected until the
+ *  Stripe keys are set; callers check `isStripeConfigured()` first. */
 export function getStripe(): Promise<Stripe | null> {
   const key = env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
   if (!key) {

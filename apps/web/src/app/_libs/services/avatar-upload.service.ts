@@ -51,7 +51,7 @@ async function uploadToProvider(
 }
 
 export class AvatarUploadService {
-  /** Returns the id to confirm with the backend, which re-verifies it. An empty `uploadUrl` means the offline `noop` provider: confirm its sentinel id. */
+  /** Returns the id to confirm with the backend, which re-verifies it. */
   static async upload(
     file: File,
     authorization: AvatarUploadAuthorizationResponseDto,
@@ -59,13 +59,6 @@ export class AvatarUploadService {
     // Fails oversized files fast; the authoritative cap is the one `verifyUpload` enforces.
     if (file.size > MAX_AVATAR_BYTES) {
       throw new AvatarUploadError("That image is too large. Please choose a file under 10 MB.");
-    }
-
-    if (!authorization.uploadUrl) {
-      if (!authorization.providerAssetId) {
-        throw new AvatarUploadError("The image service is not configured.");
-      }
-      return authorization.providerAssetId;
     }
 
     return uploadToProvider(file, authorization);

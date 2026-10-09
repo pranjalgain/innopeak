@@ -1,4 +1,4 @@
-export type StorageProviderType = 'cloudinary' | 'noop';
+export type StorageProviderType = 'cloudinary';
 
 export interface CreateUploadAuthorizationInput {
   /** Owner-scoped. Signed into the authorization, and `verifyUpload` re-derives it from the authenticated owner, which stops one owner confirming another's asset. */
@@ -11,13 +11,11 @@ export interface CreateUploadAuthorizationInput {
  */
 export interface UploadAuthorization {
   provider: StorageProviderType;
-  /** Absolute URL to POST the file to — empty for `noop`, which has no real endpoint. */
+  /** Absolute URL to POST the file to. */
   uploadUrl: string;
   /** Sent verbatim alongside `file`; opaque to the client. Includes the provider's own signature
    *  and every parameter that signature covers, so dropping or editing one invalidates it. */
   formFields: Record<string, string>;
-  /** `noop` only — the id to confirm with, since there is no upload response to learn one from. */
-  providerAssetId?: string;
 }
 
 export interface VerifiedUpload {

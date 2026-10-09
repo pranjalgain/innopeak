@@ -79,7 +79,7 @@ function drawRule(doc: PDFKit.PDFDocument, y: number, width: number): void {
 }
 
 /**
- * Renders a one-page PDF receipt in-process with pdfkit. Stripe-only: Dummy payments never reach this.
+ * Renders a one-page PDF receipt in-process with pdfkit. Receipts come from Stripe payments.
  * Deliberately shows no tax line (none is computed) and no card (the card on file can change after payment,
  * and `billing_receipts` keeps no point-in-time snapshot of it).
  */

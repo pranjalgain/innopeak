@@ -25,9 +25,8 @@ locations, list reviews).
 independent of each other. Start both on day one and do the mechanical configuration while you
 wait.
 
-Meanwhile, local development does not need any of this: `DEV_GBP_MOCK=true` gives a fully working
-connect + backfill flow against fixtures, still routed through the real OAuth callback. See
-[Local development with the mock](#local-development-with-the-mock).
+There is no mock: local development needs all of this too, since the module only ever talks to the
+real Google APIs.
 
 ---
 
@@ -235,7 +234,6 @@ GBP_CLIENT_SECRET=<from the credentials page>
 GBP_CALLBACK_URL=http://localhost:3002/v1/connections/google/callback
 GBP_STATE_SECRET=<any long random string locally; required in production>
 CREDENTIAL_ENCRYPTION_KEY=<openssl rand -base64 32>
-DEV_GBP_MOCK=false
 ```
 
 Restart — and kill the **compiled** process, not just the watcher wrapper, or you will test against
@@ -255,35 +253,20 @@ Then run the flow: sign up (or log in), and connect from `/onboarding/connect`.
 Useful sequencing while Gate 1 is still pending. With credentials configured but no verified
 profile, run the connect flow anyway. The authorization redirect, `state` signing, nonce
 consume-once, browser-binding cookie check, code exchange and credential storage all execute for
-real. It fails at exactly one place — `fetchPrimaryAccount` throwing:
+real. It fails at exactly one place — `fetchAccounts` finding nothing:
 
 > The Google account that granted access manages no Business Profile accounts
 
 surfaced as `?error=PROVIDER_ERROR`. **Reaching that specific error means the entire OAuth path is
 wired correctly** and only the business profile is missing.
 
-## Local development with the mock
-
-None of the above is needed to work on this module. With `DEV_GBP_MOCK=true` (the `.env.example`
-default), `MockGoogleBusinessProfileProvider` overrides only the HTTP transport, so pagination, both
-mappers, `starRatingToInt`, and the error classification all still run — and the flow still round
-trips through the **real** callback, exercising state verification, the nonce, the cookie check and
-the connection upsert.
-
-`DEV_GBP_MOCK` is `Joi.forbidden()` in production: a mocked connection is indistinguishable from a
-real one once it is a row in Postgres, so production must not be able to create one by accident.
-
-`DEV_GBP_MOCK_ACCOUNT_ID` forces the mock's account id, which is how the `ACCOUNT_MISMATCH` branch
-gets exercised.
-
 ## Known gaps to revisit with real credentials
 
-- **`fetchPrimaryAccount` takes `accounts[0]`.** Correct for a single business, wrong for a Google
-  account managing several — it will silently connect whichever Google returns first. The fixtures
-  have one account, so the mock never exercises this.
-- **The real network path is unverified.** The mock inherits the mappers and pagination, so the
-  untested surface is narrow: `request()`'s actual `fetch`, the two host URLs, and Google's exact
-  response envelope.
+- **The account picker has only been unit-tested.** A Google account that manages several Business
+  Profile accounts gets a choice screen (see [Real Google only](./real-gbp-design.md#account-picker)),
+  but confirming it end to end needs a login that really manages two or more accounts.
+- **The real network path is checked by hand.** Unit tests stub `fetch`; `request()`'s actual calls,
+  the host URLs and Google's exact response envelope are confirmed against a real profile.
 - **Confirm the registered `redirect_uri` per environment.** A cookie-bound state on a
   backend-origin callback passes on localhost and fails in production — the worst possible failure
   mode, because it only appears after deploy.

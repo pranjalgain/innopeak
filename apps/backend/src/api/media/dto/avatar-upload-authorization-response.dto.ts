@@ -1,18 +1,16 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 
 import type { UploadAuthorization } from '../types/storage-provider.type';
 
 /** Shared by the tenant and admin profile screens; only the confirm step's owner differs. */
 export class AvatarUploadAuthorizationResponseDto {
-  @ApiProperty({ example: 'cloudinary', enum: ['cloudinary', 'noop'] })
+  @ApiProperty({ example: 'cloudinary', enum: ['cloudinary'] })
   provider!: UploadAuthorization['provider'];
 
   @ApiProperty({
     example: 'https://api.cloudinary.com/v1_1/innopeak-demo/image/upload',
     description:
-      'POST the file here as multipart/form-data, as `file`, alongside every `formFields` entry. ' +
-      'Empty when `provider` is `noop`: there is nothing to upload to, so skip straight to ' +
-      'confirm using `providerAssetId`.',
+      'POST the file here as multipart/form-data, as `file`, alongside every `formFields` entry.',
   })
   uploadUrl!: string;
 
@@ -31,20 +29,11 @@ export class AvatarUploadAuthorizationResponseDto {
   })
   formFields!: Record<string, string>;
 
-  @ApiPropertyOptional({
-    example: 'noop-0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f',
-    description: 'Present only when `provider` is `noop` — the id to confirm with.',
-  })
-  providerAssetId?: string;
-
   static from(authorization: UploadAuthorization): AvatarUploadAuthorizationResponseDto {
     const dto = new AvatarUploadAuthorizationResponseDto();
     dto.provider = authorization.provider;
     dto.uploadUrl = authorization.uploadUrl;
     dto.formFields = authorization.formFields;
-    if (authorization.providerAssetId !== undefined) {
-      dto.providerAssetId = authorization.providerAssetId;
-    }
     return dto;
   }
 }

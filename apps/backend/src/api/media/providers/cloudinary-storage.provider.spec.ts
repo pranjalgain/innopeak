@@ -44,6 +44,27 @@ describe('CloudinaryStorageProvider', () => {
     target = new CloudinaryStorageProvider(configService);
   });
 
+  describe('isConfigured', () => {
+    const build = (values: Record<string, string>): CloudinaryStorageProvider =>
+      new CloudinaryStorageProvider({
+        get: (key: string) => values[key],
+      } as unknown as ConfigService<EnvConfig>);
+
+    it('is true only when the cloud name, key and secret are all set', () => {
+      const all = {
+        CLOUDINARY_CLOUD_NAME: 'demo',
+        CLOUDINARY_API_KEY: 'key',
+        CLOUDINARY_API_SECRET: 'secret',
+      };
+
+      expect(build(all).isConfigured()).toBe(true);
+      expect(build({ ...all, CLOUDINARY_CLOUD_NAME: '' }).isConfigured()).toBe(false);
+      expect(build({ ...all, CLOUDINARY_API_KEY: '' }).isConfigured()).toBe(false);
+      expect(build({ ...all, CLOUDINARY_API_SECRET: '' }).isConfigured()).toBe(false);
+      expect(build({}).isConfigured()).toBe(false);
+    });
+  });
+
   describe('verifyUpload', () => {
     // Regression: AVIF avatar uploads were rejected by an allowlist of older formats only.
     it.each(['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'heic', 'heif', 'bmp'])(

@@ -31,7 +31,7 @@ export class TenantOwnerProfileService {
     return toTenantOwnerProfile(await AuthService.me());
   }
 
-  /** Mints an authorization, uploads straight to the provider (or skips to confirm for the offline `noop` one), then confirms; returns only the URL, which the caller merges into its cached profile. */
+  /** Mints an authorization, uploads straight to the provider, then confirms; returns only the URL, which the caller merges into its cached profile. */
   static async updateAvatar(file: File): Promise<string | null> {
     const authorization = await AuthService.getAvatarUploadAuthorization();
     const providerAssetId = await AvatarUploadService.upload(file, authorization);

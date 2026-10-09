@@ -8,6 +8,7 @@ import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { ConnectionState } from '../enums/connection-state.enum';
+import { ReturnTo } from '../enums/return-to.enum';
 
 export class ConnectionSummaryDto {
   @ApiProperty({ example: '0190f4c1-8a21-7c33-9f01-2b7d5e8a4410' })
@@ -370,4 +371,49 @@ export class DisconnectResponseDto {
 
   @ApiProperty({ example: true })
   pollingStopped!: boolean;
+}
+
+export class PendingAccountDto {
+  @ApiProperty({
+    example: 'accounts/108327761122',
+    description: 'Send this back to select the account.',
+  })
+  accountId!: string;
+
+  @ApiPropertyOptional({ example: 'The Coastal Group', nullable: true })
+  name!: string | null;
+
+  @ApiPropertyOptional({
+    example: 'LOCATION_GROUP',
+    nullable: true,
+    description: "Google's account type: PERSONAL, LOCATION_GROUP, USER_GROUP or ORGANIZATION.",
+  })
+  type!: string | null;
+}
+
+export class PendingAccountsResponseDto {
+  @ApiProperty({
+    type: [PendingAccountDto],
+    example: [
+      { accountId: 'accounts/104912287365', name: 'Jane Doe', type: 'PERSONAL' },
+      { accountId: 'accounts/108327761122', name: 'The Coastal Group', type: 'LOCATION_GROUP' },
+    ],
+  })
+  accounts!: PendingAccountDto[];
+}
+
+export class SelectAccountResponseDto {
+  @ApiProperty({ example: '0190f4c1-8a21-7c33-9f01-2b7d5e8a4410' })
+  connectionId!: string;
+
+  @ApiProperty({ example: 'accounts/108327761122' })
+  accountId!: string;
+
+  @ApiProperty({
+    enum: ReturnTo,
+    example: ReturnTo.SETTINGS,
+    description:
+      'The screen that started the connect flow. `settings`: go to Settings → Connection; `onboarding`: carry on choosing locations.',
+  })
+  returnTo!: ReturnTo;
 }

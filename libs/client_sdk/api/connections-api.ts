@@ -44,6 +44,12 @@ import type { LocationDto } from '../models';
 // @ts-ignore
 import type { LocationListResponseDto } from '../models';
 // @ts-ignore
+import type { PendingAccountsResponseDto } from '../models';
+// @ts-ignore
+import type { SelectAccountDto } from '../models';
+// @ts-ignore
+import type { SelectAccountResponseDto } from '../models';
+// @ts-ignore
 import type { SetActiveLocationDto } from '../models';
 /**
  * ConnectionsApi - axios parameter creator
@@ -386,6 +392,110 @@ export const ConnectionsApiAxiosParamCreator = function (
       };
     },
     /**
+     * After consent, when the Google account manages **several** Business Profile accounts, the callback redirects to the connect screen with `?account_choice=pending` instead of connecting one. This lists the candidates. The choice is held for 15 minutes and only the user who consented can read it. `410 ACCOUNT_CHOICE_EXPIRED` when there is none (expired, already settled, or someone else\'s).
+     * @summary Business Profile accounts waiting for the owner to choose
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    connectionsControllerPendingAccountsV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/connections/google/accounts/pending`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * Settles the pending choice. `accountId` must be one of the listed accounts (`400 ACCOUNT_NOT_IN_CHOICE` otherwise, and the choice stays so it can be retried). The choice is single-use: a second submission gets `410`. From there it follows the same rules as a one-account callback, so a live connection to a *different* account is `409 ACCOUNT_MISMATCH`.
+     * @summary Connect the Business Profile account the owner chose
+     * @param {SelectAccountDto} selectAccountDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    connectionsControllerSelectAccountV1: async (
+      selectAccountDto: SelectAccountDto,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'selectAccountDto' is not null or undefined
+      assertParamExists(
+        'connectionsControllerSelectAccountV1',
+        'selectAccountDto',
+        selectAccountDto,
+      );
+      const localVarPath = `/v1/connections/google/accounts/select`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'POST',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      localVarHeaderParameter['Content-Type'] = 'application/json';
+      localVarHeaderParameter['Accept'] = 'application/json';
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+      localVarRequestOptions.data = serializeDataIfNeeded(
+        selectAccountDto,
+        localVarRequestOptions,
+        configuration,
+      );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * A single shared value for the whole tenant, not per-user — every member\'s Dashboard/Review Queue reads it, so only an owner may change it. The location must belong to this tenant and be active; a deactivated location or another tenant\'s id is rejected.
      * @summary Switch the tenant\'s currently-viewed business
      * @param {SetActiveLocationDto} setActiveLocationDto
@@ -675,6 +785,71 @@ export const ConnectionsApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * After consent, when the Google account manages **several** Business Profile accounts, the callback redirects to the connect screen with `?account_choice=pending` instead of connecting one. This lists the candidates. The choice is held for 15 minutes and only the user who consented can read it. `410 ACCOUNT_CHOICE_EXPIRED` when there is none (expired, already settled, or someone else\'s).
+     * @summary Business Profile accounts waiting for the owner to choose
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async connectionsControllerPendingAccountsV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<PendingAccountsResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.connectionsControllerPendingAccountsV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'ConnectionsApi.connectionsControllerPendingAccountsV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * Settles the pending choice. `accountId` must be one of the listed accounts (`400 ACCOUNT_NOT_IN_CHOICE` otherwise, and the choice stays so it can be retried). The choice is single-use: a second submission gets `410`. From there it follows the same rules as a one-account callback, so a live connection to a *different* account is `409 ACCOUNT_MISMATCH`.
+     * @summary Connect the Business Profile account the owner chose
+     * @param {SelectAccountDto} selectAccountDto
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async connectionsControllerSelectAccountV1(
+      selectAccountDto: SelectAccountDto,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (
+        axios?: AxiosInstance,
+        basePath?: string,
+      ) => AxiosPromise<SelectAccountResponseDto>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.connectionsControllerSelectAccountV1(
+          selectAccountDto,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'ConnectionsApi.connectionsControllerSelectAccountV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * A single shared value for the whole tenant, not per-user — every member\'s Dashboard/Review Queue reads it, so only an owner may change it. The location must belong to this tenant and be active; a deactivated location or another tenant\'s id is rejected.
      * @summary Switch the tenant\'s currently-viewed business
      * @param {SetActiveLocationDto} setActiveLocationDto
@@ -819,6 +994,37 @@ export const ConnectionsApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * After consent, when the Google account manages **several** Business Profile accounts, the callback redirects to the connect screen with `?account_choice=pending` instead of connecting one. This lists the candidates. The choice is held for 15 minutes and only the user who consented can read it. `410 ACCOUNT_CHOICE_EXPIRED` when there is none (expired, already settled, or someone else\'s).
+     * @summary Business Profile accounts waiting for the owner to choose
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    connectionsControllerPendingAccountsV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<PendingAccountsResponseDto> {
+      return localVarFp
+        .connectionsControllerPendingAccountsV1(options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * Settles the pending choice. `accountId` must be one of the listed accounts (`400 ACCOUNT_NOT_IN_CHOICE` otherwise, and the choice stays so it can be retried). The choice is single-use: a second submission gets `410`. From there it follows the same rules as a one-account callback, so a live connection to a *different* account is `409 ACCOUNT_MISMATCH`.
+     * @summary Connect the Business Profile account the owner chose
+     * @param {ConnectionsApiConnectionsControllerSelectAccountV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    connectionsControllerSelectAccountV1(
+      requestParameters: ConnectionsApiConnectionsControllerSelectAccountV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<SelectAccountResponseDto> {
+      return localVarFp
+        .connectionsControllerSelectAccountV1(
+          requestParameters.selectAccountDto,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * A single shared value for the whole tenant, not per-user — every member\'s Dashboard/Review Queue reads it, so only an owner may change it. The location must belong to this tenant and be active; a deactivated location or another tenant\'s id is rejected.
      * @summary Switch the tenant\'s currently-viewed business
      * @param {ConnectionsApiConnectionsControllerSetActiveLocationV1Request} requestParameters Request parameters.
@@ -920,6 +1126,28 @@ export interface ConnectionsApiInterface {
   ): AxiosPromise<LocationListResponseDto>;
 
   /**
+   * After consent, when the Google account manages **several** Business Profile accounts, the callback redirects to the connect screen with `?account_choice=pending` instead of connecting one. This lists the candidates. The choice is held for 15 minutes and only the user who consented can read it. `410 ACCOUNT_CHOICE_EXPIRED` when there is none (expired, already settled, or someone else\'s).
+   * @summary Business Profile accounts waiting for the owner to choose
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  connectionsControllerPendingAccountsV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<PendingAccountsResponseDto>;
+
+  /**
+   * Settles the pending choice. `accountId` must be one of the listed accounts (`400 ACCOUNT_NOT_IN_CHOICE` otherwise, and the choice stays so it can be retried). The choice is single-use: a second submission gets `410`. From there it follows the same rules as a one-account callback, so a live connection to a *different* account is `409 ACCOUNT_MISMATCH`.
+   * @summary Connect the Business Profile account the owner chose
+   * @param {ConnectionsApiConnectionsControllerSelectAccountV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  connectionsControllerSelectAccountV1(
+    requestParameters: ConnectionsApiConnectionsControllerSelectAccountV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<SelectAccountResponseDto>;
+
+  /**
    * A single shared value for the whole tenant, not per-user — every member\'s Dashboard/Review Queue reads it, so only an owner may change it. The location must belong to this tenant and be active; a deactivated location or another tenant\'s id is rejected.
    * @summary Switch the tenant\'s currently-viewed business
    * @param {ConnectionsApiConnectionsControllerSetActiveLocationV1Request} requestParameters Request parameters.
@@ -954,6 +1182,13 @@ export interface ConnectionsApiConnectionsControllerConfirmLocationV1Request {
  */
 export interface ConnectionsApiConnectionsControllerListLocationsV1Request {
   readonly status?: ConnectionsControllerListLocationsV1StatusEnum;
+}
+
+/**
+ * Request parameters for connectionsControllerSelectAccountV1 operation in ConnectionsApi.
+ */
+export interface ConnectionsApiConnectionsControllerSelectAccountV1Request {
+  readonly selectAccountDto: SelectAccountDto;
 }
 
 /**
@@ -1065,6 +1300,39 @@ export class ConnectionsApi extends BaseAPI implements ConnectionsApiInterface {
   ) {
     return ConnectionsApiFp(this.configuration)
       .connectionsControllerListLocationsV1(requestParameters.status, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * After consent, when the Google account manages **several** Business Profile accounts, the callback redirects to the connect screen with `?account_choice=pending` instead of connecting one. This lists the candidates. The choice is held for 15 minutes and only the user who consented can read it. `410 ACCOUNT_CHOICE_EXPIRED` when there is none (expired, already settled, or someone else\'s).
+   * @summary Business Profile accounts waiting for the owner to choose
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public connectionsControllerPendingAccountsV1(
+    options?: RawAxiosRequestConfig,
+  ) {
+    return ConnectionsApiFp(this.configuration)
+      .connectionsControllerPendingAccountsV1(options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * Settles the pending choice. `accountId` must be one of the listed accounts (`400 ACCOUNT_NOT_IN_CHOICE` otherwise, and the choice stays so it can be retried). The choice is single-use: a second submission gets `410`. From there it follows the same rules as a one-account callback, so a live connection to a *different* account is `409 ACCOUNT_MISMATCH`.
+   * @summary Connect the Business Profile account the owner chose
+   * @param {ConnectionsApiConnectionsControllerSelectAccountV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public connectionsControllerSelectAccountV1(
+    requestParameters: ConnectionsApiConnectionsControllerSelectAccountV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return ConnectionsApiFp(this.configuration)
+      .connectionsControllerSelectAccountV1(
+        requestParameters.selectAccountDto,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 

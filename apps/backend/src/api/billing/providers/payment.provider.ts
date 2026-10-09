@@ -6,7 +6,6 @@ import type {
   CreatePortalSessionInput,
   NewCheckoutPreparation,
   PaymentMethodSummary,
-  PaymentProviderType,
   PaymentWebhookEvent,
   SubscriptionSnapshot,
   UpdateBillingProfileInput,
@@ -14,8 +13,6 @@ import type {
 
 /** `constructWebhookEvent` returns a normalized `PaymentWebhookEvent` so `BillingWebhooksService` never touches provider-specific shapes. */
 export abstract class PaymentProvider {
-  abstract readonly type: PaymentProviderType;
-
   abstract createCustomer(input: CreateCustomerInput): Promise<{ customerId: string }>;
 
   abstract createCheckoutSession(input: CreateCheckoutSessionInput): Promise<{ url: string }>;
@@ -39,7 +36,6 @@ export abstract class PaymentProvider {
   /** `null` when there is no customer or no card on file. Never the PAN. */
   abstract getPaymentMethodSummary(customerId: string): Promise<PaymentMethodSummary | null>;
 
-  /** Stripe-only; see `DummyPaymentProvider`. */
   abstract getBillingProfile(customerId: string): Promise<BillingProfile>;
 
   abstract updateBillingProfile(

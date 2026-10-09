@@ -65,6 +65,9 @@ export enum RouteNames {
   GOOGLE_CALLBACK = 'google/callback',
   GOOGLE = 'google',
   GOOGLE_AVAILABLE_LOCATIONS = 'google/available-locations',
+  // Between consent and a connection, when the grant manages several Business Profile accounts.
+  GOOGLE_PENDING_ACCOUNTS = 'google/accounts/pending',
+  GOOGLE_SELECT_ACCOUNT = 'google/accounts/select',
   LOCATIONS = 'locations',
   ACTIVE_LOCATION = 'active-location',
   LOCATION_BACKFILL = 'locations/:locationId/backfill',
@@ -143,19 +146,15 @@ export enum RouteNames {
   // Reads the Checkout Session straight from Stripe so a missed or delayed checkout.session.completed webhook never leaves the tenant reading as unpaid.
   BILLING_CHECKOUT_RECONCILE = 'checkout/reconcile',
   BILLING_PORTAL = 'portal',
-  // Calls the payment provider directly (no hosted-portal redirect); works for both stripe and dummy PAYMENT_PROVIDER.
+  // Calls the payment provider directly (no hosted-portal redirect).
   BILLING_CANCEL = 'cancel',
   // Same literal as ACTIVE_LOCATION (connections module); different owners.
   // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
   BILLING_ACTIVE_LOCATION = 'active-location',
   BILLING_WEBHOOKS_STRIPE = 'webhooks/stripe',
-  // Dummy-provider-only (404 unless PAYMENT_PROVIDER=dummy): DummyPaymentProvider has no webhook caller, so this
-  // lets the dummy checkout page trigger the same BillingWebhooksService transition as the tenant owner.
-  BILLING_DUMMY_COMPLETE_CHECKOUT = 'dummy/complete-checkout',
-  // Stripe-only: a dummy payment has no real charge to document.
   BILLING_RECEIPTS = 'receipts',
   BILLING_RECEIPT_PDF = ':receiptId/pdf',
-  // Stripe-only (see StripeOnlyFeatureException). Same literal as ADMIN_SETTINGS_PROFILE; different owners.
+  // Same literal as ADMIN_SETTINGS_PROFILE; different owners.
   // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
   BILLING_PROFILE = 'profile',
   BILLING_SETUP_INTENT = 'setup-intent',

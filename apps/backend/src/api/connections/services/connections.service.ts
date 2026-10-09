@@ -17,7 +17,7 @@ import type {
   ProviderConnectionRow,
 } from '@db/repositories/connections/types/connections.type';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GOOGLE_OAUTH } from '@review-provider/constants/review-provider.constants';
 import {
@@ -26,11 +26,17 @@ import {
 } from '@review-provider/errors/provider.error';
 import { ProviderCredentialService } from '@review-provider/provider-credential.service';
 import { ReviewProvider } from '@review-provider/providers/review-provider.provider';
+import type {
+  ProviderAccount,
+  ProviderTokenSet,
+} from '@review-provider/types/review-provider.type';
 import { ReviewSyncQueue } from '@review-sync-queue/review-sync.queue';
 
 import { OAuthStateService } from './oauth-state.service';
+import { PendingAccountChoiceService } from './pending-account-choice.service';
 
 import {
+  ACCOUNT_CHOICE_QUERY,
   DEFAULT_RETURN_TO,
   OAUTH_ERROR_CODES,
   type OAuthErrorCode,
@@ -43,10 +49,15 @@ import type {
   DisconnectResponseDto,
   LocationDto,
   LocationListResponseDto,
+  PendingAccountsResponseDto,
+  SelectAccountResponseDto,
 } from '../dto/connection-response.dto';
 import { ConnectionState } from '../enums/connection-state.enum';
 import { ReturnTo } from '../enums/return-to.enum';
 import {
+  AccountChoiceExpiredException,
+  AccountMismatchException,
+  AccountNotInChoiceException,
   BackfillEnqueueFailedException,
   ConnectionNeedsReauthException,
   ConnectionNotFoundException,
@@ -57,7 +68,13 @@ import {
   ProviderNotConfiguredException,
   ProviderUnavailableException,
 } from '../exceptions/connections.exceptions';
-import type { AuthorizeResult, CallbackInput } from '../types/connections.type';
+import type {
+  AccountDecision,
+  AuthorizeResult,
+  CallbackInput,
+  ConnectAccountOutcome,
+  PendingAccountChoice,
+} from '../types/connections.type';
 import { hasRequiredOAuthScope, toLocationDto } from '../utils/connections.utils';
 
 @Injectable()
@@ -74,6 +91,7 @@ export class ConnectionsService {
     private readonly reviewSyncDbService: ReviewSyncDbService,
     private readonly authDbService: AuthDbService,
     private readonly billingEntitlementsService: BillingEntitlementsService,
+    private readonly pendingAccountChoiceService: PendingAccountChoiceService,
     configService: ConfigService<EnvConfig>
   ) {
     this.frontendUrl = (configService.get<string>('FRONTEND_URL') ?? '').replace(/\/$/, '');
@@ -190,7 +208,7 @@ export class ConnectionsService {
     }
 
     try {
-      const { tokens, account } = await this.provider.exchangeCode(input.code);
+      const { tokens, accounts } = await this.provider.exchangeCode(input.code);
 
       // `business.manage` can be unticked at the consent screen; the grant then succeeds but cannot
       // read reviews. Catch it here rather than as a 403 later.
@@ -202,44 +220,37 @@ export class ConnectionsService {
       }
 
       const existing = await this.connectionsDbService.findConnectionByTenant(record.tenantId);
-      const sameAccount = existing?.providerAccountId === account.externalAccountId;
+      const decision = this.decideAccount(accounts, existing);
 
-      // A live connection to a different account is a mismatch (an upsert would add a second row and
-      // break the one-active-connection rule). A disconnected one is not: reconnecting with another
-      // account is what the error copy tells the owner to do, and the old row stays as an inactive record.
-      if (existing && !sameAccount && existing.disconnectedAt === null) {
+      if (decision.kind === 'mismatch') {
         this.logger.warn(
-          `Tenant ${record.tenantId} completed consent as ${account.externalAccountId} but is already connected to ${existing.providerAccountId}.`
+          `Tenant ${record.tenantId} consented without its connected account ${existing?.providerAccountId ?? ''}.`
         );
         return this.redirectWithError(record.returnTo, OAUTH_ERROR_CODES.ACCOUNT_MISMATCH);
       }
 
-      // Same account reuses its secret slot; a new account gets its own, since the old credential is
-      // revoked on disconnect.
-      const credentialReference =
-        existing && sameAccount
-          ? await this.replaceExistingCredential(existing.credentialReference, tokens)
-          : await this.credentialService.storeNewCredential(tokens);
+      if (decision.kind === 'choose') {
+        // Several accounts and no obvious one: the grant waits, encrypted, until the owner chooses. The picker lives
+        // on the onboarding screen; `returnTo` travels with the grant so a Settings reconnect still ends in Settings.
+        await this.pendingAccountChoiceService.save(record.tenantId, {
+          userId: record.userId,
+          returnTo: record.returnTo,
+          accounts,
+          tokens,
+        });
+        return this.redirectToAccountChoice();
+      }
 
-      const connection = await this.connectionsDbService.upsertConnection({
+      const outcome = await this.connectAccount({
         tenantId: record.tenantId,
-        connectedByUserId: record.userId,
-        providerAccountId: account.externalAccountId,
-        credentialReference,
-        tokenExpiresAt: tokens.expiresAt,
+        userId: record.userId,
+        account: decision.account,
+        tokens,
+        existing,
       });
 
-      // Same-account reconnect only (`connection.id` is `existing.id`). Locations that finished their
-      // backfill are left alone; the rest get a fresh backfill restarted below.
-      if (existing && sameAccount) {
-        const reactivated = await this.connectionsDbService.reactivateLocationsForConnection(
-          connection.id
-        );
-        await this.restartBackfillsForReactivatedLocations(
-          record.tenantId,
-          reactivated,
-          connection
-        );
+      if (outcome.kind === 'mismatch') {
+        return this.redirectWithError(record.returnTo, OAUTH_ERROR_CODES.ACCOUNT_MISMATCH);
       }
 
       return this.redirectWithSuccess(record.returnTo);
@@ -255,6 +266,77 @@ export class ConnectionsService {
 
       return this.redirectWithError(record.returnTo, code);
     }
+  }
+
+  /** The accounts waiting for the owner's choice. 410 when there is none, or it belongs to another user's consent. */
+  async getPendingAccounts(user: AuthUser): Promise<PendingAccountsResponseDto> {
+    const tenantUser = requireTenantUser(user);
+    const choice = await this.pendingAccountChoiceService.peek(tenantUser.tenantId);
+
+    if (choice?.userId !== tenantUser.id) {
+      throw new AccountChoiceExpiredException();
+    }
+
+    return {
+      accounts: choice.accounts.map(account => ({
+        accountId: account.externalAccountId,
+        name: account.name ?? null,
+        type: account.type ?? null,
+      })),
+    };
+  }
+
+  /**
+   * Settles the pending choice with the account the owner picked, through the same rules as a single-account
+   * callback. Membership is checked before the record is consumed, so a wrong submission can be retried.
+   */
+  async selectAccount(input: {
+    user: AuthUser;
+    accountId: string;
+  }): Promise<SelectAccountResponseDto> {
+    const tenantUser = requireTenantUser(input.user);
+
+    const waiting = await this.pendingAccountChoiceService.peek(tenantUser.tenantId);
+    if (waiting?.userId !== tenantUser.id) {
+      throw new AccountChoiceExpiredException();
+    }
+
+    const account = waiting.accounts.find(
+      candidate => candidate.externalAccountId === input.accountId
+    );
+    if (account === undefined) {
+      throw new AccountNotInChoiceException();
+    }
+
+    // Single use: a second submission (double click, second tab) finds nothing and cannot connect twice.
+    const choice = await this.pendingAccountChoiceService.claim(tenantUser.tenantId);
+    if (choice === null) {
+      throw new AccountChoiceExpiredException();
+    }
+
+    let outcome: ConnectAccountOutcome;
+    try {
+      const existing = await this.connectionsDbService.findConnectionByTenant(tenantUser.tenantId);
+      outcome = await this.connectAccount({
+        tenantId: tenantUser.tenantId,
+        userId: tenantUser.id,
+        account,
+        tokens: choice.tokens,
+        existing,
+      });
+    } catch (error) {
+      throw await this.failSelection(tenantUser.tenantId, choice, error);
+    }
+
+    if (outcome.kind === 'mismatch') {
+      throw new AccountMismatchException();
+    }
+
+    return {
+      connectionId: outcome.connection.id,
+      accountId: account.externalAccountId,
+      returnTo: choice.returnTo,
+    };
   }
 
   async listAvailableLocations(user: AuthUser): Promise<AvailableLocationsResponseDto> {
@@ -606,6 +688,122 @@ export class ConnectionsService {
       this.logger.error(`Provider call failed: ${(error as Error).message}`);
       throw new ProviderUnavailableException();
     }
+  }
+
+  /**
+   * While a connection is live only its own account may be connected, so there is nothing to ask: it is either in
+   * the grant (a reconnect) or the grant is a mismatch, which every choice would hit anyway. Otherwise a single
+   * account needs no choice, and several do.
+   */
+  private decideAccount(
+    accounts: ProviderAccount[],
+    existing: ProviderConnectionRow | null
+  ): AccountDecision {
+    if (existing?.disconnectedAt === null) {
+      const current = accounts.find(
+        account => account.externalAccountId === existing.providerAccountId
+      );
+      return current === undefined ? { kind: 'mismatch' } : { kind: 'account', account: current };
+    }
+
+    const [only] = accounts;
+    if (accounts.length === 1 && only !== undefined) {
+      return { kind: 'account', account: only };
+    }
+
+    return { kind: 'choose' };
+  }
+
+  /**
+   * The grant was claimed before connecting so it cannot be used twice; when connecting then fails it goes back,
+   * so the owner can try again rather than consent to Google again. A grant Google itself rejects is not worth
+   * keeping: that needs a fresh consent.
+   */
+  private async failSelection(
+    tenantId: string,
+    choice: PendingAccountChoice,
+    error: unknown
+  ): Promise<Error> {
+    if (error instanceof ProviderAuthError) {
+      return new ConnectionNeedsReauthException();
+    }
+
+    try {
+      await this.pendingAccountChoiceService.save(tenantId, choice);
+    } catch (saveError) {
+      this.logger.error(
+        `Could not restore the pending account choice for tenant ${tenantId}: ${(saveError as Error).message}`
+      );
+    }
+
+    if (error instanceof HttpException) {
+      return error;
+    }
+    if (error instanceof ProviderNotConfiguredError) {
+      return new ProviderNotConfiguredException();
+    }
+
+    this.logger.error(
+      `Connecting the chosen account failed for tenant ${tenantId}: ${(error as Error).message}`
+    );
+    return new ProviderUnavailableException();
+  }
+
+  /**
+   * Turns a consented grant for one chosen account into the tenant's connection: the mismatch rule, the credential
+   * (stored or replaced), the upsert, and reactivating locations on a same-account reconnect. Shared by the OAuth
+   * callback (one account) and the account picker (several).
+   */
+  private async connectAccount(input: {
+    tenantId: string;
+    userId: string;
+    account: ProviderAccount;
+    tokens: ProviderTokenSet;
+    /** The tenant's connection as the caller already read it. */
+    existing: ProviderConnectionRow | null;
+  }): Promise<ConnectAccountOutcome> {
+    const { tenantId, account, tokens, existing } = input;
+    const sameAccount = existing?.providerAccountId === account.externalAccountId;
+
+    // A live connection to a different account is a mismatch (an upsert would add a second row and
+    // break the one-active-connection rule). A disconnected one is not: reconnecting with another
+    // account is what the error copy tells the owner to do, and the old row stays as an inactive record.
+    if (existing && !sameAccount && existing.disconnectedAt === null) {
+      this.logger.warn(
+        `Tenant ${tenantId} completed consent as ${account.externalAccountId} but is already connected to ${existing.providerAccountId}.`
+      );
+      return { kind: 'mismatch' };
+    }
+
+    // Same account reuses its secret slot; a new account gets its own, since the old credential is
+    // revoked on disconnect.
+    const credentialReference =
+      existing && sameAccount
+        ? await this.replaceExistingCredential(existing.credentialReference, tokens)
+        : await this.credentialService.storeNewCredential(tokens);
+
+    const connection = await this.connectionsDbService.upsertConnection({
+      tenantId,
+      connectedByUserId: input.userId,
+      providerAccountId: account.externalAccountId,
+      credentialReference,
+      tokenExpiresAt: tokens.expiresAt,
+    });
+
+    // Same-account reconnect only (`connection.id` is `existing.id`). Locations that finished their
+    // backfill are left alone; the rest get a fresh backfill restarted.
+    if (existing && sameAccount) {
+      const reactivated = await this.connectionsDbService.reactivateLocationsForConnection(
+        connection.id
+      );
+      await this.restartBackfillsForReactivatedLocations(tenantId, reactivated, connection);
+    }
+
+    return { kind: 'connected', connection };
+  }
+
+  private redirectToAccountChoice(): string {
+    return `${this.frontendUrl}${RETURN_TO_PATHS[ReturnTo.ONBOARDING]}?${ACCOUNT_CHOICE_QUERY}`;
   }
 
   private redirectWithSuccess(returnTo: ReturnTo): string {

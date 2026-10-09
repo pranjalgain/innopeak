@@ -288,31 +288,6 @@ describe('GoogleBusinessProfileProvider — write path (getReviewReply / replyTo
       ).rejects.toBeInstanceOf(ProviderMappingError);
     });
   });
-
-  describe('local mock server override', () => {
-    it('points both methods at localMockServerUrl when configured, instead of the real GBP host', async () => {
-      const provider = new GoogleBusinessProfileProvider({
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        callbackUrl: 'https://app.example.com/callback',
-        localMockServerUrl: 'http://localhost:4100',
-      });
-
-      const fetchMock = mockJsonResponse(200, {
-        name: 'accounts/123/locations/456/reviews/789',
-        starRating: 'FIVE',
-        createTime: '2026-01-01T00:00:00Z',
-        updateTime: '2026-01-01T00:00:00Z',
-      });
-
-      await provider.getReviewReply('access-token', input);
-
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:4100/v4/accounts/123/locations/456/reviews/review-789',
-        expect.any(Object)
-      );
-    });
-  });
 });
 
 describe('GoogleBusinessProfileProvider.revoke', () => {
@@ -355,5 +330,81 @@ describe('GoogleBusinessProfileProvider.revoke', () => {
 
     global.fetch = jest.fn().mockRejectedValue(new Error('network down'));
     await expect(provider.revoke('token')).resolves.toBe(false);
+  });
+});
+
+describe('GoogleBusinessProfileProvider.exchangeCode — accounts', () => {
+  const provider = new GoogleBusinessProfileProvider({
+    clientId: 'client-id',
+    clientSecret: 'client-secret',
+    callbackUrl: 'https://app.example.com/callback',
+  });
+
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  const json = (body: unknown) => ({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  });
+
+  /** Token endpoint first, then the account pages in order. */
+  function mockGoogle(...accountPages: unknown[]): jest.Mock {
+    const fetchMock = jest.fn().mockResolvedValueOnce(
+      json({
+        access_token: 'access',
+        refresh_token: 'refresh',
+        expires_in: 3600,
+        scope: 'https://www.googleapis.com/auth/business.manage',
+      })
+    );
+    for (const page of accountPages) {
+      fetchMock.mockResolvedValueOnce(json(page));
+    }
+    global.fetch = fetchMock;
+    return fetchMock;
+  }
+
+  it('returns every account the grant manages, with its name and type', async () => {
+    mockGoogle({
+      accounts: [
+        { name: 'accounts/1', accountName: 'Jane Doe', type: 'PERSONAL' },
+        { name: 'accounts/2', accountName: 'Coastal Group', type: 'LOCATION_GROUP' },
+      ],
+    });
+
+    const { accounts } = await provider.exchangeCode('code');
+
+    expect(accounts).toEqual([
+      { externalAccountId: 'accounts/1', name: 'Jane Doe', type: 'PERSONAL' },
+      { externalAccountId: 'accounts/2', name: 'Coastal Group', type: 'LOCATION_GROUP' },
+    ]);
+  });
+
+  // Regression: only `accounts[0]` was read, so a Google user managing several accounts got whichever came first.
+  it('follows nextPageToken to the last page of accounts', async () => {
+    const fetchMock = mockGoogle(
+      { accounts: [{ name: 'accounts/1' }], nextPageToken: 'page-2' },
+      { accounts: [{ name: 'accounts/2' }] }
+    );
+
+    const { accounts } = await provider.exchangeCode('code');
+
+    expect(accounts.map(account => account.externalAccountId)).toEqual([
+      'accounts/1',
+      'accounts/2',
+    ]);
+    const secondAccountsCall = String((fetchMock.mock.calls[2] as [string])[0]);
+    expect(secondAccountsCall).toContain('pageToken=page-2');
+  });
+
+  it('fails with a mapping error when the grant manages no Business Profile account', async () => {
+    mockGoogle({});
+
+    await expect(provider.exchangeCode('code')).rejects.toBeInstanceOf(ProviderMappingError);
   });
 });

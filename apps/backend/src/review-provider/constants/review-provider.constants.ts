@@ -21,6 +21,9 @@ export const GOOGLE_OAUTH = {
   SCOPES: ['https://www.googleapis.com/auth/business.manage'],
 } as const;
 
+/** Google caps the accounts list at 20 per page. */
+export const GBP_ACCOUNTS_PAGE_SIZE = 20;
+
 /** The fields Google requires on a locations read; omitting `readMask` is a 400, not a default. */
 export const GBP_LOCATION_READ_MASK = 'name,title,storefrontAddress,websiteUri';
 

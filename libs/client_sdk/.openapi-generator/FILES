@@ -1,6 +1,5 @@
 .gitignore
 .npmignore
-.openapi-generator-ignore
 README.md
 api.ts
 api/admin-auth-api.ts
@@ -54,7 +53,6 @@ models/blocklist-term-list-response-dto.ts
 models/change-admin-password-dto.ts
 models/change-password-dto.ts
 models/classification-breakdown-point-response-dto.ts
-models/complete-dummy-checkout-dto.ts
 models/complete-sso-signup-dto.ts
 models/confirm-avatar-dto.ts
 models/confirm-avatar-response-dto.ts
@@ -95,6 +93,8 @@ models/notification-recipient-dto.ts
 models/notification-recipient-list-response-dto.ts
 models/pagination-meta-dto.ts
 models/payment-method-response-dto.ts
+models/pending-account-dto.ts
+models/pending-accounts-response-dto.ts
 models/platform-activity-list-response-dto.ts
 models/platform-activity-response-dto.ts
 models/platform-settings-response-dto.ts
@@ -125,6 +125,8 @@ models/review-list-response-dto.ts
 models/review-response-item-dto.ts
 models/reviews-meta-dto.ts
 models/reviews-trend-point-response-dto.ts
+models/select-account-dto.ts
+models/select-account-response-dto.ts
 models/send-admin-invite-dto.ts
 models/set-active-location-dto.ts
 models/set-admin-password-dto.ts

@@ -8,6 +8,7 @@ import { Injectable } from '@nestjs/common';
 import { CheckoutSessionTenantMismatchException } from '../exceptions/billing.exceptions';
 import { PaymentProvider } from '../providers/payment.provider';
 import type { SubscriptionSnapshot } from '../types/billing.type';
+import { isResourceMissing } from '../utils/stripe-error.util';
 
 export interface ReconcileFromCheckoutSessionInput {
   tenantId: string;
@@ -18,10 +19,6 @@ export interface ReconcileTenantSubscriptionInput {
   tenantId: string;
   stripeCustomerId: string;
 }
-
-/** Stripe's "already gone" — for an erasure that is the goal state, not a failure. */
-const isResourceMissing = (error: unknown): boolean =>
-  (error as { code?: unknown } | null)?.code === 'resource_missing';
 
 /**
  * Asks Stripe what is true when there is no webhook payload (checkout redirect, periodic sweep).
@@ -72,7 +69,7 @@ export class BillingReconciliationService {
     }
 
     if (row.status === SubscriptionStatus.PAST_DUE) {
-      await this.endSubscriptionNow(tenantId, subscriptionId);
+      await this.endSubscriptionNow(subscriptionId);
       return;
     }
 
@@ -133,8 +130,8 @@ export class BillingReconciliationService {
     await this.tenantSubscriptionsDbService.clearCancellationScheduled(tenantId);
   }
 
-  /** The Dummy provider delivers no `customer.subscription.deleted`, so the Free state is applied here for it. */
-  private async endSubscriptionNow(tenantId: string, subscriptionId: string): Promise<void> {
+  /** Stripe's `customer.subscription.deleted` webhook then moves the tenant to Free. */
+  private async endSubscriptionNow(subscriptionId: string): Promise<void> {
     try {
       await this.paymentProvider.cancelSubscription(subscriptionId, false);
     } catch (error) {
@@ -143,9 +140,6 @@ export class BillingReconciliationService {
       }
     }
     await this.paymentProvider.voidOpenInvoices(subscriptionId);
-    if (this.paymentProvider.type === 'dummy') {
-      await this.tenantSubscriptionsDbService.setToFreeFromSubscriptionDeleted(tenantId);
-    }
   }
 
   /**

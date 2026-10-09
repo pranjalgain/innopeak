@@ -103,10 +103,10 @@ describe('TransformInterceptor', () => {
 
   /** Regression: `partial.data ?? data` double-wrapped an envelope whose own `data` is null (void mutations). */
   it('preserves an explicit null data payload instead of double-wrapping the envelope', async () => {
-    const context = buildHttpContext('/v1/billing/dummy/complete-checkout');
+    const context = buildHttpContext('/v1/billing/cancel');
     const callHandler: CallHandler = {
       handle: () =>
-        of({ status: 'Success', message: 'Checkout completed successfully', data: null }),
+        of({ status: 'Success', message: 'Subscription cancellation scheduled', data: null }),
     };
 
     const result = await firstValueFrom(interceptor.intercept(context, callHandler));
@@ -114,7 +114,7 @@ describe('TransformInterceptor', () => {
     expect(result).toEqual({
       statusCode: 200,
       status: 'Success',
-      message: 'Checkout completed successfully',
+      message: 'Subscription cancellation scheduled',
       data: null,
     });
   });

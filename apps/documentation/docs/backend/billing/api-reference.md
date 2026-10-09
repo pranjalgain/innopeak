@@ -14,8 +14,8 @@ nothing here is a pre-implementation target design — every route, field, and d
 straight off shipped code.
 
 It assumes you have read [Billing Module — Overview](./overview.md) for the reasoning behind the
-Free/Paid entitlement split, the platform-wide `billing_enabled` flag, the Dummy/Stripe plugin
-pattern, and the webhook state machine. Those narratives are not repeated here — this document
+Free/Paid entitlement split, the platform-wide `billing_enabled` flag, the payment
+provider, and the webhook state machine. Those narratives are not repeated here — this document
 turns them into request/response contracts.
 
 ## Conventions
@@ -41,8 +41,7 @@ turns them into request/response contracts.
   `ErrorHandlerService`. See the auth reference's [Conventions](../auth/api-reference.md#conventions)
   for the full version with worked envelope examples.
 - **Timestamps** are ISO 8601 UTC strings. **Ids** are `uuidv7()` values, except Stripe's own
-  ids (`cus_...`, `sub_...`, `evt_...`, `cs_...`) and this module's own Dummy-provider fakes
-  (`dummy_cus_<uuid>`, `dummy_sub_<uuid>`), which are opaque strings from the payment provider.
+  ids (`cus_...`, `sub_...`, `evt_...`, `cs_...`), which are opaque strings from the payment provider.
 
 ## Plans & subscription
 
@@ -97,6 +96,10 @@ the [error reference](#error-reference)), `429`.
 The caller tenant's current plan, Stripe subscription state (if any), and live entitlement usage
 against the plan — one combined read of `tenant_subscriptions` +
 `BillingEntitlementsService.getEntitlements`. No query params.
+
+For a tenant with a Stripe customer, `paymentMethod` is read from Stripe. That read is display-only: when it
+fails (an outage, no Stripe keys, or a customer id Stripe doesn't know) the response still answers, with
+`paymentMethod: null`, rather than failing the whole read.
 
 Success `200` (a Free tenant that has never started a checkout):
 
@@ -164,21 +167,15 @@ session against the Paid plan's `stripe_price_id`. **Gated on
 `platform_settings.billing_enabled`** — the only route in this module that checks it. No request
 body.
 
-Success `201` (real Stripe, `PAYMENT_PROVIDER=stripe`):
+Success `201`:
 
 ```json
 { "url": "https://checkout.stripe.com/c/pay/cs_test_a1B2c3D4E5f6G7h8I9j0#fidkdWxOYHwnPyd1blpxYHZxWjA0" }
 ```
 
-Success `201` (`DummyPaymentProvider`, the default):
-
-```json
-{ "url": "https://app.innopeak.com/billing/dummy-checkout?tenantId=0190f4c1-88ba-7a55-8410-6d3f9e0c7722&customerId=dummy_cus_0f3e9a2b-6b41-4c5a-9d2e-1a7c4f8e9b10&subscriptionId=dummy_sub_5b1e7c3a-2f44-4a9b-8e10-3c9d5f0a1b22" }
-```
-
 | Field | Type | Rules |
 |---|---|---|
-| `url` | string | Redirect URL — the frontend navigates the browser to it. Real Stripe Checkout, or a local Dummy confirmation page carrying `tenantId`/`customerId`/`subscriptionId` as query params (see [Overview § payment-provider plugin pattern](./overview.md#the-payment-provider-plugin-pattern-dummy-vs-stripe)) |
+| `url` | string | Redirect URL — the frontend navigates the browser to it. The Stripe Checkout page |
 
 Errors: `403` `BILLING_NOT_ENABLED` (platform is not currently offering upgrades), `404`
 `PLAN_NOT_FOUND` / `SUBSCRIPTION_NOT_FOUND`, `409` `ALREADY_SUBSCRIBED`, `401`, `429`.
@@ -194,9 +191,6 @@ subscription. For a tenant that already has a Stripe customer, the route first c
   a failure there is logged and left to the webhook) and the request answers `409 ALREADY_SUBSCRIBED`.
 - Otherwise every still-open Checkout Session for the customer is expired before the new one is
   created, so only the newest can be paid.
-
-Dummy (`PAYMENT_PROVIDER=dummy`) records a completed Checkout on the row synchronously, so it has
-nothing to ask and always reports no live subscription.
 
 ### `POST /v1/billing/checkout/reconcile`
 
@@ -217,7 +211,7 @@ Request body:
 Success `200`: the refreshed subscription, same shape as `GET /v1/billing/subscription`.
 
 Errors: `404` `CHECKOUT_SESSION_TENANT_MISMATCH` (the session belongs to a different tenant);
-`403` `STRIPE_ONLY_FEATURE` (`PAYMENT_PROVIDER` is not `stripe`).
+`503` `PAYMENT_NOT_CONFIGURED` (no Stripe keys).
 
 ### `POST /v1/billing/portal`
 
@@ -322,7 +316,7 @@ that surfaces them belongs to a different module.
 | `404` | `CHECKOUT_SESSION_TENANT_MISMATCH` | `POST /v1/billing/checkout/reconcile` | The Checkout Session's `metadata.tenantId` isn't the caller's tenant, **or Stripe has no such session** — a made-up id is indistinguishable from someone else's, and never a `500` echoing Stripe's own wording. |
 | `400` | `Validation Error` | `POST /v1/billing/checkout/reconcile` | `checkoutSessionId` isn't 1–255 characters of `A–Z a–z 0–9 _ -`. |
 | `400` | `PAYMENT_METHOD_NOT_USABLE` | `PUT /v1/billing/payment-method` | Stripe rejected the id: it doesn't exist, or isn't attached to this tenant's customer. (A body that isn't a `pm_…` id at all is a `400 Validation Error` before Stripe is called.) |
-| `403` | `STRIPE_ONLY_FEATURE` | `POST /v1/billing/checkout/reconcile` (and the in-app profile/card routes) | `PAYMENT_PROVIDER` is not `stripe`. |
+| `503` | `PAYMENT_NOT_CONFIGURED` | Any route that calls Stripe (checkout, reconcile, cancel, profile, card) | `STRIPE_SECRET_KEY` is empty. Only possible while `PAYMENT_FEATURE_ENABLED` is off and outside production. |
 | `400` | `LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION` | `PUT /v1/billing/active-location` | The given `locationId` isn't this tenant's own, or isn't `status = 'active'` (disconnected). |
 | `400` | `Validation Error` | `PUT /v1/billing/active-location` | `locationId` missing or not a UUID. `message` is the comma-joined list of violations. |
 | `401` | `Unauthorized` | Every `BillingController` route | Missing, malformed, or expired access token. |

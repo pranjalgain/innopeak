@@ -222,6 +222,8 @@ All routes are versioned under `/v1/connections` (`RouteNames.CONNECTIONS`, `ver
 | `GET` | `/v1/connections` | Bearer | The tenant's connection summary — backs Settings' Connection tab and the dashboard access guard. |
 | `GET` | `/v1/connections/google/authorize` | Bearer | `302` into Google's consent screen. Also the reconnect path (`PLAN.md` §8.8). |
 | `GET` | `/v1/connections/google/callback` | Public | OAuth callback. Upserts the connection, `302` back to the frontend. |
+| `GET` | `/v1/connections/google/accounts/pending` | Bearer, `@Roles('owner')` | The Business Profile accounts to choose between, when the grant manages several. |
+| `POST` | `/v1/connections/google/accounts/select` | Bearer, `@Roles('owner')` | Connects the chosen account; single-use. |
 | `DELETE` | `/v1/connections/google` | Bearer, `@Roles('owner')` | Disconnect. Deactivates locations; never deletes rows (`PLAN.md` §8.15). |
 | `GET` | `/v1/connections/google/available-locations` | Bearer | Live provider-side location discovery. Not persisted. |
 | `GET` | `/v1/connections/locations` | Bearer | The tenant's persisted `locations` rows. |
@@ -293,9 +295,8 @@ can start showing a third "action needed" state without an API change.
 
 **This module is implemented.** `src/api/connections/` (two controllers, three services),
 `src/db/repositories/connections/` and `src/db/repositories/review-sync/`, and the provider layer
-under `src/review-provider/` all exist and are exercised end to end — with a fixture-backed mock
-behind `DEV_GBP_MOCK=true` for local development, and against the real Google APIs once the
-[API access setup](./google-api-setup.md) is complete.
+under `src/review-provider/` all exist and run against the real Google APIs only, locally included,
+once the [API access setup](./google-api-setup.md) is complete. There is no mock.
 
 Two deviations from the layout originally sketched below, both deliberate:
 

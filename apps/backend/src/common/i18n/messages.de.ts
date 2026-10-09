@@ -60,6 +60,8 @@ export const messagesDe: MessageCatalog = {
       'Dieses Bildformat wird nicht unterstützt. Bitte laden Sie eine JPG-, PNG-, WEBP-, GIF-, AVIF-, HEIC- oder BMP-Datei hoch.',
     FILE_TOO_LARGE: 'Dieses Bild ist zu groß. Bitte laden Sie eine Datei unter 10 MB hoch.',
     FAILED_TO_PERSIST_AVATAR: 'Avatar konnte nicht gespeichert werden',
+    STORAGE_NOT_CONFIGURED:
+      'Bild-Uploads sind derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.',
   },
   NOTIFICATIONS: {
     LISTED: 'Benachrichtigungen erfolgreich abgerufen',
@@ -83,6 +85,12 @@ export const messagesDe: MessageCatalog = {
       'Google Business-Profil ist derzeit nicht verfügbar. Bitte versuchen Sie es erneut.',
     PROVIDER_NOT_CONFIGURED:
       'Google Business-Profil ist auf diesem Server nicht konfiguriert. Wenden Sie sich an den Support.',
+    ACCOUNT_CHOICE_EXPIRED:
+      'Ihre Kontoauswahl ist abgelaufen. Verbinden Sie Ihr Google Business-Profil erneut.',
+    ACCOUNT_NOT_IN_CHOICE:
+      'Dieses Konto gehört nicht zu den von Google angebotenen Konten. Wählen Sie aus der Liste.',
+    ACCOUNT_MISMATCH:
+      'Ihr Unternehmen ist bereits mit einem anderen Google Business-Profil-Konto verbunden. Trennen Sie es zuerst oder wählen Sie dasselbe Konto.',
     DISCONNECTED: 'Google Business-Profil getrennt.',
     LOCATION_CONFIRMED: 'Standort verbunden. Ihr Rezensionsverlauf wird importiert.',
     LOCATION_INACTIVE: 'Dieser Standort ist getrennt und kann nicht ausgewählt werden.',
@@ -179,8 +187,6 @@ export const messagesDe: MessageCatalog = {
     STRIPE_WEBHOOK_SIGNATURE_INVALID: 'Ungültige Stripe-Webhook-Signatur',
     LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION:
       'Dieser Standort kann nicht aktiviert werden — er gehört möglicherweise nicht zu Ihrem Unternehmen oder ist getrennt.',
-    DUMMY_PROVIDER_NOT_ACTIVE: 'Nicht gefunden',
-    CHECKOUT_COMPLETED: 'Bezahlvorgang erfolgreich abgeschlossen',
     SUBSCRIPTION_CANCELED: 'Abonnement wird zum Ende des aktuellen Abrechnungszeitraums gekündigt',
     FAILED_TO_CREATE_SUBSCRIPTION: 'Mandantenabonnement konnte nicht erstellt werden',
     FREE_PLAN_NOT_SEEDED: 'Der kostenlose Tarif ist nicht angelegt',
@@ -191,7 +197,8 @@ export const messagesDe: MessageCatalog = {
     BILLING_PROFILE_UPDATED: 'Abrechnungsprofil aktualisiert',
     SETUP_INTENT_CREATED: 'Karteneinrichtung gestartet',
     PAYMENT_METHOD_UPDATED: 'Zahlungsmethode aktualisiert',
-    STRIPE_ONLY_FEATURE: 'Dies ist in dieser Umgebung nicht verfügbar.',
+    PAYMENT_NOT_CONFIGURED:
+      'Zahlungen sind derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.',
     STRIPE_WEBHOOK_TENANT_NOT_FOUND: 'Kein passender Mandant für dieses Stripe-Ereignis gefunden',
     CHECKOUT_SESSION_TENANT_MISMATCH: 'Checkout-Sitzung nicht gefunden',
     PAYMENT_METHOD_NOT_USABLE:

@@ -52,7 +52,6 @@ const PAID_SUBSCRIPTION: Subscription = {
   maxAiDraftsPerMonth: null,
   customPromptsEnabled: true,
   paymentMethod: { brand: "visa", last4: "4242", expMonth: 12, expYear: 2030 },
-  paymentProvider: "stripe",
 };
 
 const FREE_SUBSCRIPTION: Subscription = {

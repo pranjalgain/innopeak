@@ -46,5 +46,6 @@ export function mapGbpAccount(account: GbpAccount): ProviderAccount {
   return {
     externalAccountId: account.name,
     ...(account.accountName ? { name: account.accountName } : {}),
+    ...(account.type ? { type: account.type } : {}),
   };
 }

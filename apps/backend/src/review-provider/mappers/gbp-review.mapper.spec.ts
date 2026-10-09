@@ -1,7 +1,7 @@
+import { MOCK_REVIEWS_WITH_REPLIES, mockReviewsResponse } from './__fixtures__/gbp-reviews.fixture';
 import { mapGbpReview, mapGbpReviewPage } from './gbp-review.mapper';
 
 import { ProviderMappingError } from '../errors/provider.error';
-import { MOCK_REVIEWS_WITH_REPLIES, mockReviewsResponse } from '../fixtures/gbp-reviews.fixture';
 import type { GbpReview } from '../types/gbp-wire.type';
 
 const BASE: GbpReview = {

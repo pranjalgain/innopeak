@@ -44,8 +44,7 @@ src/api/ai/
                                          # trigger for the services/ subfolder)
   providers/
     ai.provider.ts                      # abstract AiProvider — generateReply(input)
-    azure-openai.provider.ts            # the default — AI_PROVIDER=azure, westeurope-pinned,
-                                         # checks USE_LOCAL_MOCK_SERVER before real Azure config
+    azure-openai.provider.ts            # the default — AI_PROVIDER=azure, westeurope-pinned
     openrouter-ai.provider.ts           # secondary — concrete, built on the `openai` SDK
   utils/
     prompt-template.util.ts            # fillPromptTemplate (placeholder substitution),
@@ -130,24 +129,12 @@ genuinely wired into the live poll tick (see [Wired into the review-sync
 pipeline](#wired-into-the-review-sync-pipeline) below) and a transient config problem should not
 take the whole worker process down.
 
-### Developing against it before real Azure credentials exist: the local mock server
+### Local development
 
-`getClient()` checks `getLocalMockServerUrl(this.configService)` **before** validating any of the
-real `AZURE_OPENAI_*` config above. When `USE_LOCAL_MOCK_SERVER=true`, every call is redirected at
-`apps/mock-external-apis`'s `POST /azure-openai/deployments/:deployment/chat/completions` instead
-of a real Azure resource — the mock path needs none of the real endpoint/key/api-version/region
-config, only the deployment name, used purely as a path segment the mock server itself ignores. By
-the time a request reaches the mock, the backend's real `fillPromptTemplate` has already
-substituted the review's actual rating/reviewer/text into the prompt, so the mock reads those
-values back out of the prompt text and composes a reply that visibly reacts to them (acknowledging
-the star rating, quoting a short excerpt) — dry-run output and escalation snippets look like real
-model responses rather than one fixed canned string. `apps/mock-external-apis` is a dev-only tool:
-nothing in `apps/backend` talks to it unless that env var is set, and the backend's own Joi schema
-forbids `USE_LOCAL_MOCK_SERVER` outside non-production environments. Run it with `pnpm --filter
-mock-external-apis dev` (defaults to `http://localhost:4100`). The same server also emulates Google
-Business Profile's reply read/write endpoints for `GoogleBusinessProfileProvider`'s
-`localMockServerUrl` toggle — see `apps/mock-external-apis/README.md` and
-`../review-pipeline/overview.md`'s posting section for that side.
+There is no local stand-in for the model: drafting always calls the provider `AI_PROVIDER` selects,
+so a local setup needs that provider's credentials (`OPENROUTER_API_KEY` for `openrouter`, the
+`AZURE_OPENAI_*` set for `azure`), and local drafts are billed. `AI_PROVIDER` defaults to `azure`
+when unset. The former `apps/mock-external-apis` emulator and `USE_LOCAL_MOCK_SERVER` were removed.
 
 ## Wired into the review-sync pipeline
 

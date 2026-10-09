@@ -1,14 +1,10 @@
-/** Frontend paths the Dummy/Stripe redirect URLs point back at. Relative to `FRONTEND_URL`. */
+/** Frontend paths the Stripe redirect URLs point back at. Relative to `FRONTEND_URL`. */
 export const BILLING_REDIRECT_PATHS = {
   // `{CHECKOUT_SESSION_ID}` is a literal Stripe Checkout template token that Stripe fills in on
   // redirect; the frontend passes it to `POST /v1/billing/checkout/reconcile`.
   CHECKOUT_SUCCESS: '/settings?tab=billing&checkout=success&session_id={CHECKOUT_SESSION_ID}',
   CHECKOUT_CANCEL: '/settings?tab=billing&checkout=cancel',
   PORTAL_RETURN: '/settings?tab=billing',
-  /** Dummy-only confirmation page. */
-  DUMMY_CHECKOUT: '/billing/dummy-checkout',
-  /** Dummy-only confirmation page. */
-  DUMMY_PORTAL: '/billing/dummy-portal',
 } as const;
 
 /** Stripe event types this app acts on; every other type maps to `'unhandled'` and is skipped. */

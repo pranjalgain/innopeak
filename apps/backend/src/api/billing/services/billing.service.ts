@@ -3,7 +3,6 @@ import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import { SubscriptionCancellationSource } from '@common/enums/subscription-cancellation-source.enum';
-import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import type { EnvConfig } from '@config/env.config';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { BillingPlansDbService } from '@db/repositories/billing/billing-plans.db-service';
@@ -12,11 +11,8 @@ import { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-su
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { randomUUID } from 'crypto';
-
 import { BillingEntitlementsService } from './billing-entitlements.service';
 import { BillingReconciliationService } from './billing-reconciliation.service';
-import { BillingWebhooksService } from './billing-webhooks.service';
 
 import { BILLING_REDIRECT_PATHS } from '../constants/billing.constants';
 import { BillingProfileResponseDto } from '../dto/billing-profile-response.dto';
@@ -28,14 +24,12 @@ import { SubscriptionResponseDto } from '../dto/subscription-response.dto';
 import {
   AlreadySubscribedException,
   BillingNotEnabledException,
-  DummyProviderNotActiveException,
   PlanNotFoundException,
   ReceiptNotFoundException,
-  StripeOnlyFeatureException,
   SubscriptionNotFoundException,
 } from '../exceptions/billing.exceptions';
 import { PaymentProvider } from '../providers/payment.provider';
-import type { UpdateBillingProfileInput } from '../types/billing.type';
+import type { PaymentMethodSummary, UpdateBillingProfileInput } from '../types/billing.type';
 import { buildReceiptFilename, renderReceiptPdf } from '../utils/receipt-pdf.util';
 
 @Injectable()
@@ -51,7 +45,6 @@ export class BillingService {
     private readonly billingPlansDbService: BillingPlansDbService,
     private readonly tenantSubscriptionsDbService: TenantSubscriptionsDbService,
     private readonly billingEntitlementsService: BillingEntitlementsService,
-    private readonly billingWebhooksService: BillingWebhooksService,
     private readonly billingReconciliationService: BillingReconciliationService,
     private readonly billingReceiptsDbService: BillingReceiptsDbService,
     private readonly authDbService: AuthDbService,
@@ -88,10 +81,6 @@ export class BillingService {
     checkoutSessionId: string
   ): Promise<SubscriptionResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
-    // A Dummy checkout has no real Checkout Session; reject cleanly rather than 500.
-    if (this.paymentProvider.type !== 'stripe') {
-      throw new StripeOnlyFeatureException();
-    }
     await this.billingReconciliationService.reconcileFromCheckoutSession({
       tenantId: tenantUser.tenantId,
       checkoutSessionId,
@@ -110,16 +99,30 @@ export class BillingService {
     }
 
     const paymentMethod = subscription.stripeCustomerId
-      ? await this.paymentProvider.getPaymentMethodSummary(subscription.stripeCustomerId)
+      ? await this.readPaymentMethod(tenantId, subscription.stripeCustomerId)
       : null;
 
     return SubscriptionResponseDto.from(
       subscription,
       entitlements.planCode,
       entitlements,
-      paymentMethod,
-      this.paymentProvider.type
+      paymentMethod
     );
+  }
+
+  /** Display-only, so a Stripe failure (outage, missing keys, an id Stripe doesn't know) leaves the card blank rather than failing the whole read. */
+  private async readPaymentMethod(
+    tenantId: string,
+    customerId: string
+  ): Promise<PaymentMethodSummary | null> {
+    try {
+      return await this.paymentProvider.getPaymentMethodSummary(customerId);
+    } catch (error) {
+      this.logger.warn(
+        `Could not read the payment method for tenant ${tenantId}: ${(error as Error).message}`
+      );
+      return null;
+    }
   }
 
   /**
@@ -246,43 +249,9 @@ export class BillingService {
   }
 
   /**
-   * Dummy-only: the dummy provider has no webhook caller, so this feeds the handler the same
-   * `checkout.session.completed` event Stripe would send. 404s outside `PAYMENT_PROVIDER=dummy`,
-   * since a route that flips a tenant to `paid` on the caller's say-so must not exist with real payment.
-   */
-  async completeDummyCheckout(user: AuthUser, subscriptionId: string): Promise<void> {
-    const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
-    if (this.paymentProvider.type !== 'dummy') {
-      throw new DummyProviderNotActiveException();
-    }
-
-    const subscription = await this.tenantSubscriptionsDbService.findByTenantId(
-      tenantUser.tenantId
-    );
-    if (!subscription?.stripeCustomerId) {
-      throw new SubscriptionNotFoundException();
-    }
-
-    const now = new Date();
-    const periodEnd = new Date(now);
-    periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
-
-    await this.billingWebhooksService.handleEvent({
-      id: `dummy_evt_${randomUUID()}`,
-      type: 'checkout.session.completed',
-      customerId: subscription.stripeCustomerId,
-      subscriptionId,
-      status: SubscriptionStatus.ACTIVE,
-      currentPeriodStart: now.toISOString(),
-      currentPeriodEnd: periodEnd.toISOString(),
-    });
-  }
-
-  /**
    * Always at period end (the tenant keeps what they paid for), and not gated on
-   * `PAYMENT_FEATURE_ENABLED`. For Stripe the state change arrives via the
-   * `customer.subscription.updated` webhook, not a write here; the dummy provider has no webhook
-   * caller, so this applies the equivalent event itself.
+   * `PAYMENT_FEATURE_ENABLED`. The state change arrives via the `customer.subscription.updated`
+   * webhook, not a write here.
    */
   async cancelSubscription(user: AuthUser): Promise<void> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
@@ -305,22 +274,9 @@ export class BillingService {
       await this.tenantSubscriptionsDbService.clearCancellationScheduled(tenantUser.tenantId);
       throw error;
     }
-
-    if (this.paymentProvider.type === 'dummy') {
-      await this.billingWebhooksService.handleEvent({
-        id: `dummy_evt_${randomUUID()}`,
-        type: 'customer.subscription.updated',
-        customerId: subscription.stripeCustomerId,
-        subscriptionId: subscription.stripeSubscriptionId,
-        status: subscription.status ?? SubscriptionStatus.ACTIVE,
-        currentPeriodStart: subscription.currentPeriodStart,
-        currentPeriodEnd: subscription.currentPeriodEnd,
-        cancelAtPeriodEnd: true,
-      });
-    }
   }
 
-  /** Empty for a tenant who has never made a real Stripe payment (Free, or on Dummy). */
+  /** Empty for a tenant who has never made a real Stripe payment (Free). */
   async listReceipts(user: AuthUser): Promise<ReceiptListResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.BILLING.TENANT_ONLY);
     const receipts = await this.billingReceiptsDbService.listByTenantId(tenantUser.tenantId);
@@ -362,12 +318,8 @@ export class BillingService {
     return { buffer, filename: buildReceiptFilename(receipt) };
   }
 
-  /** Stripe-only: a `dummy_cus_*` id has no real Stripe object to edit, so this throws rather than fake one. Needs an existing customer. */
+  /** Needs an existing Stripe customer. */
   private async requireStripeCustomerId(tenantId: string): Promise<string> {
-    if (this.paymentProvider.type !== 'stripe') {
-      throw new StripeOnlyFeatureException();
-    }
-
     const subscription = await this.tenantSubscriptionsDbService.findByTenantId(tenantId);
     if (!subscription?.stripeCustomerId) {
       throw new SubscriptionNotFoundException();

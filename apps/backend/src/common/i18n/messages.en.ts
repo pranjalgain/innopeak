@@ -58,6 +58,7 @@ export const messagesEn: MessageCatalog = {
       'This image format is not supported. Please upload a JPG, PNG, WEBP, GIF, AVIF, HEIC, or BMP file.',
     FILE_TOO_LARGE: 'That image is too large. Please upload a file under 10 MB.',
     FAILED_TO_PERSIST_AVATAR: 'Failed to persist avatar',
+    STORAGE_NOT_CONFIGURED: 'Image uploads are not available right now. Please try again later.',
   },
   NOTIFICATIONS: {
     LISTED: 'Notifications retrieved successfully',
@@ -80,6 +81,12 @@ export const messagesEn: MessageCatalog = {
     PROVIDER_UNAVAILABLE: 'Google Business Profile is unavailable right now. Please try again.',
     PROVIDER_NOT_CONFIGURED:
       'Google Business Profile is not configured on this server. Contact support.',
+    ACCOUNT_CHOICE_EXPIRED:
+      'Your account selection expired. Connect your Google Business Profile again.',
+    ACCOUNT_NOT_IN_CHOICE:
+      'That account is not one of the accounts Google offered. Choose from the list.',
+    ACCOUNT_MISMATCH:
+      'Your business is already connected to a different Google Business Profile account. Disconnect it first, or choose the same account.',
     DISCONNECTED: 'Google Business Profile disconnected.',
     LOCATION_CONFIRMED: 'Location connected. Importing your review history.',
     LOCATION_INACTIVE: 'This location is disconnected and cannot be selected.',
@@ -165,8 +172,6 @@ export const messagesEn: MessageCatalog = {
     STRIPE_WEBHOOK_SIGNATURE_INVALID: 'Invalid Stripe webhook signature',
     LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION:
       'This location cannot be made active — it may not belong to your business or is disconnected.',
-    DUMMY_PROVIDER_NOT_ACTIVE: 'Not found',
-    CHECKOUT_COMPLETED: 'Checkout completed successfully',
     SUBSCRIPTION_CANCELED: 'Subscription set to cancel at the end of the current billing period',
     FAILED_TO_CREATE_SUBSCRIPTION: 'Failed to create tenant subscription',
     FREE_PLAN_NOT_SEEDED: 'Free billing plan is not seeded',
@@ -177,7 +182,7 @@ export const messagesEn: MessageCatalog = {
     BILLING_PROFILE_UPDATED: 'Billing profile updated',
     SETUP_INTENT_CREATED: 'Card setup started',
     PAYMENT_METHOD_UPDATED: 'Payment method updated',
-    STRIPE_ONLY_FEATURE: "This isn't available in this environment.",
+    PAYMENT_NOT_CONFIGURED: 'Payments are not available right now. Please try again later.',
     STRIPE_WEBHOOK_TENANT_NOT_FOUND: 'No matching tenant for this Stripe event',
     CHECKOUT_SESSION_TENANT_MISMATCH: 'Checkout session not found',
     PAYMENT_METHOD_NOT_USABLE:

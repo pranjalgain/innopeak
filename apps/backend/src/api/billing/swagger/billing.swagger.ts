@@ -2,7 +2,6 @@ import { applyDecorators, HttpStatus } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiProduces, ApiResponse } from '@nestjs/swagger';
 
 import { BillingProfileResponseDto } from '../dto/billing-profile-response.dto';
-import { CompleteDummyCheckoutDto } from '../dto/complete-dummy-checkout.dto';
 import { BillingPlansResponseDto } from '../dto/plan-response.dto';
 import { ReceiptListResponseDto } from '../dto/receipt-response.dto';
 import { ReconcileCheckoutSessionDto } from '../dto/reconcile-checkout-session.dto';
@@ -51,7 +50,6 @@ const SUBSCRIPTION_EXAMPLE = {
   maxAiDraftsPerMonth: 20,
   customPromptsEnabled: false,
   paymentMethod: null,
-  paymentProvider: 'stripe',
 };
 
 export function ApiListBillingPlans(): ReturnType<typeof applyDecorators> {
@@ -153,8 +151,8 @@ export function ApiReconcileCheckoutSession(): ReturnType<typeof applyDecorators
       description: 'CHECKOUT_SESSION_TENANT_MISMATCH / SUBSCRIPTION_NOT_FOUND',
     }),
     ApiResponse({
-      status: HttpStatus.FORBIDDEN,
-      description: 'STRIPE_ONLY_FEATURE — PAYMENT_PROVIDER is not stripe',
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      description: 'PAYMENT_NOT_CONFIGURED — Stripe keys are not set',
     })
   );
 }
@@ -210,30 +208,6 @@ export function ApiSetActiveLocation(): ReturnType<typeof applyDecorators> {
   );
 }
 
-export function ApiCompleteDummyCheckout(): ReturnType<typeof applyDecorators> {
-  return applyDecorators(
-    ApiBearerAuth(),
-    ApiOperation({
-      summary: '[Dev/test only] Complete a Dummy checkout session',
-      description:
-        'Only reachable when PAYMENT_PROVIDER=dummy — lets the /billing/dummy-checkout ' +
-        'confirmation page apply the same state transition a real Stripe checkout.session.completed ' +
-        'webhook would, since DummyPaymentProvider has no external caller to deliver one itself.',
-    }),
-    ApiBody({
-      type: CompleteDummyCheckoutDto,
-      examples: {
-        default: { value: { subscriptionId: 'dummy_sub_0190f4a1-7c33-7e51-9a02-6d1b8f4c0044' } },
-      },
-    }),
-    ApiResponse({ status: HttpStatus.OK, description: 'Checkout completed, plan is now paid' }),
-    ApiResponse({
-      status: HttpStatus.NOT_FOUND,
-      description: 'DUMMY_PROVIDER_NOT_ACTIVE (PAYMENT_PROVIDER=stripe) / SUBSCRIPTION_NOT_FOUND',
-    })
-  );
-}
-
 export function ApiCancelSubscription(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
     ApiBearerAuth(),
@@ -241,7 +215,7 @@ export function ApiCancelSubscription(): ReturnType<typeof applyDecorators> {
       summary: "Cancel the caller tenant's subscription at the end of the current period",
       description:
         'In-app cancellation — no redirect to a hosted portal. Calls the active payment provider ' +
-        'directly (works the same for PAYMENT_PROVIDER=stripe or dummy); the plan stays Paid with ' +
+        'directly; the plan stays Paid with ' +
         'full entitlements until the current billing period actually ends, matching what a real ' +
         'Stripe Customer Portal cancellation would leave the subscription in. Not gated on ' +
         'PAYMENT_FEATURE_ENABLED — an already-Paid tenant always keeps the ability to cancel.',
@@ -277,8 +251,8 @@ export function ApiListReceipts(): ReturnType<typeof applyDecorators> {
     ApiOperation({
       summary: "List the caller tenant's payment receipts",
       description:
-        'One row per successfully paid Stripe invoice — Stripe-only, always empty for a tenant on ' +
-        'PAYMENT_PROVIDER=dummy or one who has never made a real payment. See 0012_billing_receipts.sql.',
+        'One row per successfully paid Stripe invoice — empty for a tenant who has never made a ' +
+        'real payment. See 0012_billing_receipts.sql.',
     }),
     ApiResponse({
       status: HttpStatus.OK,
@@ -311,12 +285,11 @@ export function ApiDownloadReceiptPdf(): ReturnType<typeof applyDecorators> {
 
 const BILLING_PROFILE_EXAMPLE = { name: 'Jordan Lee', email: 'jordan@example.com' };
 
-const STRIPE_ONLY_RESPONSES = [
+const TENANT_OWNER_RESPONSES = [
   ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
   ApiResponse({
     status: HttpStatus.FORBIDDEN,
-    description:
-      'Not a tenant owner, or STRIPE_ONLY_FEATURE — not available on PAYMENT_PROVIDER=dummy',
+    description: 'Not a tenant owner',
   }),
   ApiResponse({
     status: HttpStatus.NOT_FOUND,
@@ -339,7 +312,7 @@ export function ApiGetBillingProfile(): ReturnType<typeof applyDecorators> {
       type: BillingProfileResponseDto,
       examples: { default: { summary: 'Billing profile', value: BILLING_PROFILE_EXAMPLE } },
     }),
-    ...STRIPE_ONLY_RESPONSES
+    ...TENANT_OWNER_RESPONSES
   );
 }
 
@@ -360,7 +333,7 @@ export function ApiUpdateBillingProfile(): ReturnType<typeof applyDecorators> {
       type: BillingProfileResponseDto,
       examples: { default: { summary: 'Billing profile', value: BILLING_PROFILE_EXAMPLE } },
     }),
-    ...STRIPE_ONLY_RESPONSES
+    ...TENANT_OWNER_RESPONSES
   );
 }
 
@@ -386,7 +359,7 @@ export function ApiCreateSetupIntent(): ReturnType<typeof applyDecorators> {
         },
       },
     }),
-    ...STRIPE_ONLY_RESPONSES
+    ...TENANT_OWNER_RESPONSES
   );
 }
 
@@ -404,6 +377,6 @@ export function ApiSetDefaultPaymentMethod(): ReturnType<typeof applyDecorators>
       examples: { default: { value: { paymentMethodId: 'pm_1P0a2bC3dE4fG5h' } } },
     }),
     ApiResponse({ status: HttpStatus.OK, description: 'Payment method updated' }),
-    ...STRIPE_ONLY_RESPONSES
+    ...TENANT_OWNER_RESPONSES
   );
 }
