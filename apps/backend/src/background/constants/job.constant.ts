@@ -48,6 +48,8 @@ export enum JobName {
   ERASURE_NOTICE_EMAIL = 'erasure-notice-email',
   /** One per active platform admin when a nightly purge could not release some businesses. */
   ERASURE_PURGE_ALERT_EMAIL = 'erasure-purge-alert-email',
+  /** One per owner when the Free plan's location cap paused some of the business's locations. */
+  LOCATIONS_PAUSED_EMAIL = 'locations-paused-email',
   DLQ_FAILED_JOB = 'dlq_failed_job',
   /** One-time historical import, published after POST /v1/connections/locations commits. */
   REVIEW_BACKFILL = 'review-backfill',

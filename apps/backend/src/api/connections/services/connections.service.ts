@@ -148,6 +148,8 @@ export class ConnectionsService {
             externalLocationId: activeLocation.externalLocationId,
             businessName: activeLocation.name,
             address: activeLocation.address,
+            phone: activeLocation.phone,
+            websiteUri: activeLocation.websiteUri,
             status: activeLocation.status,
             lastSyncedAt: activeLocation.lastSyncedAt,
             lastSyncStatus: activeLocation.lastSyncStatus,
@@ -423,6 +425,8 @@ export class ConnectionsService {
           externalLocationId: match.externalLocationId,
           name: match.name,
           address: match.address,
+          phone: match.phone,
+          websiteUri: match.websiteUri,
         })),
         maxActiveLocations,
       });
@@ -550,9 +554,8 @@ export class ConnectionsService {
       this.logger.error(
         `Compensating sync run ${result.backfill.id} for location ${result.location.id}: ${internalMessage}`
       );
-      // A `MESSAGES` tag, not `internalMessage`: `error_message` is copied into `locations.last_sync_error`
-      // and returned to the owner later, so the raw BullMQ/Redis text must not be persisted. The tag is
-      // localized when it surfaces.
+      // Our own message, not `internalMessage`: `error_message` is copied into `locations.last_sync_error`
+      // and returned to the owner later, so the raw BullMQ/Redis text must not be persisted.
       await this.reviewSyncDbService.completeRun({
         syncRunId: result.backfill.id,
         locationId: result.location.id,

@@ -33,6 +33,9 @@ function locationRow(externalLocationId: string) {
     externalLocationId,
     name: 'The Coffee House',
     address: null,
+    phone: null,
+    websiteUri: null,
+    detailsRefreshedAt: null,
     status: LocationStatus.ACTIVE,
     lastSyncedAt: null,
     lastSyncStatus: null,
@@ -111,7 +114,15 @@ describe('ConnectionsDbService.confirmLocations — location limit is rechecked 
       tenantId: 'tenant-1',
       userId: 'user-1',
       connection,
-      locations: [{ externalLocationId: 'locations/1', name: 'The Coffee House', address: null }],
+      locations: [
+        {
+          externalLocationId: 'locations/1',
+          name: 'The Coffee House',
+          address: null,
+          phone: null,
+          websiteUri: null,
+        },
+      ],
       maxActiveLocations: 1,
     });
 
@@ -129,7 +140,15 @@ describe('ConnectionsDbService.confirmLocations — location limit is rechecked 
         tenantId: 'tenant-1',
         userId: 'user-1',
         connection,
-        locations: [{ externalLocationId: 'locations/2', name: 'The Bakery', address: null }],
+        locations: [
+          {
+            externalLocationId: 'locations/2',
+            name: 'The Bakery',
+            address: null,
+            phone: null,
+            websiteUri: null,
+          },
+        ],
         maxActiveLocations: 1,
       })
     ).rejects.toBeInstanceOf(LocationLimitExceededError);
@@ -146,8 +165,20 @@ describe('ConnectionsDbService.confirmLocations — location limit is rechecked 
         userId: 'user-1',
         connection,
         locations: [
-          { externalLocationId: 'locations/1', name: 'The Coffee House', address: null },
-          { externalLocationId: 'locations/2', name: 'The Bakery', address: null },
+          {
+            externalLocationId: 'locations/1',
+            name: 'The Coffee House',
+            address: null,
+            phone: null,
+            websiteUri: null,
+          },
+          {
+            externalLocationId: 'locations/2',
+            name: 'The Bakery',
+            address: null,
+            phone: null,
+            websiteUri: null,
+          },
         ],
         maxActiveLocations: 1,
       })
@@ -163,7 +194,15 @@ describe('ConnectionsDbService.confirmLocations — location limit is rechecked 
       tenantId: 'tenant-1',
       userId: 'user-1',
       connection,
-      locations: [{ externalLocationId: 'locations/1', name: 'The Coffee House', address: null }],
+      locations: [
+        {
+          externalLocationId: 'locations/1',
+          name: 'The Coffee House',
+          address: null,
+          phone: null,
+          websiteUri: null,
+        },
+      ],
       maxActiveLocations: 1,
     });
 
@@ -178,7 +217,15 @@ describe('ConnectionsDbService.confirmLocations — location limit is rechecked 
       tenantId: 'tenant-1',
       userId: 'user-1',
       connection,
-      locations: [{ externalLocationId: 'locations/1', name: 'The Coffee House', address: null }],
+      locations: [
+        {
+          externalLocationId: 'locations/1',
+          name: 'The Coffee House',
+          address: null,
+          phone: null,
+          websiteUri: null,
+        },
+      ],
       maxActiveLocations: 1,
     });
 
@@ -193,8 +240,20 @@ describe('ConnectionsDbService.confirmLocations — location limit is rechecked 
       userId: 'user-1',
       connection,
       locations: [
-        { externalLocationId: 'locations/1', name: 'The Coffee House', address: null },
-        { externalLocationId: 'locations/2', name: 'The Bakery', address: null },
+        {
+          externalLocationId: 'locations/1',
+          name: 'The Coffee House',
+          address: null,
+          phone: null,
+          websiteUri: null,
+        },
+        {
+          externalLocationId: 'locations/2',
+          name: 'The Bakery',
+          address: null,
+          phone: null,
+          websiteUri: null,
+        },
       ],
       maxActiveLocations: 2,
     });
@@ -254,7 +313,15 @@ describe('ConnectionsDbService.confirmLocations — sync-run acquisition conflic
       tenantId: 'tenant-1',
       userId: 'user-1',
       connection,
-      locations: [{ externalLocationId: 'locations/1', name: 'The Coffee House', address: null }],
+      locations: [
+        {
+          externalLocationId: 'locations/1',
+          name: 'The Coffee House',
+          address: null,
+          phone: null,
+          websiteUri: null,
+        },
+      ],
       maxActiveLocations: 5,
     });
   }

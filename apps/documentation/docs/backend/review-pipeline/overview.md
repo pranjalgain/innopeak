@@ -70,8 +70,8 @@ flowchart TB
         TH -- no --> AUTO["classification='auto_reply_candidate'"]
     end
     subgraph Generation["AI generation — Azure OpenAI GPT-4, westeurope"]
-        AUTO --> G1["1 review_responses row<br/>auto_reply_suggestion / pending_approval"]
-        ESC --> G2["2-3 rows, one generation_group_id<br/>escalation_snippet / pending_approval"]
+        AUTO --> G1["ai_reply_count rows (1 when auto-posted)<br/>auto_reply_suggestion / pending_approval"]
+        ESC --> G2["ai_reply_count rows, one generation_group_id<br/>escalation_snippet / pending_approval"]
         ESC2 --> G2
     end
     G2 --> NOT[("notifications rows<br/>type='escalation'<br/>+ email / Teams delivery")]
@@ -236,11 +236,20 @@ reject it anyway, so raise the mapping error where it can be logged usefully.
   generation exists — would have drafted an AI reply for a review the owner had personally already
   answered, the exact overwrite §8.12 calls the worst outcome in this system. Found by polling
   against real data, not by reading the code.
-- **Review disappeared upstream** — still unbuilt. A reviewer can delete their review;
-  `reviews.removed_upstream_at` exists to mark it, but nothing writes it. Detecting the absence
-  means diffing a full listing against known rows, which this incremental poll does not do — so
-  honestly it would need a full-sync-only reconciliation pass, not something `importNewPages`'s
-  cursor-based approach can produce as a side effect.
+- **Review disappeared upstream** — detected when posting, not by the poll. Google also answers `404`
+  when a location is no longer reachable from the connected account, so on a `404` for the review
+  (`ProviderNotFoundError`) the worker lists that location's reviews through the same
+  `accounts/…/locations/…` path: only if that path still answers is the `404` the review's own. (A
+  location-only lookup would not do: it ignores the account, so a location moved to another account
+  would still look reachable.) (A location that is gone too fails the reply with `POST_FAILED_LOCATION_UNAVAILABLE` and marks
+  nothing.) The post worker then sets `reviews.removed_upstream_at` and `reviews.status = 'removed'`, and
+  fails the reply with
+  `POST_FAILED_REVIEW_REMOVED` instead of Google's raw error, without retrying. From then on post,
+  retry-post and manual reply answer `409 REVIEW_REMOVED_UPSTREAM`, and the dashboard shows the
+  review as removed with no reply actions. If Google lists the review again later, the next poll's upsert
+  clears the marker (back to `in_review` when drafts exist, otherwise `new`). A deleted review nobody tries to reply to is still not
+  noticed: that needs diffing a full listing against known rows, which the incremental poll does
+  not do.
 - **`reviewed_at` absent from the payload** — the column is nullable so ingestion survives, but §6
   wants this alerted on as a data-quality signal, because the retention job then falls back to
   `created_at`. No alerting exists for this yet, on either ingestion path.
@@ -492,8 +501,8 @@ data lives at rest — a hosting concern, same requirement.
 
 | Classification | Rows | `response_type` | `generation_group_id` | `status` | `source` |
 |---|---|---|---|---|---|
-| `auto_reply_candidate` | 1 | `auto_reply_suggestion` | may be `NULL` | `pending_approval` | `ai_generated` |
-| `escalated` | 2–3 | `escalation_snippet` | one shared UUID across the batch, **never `NULL`** | `pending_approval` | `ai_generated` |
+| `auto_reply_candidate` | `ai_reply_count` (1–3); 1 when `auto_post_enabled` | `auto_reply_suggestion` | one shared UUID when there are several, `NULL` for a lone draft | `pending_approval` | `ai_generated` |
+| `escalated` | `ai_reply_count` (1–3) | `escalation_snippet` | one shared UUID across the batch, **never `NULL`** | `pending_approval` | `ai_generated` |
 
 Every row also gets `tenant_id`, `review_id`, `content`, `generation_metadata` (JSONB — model
 name/version, region `westeurope`, token counts, per §2), and `prompt_version_id` (added by

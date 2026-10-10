@@ -151,3 +151,11 @@ export type StripeWebhookEventTypeKey = keyof typeof StripeWebhookEventType;
 
 export const HANDLED_STRIPE_EVENT_TYPES: readonly HandledStripeWebhookEventType[] =
   Object.values(StripeWebhookEventType);
+
+/** What a location-cap enforcement paused, for the owner email sent once the change is committed. */
+export interface PausedLocationsNotice {
+  tenantId: string;
+  maxLocations: number;
+  keptLocationNames: string[];
+  pausedLocationNames: string[];
+}

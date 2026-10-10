@@ -10,6 +10,8 @@ const LOCATION: ConnectedLocation = {
   externalLocationId: "locations/1",
   businessName: "The Coastal Table",
   address: "214 Harbor St, Portland, ME",
+  phone: "+1 207-555-0142",
+  websiteUri: "https://coastaltable.example",
   status: "active",
   lastSyncedAt: "2026-10-05T12:00:00.000Z",
   lastSyncStatus: "ok",
@@ -36,7 +38,7 @@ describe("TenantService.getCurrentTenant", () => {
     vi.restoreAllMocks();
   });
 
-  it("combines the business name with the connected location's real name, address and sync time", async () => {
+  it("combines the business name with the connected location's real name, address, contact details and sync time", async () => {
     mockSources(LOCATION);
 
     await expect(TenantService.getCurrentTenant()).resolves.toEqual({
@@ -44,9 +46,20 @@ describe("TenantService.getCurrentTenant", () => {
       location: {
         name: "The Coastal Table",
         address: "214 Harbor St, Portland, ME",
+        phone: "+1 207-555-0142",
+        websiteUri: "https://coastaltable.example",
         lastSyncedAt: "2026-10-05T12:00:00.000Z",
       },
     });
+  });
+
+  it("reads a location without contact details as having none", async () => {
+    const { phone: _phone, websiteUri: _websiteUri, ...withoutContact } = LOCATION;
+    mockSources(withoutContact);
+
+    const tenant = await TenantService.getCurrentTenant();
+
+    expect(tenant.location).toEqual(expect.objectContaining({ phone: null, websiteUri: null }));
   });
 
   it("has no location when nothing is connected", async () => {

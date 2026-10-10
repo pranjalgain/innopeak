@@ -75,6 +75,8 @@ export function ApiGetConnection(): ReturnType<typeof applyDecorators> {
               externalLocationId: 'locations/12345678901234567890',
               businessName: 'The Coastal Table',
               address: '214 Harbor St, Portland, ME',
+              phone: '+1 207-555-0142',
+              websiteUri: 'https://coastaltable.example',
               status: LocationStatus.ACTIVE,
               lastSyncedAt: '2026-09-01T14:15:00.000Z',
               lastSyncStatus: SyncHealthStatus.OK,

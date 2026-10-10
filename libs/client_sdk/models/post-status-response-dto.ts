@@ -40,6 +40,7 @@ export const PostStatusResponseDtoReviewStatusEnum = {
   InReview: 'in_review',
   Responded: 'responded',
   Dismissed: 'dismissed',
+  Removed: 'removed',
 } as const;
 
 export type PostStatusResponseDtoReviewStatusEnum =

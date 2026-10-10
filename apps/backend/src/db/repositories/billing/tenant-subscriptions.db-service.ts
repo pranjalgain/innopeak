@@ -188,6 +188,10 @@ export class TenantSubscriptionsDbService {
     return this.tenantSubscriptionsRepository.touchCheckoutStartedAt(tenantId, tx);
   }
 
+  findFreeTenantIdsOverLocationCap(): Promise<string[]> {
+    return this.tenantSubscriptionsRepository.findFreeTenantIdsOverLocationCap();
+  }
+
   findStaleFreeWithStripeCustomer(): Promise<{ tenantId: string; stripeCustomerId: string }[]> {
     return this.tenantSubscriptionsRepository.findStaleFreeWithStripeCustomer();
   }

@@ -1,6 +1,7 @@
 import type {
   IErasureNoticeEmailJob,
   IErasurePurgeAlertEmailJob,
+  ILocationsPausedEmailJob,
   IOtpEmailJob,
 } from '@bg/interfaces/job.interface';
 import { EmailService } from '@email/email.service';
@@ -88,6 +89,47 @@ describe('EmailQueueService', () => {
       emailService.sendTemplateEmail.mockRejectedValue(new Error('smtp down'));
 
       await expect(target.sendErasureNoticeEmail(notice)).rejects.toThrow('smtp down');
+    });
+  });
+
+  describe('sendLocationsPausedEmail', () => {
+    const job: ILocationsPausedEmailJob = {
+      email: 'owner@example.com',
+      customerName: 'Jane',
+      locale: 'de',
+      businessName: 'Coastal Table',
+      maxLocations: 1,
+      keptLocationNames: ['Harbor St'],
+      pausedLocationNames: ['Old Town'],
+      settingsUrl: 'https://app.test/settings?tab=billing',
+    };
+
+    it("renders the notification template in the owner's language, with the billing link", async () => {
+      emailService.sendTemplateEmail.mockResolvedValue({ success: true });
+
+      await target.sendLocationsPausedEmail(job);
+
+      const [to, template, context, overrides] = emailService.sendTemplateEmail.mock.calls[0] as [
+        string,
+        string,
+        Record<string, unknown>,
+        { subject: string },
+      ];
+      expect(to).toBe('owner@example.com');
+      expect(template).toBe('notification');
+      expect(context).toMatchObject({
+        lang: 'de',
+        actionUrl: 'https://app.test/settings?tab=billing',
+        actionText: 'Abrechnungseinstellungen öffnen',
+      });
+      expect(String(context['body'])).toContain('<li>Old Town</li>');
+      expect(overrides.subject).toBe('Einige Standorte von Coastal Table wurden pausiert');
+    });
+
+    it('propagates a send failure so the queue can retry it', async () => {
+      emailService.sendTemplateEmail.mockRejectedValue(new Error('smtp down'));
+
+      await expect(target.sendLocationsPausedEmail(job)).rejects.toThrow('smtp down');
     });
   });
 

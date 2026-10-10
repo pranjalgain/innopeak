@@ -112,6 +112,16 @@ export interface MessageCatalog {
     POST_QUEUE_UNAVAILABLE: string;
     /** Recorded as `error_message`; nothing was sent to Google. */
     POST_FAILED_REVIEW_REMOVED: string;
+    /** Google can't find the review's location (moved out of the connected account, or deleted). */
+    POST_FAILED_LOCATION_UNAVAILABLE: string;
+    /** Google refused the credential; the owner has to reconnect. */
+    POST_FAILED_RECONNECT: string;
+    /** Google refused the reply itself (a 4xx other than auth/404, e.g. text it won't accept). */
+    POST_FAILED_REJECTED: string;
+    /** Google was rate limiting or down and the retries ran out. */
+    POST_FAILED_UNAVAILABLE: string;
+    /** Anything else; the detail is in the server log. */
+    POST_FAILED_UNKNOWN: string;
     MANUAL_REPLY_INSERT_FAILED: (reviewId: string) => string;
     MANUAL_REPLY_CREATED: string;
     RESPONSE_POST_QUEUED: string;

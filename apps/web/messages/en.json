@@ -482,7 +482,9 @@
       "lastSynced": "Last synced {date}",
       "neverSynced": "Not synced yet",
       "noAddress": "No address on file",
-      "noLocation": "No Google Business Profile location is connected."
+      "noLocation": "No Google Business Profile location is connected.",
+      "phoneLabel": "Call {phone}",
+      "websiteLabel": "Visit {website} (opens in a new tab)"
     }
   },
   "reviewQueue": {
@@ -528,7 +530,8 @@
       "postQueued": "Posting to Google…",
       "postQueueFailed": "Could not queue the post. Please try again.",
       "manualReplyCreated": "Reply saved.",
-      "postStillPending": "Still posting to Google. Check back in a moment before trying again."
+      "postStillPending": "Still posting to Google. Check back in a moment before trying again.",
+      "postFailedWithReason": "Google didn't accept the reply: {message}"
     },
     "replies": {
       "title": "Suggested replies",
@@ -566,7 +569,8 @@
         "submit": "Save reply",
         "submitting": "Saving…"
       }
-    }
+    },
+    "removedNotice": "This review was deleted on Google by its author, so it can no longer be replied to."
   },
   "settings": {
     "tabs": {
@@ -681,7 +685,7 @@
       "replyCount": {
         "label": "Number of AI-generated replies",
         "option": "{count, plural, one {# reply draft} other {# reply drafts}}",
-        "helper": "How many reply drafts the AI suggests for each review — staff pick one to send."
+        "helper": "How many reply drafts the AI suggests for each review — staff pick one to send. Reviews that are posted automatically get one."
       },
       "prompts": {
         "label": "Prompt templates",
@@ -1380,7 +1384,8 @@
       "new": "New",
       "in_review": "In Review",
       "responded": "Responded",
-      "dismissed": "Dismissed"
+      "dismissed": "Dismissed",
+      "removed": "Removed on Google"
     },
     "loadError": {
       "title": "Couldn't load this",

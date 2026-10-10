@@ -108,3 +108,30 @@ describe("ReplyDraftCard delivery states", () => {
     expect(screen.getByText(replies.retryUnavailable)).toBeTruthy();
   });
 });
+
+describe("ReplyDraftCard on a review deleted on Google", () => {
+  test("shows why the post failed but offers no retry", () => {
+    renderCard({
+      reviewRemoved: true,
+      draft: draft({
+        errorMessage: "This review was removed on Google, so the reply could not be posted.",
+      }),
+    });
+
+    expect(screen.getByText(/This review was removed on Google/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: replies.retryPost })).toBeNull();
+    expect(screen.queryByText(replies.retryUnavailable)).toBeNull();
+  });
+
+  test("offers no Post, Approve or Reject", () => {
+    renderCard({ reviewRemoved: true });
+    expect(screen.queryByRole("button", { name: replies.post })).toBeNull();
+
+    renderCard({
+      reviewRemoved: true,
+      draft: draft({ status: "pending_approval", decidedAt: null }),
+    });
+    expect(screen.queryByRole("button", { name: replies.approve })).toBeNull();
+    expect(screen.queryByRole("button", { name: replies.reject })).toBeNull();
+  });
+});

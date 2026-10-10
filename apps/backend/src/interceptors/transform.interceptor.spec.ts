@@ -1,4 +1,5 @@
 import { MESSAGES } from '@common/constants/messages.constants';
+import { toStoredMessage } from '@common/i18n/message-registry';
 import { RouteNames } from '@common/route-names';
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
 import { firstValueFrom, of } from 'rxjs';
@@ -77,6 +78,28 @@ describe('TransformInterceptor', () => {
     const result = await firstValueFrom(interceptor.intercept(context, callHandler));
 
     expect(result).toMatchObject({ message: messagesDe.COMMON.REQUEST_SUCCESSFUL });
+  });
+
+  // A reply's stored failure reason must reach a German owner in German, not in the language it was written in.
+  it('renders a stored message inside data in the resolved locale', async () => {
+    const context = buildHttpContext('/v1/reviews', 200, { 'accept-language': 'de' });
+    const callHandler: CallHandler = {
+      handle: () =>
+        of({
+          status: 'Success',
+          data: {
+            replyDrafts: [
+              { errorMessage: toStoredMessage(MESSAGES.REVIEWS.POST_FAILED_REVIEW_REMOVED) },
+            ],
+          },
+        }),
+    };
+
+    const result = await firstValueFrom(interceptor.intercept(context, callHandler));
+
+    expect(result).toMatchObject({
+      data: { replyDrafts: [{ errorMessage: messagesDe.REVIEWS.POST_FAILED_REVIEW_REMOVED }] },
+    });
   });
 
   it('preserves an explicit statusCode/status/message already present on the payload', async () => {

@@ -377,6 +377,11 @@ export class ReviewSyncDbService {
     );
   }
 
+  /** Recorded when Google answers 404 for the review: its author deleted it there. */
+  markReviewRemovedUpstream(input: { reviewId: string; tenantId: string }): Promise<void> {
+    return this.reviewSyncRepository.markReviewRemovedUpstream(input);
+  }
+
   markResponsePostFailed(input: MarkResponsePostFailedInput): Promise<ReviewResponseRow | null> {
     return this.reviewSyncRepository.markResponsePostFailed(input);
   }

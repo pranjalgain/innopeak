@@ -4,6 +4,7 @@ import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import { ReviewProvider } from '@common/enums/review-provider.enum';
 import { SyncHealthStatus } from '@common/enums/sync-health-status.enum';
+import { toStoredMessage } from '@common/i18n/message-registry';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
@@ -25,6 +26,7 @@ import type {
   LocationRow,
   PollableLocationRow,
   ProviderConnectionRow,
+  UpdateLocationDetailsInput,
   UpsertConnectionInput,
   UpsertLocationInput,
 } from './types/connections.type';
@@ -50,6 +52,9 @@ const LOCATION_COLUMNS = {
   externalLocationId: schema.locations.externalLocationId,
   name: schema.locations.name,
   address: schema.locations.address,
+  phone: schema.locations.phone,
+  websiteUri: schema.locations.websiteUri,
+  detailsRefreshedAt: schema.locations.detailsRefreshedAt,
   status: schema.locations.status,
   lastSyncedAt: schema.locations.lastSyncedAt,
   lastSyncStatus: schema.locations.lastSyncStatus,
@@ -144,6 +149,29 @@ export class ConnectionsRepository {
       .update(schema.reviewProviderConnections)
       .set({ status, updatedAt: sql`now()` })
       .where(eq(schema.reviewProviderConnections.id, connectionId));
+  }
+
+  /** A failed re-read still counts as one, so the poll tries again in a day rather than on every tick. */
+  async markLocationDetailsAttempted(locationId: string): Promise<void> {
+    await this.dbService.db
+      .update(schema.locations)
+      .set({ detailsRefreshedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(eq(schema.locations.id, locationId));
+  }
+
+  /** Stamps `details_refreshed_at` too, so the poll knows when it last asked. */
+  async updateLocationDetails(input: UpdateLocationDetailsInput): Promise<void> {
+    await this.dbService.db
+      .update(schema.locations)
+      .set({
+        name: input.name,
+        address: input.address,
+        phone: input.phone,
+        websiteUri: input.websiteUri,
+        detailsRefreshedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(schema.locations.id, input.locationId));
   }
 
   async updateTokenExpiry(connectionId: string, tokenExpiresAt: Date): Promise<void> {
@@ -242,6 +270,9 @@ export class ConnectionsRepository {
         externalLocationId: input.externalLocationId,
         name: input.name,
         address: input.address,
+        phone: input.phone,
+        websiteUri: input.websiteUri,
+        detailsRefreshedAt: sql`now()`,
         status: LocationStatus.ACTIVE,
       })
       .onConflictDoUpdate({
@@ -249,6 +280,9 @@ export class ConnectionsRepository {
         set: {
           name: sql`excluded.name`,
           address: sql`excluded.address`,
+          phone: sql`excluded.phone`,
+          websiteUri: sql`excluded.website_uri`,
+          detailsRefreshedAt: sql`now()`,
           status: LocationStatus.ACTIVE,
           updatedAt: sql`now()`,
           // onboarding_backfill_completed_at is deliberately NOT reset: an already-backfilled
@@ -343,7 +377,7 @@ export class ConnectionsRepository {
       .set({
         lastSyncedAt: sql`now()`,
         lastSyncStatus: input.status,
-        lastSyncError: input.error,
+        lastSyncError: toStoredMessage(input.error),
         updatedAt: sql`now()`,
       })
       .where(eq(schema.locations.id, locationId));

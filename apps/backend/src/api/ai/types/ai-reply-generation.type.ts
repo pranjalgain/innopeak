@@ -1,5 +1,7 @@
 import type { PromptCategory, PromptTone } from '@prompts/types/prompt.type';
 
+import type { BusinessContact } from '../utils/prompt-template.util';
+
 export interface MockReviewInput {
   reviewerName: string;
   rating: number;
@@ -25,6 +27,12 @@ export interface GeneratedReply {
   category: PromptCategory;
   tone: PromptTone;
   usedTemplateOverride: boolean;
+}
+
+/** What a reply is drafted on behalf of: the business name for the template, its contact details for the system prompt. */
+export interface BusinessForReply {
+  name: string;
+  contact: BusinessContact | null;
 }
 
 export interface GenerateForClassifiedReviewsInput {

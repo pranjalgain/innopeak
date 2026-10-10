@@ -3,6 +3,8 @@ import type { ConnectionsDbService } from '@db/repositories/connections/connecti
 import type { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import {
   ProviderAuthError,
+  ProviderMappingError,
+  ProviderNotFoundError,
   ProviderRateLimitError,
   ProviderUnavailableError,
 } from '@review-provider/errors/provider.error';
@@ -24,7 +26,7 @@ const LIVE_AT = '2026-03-12T10:00:00.000Z';
 
 describe('ReviewPostQueueService', () => {
   let target: ReviewPostQueueService;
-  let provider: { getReviewReply: jest.Mock; replyToReview: jest.Mock };
+  let provider: { getReviewReply: jest.Mock; replyToReview: jest.Mock; listReviews: jest.Mock };
   let credentialService: { resolveAccessToken: jest.Mock };
   let connectionsDbService: {
     findConnectionByTenant: jest.Mock;
@@ -40,12 +42,15 @@ describe('ReviewPostQueueService', () => {
     supersedeForExternalReply: jest.Mock;
     releaseResponseClaim: jest.Mock;
     importLiveReply: jest.Mock;
+    markReviewRemovedUpstream: jest.Mock;
   };
   let reviewPostQueue: { addPostJob: jest.Mock };
 
   beforeEach(() => {
     provider = {
       getReviewReply: jest.fn().mockResolvedValue(null),
+      // The account/location path still answers unless a test says otherwise.
+      listReviews: jest.fn().mockResolvedValue({ reviews: [], nextPageToken: null, totalCount: 0 }),
       replyToReview: jest.fn().mockResolvedValue({ comment: claimed.content, updatedAt: LIVE_AT }),
     };
     credentialService = {
@@ -69,6 +74,7 @@ describe('ReviewPostQueueService', () => {
       findReviewForTenant: jest.fn().mockResolvedValue(review),
       markResponsePosted: jest.fn().mockResolvedValue({ id: 'response-1' }),
       markResponsePostFailed: jest.fn().mockResolvedValue({ id: 'response-1' }),
+      markReviewRemovedUpstream: jest.fn().mockResolvedValue(undefined),
       supersedeForExternalReply: jest.fn().mockResolvedValue(true),
       releaseResponseClaim: jest.fn().mockResolvedValue(true),
       importLiveReply: jest.fn().mockResolvedValue(true),
@@ -223,10 +229,129 @@ describe('ReviewPostQueueService', () => {
       expect(connectionsDbService.markNeedsReauth).toHaveBeenCalledWith('conn-1');
       expect(reviewSyncDbService.markResponsePostFailed).toHaveBeenCalledWith({
         responseId: 'response-1',
-        errorMessage: 'revoked',
+        errorMessage: MESSAGES.REVIEWS.POST_FAILED_RECONNECT,
       });
       expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
     });
+
+    // Regression: a review deleted on Google failed with Google's raw 404 text and stayed retryable.
+    it.each([
+      ['checking for a live reply', 'getReviewReply'],
+      ['posting the reply', 'replyToReview'],
+    ] as const)(
+      'records the review as removed on Google when it 404s while %s and the location is still reachable',
+      async (_label, method) => {
+        provider[method].mockRejectedValue(
+          new ProviderNotFoundError('Google has no such resource (404): NOT_FOUND')
+        );
+
+        await expect(target.postResponse(job)).resolves.toBeUndefined();
+
+        expect(reviewSyncDbService.markReviewRemovedUpstream).toHaveBeenCalledWith({
+          reviewId: job.reviewId,
+          tenantId: job.tenantId,
+        });
+        expect(reviewSyncDbService.markResponsePostFailed).toHaveBeenCalledWith({
+          responseId: 'response-1',
+          errorMessage: MESSAGES.REVIEWS.POST_FAILED_REVIEW_REMOVED,
+        });
+        expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
+      }
+    );
+
+    // Regression: a 404 for a location this account can no longer reach marked every pending review removed, for good.
+    it('does not mark the review removed when the location itself is gone, and says so', async () => {
+      provider.getReviewReply.mockRejectedValue(new ProviderNotFoundError('404 review'));
+      provider.listReviews.mockRejectedValue(new ProviderNotFoundError('404 location'));
+
+      await expect(target.postResponse(job)).resolves.toBeUndefined();
+
+      expect(reviewSyncDbService.markReviewRemovedUpstream).not.toHaveBeenCalled();
+      expect(reviewSyncDbService.markResponsePostFailed).toHaveBeenCalledWith({
+        responseId: 'response-1',
+        errorMessage: MESSAGES.REVIEWS.POST_FAILED_LOCATION_UNAVAILABLE,
+      });
+      expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
+    });
+
+    // Regression: the check read the location alone, which ignores the account, so a location moved to another
+    // account still looked reachable and every review posted to was marked removed.
+    it('checks the same account/location path that 404ed, not the location alone', async () => {
+      provider.getReviewReply.mockRejectedValue(new ProviderNotFoundError('404 review'));
+
+      await target.postResponse(job);
+
+      expect(provider.listReviews).toHaveBeenCalledWith('token', {
+        externalAccountId: 'accounts/1',
+        externalLocationId: 'locations/1',
+        pageSize: 1,
+      });
+    });
+
+    // Regression: an unmappable review in the listing (Google answered 200) was read as "location gone".
+    it('still marks the review removed when the location listing answers but cannot be mapped', async () => {
+      provider.getReviewReply.mockRejectedValue(new ProviderNotFoundError('404 review'));
+      provider.listReviews.mockRejectedValue(new ProviderMappingError('Unknown starRating "SIX"'));
+
+      await target.postResponse(job);
+
+      expect(reviewSyncDbService.markReviewRemovedUpstream).toHaveBeenCalledWith({
+        reviewId: job.reviewId,
+        tenantId: job.tenantId,
+      });
+      expect(reviewSyncDbService.markResponsePostFailed).toHaveBeenCalledWith({
+        responseId: 'response-1',
+        errorMessage: MESSAGES.REVIEWS.POST_FAILED_REVIEW_REMOVED,
+      });
+    });
+
+    it('retries later, deciding nothing, when the location check itself hits a transient failure', async () => {
+      provider.getReviewReply.mockRejectedValue(new ProviderNotFoundError('404 review'));
+      provider.listReviews.mockRejectedValue(new ProviderUnavailableError('Google returned 503'));
+
+      await target.postResponse(job);
+
+      expect(reviewSyncDbService.markReviewRemovedUpstream).not.toHaveBeenCalled();
+      expect(reviewSyncDbService.markResponsePostFailed).not.toHaveBeenCalled();
+      expect(reviewPostQueue.addPostJob).toHaveBeenCalledWith(
+        expect.objectContaining({ attempt: 2 }),
+        expect.anything()
+      );
+    });
+
+    it('still fails the reply with the clear reason when recording the removal fails', async () => {
+      provider.getReviewReply.mockRejectedValue(new ProviderNotFoundError('404'));
+      reviewSyncDbService.markReviewRemovedUpstream.mockRejectedValue(new Error('db blip'));
+
+      await target.postResponse(job);
+
+      expect(reviewSyncDbService.markResponsePostFailed).toHaveBeenCalledWith({
+        responseId: 'response-1',
+        errorMessage: MESSAGES.REVIEWS.POST_FAILED_REVIEW_REMOVED,
+      });
+    });
+
+    // Regression: Google's raw 4xx body (JSON) was stored as the reason and shown to the owner in a toast.
+    it.each([
+      [
+        'a rejected reply (4xx)',
+        new ProviderMappingError('Google rejected the request (400): { "error": {} }'),
+        'POST_FAILED_REJECTED',
+      ],
+      ['an unexpected error', new Error('socket hang up'), 'POST_FAILED_UNKNOWN'],
+    ] as const)(
+      'stores our own reason, never the raw error text, for %s',
+      async (_label, error, key) => {
+        provider.getReviewReply.mockRejectedValue(error);
+
+        await expect(target.postResponse(job)).rejects.toBe(error);
+
+        expect(reviewSyncDbService.markResponsePostFailed).toHaveBeenCalledWith({
+          responseId: 'response-1',
+          errorMessage: MESSAGES.REVIEWS[key],
+        });
+      }
+    );
 
     it('does not let a failing post_failed write mask the original error', async () => {
       provider.getReviewReply.mockRejectedValue(new ProviderAuthError('revoked'));
@@ -294,7 +419,7 @@ describe('ReviewPostQueueService', () => {
       expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
       expect(reviewSyncDbService.markResponsePostFailed).toHaveBeenCalledWith({
         responseId: 'response-1',
-        errorMessage: '502',
+        errorMessage: MESSAGES.REVIEWS.POST_FAILED_UNAVAILABLE,
       });
     });
 

@@ -12,7 +12,7 @@ interface ReviewFiltersBarProps {
   onSearchChange: (search: string) => void;
 }
 
-const STATUS_VALUES: ReviewStatus[] = ["new", "in_review", "responded", "dismissed"];
+const STATUS_VALUES: ReviewStatus[] = ["new", "in_review", "responded", "dismissed", "removed"];
 const CLASSIFICATION_VALUES: ReviewClassification[] = ["auto_reply_candidate", "escalated"];
 
 export function ReviewFiltersBar({

@@ -192,6 +192,120 @@ describeWithDb('repositories against a real database', () => {
     });
   });
 
+  // Regression guards for hand-written SQL that no unit test reaches: the "removed on Google" marker is withdrawn
+  // when Google lists the review again, and the Free-cap sweep only picks tenants actually over the cap.
+  describe('ReviewSyncRepository.upsertReview — a review Google lists again', () => {
+    const upsert = (
+      repo: ReviewSyncRepository,
+      tenantId: string,
+      locationId: string
+    ): Promise<{ id: string; inserted: boolean }> =>
+      dbService.db.transaction(tx =>
+        repo.upsertReview(tx, {
+          tenantId,
+          locationId,
+          externalReviewId: 'r-relisted',
+          externalReviewerId: null,
+          rating: 4,
+          reviewText: 'Back again',
+          reviewerName: 'Real Person',
+          reviewedAt: '2026-10-01T00:00:00Z',
+          externalUpdatedAt: '2026-10-02T00:00:00Z',
+          status: 'new' as never,
+        })
+      );
+    const read = async (id: string): Promise<{ status: string; removed_upstream_at: unknown }> => {
+      const { rows } = await pool.query<{ status: string; removed_upstream_at: unknown }>(
+        'SELECT status, removed_upstream_at FROM reviews WHERE id = $1',
+        [id]
+      );
+      return rows[0] as { status: string; removed_upstream_at: unknown };
+    };
+
+    it('clears the removed marker, back to in_review when the review has drafts', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const { id } = await upsert(repo, tenantId, locationId);
+      await pool.query(
+        `INSERT INTO review_responses (tenant_id, review_id, response_type, content, source, status)
+         VALUES ($1, $2, 'auto_reply_suggestion', 'x', 'ai_generated', 'post_failed')`,
+        [tenantId, id]
+      );
+      await repo.markReviewRemovedUpstream({ reviewId: id, tenantId });
+      expect((await read(id)).status).toBe('removed');
+
+      await upsert(repo, tenantId, locationId);
+
+      expect(await read(id)).toEqual({ status: 'in_review', removed_upstream_at: null });
+    });
+
+    it('goes back to new when the review has no drafts, and leaves other statuses alone', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const { id } = await upsert(repo, tenantId, locationId);
+      await repo.markReviewRemovedUpstream({ reviewId: id, tenantId });
+
+      await upsert(repo, tenantId, locationId);
+      expect((await read(id)).status).toBe('new');
+
+      await pool.query(`UPDATE reviews SET status = 'responded' WHERE id = $1`, [id]);
+      await upsert(repo, tenantId, locationId);
+      expect((await read(id)).status).toBe('responded');
+    });
+  });
+
+  describe('TenantSubscriptionsRepository.findFreeTenantIdsOverLocationCap', () => {
+    it('returns only Free tenants with more active, unpaused locations than the cap', async () => {
+      const repo = new TenantSubscriptionsRepository(dbService);
+      const plans = new BillingPlansRepository(dbService);
+      const free = await plans.findByCode('free' as never);
+      const paid = await plans.findByCode('paid' as never);
+      const freeCap = free?.maxLocations ?? 1;
+      const addLocations = async (tenantId: string, count: number, paused = 0): Promise<void> => {
+        const userId = await newUser(tenantId);
+        const conn = await pool.query<{ id: string }>(
+          `INSERT INTO review_provider_connections
+             (tenant_id, connected_by_user_id, provider_account_id, credential_reference)
+           VALUES ($1, $2, 'accounts/1', 'ref') RETURNING id`,
+          [tenantId, userId]
+        );
+        for (let i = 0; i < count; i += 1) {
+          await pool.query(
+            `INSERT INTO locations (tenant_id, provider_connection_id, external_location_id, name, billing_paused_at)
+             VALUES ($1, $2, $3, 'Spec Location', $4)`,
+            [tenantId, conn.rows[0]?.id, `locations/${i}`, i < paused ? new Date() : null]
+          );
+        }
+      };
+      const onPlan = async (planId: string | undefined): Promise<string> => {
+        const tenantId = await newTenant();
+        await pool.query('INSERT INTO tenant_subscriptions (tenant_id, plan_id) VALUES ($1, $2)', [
+          tenantId,
+          planId,
+        ]);
+        return tenantId;
+      };
+
+      const over = await onPlan(free?.id);
+      await addLocations(over, freeCap + 1);
+      const atCap = await onPlan(free?.id);
+      await addLocations(atCap, freeCap);
+      const overButPaused = await onPlan(free?.id);
+      await addLocations(overButPaused, freeCap + 1, 1);
+      const paidMany = await onPlan(paid?.id);
+      await addLocations(paidMany, freeCap + 3);
+
+      const found = await repo.findFreeTenantIdsOverLocationCap();
+
+      expect(found).toContain(over);
+      expect(found).not.toContain(atCap);
+      expect(found).not.toContain(overButPaused);
+      expect(found).not.toContain(paidMany);
+    });
+  });
+
   describe('AuthRepository.anonymizeUser', () => {
     it('also removes the user’s refresh and one-time tokens', async () => {
       const repo = new AuthRepository(dbService);

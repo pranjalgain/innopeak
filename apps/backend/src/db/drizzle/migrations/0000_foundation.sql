@@ -17,7 +17,8 @@ CREATE TYPE sync_health_status AS ENUM ('ok', 'error');
 CREATE TYPE review_sentiment AS ENUM ('positive', 'neutral', 'negative');
 CREATE TYPE review_classification AS ENUM ('auto_reply_candidate', 'escalated', 'pending_classification');
 CREATE TYPE escalation_reason AS ENUM ('low_rating', 'blocklist_match');
-CREATE TYPE review_status AS ENUM ('new', 'in_review', 'responded', 'dismissed');
+-- 'removed': its author deleted the review on Google, so nothing can reply to it (see reviews.removed_upstream_at).
+CREATE TYPE review_status AS ENUM ('new', 'in_review', 'responded', 'dismissed', 'removed');
 -- imported_reply: the owner's own historical replies pulled in by the onboarding backfill.
 CREATE TYPE response_type AS ENUM ('auto_reply_suggestion', 'escalation_snippet', 'imported_reply');
 CREATE TYPE response_source AS ENUM ('ai_generated', 'human_edited', 'human_manual', 'imported');

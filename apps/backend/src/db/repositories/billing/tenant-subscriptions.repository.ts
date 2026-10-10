@@ -1,5 +1,6 @@
 import { MESSAGES } from '@common/constants/messages.constants';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
+import { LocationStatus } from '@common/enums/location-status.enum';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
@@ -147,6 +148,32 @@ export class TenantSubscriptionsRepository {
       .update(schema.tenantSubscriptions)
       .set({ checkoutStartedAt: sql`now()` })
       .where(eq(schema.tenantSubscriptions.tenantId, tenantId));
+  }
+
+  /** Free tenants with more active, unpaused locations than the Free plan allows (e.g. added while limits were lifted). */
+  async findFreeTenantIdsOverLocationCap(): Promise<string[]> {
+    const rows = await this.dbService.db
+      .select({ tenantId: schema.tenantSubscriptions.tenantId })
+      .from(schema.tenantSubscriptions)
+      .innerJoin(schema.billingPlans, eq(schema.tenantSubscriptions.planId, schema.billingPlans.id))
+      .innerJoin(
+        schema.locations,
+        and(
+          eq(schema.locations.tenantId, schema.tenantSubscriptions.tenantId),
+          eq(schema.locations.status, LocationStatus.ACTIVE),
+          isNull(schema.locations.billingPausedAt)
+        )
+      )
+      .where(
+        and(
+          eq(schema.billingPlans.code, BillingPlanCode.FREE),
+          isNotNull(schema.billingPlans.maxLocations)
+        )
+      )
+      .groupBy(schema.tenantSubscriptions.tenantId, schema.billingPlans.maxLocations)
+      .having(sql`count(${schema.locations.id}) > ${schema.billingPlans.maxLocations}`);
+
+    return rows.map(row => row.tenantId);
   }
 
   /**

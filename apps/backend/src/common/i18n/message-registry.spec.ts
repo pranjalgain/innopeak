@@ -1,4 +1,11 @@
-import { MESSAGES, renderMessage, renderNestedMessage } from './message-registry';
+import {
+  MESSAGES,
+  renderMessage,
+  renderNestedMessage,
+  renderStoredMessage,
+  renderStoredMessages,
+  toStoredMessage,
+} from './message-registry';
 import { messagesDe } from './messages.de';
 import { messagesEn } from './messages.en';
 
@@ -140,3 +147,77 @@ function collectPaths(node: unknown, prefix = ''): string[] {
     collectPaths(value, prefix ? `${prefix}.${key}` : key)
   );
 }
+
+// Regression: a raw tag written to a text column failed the write (Postgres rejects NUL), leaving a reply stuck
+// `approved`; storing English instead would have shown German readers English.
+describe('stored messages', () => {
+  const NUL = String.fromCharCode(0);
+
+  it('toStoredMessage removes every NUL, so a database column can hold the result', () => {
+    const stored = toStoredMessage(MESSAGES.REVIEWS.POST_FAILED_REVIEW_REMOVED);
+
+    expect(stored).not.toContain(NUL);
+    expect(toStoredMessage(null)).toBeNull();
+    expect(toStoredMessage('Google returned 500')).toBe('Google returned 500');
+  });
+
+  it("renders a stored tag in the reader's language", () => {
+    const stored = toStoredMessage(MESSAGES.REVIEWS.POST_FAILED_REVIEW_REMOVED);
+
+    expect(renderStoredMessage(stored, 'en')).toBe(messagesEn.REVIEWS.POST_FAILED_REVIEW_REMOVED);
+    expect(renderStoredMessage(stored, 'de')).toBe(messagesDe.REVIEWS.POST_FAILED_REVIEW_REMOVED);
+  });
+
+  it('renders a tag that ends a longer string, keeping the text before it', () => {
+    const stored = toStoredMessage(`classification failed: ${MESSAGES.BILLING.PLAN_NOT_FOUND}`);
+
+    expect(renderStoredMessage(stored, 'en')).toBe(
+      `classification failed: ${messagesEn.BILLING.PLAN_NOT_FOUND}`
+    );
+  });
+
+  // Every response passes through this; one without stored text must not be rebuilt object by object.
+  it('returns the very same payload when there is nothing to render', () => {
+    const payload = { reviews: [{ id: 'r1', replyDrafts: [{ errorMessage: null }] }], total: 1 };
+
+    expect(renderStoredMessages(payload, 'en')).toBe(payload);
+  });
+
+  it('copies only the branch that changed', () => {
+    const untouched = { id: 'r2', replyDrafts: [] };
+    const payload = {
+      reviews: [
+        { id: 'r1', errorMessage: toStoredMessage(MESSAGES.REVIEWS.POST_FAILED_UNKNOWN) },
+        untouched,
+      ],
+    };
+
+    const rendered = renderStoredMessages(payload, 'en');
+
+    expect(rendered).not.toBe(payload);
+    expect(rendered.reviews[1]).toBe(untouched);
+    // The input itself is left as it was.
+    expect(payload.reviews[0]).toEqual({
+      id: 'r1',
+      errorMessage: toStoredMessage(MESSAGES.REVIEWS.POST_FAILED_UNKNOWN),
+    });
+  });
+
+  it('renders stored tags anywhere in a response payload and leaves everything else alone', () => {
+    const stored = toStoredMessage(MESSAGES.REVIEWS.POST_FAILED_REVIEW_REMOVED);
+    const createdAt = new Date('2026-01-01T00:00:00.000Z');
+
+    const rendered = renderStoredMessages(
+      { replyDrafts: [{ errorMessage: stored, content: 'Thanks!' }], total: 1, createdAt },
+      'de'
+    );
+
+    expect(rendered).toEqual({
+      replyDrafts: [
+        { errorMessage: messagesDe.REVIEWS.POST_FAILED_REVIEW_REMOVED, content: 'Thanks!' },
+      ],
+      total: 1,
+      createdAt,
+    });
+  });
+});

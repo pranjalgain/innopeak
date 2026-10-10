@@ -98,7 +98,13 @@ export const reviewClassification = pgEnum('review_classification', [
 ]);
 export const reviewProvider = pgEnum('review_provider', ['google']);
 export const reviewSentiment = pgEnum('review_sentiment', ['positive', 'neutral', 'negative']);
-export const reviewStatus = pgEnum('review_status', ['new', 'in_review', 'responded', 'dismissed']);
+export const reviewStatus = pgEnum('review_status', [
+  'new',
+  'in_review',
+  'responded',
+  'dismissed',
+  'removed',
+]);
 export const subscriptionStatus = pgEnum('subscription_status', [
   'active',
   'past_due',
@@ -658,6 +664,9 @@ export const locations = pgTable(
     externalLocationId: varchar('external_location_id', { length: 255 }).notNull(),
     name: varchar({ length: 255 }).notNull(),
     address: varchar({ length: 500 }),
+    phone: varchar({ length: 50 }),
+    websiteUri: varchar('website_uri', { length: 2048 }),
+    detailsRefreshedAt: timestamp('details_refreshed_at', { withTimezone: true, mode: 'string' }),
     status: locationStatus().default('active').notNull(),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true, mode: 'string' }),
     lastSyncStatus: syncHealthStatus('last_sync_status'),

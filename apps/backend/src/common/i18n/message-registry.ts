@@ -122,3 +122,70 @@ export function renderNestedMessage<T>(data: T, locale: Locale): T {
   }
   return data;
 }
+
+/**
+ * Stands in for the NUL delimiter in a stored tag: Postgres text columns reject NUL, so a raw tag fails the write.
+ * U+2063 (invisible separator) never occurs in our messages or in provider error text.
+ */
+const STORED_MARK = '\u2063';
+const STORED_TAG_PREFIX = TAG_PREFIX.split(CONTROL_CHAR).join(STORED_MARK);
+
+/**
+ * Makes text safe to write to a database column: any `MESSAGES` tag in it (on its own, or ending a longer string
+ * such as `classification failed: <tag>`) is kept as a tag, so it is still rendered in the reader's language when
+ * it leaves the API (`renderStoredMessages`). Called by the repositories that persist error text.
+ */
+export function toStoredMessage(text: string): string;
+export function toStoredMessage(text: string | null): string | null;
+export function toStoredMessage(text: string | null): string | null {
+  return text === null ? null : text.split(CONTROL_CHAR).join(STORED_MARK);
+}
+
+/** Renders a stored tag back into text in `locale`; text without one is returned unchanged. */
+export function renderStoredMessage(text: string, locale: Locale): string {
+  const index = text.indexOf(STORED_TAG_PREFIX);
+  if (index === -1) {
+    return text;
+  }
+  const tag = text.slice(index).split(STORED_MARK).join(CONTROL_CHAR);
+  return text.slice(0, index) + renderMessage(tag, locale);
+}
+
+/**
+ * Renders every stored tag in a response payload, at any depth. Stored error text (a reply's post failure, a sync
+ * run's error) reaches clients inside `data`, which `renderNestedMessage` does not walk. Copy-on-write: a subtree
+ * with nothing to render is returned as the same object, so a payload without stored text costs one read-only pass.
+ */
+export function renderStoredMessages<T>(data: T, locale: Locale): T {
+  if (typeof data === 'string') {
+    return (data.includes(STORED_MARK) ? renderStoredMessage(data, locale) : data) as T;
+  }
+  if (Array.isArray(data)) {
+    let copy: unknown[] | null = null;
+    data.forEach((item: unknown, index: number) => {
+      const rendered = renderStoredMessages(item, locale);
+      if (rendered !== item) {
+        copy ??= [...data];
+        copy[index] = rendered;
+      }
+    });
+    return (copy ?? data) as T;
+  }
+  if (typeof data === 'object' && data !== null) {
+    const prototype: unknown = Object.getPrototypeOf(data);
+    // Plain objects only: a Date, Buffer or class instance is passed through untouched.
+    if (prototype !== Object.prototype && prototype !== null) {
+      return data;
+    }
+    let copy: Record<string, unknown> | null = null;
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      const rendered = renderStoredMessages(value, locale);
+      if (rendered !== value) {
+        copy ??= { ...(data as Record<string, unknown>) };
+        copy[key] = rendered;
+      }
+    }
+    return (copy ?? data) as T;
+  }
+  return data;
+}

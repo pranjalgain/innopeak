@@ -50,6 +50,8 @@ describe('OpenRouterAiProvider', () => {
           { role: 'system', content: 'Be nice.' },
           { role: 'user', content: 'Reply to this review.' },
         ],
+        // Regression: a reasoning model spent the whole budget thinking and returned no reply.
+        reasoning: { enabled: false },
       }),
       expect.objectContaining({ timeout: expect.any(Number) })
     );
@@ -78,6 +80,51 @@ describe('OpenRouterAiProvider', () => {
       expect.anything(),
       expect.objectContaining({ maxRetries: 0 })
     );
+  });
+
+  // A model whose reasoning is mandatory may refuse the "off" setting; the draft must still be produced.
+  it('retries once without the reasoning field when the model rejects it with a 400', async () => {
+    mockOpenAiInstance.chat.completions.create
+      .mockRejectedValueOnce(
+        Object.assign(new Error('400 reasoning cannot be disabled'), { status: 400 })
+      )
+      .mockResolvedValueOnce({
+        model: 'some/model',
+        choices: [{ message: { content: 'Thanks!' }, finish_reason: 'stop' }],
+      });
+    const target = new OpenRouterAiProvider(
+      configServiceReturning({ OPENROUTER_API_KEY: 'sk-or-test', OPENROUTER_MODEL: 'some/model' })
+    );
+
+    const result = await target.generateReply({ systemPrompt: 's', userPrompt: 'u' });
+
+    expect(result.content).toBe('Thanks!');
+    const calls = mockOpenAiInstance.chat.completions.create.mock.calls as [
+      Record<string, unknown>,
+    ][];
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[0]).toHaveProperty('reasoning', { enabled: false });
+    expect(calls[1]?.[0]).not.toHaveProperty('reasoning');
+  });
+
+  it.each([
+    ['a 500', Object.assign(new Error('500 upstream'), { status: 500 })],
+    // Regression: every 400 was retried, so a typo'd model made two failing calls and logged a misleading warning.
+    [
+      'a 400 that is not about reasoning',
+      Object.assign(new Error('400 not a valid model ID'), { status: 400 }),
+    ],
+  ])('does not retry %s', async (_label, failure) => {
+    mockOpenAiInstance.chat.completions.create.mockRejectedValue(failure);
+    const target = new OpenRouterAiProvider(
+      configServiceReturning({ OPENROUTER_API_KEY: 'sk-or-test', OPENROUTER_MODEL: 'some/model' })
+    );
+
+    await expect(
+      target.generateReply({ systemPrompt: 's', userPrompt: 'u' })
+    ).rejects.toBeDefined();
+
+    expect(mockOpenAiInstance.chat.completions.create).toHaveBeenCalledTimes(1);
   });
 
   it('surfaces a truncated reply via finishReason rather than passing it off as complete', async () => {

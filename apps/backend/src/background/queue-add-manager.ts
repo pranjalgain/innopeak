@@ -3,6 +3,7 @@ import {
   IAdminInviteEmailJob,
   IErasureNoticeEmailJob,
   IErasurePurgeAlertEmailJob,
+  ILocationsPausedEmailJob,
   IMemberInviteEmailJob,
   IOtpEmailJob,
 } from '@bg/interfaces/job.interface';
@@ -60,6 +61,10 @@ export class AddingJobsToQueueManager {
     data: IErasurePurgeAlertEmailJob
   ): Promise<void> {
     return this.addJob(QueueName.EMAIL, jobName, data);
+  }
+
+  async addLocationsPausedEmailJob(data: ILocationsPausedEmailJob): Promise<void> {
+    return this.addJob(QueueName.EMAIL, JobName.LOCATIONS_PAUSED_EMAIL, data);
   }
 
   async addAdminSetPasswordOtpEmailJob(jobName: JobName, data: IOtpEmailJob): Promise<void> {

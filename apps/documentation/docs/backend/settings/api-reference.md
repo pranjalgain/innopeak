@@ -345,7 +345,7 @@ Request:
 | `escalationRatingThreshold` | integer | required, `1`–`5` inclusive — mirrors `tenant_settings_escalation_rating_threshold_check` exactly, so a bad value is a `400` and never a database constraint violation. Matches the frontend slider's `min=1 max=5 step=1`. |
 | `autoPostEnabled` | boolean | required. Persisted as sent. After a human approval, `true` moves the response `approved → posted` without a second click. |
 | `reviewDataRetentionMonths` | integer \| null | optional; `>= 1` when present, capped at Postgres's own `INTEGER` ceiling (2147483647) — no product-level bound, a very large value is functionally "keep indefinitely" and is the tenant's call, but a value past what the column can hold is rejected as a `400` instead of reaching the database uncaught. Omitted or `null` → stored as `NULL`, which opts this tenant out of the nightly reviewer-retention purge (`PLAN.md` §6) entirely — there is no platform-default fallback. |
-| `aiReplyCount` | integer | required, `1`–`3` inclusive — mirrors `tenant_settings_ai_reply_count_check` exactly. How many AI-drafted reply variants the generation pipeline produces per review; the AI tab's select. |
+| `aiReplyCount` | integer | required, `1`–`3` inclusive — mirrors `tenant_settings_ai_reply_count_check` exactly. How many AI-drafted reply variants the generation pipeline produces per review, escalated or not; the AI tab's select. A review that is auto-posted (`autoPostEnabled`, not escalated) gets one draft, since no one picks between them. |
 
 **On `autoPostEnabled`.** The value is persisted and nothing reads it yet — the posting pipeline
 ships separately. When it lands, approval will still be required; the flag only skips a second

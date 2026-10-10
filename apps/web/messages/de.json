@@ -482,7 +482,9 @@
       "lastSynced": "Zuletzt synchronisiert: {date}",
       "neverSynced": "Noch nicht synchronisiert",
       "noAddress": "Keine Adresse hinterlegt",
-      "noLocation": "Es ist kein Standort des Google-Unternehmensprofils verbunden."
+      "noLocation": "Es ist kein Standort des Google-Unternehmensprofils verbunden.",
+      "phoneLabel": "{phone} anrufen",
+      "websiteLabel": "{website} besuchen (öffnet in neuem Tab)"
     }
   },
   "reviewQueue": {
@@ -528,7 +530,8 @@
       "postQueued": "Wird auf Google veröffentlicht…",
       "postQueueFailed": "Die Veröffentlichung konnte nicht eingeplant werden. Bitte versuchen Sie es erneut.",
       "manualReplyCreated": "Antwort gespeichert.",
-      "postStillPending": "Der Beitrag an Google läuft noch. Prüfen Sie es in einem Moment, bevor Sie es erneut versuchen."
+      "postStillPending": "Der Beitrag an Google läuft noch. Prüfen Sie es in einem Moment, bevor Sie es erneut versuchen.",
+      "postFailedWithReason": "Google hat die Antwort nicht angenommen: {message}"
     },
     "replies": {
       "title": "Vorgeschlagene Antworten",
@@ -566,7 +569,8 @@
         "submit": "Antwort speichern",
         "submitting": "Wird gespeichert…"
       }
-    }
+    },
+    "removedNotice": "Diese Bewertung wurde von ihrem Verfasser bei Google gelöscht und kann daher nicht mehr beantwortet werden."
   },
   "settings": {
     "tabs": {
@@ -681,7 +685,7 @@
       "replyCount": {
         "label": "Anzahl der KI-generierten Antworten",
         "option": "{count, plural, one {# Antwortentwurf} other {# Antwortentwürfe}}",
-        "helper": "Wie viele Antwortentwürfe die KI für jede Bewertung vorschlägt — das Team wählt einen zum Senden aus."
+        "helper": "Wie viele Antwortentwürfe die KI für jede Bewertung vorschlägt — das Team wählt einen zum Senden aus. Automatisch veröffentlichte Bewertungen erhalten einen."
       },
       "prompts": {
         "label": "Prompt-Vorlagen",
@@ -1380,7 +1384,8 @@
       "new": "Neu",
       "in_review": "In Prüfung",
       "responded": "Beantwortet",
-      "dismissed": "Verworfen"
+      "dismissed": "Verworfen",
+      "removed": "Bei Google gelöscht"
     },
     "loadError": {
       "title": "Konnte nicht geladen werden",

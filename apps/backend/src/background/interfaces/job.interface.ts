@@ -51,6 +51,19 @@ export interface IErasureNoticeEmailJob extends IEmailJob {
   loginUrl: string;
 }
 
+/** One job per owner, rendered in their own language from the payload alone. */
+export interface ILocationsPausedEmailJob extends IEmailJob {
+  /** The recipient's `users.locale`, `en` when they never chose one. */
+  locale: 'de' | 'en';
+  businessName: string;
+  /** The Free plan's location cap that caused the pause. */
+  maxLocations: number;
+  keptLocationNames: string[];
+  pausedLocationNames: string[];
+  /** Settings → Billing, where the owner picks which location stays active. */
+  settingsUrl: string;
+}
+
 export interface IPurgeSkippedBusiness {
   name: string;
   /** Whole days past the erasure deadline (0 = due today). */

@@ -5,6 +5,7 @@ import {
   IEmailJob,
   IErasureNoticeEmailJob,
   IErasurePurgeAlertEmailJob,
+  ILocationsPausedEmailJob,
   IMemberInviteEmailJob,
   IOtpEmailJob,
 } from '@bg/interfaces/job.interface';
@@ -57,6 +58,11 @@ export class EmailProcessor extends WorkerHost {
         case JobName.ERASURE_NOTICE_EMAIL:
           await this.emailQueueService.sendErasureNoticeEmail(
             job.data as unknown as IErasureNoticeEmailJob
+          );
+          break;
+        case JobName.LOCATIONS_PAUSED_EMAIL:
+          await this.emailQueueService.sendLocationsPausedEmail(
+            job.data as unknown as ILocationsPausedEmailJob
           );
           break;
         case JobName.ERASURE_PURGE_ALERT_EMAIL:

@@ -35,6 +35,9 @@ function page(overrides: Partial<ProviderReviewPage> = {}): ProviderReviewPage {
 describe('ReviewSyncQueueService.runPoll', () => {
   let service: ReviewSyncQueueService;
   const listReviews = jest.fn();
+  const getLocation = jest.fn();
+  const updateLocationDetails = jest.fn();
+  const markLocationDetailsAttempted = jest.fn();
   const resolveAccessToken = jest.fn();
   const findConnectionByTenant = jest.fn();
   const findLocationForTenant = jest.fn();
@@ -77,15 +80,29 @@ describe('ReviewSyncQueueService.runPoll', () => {
       failed: 0,
       quotaReached: false,
     });
+    getLocation.mockResolvedValue({
+      externalLocationId: 'locations/1',
+      name: 'The Coastal Table',
+      address: '214 Harbor St',
+      phone: '+49 30 1234567',
+      websiteUri: 'https://coastal.example',
+    });
+    updateLocationDetails.mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         ReviewSyncQueueService,
-        { provide: ReviewProvider, useValue: { listReviews } },
+        { provide: ReviewProvider, useValue: { listReviews, getLocation } },
         { provide: ProviderCredentialService, useValue: { resolveAccessToken } },
         {
           provide: ConnectionsDbService,
-          useValue: { findConnectionByTenant, findLocationForTenant, markNeedsReauth: jest.fn() },
+          useValue: {
+            findConnectionByTenant,
+            findLocationForTenant,
+            updateLocationDetails,
+            markLocationDetailsAttempted,
+            markNeedsReauth: jest.fn(),
+          },
         },
         {
           provide: ReviewSyncDbService,
@@ -315,6 +332,86 @@ describe('ReviewSyncQueueService.runPoll', () => {
     expect(completion.status).toBe(SyncRunStatus.ERROR);
     expect(completion.lastReviewSyncedAt).toBeNull();
     expect(completion.errorMessage).toContain('classification failed');
+  });
+
+  describe('location details', () => {
+    const fresh = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const stale = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+
+    it.each([
+      ['never refreshed', null],
+      ['last refreshed over a day ago', stale],
+    ])('re-reads them from the provider when %s, before drafting replies', async (_label, at) => {
+      findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: null, detailsRefreshedAt: at });
+      listReviews.mockResolvedValue(page());
+
+      await service.runPoll(job);
+
+      expect(getLocation).toHaveBeenCalledWith('token', 'locations/1');
+      expect(updateLocationDetails).toHaveBeenCalledWith({
+        locationId: 'location-1',
+        name: 'The Coastal Table',
+        address: '214 Harbor St',
+        phone: '+49 30 1234567',
+        websiteUri: 'https://coastal.example',
+      });
+      expect(updateLocationDetails.mock.invocationCallOrder[0]).toBeLessThan(
+        generateForClassifiedReviews.mock.invocationCallOrder[0] ?? 0
+      );
+    });
+
+    // Regression: a blank Google title made the mapper's fallback (the resource path) overwrite the stored name.
+    it("keeps the stored name when Google's title comes back blank", async () => {
+      findLocationForTenant.mockResolvedValue({
+        lastReviewSyncedAt: null,
+        detailsRefreshedAt: null,
+        name: 'The Coastal Table',
+      });
+      listReviews.mockResolvedValue(page());
+      getLocation.mockResolvedValue({
+        externalLocationId: 'locations/1',
+        name: 'locations/1',
+        address: null,
+        phone: '+49 30 1234567',
+        websiteUri: null,
+      });
+
+      await service.runPoll(job);
+
+      expect(updateLocationDetails).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'The Coastal Table', phone: '+49 30 1234567' })
+      );
+    });
+
+    it('leaves them alone when refreshed within the last day', async () => {
+      findLocationForTenant.mockResolvedValue({
+        lastReviewSyncedAt: null,
+        detailsRefreshedAt: fresh,
+      });
+      listReviews.mockResolvedValue(page());
+
+      await service.runPoll(job);
+
+      expect(getLocation).not.toHaveBeenCalled();
+    });
+
+    it('still completes the poll when the refresh fails', async () => {
+      findLocationForTenant.mockResolvedValue({
+        lastReviewSyncedAt: null,
+        detailsRefreshedAt: null,
+      });
+      listReviews.mockResolvedValue(page());
+      getLocation.mockRejectedValue(new Error('Google is down'));
+
+      await service.runPoll(job);
+
+      expect(updateLocationDetails).not.toHaveBeenCalled();
+      expect(completeRun).toHaveBeenCalledWith(
+        expect.objectContaining({ status: SyncRunStatus.OK })
+      );
+      // Regression: the attempt went unrecorded, so a location Google kept refusing was re-read every 15 minutes.
+      expect(markLocationDetailsAttempted).toHaveBeenCalledWith('location-1');
+    });
   });
 
   it('runs generation for this tenant/location right after classification succeeds', async () => {

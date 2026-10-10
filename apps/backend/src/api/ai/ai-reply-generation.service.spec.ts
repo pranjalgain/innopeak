@@ -4,6 +4,7 @@ import { BillingEntitlementsService } from '@billing/services/billing-entitlemen
 import { ResponseType } from '@common/enums/response-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { PromptsDbService } from '@db/repositories/prompts/prompts.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import type { GenerationCandidateRow } from '@db/repositories/review-sync/types/review-sync.type';
@@ -43,6 +44,7 @@ describe('AiReplyGenerationService', () => {
   };
   let settingsDbService: { findAiReplyCount: jest.Mock; findAutoPostEnabled: jest.Mock };
   let reviewPostQueue: { addPostJob: jest.Mock };
+  let connectionsDbService: { findLocationForTenant: jest.Mock };
 
   const tenantUser: TenantAuthUser = {
     type: JwtTokenType.TENANT_USER,
@@ -90,6 +92,7 @@ describe('AiReplyGenerationService', () => {
       findAutoPostEnabled: jest.fn().mockResolvedValue(false),
     };
     reviewPostQueue = { addPostJob: jest.fn().mockResolvedValue(undefined) };
+    connectionsDbService = { findLocationForTenant: jest.fn().mockResolvedValue(null) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -97,6 +100,7 @@ describe('AiReplyGenerationService', () => {
         { provide: AiProvider, useValue: aiProvider },
         { provide: PromptsDbService, useValue: promptsDbService },
         { provide: AuthDbService, useValue: authDbService },
+        { provide: ConnectionsDbService, useValue: connectionsDbService },
         { provide: BillingEntitlementsService, useValue: billingEntitlementsService },
         { provide: ReviewSyncDbService, useValue: reviewSyncDbService },
         { provide: SettingsDbService, useValue: settingsDbService },
@@ -255,6 +259,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
   };
   let settingsDbService: { findAiReplyCount: jest.Mock; findAutoPostEnabled: jest.Mock };
   let reviewPostQueue: { addPostJob: jest.Mock };
+  let connectionsDbService: { findLocationForTenant: jest.Mock };
 
   const tenantId = '0190f4a1-7c33-7e51-9a02-6d1b8f4c0001';
   const locationId = '0190f4a1-7c33-7e51-9a02-6d1b8f4c0002';
@@ -319,6 +324,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
       findAutoPostEnabled: jest.fn().mockResolvedValue(false),
     };
     reviewPostQueue = { addPostJob: jest.fn().mockResolvedValue(undefined) };
+    connectionsDbService = { findLocationForTenant: jest.fn().mockResolvedValue(null) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -326,6 +332,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
         { provide: AiProvider, useValue: aiProvider },
         { provide: PromptsDbService, useValue: promptsDbService },
         { provide: AuthDbService, useValue: authDbService },
+        { provide: ConnectionsDbService, useValue: connectionsDbService },
         { provide: BillingEntitlementsService, useValue: billingEntitlementsService },
         { provide: ReviewSyncDbService, useValue: reviewSyncDbService },
         { provide: SettingsDbService, useValue: settingsDbService },
@@ -360,6 +367,37 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
 
     expect(reviewSyncDbService.reclaimStaleGenerationClaims).toHaveBeenCalledWith(locationId);
     expect(result.quotaReached).toBe(true);
+  });
+
+  it("gives the system prompt the location's phone and website, so a reply never needs a placeholder", async () => {
+    connectionsDbService.findLocationForTenant.mockResolvedValue({
+      phone: '+49 30 1234567',
+      websiteUri: 'https://coastal.example',
+    });
+    reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+
+    await target.generateForClassifiedReviews({ tenantId, locationId });
+
+    expect(connectionsDbService.findLocationForTenant).toHaveBeenCalledWith(locationId, tenantId);
+    expect(aiProvider.generateReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining(
+          'phone +49 30 1234567; website https://coastal.example'
+        ),
+      })
+    );
+  });
+
+  it('tells the model there are no contact details when the location lists none', async () => {
+    reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+
+    await target.generateForClassifiedReviews({ tenantId, locationId });
+
+    expect(aiProvider.generateReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining('No contact details are available'),
+      })
+    );
   });
 
   it('does nothing when there are no candidates', async () => {
@@ -618,14 +656,65 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
     );
   });
 
-  it('never generates more than one draft for a non-escalated review, regardless of ai_reply_count', async () => {
+  // Regression: ai_reply_count used to apply to escalated reviews only, though the setting is per review.
+  it('generates ai_reply_count drafts for a non-escalated review too, grouped so they are labelled A, B, C', async () => {
     settingsDbService.findAiReplyCount.mockResolvedValue(3);
     reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+    aiProvider.generateReply.mockResolvedValue({
+      ...providerResult,
+      content: JSON.stringify(['Option A', 'Option B', 'Option C']),
+    });
 
     const result = await target.generateForClassifiedReviews({ tenantId, locationId });
 
     expect(aiProvider.generateReply).toHaveBeenCalledTimes(1);
+    const inserted = reviewSyncDbService.insertGeneratedResponse.mock.calls.map(
+      call => call[0] as { responseType: ResponseType; generationGroupId: string | null }
+    );
+    expect(inserted).toHaveLength(3);
+    expect(inserted.every(row => row.responseType === ResponseType.AUTO_REPLY_SUGGESTION)).toBe(
+      true
+    );
+    expect(inserted[0]?.generationGroupId).toEqual(expect.any(String));
+    expect(new Set(inserted.map(row => row.generationGroupId)).size).toBe(1);
+    expect(result.generated).toBe(3);
+  });
+
+  it('gives a review that will be auto-posted a single draft, whatever ai_reply_count says', async () => {
+    settingsDbService.findAiReplyCount.mockResolvedValue(3);
+    settingsDbService.findAutoPostEnabled.mockResolvedValue(true);
+    reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+    reviewSyncDbService.approveResponse.mockResolvedValue({ id: 'response-1' });
+
+    const result = await target.generateForClassifiedReviews({ tenantId, locationId });
+
+    // No one picks between drafts before an auto-post, so extra ones would only use up the quota.
+    expect(aiProvider.generateReply).toHaveBeenCalledWith(
+      expect.not.objectContaining({ maxOutputTokens: expect.anything() })
+    );
+    expect(reviewSyncDbService.insertGeneratedResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ generationGroupId: null })
+    );
+    expect(reviewSyncDbService.approveResponse).toHaveBeenCalledTimes(1);
     expect(result.generated).toBe(1);
+  });
+
+  it("clamps a non-escalated review's draft count to the tenant's remaining monthly quota", async () => {
+    settingsDbService.findAiReplyCount.mockResolvedValue(3);
+    billingEntitlementsService.getEntitlements.mockResolvedValue({
+      maxAiDraftsPerMonth: 20,
+      aiDraftsUsedThisMonth: 18,
+    });
+    reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+    aiProvider.generateReply.mockResolvedValue({
+      ...providerResult,
+      content: JSON.stringify(['Option A', 'Option B']),
+    });
+
+    const result = await target.generateForClassifiedReviews({ tenantId, locationId });
+
+    expect(reviewSyncDbService.insertGeneratedResponse).toHaveBeenCalledTimes(2);
+    expect(result.generated).toBe(2);
   });
 
   it("clamps an escalated review's snippet count to the tenant's remaining monthly quota instead of overshooting it", async () => {

@@ -25,7 +25,7 @@ export const GOOGLE_OAUTH = {
 export const GBP_ACCOUNTS_PAGE_SIZE = 20;
 
 /** The fields Google requires on a locations read; omitting `readMask` is a 400, not a default. */
-export const GBP_LOCATION_READ_MASK = 'name,title,storefrontAddress,websiteUri';
+export const GBP_LOCATION_READ_MASK = 'name,title,storefrontAddress,websiteUri,phoneNumbers';
 
 /** Google caps this at 50 for reviews; asking for more is silently clamped. */
 export const GBP_REVIEWS_PAGE_SIZE = 50;

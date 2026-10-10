@@ -36,6 +36,9 @@ export abstract class ReviewProvider {
     externalAccountId: string
   ): Promise<ProviderLocation[]>;
 
+  /** One location's current details, so name, address, phone and website can be kept up to date. */
+  abstract getLocation(accessToken: string, externalLocationId: string): Promise<ProviderLocation>;
+
   abstract listReviews(
     accessToken: string,
     options: ListReviewsOptions

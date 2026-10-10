@@ -34,6 +34,8 @@ interface ReplyDraftCardProps {
   isDeciding?: boolean;
   /** False when another reply is already live, so retrying a failed one could only end in a 409. */
   canRetry?: boolean;
+  /** The review was deleted on Google: the card shows what happened but offers nothing to do. */
+  reviewRemoved?: boolean;
 }
 
 /** What the card shows — the draft's own status, except that an approved one splits by delivery. */
@@ -75,6 +77,7 @@ export function ReplyDraftCard({
   isPosting,
   isDeciding = false,
   canRetry = true,
+  reviewRemoved = false,
 }: ReplyDraftCardProps) {
   const t = useTranslations("reviewDetail.replies");
   const tStatus = useTranslations("reviewDetail.replies.status");
@@ -132,10 +135,10 @@ export function ReplyDraftCard({
                 {t("postErrorDetail", { message: draft.errorMessage })}
               </p>
             ) : null}
-            {delivery === "failed" && !canRetry ? (
+            {delivery === "failed" && !canRetry && !reviewRemoved ? (
               <p className="text-muted-foreground text-xs">{t("retryUnavailable")}</p>
             ) : null}
-            {delivery === "not_posted" || (delivery === "failed" && canRetry) ? (
+            {!reviewRemoved && (delivery === "not_posted" || (delivery === "failed" && canRetry)) ? (
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -155,7 +158,7 @@ export function ReplyDraftCard({
               </div>
             ) : null}
           </div>
-        ) : (
+        ) : reviewRemoved ? null : (
           <div className="animate-in fade-in ease-fluid flex flex-wrap gap-2 duration-200">
             <Button type="button" size="sm" onClick={() => onApprove(draft.id, text)}>
               <LuCheck />

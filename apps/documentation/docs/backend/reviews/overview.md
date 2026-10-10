@@ -67,7 +67,7 @@ Verified against `0000_foundation.sql`, where all seven are declared:
 | `review_sentiment` | `positive`, `neutral`, `negative` | `reviews.sentiment` (nullable) |
 | `review_classification` | `auto_reply_candidate`, `escalated`, `pending_classification` | `reviews.classification`, `NOT NULL DEFAULT 'pending_classification'` |
 | `escalation_reason` | `low_rating`, `blocklist_match` | `reviews.escalation_reason` (nullable) |
-| `review_status` | `new`, `in_review`, `responded`, `dismissed` | `reviews.status`, `NOT NULL DEFAULT 'new'` |
+| `review_status` | `new`, `in_review`, `responded`, `dismissed`, `removed` | `reviews.status`, `NOT NULL DEFAULT 'new'` |
 | `response_type` | `auto_reply_suggestion`, `escalation_snippet` | `review_responses.response_type`, `NOT NULL` |
 | `response_source` | `ai_generated`, `human_edited`, `human_manual`, `imported` | `review_responses.source`, `NOT NULL` |
 | `response_status` | `draft`, `pending_approval`, `approved`, `rejected`, `posted`, `post_failed`, `superseded` | `review_responses.status`, `NOT NULL DEFAULT 'draft'` |
@@ -79,7 +79,7 @@ Two pairs are easy to confuse, and confusing either one produces a bug that look
 inconsistency rather than a data error.
 
 **`review_status` vs. `response_status`** — the more dangerous pair. `review_status` describes the
-*review's* queue-level lifecycle only (`new` → `in_review` → `responded` \| `dismissed`);
+*review's* queue-level lifecycle only (`new` → `in_review` → `responded` \| `dismissed` \| `removed`);
 `response_status` describes one *response row's* approval/post lifecycle. They deliberately do
 not mirror each other. An earlier pass of the plan had `reviews.status` carry values like
 `approved`/`posted`, and it was explicitly rejected: a review can have several
@@ -166,10 +166,12 @@ present `escalation_reason` as an exhaustive account of why a review escalated.
 
 `classification` is `NOT NULL DEFAULT 'pending_classification'`, so a freshly ingested review
 that has not been classified yet reads as `pending_classification`, never `NULL`. Generation
-then follows classification: `auto_reply_candidate` produces one row
-(`response_type = 'auto_reply_suggestion'`), `escalated` produces 2–3 rows sharing one
-`generation_group_id` (`response_type = 'escalation_snippet'`), all at
-`status = 'pending_approval'` (`PLAN.md` §5).
+then follows classification: each review gets `ai_reply_count` rows (1–3), sharing one
+`generation_group_id` when there are several — `response_type = 'auto_reply_suggestion'` for an
+`auto_reply_candidate`, `'escalation_snippet'` for an `escalated` review — all at
+`status = 'pending_approval'`. An `auto_reply_candidate` that `auto_post_enabled` will post gets a single
+row. (`PLAN.md` §5 originally gave auto-reply candidates exactly one draft; the per-review setting now
+applies to every review.)
 
 Two flows write `reviews` rows outside this module's normal live-poll path:
 
@@ -207,6 +209,8 @@ generating a second, competing batch. This module must not blindly write `status
 reasons; the transitions it legitimately owns are:
 
 - `in_review` → `responded`, when a response for that review reaches `posted`.
+- any → `removed`, when Google answers `404` for the review while a reply is being posted: its author
+  deleted it there. Set together with `removed_upstream_at`; terminal, since nothing can reply to it.
 - `new` \| `in_review` → `dismissed`, when a human dismisses the review — the one terminal
   outcome that involves no reply at all.
 

@@ -15,7 +15,13 @@ export class TenantService {
       name: profile.businessName,
       location:
         location && location.status === "active"
-          ? { name: location.businessName, address: location.address, lastSyncedAt: location.lastSyncedAt }
+          ? {
+              name: location.businessName,
+              address: location.address,
+              phone: location.phone ?? null,
+              websiteUri: location.websiteUri ?? null,
+              lastSyncedAt: location.lastSyncedAt,
+            }
           : null,
     };
   }

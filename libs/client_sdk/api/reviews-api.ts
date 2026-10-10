@@ -1429,6 +1429,7 @@ export const ReviewsControllerListReviewsV1StatusEnum = {
   InReview: 'in_review',
   Responded: 'responded',
   Dismissed: 'dismissed',
+  Removed: 'removed',
 } as const;
 export type ReviewsControllerListReviewsV1StatusEnum =
   (typeof ReviewsControllerListReviewsV1StatusEnum)[keyof typeof ReviewsControllerListReviewsV1StatusEnum];

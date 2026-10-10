@@ -3,6 +3,7 @@ import { GoogleBusinessProfileProvider } from './google-business-profile.provide
 import {
   ProviderAuthError,
   ProviderMappingError,
+  ProviderNotFoundError,
   ProviderRateLimitError,
 } from '../errors/provider.error';
 
@@ -228,6 +229,15 @@ describe('GoogleBusinessProfileProvider — write path (getReviewReply / replyTo
       await expect(provider.getReviewReply('access-token', input)).resolves.toBeNull();
     });
 
+    // The reviewer deleted the review on Google: a distinct error, so posting can say so instead of failing vaguely.
+    it('reports a review Google no longer has as ProviderNotFoundError', async () => {
+      mockJsonResponse(404, { error: { code: 404, status: 'NOT_FOUND' } });
+
+      await expect(provider.getReviewReply('access-token', input)).rejects.toBeInstanceOf(
+        ProviderNotFoundError
+      );
+    });
+
     it('requests the single-review resource at the legacy v4 host, as a GET', async () => {
       const fetchMock = mockJsonResponse(200, {
         name: 'accounts/123/locations/456/reviews/789',
@@ -287,6 +297,60 @@ describe('GoogleBusinessProfileProvider — write path (getReviewReply / replyTo
         provider.replyToReview('access-token', { ...input, comment: 'Thanks so much!' })
       ).rejects.toBeInstanceOf(ProviderMappingError);
     });
+  });
+});
+
+describe('GoogleBusinessProfileProvider.getLocation', () => {
+  const provider = new GoogleBusinessProfileProvider({
+    clientId: 'client-id',
+    clientSecret: 'client-secret',
+    callbackUrl: 'https://app.example.com/callback',
+  });
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  function mockLocation(body: unknown): jest.Mock {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(body),
+      text: () => Promise.resolve(JSON.stringify(body)),
+    });
+    global.fetch = fetchMock;
+    return fetchMock;
+  }
+
+  it('reads one location, asking for its phone and website, and maps them', async () => {
+    const fetchMock = mockLocation({
+      name: 'locations/42',
+      title: 'The Coastal Table',
+      websiteUri: 'https://coastal.example',
+      phoneNumbers: { primaryPhone: '+49 30 1234567', additionalPhones: ['+49 30 7654321'] },
+    });
+
+    const location = await provider.getLocation('access-token', 'locations/42');
+
+    const url = String((fetchMock.mock.calls[0] as [string])[0]);
+    expect(url).toContain('https://mybusinessbusinessinformation.googleapis.com/v1/locations/42?');
+    expect(decodeURIComponent(url)).toContain('phoneNumbers');
+    expect(location).toEqual({
+      externalLocationId: 'locations/42',
+      name: 'The Coastal Table',
+      address: null,
+      phone: '+49 30 1234567',
+      websiteUri: 'https://coastal.example',
+    });
+  });
+
+  it('reports no phone or website when the business lists none', async () => {
+    mockLocation({ name: 'locations/42', title: 'The Coastal Table', phoneNumbers: {} });
+
+    const location = await provider.getLocation('access-token', 'locations/42');
+
+    expect(location.phone).toBeNull();
+    expect(location.websiteUri).toBeNull();
   });
 });
 

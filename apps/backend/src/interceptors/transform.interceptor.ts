@@ -4,7 +4,11 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse } from '@common/dto/api-response';
 import type { Locale } from '@common/i18n/locale';
 import { resolveRequestLocale } from '@common/i18n/locale';
-import { renderMessage, renderNestedMessage } from '@common/i18n/message-registry';
+import {
+  renderMessage,
+  renderNestedMessage,
+  renderStoredMessages,
+} from '@common/i18n/message-registry';
 import { RouteNames } from '@common/route-names';
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Request, Response } from 'express';
@@ -66,7 +70,10 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
           // Check the key directly: `partial.data ?? data` would double-wrap an envelope whose own
           // `data` is legitimately null.
           const hasDataKey = Object.prototype.hasOwnProperty.call(partial, 'data');
-          const resolvedData = renderNestedMessage((hasDataKey ? partial.data : data) as T, locale);
+          const resolvedData = renderStoredMessages(
+            renderNestedMessage((hasDataKey ? partial.data : data) as T, locale),
+            locale
+          );
 
           return {
             statusCode: partial.statusCode ?? response.statusCode,

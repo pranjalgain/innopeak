@@ -5,6 +5,7 @@ import { ResponseType } from '@common/enums/response-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { PromptsDbService } from '@db/repositories/prompts/prompts.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import type { GenerationCandidateRow } from '@db/repositories/review-sync/types/review-sync.type';
@@ -38,6 +39,7 @@ import {
 } from './exceptions/ai.exceptions';
 import { AiProvider } from './providers/ai.provider';
 import type {
+  BusinessForReply,
   GeneratedReply,
   GenerateDryRunReplyInput,
   GenerateForClassifiedReviewsInput,
@@ -46,6 +48,7 @@ import type {
 import { resolvePromptCategoryForReview } from './utils/prompt-category-for-review.util';
 import {
   buildSystemPrompt,
+  type BusinessContact,
   fillPromptTemplate,
   parseMultiSnippetReplies,
 } from './utils/prompt-template.util';
@@ -71,6 +74,7 @@ export class AiReplyGenerationService {
     private readonly aiProvider: AiProvider,
     private readonly promptsDbService: PromptsDbService,
     private readonly authDbService: AuthDbService,
+    private readonly connectionsDbService: ConnectionsDbService,
     private readonly billingEntitlementsService: BillingEntitlementsService,
     private readonly reviewSyncDbService: ReviewSyncDbService,
     private readonly settingsDbService: SettingsDbService,
@@ -99,7 +103,8 @@ export class AiReplyGenerationService {
       rating: String(input.review.rating),
       review_text: input.review.reviewText,
     });
-    const systemPrompt = buildSystemPrompt(tone);
+    // No location in a dry run, so the reply is drafted as for a business with no listed contact details.
+    const systemPrompt = buildSystemPrompt({ tone });
 
     const result = await this.aiProvider.generateReply({ systemPrompt, userPrompt });
 
@@ -132,6 +137,18 @@ export class AiReplyGenerationService {
       tone: input.toneOverride ?? current.tone,
       usedTemplateOverride: false,
     };
+  }
+
+  /** The phone and website the business lists on Google for this location; `null` when there are none to offer. */
+  private async resolveLocationContact(
+    tenantId: string,
+    locationId: string
+  ): Promise<BusinessContact | null> {
+    const location = await this.connectionsDbService.findLocationForTenant(locationId, tenantId);
+    if (!location) {
+      return null;
+    }
+    return { phone: location.phone, websiteUri: location.websiteUri };
   }
 
   /** Falls back to a generic phrase, never PII: the name lands in a public review reply. */
@@ -194,8 +211,12 @@ export class AiReplyGenerationService {
       );
     }
 
-    // Read once per batch: every candidate belongs to the same tenant.
-    const businessName = await this.resolveBusinessName(input.tenantId);
+    // Read once per batch: every candidate belongs to the same tenant and location.
+    const [businessName, contact] = await Promise.all([
+      this.resolveBusinessName(input.tenantId),
+      this.resolveLocationContact(input.tenantId, input.locationId),
+    ]);
+    const business: BusinessForReply = { name: businessName, contact };
     // `undefined` = not yet asked, `null` = asked and no prompt exists, so a missing category is cached too.
     const promptCache = new Map<PromptCategory, CurrentPromptForCategory | null>();
     const batchSettings = await this.resolveBatchSettings(input.tenantId);
@@ -228,7 +249,7 @@ export class AiReplyGenerationService {
         const draftsGenerated = await this.generateAndPersistForCandidate(
           input.tenantId,
           candidate,
-          businessName,
+          business,
           promptCache,
           remainingQuota,
           batchSettings
@@ -288,8 +309,10 @@ export class AiReplyGenerationService {
   }
 
   /**
-   * Non-escalated candidates yield one `AUTO_REPLY_SUGGESTION`; escalated ones yield `min(ai_reply_count, maxSnippets)`
-   * snippets sharing one `generation_group_id`. Returns the rows persisted, for the caller's quota counter.
+   * Every candidate yields `min(ai_reply_count, maxSnippets)` drafts (`ESCALATION_SNIPPET` when escalated, otherwise
+   * `AUTO_REPLY_SUGGESTION`), sharing one `generation_group_id` whenever there are several or the review is escalated.
+   * The exception is a review that will be auto-posted: no one picks between drafts, so it gets one. Returns the rows
+   * persisted, for the caller's quota counter.
    * Snippets come from one provider call, not a loop: repeated single-reply calls return near-duplicates, and one call
    * is all-or-nothing so quota accounting has no partial state. `maxOutputTokens` scales with `snippetCount` so the
    * JSON array isn't truncated. reviewerName/reviewText fall back to a generic phrase: star-only reviews have neither.
@@ -297,7 +320,7 @@ export class AiReplyGenerationService {
   private async generateAndPersistForCandidate(
     tenantId: string,
     candidate: GenerationCandidateRow,
-    businessName: string,
+    business: BusinessForReply,
     promptCache: Map<PromptCategory, CurrentPromptForCategory | null>,
     maxSnippets: number,
     settings: BatchSettings
@@ -314,19 +337,25 @@ export class AiReplyGenerationService {
     }
 
     const userPrompt = fillPromptTemplate(current.template, {
-      business_name: businessName,
+      business_name: business.name,
       reviewer_name: candidate.reviewerName ?? 'a reviewer',
       rating: String(candidate.rating),
       review_text: candidate.reviewText ?? '(no written comment — rating only)',
     });
 
     const isEscalated = candidate.classification === ReviewClassification.ESCALATED;
-    const snippetCount = isEscalated
-      ? Math.min(settings.aiReplyCount, Math.max(1, Math.floor(maxSnippets)))
-      : 1;
-    const generationGroupId = isEscalated ? randomUUID() : null;
+    const autoPosts = !isEscalated && settings.autoPostEnabled;
+    const snippetCount = autoPosts
+      ? 1
+      : Math.min(settings.aiReplyCount, Math.max(1, Math.floor(maxSnippets)));
+    // The group is what labels drafts A, B, C; a lone non-escalated draft needs none.
+    const generationGroupId = isEscalated || snippetCount > 1 ? randomUUID() : null;
 
-    const systemPrompt = buildSystemPrompt(current.tone, snippetCount);
+    const systemPrompt = buildSystemPrompt({
+      tone: current.tone,
+      snippetCount,
+      contact: business.contact,
+    });
     const result = await this.aiProvider.generateReply({
       systemPrompt,
       userPrompt,
@@ -364,7 +393,7 @@ export class AiReplyGenerationService {
         });
         persisted += 1;
 
-        if (!isEscalated && settings.autoPostEnabled) {
+        if (autoPosts) {
           await this.maybeAutoApproveAndPost(tenantId, candidate.id, responseId, content);
         }
       }
