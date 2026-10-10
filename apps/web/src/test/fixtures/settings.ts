@@ -1,6 +1,6 @@
 import type { SettingsData } from "@/types/domain";
 
-export const MOCK_SETTINGS: SettingsData = {
+export const SETTINGS_FIXTURE: SettingsData = {
   general: {
     escalationRatingThreshold: 3,
     autoPostApprovedReplies: false,

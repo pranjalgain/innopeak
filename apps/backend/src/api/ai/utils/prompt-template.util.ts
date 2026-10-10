@@ -76,7 +76,9 @@ export function buildSystemPrompt(input: BuildSystemPromptInput): string {
   const base =
     `You are drafting a public reply to a Google Business Profile review on behalf of a ` +
     `business. Write in a ${tone} tone throughout. Never invent facts, promises, discounts, or ` +
-    `compensation beyond what your instructions below state. ${buildContactRules(input.contact)}`;
+    `compensation beyond what your instructions below state. Never address the reviewer by name or ` +
+    `repeat any name that appears in the review: refer to them as "you" instead. ` +
+    `${buildContactRules(input.contact)}`;
 
   if (snippetCount <= 1) {
     return (

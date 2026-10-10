@@ -30,6 +30,8 @@ import {
   operationServerMap,
 } from '../base';
 // @ts-ignore
+import type { AdminUserListResponseDto } from '../models';
+// @ts-ignore
 import type { AdminUserResponseDto } from '../models';
 /**
  * AdminUsersApi - axios parameter creator
@@ -39,14 +41,18 @@ export const AdminUsersApiAxiosParamCreator = function (
 ) {
   return {
     /**
-     * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive) — no pagination yet, the console still pages the (now server-filtered) result client-side.
+     * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting the same filter.
      * @summary List every user across every tenant
      * @param {string} [search] Case-insensitive substring match against the user name or their business name.
+     * @param {number} [page] 1-based page number.
+     * @param {number} [pageSize]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     adminUsersControllerListV1: async (
       search?: string,
+      page?: number,
+      pageSize?: number,
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       const localVarPath = `/v1/admin/users`;
@@ -71,6 +77,14 @@ export const AdminUsersApiAxiosParamCreator = function (
 
       if (search !== undefined) {
         localVarQueryParameter['search'] = search;
+      }
+
+      if (page !== undefined) {
+        localVarQueryParameter['page'] = page;
+      }
+
+      if (pageSize !== undefined) {
+        localVarQueryParameter['pageSize'] = pageSize;
       }
 
       localVarHeaderParameter['Accept'] = 'application/json';
@@ -152,24 +166,30 @@ export const AdminUsersApiFp = function (configuration?: Configuration) {
     AdminUsersApiAxiosParamCreator(configuration);
   return {
     /**
-     * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive) — no pagination yet, the console still pages the (now server-filtered) result client-side.
+     * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting the same filter.
      * @summary List every user across every tenant
      * @param {string} [search] Case-insensitive substring match against the user name or their business name.
+     * @param {number} [page] 1-based page number.
+     * @param {number} [pageSize]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     async adminUsersControllerListV1(
       search?: string,
+      page?: number,
+      pageSize?: number,
       options?: RawAxiosRequestConfig,
     ): Promise<
       (
         axios?: AxiosInstance,
         basePath?: string,
-      ) => AxiosPromise<Array<AdminUserResponseDto>>
+      ) => AxiosPromise<AdminUserListResponseDto>
     > {
       const localVarAxiosArgs =
         await localVarAxiosParamCreator.adminUsersControllerListV1(
           search,
+          page,
+          pageSize,
           options,
         );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
@@ -233,7 +253,7 @@ export const AdminUsersApiFactory = function (
   const localVarFp = AdminUsersApiFp(configuration);
   return {
     /**
-     * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive) — no pagination yet, the console still pages the (now server-filtered) result client-side.
+     * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting the same filter.
      * @summary List every user across every tenant
      * @param {AdminUsersApiAdminUsersControllerListV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -242,9 +262,14 @@ export const AdminUsersApiFactory = function (
     adminUsersControllerListV1(
       requestParameters: AdminUsersApiAdminUsersControllerListV1Request = {},
       options?: RawAxiosRequestConfig,
-    ): AxiosPromise<Array<AdminUserResponseDto>> {
+    ): AxiosPromise<AdminUserListResponseDto> {
       return localVarFp
-        .adminUsersControllerListV1(requestParameters.search, options)
+        .adminUsersControllerListV1(
+          requestParameters.search,
+          requestParameters.page,
+          requestParameters.pageSize,
+          options,
+        )
         .then((request) => request(axios, basePath));
     },
     /**
@@ -270,7 +295,7 @@ export const AdminUsersApiFactory = function (
  */
 export interface AdminUsersApiInterface {
   /**
-   * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive) — no pagination yet, the console still pages the (now server-filtered) result client-side.
+   * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting the same filter.
    * @summary List every user across every tenant
    * @param {AdminUsersApiAdminUsersControllerListV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -279,7 +304,7 @@ export interface AdminUsersApiInterface {
   adminUsersControllerListV1(
     requestParameters?: AdminUsersApiAdminUsersControllerListV1Request,
     options?: RawAxiosRequestConfig,
-  ): AxiosPromise<Array<AdminUserResponseDto>>;
+  ): AxiosPromise<AdminUserListResponseDto>;
 
   /**
    * A single toggle, not separate activate/deactivate calls: any status other than \'disabled\' flips to \'disabled\'. Re-enabling restores the status the user must have had before — \'active\' if their email was ever verified, otherwise \'pending_verification\', so disabling an unverified signup never doubles as verifying them.
@@ -302,6 +327,13 @@ export interface AdminUsersApiAdminUsersControllerListV1Request {
    * Case-insensitive substring match against the user name or their business name.
    */
   readonly search?: string;
+
+  /**
+   * 1-based page number.
+   */
+  readonly page?: number;
+
+  readonly pageSize?: number;
 }
 
 /**
@@ -316,7 +348,7 @@ export interface AdminUsersApiAdminUsersControllerToggleActiveV1Request {
  */
 export class AdminUsersApi extends BaseAPI implements AdminUsersApiInterface {
   /**
-   * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive) — no pagination yet, the console still pages the (now server-filtered) result client-side.
+   * Platform-admin only. `search` is applied server-side (user name or business name substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting the same filter.
    * @summary List every user across every tenant
    * @param {AdminUsersApiAdminUsersControllerListV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -327,7 +359,12 @@ export class AdminUsersApi extends BaseAPI implements AdminUsersApiInterface {
     options?: RawAxiosRequestConfig,
   ) {
     return AdminUsersApiFp(this.configuration)
-      .adminUsersControllerListV1(requestParameters.search, options)
+      .adminUsersControllerListV1(
+        requestParameters.search,
+        requestParameters.page,
+        requestParameters.pageSize,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 

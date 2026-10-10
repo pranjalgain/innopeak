@@ -8,7 +8,10 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 
-import { AdminBusinessResponseDto } from '../dto/admin-business-response.dto';
+import {
+  AdminBusinessListResponseDto,
+  AdminBusinessResponseDto,
+} from '../dto/admin-business-response.dto';
 import { UpdateBusinessStatusDto } from '../dto/update-business-status.dto';
 
 const ADMIN_BUSINESS_EXAMPLE = {
@@ -33,14 +36,25 @@ export function ApiListAdminBusinesses(): ReturnType<typeof applyDecorators> {
         'pending_activation/active/suspended) into active/suspended for display; `connectionStatus` ' +
         "derives from the tenant's most recent review_provider_connections row the same way " +
         "ConnectionsService already reasons about a tenant's own connection. `search` is applied " +
-        'server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, ' +
-        'the Businesses screen still pages the (now server-filtered) result client-side.',
+        'server-side (tenant name or owner name substring, case-insensitive), and the result is paged: ' +
+        '`page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting ' +
+        'the same filter.',
     }),
     ApiQuery({ name: 'search', required: false, example: 'coastal' }),
+    ApiQuery({ name: 'page', required: false, example: 1 }),
+    ApiQuery({ name: 'pageSize', required: false, example: 10 }),
     ApiResponse({
       status: HttpStatus.OK,
-      type: [AdminBusinessResponseDto],
-      examples: { default: { summary: 'Business list', value: [ADMIN_BUSINESS_EXAMPLE] } },
+      type: AdminBusinessListResponseDto,
+      examples: {
+        default: {
+          summary: 'Business list',
+          value: {
+            businesses: [ADMIN_BUSINESS_EXAMPLE],
+            meta: { page: 1, pageSize: 10, total: 1, totalPages: 1 },
+          },
+        },
+      },
     }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })

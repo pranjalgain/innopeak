@@ -236,7 +236,7 @@ reject it anyway, so raise the mapping error where it can be logged usefully.
   generation exists — would have drafted an AI reply for a review the owner had personally already
   answered, the exact overwrite §8.12 calls the worst outcome in this system. Found by polling
   against real data, not by reading the code.
-- **Review disappeared upstream** — detected when posting, not by the poll. Google also answers `404`
+- **Review disappeared upstream** — detected when a reply is posted, and by a daily check in the poll. Google also answers `404`
   when a location is no longer reachable from the connected account, so on a `404` for the review
   (`ProviderNotFoundError`) the worker lists that location's reviews through the same
   `accounts/…/locations/…` path: only if that path still answers is the `404` the review's own. (A
@@ -247,9 +247,13 @@ reject it anyway, so raise the mapping error where it can be logged usefully.
   `POST_FAILED_REVIEW_REMOVED` instead of Google's raw error, without retrying. From then on post,
   retry-post and manual reply answer `409 REVIEW_REMOVED_UPSTREAM`, and the dashboard shows the
   review as removed with no reply actions. If Google lists the review again later, the next poll's upsert
-  clears the marker (back to `in_review` when drafts exist, otherwise `new`). A deleted review nobody tries to reply to is still not
-  noticed: that needs diffing a full listing against known rows, which the incremental poll does
-  not do.
+  clears the marker (back to `in_review` when drafts exist, otherwise `new`).
+  A deleted review nobody replies to is caught by a daily check inside the poll (`reviews_reconciled_at`, at most once
+  a day per location, stamped even when it fails): the location's whole review list is read (up to 5,000 reviews; a
+  longer list decides nothing), open reviews (`new`/`in_review`, imported over an hour ago) that Google no longer lists
+  are each asked for directly, and only Google's own `404` marks one `removed`, since paging can drop a review between
+  pages. A listing that comes back empty is never acted on (an outage looks the same), and a `removed` review that is
+  listed again is restored.
 - **`reviewed_at` absent from the payload** — the column is nullable so ingestion survives, but §6
   wants this alerted on as a data-quality signal, because the retention job then falls back to
   `created_at`. No alerting exists for this yet, on either ingestion path.

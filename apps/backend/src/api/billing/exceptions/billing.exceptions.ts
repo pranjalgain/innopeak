@@ -52,12 +52,6 @@ export class CustomPromptsNotOnPlanException extends ForbiddenException {
   }
 }
 
-export class AiDraftLimitReachedException extends ForbiddenException {
-  constructor(message: string = MESSAGES.BILLING.AI_DRAFT_LIMIT_REACHED) {
-    super({ message, code: 'AI_DRAFT_LIMIT_REACHED' });
-  }
-}
-
 /** The webhook route is `@Public()`, so the signature check is its entire trust boundary. */
 export class StripeWebhookSignatureInvalidException extends BadRequestException {
   constructor(message: string = MESSAGES.BILLING.STRIPE_WEBHOOK_SIGNATURE_INVALID) {

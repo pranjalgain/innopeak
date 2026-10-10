@@ -103,17 +103,29 @@ export function businessSearchCondition(search: string): SQL {
 export class AdminBusinessesRepository {
   constructor(private readonly dbService: DBService) {}
 
-  /** No pagination: the Businesses screen pages the result client-side. */
-  async findAll(search?: string): Promise<AdminBusinessRow[]> {
-    const where = search ? businessSearchCondition(search) : undefined;
+  /**
+   * One page, newest first. The total counts with the very same `where` as the page, so the two can never disagree;
+   * `id` breaks `created_at` ties so a page boundary is stable.
+   */
+  async findPage(input: {
+    search?: string | undefined;
+    page: number;
+    pageSize: number;
+  }): Promise<{ rows: AdminBusinessRow[]; total: number }> {
+    const where = input.search ? businessSearchCondition(input.search) : undefined;
 
-    const rows = await this.dbService.db
-      .select(ADMIN_BUSINESS_COLUMNS)
-      .from(schema.tenants)
-      .where(where)
-      .orderBy(desc(schema.tenants.createdAt));
+    const [rows, totals] = await Promise.all([
+      this.dbService.db
+        .select(ADMIN_BUSINESS_COLUMNS)
+        .from(schema.tenants)
+        .where(where)
+        .orderBy(desc(schema.tenants.createdAt), desc(schema.tenants.id))
+        .limit(input.pageSize)
+        .offset((input.page - 1) * input.pageSize),
+      this.dbService.db.select({ value: count() }).from(schema.tenants).where(where),
+    ]);
 
-    return rows as AdminBusinessRow[];
+    return { rows: rows as AdminBusinessRow[], total: totals[0]?.value ?? 0 };
   }
 
   /**

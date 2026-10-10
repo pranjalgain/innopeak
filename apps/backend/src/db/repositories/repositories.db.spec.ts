@@ -7,6 +7,8 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 
 import { AdminBillingRepository } from './admin-billing/admin-billing.repository';
+import { AdminBusinessesRepository } from './admin-businesses/admin-businesses.repository';
+import { AdminUsersRepository } from './admin-users/admin-users.repository';
 import { AuthDbService } from './auth/auth.db-service';
 import { AuthRepository } from './auth/auth.repository';
 import { BillingPlansRepository } from './billing/billing-plans.repository';
@@ -303,6 +305,144 @@ describeWithDb('repositories against a real database', () => {
       expect(found).not.toContain(atCap);
       expect(found).not.toContain(overButPaused);
       expect(found).not.toContain(paidMany);
+    });
+  });
+
+  describe('admin list pages', () => {
+    const tag = `paged-${Math.random().toString(36).slice(2, 8)}`;
+
+    it('pages businesses newest first with a total that matches the same search, with no gaps or repeats', async () => {
+      const repo = new AdminBusinessesRepository(dbService);
+      const ids: string[] = [];
+      for (let i = 0; i < 5; i += 1) {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO tenants (name, status) VALUES ($1, 'active') RETURNING id`,
+          [`${tag} Business ${i}`]
+        );
+        ids.push(rows[0]?.id as string);
+        tenants.push(rows[0]?.id as string);
+      }
+
+      const first = await repo.findPage({ search: tag, page: 1, pageSize: 2 });
+      const second = await repo.findPage({ search: tag, page: 2, pageSize: 2 });
+      const third = await repo.findPage({ search: tag, page: 3, pageSize: 2 });
+
+      expect(first.total).toBe(5);
+      expect(second.total).toBe(5);
+      const seen = [...first.rows, ...second.rows, ...third.rows].map(row => row.id);
+      expect(seen).toHaveLength(5);
+      expect(new Set(seen).size).toBe(5);
+      expect(seen.sort()).toEqual([...ids].sort());
+      expect(third.rows).toHaveLength(1);
+    });
+
+    it('counts and pages users with the same search, never listing an anonymized one', async () => {
+      const repo = new AdminUsersRepository(dbService);
+      const tenantId = await newTenant();
+      for (let i = 0; i < 3; i += 1) {
+        await pool.query(
+          `INSERT INTO users (tenant_id, email, name, role, status)
+           VALUES ($1, $2, $3, 'member', 'active')`,
+          [tenantId, `${tag}-${i}@example.test`, `${tag} User ${i}`]
+        );
+      }
+      await pool.query(
+        `INSERT INTO users (tenant_id, email, name, role, status, anonymized_at)
+         VALUES ($1, $2, $3, 'member', 'active', now())`,
+        [tenantId, `${tag}-gone@example.test`, `${tag} Gone`]
+      );
+
+      const page = await repo.findPage({ search: tag, page: 1, pageSize: 2 });
+      const rest = await repo.findPage({ search: tag, page: 2, pageSize: 2 });
+
+      expect(page.total).toBe(3);
+      expect(page.rows).toHaveLength(2);
+      expect(rest.rows).toHaveLength(1);
+    });
+  });
+
+  describe('ReviewSyncRepository — deleted-review reconciliation', () => {
+    const reviewIn = async (
+      tenantId: string,
+      locationId: string,
+      ext: string,
+      status: string,
+      createdAt = '2026-01-01T00:00:00Z'
+    ): Promise<string> => {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO reviews (tenant_id, location_id, external_review_id, rating, status, created_at)
+         VALUES ($1, $2, $3, 4, $4::review_status, $5) RETURNING id`,
+        [tenantId, locationId, ext, status, createdAt]
+      );
+      return rows[0]?.id as string;
+    };
+
+    it('lists only open, not-yet-removed reviews older than the cutoff', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const open = await reviewIn(tenantId, locationId, 'r-open', 'new');
+      await reviewIn(tenantId, locationId, 'r-answered', 'responded');
+      await reviewIn(tenantId, locationId, 'r-removed', 'removed');
+      await reviewIn(tenantId, locationId, 'r-fresh', 'new', '2026-12-31T00:00:00Z');
+
+      const found = await repo.findOpenReviewsForReconciliation({
+        locationId,
+        createdBefore: '2026-06-01T00:00:00Z',
+      });
+
+      expect(found).toEqual([{ id: open, externalReviewId: 'r-open' }]);
+    });
+
+    it('marks open reviews removed but never an answered one', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const open = await reviewIn(tenantId, locationId, 'r-open', 'in_review');
+      const answered = await reviewIn(tenantId, locationId, 'r-answered', 'responded');
+
+      expect(await repo.markReviewsRemovedUpstream([open, answered])).toBe(1);
+
+      const { rows } = await pool.query(
+        'SELECT id, status, removed_upstream_at FROM reviews WHERE id = ANY($1::uuid[])',
+        [[open, answered]]
+      );
+      const byId = Object.fromEntries(rows.map(row => [row.id, row]));
+      expect(byId[open].status).toBe('removed');
+      expect(byId[open].removed_upstream_at).not.toBeNull();
+      expect(byId[answered].status).toBe('responded');
+    });
+
+    it('restores a listed-again review to in_review with drafts, new without', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const withDraft = await reviewIn(tenantId, locationId, 'r-draft', 'new');
+      const bare = await reviewIn(tenantId, locationId, 'r-bare', 'new');
+      await pool.query(
+        `INSERT INTO review_responses (tenant_id, review_id, response_type, content, source, status)
+         VALUES ($1, $2, 'auto_reply_suggestion', 'x', 'ai_generated', 'post_failed')`,
+        [tenantId, withDraft]
+      );
+      await repo.markReviewsRemovedUpstream([withDraft, bare]);
+      // Force both to the removed state a past 404 would have left them in.
+      await pool.query(`UPDATE reviews SET status = 'removed' WHERE id = ANY($1::uuid[])`, [
+        [withDraft, bare],
+      ]);
+
+      const restored = await repo.restoreRelistedReviews({
+        locationId,
+        externalReviewIds: ['r-draft', 'r-bare', 'r-unknown'],
+      });
+
+      expect(restored).toBe(2);
+      const { rows } = await pool.query(
+        'SELECT id, status, removed_upstream_at FROM reviews WHERE id = ANY($1::uuid[])',
+        [[withDraft, bare]]
+      );
+      const byId = Object.fromEntries(rows.map(row => [row.id, row]));
+      expect(byId[withDraft]).toMatchObject({ status: 'in_review', removed_upstream_at: null });
+      expect(byId[bare]).toMatchObject({ status: 'new', removed_upstream_at: null });
     });
   });
 

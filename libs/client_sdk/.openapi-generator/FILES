@@ -9,7 +9,6 @@ api/admin-overview-api.ts
 api/admin-settings-api.ts
 api/admin-statistics-api.ts
 api/admin-users-api.ts
-api/aiapi.ts
 api/auth-api.ts
 api/billing-api.ts
 api/connections-api.ts
@@ -27,6 +26,7 @@ index.ts
 models/accept-admin-invite-dto.ts
 models/accept-member-invite-dto.ts
 models/admin-billing-summary-response-dto.ts
+models/admin-business-list-response-dto.ts
 models/admin-business-response-dto.ts
 models/admin-invite-preview-dto.ts
 models/admin-invite-response-dto.ts
@@ -34,6 +34,7 @@ models/admin-overview-stats-response-dto.ts
 models/admin-profile-response-dto.ts
 models/admin-signup-trend-point-response-dto.ts
 models/admin-statistics-summary-response-dto.ts
+models/admin-user-list-response-dto.ts
 models/admin-user-response-dto.ts
 models/approve-reply-dto.ts
 models/at-risk-subscription-response-dto.ts
@@ -72,8 +73,6 @@ models/delete-account-dto.ts
 models/delete-account-response-dto.ts
 models/delete-blocklist-term-response-dto.ts
 models/disconnect-response-dto.ts
-models/generate-reply-dry-run-dto.ts
-models/generate-reply-dry-run-response-dto.ts
 models/get-prompt-stats-batch-dto.ts
 models/has-paid-tenants-response-dto.ts
 models/index.ts

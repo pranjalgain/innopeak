@@ -29,29 +29,42 @@ export class AdminUsersRepository {
   constructor(private readonly dbService: DBService) {}
 
   /**
-   * `search` matches name or business name, case-insensitive. Not paginated; the Users screen pages client-side.
+   * One page, newest first. `search` matches name or business name, case-insensitive. The total counts with the very
+   * same join and `where` as the page, so the two can never disagree.
    *
    * `lastLoginAt` is approximated from the newest `refresh_tokens` row (every token-issuing path
    * mints one); `users` has no `last_login_at` column. Null means no session was ever issued.
    */
-  async findAll(search?: string): Promise<AdminUserRow[]> {
-    const pattern = search ? `%${escapeLikePattern(search)}%` : undefined;
+  async findPage(input: {
+    search?: string | undefined;
+    page: number;
+    pageSize: number;
+  }): Promise<{ rows: AdminUserRow[]; total: number }> {
+    const pattern = input.search ? `%${escapeLikePattern(input.search)}%` : undefined;
+    const where = and(
+      isNull(schema.users.anonymizedAt),
+      pattern
+        ? or(ilike(schema.users.name, pattern), ilike(schema.tenants.name, pattern))
+        : undefined
+    );
 
-    const rows = await this.dbService.db
-      .select(ADMIN_USER_COLUMNS)
-      .from(schema.users)
-      .innerJoin(schema.tenants, eq(schema.tenants.id, schema.users.tenantId))
-      .where(
-        and(
-          isNull(schema.users.anonymizedAt),
-          pattern
-            ? or(ilike(schema.users.name, pattern), ilike(schema.tenants.name, pattern))
-            : undefined
-        )
-      )
-      .orderBy(desc(schema.users.createdAt));
+    const [rows, totals] = await Promise.all([
+      this.dbService.db
+        .select(ADMIN_USER_COLUMNS)
+        .from(schema.users)
+        .innerJoin(schema.tenants, eq(schema.tenants.id, schema.users.tenantId))
+        .where(where)
+        .orderBy(desc(schema.users.createdAt), desc(schema.users.id))
+        .limit(input.pageSize)
+        .offset((input.page - 1) * input.pageSize),
+      this.dbService.db
+        .select({ value: count() })
+        .from(schema.users)
+        .innerJoin(schema.tenants, eq(schema.tenants.id, schema.users.tenantId))
+        .where(where),
+    ]);
 
-    return rows as AdminUserRow[];
+    return { rows: rows as AdminUserRow[], total: totals[0]?.value ?? 0 };
   }
 
   async count(): Promise<number> {

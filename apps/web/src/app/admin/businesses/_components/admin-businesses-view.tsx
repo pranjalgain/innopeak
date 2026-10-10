@@ -15,7 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAdminBusinesses } from "@/hooks/admin/use-admin-businesses";
-import { usePagination } from "@/hooks/common/use-pagination";
 import type { AdminBusiness, BusinessStatus } from "@/types/domain";
 
 const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
@@ -150,7 +149,12 @@ export function AdminBusinessesView() {
   const tStatus = useTranslations("adminBusinesses.status");
   const format = useFormatter();
   const {
-    businesses,
+    businesses: pageItems,
+    page,
+    totalPages,
+    total,
+    goToPreviousPage,
+    goToNextPage,
     search,
     setSearch,
     isSearching,
@@ -163,7 +167,6 @@ export function AdminBusinessesView() {
     cancelErasure,
   } = useAdminBusinesses();
 
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(businesses, 10);
 
   const suspend = (id: string) => void suspendBusiness(id);
   const reactivate = (id: string) => void reactivateBusiness(id);
@@ -172,10 +175,10 @@ export function AdminBusinessesView() {
 
   return (
     <div className="flex min-h-full flex-col gap-6 p-fluid-page">
-      {isLoading || isError || (businesses.length === 0 && !isSearching) ? null : (
+      {isLoading || isError || (pageItems.length === 0 && !isSearching) ? null : (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            {t("resultCount", { count: businesses.length })}
+            {t("resultCount", { count: total })}
           </p>
           <div className="relative w-full sm:max-w-[280px]">
             <LuSearch className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -194,7 +197,7 @@ export function AdminBusinessesView() {
         <AdminBusinessesSkeleton />
       ) : isError ? (
         <LoadErrorState onRetry={refetch} />
-      ) : businesses.length === 0 ? (
+      ) : pageItems.length === 0 ? (
         isSearching ? (
           <AdminBusinessesNoResults onClearSearch={() => setSearch("")} />
         ) : (

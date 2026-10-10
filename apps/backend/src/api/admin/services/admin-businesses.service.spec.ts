@@ -19,7 +19,7 @@ import { AdminBusinessesService } from './admin-businesses.service';
 describe('AdminBusinessesService', () => {
   let target: AdminBusinessesService;
   let adminBusinessesDbService: {
-    findAll: jest.Mock;
+    findPage: jest.Mock;
     setStatus: jest.Mock;
     requestErasure: jest.Mock;
     cancelErasure: jest.Mock;
@@ -62,7 +62,7 @@ describe('AdminBusinessesService', () => {
 
   beforeEach(async () => {
     adminBusinessesDbService = {
-      findAll: jest.fn(),
+      findPage: jest.fn(),
       setStatus: jest.fn(),
       requestErasure: jest.fn(),
       cancelErasure: jest.fn(),
@@ -95,25 +95,43 @@ describe('AdminBusinessesService', () => {
   describe('list', () => {
     it('rejects a tenant-user token', async () => {
       await expect(target.list(tenantUser, {})).rejects.toThrow(ForbiddenException);
-      expect(adminBusinessesDbService.findAll).not.toHaveBeenCalled();
+      expect(adminBusinessesDbService.findPage).not.toHaveBeenCalled();
     });
 
-    it('lists every business', async () => {
-      adminBusinessesDbService.findAll.mockResolvedValue([summary]);
+    // Regression: an unfiltered list returned every business on the platform in one response.
+    it('returns the first page of 10 by default, with the paging meta', async () => {
+      adminBusinessesDbService.findPage.mockResolvedValue({ businesses: [summary], total: 25 });
 
       const result = await target.list(admin, {});
 
-      expect(adminBusinessesDbService.findAll).toHaveBeenCalledWith(undefined);
-      expect(result).toHaveLength(1);
-      expect(result[0]?.name).toBe('The Coastal Table');
+      expect(adminBusinessesDbService.findPage).toHaveBeenCalledWith({
+        search: undefined,
+        page: 1,
+        pageSize: 10,
+      });
+      expect(result.businesses).toHaveLength(1);
+      expect(result.businesses[0]?.name).toBe('The Coastal Table');
+      expect(result.meta).toEqual({ page: 1, pageSize: 10, total: 25, totalPages: 3 });
     });
 
-    it('forwards the search term to the db service', async () => {
-      adminBusinessesDbService.findAll.mockResolvedValue([summary]);
+    it('forwards the search term, page and page size to the db service', async () => {
+      adminBusinessesDbService.findPage.mockResolvedValue({ businesses: [summary], total: 1 });
 
-      await target.list(admin, { search: 'coastal' });
+      await target.list(admin, { search: 'coastal', page: 2, pageSize: 5 });
 
-      expect(adminBusinessesDbService.findAll).toHaveBeenCalledWith('coastal');
+      expect(adminBusinessesDbService.findPage).toHaveBeenCalledWith({
+        search: 'coastal',
+        page: 2,
+        pageSize: 5,
+      });
+    });
+
+    it('reports one page, not zero, when nothing matches', async () => {
+      adminBusinessesDbService.findPage.mockResolvedValue({ businesses: [], total: 0 });
+
+      const result = await target.list(admin, { search: 'nothing' });
+
+      expect(result.meta.totalPages).toBe(1);
     });
   });
 

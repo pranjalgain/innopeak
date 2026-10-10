@@ -1,5 +1,11 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+
+import {
+  ADMIN_LIST_PAGE_SIZE_DEFAULT,
+  ADMIN_LIST_PAGE_SIZE_MAX,
+} from '../constants/admin-overview.constants';
 
 export class ListAdminBusinessesQueryDto {
   @ApiPropertyOptional({
@@ -11,4 +17,23 @@ export class ListAdminBusinessesQueryDto {
   @IsString()
   @MaxLength(200)
   search?: string;
+
+  @ApiPropertyOptional({ example: 1, minimum: 1, description: '1-based page number.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({
+    example: ADMIN_LIST_PAGE_SIZE_DEFAULT,
+    minimum: 1,
+    maximum: ADMIN_LIST_PAGE_SIZE_MAX,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(ADMIN_LIST_PAGE_SIZE_MAX)
+  pageSize?: number;
 }

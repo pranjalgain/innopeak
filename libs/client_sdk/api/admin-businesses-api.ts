@@ -30,6 +30,8 @@ import {
   operationServerMap,
 } from '../base';
 // @ts-ignore
+import type { AdminBusinessListResponseDto } from '../models';
+// @ts-ignore
 import type { AdminBusinessResponseDto } from '../models';
 // @ts-ignore
 import type { UpdateBusinessStatusDto } from '../models';
@@ -98,14 +100,18 @@ export const AdminBusinessesApiAxiosParamCreator = function (
       };
     },
     /**
-     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, the Businesses screen still pages the (now server-filtered) result client-side.
+     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting the same filter.
      * @summary List every tenant, as a Super Admin \"business\"
      * @param {string} [search] Case-insensitive substring match against the tenant name or its owner name.
+     * @param {number} [page] 1-based page number.
+     * @param {number} [pageSize]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     adminBusinessesControllerListV1: async (
       search?: string,
+      page?: number,
+      pageSize?: number,
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       const localVarPath = `/v1/admin/businesses`;
@@ -130,6 +136,14 @@ export const AdminBusinessesApiAxiosParamCreator = function (
 
       if (search !== undefined) {
         localVarQueryParameter['search'] = search;
+      }
+
+      if (page !== undefined) {
+        localVarQueryParameter['page'] = page;
+      }
+
+      if (pageSize !== undefined) {
+        localVarQueryParameter['pageSize'] = pageSize;
       }
 
       localVarHeaderParameter['Accept'] = 'application/json';
@@ -320,24 +334,30 @@ export const AdminBusinessesApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, the Businesses screen still pages the (now server-filtered) result client-side.
+     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting the same filter.
      * @summary List every tenant, as a Super Admin \"business\"
      * @param {string} [search] Case-insensitive substring match against the tenant name or its owner name.
+     * @param {number} [page] 1-based page number.
+     * @param {number} [pageSize]
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     async adminBusinessesControllerListV1(
       search?: string,
+      page?: number,
+      pageSize?: number,
       options?: RawAxiosRequestConfig,
     ): Promise<
       (
         axios?: AxiosInstance,
         basePath?: string,
-      ) => AxiosPromise<Array<AdminBusinessResponseDto>>
+      ) => AxiosPromise<AdminBusinessListResponseDto>
     > {
       const localVarAxiosArgs =
         await localVarAxiosParamCreator.adminBusinessesControllerListV1(
           search,
+          page,
+          pageSize,
           options,
         );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
@@ -456,7 +476,7 @@ export const AdminBusinessesApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, the Businesses screen still pages the (now server-filtered) result client-side.
+     * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting the same filter.
      * @summary List every tenant, as a Super Admin \"business\"
      * @param {AdminBusinessesApiAdminBusinessesControllerListV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -465,9 +485,14 @@ export const AdminBusinessesApiFactory = function (
     adminBusinessesControllerListV1(
       requestParameters: AdminBusinessesApiAdminBusinessesControllerListV1Request = {},
       options?: RawAxiosRequestConfig,
-    ): AxiosPromise<Array<AdminBusinessResponseDto>> {
+    ): AxiosPromise<AdminBusinessListResponseDto> {
       return localVarFp
-        .adminBusinessesControllerListV1(requestParameters.search, options)
+        .adminBusinessesControllerListV1(
+          requestParameters.search,
+          requestParameters.page,
+          requestParameters.pageSize,
+          options,
+        )
         .then((request) => request(axios, basePath));
     },
     /**
@@ -527,7 +552,7 @@ export interface AdminBusinessesApiInterface {
   ): AxiosPromise<AdminBusinessResponseDto>;
 
   /**
-   * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, the Businesses screen still pages the (now server-filtered) result client-side.
+   * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting the same filter.
    * @summary List every tenant, as a Super Admin \"business\"
    * @param {AdminBusinessesApiAdminBusinessesControllerListV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -536,7 +561,7 @@ export interface AdminBusinessesApiInterface {
   adminBusinessesControllerListV1(
     requestParameters?: AdminBusinessesApiAdminBusinessesControllerListV1Request,
     options?: RawAxiosRequestConfig,
-  ): AxiosPromise<Array<AdminBusinessResponseDto>>;
+  ): AxiosPromise<AdminBusinessListResponseDto>;
 
   /**
    * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
@@ -581,6 +606,13 @@ export interface AdminBusinessesApiAdminBusinessesControllerListV1Request {
    * Case-insensitive substring match against the tenant name or its owner name.
    */
   readonly search?: string;
+
+  /**
+   * 1-based page number.
+   */
+  readonly page?: number;
+
+  readonly pageSize?: number;
 }
 
 /**
@@ -629,7 +661,7 @@ export class AdminBusinessesApi
   }
 
   /**
-   * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive) — no pagination yet, the Businesses screen still pages the (now server-filtered) result client-side.
+   * Platform-admin only. `status` collapses the real 3-value tenant_status (pending_activation/active/suspended) into active/suspended for display; `connectionStatus` derives from the tenant\'s most recent review_provider_connections row the same way ConnectionsService already reasons about a tenant\'s own connection. `search` is applied server-side (tenant name or owner name substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` (default 10, max 100), newest first, with `meta.total` counting the same filter.
    * @summary List every tenant, as a Super Admin \"business\"
    * @param {AdminBusinessesApiAdminBusinessesControllerListV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -640,7 +672,12 @@ export class AdminBusinessesApi
     options?: RawAxiosRequestConfig,
   ) {
     return AdminBusinessesApiFp(this.configuration)
-      .adminBusinessesControllerListV1(requestParameters.search, options)
+      .adminBusinessesControllerListV1(
+        requestParameters.search,
+        requestParameters.page,
+        requestParameters.pageSize,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 

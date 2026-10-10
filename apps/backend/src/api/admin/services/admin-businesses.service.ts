@@ -13,7 +13,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { AuthUser } from '../../auth/types/auth.type';
-import { AdminBusinessResponseDto } from '../dto/admin-business-response.dto';
+import { ADMIN_LIST_PAGE_SIZE_DEFAULT } from '../constants/admin-overview.constants';
+import {
+  AdminBusinessListResponseDto,
+  AdminBusinessResponseDto,
+} from '../dto/admin-business-response.dto';
 import type { ListAdminBusinessesQueryDto } from '../dto/list-admin-businesses-query.dto';
 import {
   BusinessErasurePendingException,
@@ -36,10 +40,21 @@ export class AdminBusinessesService {
   async list(
     actor: AuthUser,
     query: ListAdminBusinessesQueryDto
-  ): Promise<AdminBusinessResponseDto[]> {
+  ): Promise<AdminBusinessListResponseDto> {
     requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const summaries = await this.adminBusinessesDbService.findAll(query.search);
-    return summaries.map(summary => AdminBusinessResponseDto.from(summary));
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? ADMIN_LIST_PAGE_SIZE_DEFAULT;
+
+    const { businesses, total } = await this.adminBusinessesDbService.findPage({
+      search: query.search,
+      page,
+      pageSize,
+    });
+
+    return {
+      businesses: businesses.map(summary => AdminBusinessResponseDto.from(summary)),
+      meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    };
   }
 
   /**

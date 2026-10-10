@@ -221,22 +221,15 @@ card](../admin-billing/overview.md#consumers) use.
 
 ## Known limitations
 
-- **Platform-wide aggregates have no supporting index.** `getReviewStats` counts `reviews` and
-  `review_responses` with no `tenant_id` filter at all — there is no index that would help a count
-  with nothing to narrow by, so both are full scans. The same is true of `getSignupTrend`'s
-  `GROUP BY EXTRACT(...) FROM tenants.created_at`: `0002_tenant_auth.sql` indexes `tenants.status`
-  and `tenants.created_by_platform_admin_id`, but not `created_at`. Fine at MVP scale (dozens to
-  low hundreds of tenants, low thousands of reviews); the first of these to matter is whichever
-  table grows fastest, and a composite or expression index is the fix before either becomes a
-  full-table sort on every Overview page load.
-- **No caching.** Same reasoning as the [dashboard module's own
-  note](../dashboard/overview.md#known-limitations): five small, indexed-where-it-matters queries
-  fired once per page load is trivial at current volume, and a cache would spend most of its life
-  serving numbers that haven't changed while adding a staleness question to a page whose whole
-  point is "what does the platform look like right now."
-- **`recordActivityBestEffort` can silently under-report.** A dropped insert is logged, not
-  retried, and not surfaced anywhere in the product — an admin who suspends a tenant while the
-  activity-log insert fails sees the suspension succeed and never learns the feed didn't record it.
-  Acceptable because the alternative (failing the action itself over a display concern) is strictly
-  worse, but worth knowing before treating the activity feed as a complete record for anything
+- **Platform-wide aggregates still scan, but are cached.** `getReviewStats` counts `reviews` and `review_responses` with
+  no `tenant_id` filter, so no index can narrow them. `idx_tenants_created_at` now serves the signup trend's
+  `GROUP BY` on `tenants.created_at`. The Overview stats and signup trend, and the Statistics summary, are served from a
+  60-second in-process cache (`TtlCache`, `ADMIN_AGGREGATE_CACHE_TTL_MS`): per instance, so a number is at most a minute
+  old on any of them, concurrent misses share one load, and a failed load is never cached. Recent businesses,
+  needs-attention and the activity feed are not cached: they are what an admin checks right after acting.
+- **`recordActivityBestEffort` is retried and counted, not guaranteed.** A transient failure is retried (3 attempts); a
+  value too long for its `VARCHAR(255)` column is trimmed first, and an integrity or data error is not retried (it would
+  fail the same way). An entry that still cannot be written increments `platform_activity_dropped_total{type}` (exported
+  at 0 from startup, so a rate alert works) and is logged at error level with its full JSON payload for replay by hand.
+  It is still not in the same transaction as the action it records, so the feed is not a complete record for anything
   compliance-adjacent.

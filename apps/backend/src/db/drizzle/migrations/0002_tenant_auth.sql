@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS tenants (
 
 CREATE INDEX idx_tenants_created_by_platform_admin_id ON tenants(created_by_platform_admin_id);
 CREATE INDEX idx_tenants_status ON tenants(status);
+-- The Businesses list sorts by it, and the Overview signup trend groups by it.
+CREATE INDEX idx_tenants_created_at ON tenants(created_at DESC);
+-- Trigram indexes back the admin `ILIKE '%term%'` searches, which a plain B-tree cannot serve (leading wildcard).
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX idx_tenants_name_trgm ON tenants USING gin (name gin_trgm_ops);
 CREATE INDEX idx_tenants_erasure_requested_at ON tenants(erasure_requested_at) WHERE erasure_requested_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS tenant_identity_providers (
@@ -63,6 +68,8 @@ CREATE INDEX idx_users_tenant_id ON users(tenant_id);
 CREATE UNIQUE INDEX idx_users_tenant_id_email ON users(tenant_id, email);
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_status ON users(status);
+CREATE INDEX idx_users_name_trgm ON users USING gin (name gin_trgm_ops);
+CREATE INDEX idx_users_created_at ON users(created_at DESC);
 CREATE INDEX idx_users_invited_by_user_id ON users(invited_by_user_id);
 CREATE INDEX idx_users_erasure_requested_at ON users(erasure_requested_at) WHERE erasure_requested_at IS NOT NULL;
 

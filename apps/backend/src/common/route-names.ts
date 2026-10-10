@@ -6,9 +6,6 @@ export enum RouteNames {
   REVIEWS = 'reviews',
   DASHBOARD = 'dashboard',
   PROMPTS = 'prompts',
-  AI = 'ai',
-  // Runs the AI pipeline against a caller-supplied mock review without persisting to review_responses.
-  AI_DRY_RUN = 'dry-run',
   SETTINGS = 'settings',
   // A file download, not an enveloped response.
   SETTINGS_EXPORT = 'export',

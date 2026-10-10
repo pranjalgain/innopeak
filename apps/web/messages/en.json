@@ -677,7 +677,9 @@
       "disconnectButton": "Disconnect",
       "disconnectConfirm": "Are you sure? This disconnects your entire Google Business Profile connection — every location below will stop syncing new reviews.",
       "cancel": "Cancel",
-      "otherLocations": "Other connected locations"
+      "otherLocations": "Other connected locations",
+      "noBusiness": "No Google Business Profile connected",
+      "neverSynced": "Not synced yet"
     },
     "ai": {
       "title": "AI Replies",

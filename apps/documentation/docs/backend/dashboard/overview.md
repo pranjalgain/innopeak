@@ -130,13 +130,9 @@ same narrowing.
 
 ## Known limitations
 
-- **No composite indexes for these queries yet.** Every query here filters on `tenant_id` (and,
-  for two of the three, `reviewed_at`) against `reviews`, but the migrations only create
-  single-column indexes (`idx_reviews_tenant_id`, `idx_reviews_reviewed_at`,
-  `idx_reviews_status`, `idx_reviews_classification`) — Postgres has to `BitmapAnd` two of them or
-  fall back to scanning every review the tenant owns. Fine at MVP row counts (hundreds to low
-  thousands per tenant); a composite index such as `(tenant_id, reviewed_at)` is the fix if it
-  ever stops being fine, and is cheaper and more durable than adding a cache.
+- **Composite indexes back these queries.** `idx_reviews_tenant_id_reviewed_at (tenant_id, reviewed_at DESC, id DESC)`
+  serves the newest-first lists and the windowed aggregates, and `idx_reviews_tenant_id_status_classification` serves the
+  open-backlog counts (`0004_reviews.sql`). They replace Postgres combining two single-column indexes.
 - **No caching.** At MVP volume — one tenant, one location, low thousands of reviews, ingestion
   writing at most once per 15 minutes — an indexed query here is single-digit milliseconds, and a
   cache would spend most of its life serving data that has not changed while adding a staleness

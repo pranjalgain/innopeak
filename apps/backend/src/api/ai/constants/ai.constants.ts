@@ -4,6 +4,12 @@ export const AI_ERROR_CODES = {
   GENERATION_FAILED: 'AI_GENERATION_FAILED',
 } as const;
 
+/**
+ * What fills `{{reviewer_name}}`: a reviewer's name is personal data and a reply must never use it, so the name is not
+ * sent to the AI provider at all (the system prompt also forbids using a name that appears in the review text).
+ */
+export const ANONYMOUS_REVIEWER = 'a reviewer';
+
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 /** Bounds cost/latency on a model that ignores the templates' 60-80 word limit. */

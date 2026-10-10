@@ -1,4 +1,3 @@
-import { AiDraftLimitReachedException } from '@billing/exceptions/billing.exceptions';
 import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
@@ -11,13 +10,7 @@ import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db
 import type { GenerationCandidateRow } from '@db/repositories/review-sync/types/review-sync.type';
 import { SettingsDbService } from '@db/repositories/settings/settings.db-service';
 import { Injectable, Logger } from '@nestjs/common';
-import { DEFAULT_PROMPT_TONE } from '@prompts/constants/default-prompts.constant';
-import { sanitizePromptTemplate } from '@prompts/constants/prompts.constants';
-import type {
-  CurrentPromptForCategory,
-  PromptCategory,
-  PromptTone,
-} from '@prompts/types/prompt.type';
+import type { CurrentPromptForCategory, PromptCategory } from '@prompts/types/prompt.type';
 import { enqueuePostOrMarkFailed } from '@review-post-queue/enqueue-post-or-mark-failed.util';
 import { ReviewPostQueue } from '@review-post-queue/review-post.queue';
 
@@ -25,6 +18,7 @@ import { randomUUID } from 'crypto';
 
 import {
   AI_MAX_OUTPUT_TOKENS,
+  ANONYMOUS_REVIEWER,
   DEFAULT_AI_REPLY_COUNT,
   FALLBACK_BUSINESS_NAME,
   GENERATION_BATCH_LIMIT,
@@ -40,8 +34,6 @@ import {
 import { AiProvider } from './providers/ai.provider';
 import type {
   BusinessForReply,
-  GeneratedReply,
-  GenerateDryRunReplyInput,
   GenerateForClassifiedReviewsInput,
   GenerationBatchResult,
 } from './types/ai-reply-generation.type';
@@ -62,8 +54,7 @@ interface BatchSettings {
 }
 
 /**
- * `generateDryRunReply` never persists; `generateForClassifiedReviews` persists `pending_approval` rows right after
- * classification. Each persisted snippet, not each review, spends one unit of `maxAiDraftsPerMonth`.
+ * `generateForClassifiedReviews` persists `pending_approval` rows right after classification. Each persisted snippet, not each review, spends one unit of `maxAiDraftsPerMonth`.
  * Few-shot examples from posted replies are deliberately not implemented: nothing reads historical replies yet.
  */
 @Injectable()
@@ -80,64 +71,6 @@ export class AiReplyGenerationService {
     private readonly settingsDbService: SettingsDbService,
     private readonly reviewPostQueue: ReviewPostQueue
   ) {}
-
-  /** Takes a tenantId, not an AuthUser, because the dev-only public controller has no principal. */
-  async generateDryRunReply(
-    input: GenerateDryRunReplyInput,
-    tenantId: string
-  ): Promise<GeneratedReply> {
-    // Checked in dry-run too: safe, since nothing below persists a row that counts against the quota.
-    if (!(await this.billingEntitlementsService.canGenerateAiDraft(tenantId))) {
-      throw new AiDraftLimitReachedException();
-    }
-
-    // Independent reads, run concurrently to avoid paying both round trips before the slow AI call.
-    const [{ template, tone, usedTemplateOverride }, businessName] = await Promise.all([
-      this.resolveTemplateAndTone(tenantId, input),
-      this.resolveBusinessName(tenantId),
-    ]);
-
-    const userPrompt = fillPromptTemplate(template, {
-      business_name: businessName,
-      reviewer_name: input.review.reviewerName,
-      rating: String(input.review.rating),
-      review_text: input.review.reviewText,
-    });
-    // No location in a dry run, so the reply is drafted as for a business with no listed contact details.
-    const systemPrompt = buildSystemPrompt({ tone });
-
-    const result = await this.aiProvider.generateReply({ systemPrompt, userPrompt });
-
-    return { ...result, category: input.category, tone, usedTemplateOverride };
-  }
-
-  /** `templateOverride` tests unsaved prompt text. Tone is still resolved from the tenant's saved prompt; only with
-   *  no prompt row at all does the override branch fall back to `DEFAULT_PROMPT_TONE` instead of hard-failing. */
-  private async resolveTemplateAndTone(
-    tenantId: string,
-    input: GenerateDryRunReplyInput
-  ): Promise<{ template: string; tone: PromptTone; usedTemplateOverride: boolean }> {
-    const current: CurrentPromptForCategory | null =
-      await this.promptsDbService.findCurrentForCategory(tenantId, input.category);
-
-    if (input.templateOverride !== undefined) {
-      return {
-        template: sanitizePromptTemplate(input.templateOverride).trim(),
-        tone: input.toneOverride ?? current?.tone ?? DEFAULT_PROMPT_TONE,
-        usedTemplateOverride: true,
-      };
-    }
-
-    if (current === null) {
-      throw new AiPromptNotConfiguredException();
-    }
-
-    return {
-      template: current.template,
-      tone: input.toneOverride ?? current.tone,
-      usedTemplateOverride: false,
-    };
-  }
 
   /** The phone and website the business lists on Google for this location; `null` when there are none to offer. */
   private async resolveLocationContact(
@@ -315,7 +248,7 @@ export class AiReplyGenerationService {
    * persisted, for the caller's quota counter.
    * Snippets come from one provider call, not a loop: repeated single-reply calls return near-duplicates, and one call
    * is all-or-nothing so quota accounting has no partial state. `maxOutputTokens` scales with `snippetCount` so the
-   * JSON array isn't truncated. reviewerName/reviewText fall back to a generic phrase: star-only reviews have neither.
+   * JSON array isn't truncated. The reviewer's name is never sent to the provider (`ANONYMOUS_REVIEWER`); reviewText falls back to a generic phrase: star-only reviews have none.
    */
   private async generateAndPersistForCandidate(
     tenantId: string,
@@ -338,7 +271,7 @@ export class AiReplyGenerationService {
 
     const userPrompt = fillPromptTemplate(current.template, {
       business_name: business.name,
-      reviewer_name: candidate.reviewerName ?? 'a reviewer',
+      reviewer_name: ANONYMOUS_REVIEWER,
       rating: String(candidate.rating),
       review_text: candidate.reviewText ?? '(no written comment — rating only)',
     });

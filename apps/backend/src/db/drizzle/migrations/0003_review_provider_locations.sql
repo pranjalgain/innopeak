@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS locations (
     last_sync_status sync_health_status,
     last_sync_error TEXT,
     onboarding_backfill_completed_at TIMESTAMPTZ,
+    -- Last attempt to compare Google's full review list with ours, to catch reviews their authors deleted (the
+    -- incremental poll never revisits old reviews). Daily at most, stamped even when the attempt fails.
+    reviews_reconciled_at TIMESTAMPTZ,
     -- Poller high-water mark: the newest reviews.external_updated_at seen, so a poll stops paging
     -- at the first known review.
     last_review_synced_at TIMESTAMPTZ,

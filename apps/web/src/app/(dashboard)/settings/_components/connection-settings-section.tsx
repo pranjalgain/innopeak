@@ -68,11 +68,13 @@ export function ConnectionSettingsSection({
             <LuStore className="size-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold">{activeBusinessName}</p>
+            <p className="text-sm font-semibold">{activeBusinessName ?? t("noBusiness")}</p>
             <p className="text-muted-foreground mt-0.5 text-[13px]">
-              {t("lastSynced", {
-                date: format.dateTime(new Date(activeLastSyncedAt), DATE_FORMAT),
-              })}
+              {activeLastSyncedAt
+                ? t("lastSynced", {
+                    date: format.dateTime(new Date(activeLastSyncedAt), DATE_FORMAT),
+                  })
+                : t("neverSynced")}
             </p>
           </div>
           <Badge

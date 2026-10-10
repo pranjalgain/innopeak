@@ -4,6 +4,7 @@ import { ConnectionsDbService } from '@db/repositories/connections/connections.d
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Test } from '@nestjs/testing';
 import { ReviewClassificationService } from '@review-pipeline/review-classification.service';
+import { ProviderNotFoundError } from '@review-provider/errors/provider.error';
 import { ProviderCredentialService } from '@review-provider/provider-credential.service';
 import { ReviewProvider } from '@review-provider/providers/review-provider.provider';
 
@@ -48,6 +49,13 @@ describe('ReviewSyncQueueService.runPoll', () => {
   const classifyPendingReviews = jest.fn();
   const generateForClassifiedReviews = jest.fn();
 
+  const RECENT = new Date().toISOString();
+  const findOpenReviewsForReconciliation = jest.fn();
+  const markReviewsRemovedUpstream = jest.fn();
+  const restoreRelistedReviews = jest.fn();
+  const markReviewsReconciled = jest.fn();
+  const getReviewReply = jest.fn();
+
   const job = {
     tenantId: 'tenant-1',
     locationId: 'location-1',
@@ -88,11 +96,16 @@ describe('ReviewSyncQueueService.runPoll', () => {
       websiteUri: 'https://coastal.example',
     });
     updateLocationDetails.mockResolvedValue(undefined);
+    markReviewsReconciled.mockResolvedValue(undefined);
+    findOpenReviewsForReconciliation.mockResolvedValue([]);
+    markReviewsRemovedUpstream.mockResolvedValue(0);
+    restoreRelistedReviews.mockResolvedValue(0);
+    getReviewReply.mockResolvedValue(null);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         ReviewSyncQueueService,
-        { provide: ReviewProvider, useValue: { listReviews, getLocation } },
+        { provide: ReviewProvider, useValue: { listReviews, getLocation, getReviewReply } },
         { provide: ProviderCredentialService, useValue: { resolveAccessToken } },
         {
           provide: ConnectionsDbService,
@@ -101,12 +114,21 @@ describe('ReviewSyncQueueService.runPoll', () => {
             findLocationForTenant,
             updateLocationDetails,
             markLocationDetailsAttempted,
+            markReviewsReconciled,
             markNeedsReauth: jest.fn(),
           },
         },
         {
           provide: ReviewSyncDbService,
-          useValue: { acquireSyncRun, importPollPage, completeRun, recordProgress },
+          useValue: {
+            acquireSyncRun,
+            importPollPage,
+            completeRun,
+            recordProgress,
+            findOpenReviewsForReconciliation,
+            markReviewsRemovedUpstream,
+            restoreRelistedReviews,
+          },
         },
         { provide: ReviewClassificationService, useValue: { classifyPendingReviews } },
         {
@@ -130,7 +152,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
   /** Guards both re-walking full history every tick and stopping one page too early. */
   it('stops paginating once a review is found well before the cursor, without fetching further pages', async () => {
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: '2026-01-05T00:00:00.000Z',
+    });
     listReviews.mockResolvedValueOnce(
       page({
         reviews: [
@@ -160,7 +185,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
    * and be skipped forever; the overlap window re-imports it idempotently.
    */
   it('re-examines reviews within the overlap window before the cursor, not just strictly after it', async () => {
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: '2026-01-05T00:00:00.000Z',
+    });
     listReviews.mockResolvedValueOnce(
       page({
         reviews: [
@@ -188,7 +216,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
   });
 
   it('does not re-examine anything when the boundary review is right outside the overlap window', async () => {
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: '2026-01-05T00:00:00.000Z',
+    });
     listReviews.mockResolvedValueOnce(
       page({
         reviews: [
@@ -210,7 +241,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
   });
 
   it('walks every page to the cap when the location has never been synced (null cursor)', async () => {
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: null });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: null,
+    });
     listReviews
       .mockResolvedValueOnce(
         page({ reviews: [review({ externalReviewId: 'ext-1' })], nextPageToken: 'page-2' })
@@ -225,7 +259,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
   /** `page.totalCount` is the lifetime count; writing it made poll rows read "3 fetched / 2000 total". */
   it('never records reviewsTotal on a poll run, even when the provider reports one', async () => {
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: '2026-01-05T00:00:00.000Z',
+    });
     listReviews.mockResolvedValueOnce(
       page({
         reviews: [review({ externalUpdatedAt: '2026-01-07T00:00:00.000Z' })],
@@ -252,7 +289,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
   /** A run truncated by the page cap must fail and leave the cursor: advancing would permanently skip what the cap cut off. */
   it('fails the run and leaves the cursor untouched when the page cap truncates the backlog', async () => {
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2020-01-01T00:00:00.000Z' });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: '2020-01-01T00:00:00.000Z',
+    });
     listReviews.mockImplementation((_token: string, options: { pageToken?: string }) => {
       const n = Number(options.pageToken ?? '0');
       return Promise.resolve(
@@ -284,7 +324,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
   /** Counterpart to the test above: with no cursor seeded there is no gap, so truncation must not fail the location forever. */
   it('succeeds and seeds the cursor when the cap is hit with no cursor to begin with', async () => {
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: null });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: null,
+    });
     listReviews.mockImplementation((_token: string, options: { pageToken?: string }) => {
       const n = Number(options.pageToken ?? '0');
       return Promise.resolve(
@@ -316,7 +359,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
   });
 
   it('still fails the run when classification fails, even on an untruncated poll', async () => {
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: '2026-01-05T00:00:00.000Z',
+    });
     listReviews.mockResolvedValueOnce(
       page({ reviews: [review({ externalUpdatedAt: '2026-01-07T00:00:00.000Z' })] })
     );
@@ -334,6 +380,113 @@ describe('ReviewSyncQueueService.runPoll', () => {
     expect(completion.errorMessage).toContain('classification failed');
   });
 
+  // The incremental poll never revisits old reviews, so a review its author deleted would sit in the queue forever.
+  describe('deleted-review check', () => {
+    const due = { lastReviewSyncedAt: null, detailsRefreshedAt: RECENT, reviewsReconciledAt: null };
+    const listed = (...ids: string[]) =>
+      page({
+        reviews: ids.map(id => ({
+          externalReviewId: id,
+          externalUpdatedAt: '2026-01-01T00:00:00Z',
+        })) as never,
+      });
+
+    it('marks an open review Google no longer lists as removed, once a direct lookup confirms the 404', async () => {
+      findLocationForTenant.mockResolvedValue(due);
+      listReviews.mockResolvedValue(listed('r-kept'));
+      findOpenReviewsForReconciliation.mockResolvedValue([
+        { id: 'id-kept', externalReviewId: 'r-kept' },
+        { id: 'id-gone', externalReviewId: 'r-gone' },
+      ]);
+      getReviewReply.mockRejectedValue(new ProviderNotFoundError('404'));
+
+      await service.runPoll(job);
+
+      expect(getReviewReply).toHaveBeenCalledTimes(1);
+      expect(getReviewReply).toHaveBeenCalledWith('token', {
+        externalAccountId: 'accounts/1',
+        externalLocationId: 'locations/1',
+        externalReviewId: 'r-gone',
+      });
+      expect(markReviewsRemovedUpstream).toHaveBeenCalledWith(['id-gone']);
+      expect(markReviewsReconciled).toHaveBeenCalledWith('location-1');
+    });
+
+    // Paging can drop a review between pages, so "not listed" alone proves nothing.
+    it('leaves a review alone when the direct lookup finds it', async () => {
+      findLocationForTenant.mockResolvedValue(due);
+      listReviews.mockResolvedValue(listed('r-kept'));
+      findOpenReviewsForReconciliation.mockResolvedValue([
+        { id: 'id-slipped', externalReviewId: 'r-slipped' },
+      ]);
+      getReviewReply.mockResolvedValue(null);
+
+      await service.runPoll(job);
+
+      expect(markReviewsRemovedUpstream).toHaveBeenCalledWith([]);
+    });
+
+    it('decides nothing on a lookup failure that is not a 404', async () => {
+      findLocationForTenant.mockResolvedValue(due);
+      listReviews.mockResolvedValue(listed('r-kept'));
+      findOpenReviewsForReconciliation.mockResolvedValue([{ id: 'id-x', externalReviewId: 'r-x' }]);
+      getReviewReply.mockRejectedValue(new Error('Google is down'));
+
+      await service.runPoll(job);
+
+      expect(markReviewsRemovedUpstream).toHaveBeenCalledWith([]);
+    });
+
+    it('never acts on an empty listing, which an outage looks the same as', async () => {
+      findLocationForTenant.mockResolvedValue(due);
+      listReviews.mockResolvedValue(page());
+      findOpenReviewsForReconciliation.mockResolvedValue([{ id: 'id-x', externalReviewId: 'r-x' }]);
+
+      await service.runPoll(job);
+
+      expect(markReviewsRemovedUpstream).not.toHaveBeenCalled();
+      expect(restoreRelistedReviews).not.toHaveBeenCalled();
+    });
+
+    it('restores a removed review that Google lists again', async () => {
+      findLocationForTenant.mockResolvedValue(due);
+      listReviews.mockResolvedValue(listed('r-back'));
+
+      await service.runPoll(job);
+
+      expect(restoreRelistedReviews).toHaveBeenCalledWith({
+        locationId: 'location-1',
+        externalReviewIds: ['r-back'],
+      });
+    });
+
+    it('decides nothing when the review list is too long to read in full', async () => {
+      findLocationForTenant.mockResolvedValue(due);
+      listReviews.mockResolvedValue({ ...listed('r-1'), nextPageToken: 'more' });
+      findOpenReviewsForReconciliation.mockResolvedValue([{ id: 'id-x', externalReviewId: 'r-x' }]);
+
+      await service.runPoll(job);
+
+      expect(markReviewsRemovedUpstream).not.toHaveBeenCalled();
+      expect(markReviewsReconciled).toHaveBeenCalledWith('location-1');
+    });
+
+    it('asks Google at most once a day, and still completes the poll when the check fails', async () => {
+      findLocationForTenant.mockResolvedValue({ ...due, reviewsReconciledAt: RECENT });
+      await service.runPoll(job);
+      expect(findOpenReviewsForReconciliation).not.toHaveBeenCalled();
+
+      findLocationForTenant.mockResolvedValue(due);
+      findOpenReviewsForReconciliation.mockRejectedValue(new Error('db blip'));
+      await service.runPoll(job);
+
+      expect(markReviewsReconciled).toHaveBeenCalledWith('location-1');
+      expect(completeRun).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: SyncRunStatus.OK })
+      );
+    });
+  });
+
   describe('location details', () => {
     const fresh = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const stale = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
@@ -342,7 +495,11 @@ describe('ReviewSyncQueueService.runPoll', () => {
       ['never refreshed', null],
       ['last refreshed over a day ago', stale],
     ])('re-reads them from the provider when %s, before drafting replies', async (_label, at) => {
-      findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: null, detailsRefreshedAt: at });
+      findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
+        lastReviewSyncedAt: null,
+        detailsRefreshedAt: at,
+      });
       listReviews.mockResolvedValue(page());
 
       await service.runPoll(job);
@@ -363,6 +520,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
     // Regression: a blank Google title made the mapper's fallback (the resource path) overwrite the stored name.
     it("keeps the stored name when Google's title comes back blank", async () => {
       findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
         lastReviewSyncedAt: null,
         detailsRefreshedAt: null,
         name: 'The Coastal Table',
@@ -385,6 +543,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
     it('leaves them alone when refreshed within the last day', async () => {
       findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
         lastReviewSyncedAt: null,
         detailsRefreshedAt: fresh,
       });
@@ -397,6 +556,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
     it('still completes the poll when the refresh fails', async () => {
       findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
         lastReviewSyncedAt: null,
         detailsRefreshedAt: null,
       });
@@ -415,7 +575,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
   });
 
   it('runs generation for this tenant/location right after classification succeeds', async () => {
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: '2026-01-05T00:00:00.000Z',
+    });
     classifyPendingReviews.mockResolvedValue({ classified: 2, skipped: 0 });
 
     await service.runPoll(job);
@@ -429,7 +592,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
   it('does NOT fail the run when generation fails, unlike a classification failure', async () => {
     // Asymmetric with a classification failure: classification already committed and generation
     // self-heals on the next tick.
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: '2026-01-05T00:00:00.000Z',
+    });
     listReviews.mockResolvedValueOnce(
       page({ reviews: [review({ externalUpdatedAt: '2026-01-07T00:00:00.000Z' })] })
     );
@@ -449,7 +615,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
   });
 
   it('reports the quota-reached / generated / failed counts from generation on the run outcome', async () => {
-    findLocationForTenant.mockResolvedValue({ lastReviewSyncedAt: '2026-01-05T00:00:00.000Z' });
+    findLocationForTenant.mockResolvedValue({
+      reviewsReconciledAt: RECENT,
+      lastReviewSyncedAt: '2026-01-05T00:00:00.000Z',
+    });
     listReviews.mockResolvedValueOnce(
       page({ reviews: [review({ externalUpdatedAt: '2026-01-07T00:00:00.000Z' })] })
     );

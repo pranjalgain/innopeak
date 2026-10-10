@@ -1,5 +1,6 @@
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
+import { PaginationMetaDto } from '@common/dto/pagination-meta.dto';
 import { toIsoStringOrNull } from '@common/helpers/date.utils';
 import type { AdminUserRow } from '@db/repositories/admin-users/types/admin-users.type';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -51,4 +52,12 @@ export class AdminUserResponseDto {
     dto.lastLoginAt = toIsoStringOrNull(row.lastLoginAt);
     return dto;
   }
+}
+
+export class AdminUserListResponseDto {
+  @ApiProperty({ type: [AdminUserResponseDto], description: 'Newest first.' })
+  users!: AdminUserResponseDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta!: PaginationMetaDto;
 }

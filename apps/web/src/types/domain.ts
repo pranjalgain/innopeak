@@ -125,8 +125,10 @@ export interface GeneralSettings {
 export type ConnectionStatus = "connected" | "disconnected";
 
 export interface ConnectionInfo {
-  businessName: string;
-  lastSyncedAt: string;
+  /** `null` when nothing is connected (or the connection state could not be read). */
+  businessName: string | null;
+  /** `null` until the first sync, or when nothing is connected. */
+  lastSyncedAt: string | null;
   status: ConnectionStatus;
 }
 

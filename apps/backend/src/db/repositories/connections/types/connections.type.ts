@@ -31,6 +31,8 @@ export interface LocationRow {
   websiteUri: string | null;
   /** Last attempt to re-read name/address/phone/website from the provider, successful or not; `null` until the first. */
   detailsRefreshedAt: string | null;
+  /** Last attempt to compare Google's full review list with ours, successful or not; `null` until the first. */
+  reviewsReconciledAt: string | null;
   status: LocationStatus;
   lastSyncedAt: string | null;
   lastSyncStatus: SyncHealthStatus | null;

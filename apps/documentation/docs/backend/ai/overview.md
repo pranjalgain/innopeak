@@ -15,11 +15,8 @@ draft needs (`source = 'ai_generated'`, `status = 'pending_approval'`, `prompt_v
 belongs to. Nothing, until this module, filled a template with a real review and asked a model
 for text back.
 
-**Implemented, two ways in:**
-- `generateDryRunReply` — given a tenant's prompt (real or overridden) and a **caller-supplied
-  mock review**, produces reply text and shows what came back, without persisting anything. For
-  validating the AI provider integration and a tenant's prompt/tone configuration in isolation.
-- `generateForClassifiedReviews` — the real thing: reads **actual** reviews
+**Implemented:**
+- `generateForClassifiedReviews` — reads **actual** reviews
   `ReviewClassificationService` already routed to `auto_reply_candidate`/`escalated`, generates a
   reply for each, and persists it as a `pending_approval` `review_responses` row. Called from
   `ReviewSyncQueueService.classifyImportedReviews`, right after classification, in the same
@@ -28,7 +25,7 @@ for text back.
   [§ What this module deliberately doesn't do yet](#what-this-module-deliberately-doesnt-do-yet)
   for the two points where it's simplified against PLAN.md §5's literal wording.
 
-For the endpoint contract, see [AI Module — API Reference](./api-reference.md).
+This module has no HTTP endpoints; see [AI Module — API Reference](./api-reference.md) for the error codes and the CLI script.
 
 ## Files
 
@@ -36,10 +33,8 @@ For the endpoint contract, see [AI Module — API Reference](./api-reference.md)
 src/api/ai/
   ai.module.ts                          # AiProvider factory (AI_PROVIDER=azure by default, falls
                                          # back to 'azure' when unset; 'openrouter' also selectable)
-  ai.controller.ts                      # POST /v1/ai/dry-run, no auth — see the API reference
-  ai-reply-generation.service.ts        # the two entrypoints — generateDryRunReply and
-                                         # generateForClassifiedReviews (flat, not services/ —
-                                         # this module has exactly one controller and one
+  ai-reply-generation.service.ts        # the one entrypoint — generateForClassifiedReviews
+                                         # (flat, not services/ — this module has exactly one
                                          # service; see module-structure.md's "more than one"
                                          # trigger for the services/ subfolder)
   providers/
@@ -51,21 +46,14 @@ src/api/ai/
                                          # buildSystemPrompt (fixed house-style rules)
     prompt-category-for-review.util.ts  # resolvePromptCategoryForReview — maps a classified
                                          # review to which PromptCategory drafts its reply
-  dto/
-    generate-reply-dry-run.dto.ts       # request body (+ nested MockReviewDto, + toServiceInput())
-    generate-reply-dry-run-response.dto.ts
-  swagger/ai.swagger.ts
   constants/
     ai.constants.ts                    # model params, error codes, OpenRouter base URL,
                                          # FALLBACK_BUSINESS_NAME
-    mock-review-fixtures.constant.ts    # realistic mock reviews — shared by the dry-run script
-                                         # and the Swagger examples
+    mock-review-fixtures.constant.ts    # realistic mock reviews — used by the dry-run script
   exceptions/ai.exceptions.ts
   types/
     ai-provider.type.ts                 # the provider boundary — GenerateReplyInput/Result
-    ai-reply-generation.type.ts         # the service boundary — MockReviewInput/
-                                         # GenerateDryRunReplyInput/GeneratedReply, shared with
-                                         # the DTOs rather than declared twice
+    ai-reply-generation.type.ts         # the service boundary — batch input/result types
   scripts/
     ai-dry-run.script.ts                # `pnpm ai:dry-run` — DB-free provider smoke test
 ```
@@ -200,19 +188,14 @@ Both flagged here rather than silently matched — real, scoped follow-up work, 
 - **No retry/backoff on the provider call itself.** A failed generation call releases its claim
   for the next tick to retry, which is a coarser recovery than an in-request retry with backoff.
 
-## Billing entitlement check, everywhere generation can run
+## Billing entitlement check
 
-`BillingEntitlementsService.canGenerateAiDraft` existed before this module (added alongside the
-billing feature, deliberately unwired — see that method's own doc comment) and counts
-`review_responses` rows with `source = 'ai_generated'` in the current calendar month. Both
-`generateDryRunReply` and `generateForClassifiedReviews` call it before generating, and it throws
-`AiDraftLimitReachedException` (already defined in `billing.exceptions.ts`) — but only the second
-one can ever move the count it enforces, since a dry run never persists a row. `generateDryRunReply`
-still checks it anyway: enforcing the check there costs nothing (it can never itself push a tenant
-over the limit) while still letting you verify the whole entitlement wiring works, not just the AI
-call in isolation. `generateForClassifiedReviews` checks it **once per batch**, not once per review
-— the quota is tenant-wide, so a single check short-circuits the whole poll tick's generation phase
-rather than re-checking (and re-reading the same count) for every candidate.
+`generateForClassifiedReviews` reads the tenant's entitlements **once per batch**, not once per review: the quota is
+tenant-wide (`maxAiDraftsPerMonth` against `aiDraftsUsedThisMonth`, the count of `review_responses` with
+`source = 'ai_generated'` this UTC month), so one read short-circuits the whole poll tick's generation phase. Each
+persisted snippet spends one unit, so a review drafted with three snippets spends three. When the quota runs out
+mid-batch the leftovers wait for the next tick (`quotaReached` in the batch result). While payments are disabled the
+limits are lifted and the quota never applies.
 
 ## System prompt vs. template — where each instruction lives
 
@@ -221,25 +204,17 @@ A generated reply is driven by two separate pieces of text, composed in
 
 | | Lives in | Owner-editable | Content |
 |---|---|---|---|
-| System prompt | `buildSystemPrompt` (fixed code) | No | Output format (no preamble/markdown/quotes), the requested tone, "never invent facts/promises", and contact details: the location's Google phone and website as the only ones a reply may use, never a placeholder such as `[phone/email]`, and with none listed an invitation to get in touch that names no channel. The dry run has no location, so it always drafts as if none were listed |
+| System prompt | `buildSystemPrompt` (fixed code) | No | Output format (no preamble/markdown/quotes), the requested tone, "never invent facts/promises", never addressing the reviewer by name or repeating a name from the review (the reviewer's name is not even sent to the provider: `{{reviewer_name}}` is filled with the neutral phrase `a reviewer`, `ANONYMOUS_REVIEWER`), and contact details: the location's Google phone and website as the only ones a reply may use, never a placeholder such as `[phone/email]`, and with none listed an invitation to get in touch that names no channel. |
 | User prompt | The tenant's `prompt_versions.template`, filled in | Yes (Settings → Prompts) | What to acknowledge, word limits, the GDPR "don't repeat the reviewer's name" house rule (PLAN.md §6) — all already present in `DEFAULT_PROMPTS` |
 
 `tone` is **not** a `{{placeholder}}` — it's a separate axis applied only in the system prompt,
 since the required-placeholder set (`business_name`/`reviewer_name`/`rating`/`review_text`) has no
 tone slot and was never meant to.
 
-## Testing the dry-run path
+## Testing prompts and the provider
 
-Two ways to exercise it, deliberately different in scope — both against **mock** reviews, neither
-touching a real review or persisting anything:
-
-| | `pnpm ai:dry-run` | `POST /v1/ai/dry-run` |
-|---|---|---|
-| Needs a running server | No | Yes |
-| Auth | N/A (no server) | None — `@Public()`, see `AiController`'s own doc comment |
-| Uses which template | Category's *default* (`DEFAULT_PROMPTS`) | The **real tenant's own saved** template/tone (pass `tenantId`, or omit for the newest tenant), or an override |
-| Checks | Raw provider round-trip, latency, token counts | The whole path: entitlement check, prompt lookup, business name resolution, provider call |
-
-Both draw their mock reviews from the same `MOCK_REVIEW_FIXTURES` list (short 5-star, mixed
-3-star, angry 1-star, a long rambling 1-star, and a non-English review) — see that file's own
+`pnpm ai:dry-run` runs the provider against **mock** reviews with the category's *default* prompt
+(`DEFAULT_PROMPTS`), needing no server and no database. It shows the raw provider round-trip, latency and token
+counts, and never touches a real review or persists anything. The mock reviews come from `MOCK_REVIEW_FIXTURES`
+(short 5-star, mixed 3-star, angry 1-star, a long rambling 1-star, and a non-English review) — see that file's own
 doc comment for why each one is there.

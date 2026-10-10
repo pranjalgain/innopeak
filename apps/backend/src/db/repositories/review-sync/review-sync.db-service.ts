@@ -377,6 +377,24 @@ export class ReviewSyncDbService {
     );
   }
 
+  findOpenReviewsForReconciliation(input: {
+    locationId: string;
+    createdBefore: string;
+  }): Promise<{ id: string; externalReviewId: string }[]> {
+    return this.reviewSyncRepository.findOpenReviewsForReconciliation(input);
+  }
+
+  markReviewsRemovedUpstream(reviewIds: string[]): Promise<number> {
+    return this.reviewSyncRepository.markReviewsRemovedUpstream(reviewIds);
+  }
+
+  restoreRelistedReviews(input: {
+    locationId: string;
+    externalReviewIds: string[];
+  }): Promise<number> {
+    return this.reviewSyncRepository.restoreRelistedReviews(input);
+  }
+
   /** Recorded when Google answers 404 for the review: its author deleted it there. */
   markReviewRemovedUpstream(input: { reviewId: string; tenantId: string }): Promise<void> {
     return this.reviewSyncRepository.markReviewRemovedUpstream(input);

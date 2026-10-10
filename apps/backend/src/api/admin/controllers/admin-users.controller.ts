@@ -19,7 +19,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import type { AuthUser } from '../../auth/types/auth.type';
-import { AdminUserResponseDto } from '../dto/admin-user-response.dto';
+import { AdminUserListResponseDto, AdminUserResponseDto } from '../dto/admin-user-response.dto';
 import { ListAdminUsersQueryDto } from '../dto/list-admin-users-query.dto';
 import { AdminUsersService } from '../services/admin-users.service';
 import { ApiListAdminUsers, ApiToggleAdminUserActive } from '../swagger/admin-users.swagger';
@@ -35,7 +35,7 @@ export class AdminUsersController {
   async list(
     @CurrentUser() actor: AuthUser,
     @Query() query: ListAdminUsersQueryDto
-  ): Promise<ApiResponseDto<AdminUserResponseDto[]>> {
+  ): Promise<ApiResponseDto<AdminUserListResponseDto>> {
     const result = await this.adminUsersService.list(actor, query);
     return ResponseUtil.success(result, undefined, HttpStatus.OK);
   }

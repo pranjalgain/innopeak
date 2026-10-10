@@ -1,5 +1,3 @@
-import { UserRole } from '@auth/enums/user-role.enum';
-import { AiDraftLimitReachedException } from '@billing/exceptions/billing.exceptions';
 import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { ResponseType } from '@common/enums/response-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
@@ -19,235 +17,16 @@ import {
   GENERATION_BATCH_LIMIT,
   MAX_CONSECUTIVE_GENERATION_FAILURES,
 } from './constants/ai.constants';
-import {
-  AiPromptNotConfiguredException,
-  AiProviderNotConfiguredException,
-} from './exceptions/ai.exceptions';
+import { AiProviderNotConfiguredException } from './exceptions/ai.exceptions';
 import { AiProvider } from './providers/ai.provider';
 import type { GenerateReplyResult } from './types/ai-provider.type';
-
-import { JwtTokenType } from '../auth/enums/jwt-token-type.enum';
-import type { TenantAuthUser } from '../auth/types/auth.type';
-
-describe('AiReplyGenerationService', () => {
-  let target: AiReplyGenerationService;
-  let aiProvider: { generateReply: jest.Mock };
-  let promptsDbService: { findCurrentForCategory: jest.Mock };
-  let authDbService: { findTenantStatus: jest.Mock };
-  let billingEntitlementsService: { canGenerateAiDraft: jest.Mock };
-  let reviewSyncDbService: {
-    findClassifiedNeedingGeneration: jest.Mock;
-    claimForGeneration: jest.Mock;
-    releaseGenerationClaim: jest.Mock;
-    insertGeneratedResponse: jest.Mock;
-    approveResponse: jest.Mock;
-  };
-  let settingsDbService: { findAiReplyCount: jest.Mock; findAutoPostEnabled: jest.Mock };
-  let reviewPostQueue: { addPostJob: jest.Mock };
-  let connectionsDbService: { findLocationForTenant: jest.Mock };
-
-  const tenantUser: TenantAuthUser = {
-    type: JwtTokenType.TENANT_USER,
-    id: '0190f3b2-1c44-7a10-8f31-2b7c9e5d0002',
-    tenantId: '0190f4a1-7c33-7e51-9a02-6d1b8f4c0001',
-    email: 'owner@example.com',
-    role: UserRole.OWNER,
-    locale: null,
-  };
-
-  const mockReview = { reviewerName: 'Jamie L.', rating: 5, reviewText: 'Loved it, thank you!' };
-
-  const providerResult: GenerateReplyResult = {
-    content: 'Thank you so much, Jamie!',
-    model: 'nvidia/nemotron-3-super-120b-a12b:free',
-    promptTokens: 100,
-    completionTokens: 20,
-    latencyMs: 800,
-    finishReason: 'stop',
-  };
-
-  beforeEach(async () => {
-    aiProvider = { generateReply: jest.fn().mockResolvedValue(providerResult) };
-    promptsDbService = {
-      findCurrentForCategory: jest.fn().mockResolvedValue({
-        promptId: 'prompt-1',
-        tone: 'professional',
-        template:
-          'You are replying on behalf of {{business_name}} to a {{rating}}-star review from {{reviewer_name}}.\n\nReview: "{{review_text}}"',
-      }),
-    };
-    authDbService = {
-      findTenantStatus: jest.fn().mockResolvedValue({ id: tenantUser.tenantId, name: 'Acme Cafe' }),
-    };
-    billingEntitlementsService = { canGenerateAiDraft: jest.fn().mockResolvedValue(true) };
-    reviewSyncDbService = {
-      findClassifiedNeedingGeneration: jest.fn().mockResolvedValue([]),
-      claimForGeneration: jest.fn().mockResolvedValue(true),
-      releaseGenerationClaim: jest.fn().mockResolvedValue(undefined),
-      insertGeneratedResponse: jest.fn().mockResolvedValue('response-1'),
-      approveResponse: jest.fn().mockResolvedValue(null),
-    };
-    settingsDbService = {
-      findAiReplyCount: jest.fn().mockResolvedValue(null),
-      findAutoPostEnabled: jest.fn().mockResolvedValue(false),
-    };
-    reviewPostQueue = { addPostJob: jest.fn().mockResolvedValue(undefined) };
-    connectionsDbService = { findLocationForTenant: jest.fn().mockResolvedValue(null) };
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AiReplyGenerationService,
-        { provide: AiProvider, useValue: aiProvider },
-        { provide: PromptsDbService, useValue: promptsDbService },
-        { provide: AuthDbService, useValue: authDbService },
-        { provide: ConnectionsDbService, useValue: connectionsDbService },
-        { provide: BillingEntitlementsService, useValue: billingEntitlementsService },
-        { provide: ReviewSyncDbService, useValue: reviewSyncDbService },
-        { provide: SettingsDbService, useValue: settingsDbService },
-        { provide: ReviewPostQueue, useValue: reviewPostQueue },
-      ],
-    }).compile();
-
-    target = module.get(AiReplyGenerationService);
-  });
-
-  it("fills the tenant's current template with the mock review and calls the provider", async () => {
-    const result = await target.generateDryRunReply(
-      { category: 'positive', review: mockReview },
-      tenantUser.tenantId
-    );
-
-    expect(promptsDbService.findCurrentForCategory).toHaveBeenCalledWith(
-      tenantUser.tenantId,
-      'positive'
-    );
-    expect(aiProvider.generateReply).toHaveBeenCalledWith({
-      systemPrompt: expect.stringContaining('professional tone'),
-      // Trailing ".." is real: the template's final "." runs into "Jamie L.", which already ends in one.
-      userPrompt:
-        'You are replying on behalf of Acme Cafe to a 5-star review from Jamie L..\n\nReview: "Loved it, thank you!"',
-    });
-    expect(result).toEqual({
-      content: providerResult.content,
-      model: providerResult.model,
-      promptTokens: providerResult.promptTokens,
-      completionTokens: providerResult.completionTokens,
-      latencyMs: providerResult.latencyMs,
-      finishReason: 'stop',
-      category: 'positive',
-      tone: 'professional',
-      usedTemplateOverride: false,
-    });
-  });
-
-  it("falls back to a generic, non-identifying business name when the tenant has no name on record — never the owner's email", async () => {
-    authDbService.findTenantStatus.mockResolvedValue(null);
-
-    await target.generateDryRunReply(
-      { category: 'positive', review: mockReview },
-      tenantUser.tenantId
-    );
-
-    expect(aiProvider.generateReply).toHaveBeenCalledWith(
-      expect.objectContaining({ userPrompt: expect.stringContaining('the business') })
-    );
-    expect(aiProvider.generateReply).not.toHaveBeenCalledWith(
-      expect.objectContaining({ userPrompt: expect.stringContaining('owner@example.com') })
-    );
-  });
-
-  it("uses a caller-supplied template override instead of the tenant's saved template", async () => {
-    const result = await target.generateDryRunReply(
-      {
-        category: 'positive',
-        review: mockReview,
-        templateOverride: 'Reply to {{reviewer_name}}: thanks for the {{rating}} stars!',
-        toneOverride: 'playful',
-      },
-      tenantUser.tenantId
-    );
-
-    expect(aiProvider.generateReply).toHaveBeenCalledWith({
-      systemPrompt: expect.stringContaining('playful tone'),
-      userPrompt: 'Reply to Jamie L.: thanks for the 5 stars!',
-    });
-    expect(result.usedTemplateOverride).toBe(true);
-    expect(result.tone).toBe('playful');
-  });
-
-  it("uses the tenant's saved tone (not the platform default) when templateOverride is given without toneOverride", async () => {
-    // Regression: a templateOverride-only dry run used to reset to DEFAULT_PROMPT_TONE instead of the
-    // tenant's saved tone; a non-default tone here proves it is actually read.
-    promptsDbService.findCurrentForCategory.mockResolvedValue({
-      promptId: 'prompt-1',
-      tone: 'empathetic',
-      template: 'irrelevant — templateOverride replaces this',
-    });
-
-    const result = await target.generateDryRunReply(
-      { category: 'positive', review: mockReview, templateOverride: 'Reply to {{reviewer_name}}!' },
-      tenantUser.tenantId
-    );
-
-    expect(promptsDbService.findCurrentForCategory).toHaveBeenCalledWith(
-      tenantUser.tenantId,
-      'positive'
-    );
-    expect(result.tone).toBe('empathetic');
-    expect(aiProvider.generateReply).toHaveBeenCalledWith(
-      expect.objectContaining({ systemPrompt: expect.stringContaining('empathetic tone') })
-    );
-  });
-
-  it('falls back to the platform default tone when templateOverride is given and the tenant has no prompt row at all', async () => {
-    promptsDbService.findCurrentForCategory.mockResolvedValue(null);
-
-    const result = await target.generateDryRunReply(
-      { category: 'positive', review: mockReview, templateOverride: 'Reply to {{reviewer_name}}!' },
-      tenantUser.tenantId
-    );
-
-    expect(result.tone).toBe('professional');
-    expect(result.usedTemplateOverride).toBe(true);
-  });
-
-  it('applies a tone override on top of the saved template', async () => {
-    const result = await target.generateDryRunReply(
-      { category: 'positive', review: mockReview, toneOverride: 'formal' },
-      tenantUser.tenantId
-    );
-
-    expect(result.tone).toBe('formal');
-    expect(result.usedTemplateOverride).toBe(false);
-  });
-
-  it("throws when the plan's monthly AI-draft limit is reached, before ever calling the provider", async () => {
-    billingEntitlementsService.canGenerateAiDraft.mockResolvedValue(false);
-
-    await expect(
-      target.generateDryRunReply({ category: 'positive', review: mockReview }, tenantUser.tenantId)
-    ).rejects.toBeInstanceOf(AiDraftLimitReachedException);
-
-    expect(aiProvider.generateReply).not.toHaveBeenCalled();
-  });
-
-  it('throws when the tenant has no prompt configured for the requested category and no override is given', async () => {
-    promptsDbService.findCurrentForCategory.mockResolvedValue(null);
-
-    await expect(
-      target.generateDryRunReply({ category: 'escalated', review: mockReview }, tenantUser.tenantId)
-    ).rejects.toBeInstanceOf(AiPromptNotConfiguredException);
-
-    expect(aiProvider.generateReply).not.toHaveBeenCalled();
-  });
-});
 
 describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
   let target: AiReplyGenerationService;
   let aiProvider: { generateReply: jest.Mock };
   let promptsDbService: { findCurrentForCategory: jest.Mock };
   let authDbService: { findTenantStatus: jest.Mock };
-  let billingEntitlementsService: { canGenerateAiDraft: jest.Mock; getEntitlements: jest.Mock };
+  let billingEntitlementsService: { getEntitlements: jest.Mock };
   let reviewSyncDbService: {
     findClassifiedNeedingGeneration: jest.Mock;
     claimForGeneration: jest.Mock;
@@ -303,7 +82,6 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
       findTenantStatus: jest.fn().mockResolvedValue({ id: tenantId, name: 'Acme Cafe' }),
     };
     billingEntitlementsService = {
-      canGenerateAiDraft: jest.fn().mockResolvedValue(true),
       // Paid plan by default (null = unlimited) so quota never constrains tests not about quota.
       getEntitlements: jest
         .fn()
@@ -416,9 +194,8 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
     expect(promptsDbService.findCurrentForCategory).toHaveBeenCalledWith(tenantId, 'positive');
     expect(aiProvider.generateReply).toHaveBeenCalledWith({
       systemPrompt: expect.stringContaining('professional tone'),
-      // Trailing ".." is real; see the identical case in generateDryRunReply's spec.
       userPrompt:
-        'You are replying on behalf of Acme Cafe to a 5-star review from Jamie L..\n\nReview: "Loved it, thank you!"',
+        'You are replying on behalf of Acme Cafe to a 5-star review from a reviewer.\n\nReview: "Loved it, thank you!"',
     });
     expect(reviewSyncDbService.insertGeneratedResponse).toHaveBeenCalledWith({
       tenantId,

@@ -32,6 +32,7 @@ const baseLocation = (overrides: Partial<LocationRow>): LocationRow => ({
   phone: null,
   websiteUri: null,
   detailsRefreshedAt: null,
+  reviewsReconciledAt: null,
   status: LocationStatus.ACTIVE,
   lastSyncedAt: null,
   lastSyncStatus: null,
@@ -256,27 +257,6 @@ describe('BillingEntitlementsService', () => {
     });
   });
 
-  describe('canGenerateAiDraft', () => {
-    it('returns true when the plan has no AI draft cap', async () => {
-      billingPlansDbService.findById.mockResolvedValue(paidPlan);
-      reviewSyncDbService.countAiGeneratedResponsesThisMonth.mockResolvedValue(1000);
-
-      await expect(target.canGenerateAiDraft('tenant-1')).resolves.toBe(true);
-    });
-
-    it('returns false once the monthly cap is reached', async () => {
-      reviewSyncDbService.countAiGeneratedResponsesThisMonth.mockResolvedValue(20);
-
-      await expect(target.canGenerateAiDraft('tenant-1')).resolves.toBe(false);
-    });
-
-    it('returns true below the cap', async () => {
-      reviewSyncDbService.countAiGeneratedResponsesThisMonth.mockResolvedValue(19);
-
-      await expect(target.canGenerateAiDraft('tenant-1')).resolves.toBe(true);
-    });
-  });
-
   describe('enforceLocationLimitOnDowngrade', () => {
     it('does nothing when the plan has no location cap', async () => {
       // Only maxLocations matters: the method must bail out before taking the lock.
@@ -411,7 +391,9 @@ describe('BillingEntitlementsService', () => {
       await expect(target.canAddLocation('tenant-1')).resolves.toBe(true);
       await expect(target.canInviteTeamMember('tenant-1')).resolves.toBe(true);
       await expect(target.canEditCustomPrompt('tenant-1')).resolves.toBe(true);
-      await expect(target.canGenerateAiDraft('tenant-1')).resolves.toBe(true);
+      await expect(target.getEntitlements('tenant-1')).resolves.toMatchObject({
+        maxAiDraftsPerMonth: null,
+      });
     });
 
     it('pauses no location on a downgrade to Free', async () => {

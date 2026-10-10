@@ -150,8 +150,6 @@ export const messagesEn: MessageCatalog = {
     STATS_BATCH_RETRIEVED: 'Prompt version stats retrieved successfully',
   },
   AI: {
-    TENANT_ONLY: 'AI reply generation is only available to tenant users.',
-    DRY_RUN_GENERATED: 'AI reply generated successfully',
     PROMPT_NOT_CONFIGURED: 'No prompt is configured for this category yet.',
     PROVIDER_NOT_CONFIGURED:
       'The AI provider is not configured. Set OPENROUTER_API_KEY and OPENROUTER_MODEL.',
@@ -177,7 +175,6 @@ export const messagesEn: MessageCatalog = {
     TEAM_MEMBER_LIMIT_REACHED:
       "You've reached your plan's team member limit. Upgrade to invite more.",
     CUSTOM_PROMPTS_NOT_ON_PLAN: 'Custom prompt templates are not available on your current plan.',
-    AI_DRAFT_LIMIT_REACHED: "You've reached your plan's AI draft limit for this month.",
     STRIPE_WEBHOOK_SIGNATURE_INVALID: 'Invalid Stripe webhook signature',
     LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION:
       'This location cannot be made active — it may not belong to your business or is disconnected.',

@@ -1,11 +1,11 @@
 import type { NotificationRecipientDto, UpdateTenantSettingsDto } from "@innopeak/client-sdk";
 
 import { settingsApi } from "@/app/_libs/api-sdk/settings-api";
-import { MOCK_SETTINGS } from "@/app/_libs/mock-data/settings";
 import { unwrap } from "@/app/_libs/services/api-error";
 import { ConnectionService } from "@/app/_libs/services/connection.service";
 import type {
   BlocklistTerm,
+  ConnectionInfo,
   GeneralSettings,
   NotificationChannel,
   NotificationRecipient,
@@ -78,23 +78,21 @@ export class SettingsService {
       ConnectionService.getState().catch(() => null),
     ]);
 
-    const settings = structuredClone(MOCK_SETTINGS);
-    settings.blocklistTerms = blocklist;
-    settings.general = general;
-    settings.notificationRecipients = recipients;
-
     // Resolved live from GET /v1/connections so this tab cannot disagree with the dashboard guard. `needs_reauth` narrows to
-    // "disconnected" because ConnectionInfo has two values; the guard's banner handles reconnect.
-    if (state) {
-      settings.connection.status = state.status === "connected" ? "connected" : "disconnected";
-      if (state.location) {
-        settings.connection.businessName = state.location.businessName;
-        settings.connection.lastSyncedAt =
-          state.location.lastSyncedAt ?? settings.connection.lastSyncedAt;
-      }
-    }
+    // "disconnected" because ConnectionInfo has two values; the guard's banner handles reconnect. Nothing is invented when
+    // the state is unreadable: the tile then shows "disconnected" with no business, never someone else's sample data.
+    const connection: ConnectionInfo = {
+      status: state?.status === "connected" ? "connected" : "disconnected",
+      businessName: state?.location?.businessName ?? null,
+      lastSyncedAt: state?.location?.lastSyncedAt ?? null,
+    };
 
-    return settings;
+    return {
+      general,
+      blocklistTerms: blocklist,
+      notificationRecipients: recipients,
+      connection,
+    };
   }
 
   static async getGeneralSettings(): Promise<GeneralSettings> {

@@ -143,8 +143,6 @@ export interface MessageCatalog {
     STATS_BATCH_RETRIEVED: string;
   };
   AI: {
-    TENANT_ONLY: string;
-    DRY_RUN_GENERATED: string;
     /** Every tenant is seeded with all three categories at signup, so this is a data-integrity fallback. */
     PROMPT_NOT_CONFIGURED: string;
     /** `OPENROUTER_API_KEY`/`OPENROUTER_MODEL` unset; checked lazily on first call, not at boot. */
@@ -170,7 +168,6 @@ export interface MessageCatalog {
     LOCATION_LIMIT_REACHED: string;
     TEAM_MEMBER_LIMIT_REACHED: string;
     CUSTOM_PROMPTS_NOT_ON_PLAN: string;
-    AI_DRAFT_LIMIT_REACHED: string;
     STRIPE_WEBHOOK_SIGNATURE_INVALID: string;
     LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION: string;
     RECEIPTS_RETRIEVED: string;

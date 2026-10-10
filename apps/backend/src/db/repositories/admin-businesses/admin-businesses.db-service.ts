@@ -23,9 +23,13 @@ export class AdminBusinessesDbService {
     return rows.map(toConnectionStatus);
   }
 
-  async findAll(search?: string): Promise<AdminBusinessSummary[]> {
-    const rows = await this.adminBusinessesRepository.findAll(search);
-    return rows.map(toSummary);
+  async findPage(input: {
+    search?: string | undefined;
+    page: number;
+    pageSize: number;
+  }): Promise<{ businesses: AdminBusinessSummary[]; total: number }> {
+    const { rows, total } = await this.adminBusinessesRepository.findPage(input);
+    return { businesses: rows.map(toSummary), total };
   }
 
   async count(): Promise<number> {

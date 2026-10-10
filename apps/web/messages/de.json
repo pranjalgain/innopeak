@@ -677,7 +677,9 @@
       "disconnectButton": "Trennen",
       "disconnectConfirm": "Sind Sie sicher? Dadurch wird Ihre gesamte Google Unternehmensprofil-Verbindung getrennt — alle unten aufgeführten Standorte synchronisieren danach keine neuen Bewertungen mehr.",
       "cancel": "Abbrechen",
-      "otherLocations": "Weitere verbundene Standorte"
+      "otherLocations": "Weitere verbundene Standorte",
+      "noBusiness": "Kein Google Business-Profil verbunden",
+      "neverSynced": "Noch nicht synchronisiert"
     },
     "ai": {
       "title": "KI-Antworten",

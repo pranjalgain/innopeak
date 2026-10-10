@@ -1,9 +1,16 @@
 import { adminBusinessesApi } from "@/app/_libs/api-sdk/admin-businesses-api";
 import { unwrap } from "@/app/_libs/services/api-error";
-import type { AdminBusiness } from "@/types/domain";
+import type { AdminBusiness, PaginationMeta } from "@/types/domain";
 
 export interface ListAdminBusinessesParams {
   search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface AdminBusinessPage {
+  businesses: AdminBusiness[];
+  meta: PaginationMeta;
 }
 
 // The SDK types `erasureRequestedAt` as `object | null` (generator quirk with nullable `@ApiPropertyOptional` strings), so declare the real shape.
@@ -12,12 +19,14 @@ type ApiAdminBusiness = Omit<AdminBusiness, "erasureRequestedAt"> & {
 };
 
 export class AdminBusinessService {
-  /** `search` is applied server-side. */
-  static async getBusinesses(params: ListAdminBusinessesParams = {}): Promise<AdminBusiness[]> {
+  /** `search` and paging are applied server-side; `meta.total` counts the same filter. */
+  static async getBusinesses(params: ListAdminBusinessesParams = {}): Promise<AdminBusinessPage> {
     const response = await adminBusinessesApi.adminBusinessesControllerListV1({
       search: params.search,
+      page: params.page,
+      pageSize: params.pageSize,
     });
-    return unwrap<ApiAdminBusiness[]>(response.data);
+    return unwrap<{ businesses: ApiAdminBusiness[]; meta: PaginationMeta }>(response.data);
   }
 
   static async setStatus(id: string, status: AdminBusiness["status"]): Promise<AdminBusiness> {
