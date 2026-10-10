@@ -26,6 +26,11 @@ export interface LocationRow {
   externalLocationId: string;
   name: string;
   address: string | null;
+  /** The business's public phone and website, from the provider; `null` when it lists none. */
+  phone: string | null;
+  websiteUri: string | null;
+  /** Last attempt to re-read name/address/phone/website from the provider, successful or not; `null` until the first. */
+  detailsRefreshedAt: string | null;
   status: LocationStatus;
   lastSyncedAt: string | null;
   lastSyncStatus: SyncHealthStatus | null;
@@ -68,12 +73,25 @@ export interface UpsertLocationInput {
   externalLocationId: string;
   name: string;
   address: string | null;
+  phone: string | null;
+  websiteUri: string | null;
 }
 
 export interface ConfirmLocationMatch {
   externalLocationId: string;
   name: string;
   address: string | null;
+  phone: string | null;
+  websiteUri: string | null;
+}
+
+/** The provider-owned fields of a location, re-read by the poll. */
+export interface UpdateLocationDetailsInput {
+  locationId: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  websiteUri: string | null;
 }
 
 export interface ConfirmLocationsInput {

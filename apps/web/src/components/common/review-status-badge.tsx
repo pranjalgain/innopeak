@@ -15,6 +15,7 @@ const CLASSNAME_BY_STATUS: Record<ReviewStatus, string> = {
   in_review: "border-primary text-primary",
   responded: "border-transparent bg-success-soft text-success",
   dismissed: "border-transparent bg-destructive-soft text-destructive",
+  removed: "border-transparent bg-muted text-muted-foreground",
 };
 
 export function ReviewStatusBadge({ status, className }: ReviewStatusBadgeProps) {

@@ -15,6 +15,7 @@ import {
   ProviderAuthError,
   ProviderMappingError,
   ProviderNotConfiguredError,
+  ProviderNotFoundError,
   ProviderRateLimitError,
   ProviderUnavailableError,
 } from '../errors/provider.error';
@@ -24,6 +25,7 @@ import type {
   GbpListAccountsResponse,
   GbpListLocationsResponse,
   GbpListReviewsResponse,
+  GbpLocation,
   GbpReview,
   GbpReviewReply,
   GbpTokenResponse,
@@ -152,6 +154,14 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
 
     return locations;
   }
+  async getLocation(accessToken: string, externalLocationId: string): Promise<ProviderLocation> {
+    const params = new URLSearchParams({ readMask: GBP_LOCATION_READ_MASK });
+    const location = await this.request<GbpLocation>(
+      `${GBP_HOSTS.BUSINESS_INFORMATION}/${externalLocationId}?${params.toString()}`,
+      accessToken
+    );
+    return mapGbpLocation(location);
+  }
 
   async listReviews(accessToken: string, options: ListReviewsOptions): Promise<ProviderReviewPage> {
     const params = new URLSearchParams({
@@ -274,6 +284,10 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
 
     if (status >= 500) {
       return new ProviderUnavailableError(`Google returned ${status}: ${detail}`);
+    }
+
+    if (status === 404) {
+      return new ProviderNotFoundError(`Google has no such resource (404): ${detail}`);
     }
 
     // Any other 4xx means we asked for something wrong (bad readMask, unknown location); retrying reproduces it.

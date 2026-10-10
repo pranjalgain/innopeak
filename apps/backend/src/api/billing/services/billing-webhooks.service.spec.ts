@@ -49,7 +49,10 @@ describe('BillingWebhooksService', () => {
   >;
   let connectionsDbService: jest.Mocked<Pick<ConnectionsDbService, 'clearBillingPauseForTenant'>>;
   let billingEntitlementsService: jest.Mocked<
-    Pick<BillingEntitlementsService, 'enforceLocationLimitOnDowngrade'>
+    Pick<
+      BillingEntitlementsService,
+      'enforceLocationLimitOnDowngrade' | 'notifyOwnersOfPausedLocations'
+    >
   >;
   let billingReceiptsDbService: jest.Mocked<Pick<BillingReceiptsDbService, 'recordIfNew'>>;
 
@@ -68,7 +71,10 @@ describe('BillingWebhooksService', () => {
       touchStripeVerifiedAt: jest.fn(),
     };
     connectionsDbService = { clearBillingPauseForTenant: jest.fn() };
-    billingEntitlementsService = { enforceLocationLimitOnDowngrade: jest.fn() };
+    billingEntitlementsService = {
+      enforceLocationLimitOnDowngrade: jest.fn().mockResolvedValue(null),
+      notifyOwnersOfPausedLocations: jest.fn().mockResolvedValue(undefined),
+    };
     billingReceiptsDbService = {
       recordIfNew: jest.fn().mockResolvedValue({ inserted: true, paidAfterErasureRequest: false }),
     };
@@ -239,6 +245,61 @@ describe('BillingWebhooksService', () => {
         'tenant-1',
         fakeTx
       );
+    });
+
+    // Regression: the owner email went out inside the transaction, holding its locks, even for a pause that rolled back.
+    it('emails the owners about paused locations only after the transaction commits', async () => {
+      tenantSubscriptionsDbService.findByStripeSubscriptionId.mockResolvedValue(subscriptionRow);
+      const notice = {
+        tenantId: 'tenant-1',
+        maxLocations: 1,
+        keptLocationNames: ['Harbor St'],
+        pausedLocationNames: ['Old Town'],
+      };
+      billingEntitlementsService.enforceLocationLimitOnDowngrade.mockResolvedValue(notice);
+      let committed = false;
+      dbService.db.transaction.mockImplementation(
+        async (fn: (tx: DrizzleTransaction) => unknown) => {
+          const result = await fn(fakeTx);
+          committed = true;
+          return result;
+        }
+      );
+      billingEntitlementsService.notifyOwnersOfPausedLocations.mockImplementation(() => {
+        expect(committed).toBe(true);
+        return Promise.resolve();
+      });
+
+      await target.handleEvent({
+        id: 'evt_4b',
+        type: 'customer.subscription.deleted',
+        customerId: 'cus_1',
+        subscriptionId: 'sub_1',
+      });
+
+      expect(billingEntitlementsService.notifyOwnersOfPausedLocations).toHaveBeenCalledWith(notice);
+    });
+
+    it('emails nobody when the transaction rolls back', async () => {
+      tenantSubscriptionsDbService.findByStripeSubscriptionId.mockResolvedValue(subscriptionRow);
+      billingEntitlementsService.enforceLocationLimitOnDowngrade.mockResolvedValue({
+        tenantId: 'tenant-1',
+        maxLocations: 1,
+        keptLocationNames: [],
+        pausedLocationNames: ['Old Town'],
+      });
+      tenantSubscriptionsDbService.touchStripeVerifiedAt.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        target.handleEvent({
+          id: 'evt_4c',
+          type: 'customer.subscription.deleted',
+          customerId: 'cus_1',
+          subscriptionId: 'sub_1',
+        })
+      ).rejects.toThrow('db down');
+
+      expect(billingEntitlementsService.notifyOwnersOfPausedLocations).not.toHaveBeenCalled();
     });
 
     it('acknowledges (does not throw) an unknown-customer event older than the retry grace window', async () => {

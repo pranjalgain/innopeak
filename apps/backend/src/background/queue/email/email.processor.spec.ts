@@ -57,6 +57,16 @@ describe('EmailProcessor', () => {
       expect(job.log).toHaveBeenCalled();
     });
 
+    it('dispatches LOCATIONS_PAUSED_EMAIL jobs to EmailQueueService.sendLocationsPausedEmail', async () => {
+      emailQueueService.sendLocationsPausedEmail = jest.fn().mockResolvedValue(undefined);
+      const data = { email: 'owner@example.com', locale: 'en' };
+      const job = buildJob({ name: JobName.LOCATIONS_PAUSED_EMAIL, data });
+
+      await processor.process(job);
+
+      expect(emailQueueService.sendLocationsPausedEmail).toHaveBeenCalledWith(data);
+    });
+
     it('throws for an unknown job name without calling the email queue service', async () => {
       const job = buildJob({ name: 'unknown-job' });
 

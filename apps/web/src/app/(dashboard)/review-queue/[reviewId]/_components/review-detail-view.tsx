@@ -76,8 +76,10 @@ export function ReviewDetailView({ reviewId }: ReviewDetailViewProps) {
     const delivery = getReplyDeliveryState(draft);
     return delivery === "not_posted" || delivery === "posted";
   });
+  // Deleted on Google: nothing can be posted to it, so every reply action is withdrawn.
+  const isRemoved = review.status === "removed";
   const canWriteManualReply =
-    review.status !== "responded" && review.status !== "dismissed" && !hasLiveReply;
+    review.status !== "responded" && review.status !== "dismissed" && !isRemoved && !hasLiveReply;
 
   return (
     <div className="flex flex-col gap-6 p-fluid-page">
@@ -87,6 +89,12 @@ export function ReviewDetailView({ reviewId }: ReviewDetailViewProps) {
         <span className="text-[13px] text-muted-foreground">{t("reviewStatusLabel")}</span>
         <ReviewStatusBadge status={review.status} />
       </div>
+
+      {isRemoved ? (
+        <p role="status" className="rounded-md bg-muted px-3 py-2.5 text-[13px] text-muted-foreground">
+          {t("removedNotice")}
+        </p>
+      ) : null}
 
       <ReviewSummaryCard review={review} />
 
@@ -121,6 +129,7 @@ export function ReviewDetailView({ reviewId }: ReviewDetailViewProps) {
                     isPosting={postingDraftIds.has(draft.id)}
                     isDeciding={decidingDraftIds.has(draft.id)}
                     canRetry={!hasLiveReply}
+                    reviewRemoved={isRemoved}
                   />
                 </div>
               ))}

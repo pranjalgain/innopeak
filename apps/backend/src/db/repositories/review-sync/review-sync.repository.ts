@@ -7,10 +7,11 @@ import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { ReviewStatus } from '@common/enums/review-status.enum';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
+import { toStoredMessage } from '@common/i18n/message-registry';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 
 import type {
   ApproveResponseInput,
@@ -158,7 +159,7 @@ export class ReviewSyncRepository {
         ...(input.finalizeReviewsTotal && input.reviewsFetched !== undefined
           ? { reviewsTotal: input.reviewsFetched }
           : {}),
-        errorMessage: input.errorMessage,
+        errorMessage: toStoredMessage(input.errorMessage),
       })
       .where(
         and(eq(schema.syncRuns.id, syncRunId), eq(schema.syncRuns.status, SyncRunStatus.RUNNING))
@@ -288,6 +289,14 @@ export class ReviewSyncRepository {
           reviewText: sql`excluded.review_text`,
           reviewerName: sql`excluded.reviewer_name`,
           externalUpdatedAt: sql`excluded.external_updated_at`,
+          // Google listing the review again proves it exists, so an earlier "removed on Google" (inferred from a
+          // 404) is withdrawn: back to `in_review` when drafts exist, else `new` for generation to pick up.
+          removedUpstreamAt: null,
+          status: sql`CASE WHEN reviews.status = ${ReviewStatus.REMOVED}
+            THEN (CASE WHEN EXISTS (
+              SELECT 1 FROM ${schema.reviewResponses} WHERE ${schema.reviewResponses.reviewId} = reviews.id
+            ) THEN ${ReviewStatus.IN_REVIEW} ELSE ${ReviewStatus.NEW} END)::review_status
+            ELSE reviews.status END`,
           updatedAt: sql`now()`,
         },
       })
@@ -779,6 +788,20 @@ export class ReviewSyncRepository {
     return rows.length > 0;
   }
 
+  /** First sighting wins: an already-set timestamp is left as it was. */
+  async markReviewRemovedUpstream(input: { reviewId: string; tenantId: string }): Promise<void> {
+    await this.dbService.db
+      .update(schema.reviews)
+      .set({ removedUpstreamAt: sql`now()`, status: ReviewStatus.REMOVED, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.reviews.id, input.reviewId),
+          eq(schema.reviews.tenantId, input.tenantId),
+          isNull(schema.reviews.removedUpstreamAt)
+        )
+      );
+  }
+
   /** CAS `approved -> post_failed`, recording the provider's own error text for the retry UI. */
   async markResponsePostFailed(
     input: MarkResponsePostFailedInput
@@ -787,7 +810,7 @@ export class ReviewSyncRepository {
       .update(schema.reviewResponses)
       .set({
         status: ResponseStatus.POST_FAILED,
-        errorMessage: input.errorMessage,
+        errorMessage: toStoredMessage(input.errorMessage),
         postAttemptedAt: null,
         updatedAt: sql`now()`,
       })

@@ -123,6 +123,8 @@ Success `200`:
     "externalLocationId": "locations/12345678901234567890",
     "businessName": "The Coastal Table",
     "address": "214 Harbor St, Portland, ME",
+    "phone": "+1 207-555-0142",
+    "websiteUri": "https://coastaltable.example",
     "status": "active",
     "lastSyncedAt": "2026-09-01T14:15:00.000Z",
     "lastSyncStatus": "ok",
@@ -131,6 +133,12 @@ Success `200`:
   }
 }
 ```
+
+`phone` and `websiteUri` are what the business lists on Google (`phoneNumbers.primaryPhone`, `websiteUri`), `null`
+when it lists none. They are stored on `locations` when a location is confirmed and re-read, with the name and
+address, by the 15-minute poll at most once a day (`locations.details_refreshed_at`); a failed re-read is logged
+and retried on the next tick, never failing the poll. The dashboard's business card shows them, and the AI reply
+prompt uses them (see [AI overview](../ai/overview.md)). Google exposes no business email address, so there is none.
 
 Errors: `401` (missing/expired token), `403 TENANT_SUSPENDED`, `429`.
 

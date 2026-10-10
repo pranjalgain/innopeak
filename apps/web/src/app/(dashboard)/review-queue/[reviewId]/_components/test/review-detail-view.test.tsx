@@ -91,6 +91,14 @@ describe("ReviewDetailView — manual reply availability", () => {
     expect(screen.getByText(manualTitle)).toBeTruthy();
   });
 
+  test("withholds it on a review deleted on Google, and says why", () => {
+    show(review([draft({ status: "pending_approval", decidedAt: null })], "removed"));
+
+    expect(screen.queryByText(manualTitle)).toBeNull();
+    expect(screen.getByText(messages.reviewDetail.removedNotice)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: messages.reviewDetail.replies.approve })).toBeNull();
+  });
+
   test("withholds it on a responded or dismissed review", () => {
     show(review([], "dismissed"));
 

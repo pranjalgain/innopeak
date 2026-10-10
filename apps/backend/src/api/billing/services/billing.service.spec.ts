@@ -65,7 +65,7 @@ function buildConfigService(
 
 describe('BillingService', () => {
   let target: BillingService;
-  let billingPlansDbService: jest.Mocked<Pick<BillingPlansDbService, 'findByCode'>>;
+  let billingPlansDbService: jest.Mocked<Pick<BillingPlansDbService, 'findByCode' | 'listAll'>>;
   let tenantSubscriptionsDbService: jest.Mocked<
     Pick<
       TenantSubscriptionsDbService,
@@ -104,7 +104,7 @@ describe('BillingService', () => {
   };
 
   beforeEach(() => {
-    billingPlansDbService = { findByCode: jest.fn() };
+    billingPlansDbService = { findByCode: jest.fn(), listAll: jest.fn() };
     tenantSubscriptionsDbService = {
       findByTenantId: jest.fn(),
       markCancellationScheduled: jest.fn().mockResolvedValue(undefined),
@@ -526,6 +526,62 @@ describe('BillingService', () => {
       const result = await target.downloadReceiptPdf(tenantUser, 'receipt-1');
 
       expect(result.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    });
+  });
+
+  describe('listPlans', () => {
+    const free = {
+      id: 'plan-free',
+      code: BillingPlanCode.FREE,
+      stripeProductId: null,
+      stripePriceId: null,
+      maxLocations: 1,
+      maxAiDraftsPerMonth: 20,
+      maxTeamMembers: 1,
+      customPromptsEnabled: false,
+    };
+
+    it("shows each plan's own limits while payments are on", async () => {
+      billingPlansDbService.listAll.mockResolvedValue([free]);
+      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(baseSubscription);
+
+      const result = await target.listPlans(tenantUser);
+
+      expect(result.plans[0]).toEqual(
+        expect.objectContaining({
+          maxLocations: 1,
+          maxAiDraftsPerMonth: 20,
+          customPromptsEnabled: false,
+        })
+      );
+    });
+
+    // Regression: with payments off the plan screen advertised Free's caps, which were no longer enforced.
+    it('shows no limits while payments are off, matching what is enforced', async () => {
+      const paymentsOff = new BillingService(
+        billingPlansDbService as unknown as BillingPlansDbService,
+        tenantSubscriptionsDbService as unknown as TenantSubscriptionsDbService,
+        billingEntitlementsService as unknown as BillingEntitlementsService,
+        billingReconciliationService as unknown as BillingReconciliationService,
+        billingReceiptsDbService as unknown as BillingReceiptsDbService,
+        authDbService as unknown as AuthDbService,
+        paymentProvider as unknown as PaymentProvider,
+        buildConfigService({ PAYMENT_FEATURE_ENABLED: 'false' })
+      );
+      billingPlansDbService.listAll.mockResolvedValue([free]);
+      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(baseSubscription);
+
+      const result = await paymentsOff.listPlans(tenantUser);
+
+      expect(result.plans[0]).toEqual(
+        expect.objectContaining({
+          code: BillingPlanCode.FREE,
+          maxLocations: null,
+          maxAiDraftsPerMonth: null,
+          maxTeamMembers: null,
+          customPromptsEnabled: true,
+        })
+      );
     });
   });
 

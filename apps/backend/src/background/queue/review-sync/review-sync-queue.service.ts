@@ -44,6 +44,9 @@ const MAX_POLL_PAGES = 200;
  */
 const POLL_CURSOR_OVERLAP_MS = 5 * 60 * 1000;
 
+/** A location's name, address, phone and website are re-read from the provider at most this often. */
+const LOCATION_DETAILS_REFRESH_MS = 24 * 60 * 60 * 1000;
+
 /** Holds all review-ingestion logic (backfill and poll); the processor and SQS consumer contain none. */
 @Injectable()
 export class ReviewSyncQueueService {
@@ -167,6 +170,9 @@ export class ReviewSyncQueueService {
         throw new Error(`Location ${job.locationId} not found for tenant ${job.tenantId}`);
       }
 
+      // Before generating, so this tick's drafts already use the current phone and website.
+      await this.refreshLocationDetailsIfStale(job, accessToken, location);
+
       const importResult = await this.importNewPages(
         job,
         run.id,
@@ -286,6 +292,49 @@ export class ReviewSyncQueueService {
         quotaReached: false,
         error: null,
       };
+    }
+  }
+
+  /**
+   * Best-effort: the details only feed the reply prompt and the dashboard, so a failure is logged rather than failing
+   * the poll, and stamped as an attempt so it is retried in a day, not on every tick. A location never tried (or not
+   * for a day) is due.
+   */
+  private async refreshLocationDetailsIfStale(
+    job: IReviewSyncJob,
+    accessToken: string,
+    location: { name: string; detailsRefreshedAt: string | null }
+  ): Promise<void> {
+    const { detailsRefreshedAt } = location;
+    if (
+      detailsRefreshedAt !== null &&
+      Date.now() - new Date(detailsRefreshedAt).getTime() < LOCATION_DETAILS_REFRESH_MS
+    ) {
+      return;
+    }
+
+    try {
+      const details = await this.provider.getLocation(accessToken, job.externalLocationId);
+      await this.connectionsDbService.updateLocationDetails({
+        locationId: job.locationId,
+        // The mapper falls back to the resource path when Google's title is blank (it often briefly is); never
+        // replace a real name with that id.
+        name: details.name === job.externalLocationId ? location.name : details.name,
+        address: details.address,
+        phone: details.phone,
+        websiteUri: details.websiteUri,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not refresh details for location ${job.locationId} (next try in a day): ${(error as Error).message}`
+      );
+      try {
+        await this.connectionsDbService.markLocationDetailsAttempted(job.locationId);
+      } catch (stampError) {
+        this.logger.warn(
+          `Could not record the details refresh attempt for location ${job.locationId}: ${(stampError as Error).message}`
+        );
+      }
     }
   }
 

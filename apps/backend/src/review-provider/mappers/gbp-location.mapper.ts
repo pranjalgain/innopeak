@@ -35,6 +35,8 @@ export function mapGbpLocation(location: GbpLocation): ProviderLocation {
     // `locations.name` is NOT NULL and Google can return no/blank title, so fall back to the resource path.
     name: nonEmpty(location.title) ?? location.name,
     address: formatAddress(location.storefrontAddress),
+    phone: nonEmpty(location.phoneNumbers?.primaryPhone),
+    websiteUri: nonEmpty(location.websiteUri),
   };
 }
 

@@ -1,10 +1,12 @@
 export interface Tenant {
   name: string;
-  /** `null` when none is connected. Google's category, phone and aggregate rating are never fetched, so they are not
-   *  modelled here. */
+  /** `null` when none is connected. Phone and website are as the business lists them on Google; its category and
+   *  aggregate rating are never fetched, so they are not modelled here. */
   location: {
     name: string;
     address: string | null;
+    phone: string | null;
+    websiteUri: string | null;
     lastSyncedAt: string | null;
   } | null;
 }
@@ -43,7 +45,8 @@ export interface AttentionReview {
   escalationReason: EscalationReason | null;
 }
 
-export type ReviewStatus = "new" | "in_review" | "responded" | "dismissed";
+/** `removed`: its author deleted it on Google, so it can no longer be replied to. */
+export type ReviewStatus = "new" | "in_review" | "responded" | "dismissed" | "removed";
 
 export type ReviewClassification =
   | "auto_reply_candidate"

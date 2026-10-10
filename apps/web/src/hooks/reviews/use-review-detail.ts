@@ -144,7 +144,12 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
             toast.success(t("posted"));
           } else if (outcome.status === "post_failed") {
             finished.push(id);
-            toast.error(t("postFailed"));
+            // The reason the backend recorded (e.g. the review was deleted on Google) beats a generic "retry".
+            toast.error(
+              outcome.errorMessage
+                ? t("postFailedWithReason", { message: outcome.errorMessage })
+                : t("postFailed"),
+            );
           } else if (outcome.status !== "approved") {
             finished.push(id);
           }

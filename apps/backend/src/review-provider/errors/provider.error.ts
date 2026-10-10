@@ -43,6 +43,13 @@ export class ProviderMappingError extends ProviderError {
   }
 }
 
+/** A 404: the thing asked about no longer exists on the provider, e.g. a review its author deleted. Never retryable. */
+export class ProviderNotFoundError extends ProviderMappingError {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
+  }
+}
+
 /** No provider client id/secret on the server. An operator problem, unlike ProviderAuthError: a 409 "reconnect" here would loop owners forever. */
 export class ProviderNotConfiguredError extends ProviderError {
   constructor(message: string) {

@@ -166,9 +166,12 @@ schedule of its own).
    (`resolvePromptCategoryForReview` — a rating/classification mapping distinct from
    classification's own routing decision, see that util's own doc comment for why the two axes
    aren't the same thing), fill the tenant's real template, call the provider.
-4. `insertGeneratedResponse` — persists a `pending_approval` row (`AUTO_REPLY_SUGGESTION` or
+4. `insertGeneratedResponse` — persists one `pending_approval` row per draft (`AUTO_REPLY_SUGGESTION` or
    `ESCALATION_SNIPPET`, `source = 'ai_generated'`, `generation_metadata` carrying model/tokens/
-   latency/finishReason/tone/category). `status` stays `in_review` — PLAN.md's next stage (an
+   latency/finishReason/tone/category). Every review gets `tenant_settings.ai_reply_count` drafts (capped by
+   the month's remaining AI-draft allowance) from one provider call, grouped under one `generation_group_id`
+   so they are labelled A, B, C. A non-escalated review that `auto_post_enabled` will post gets one draft:
+   no one picks between drafts first, so extras would only use up the allowance. `status` stays `in_review` — PLAN.md's next stage (an
    owner approving/editing/posting the draft) is what moves it further.
 5. On any failure (no prompt configured, the provider call itself failing), the claim is released
    back to `'new'` so the *next* 15-minute tick retries it — the same self-healing shape a
@@ -218,7 +221,7 @@ A generated reply is driven by two separate pieces of text, composed in
 
 | | Lives in | Owner-editable | Content |
 |---|---|---|---|
-| System prompt | `buildSystemPrompt` (fixed code) | No | Output format (no preamble/markdown/quotes), the requested tone, "never invent facts/promises" |
+| System prompt | `buildSystemPrompt` (fixed code) | No | Output format (no preamble/markdown/quotes), the requested tone, "never invent facts/promises", and contact details: the location's Google phone and website as the only ones a reply may use, never a placeholder such as `[phone/email]`, and with none listed an invitation to get in touch that names no channel. The dry run has no location, so it always drafts as if none were listed |
 | User prompt | The tenant's `prompt_versions.template`, filled in | Yes (Settings → Prompts) | What to acknowledge, word limits, the GDPR "don't repeat the reviewer's name" house rule (PLAN.md §6) — all already present in `DEFAULT_PROMPTS` |
 
 `tone` is **not** a `{{placeholder}}` — it's a separate axis applied only in the system prompt,

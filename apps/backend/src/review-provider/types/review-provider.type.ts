@@ -19,6 +19,9 @@ export interface ProviderLocation {
   externalLocationId: string;
   name: string;
   address: string | null;
+  /** The primary phone number the business lists, as Google formats it. */
+  phone: string | null;
+  websiteUri: string | null;
 }
 
 export interface ProviderReviewReply {

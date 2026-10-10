@@ -21,3 +21,14 @@ export const HANDLED_STRIPE_EVENT_TYPES = [
  *  seconds; older ones are customers this DB will never know, and failing them for days risks Stripe
  *  disabling the endpoint. */
 export const UNKNOWN_CUSTOMER_RETRY_GRACE_MS = 60 * 60 * 1000;
+
+/**
+ * Every plan's limits while `PAYMENT_FEATURE_ENABLED` is off: with no way to upgrade, nobody is held to Free's caps.
+ * Used by `BillingEntitlementsService` (what is enforced) and `BillingService.listPlans` (what the plan screen shows).
+ */
+export const UNLIMITED_ENTITLEMENTS = {
+  maxLocations: null,
+  maxAiDraftsPerMonth: null,
+  maxTeamMembers: null,
+  customPromptsEnabled: true,
+} as const;

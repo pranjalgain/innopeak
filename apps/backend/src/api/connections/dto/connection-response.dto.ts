@@ -55,6 +55,20 @@ export class ConnectionLocationDto {
   @ApiPropertyOptional({ example: '214 Harbor St, Portland, ME', nullable: true })
   address!: string | null;
 
+  @ApiPropertyOptional({
+    example: '+1 207-555-0142',
+    nullable: true,
+    description: "The business's primary phone as listed on Google; null when it lists none.",
+  })
+  phone!: string | null;
+
+  @ApiPropertyOptional({
+    example: 'https://coastaltable.example',
+    nullable: true,
+    description: "The business's website as listed on Google; null when it lists none.",
+  })
+  websiteUri!: string | null;
+
   @ApiProperty({ example: LocationStatus.ACTIVE, enum: LocationStatus })
   status!: LocationStatus;
 

@@ -2,12 +2,14 @@ import {
   IAdminInviteEmailJob,
   IErasureNoticeEmailJob,
   IErasurePurgeAlertEmailJob,
+  ILocationsPausedEmailJob,
   IMemberInviteEmailJob,
   IOtpEmailJob,
 } from '@bg/interfaces/job.interface';
 import { APP_NAME } from '@common/constants/app.constants';
 import { EmailService } from '@email/email.service';
 import { buildErasureNotice, buildPurgeAlert } from '@email-queue/erasure-notice.copy';
+import { buildLocationsPausedNotice } from '@email-queue/locations-paused.copy';
 import { Injectable, Logger } from '@nestjs/common';
 
 @Injectable()
@@ -89,6 +91,26 @@ export class EmailQueueService {
           ...(content.actionUrl
             ? { actionUrl: content.actionUrl, actionText: content.actionText }
             : {}),
+        },
+        { subject: content.subject }
+      )
+    );
+  }
+
+  async sendLocationsPausedEmail(data: ILocationsPausedEmailJob): Promise<void> {
+    const content = buildLocationsPausedNotice(data);
+    await this.send('locations paused email', data.email, () =>
+      this.emailService.sendTemplateEmail(
+        data.email,
+        'notification',
+        {
+          lang: data.locale,
+          title: content.title,
+          body: content.body,
+          actionText: content.actionText,
+          actionUrl: content.actionUrl,
+          appName: APP_NAME,
+          year: new Date().getFullYear(),
         },
         { subject: content.subject }
       )

@@ -231,6 +231,28 @@ every one of the tenant's locations — Paid has no location cap, so nothing sta
 
 ## Enforcement: where the four entitlement checks are wired in
 
+**Only while payments are on.** With `PAYMENT_FEATURE_ENABLED` off there is no way to upgrade, so
+`BillingEntitlementsService.getEntitlements` lifts every plan limit for every tenant instead of
+locking them into Free: `maxLocations`, `maxAiDraftsPerMonth` and `maxTeamMembers` read `null`
+(unlimited) and `customPromptsEnabled` reads `true`. `GET /v1/billing/plans` reports the same lifted limits, so the
+onboarding plan step never advertises caps that are not enforced. `planCode` is still reported as stored, and a
+downgrade to Free pauses no location (`enforceLocationLimitOnDowngrade` returns early). Every check
+below goes through `getEntitlements`, so they all follow. Locations already paused by an earlier
+downgrade stay paused.
+
+When payments are turned back on, the Free location cap is applied again: at startup the API (only the API:
+`FreePlanCapModule` is imported by `AppModule`, never the worker) runs `reapplyFreeLocationCap`. One query finds the
+Free tenants with more active, unpaused locations than the cap (usually none), and `enforceLocationLimitOnDowngrade`
+pauses the extras for each, exactly as a downgrade does: idempotent, locked per tenant, never blocking boot. Team
+members and past AI usage are not retroactive: their caps only block further additions.
+
+Whenever the cap pauses locations (a downgrade or this re-application), every owner gets a "locations paused" email
+in their own language (`LOCATIONS_PAUSED_EMAIL`, `locations-paused.copy.ts`) naming the paused and the still-active
+locations, with a link to Settings → Billing. It is sent only once the pause is committed:
+`enforceLocationLimitOnDowngrade` returns what it paused instead of sending, and the subscription-deleted webhook
+sends after its transaction commits, so no email goes out for a downgrade that rolls back and the transaction's locks
+are never held across queue calls. Sending is best-effort: the pause stands even if the email can't be queued.
+
 `BillingEntitlementsService` is exported from `BillingModule` (not `@Global()` — imported
 explicitly by the modules that need it, the same way `AuthModule` imports `MediaModule`) and
 injected into three other modules' business services:

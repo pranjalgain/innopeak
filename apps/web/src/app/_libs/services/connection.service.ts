@@ -18,6 +18,9 @@ export interface ConnectedLocation {
   externalLocationId: string;
   businessName: string;
   address: string | null;
+  /** The phone and website the business lists on Google. Only `GET /v1/connections` reports them. */
+  phone?: string | null;
+  websiteUri?: string | null;
   status: "active" | "inactive";
   lastSyncedAt: string | null;
   lastSyncStatus: "ok" | "error" | null;

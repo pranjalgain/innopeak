@@ -37,6 +37,7 @@ import { AuthModule } from './api/auth/auth.module';
 import { JwtAuthGuard } from './api/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './api/auth/guards/roles.guard';
 import { BillingModule } from './api/billing/billing.module';
+import { FreePlanCapModule } from './api/billing/free-plan-cap.module';
 import { ConnectionsModule } from './api/connections/connections.module';
 import { DashboardModule } from './api/dashboard/dashboard.module';
 import { DevToolsModule } from './api/dev-tools/dev-tools.module';
@@ -140,6 +141,7 @@ const cacheModule = CacheModule.registerAsync({
     NotificationsModule,
     AdminModule,
     BillingModule,
+    FreePlanCapModule,
     // Registered explicitly, not via AuthModule's import: dropping that import would silently unmount the avatar routes (404s, no compile error).
     MediaModule,
   ],

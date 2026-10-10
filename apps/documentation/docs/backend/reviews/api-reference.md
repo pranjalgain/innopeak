@@ -687,7 +687,7 @@ Success `200`:
   "reviewId": "0190f3b2-7c41-7a1e-9f0a-3b6d5c8e1a22",
   "status": "post_failed",
   "postedAt": null,
-  "errorMessage": "Google API returned 429 (quota exceeded) — retry scheduled",
+  "errorMessage": "Google is not responding right now, so the reply could not be posted. Please retry in a few minutes.",
   "reviewStatus": "in_review"
 }
 ```
@@ -696,7 +696,7 @@ Success `200`:
 |---|---|---|
 | `status` | enum | Any `response_status` value. `approved` = queued, not yet attempted. `posted` = live on Google. `post_failed` = attempted and failed, retryable. `superseded` = the freshness check found an existing reply and aborted the post (`PLAN.md` §8.12), so this response was never sent. |
 | `postedAt` | string \| null | Non-null only for `posted`. For an `imported` row this is Google's `reviewReply.updateTime`, not our own write time (`PLAN.md` §7). |
-| `errorMessage` | string \| null | Populated on `post_failed`. Provider-derived text — safe to show, but never the only diagnostic; the `traceId` on the failing worker's log line is. |
+| `errorMessage` | string \| null | Populated on `post_failed`. Always our own wording, localized to the caller (reconnect needed, reply rejected, Google unavailable, review removed, location unavailable, or a generic fallback): Google's raw error text can be a JSON body, so it is kept in the worker's log (see its `traceId`), never stored. Stored as a message tag in a NUL-free form and rendered per request by the response interceptor. |
 | `reviewStatus` | enum | The parent review's `review_status`, which becomes `responded` only once a response reaches `posted`. Included so a client polling this endpoint does not need a second request to update the queue badge. |
 
 A `superseded` reply to this endpoint is the one that needs explaining to a user, and the message
@@ -779,7 +779,7 @@ string the frontend branches on.
 | `409` | `Conflict` (`RESPONSE_NOT_POSTABLE`) | **post** (implemented) | The response is not at `approved` — the manual `.../post` route's one legal source state. Not in this document's original spec; added alongside that route. |
 | `409` | `Conflict` (`REVIEW_NOT_DISMISSIBLE`) | dismiss | `reviews.status` is already `responded` or `dismissed`. Still spec-only — dismiss itself is unbuilt. |
 | `409` | `Conflict` (`REVIEW_ALREADY_DISMISSED`) | **manual reply, post, retry-post** (implemented) | Cannot reply to a dismissed review. Reported separately from `REVIEW_NOT_DISMISSIBLE` because the remedy differs — undismissing is not an operation this module offers. |
-| `409` | `Conflict` (`REVIEW_REMOVED_UPSTREAM`) | **manual reply, post, retry-post** (implemented) | `reviews.removed_upstream_at` is set — the reviewer deleted the review on Google, so there is nothing left to reply to. This document's original spec also listed this on approve; the shipped `ReviewsService.approveReply` does not check `removed_upstream_at` at all, so approve cannot actually return this code today — only manual reply does. |
+| `409` | `Conflict` (`REVIEW_REMOVED_UPSTREAM`) | **manual reply, post, retry-post** (implemented) | `reviews.removed_upstream_at` is set (and `reviews.status` is `removed`) — the reviewer deleted the review on Google, so there is nothing left to reply to. The post worker sets both when Google answers `404` for the review, failing that reply with `POST_FAILED_REVIEW_REMOVED`. This document's original spec also listed this on approve; the shipped `ReviewsService.approveReply` does not check `removed_upstream_at` at all, so approve cannot actually return this code today — only manual reply does. |
 | `503` | `Service Unavailable` (`POST_QUEUE_UNAVAILABLE`) | **post, retry-post** (implemented) | The review-post queue (Redis/SQS) rejected the job. On `post` the response stays `approved`; on `retry-post` it is put back at `post_failed` so the retry control stays available. The same failure on an automatic post (approve / manual reply with `auto_post_enabled`) does not fail the request — the response is moved to `post_failed` with this message as its `errorMessage`. |
 | `429` | `Too Many Requests` | Any route | `ThrottlerGuard` limit for that route's tier — see the per-group throttle columns above. Post-status is deliberately looser to make polling legitimate. |
 | `500` | `Internal Server Error` | Any route | Unhandled exception. Only `traceId` is safe to show a user. A unique-violation on `idx_review_responses_review_id_live_reply` reaching this row means the translation in `409 REVIEW_ALREADY_HAS_LIVE_REPLY`/`REVIEW_RESPONSE_ALREADY_LIVE` is missing — treat any `500` from an approve, manual-reply, or retry-post call as a bug in that mapping first. |

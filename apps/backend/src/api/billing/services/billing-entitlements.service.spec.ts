@@ -1,5 +1,7 @@
+import type { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import { LocationStatus } from '@common/enums/location-status.enum';
+import type { EnvConfig } from '@config/env.config';
 import type { DrizzleTransaction } from '@db/db.service';
 import type { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import type { BillingPlansDbService } from '@db/repositories/billing/billing-plans.db-service';
@@ -7,6 +9,7 @@ import type { TenantSubscriptionsDbService } from '@db/repositories/billing/tena
 import type { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import type { LocationRow } from '@db/repositories/connections/types/connections.type';
 import type { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
+import type { ConfigService } from '@nestjs/config';
 
 const fakeTx = { __fakeTx: true } as unknown as DrizzleTransaction;
 
@@ -26,6 +29,9 @@ const baseLocation = (overrides: Partial<LocationRow>): LocationRow => ({
   externalLocationId: 'locations/1',
   name: 'The Coffee House',
   address: null,
+  phone: null,
+  websiteUri: null,
+  detailsRefreshedAt: null,
   status: LocationStatus.ACTIVE,
   lastSyncedAt: null,
   lastSyncStatus: null,
@@ -38,9 +44,29 @@ const baseLocation = (overrides: Partial<LocationRow>): LocationRow => ({
 });
 
 describe('BillingEntitlementsService', () => {
+  /** Plan limits only apply while payments are on, so most tests build with the flag on. */
+  function build(paymentFeatureEnabled: string | undefined): BillingEntitlementsService {
+    const config: Record<string, string | undefined> = {
+      PAYMENT_FEATURE_ENABLED: paymentFeatureEnabled,
+      FRONTEND_URL: 'https://app.example.com/',
+    };
+    const configService = {
+      get: (key: string) => config[key],
+    } as unknown as ConfigService<EnvConfig>;
+    return new BillingEntitlementsService(
+      tenantSubscriptionsDbService as unknown as TenantSubscriptionsDbService,
+      billingPlansDbService as unknown as BillingPlansDbService,
+      connectionsDbService as unknown as ConnectionsDbService,
+      authDbService as unknown as AuthDbService,
+      reviewSyncDbService as unknown as ReviewSyncDbService,
+      queueManager as unknown as AddingJobsToQueueManager,
+      configService
+    );
+  }
+
   let target: BillingEntitlementsService;
   let tenantSubscriptionsDbService: jest.Mocked<
-    Pick<TenantSubscriptionsDbService, 'findByTenantId'>
+    Pick<TenantSubscriptionsDbService, 'findByTenantId' | 'findFreeTenantIdsOverLocationCap'>
   >;
   let billingPlansDbService: jest.Mocked<Pick<BillingPlansDbService, 'findByCode' | 'findById'>>;
   let connectionsDbService: jest.Mocked<
@@ -53,7 +79,16 @@ describe('BillingEntitlementsService', () => {
       | 'withLocationSelectionLock'
     >
   >;
-  let authDbService: jest.Mocked<Pick<AuthDbService, 'findActiveLocationId' | 'listTenantMembers'>>;
+  let authDbService: jest.Mocked<
+    Pick<
+      AuthDbService,
+      | 'findActiveLocationId'
+      | 'findTenantOwnerRecipients'
+      | 'findTenantStatus'
+      | 'listTenantMembers'
+    >
+  >;
+  let queueManager: { addLocationsPausedEmailJob: jest.Mock };
   let reviewSyncDbService: jest.Mocked<
     Pick<ReviewSyncDbService, 'countAiGeneratedResponsesThisMonth'>
   >;
@@ -96,7 +131,10 @@ describe('BillingEntitlementsService', () => {
   };
 
   beforeEach(() => {
-    tenantSubscriptionsDbService = { findByTenantId: jest.fn() };
+    tenantSubscriptionsDbService = {
+      findByTenantId: jest.fn(),
+      findFreeTenantIdsOverLocationCap: jest.fn(),
+    };
     billingPlansDbService = { findByCode: jest.fn(), findById: jest.fn() };
     connectionsDbService = {
       countActiveUnpausedLocations: jest.fn(),
@@ -105,16 +143,16 @@ describe('BillingEntitlementsService', () => {
       applyBillingLocationSelection: jest.fn(),
       withLocationSelectionLock: jest.fn(),
     };
-    authDbService = { listTenantMembers: jest.fn(), findActiveLocationId: jest.fn() };
+    authDbService = {
+      listTenantMembers: jest.fn(),
+      findActiveLocationId: jest.fn(),
+      findTenantOwnerRecipients: jest.fn().mockResolvedValue([]),
+      findTenantStatus: jest.fn().mockResolvedValue({ name: 'Coastal Table' }),
+    };
+    queueManager = { addLocationsPausedEmailJob: jest.fn().mockResolvedValue(undefined) };
     reviewSyncDbService = { countAiGeneratedResponsesThisMonth: jest.fn() };
 
-    target = new BillingEntitlementsService(
-      tenantSubscriptionsDbService as unknown as TenantSubscriptionsDbService,
-      billingPlansDbService as unknown as BillingPlansDbService,
-      connectionsDbService as unknown as ConnectionsDbService,
-      authDbService as unknown as AuthDbService,
-      reviewSyncDbService as unknown as ReviewSyncDbService
-    );
+    target = build('true');
 
     tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(subscription);
     billingPlansDbService.findById.mockResolvedValue(freePlan);
@@ -277,6 +315,35 @@ describe('BillingEntitlementsService', () => {
       });
     });
 
+    // Returned, not sent: a downgrade runs inside the webhook's transaction, which may still roll back.
+    it('returns what it paused and kept, by name, and emails nobody itself', async () => {
+      connectionsDbService.findLocationsByTenant.mockResolvedValue([
+        baseLocation({
+          id: 'location-1',
+          name: 'Harbor St',
+          createdAt: '2026-01-01T00:00:00.000Z',
+        }),
+        baseLocation({ id: 'location-2', name: 'Old Town', createdAt: '2026-01-02T00:00:00.000Z' }),
+      ]);
+      authDbService.findActiveLocationId.mockResolvedValue(null);
+
+      await expect(target.enforceLocationLimitOnDowngrade('tenant-1')).resolves.toEqual({
+        tenantId: 'tenant-1',
+        maxLocations: 1,
+        keptLocationNames: ['Harbor St'],
+        pausedLocationNames: ['Old Town'],
+      });
+      expect(queueManager.addLocationsPausedEmailJob).not.toHaveBeenCalled();
+    });
+
+    it('returns nothing when nothing had to be paused', async () => {
+      connectionsDbService.findLocationsByTenant.mockResolvedValue([
+        baseLocation({ id: 'location-1' }),
+      ]);
+
+      await expect(target.enforceLocationLimitOnDowngrade('tenant-1')).resolves.toBeNull();
+    });
+
     it('falls back to the oldest-connected location when active_location_id is unset or not among the unpaused ones', async () => {
       const locations = [
         baseLocation({ id: 'location-2', createdAt: '2026-01-02T00:00:00.000Z' }),
@@ -309,6 +376,151 @@ describe('BillingEntitlementsService', () => {
       await target.enforceLocationLimitOnDowngrade('tenant-1');
 
       expect(connectionsDbService.applyBillingLocationSelection).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('with PAYMENT_FEATURE_ENABLED off', () => {
+    // There is no way to upgrade then, so a tenant must not be locked into Free's limits.
+    it.each([['false'], [undefined]])(
+      'lifts every Free limit (flag %s) but still reports the plan',
+      async flag => {
+        target = build(flag);
+        connectionsDbService.countActiveUnpausedLocations.mockResolvedValue(4);
+        authDbService.listTenantMembers.mockResolvedValue(Array(3).fill({}) as never[]);
+        reviewSyncDbService.countAiGeneratedResponsesThisMonth.mockResolvedValue(25);
+
+        await expect(target.getEntitlements('tenant-1')).resolves.toEqual({
+          planCode: BillingPlanCode.FREE,
+          maxLocations: null,
+          maxAiDraftsPerMonth: null,
+          maxTeamMembers: null,
+          customPromptsEnabled: true,
+          activeLocationCount: 4,
+          teamMemberCount: 3,
+          aiDraftsUsedThisMonth: 25,
+        });
+      }
+    );
+
+    it('allows what Free would refuse', async () => {
+      target = build('false');
+      connectionsDbService.countActiveUnpausedLocations.mockResolvedValue(1);
+      authDbService.listTenantMembers.mockResolvedValue([{} as never]);
+      reviewSyncDbService.countAiGeneratedResponsesThisMonth.mockResolvedValue(20);
+
+      await expect(target.canAddLocation('tenant-1')).resolves.toBe(true);
+      await expect(target.canInviteTeamMember('tenant-1')).resolves.toBe(true);
+      await expect(target.canEditCustomPrompt('tenant-1')).resolves.toBe(true);
+      await expect(target.canGenerateAiDraft('tenant-1')).resolves.toBe(true);
+    });
+
+    it('pauses no location on a downgrade to Free', async () => {
+      target = build('false');
+      connectionsDbService.findLocationsByTenant.mockResolvedValue([
+        baseLocation({ id: 'location-1' }),
+        baseLocation({ id: 'location-2' }),
+      ]);
+
+      await target.enforceLocationLimitOnDowngrade('tenant-1');
+
+      expect(connectionsDbService.withLocationSelectionLock).not.toHaveBeenCalled();
+      expect(connectionsDbService.applyBillingLocationSelection).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('notifyOwnersOfPausedLocations', () => {
+    const notice = {
+      tenantId: 'tenant-1',
+      maxLocations: 1,
+      keptLocationNames: ['Harbor St'],
+      pausedLocationNames: ['Old Town'],
+    };
+
+    // Regression: the "your locations were paused" notice was only logged, so owners were never told.
+    it('emails every owner, in their own language, which locations were paused and which stayed active', async () => {
+      authDbService.findTenantOwnerRecipients.mockResolvedValue([
+        { userId: 'u1', hasPassword: true, email: 'jane@example.com', name: 'Jane', locale: 'de' },
+        { userId: 'u2', hasPassword: true, email: 'sam@example.com', name: 'Sam', locale: null },
+      ]);
+
+      await target.notifyOwnersOfPausedLocations(notice);
+
+      expect(queueManager.addLocationsPausedEmailJob).toHaveBeenCalledTimes(2);
+      expect(queueManager.addLocationsPausedEmailJob).toHaveBeenNthCalledWith(1, {
+        email: 'jane@example.com',
+        customerName: 'Jane',
+        locale: 'de',
+        businessName: 'Coastal Table',
+        maxLocations: 1,
+        keptLocationNames: ['Harbor St'],
+        pausedLocationNames: ['Old Town'],
+        settingsUrl: 'https://app.example.com/settings?tab=billing',
+      });
+      expect(queueManager.addLocationsPausedEmailJob).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ email: 'sam@example.com', locale: 'en' })
+      );
+    });
+
+    it('never throws when the email cannot be queued', async () => {
+      authDbService.findTenantOwnerRecipients.mockResolvedValue([
+        { userId: 'u1', hasPassword: true, email: 'jane@example.com', name: 'Jane', locale: 'en' },
+      ]);
+      queueManager.addLocationsPausedEmailJob.mockRejectedValue(new Error('queue down'));
+
+      await expect(target.notifyOwnersOfPausedLocations(notice)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('reapplyFreeLocationCap', () => {
+    // Regression: locations added while limits were lifted stayed active on Free once payments were switched back on.
+    it('applies the Free location cap to the Free tenants that are over it, when payments are on', async () => {
+      tenantSubscriptionsDbService.findFreeTenantIdsOverLocationCap.mockResolvedValue([
+        'tenant-1',
+        'tenant-2',
+      ]);
+      connectionsDbService.withLocationSelectionLock.mockResolvedValue(null);
+
+      await expect(target.reapplyFreeLocationCap()).resolves.toBe(2);
+
+      expect(connectionsDbService.withLocationSelectionLock).toHaveBeenCalledTimes(2);
+    });
+
+    it('emails the owners of a tenant it paused locations for, once the pause is applied', async () => {
+      tenantSubscriptionsDbService.findFreeTenantIdsOverLocationCap.mockResolvedValue(['tenant-1']);
+      connectionsDbService.findLocationsByTenant.mockResolvedValue([
+        baseLocation({ id: 'location-1' }),
+        baseLocation({ id: 'location-2' }),
+      ]);
+      authDbService.findTenantOwnerRecipients.mockResolvedValue([
+        { userId: 'u1', hasPassword: true, email: 'jane@example.com', name: 'Jane', locale: 'en' },
+      ]);
+
+      await target.reapplyFreeLocationCap();
+
+      expect(queueManager.addLocationsPausedEmailJob).toHaveBeenCalledTimes(1);
+    });
+
+    it('does nothing while payments are off', async () => {
+      target = build('false');
+
+      await expect(target.reapplyFreeLocationCap()).resolves.toBe(0);
+
+      expect(tenantSubscriptionsDbService.findFreeTenantIdsOverLocationCap).not.toHaveBeenCalled();
+    });
+
+    it("carries on with the other tenants when one tenant's enforcement fails", async () => {
+      tenantSubscriptionsDbService.findFreeTenantIdsOverLocationCap.mockResolvedValue([
+        'tenant-1',
+        'tenant-2',
+      ]);
+      connectionsDbService.withLocationSelectionLock
+        .mockRejectedValueOnce(new Error('lock timeout'))
+        .mockResolvedValueOnce(null);
+
+      await expect(target.reapplyFreeLocationCap()).resolves.toBe(2);
+
+      expect(connectionsDbService.withLocationSelectionLock).toHaveBeenCalledTimes(2);
     });
   });
 

@@ -11,6 +11,14 @@ export interface ConnectionLocationDto {
    */
   businessName: string;
   address?: object | null;
+  /**
+   * The business\'s primary phone as listed on Google; null when it lists none.
+   */
+  phone?: object | null;
+  /**
+   * The business\'s website as listed on Google; null when it lists none.
+   */
+  websiteUri?: object | null;
   status: ConnectionLocationDtoStatusEnum;
   lastSyncedAt?: object | null;
   lastSyncStatus?: ConnectionLocationDtoLastSyncStatusEnum | null;

@@ -32,11 +32,34 @@ function describeEmptyContentCause(
     return (
       ' The model returned reasoning but no answer — it is a reasoning model and spent its whole' +
       ` output budget (${completion.usage?.completion_tokens ?? '?'} tokens) thinking.` +
-      ' Raise AI_MAX_OUTPUT_TOKENS or set OPENROUTER_MODEL to a non-reasoning model.'
+      ' Reasoning is requested off, so this model must not allow switching it off: set OPENROUTER_MODEL to one that' +
+      ' does, or raise AI_MAX_OUTPUT_TOKENS (src/api/ai/constants/ai.constants.ts).'
     );
   }
   return '';
 }
+
+/**
+ * A 400 that names reasoning: the model refuses `reasoning: { enabled: false }`. Any other 400 (unknown model, prompt
+ * too long) is a real failure and must not be retried, or re-sent with thinking switched back on.
+ */
+function isReasoningRejection(error: unknown): boolean {
+  const apiError = error as { status?: unknown; message?: unknown; error?: unknown } | null;
+  if (apiError?.status !== 400) {
+    return false;
+  }
+  const text = `${typeof apiError.message === 'string' ? apiError.message : ''} ${JSON.stringify(apiError.error ?? '')}`;
+  return /reasoning/i.test(text);
+}
+
+/**
+ * OpenRouter's own request field, absent from the `openai` SDK's types. A review reply needs no
+ * chain of thought, and on a reasoning model (every current `:free` one) the thinking alone can use
+ * up `max_tokens` and leave no answer. Models whose reasoning can't be switched off ignore it.
+ */
+type OpenRouterChatParams = OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & {
+  reasoning: { enabled: boolean };
+};
 
 /**
  * OpenRouter provider (`AI_PROVIDER=openrouter`), via the official `openai` SDK pointed at
@@ -55,24 +78,49 @@ export class OpenRouterAiProvider extends AiProvider {
     super();
   }
 
+  /**
+   * `reasoning: { enabled: false }` suits every model that can switch thinking off; a model whose reasoning is
+   * mandatory may answer 400 for it. That one rejection is retried once without the field, so such a model works
+   * (and spends its own budget thinking) rather than failing every draft.
+   */
+  private async createCompletion(
+    client: OpenAI,
+    params: OpenRouterChatParams,
+    options: { timeout: number; maxRetries: number },
+    model: string
+  ): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+    try {
+      return await client.chat.completions.create(params, options);
+    } catch (error: unknown) {
+      if (!isReasoningRejection(error)) {
+        throw error;
+      }
+      this.logger.warn(
+        `OpenRouter rejected reasoning:{enabled:false} for model "${model}" (400); retrying without it.`
+      );
+      const { reasoning: _reasoning, ...withoutReasoning } = params;
+      return client.chat.completions.create(withoutReasoning, options);
+    }
+  }
+
   async generateReply(input: GenerateReplyInput): Promise<GenerateReplyResult> {
     const { client, model } = this.getClient();
 
     const startedAt = Date.now();
     let completion: OpenAI.Chat.Completions.ChatCompletion;
+    const requestOptions = { timeout: AI_REQUEST_TIMEOUT_MS, maxRetries: AI_MAX_RETRIES };
+    const params: OpenRouterChatParams = {
+      model,
+      messages: [
+        { role: 'system', content: input.systemPrompt },
+        { role: 'user', content: input.userPrompt },
+      ],
+      temperature: AI_TEMPERATURE,
+      max_tokens: input.maxOutputTokens ?? AI_MAX_OUTPUT_TOKENS,
+      reasoning: { enabled: false },
+    };
     try {
-      completion = await client.chat.completions.create(
-        {
-          model,
-          messages: [
-            { role: 'system', content: input.systemPrompt },
-            { role: 'user', content: input.userPrompt },
-          ],
-          temperature: AI_TEMPERATURE,
-          max_tokens: input.maxOutputTokens ?? AI_MAX_OUTPUT_TOKENS,
-        },
-        { timeout: AI_REQUEST_TIMEOUT_MS, maxRetries: AI_MAX_RETRIES }
-      );
+      completion = await this.createCompletion(client, params, requestOptions, model);
     } catch (error: unknown) {
       this.logger.error(
         `OpenRouter chat completion failed for model "${model}": ${
@@ -100,7 +148,7 @@ export class OpenRouterAiProvider extends AiProvider {
       // was cut off mid-sentence at AI_MAX_OUTPUT_TOKENS, so it must not pass silently.
       this.logger.warn(
         `OpenRouter finished with "${finishReason}" (not "stop") for model "${model}" — the reply is likely incomplete.` +
-          ' Raise AI_MAX_OUTPUT_TOKENS, or use a model that does not spend the budget on reasoning.'
+          ' Raise AI_MAX_OUTPUT_TOKENS (src/api/ai/constants/ai.constants.ts), or use a model whose reasoning can be switched off.'
       );
     }
 

@@ -11,7 +11,7 @@ import { BillingEntitlementsService } from './billing-entitlements.service';
 
 import { UNKNOWN_CUSTOMER_RETRY_GRACE_MS } from '../constants/billing.constants';
 import { StripeWebhookTenantNotFoundException } from '../exceptions/billing.exceptions';
-import type { PaymentWebhookEvent } from '../types/billing.type';
+import type { PausedLocationsNotice, PaymentWebhookEvent } from '../types/billing.type';
 
 /**
  * Idempotency, then the per-event-type state machine.
@@ -50,6 +50,9 @@ export class BillingWebhooksService {
     const rawType = event.type === 'unhandled' ? event.rawType : event.type;
     const customerId = event.type === 'unhandled' ? null : event.customerId;
 
+    // Owner emails for locations a downgrade paused, sent once the transaction has committed.
+    const pausedNotices: PausedLocationsNotice[] = [];
+
     try {
       await this.dbService.db.transaction(async tx => {
         // ON CONFLICT DO NOTHING: no row back means a duplicate delivery, which must be skipped.
@@ -64,7 +67,7 @@ export class BillingWebhooksService {
           return;
         }
 
-        const tenantId = await this.dispatchEvent(tx, event);
+        const tenantId = await this.dispatchEvent(tx, event, pausedNotices);
         if (tenantId !== null) {
           await this.tenantSubscriptionsDbService.touchStripeVerifiedAt(tenantId, tx);
         }
@@ -81,6 +84,10 @@ export class BillingWebhooksService {
       }
       throw error;
     }
+
+    for (const notice of pausedNotices) {
+      await this.billingEntitlementsService.notifyOwnersOfPausedLocations(notice);
+    }
   }
 
   private isPastRetryGrace(event: PaymentWebhookEvent): boolean {
@@ -93,7 +100,8 @@ export class BillingWebhooksService {
   /** Returns the resolved tenant id, or `null` for an event touching no tenant (unhandled, stale). */
   private async dispatchEvent(
     tx: DrizzleTransaction,
-    event: PaymentWebhookEvent
+    event: PaymentWebhookEvent,
+    pausedNotices: PausedLocationsNotice[]
   ): Promise<string | null> {
     switch (event.type) {
       case 'checkout.session.completed':
@@ -101,7 +109,7 @@ export class BillingWebhooksService {
       case 'customer.subscription.updated':
         return this.handleSubscriptionUpdated(tx, event);
       case 'customer.subscription.deleted':
-        return this.handleSubscriptionDeleted(tx, event);
+        return this.handleSubscriptionDeleted(tx, event, pausedNotices);
       case 'invoice.payment_failed':
         return this.syncStatusByCustomerId(tx, event.customerId, SubscriptionStatus.PAST_DUE);
       case 'invoice.payment_succeeded':
@@ -162,7 +170,8 @@ export class BillingWebhooksService {
 
   private async handleSubscriptionDeleted(
     tx: DrizzleTransaction,
-    event: Extract<PaymentWebhookEvent, { type: 'customer.subscription.deleted' }>
+    event: Extract<PaymentWebhookEvent, { type: 'customer.subscription.deleted' }>,
+    pausedNotices: PausedLocationsNotice[]
   ): Promise<string | null> {
     const subscription = await this.resolveSubscription(tx, event.customerId, event.subscriptionId);
     if (!subscription) {
@@ -173,10 +182,13 @@ export class BillingWebhooksService {
       subscription.tenantId,
       tx
     );
-    await this.billingEntitlementsService.enforceLocationLimitOnDowngrade(
+    const notice = await this.billingEntitlementsService.enforceLocationLimitOnDowngrade(
       subscription.tenantId,
       tx
     );
+    if (notice) {
+      pausedNotices.push(notice);
+    }
 
     return subscription.tenantId;
   }

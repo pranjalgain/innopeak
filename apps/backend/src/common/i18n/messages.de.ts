@@ -129,6 +129,16 @@ export const messagesDe: MessageCatalog = {
       'Die Antwort konnte gerade nicht zur Veröffentlichung eingereiht werden. Bitte erneut versuchen.',
     POST_FAILED_REVIEW_REMOVED:
       'Diese Rezension wurde bei Google entfernt, daher konnte die Antwort nicht veröffentlicht werden.',
+    POST_FAILED_RECONNECT:
+      'Google akzeptiert die Verbindung nicht mehr, daher konnte die Antwort nicht veröffentlicht werden. Verbinden Sie Ihr Google Business-Profil in den Einstellungen erneut und versuchen Sie es dann noch einmal.',
+    POST_FAILED_REJECTED:
+      'Google hat diese Antwort nicht akzeptiert. Ändern Sie den Text und versuchen Sie es erneut.',
+    POST_FAILED_UNAVAILABLE:
+      'Google antwortet derzeit nicht, daher konnte die Antwort nicht veröffentlicht werden. Bitte versuchen Sie es in einigen Minuten erneut.',
+    POST_FAILED_UNKNOWN:
+      'Die Antwort konnte nicht veröffentlicht werden. Bitte versuchen Sie es erneut; falls das Problem bestehen bleibt, wenden Sie sich an den Support.',
+    POST_FAILED_LOCATION_UNAVAILABLE:
+      'Google konnte diesen Unternehmensstandort nicht finden, daher konnte die Antwort nicht veröffentlicht werden. Prüfen Sie, ob er noch zum verbundenen Google-Konto gehört.',
     MANUAL_REPLY_INSERT_FAILED: (reviewId: string): string =>
       `Manuelle Antwort für Rezension ${reviewId} konnte nicht gespeichert werden`,
     MANUAL_REPLY_CREATED: 'Antwort erfolgreich erstellt',

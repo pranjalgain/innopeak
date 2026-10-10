@@ -64,6 +64,7 @@ export interface GbpLocation {
   title?: string;
   storefrontAddress?: GbpPostalAddress;
   websiteUri?: string;
+  phoneNumbers?: { primaryPhone?: string; additionalPhones?: string[] };
 }
 
 export interface GbpListLocationsResponse {

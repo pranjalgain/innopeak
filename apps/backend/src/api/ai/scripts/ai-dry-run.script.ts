@@ -47,7 +47,7 @@ async function main(): Promise<void> {
       rating: String(fixture.rating),
       review_text: fixture.reviewText,
     });
-    const systemPrompt = buildSystemPrompt(DEFAULT_PROMPT_TONE);
+    const systemPrompt = buildSystemPrompt({ tone: DEFAULT_PROMPT_TONE });
 
     console.log('─'.repeat(72));
     console.log(`[${fixture.key}] ${fixture.description}`);

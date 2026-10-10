@@ -117,6 +117,15 @@ export const messagesEn: MessageCatalog = {
     POST_QUEUE_UNAVAILABLE: 'Could not queue the reply for posting right now. Please try again.',
     POST_FAILED_REVIEW_REMOVED:
       'This review was removed on Google, so the reply could not be posted.',
+    POST_FAILED_RECONNECT:
+      'Google no longer accepts the connection, so the reply could not be posted. Reconnect your Google Business Profile in Settings, then retry.',
+    POST_FAILED_REJECTED: 'Google did not accept this reply. Edit the text and try again.',
+    POST_FAILED_UNAVAILABLE:
+      'Google is not responding right now, so the reply could not be posted. Please retry in a few minutes.',
+    POST_FAILED_UNKNOWN:
+      'The reply could not be posted. Please retry; if it keeps failing, contact support.',
+    POST_FAILED_LOCATION_UNAVAILABLE:
+      'Google could not find this business location, so the reply could not be posted. Check that it is still part of the connected Google account.',
     MANUAL_REPLY_INSERT_FAILED: (reviewId: string): string =>
       `Failed to record the manual reply for review ${reviewId}`,
     MANUAL_REPLY_CREATED: 'Reply created successfully',

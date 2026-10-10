@@ -4,4 +4,6 @@ export enum ReviewStatus {
   IN_REVIEW = 'in_review',
   RESPONDED = 'responded',
   DISMISSED = 'dismissed',
+  /** Deleted on Google by its author; set with `removed_upstream_at`. Nothing can reply to it any more. */
+  REMOVED = 'removed',
 }

@@ -3,6 +3,7 @@ import {
   IAdminInviteEmailJob,
   IErasureNoticeEmailJob,
   IErasurePurgeAlertEmailJob,
+  ILocationsPausedEmailJob,
   IMemberInviteEmailJob,
   IOtpEmailJob,
 } from '@bg/interfaces/job.interface';
@@ -45,6 +46,9 @@ export class EmailSqsConsumer extends SqsQueueConsumerBase {
         break;
       case JobName.ERASURE_NOTICE_EMAIL:
         await this.emailQueueService.sendErasureNoticeEmail(data as IErasureNoticeEmailJob);
+        break;
+      case JobName.LOCATIONS_PAUSED_EMAIL:
+        await this.emailQueueService.sendLocationsPausedEmail(data as ILocationsPausedEmailJob);
         break;
       case JobName.ERASURE_PURGE_ALERT_EMAIL:
         await this.emailQueueService.sendErasurePurgeAlertEmail(data as IErasurePurgeAlertEmailJob);

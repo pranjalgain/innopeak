@@ -7,12 +7,16 @@ import type { ReviewRow } from '@db/repositories/review-sync/types/review-sync.t
 import { Injectable, Logger } from '@nestjs/common';
 import {
   ProviderAuthError,
+  ProviderMappingError,
+  ProviderNotFoundError,
   ProviderRateLimitError,
   ProviderUnavailableError,
 } from '@review-provider/errors/provider.error';
 import { ProviderCredentialService } from '@review-provider/provider-credential.service';
 import { ReviewProvider } from '@review-provider/providers/review-provider.provider';
+import type { GetReviewReplyInput } from '@review-provider/types/review-provider.type';
 
+import { LocationUnavailableError, ReviewRemovedUpstreamError } from './review-post.errors';
 import { ReviewPostQueue } from './review-post.queue';
 import { normalizeReplyText } from './review-post.util';
 
@@ -76,7 +80,7 @@ export class ReviewPostQueueService {
       // Should not happen (FK), but fail loudly rather than leave the claim stuck at `approved`
       // with a `post_attempted_at` nothing will clear.
       const message = `Review ${job.reviewId} not found while posting response ${job.responseId}`;
-      await this.markFailedSafely(job.responseId, message);
+      await this.markFailedSafely(job.responseId, MESSAGES.REVIEWS.POST_FAILED_UNKNOWN);
       throw new Error(message);
     }
 
@@ -142,6 +146,22 @@ export class ReviewPostQueueService {
       externalReviewId: review.externalReviewId,
     };
 
+    try {
+      return await this.resolveAgainstGoogle(job, accessToken, providerInput, content);
+    } catch (error) {
+      if (error instanceof ProviderNotFoundError) {
+        throw await this.explainNotFound(accessToken, providerInput, error);
+      }
+      throw error;
+    }
+  }
+
+  private async resolveAgainstGoogle(
+    job: IReviewPostJob,
+    accessToken: string,
+    providerInput: GetReviewReplyInput,
+    content: string
+  ): Promise<PostOutcome> {
     // Fetched fresh immediately before posting, never from our last-polled copy of the review.
     const existingReply = await this.provider.getReviewReply(accessToken, providerInput);
 
@@ -170,6 +190,45 @@ export class ReviewPostQueueService {
       comment: content,
     });
     return { kind: 'posted', content, postedAt: posted.updatedAt };
+  }
+
+  /**
+   * Google answers 404 both for a deleted review and for a location this account can no longer reach (moved to
+   * another account, or gone), so the location's reviews are listed through the very same account/location path to
+   * tell them apart: only if that path still answers is the 404 the review's own. A location-only lookup would not
+   * do: it ignores the account, so a location moved to another account would still look reachable. A transient or
+   * auth failure on that read is returned as is, so the usual retry and reconnect handling applies.
+   */
+  private async explainNotFound(
+    accessToken: string,
+    review: GetReviewReplyInput,
+    notFound: ProviderNotFoundError
+  ): Promise<Error> {
+    const path = `${review.externalAccountId}/${review.externalLocationId}`;
+    try {
+      await this.provider.listReviews(accessToken, {
+        externalAccountId: review.externalAccountId,
+        externalLocationId: review.externalLocationId,
+        pageSize: 1,
+      });
+    } catch (locationError) {
+      if (
+        locationError instanceof ProviderRateLimitError ||
+        locationError instanceof ProviderUnavailableError ||
+        locationError instanceof ProviderAuthError
+      ) {
+        return locationError;
+      }
+      // Only a 404 says the path is gone. Anything else means Google answered, e.g. a listed review our mapper
+      // rejects (unknown starRating): the location is reachable, so the review's own 404 stands.
+      if (!(locationError instanceof ProviderNotFoundError)) {
+        return new ReviewRemovedUpstreamError(notFound.message);
+      }
+      return new LocationUnavailableError(
+        `Google can't list reviews for ${path} either: ${this.messageOf(locationError)}`
+      );
+    }
+    return new ReviewRemovedUpstreamError(notFound.message);
   }
 
   /**
@@ -237,6 +296,21 @@ export class ReviewPostQueueService {
     attempt: number,
     error: unknown
   ): Promise<void> {
+    if (error instanceof ReviewRemovedUpstreamError) {
+      await this.handleReviewRemovedUpstream(job);
+      return;
+    }
+
+    if (error instanceof LocationUnavailableError) {
+      // Not retried: the location has to be restored in Google first; the owner retries from the review page.
+      await this.markFailedSafely(
+        job.responseId,
+        MESSAGES.REVIEWS.POST_FAILED_LOCATION_UNAVAILABLE
+      );
+      this.logger.warn(`Not posting response ${job.responseId}: ${error.message}`);
+      return;
+    }
+
     if (error instanceof ProviderAuthError) {
       // Record a dead grant on the connection, not just report it (as
       // `ReviewSyncQueueService.handleSyncFailure` does for reads).
@@ -264,7 +338,8 @@ export class ReviewPostQueueService {
       }
     }
 
-    await this.markFailedSafely(job.responseId, this.messageOf(error));
+    // Our own wording, never the provider's raw text (it can be a JSON body): that is for the log.
+    await this.markFailedSafely(job.responseId, this.reasonFor(error));
     this.logger.error(
       `Failed to post response ${job.responseId} for review ${job.reviewId}: ${this.messageOf(error)}`
     );
@@ -332,6 +407,29 @@ export class ReviewPostQueueService {
   }
 
   /** Records `post_failed` without letting a failure of that write mask the original error. */
+  /**
+   * Google answers 404 once the reviewer has deleted the review. Nothing can reply to it any more, so the review is
+   * recorded as removed (which also stops Post, Retry and manual replies) and the reply fails with that reason rather
+   * than Google's raw error. Terminal and expected, so it is not rethrown as a job failure.
+   */
+  private async handleReviewRemovedUpstream(job: IReviewPostJob): Promise<void> {
+    try {
+      await this.reviewSyncDbService.markReviewRemovedUpstream({
+        reviewId: job.reviewId,
+        tenantId: job.tenantId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Could not record review ${job.reviewId} as removed on Google: ${this.messageOf(error)}`
+      );
+    }
+
+    await this.markFailedSafely(job.responseId, MESSAGES.REVIEWS.POST_FAILED_REVIEW_REMOVED);
+    this.logger.warn(
+      `Not posting response ${job.responseId}: Google has no review ${job.reviewId} any more (deleted by its author).`
+    );
+  }
+
   private async markFailedSafely(responseId: string, errorMessage: string): Promise<void> {
     try {
       await this.reviewSyncDbService.markResponsePostFailed({ responseId, errorMessage });
@@ -340,6 +438,20 @@ export class ReviewPostQueueService {
         `Could not record post_failed for response ${responseId}: ${this.messageOf(error)}`
       );
     }
+  }
+
+  /** The reason the owner is shown for a failed post; the raw error stays in the log. */
+  private reasonFor(error: unknown): string {
+    if (error instanceof ProviderAuthError) {
+      return MESSAGES.REVIEWS.POST_FAILED_RECONNECT;
+    }
+    if (error instanceof ProviderRateLimitError || error instanceof ProviderUnavailableError) {
+      return MESSAGES.REVIEWS.POST_FAILED_UNAVAILABLE;
+    }
+    if (error instanceof ProviderMappingError) {
+      return MESSAGES.REVIEWS.POST_FAILED_REJECTED;
+    }
+    return MESSAGES.REVIEWS.POST_FAILED_UNKNOWN;
   }
 
   private messageOf(error: unknown): string {

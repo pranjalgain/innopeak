@@ -14,7 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { BillingEntitlementsService } from './billing-entitlements.service';
 import { BillingReconciliationService } from './billing-reconciliation.service';
 
-import { BILLING_REDIRECT_PATHS } from '../constants/billing.constants';
+import { BILLING_REDIRECT_PATHS, UNLIMITED_ENTITLEMENTS } from '../constants/billing.constants';
 import { BillingProfileResponseDto } from '../dto/billing-profile-response.dto';
 import { BillingPlansResponseDto } from '../dto/plan-response.dto';
 import { ReceiptListResponseDto } from '../dto/receipt-response.dto';
@@ -30,6 +30,7 @@ import {
 } from '../exceptions/billing.exceptions';
 import { PaymentProvider } from '../providers/payment.provider';
 import type { PaymentMethodSummary, UpdateBillingProfileInput } from '../types/billing.type';
+import { isPaymentFeatureEnabled } from '../utils/payment-feature.util';
 import { buildReceiptFilename, renderReceiptPdf } from '../utils/receipt-pdf.util';
 
 @Injectable()
@@ -52,7 +53,7 @@ export class BillingService {
     configService: ConfigService<EnvConfig>
   ) {
     this.frontendUrl = (configService.get<string>('FRONTEND_URL') ?? '').replace(/\/$/, '');
-    this.paymentFeatureEnabled = configService.get<string>('PAYMENT_FEATURE_ENABLED') === 'true';
+    this.paymentFeatureEnabled = isPaymentFeatureEnabled(configService);
     this.stripePriceIdPaid = configService.get<string>('STRIPE_PRICE_ID_PAID');
   }
 
@@ -67,7 +68,12 @@ export class BillingService {
       throw new SubscriptionNotFoundException();
     }
 
-    return BillingPlansResponseDto.from(plans, subscription.planId);
+    // Payments off: limits are lifted for everyone (see BillingEntitlementsService), so the plan screen must not
+    // advertise caps that are not enforced.
+    const shown = this.paymentFeatureEnabled
+      ? plans
+      : plans.map(plan => ({ ...plan, ...UNLIMITED_ENTITLEMENTS }));
+    return BillingPlansResponseDto.from(shown, subscription.planId);
   }
 
   async getSubscription(user: AuthUser): Promise<SubscriptionResponseDto> {

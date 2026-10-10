@@ -378,7 +378,8 @@ export class EnvConfig {
 
   /**
    * The single switch for whether billing exists in this deploy (gates `BillingService.createCheckoutSession` and the public
-   * `paymentFeatureEnabled` frontends read). Deliberately the only one: billing being wired up is a deploy-time fact.
+   * `paymentFeatureEnabled` frontends read). Off, plan limits are lifted for every tenant (`BillingEntitlementsService`).
+   * Deliberately the only one: billing being wired up is a deploy-time fact.
    * Defaults to disabled (applied via `=== 'true'` at each call site, not here).
    */
   @IsOptional()

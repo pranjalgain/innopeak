@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS locations (
     external_location_id VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
     address VARCHAR(500),
+    -- The business's public phone and website from the provider; the AI reply prompt uses them so an
+    -- invitation to get in touch carries real details instead of a placeholder.
+    phone VARCHAR(50),
+    website_uri VARCHAR(2048),
+    -- Last attempt to re-read name/address/phone/website from the provider, successful or not; the poll tries at
+    -- most daily, so a location Google keeps refusing costs one call a day rather than one per tick.
+    details_refreshed_at TIMESTAMPTZ,
     status location_status NOT NULL DEFAULT 'active',
     last_synced_at TIMESTAMPTZ,
     last_sync_status sync_health_status,
