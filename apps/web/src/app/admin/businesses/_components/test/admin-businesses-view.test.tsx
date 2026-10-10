@@ -28,6 +28,11 @@ function business(overrides: Partial<AdminBusiness> = {}): AdminBusiness {
 function show(value: AdminBusiness) {
   vi.mocked(useAdminBusinesses).mockReturnValue({
     businesses: [value],
+    page: 1,
+    totalPages: 1,
+    total: 1,
+    goToPreviousPage: vi.fn(),
+    goToNextPage: vi.fn(),
     search: "",
     setSearch: vi.fn(),
     isSearching: false,

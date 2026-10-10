@@ -5,7 +5,6 @@ import { ConfigService } from '@nestjs/config';
 import { ReviewPostQueueUIModule } from '@review-post-queue/review-post-queue-ui.module';
 
 import { AiReplyGenerationService } from './ai-reply-generation.service';
-import { AiController } from './ai.controller';
 import { AiProvider } from './providers/ai.provider';
 import { AzureOpenAiProvider } from './providers/azure-openai.provider';
 import { OpenRouterAiProvider } from './providers/openrouter-ai.provider';
@@ -39,7 +38,6 @@ const aiProviderFactory = {
  */
 @Module({
   imports: [BillingModule, ReviewPostQueueUIModule],
-  controllers: [AiController],
   providers: [aiProviderFactory, AiReplyGenerationService],
   exports: [AiReplyGenerationService],
 })

@@ -1,10 +1,14 @@
 import { requirePlatformAdmin } from '@auth/utils/require-platform-admin.util';
 import { MESSAGES } from '@common/constants/messages.constants';
+import { TtlCache } from '@common/helpers/ttl-cache';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { Injectable } from '@nestjs/common';
 
 import type { AuthUser } from '../../auth/types/auth.type';
-import { ACTIVITY_LOG_PAGE_SIZE_DEFAULT } from '../constants/admin-overview.constants';
+import {
+  ACTIVITY_LOG_PAGE_SIZE_DEFAULT,
+  ADMIN_AGGREGATE_CACHE_TTL_MS,
+} from '../constants/admin-overview.constants';
 import { AdminBusinessResponseDto } from '../dto/admin-business-response.dto';
 import { AdminOverviewStatsResponseDto } from '../dto/admin-overview-stats-response.dto';
 import { AdminSignupTrendPointResponseDto } from '../dto/admin-signup-trend-point-response.dto';
@@ -18,12 +22,22 @@ import { fillSignupTrendWindow } from '../utils/signup-trend.utils';
 
 @Injectable()
 export class AdminOverviewService {
+  // Platform-wide numbers (no tenant filter, so full scans no index can help) shared by every admin. The recent-businesses,
+  // needs-attention and activity reads are not cached: they are what an admin looks at right after acting.
+  private readonly statsCache = new TtlCache<AdminOverviewStatsResponseDto>(
+    ADMIN_AGGREGATE_CACHE_TTL_MS
+  );
+  private readonly signupTrendCache = new TtlCache<AdminSignupTrendPointResponseDto[]>(
+    ADMIN_AGGREGATE_CACHE_TTL_MS
+  );
+
   constructor(private readonly adminOverviewDbService: AdminOverviewDbService) {}
 
   async getStats(actor: AuthUser): Promise<AdminOverviewStatsResponseDto> {
     requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const stats = await this.adminOverviewDbService.getStats();
-    return AdminOverviewStatsResponseDto.from(stats);
+    return this.statsCache.getOrLoad('stats', async () =>
+      AdminOverviewStatsResponseDto.from(await this.adminOverviewDbService.getStats())
+    );
   }
 
   async getRecentBusinesses(actor: AuthUser, limit: number): Promise<AdminBusinessResponseDto[]> {
@@ -43,10 +57,12 @@ export class AdminOverviewService {
     months: number
   ): Promise<AdminSignupTrendPointResponseDto[]> {
     requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const points = await this.adminOverviewDbService.getSignupTrend(months);
-    return fillSignupTrendWindow(points, months).map(point =>
-      AdminSignupTrendPointResponseDto.from(point)
-    );
+    return this.signupTrendCache.getOrLoad(String(months), async () => {
+      const points = await this.adminOverviewDbService.getSignupTrend(months);
+      return fillSignupTrendWindow(points, months).map(point =>
+        AdminSignupTrendPointResponseDto.from(point)
+      );
+    });
   }
 
   /** Merges the admin-action log with synthesized `business_joined` entries; see `buildActivityFeed` for why `limit` rows per source suffice. */

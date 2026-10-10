@@ -1,7 +1,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { AdminUserService } from "@/app/_libs/services/admin-user.service";
@@ -14,7 +14,14 @@ import { useSearchInput } from "@/hooks/common/use-search-input";
 import type { AdminUser } from "@/types/domain";
 
 interface UseAdminUsersResult {
+  /** The current page only; the server pages and counts (`totalPages`). */
   users: AdminUser[];
+  page: number;
+  totalPages: number;
+  /** Every match across all pages, for the result count. */
+  total: number;
+  goToPreviousPage: () => void;
+  goToNextPage: () => void;
   search: string;
   setSearch: (search: string) => void;
   /** Whether a search is in effect; comes from the debounced value (see `useAdminBusinesses`). */
@@ -29,19 +36,41 @@ interface UseAdminUsersResult {
 /** Typing pause before a search reaches the API — same as `useReviewQueue`'s own constant. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-const usersQueryKey = (search: string) => [...adminUsersQueryKey, { search }] as const;
+const PAGE_SIZE = 10;
+
+const usersQueryKey = (search: string, page: number) =>
+  [...adminUsersQueryKey, { search, page }] as const;
 
 /** Searched server-side via `GET /v1/admin/users`'s `search` param. */
 export function useAdminUsers(): UseAdminUsersResult {
   const t = useTranslations("adminUsers.toasts");
   const queryClient = useQueryClient();
   const { search, setSearch, debouncedSearch, isSearching } = useSearchInput(SEARCH_DEBOUNCE_MS);
+  const [page, setPageState] = useState(1);
+
+  // A new search can leave the current page out of range: start again from page 1.
+  const [lastSearch, setLastSearch] = useState(debouncedSearch);
+  if (lastSearch !== debouncedSearch) {
+    setLastSearch(debouncedSearch);
+    setPageState(1);
+  }
 
   const usersQuery = useQuery({
-    queryKey: usersQueryKey(debouncedSearch),
-    queryFn: () => AdminUserService.getUsers({ search: debouncedSearch || undefined }),
+    queryKey: usersQueryKey(debouncedSearch, page),
+    queryFn: () =>
+      AdminUserService.getUsers({
+        search: debouncedSearch || undefined,
+        page,
+        pageSize: PAGE_SIZE,
+      }),
     placeholderData: keepPreviousData,
   });
+
+  const totalPages = Math.max(1, usersQuery.data?.meta.totalPages ?? 1);
+  const setPage = useCallback(
+    (next: number) => setPageState(Math.min(Math.max(next, 1), totalPages)),
+    [totalPages],
+  );
 
   useEffect(() => {
     if (usersQuery.isError) toast.error(t("loadFailed"));
@@ -70,7 +99,12 @@ export function useAdminUsers(): UseAdminUsersResult {
   );
 
   return {
-    users: usersQuery.data ?? [],
+    users: usersQuery.data?.users ?? [],
+    page,
+    totalPages,
+    total: usersQuery.data?.meta.total ?? 0,
+    goToPreviousPage: () => setPage(page - 1),
+    goToNextPage: () => setPage(page + 1),
     search,
     setSearch,
     isSearching,

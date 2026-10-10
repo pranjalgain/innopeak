@@ -258,17 +258,8 @@ invalidation replaced it.
 
 ## Known limitations
 
-- **List endpoints are still unbounded.** A search with no matches narrows the response to zero
-  rows, but an unfiltered `GET /businesses` or `GET /users` still returns every row on the
-  platform. Fine at current tenant/user counts (see [Admin Overview's own note on the same
-  tradeoff](../admin-overview/overview.md#known-limitations)); the fix when it stops being fine is
-  adding real `page`/`pageSize` to `ListAdminBusinessesQueryDto`/`ListAdminUsersQueryDto`, following
-  the `PaginationMetaDto` pattern [Admin Billing's webhook-events
-  endpoint](../admin-billing/api-reference.md#webhook-activity) and [Admin Overview's
-  activity-log endpoint](../admin-overview/api-reference.md#activity-log) already established —
-  in the Businesses case, the accompanying `count()` query would need to reuse the exact same
-  `businessSearchCondition` `WHERE`, not re-derive it, or the row total and the page contents could
-  silently disagree.
-- **No index backs the `ILIKE` search.** A leading-wildcard `%term%` pattern can't use a plain
-  B-tree index regardless; a `pg_trgm` GIN index on `tenants.name`/`users.name` is the fix if
-  search latency becomes noticeable at higher row counts.
+- **Lists are paged, but with offset paging.** `GET /businesses` and `GET /users` take `page`/`pageSize` (default 10,
+  max 100) and return `meta` with the total, counted with the same `WHERE` as the page. `OFFSET` still walks the skipped
+  rows, so a very deep page is slower than the first; keyset paging is the fix if tenant counts ever make that matter.
+- **Search is index-backed.** `pg_trgm` GIN indexes on `tenants.name` and `users.name` (`0002_tenant_auth.sql`) serve the
+  `ILIKE '%term%'` match, and `idx_tenants_created_at` / `idx_users_created_at` serve the newest-first order.

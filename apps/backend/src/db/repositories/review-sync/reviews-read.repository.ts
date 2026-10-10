@@ -366,7 +366,7 @@ export class ReviewsReadRepository {
     }));
   }
 
-  /** Usage counter for `canGenerateAiDraft`: AI-generated responses since the start of the current UTC month. */
+  /** Usage counter for the plan's monthly AI-draft limit: AI-generated responses since the start of the current UTC month. */
   async countAiGeneratedResponsesThisMonth(tenantId: string, monthStart: string): Promise<number> {
     const rows = await this.dbService.db
       .select({ value: count() })

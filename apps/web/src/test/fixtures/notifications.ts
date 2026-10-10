@@ -1,6 +1,6 @@
 import type { Notification } from "@/types/domain";
 
-export const MOCK_NOTIFICATIONS: Notification[] = [
+export const NOTIFICATIONS_FIXTURE: Notification[] = [
   {
     id: "notif_01",
     type: "review_escalated",

@@ -36,6 +36,7 @@ function locationRow(externalLocationId: string) {
     phone: null,
     websiteUri: null,
     detailsRefreshedAt: null,
+    reviewsReconciledAt: null,
     status: LocationStatus.ACTIVE,
     lastSyncedAt: null,
     lastSyncStatus: null,

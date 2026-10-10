@@ -51,7 +51,6 @@ All URIs are relative to *http://localhost*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
-*AIApi* | [**aiControllerGenerateDryRunReplyV1**](docs/AIApi.md#aicontrollergeneratedryrunreplyv1) | **POST** /v1/ai/dry-run | Generate an AI reply for a mock review (dry run)
 *AdminAuthApi* | [**platformAdminAuthControllerAcceptAdminInviteV1**](docs/AdminAuthApi.md#platformadminauthcontrolleracceptadmininvitev1) | **POST** /v1/admin/auth/invite/accept | Accept a platform-admin invite by setting a password
 *AdminAuthApi* | [**platformAdminAuthControllerGoogleLoginV1**](docs/AdminAuthApi.md#platformadminauthcontrollergoogleloginv1) | **GET** /v1/admin/auth/google | Start a platform-admin Google sign-in
 *AdminAuthApi* | [**platformAdminAuthControllerInviteGoogleAuthorizeV1**](docs/AdminAuthApi.md#platformadminauthcontrollerinvitegoogleauthorizev1) | **GET** /v1/admin/auth/invite/{token}/google | Accept a platform-admin invite via Google
@@ -175,6 +174,7 @@ Class | Method | HTTP request | Description
  - [AcceptAdminInviteDto](docs/AcceptAdminInviteDto.md)
  - [AcceptMemberInviteDto](docs/AcceptMemberInviteDto.md)
  - [AdminBillingSummaryResponseDto](docs/AdminBillingSummaryResponseDto.md)
+ - [AdminBusinessListResponseDto](docs/AdminBusinessListResponseDto.md)
  - [AdminBusinessResponseDto](docs/AdminBusinessResponseDto.md)
  - [AdminInvitePreviewDto](docs/AdminInvitePreviewDto.md)
  - [AdminInviteResponseDto](docs/AdminInviteResponseDto.md)
@@ -182,6 +182,7 @@ Class | Method | HTTP request | Description
  - [AdminProfileResponseDto](docs/AdminProfileResponseDto.md)
  - [AdminSignupTrendPointResponseDto](docs/AdminSignupTrendPointResponseDto.md)
  - [AdminStatisticsSummaryResponseDto](docs/AdminStatisticsSummaryResponseDto.md)
+ - [AdminUserListResponseDto](docs/AdminUserListResponseDto.md)
  - [AdminUserResponseDto](docs/AdminUserResponseDto.md)
  - [ApproveReplyDto](docs/ApproveReplyDto.md)
  - [AtRiskSubscriptionResponseDto](docs/AtRiskSubscriptionResponseDto.md)
@@ -220,8 +221,6 @@ Class | Method | HTTP request | Description
  - [DeleteAccountResponseDto](docs/DeleteAccountResponseDto.md)
  - [DeleteBlocklistTermResponseDto](docs/DeleteBlocklistTermResponseDto.md)
  - [DisconnectResponseDto](docs/DisconnectResponseDto.md)
- - [GenerateReplyDryRunDto](docs/GenerateReplyDryRunDto.md)
- - [GenerateReplyDryRunResponseDto](docs/GenerateReplyDryRunResponseDto.md)
  - [GetPromptStatsBatchDto](docs/GetPromptStatsBatchDto.md)
  - [HasPaidTenantsResponseDto](docs/HasPaidTenantsResponseDto.md)
  - [InviteMemberDto](docs/InviteMemberDto.md)

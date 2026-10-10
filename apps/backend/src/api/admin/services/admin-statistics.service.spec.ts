@@ -81,5 +81,23 @@ describe('AdminStatisticsService', () => {
       expect(result.ratingDistribution).toHaveLength(5);
       expect(result.classificationBreakdown).toHaveLength(3);
     });
+
+    it('serves repeat calls for the same window from the cache, and other windows separately', async () => {
+      adminStatisticsDbService.getSummary.mockResolvedValue({
+        replyRatePercent: 0,
+        avgRating: null,
+        syncSuccessRatePercent: 0,
+        connectionHealth: { connected: 0, needsReauth: 0, disconnected: 0, neverConnected: 0 },
+        reviewsTrend: [],
+        ratingDistribution: [],
+        classificationBreakdown: [],
+      });
+
+      await target.getSummary(admin, 6);
+      await target.getSummary(admin, 6);
+      await target.getSummary(admin, 12);
+
+      expect(adminStatisticsDbService.getSummary).toHaveBeenCalledTimes(2);
+    });
   });
 });

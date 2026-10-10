@@ -27,6 +27,12 @@ CREATE UNIQUE INDEX idx_reviews_location_id_external_review_id ON reviews(locati
 CREATE INDEX idx_reviews_status ON reviews(status);
 CREATE INDEX idx_reviews_classification ON reviews(classification);
 CREATE INDEX idx_reviews_reviewed_at ON reviews(reviewed_at);
+-- Every dashboard and review-list query filters on tenant_id and orders or windows by reviewed_at (newest first), so one
+-- composite index serves them where Postgres would otherwise BitMapAnd two single-column ones. `id` is the tiebreaker the
+-- ORDER BY already uses.
+CREATE INDEX idx_reviews_tenant_id_reviewed_at ON reviews(tenant_id, reviewed_at DESC, id DESC);
+-- The open-backlog counts (`status IN ('new','in_review')`, escalated or not) per tenant.
+CREATE INDEX idx_reviews_tenant_id_status_classification ON reviews(tenant_id, status, classification);
 CREATE INDEX idx_reviews_external_reviewer_id ON reviews(external_reviewer_id);
 
 CREATE TABLE IF NOT EXISTS sync_runs (

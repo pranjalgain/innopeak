@@ -667,6 +667,7 @@ export const locations = pgTable(
     phone: varchar({ length: 50 }),
     websiteUri: varchar('website_uri', { length: 2048 }),
     detailsRefreshedAt: timestamp('details_refreshed_at', { withTimezone: true, mode: 'string' }),
+    reviewsReconciledAt: timestamp('reviews_reconciled_at', { withTimezone: true, mode: 'string' }),
     status: locationStatus().default('active').notNull(),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true, mode: 'string' }),
     lastSyncStatus: syncHealthStatus('last_sync_status'),

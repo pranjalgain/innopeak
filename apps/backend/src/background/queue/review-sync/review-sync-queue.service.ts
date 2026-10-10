@@ -18,7 +18,11 @@ import {
   RATE_LIMIT_MAX_RETRIES,
   RATE_LIMIT_MAX_WAIT_SECONDS,
 } from '@review-provider/constants/review-provider.constants';
-import { ProviderAuthError, ProviderRateLimitError } from '@review-provider/errors/provider.error';
+import {
+  ProviderAuthError,
+  ProviderNotFoundError,
+  ProviderRateLimitError,
+} from '@review-provider/errors/provider.error';
 import { ProviderCredentialService } from '@review-provider/provider-credential.service';
 import { ReviewProvider } from '@review-provider/providers/review-provider.provider';
 
@@ -46,6 +50,15 @@ const POLL_CURSOR_OVERLAP_MS = 5 * 60 * 1000;
 
 /** A location's name, address, phone and website are re-read from the provider at most this often. */
 const LOCATION_DETAILS_REFRESH_MS = 24 * 60 * 60 * 1000;
+
+/** Google's full review list is compared with ours (to catch deleted reviews) at most this often per location. */
+const REVIEW_RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** 5,000 reviews at 50 a page. A longer list is not walked: with part of it unseen, "missing" proves nothing. */
+const MAX_RECONCILE_PAGES = 100;
+
+/** Reviews imported more recently than this are left out of a "no longer listed" decision. */
+const RECONCILE_GRACE_MS = 60 * 60 * 1000;
 
 /** Holds all review-ingestion logic (backfill and poll); the processor and SQS consumer contain none. */
 @Injectable()
@@ -182,6 +195,9 @@ export class ReviewSyncQueueService {
       reviewsFetched = importResult.reviewsFetched;
       maxExternalUpdatedAt = importResult.maxExternalUpdatedAt;
 
+      // After the import, so reviews that just arrived are already in place.
+      await this.reconcileDeletedReviewsIfDue(job, accessToken, location.reviewsReconciledAt);
+
       const pipelineOutcome = await this.classifyAndGenerateForImportedReviews(job);
 
       // Truncation fails the run independently of pipelineOutcome: fetched reviews are committed
@@ -292,6 +308,133 @@ export class ReviewSyncQueueService {
         quotaReached: false,
         error: null,
       };
+    }
+  }
+
+  /**
+   * The incremental poll never revisits old reviews, so a review its author deleted on Google would sit in the queue
+   * forever. Once a day the location's whole review list is read and compared: open reviews (waiting on a reply) that
+   * Google no longer lists become `removed`, and a `removed` one listed again is restored. Safe by construction: it
+   * decides nothing unless the walk saw the complete list, never acts on an empty list (an outage or glitch looks the
+   * same), and skips reviews imported in the last hour. Best-effort and stamped as an attempt even on failure, like
+   * the details refresh, so Google is asked at most once a day.
+   */
+  private async reconcileDeletedReviewsIfDue(
+    job: IReviewSyncJob,
+    accessToken: string,
+    reviewsReconciledAt: string | null
+  ): Promise<void> {
+    if (
+      reviewsReconciledAt !== null &&
+      Date.now() - new Date(reviewsReconciledAt).getTime() < REVIEW_RECONCILE_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    try {
+      const listed = await this.listAllExternalReviewIds(job, accessToken);
+      if (listed === null) {
+        this.logger.warn(
+          `Skipping the deleted-review check for location ${job.locationId}: more than ${MAX_RECONCILE_PAGES} pages of reviews.`
+        );
+      } else {
+        await this.applyReviewReconciliation(job, accessToken, listed);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not check location ${job.locationId} for deleted reviews (next try in a day): ${(error as Error).message}`
+      );
+    }
+
+    try {
+      await this.connectionsDbService.markReviewsReconciled(job.locationId);
+    } catch (error) {
+      this.logger.warn(
+        `Could not record the deleted-review check for location ${job.locationId}: ${(error as Error).message}`
+      );
+    }
+  }
+
+  /** Any failure other than a 404 (rate limit, outage, auth) answers `false`: nothing is decided on a guess. */
+  private async isDeletedOnProvider(
+    job: IReviewSyncJob,
+    accessToken: string,
+    externalReviewId: string
+  ): Promise<boolean> {
+    try {
+      await this.provider.getReviewReply(accessToken, {
+        externalAccountId: job.externalAccountId,
+        externalLocationId: job.externalLocationId,
+        externalReviewId,
+      });
+      return false;
+    } catch (error) {
+      return error instanceof ProviderNotFoundError;
+    }
+  }
+
+  /** `null` when the list is too long to read in full. */
+  private async listAllExternalReviewIds(
+    job: IReviewSyncJob,
+    accessToken: string
+  ): Promise<Set<string> | null> {
+    const listed = new Set<string>();
+    let pageToken: string | undefined;
+
+    for (let pages = 0; pages < MAX_RECONCILE_PAGES; pages += 1) {
+      const page = await this.listReviewsWithBackoff(accessToken, {
+        externalAccountId: job.externalAccountId,
+        externalLocationId: job.externalLocationId,
+        pageToken,
+      });
+      for (const review of page.reviews) {
+        listed.add(review.externalReviewId);
+      }
+      if (!page.nextPageToken) {
+        return listed;
+      }
+      pageToken = page.nextPageToken;
+    }
+    return null;
+  }
+
+  private async applyReviewReconciliation(
+    job: IReviewSyncJob,
+    accessToken: string,
+    listed: Set<string>
+  ): Promise<void> {
+    const open = await this.reviewSyncDbService.findOpenReviewsForReconciliation({
+      locationId: job.locationId,
+      createdBefore: new Date(Date.now() - RECONCILE_GRACE_MS).toISOString(),
+    });
+
+    if (listed.size === 0) {
+      if (open.length > 0) {
+        this.logger.warn(
+          `Google lists no reviews for location ${job.locationId} but ${open.length} open review(s) are held; not treating them as deleted.`
+        );
+      }
+      return;
+    }
+
+    const restored = await this.reviewSyncDbService.restoreRelistedReviews({
+      locationId: job.locationId,
+      externalReviewIds: [...listed],
+    });
+    // Paging gives no stable position (a review can slip between pages), so "not in the list" is only a lead: each
+    // one is asked for directly, and only Google's own 404 counts as proof it is gone.
+    const gone: string[] = [];
+    for (const review of open.filter(candidate => !listed.has(candidate.externalReviewId))) {
+      if (await this.isDeletedOnProvider(job, accessToken, review.externalReviewId)) {
+        gone.push(review.id);
+      }
+    }
+    const removed = await this.reviewSyncDbService.markReviewsRemovedUpstream(gone);
+
+    if (restored > 0 || removed > 0) {
+      this.logger.log(
+        `Deleted-review check for location ${job.locationId}: ${removed} review(s) no longer on Google marked removed, ${restored} restored.`
+      );
     }
   }
 

@@ -13,7 +13,7 @@ import { AdminUsersService } from './admin-users.service';
 
 describe('AdminUsersService', () => {
   let target: AdminUsersService;
-  let adminUsersDbService: { findAll: jest.Mock; toggleActive: jest.Mock };
+  let adminUsersDbService: { findPage: jest.Mock; toggleActive: jest.Mock };
   let adminOverviewDbService: { recordActivityBestEffort: jest.Mock };
 
   const admin: PlatformAdminAuthUser = {
@@ -35,7 +35,7 @@ describe('AdminUsersService', () => {
   };
 
   beforeEach(async () => {
-    adminUsersDbService = { findAll: jest.fn(), toggleActive: jest.fn() };
+    adminUsersDbService = { findPage: jest.fn(), toggleActive: jest.fn() };
     adminOverviewDbService = { recordActivityBestEffort: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -51,31 +51,44 @@ describe('AdminUsersService', () => {
 
   describe('list', () => {
     it('maps status to a boolean isActive', async () => {
-      adminUsersDbService.findAll.mockResolvedValue([row, { ...row, status: UserStatus.DISABLED }]);
+      adminUsersDbService.findPage.mockResolvedValue({
+        rows: [row, { ...row, status: UserStatus.DISABLED }],
+        total: 2,
+      });
 
       const result = await target.list(admin, {});
 
-      expect(adminUsersDbService.findAll).toHaveBeenCalledWith(undefined);
-      expect(result[0]?.isActive).toBe(true);
-      expect(result[1]?.isActive).toBe(false);
+      expect(adminUsersDbService.findPage).toHaveBeenCalledWith({
+        search: undefined,
+        page: 1,
+        pageSize: 10,
+      });
+      expect(result.users[0]?.isActive).toBe(true);
+      expect(result.users[1]?.isActive).toBe(false);
+      expect(result.meta).toEqual({ page: 1, pageSize: 10, total: 2, totalPages: 1 });
     });
 
     it('maps a non-active, non-disabled status (e.g. pending_verification) to inactive', async () => {
-      adminUsersDbService.findAll.mockResolvedValue([
-        { ...row, status: UserStatus.PENDING_VERIFICATION },
-      ]);
+      adminUsersDbService.findPage.mockResolvedValue({
+        rows: [{ ...row, status: UserStatus.PENDING_VERIFICATION }],
+        total: 1,
+      });
 
       const result = await target.list(admin, {});
 
-      expect(result[0]?.isActive).toBe(false);
+      expect(result.users[0]?.isActive).toBe(false);
     });
 
-    it('forwards the search term to the db service', async () => {
-      adminUsersDbService.findAll.mockResolvedValue([row]);
+    it('forwards the search term, page and page size to the db service', async () => {
+      adminUsersDbService.findPage.mockResolvedValue({ rows: [row], total: 1 });
 
-      await target.list(admin, { search: 'jane' });
+      await target.list(admin, { search: 'jane', page: 3, pageSize: 20 });
 
-      expect(adminUsersDbService.findAll).toHaveBeenCalledWith('jane');
+      expect(adminUsersDbService.findPage).toHaveBeenCalledWith({
+        search: 'jane',
+        page: 3,
+        pageSize: 20,
+      });
     });
   });
 

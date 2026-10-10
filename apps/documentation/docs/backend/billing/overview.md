@@ -262,17 +262,9 @@ injected into three other modules' business services:
 | `canAddLocation` | `ConnectionsService.assertLocationLimit` (`src/api/connections/services/connections.service.ts:639`) — the pre-check before confirming new locations, replacing the old hardcoded `MAX_ACTIVE_LOCATIONS` sanity ceiling. `ConnectionsDbService.confirmLocations`'s own race-safe, lock-held recheck also reads `entitlements.maxLocations` (`?? Number.MAX_SAFE_INTEGER` for unlimited), not just the pre-check | `LocationLimitReachedException` (403) |
 | `canInviteTeamMember` | `TenantMembersService.sendInvite` (`src/api/settings/services/tenant-members.service.ts:82`) — independent of, and in addition to, the existing `platformSettingsDbService.get().inviteMembersEnabled` platform-off check | `TeamMemberLimitReachedException` (403), kept distinct from `MemberInvitesDisabledException` (platform-off) since the frontend needs different upsell copy for each |
 | `canEditCustomPrompt` | `PromptsService.createVersion` (`src/api/prompts/prompts.service.ts:83`) — checked before the existing placeholder-validation logic even looks at the submitted template | `CustomPromptsNotOnPlanException` (403) |
-| `canGenerateAiDraft` | Both `AiReplyGenerationService.generateDryRunReply` (never persists, so it can never move the count it checks) and `generateForClassifiedReviews` (`src/api/ai/ai-reply-generation.service.ts`, wired into `ReviewSyncQueueService`'s 15-minute poll tick, which does persist an `ai_generated` row on every success) — see [AI Module § Billing entitlement check](../ai/overview.md#billing-entitlement-check-everywhere-generation-can-run) | `AiDraftLimitReachedException` (403) |
 
 ## Known limitations / follow-up work
 
-- **`generateDryRunReply`'s quota check is real but structurally inert on its own.** It calls
-  `canGenerateAiDraft` before generating, same as the real generation path, but a dry run never
-  persists a `review_responses` row — so on its own it could never move the count it checks. That
-  stopped being the whole picture once `generateForClassifiedReviews` shipped alongside it
-  (`src/api/ai/ai-reply-generation.service.ts`, wired into `ReviewSyncQueueService`'s poll tick):
-  that path persists an `ai_generated` row on every successful draft, so `aiDraftsUsedThisMonth`
-  is live in practice — a dry run just never contributes to it either way.
 - **No owner-notification email on an auto-picked downgrade yet.**
   `enforceLocationLimitOnDowngrade`'s `queueDowngradeNotification` only logs which location was
   kept/paused (`this.logger.log(...)`) instead of queuing a real email through the existing

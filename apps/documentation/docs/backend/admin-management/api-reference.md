@@ -51,40 +51,45 @@ server-side and why the Businesses and Users lists needed different SQL to do it
 
 Every tenant, newest first, optionally narrowed by `search` — see [Overview § Server-side
 search](./overview.md#server-side-search-why-and-why-the-two-lists-needed-different-sql) for what
-it matches against and why the owner-name half needs an `EXISTS` subquery. No pagination — see
-[Known limitations](./overview.md#known-limitations).
+it matches against and why the owner-name half needs an `EXISTS` subquery. The result is **paged** (newest
+first, `id` breaking ties), and `meta.total` counts with the very same `WHERE` as the page, so the two cannot disagree.
 
 | Query param | Type | Rules |
 |---|---|---|
 | `search` | string | optional, ≤200 chars. Case-insensitive substring match against the tenant name or its owner name. Example: `coastal` |
+| `page` | integer | optional, ≥ 1, default `1` |
+| `pageSize` | integer | optional, 1–100, default `10` |
 
 Success `200`:
 
 ```json
-[
-  {
-    "id": "0190f3aa-2a3e-7c1a-9b1e-8f2a1c3d4e5f",
-    "name": "The Coastal Table",
-    "status": "active",
-    "connectionStatus": "connected",
-    "ownerName": "Maria Delgado",
-    "ownerEmail": "maria@coastaltable.com",
-    "userCount": 4,
-    "createdAt": "2025-11-02T09:00:00.000Z",
-    "erasureRequestedAt": null
-  }
-]
+{
+  "businesses": [
+    {
+      "id": "0190f3aa-2a3e-7c1a-9b1e-8f2a1c3d4e5f",
+      "name": "The Coastal Table",
+      "status": "active",
+      "connectionStatus": "connected",
+      "ownerName": "Maria Delgado",
+      "ownerEmail": "maria@coastaltable.com",
+      "userCount": 4,
+      "createdAt": "2025-11-02T09:00:00.000Z",
+      "erasureRequestedAt": null
+    }
+  ],
+  "meta": { "page": 1, "pageSize": 10, "total": 1, "totalPages": 1 }
+}
 ```
 
 | Field | Type | Rules |
 |---|---|---|
-| `[].status` | enum | `active` \| `suspended` \| `erased` — collapses the real 4-value `tenant_status`'s `pending_activation` into `active`; `suspended` also covers a tenant mid-erasure-grace-period (see `erasureRequestedAt` below), and `erased` only appears once the nightly erasure-purge cron has actually finished anonymizing the tenant |
-| `[].erasureRequestedAt` | string (ISO) \| null | Set once a platform admin has called `request-erasure` on this tenant; `null` means no erasure is pending. Combine with `ERASURE_GRACE_PERIOD_DAYS` to compute when it takes effect — see [Overview § Tenant erasure](./overview.md#tenant-erasure-request-and-cancel-platform-admin-only-not-tenant-self-service) |
-| `[].connectionStatus` | enum | `connected` \| `needs_reauth` \| `disconnected` \| `never_connected` — same derivation as [Admin Overview's Recent Businesses](../admin-overview/api-reference.md#get-v1adminoverviewrecent-businesses) |
-| `[].ownerName` / `[].ownerEmail` | string | The tenant's earliest-created, non-anonymized `role = 'owner'` user. Empty string in the one case a tenant's owner was anonymized separately from the tenant itself |
-| `[].userCount` | integer | Non-anonymized `users` rows for this tenant |
+| `businesses[].status` | enum | `active` \| `suspended` \| `erased` — collapses the real 4-value `tenant_status`'s `pending_activation` into `active`; `suspended` also covers a tenant mid-erasure-grace-period (see `erasureRequestedAt` below), and `erased` only appears once the nightly erasure-purge cron has actually finished anonymizing the tenant |
+| `businesses[].erasureRequestedAt` | string (ISO) \| null | Set once a platform admin has called `request-erasure` on this tenant; `null` means no erasure is pending. Combine with `ERASURE_GRACE_PERIOD_DAYS` to compute when it takes effect — see [Overview § Tenant erasure](./overview.md#tenant-erasure-request-and-cancel-platform-admin-only-not-tenant-self-service) |
+| `businesses[].connectionStatus` | enum | `connected` \| `needs_reauth` \| `disconnected` \| `never_connected` — same derivation as [Admin Overview's Recent Businesses](../admin-overview/api-reference.md#get-v1adminoverviewrecent-businesses) |
+| `businesses[].ownerName` / `businesses[].ownerEmail` | string | The tenant's earliest-created, non-anonymized `role = 'owner'` user. Empty string in the one case a tenant's owner was anonymized separately from the tenant itself |
+| `businesses[].userCount` | integer | Non-anonymized `users` rows for this tenant |
 
-Errors: `400` validation (`search` over 200 chars), `401`, `403`, `429`.
+Errors: `400` validation (`search` over 200 chars, `page` below 1, `pageSize` outside 1–100), `401`, `403`, `429`.
 
 ### `POST /v1/admin/businesses/:tenantId/status`
 
@@ -186,35 +191,41 @@ or it's already fully `erased`), `429`.
 Every non-anonymized user across every tenant, newest first, optionally narrowed by `search` — see
 [Overview § Server-side
 search](./overview.md#server-side-search-why-and-why-the-two-lists-needed-different-sql) for what
-it matches against. No pagination — see [Known limitations](./overview.md#known-limitations).
+it matches against. The result is **paged** (newest first, `id` breaking ties), and `meta.total` counts with the same
+join and `WHERE` as the page.
 
 | Query param | Type | Rules |
 |---|---|---|
 | `search` | string | optional, ≤200 chars. Case-insensitive substring match against the user name or their business name. Example: `jane` |
+| `page` | integer | optional, ≥ 1, default `1` |
+| `pageSize` | integer | optional, 1–100, default `10` |
 
 Success `200`:
 
 ```json
-[
-  {
-    "id": "0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f",
-    "businessId": "0190f3aa-2a3e-7c1a-9b1e-8f2a1c3d4e5f",
-    "businessName": "The Coffee House",
-    "name": "Jane Doe",
-    "email": "jane@thecoffeehouse.com",
-    "role": "owner",
-    "isActive": true,
-    "lastLoginAt": "2026-03-01T09:12:00.000Z"
-  }
-]
+{
+  "users": [
+    {
+      "id": "0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f",
+      "businessId": "0190f3aa-2a3e-7c1a-9b1e-8f2a1c3d4e5f",
+      "businessName": "The Coffee House",
+      "name": "Jane Doe",
+      "email": "jane@thecoffeehouse.com",
+      "role": "owner",
+      "isActive": true,
+      "lastLoginAt": "2026-03-01T09:12:00.000Z"
+    }
+  ],
+  "meta": { "page": 1, "pageSize": 10, "total": 1, "totalPages": 1 }
+}
 ```
 
 | Field | Type | Rules |
 |---|---|---|
-| `[].isActive` | boolean | Derived from `users.status`: `true` only when it's exactly `active` |
-| `[].lastLoginAt` | string (ISO) \| null | Most recent `refresh_tokens` issuance for this user — there is no dedicated `last_login_at` column. `null` means no session was ever issued |
+| `users[].isActive` | boolean | Derived from `users.status`: `true` only when it's exactly `active` |
+| `users[].lastLoginAt` | string (ISO) \| null | Most recent `refresh_tokens` issuance for this user — there is no dedicated `last_login_at` column. `null` means no session was ever issued |
 
-Errors: `400` validation (`search` over 200 chars), `401`, `403`, `429`.
+Errors: `400` validation (`search` over 200 chars, `page` below 1, `pageSize` outside 1–100), `401`, `403`, `429`.
 
 ### `POST /v1/admin/users/:userId/toggle-active`
 

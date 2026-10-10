@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { MOCK_SETTINGS } from "@/app/_libs/mock-data/settings";
+import { SETTINGS_FIXTURE } from "@/test/fixtures/settings";
 import { BillingService } from "@/app/_libs/services/billing.service";
 import { PlatformSettingsService } from "@/app/_libs/services/platform-settings.service";
 import { SettingsService } from "@/app/_libs/services/settings.service";
@@ -77,7 +77,7 @@ function renderView() {
 describe("SettingsView — Billing tab availability", () => {
   beforeEach(() => {
     vi.spyOn(TenantOwnerProfileService, "get").mockResolvedValue(OWNER_PROFILE);
-    vi.spyOn(SettingsService, "getSettings").mockResolvedValue(MOCK_SETTINGS);
+    vi.spyOn(SettingsService, "getSettings").mockResolvedValue(SETTINGS_FIXTURE);
   });
 
   /** Regression: with PAYMENT_FEATURE_ENABLED off, a tenant on a live Stripe subscription lost the Billing tab and with it the only Cancel button. */

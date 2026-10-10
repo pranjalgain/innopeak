@@ -11,7 +11,7 @@ import { toStoredMessage } from '@common/i18n/message-registry';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, count, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 
 import type {
   ApproveResponseInput,
@@ -786,6 +786,74 @@ export class ReviewSyncRepository {
       .returning({ id: schema.reviewResponses.id });
 
     return rows.length > 0;
+  }
+
+  /**
+   * Reviews still waiting on a reply (`new`/`in_review`) that existed before `createdBefore`, as external id → row id.
+   * The cutoff keeps a review imported moments ago, which a listing taken a beat earlier may not show, out of a
+   * "Google no longer lists it" decision.
+   */
+  async findOpenReviewsForReconciliation(input: {
+    locationId: string;
+    createdBefore: string;
+  }): Promise<{ id: string; externalReviewId: string }[]> {
+    return this.dbService.db
+      .select({ id: schema.reviews.id, externalReviewId: schema.reviews.externalReviewId })
+      .from(schema.reviews)
+      .where(
+        and(
+          eq(schema.reviews.locationId, input.locationId),
+          inArray(schema.reviews.status, [ReviewStatus.NEW, ReviewStatus.IN_REVIEW]),
+          isNull(schema.reviews.removedUpstreamAt),
+          lt(schema.reviews.createdAt, input.createdBefore)
+        )
+      );
+  }
+
+  /** Only open reviews move: one already answered or dismissed keeps its status. */
+  async markReviewsRemovedUpstream(reviewIds: string[]): Promise<number> {
+    if (reviewIds.length === 0) {
+      return 0;
+    }
+    const rows = await this.dbService.db
+      .update(schema.reviews)
+      .set({ removedUpstreamAt: sql`now()`, status: ReviewStatus.REMOVED, updatedAt: sql`now()` })
+      .where(
+        and(
+          inArray(schema.reviews.id, reviewIds),
+          inArray(schema.reviews.status, [ReviewStatus.NEW, ReviewStatus.IN_REVIEW])
+        )
+      )
+      .returning({ id: schema.reviews.id });
+    return rows.length;
+  }
+
+  /** The same transition `upsertReview` makes for a review Google lists again: back to `in_review` with drafts, else `new`. */
+  async restoreRelistedReviews(input: {
+    locationId: string;
+    externalReviewIds: string[];
+  }): Promise<number> {
+    if (input.externalReviewIds.length === 0) {
+      return 0;
+    }
+    const rows = await this.dbService.db
+      .update(schema.reviews)
+      .set({
+        removedUpstreamAt: null,
+        status: sql`(CASE WHEN EXISTS (
+          SELECT 1 FROM ${schema.reviewResponses} WHERE ${schema.reviewResponses.reviewId} = reviews.id
+        ) THEN ${ReviewStatus.IN_REVIEW} ELSE ${ReviewStatus.NEW} END)::review_status`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(schema.reviews.locationId, input.locationId),
+          eq(schema.reviews.status, ReviewStatus.REMOVED),
+          inArray(schema.reviews.externalReviewId, input.externalReviewIds)
+        )
+      )
+      .returning({ id: schema.reviews.id });
+    return rows.length;
   }
 
   /** First sighting wins: an already-set timestamp is left as it was. */

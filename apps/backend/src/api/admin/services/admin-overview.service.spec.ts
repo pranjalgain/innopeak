@@ -79,6 +79,33 @@ describe('AdminOverviewService', () => {
       expect(result.totalReviewsFetched).toBe(4821);
       expect(result.totalRepliesSent).toBe(3660);
     });
+
+    // Platform-wide counts are full table scans, so repeat page loads are served from memory for a short while.
+    it('serves repeat calls from the cache instead of rescanning', async () => {
+      adminOverviewDbService.getStats.mockResolvedValue({
+        businessCount: 1,
+        userCount: 2,
+        totalReviewsFetched: 3,
+        totalRepliesSent: 4,
+      });
+
+      await target.getStats(admin);
+      await target.getStats(admin);
+
+      expect(adminOverviewDbService.getStats).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks the caller is a platform admin even when the answer is cached', async () => {
+      adminOverviewDbService.getStats.mockResolvedValue({
+        businessCount: 1,
+        userCount: 2,
+        totalReviewsFetched: 3,
+        totalRepliesSent: 4,
+      });
+      await target.getStats(admin);
+
+      await expect(target.getStats(tenantUser)).rejects.toThrow(ForbiddenException);
+    });
   });
 
   describe('getRecentBusinesses', () => {
@@ -169,6 +196,16 @@ describe('AdminOverviewService', () => {
       expect(result).toHaveLength(6);
       expect(result.filter(point => point.count === 0)).toHaveLength(5);
       expect(result[result.length - 1]?.count).toBe(4);
+    });
+
+    it('caches each month window separately', async () => {
+      adminOverviewDbService.getSignupTrend.mockResolvedValue([]);
+
+      await target.getSignupTrend(admin, 6);
+      await target.getSignupTrend(admin, 6);
+      await target.getSignupTrend(admin, 12);
+
+      expect(adminOverviewDbService.getSignupTrend).toHaveBeenCalledTimes(2);
     });
   });
 

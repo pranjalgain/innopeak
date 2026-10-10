@@ -1,7 +1,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { AdminBusinessService } from "@/app/_libs/services/admin-business.service";
@@ -14,7 +14,14 @@ import { useSearchInput } from "@/hooks/common/use-search-input";
 import type { AdminBusiness } from "@/types/domain";
 
 interface UseAdminBusinessesResult {
+  /** The current page only; the server pages and counts (`totalPages`). */
   businesses: AdminBusiness[];
+  page: number;
+  totalPages: number;
+  /** Every match across all pages, for the result count. */
+  total: number;
+  goToPreviousPage: () => void;
+  goToNextPage: () => void;
   search: string;
   setSearch: (search: string) => void;
   /** Derived from the trimmed, debounced value the query is keyed on, so it never disagrees with `businesses`. */
@@ -32,19 +39,41 @@ interface UseAdminBusinessesResult {
 /** Typing pause before a search reaches the API — same as `useReviewQueue`'s own constant. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-const businessesQueryKey = (search: string) => [...adminBusinessesQueryKey, { search }] as const;
+const PAGE_SIZE = 10;
+
+const businessesQueryKey = (search: string, page: number) =>
+  [...adminBusinessesQueryKey, { search, page }] as const;
 
 /** Searched server-side via `GET /v1/admin/businesses`'s `search` param. */
 export function useAdminBusinesses(): UseAdminBusinessesResult {
   const t = useTranslations("adminBusinesses.toasts");
   const queryClient = useQueryClient();
   const { search, setSearch, debouncedSearch, isSearching } = useSearchInput(SEARCH_DEBOUNCE_MS);
+  const [page, setPageState] = useState(1);
+
+  // A new search can leave the current page out of range: start again from page 1.
+  const [lastSearch, setLastSearch] = useState(debouncedSearch);
+  if (lastSearch !== debouncedSearch) {
+    setLastSearch(debouncedSearch);
+    setPageState(1);
+  }
 
   const businessesQuery = useQuery({
-    queryKey: businessesQueryKey(debouncedSearch),
-    queryFn: () => AdminBusinessService.getBusinesses({ search: debouncedSearch || undefined }),
+    queryKey: businessesQueryKey(debouncedSearch, page),
+    queryFn: () =>
+      AdminBusinessService.getBusinesses({
+        search: debouncedSearch || undefined,
+        page,
+        pageSize: PAGE_SIZE,
+      }),
     placeholderData: keepPreviousData,
   });
+
+  const totalPages = Math.max(1, businessesQuery.data?.meta.totalPages ?? 1);
+  const setPage = useCallback(
+    (next: number) => setPageState(Math.min(Math.max(next, 1), totalPages)),
+    [totalPages],
+  );
 
   useEffect(() => {
     if (businessesQuery.isError) toast.error(t("loadFailed"));
@@ -112,7 +141,12 @@ export function useAdminBusinesses(): UseAdminBusinessesResult {
   );
 
   return {
-    businesses: businessesQuery.data ?? [],
+    businesses: businessesQuery.data?.businesses ?? [],
+    page,
+    totalPages,
+    total: businessesQuery.data?.meta.total ?? 0,
+    goToPreviousPage: () => setPage(page - 1),
+    goToNextPage: () => setPage(page + 1),
     search,
     setSearch,
     isSearching,

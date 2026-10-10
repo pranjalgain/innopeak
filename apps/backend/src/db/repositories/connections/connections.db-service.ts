@@ -66,6 +66,10 @@ export class ConnectionsDbService {
     return this.connectionsRepository.updateConnectionStatus(connectionId, status);
   }
 
+  markReviewsReconciled(locationId: string): Promise<void> {
+    return this.connectionsRepository.markReviewsReconciled(locationId);
+  }
+
   markLocationDetailsAttempted(locationId: string): Promise<void> {
     return this.connectionsRepository.markLocationDetailsAttempted(locationId);
   }

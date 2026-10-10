@@ -7,8 +7,12 @@ import type { AdminUserRow, ToggleActiveResult } from './types/admin-users.type'
 export class AdminUsersDbService {
   constructor(private readonly adminUsersRepository: AdminUsersRepository) {}
 
-  async findAll(search?: string): Promise<AdminUserRow[]> {
-    return this.adminUsersRepository.findAll(search);
+  async findPage(input: {
+    search?: string | undefined;
+    page: number;
+    pageSize: number;
+  }): Promise<{ rows: AdminUserRow[]; total: number }> {
+    return this.adminUsersRepository.findPage(input);
   }
 
   async count(): Promise<number> {

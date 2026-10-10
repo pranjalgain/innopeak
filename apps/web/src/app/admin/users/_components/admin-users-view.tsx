@@ -15,7 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAdminUsers } from "@/hooks/admin/use-admin-users";
-import { usePagination } from "@/hooks/common/use-pagination";
 import type { AdminUser } from "@/types/domain";
 
 const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
@@ -101,18 +100,29 @@ export function AdminUsersView() {
   const tRole = useTranslations("adminUsers.role");
   const tStatus = useTranslations("adminUsers.status");
   const format = useFormatter();
-  const { users, search, setSearch, isSearching, isLoading, isError, refetch, toggleActive } =
-    useAdminUsers();
-
-  const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(users, 10);
+  const {
+    users: pageItems,
+    page,
+    totalPages,
+    total,
+    goToPreviousPage,
+    goToNextPage,
+    search,
+    setSearch,
+    isSearching,
+    isLoading,
+    isError,
+    refetch,
+    toggleActive,
+  } = useAdminUsers();
 
   const toggle = (id: string) => void toggleActive(id);
 
   return (
     <div className="flex min-h-full flex-col gap-6 p-fluid-page">
-      {isLoading || isError || (users.length === 0 && !isSearching) ? null : (
+      {isLoading || isError || (pageItems.length === 0 && !isSearching) ? null : (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">{t("resultCount", { count: users.length })}</p>
+          <p className="text-sm text-muted-foreground">{t("resultCount", { count: total })}</p>
           <div className="relative w-full sm:max-w-[280px]">
             <LuSearch className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -130,7 +140,7 @@ export function AdminUsersView() {
         <AdminUsersSkeleton />
       ) : isError ? (
         <LoadErrorState onRetry={refetch} />
-      ) : users.length === 0 ? (
+      ) : pageItems.length === 0 ? (
         isSearching ? (
           <AdminUsersNoResults onClearSearch={() => setSearch("")} />
         ) : (

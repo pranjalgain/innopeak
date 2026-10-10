@@ -74,6 +74,14 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('no markdown formatting');
   });
 
+  // Names are personal data: a reply must never use one, whatever the (editable) template says.
+  it('forbids addressing the reviewer by name or repeating a name from the review', () => {
+    const prompt = buildSystemPrompt({ tone: 'professional' });
+
+    expect(prompt).toContain('Never address the reviewer by name');
+    expect(prompt).toContain('repeat any name that appears in the review');
+  });
+
   it('defaults to the single-reply instruction when snippetCount is omitted', () => {
     expect(buildSystemPrompt({ tone: 'professional' })).not.toContain('JSON array');
   });

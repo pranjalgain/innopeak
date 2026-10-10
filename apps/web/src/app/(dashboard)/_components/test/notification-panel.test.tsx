@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { MOCK_NOTIFICATIONS } from "@/app/_libs/mock-data/notifications";
+import { NOTIFICATIONS_FIXTURE } from "@/test/fixtures/notifications";
 import { NotificationService } from "@/app/_libs/services/notification.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
 
@@ -24,14 +24,14 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-// Pages through `MOCK_NOTIFICATIONS` so the test covers the panel's paging, not the backend call.
+// Pages through `NOTIFICATIONS_FIXTURE` so the test covers the panel's paging, not the backend call.
 beforeEach(() => {
   vi.spyOn(NotificationService, "list").mockImplementation(async (offset, limit) => {
-    const items = structuredClone(MOCK_NOTIFICATIONS).slice(offset, offset + limit);
+    const items = structuredClone(NOTIFICATIONS_FIXTURE).slice(offset, offset + limit);
     return {
       items,
-      hasMore: offset + limit < MOCK_NOTIFICATIONS.length,
-      unreadTotal: MOCK_NOTIFICATIONS.filter((notification) => !notification.isRead).length,
+      hasMore: offset + limit < NOTIFICATIONS_FIXTURE.length,
+      unreadTotal: NOTIFICATIONS_FIXTURE.filter((notification) => !notification.isRead).length,
     };
   });
 });

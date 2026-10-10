@@ -5,7 +5,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { type ReactNode, StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { MOCK_NOTIFICATIONS } from "@/app/_libs/mock-data/notifications";
+import { NOTIFICATIONS_FIXTURE } from "@/test/fixtures/notifications";
 import { NotificationService } from "@/app/_libs/services/notification.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
 
@@ -26,15 +26,15 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe("useNotifications", () => {
-  // Default `NotificationService.list` implementation pages through `MOCK_NOTIFICATIONS`; tests
+  // Default `NotificationService.list` implementation pages through `NOTIFICATIONS_FIXTURE`; tests
   // layer `mockResolvedValueOnce`/`mockRejectedValueOnce` on top.
   beforeEach(() => {
     vi.spyOn(NotificationService, "list").mockImplementation(async (offset, limit) => {
-      const items = structuredClone(MOCK_NOTIFICATIONS).slice(offset, offset + limit);
+      const items = structuredClone(NOTIFICATIONS_FIXTURE).slice(offset, offset + limit);
       return {
         items,
-        hasMore: offset + limit < MOCK_NOTIFICATIONS.length,
-        unreadTotal: MOCK_NOTIFICATIONS.filter((notification) => !notification.isRead).length,
+        hasMore: offset + limit < NOTIFICATIONS_FIXTURE.length,
+        unreadTotal: NOTIFICATIONS_FIXTURE.filter((notification) => !notification.isRead).length,
       };
     });
   });
@@ -79,7 +79,7 @@ describe("useNotifications", () => {
   test("unreadCount is the whole feed's total, not just the loaded rows", async () => {
     // Every unread notification is past the first page, so a count from loaded rows would hide the bell dot.
     vi.spyOn(NotificationService, "list").mockResolvedValueOnce({
-      items: [{ ...MOCK_NOTIFICATIONS[0]!, isRead: true }],
+      items: [{ ...NOTIFICATIONS_FIXTURE[0]!, isRead: true }],
       hasMore: true,
       unreadTotal: 4,
     });

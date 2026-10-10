@@ -1,7 +1,7 @@
 import { applyDecorators, HttpStatus } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
-import { AdminUserResponseDto } from '../dto/admin-user-response.dto';
+import { AdminUserListResponseDto, AdminUserResponseDto } from '../dto/admin-user-response.dto';
 
 const ADMIN_USER_EXAMPLE = {
   id: '0190f3b2-2a3e-7c1a-9b1e-8f2a1c3d4e5f',
@@ -21,14 +21,24 @@ export function ApiListAdminUsers(): ReturnType<typeof applyDecorators> {
       summary: 'List every user across every tenant',
       description:
         'Platform-admin only. `search` is applied server-side (user name or business name ' +
-        'substring, case-insensitive) — no pagination yet, the console still pages the (now ' +
-        'server-filtered) result client-side.',
+        'substring, case-insensitive), and the result is paged: `page` (1-based) and `pageSize` ' +
+        '(default 10, max 100), newest first, with `meta.total` counting the same filter.',
     }),
     ApiQuery({ name: 'search', required: false, example: 'jane' }),
+    ApiQuery({ name: 'page', required: false, example: 1 }),
+    ApiQuery({ name: 'pageSize', required: false, example: 10 }),
     ApiResponse({
       status: HttpStatus.OK,
-      type: [AdminUserResponseDto],
-      examples: { default: { summary: 'Admin user list', value: [ADMIN_USER_EXAMPLE] } },
+      type: AdminUserListResponseDto,
+      examples: {
+        default: {
+          summary: 'Admin user list',
+          value: {
+            users: [ADMIN_USER_EXAMPLE],
+            meta: { page: 1, pageSize: 10, total: 1, totalPages: 1 },
+          },
+        },
+      },
     }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })

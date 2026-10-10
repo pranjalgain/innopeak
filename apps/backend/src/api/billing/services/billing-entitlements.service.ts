@@ -22,7 +22,7 @@ import {
 import type { PausedLocationsNotice, TenantEntitlements } from '../types/billing.type';
 import { isPaymentFeatureEnabled } from '../utils/payment-feature.util';
 
-/** Usage window start for canGenerateAiDraft; a function so each call reads "now" fresh. */
+/** Usage window start for the monthly AI-draft count; a function so each call reads "now" fresh. */
 function startOfCurrentMonthUtc(): string {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
@@ -139,14 +139,6 @@ export class BillingEntitlementsService {
   async canEditCustomPrompt(tenantId: string): Promise<boolean> {
     const entitlements = await this.getEntitlements(tenantId);
     return entitlements.customPromptsEnabled;
-  }
-
-  /** Counts `review_responses` with `source = 'ai_generated'` this calendar month. The dry-run path never persists a row, so only real generation moves the count. */
-  async canGenerateAiDraft(tenantId: string): Promise<boolean> {
-    const entitlements = await this.getEntitlements(tenantId);
-    return entitlements.maxAiDraftsPerMonth === null
-      ? true
-      : entitlements.aiDraftsUsedThisMonth < entitlements.maxAiDraftsPerMonth;
   }
 
   /**

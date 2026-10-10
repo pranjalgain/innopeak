@@ -164,8 +164,6 @@ export const messagesDe: MessageCatalog = {
     STATS_BATCH_RETRIEVED: 'Prompt-Versionsstatistik erfolgreich abgerufen',
   },
   AI: {
-    TENANT_ONLY: 'Die KI-Antwortgenerierung steht nur Mandantenbenutzern zur Verfügung.',
-    DRY_RUN_GENERATED: 'KI-Antwort erfolgreich generiert',
     PROMPT_NOT_CONFIGURED: 'Für diese Kategorie ist noch kein Prompt konfiguriert.',
     PROVIDER_NOT_CONFIGURED:
       'Der KI-Anbieter ist nicht konfiguriert. Setzen Sie OPENROUTER_API_KEY und OPENROUTER_MODEL.',
@@ -193,7 +191,6 @@ export const messagesDe: MessageCatalog = {
       'Sie haben das Teammitgliederlimit Ihres Tarifs erreicht. Führen Sie ein Upgrade durch, um weitere einzuladen.',
     CUSTOM_PROMPTS_NOT_ON_PLAN:
       'Benutzerdefinierte Prompt-Vorlagen sind in Ihrem aktuellen Tarif nicht verfügbar.',
-    AI_DRAFT_LIMIT_REACHED: 'Sie haben das monatliche KI-Entwurfslimit Ihres Tarifs erreicht.',
     STRIPE_WEBHOOK_SIGNATURE_INVALID: 'Ungültige Stripe-Webhook-Signatur',
     LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION:
       'Dieser Standort kann nicht aktiviert werden — er gehört möglicherweise nicht zu Ihrem Unternehmen oder ist getrennt.',

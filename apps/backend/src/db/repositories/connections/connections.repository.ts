@@ -55,6 +55,7 @@ const LOCATION_COLUMNS = {
   phone: schema.locations.phone,
   websiteUri: schema.locations.websiteUri,
   detailsRefreshedAt: schema.locations.detailsRefreshedAt,
+  reviewsReconciledAt: schema.locations.reviewsReconciledAt,
   status: schema.locations.status,
   lastSyncedAt: schema.locations.lastSyncedAt,
   lastSyncStatus: schema.locations.lastSyncStatus,
@@ -149,6 +150,14 @@ export class ConnectionsRepository {
       .update(schema.reviewProviderConnections)
       .set({ status, updatedAt: sql`now()` })
       .where(eq(schema.reviewProviderConnections.id, connectionId));
+  }
+
+  /** Stamped whether or not the comparison succeeded, so a location Google keeps refusing costs one try a day. */
+  async markReviewsReconciled(locationId: string): Promise<void> {
+    await this.dbService.db
+      .update(schema.locations)
+      .set({ reviewsReconciledAt: sql`now()` })
+      .where(eq(schema.locations.id, locationId));
   }
 
   /** A failed re-read still counts as one, so the poll tries again in a day rather than on every tick. */

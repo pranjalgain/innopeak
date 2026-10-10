@@ -7,6 +7,7 @@ import { DEFAULT_PROMPT_TONE, DEFAULT_PROMPTS } from '@prompts/constants/default
 
 /* eslint-disable no-console -- standalone CLI script, no Nest Logger/DI context available */
 
+import { ANONYMOUS_REVIEWER } from '../constants/ai.constants';
 import { MOCK_REVIEW_FIXTURES } from '../constants/mock-review-fixtures.constant';
 import { OpenRouterAiProvider } from '../providers/openrouter-ai.provider';
 import { buildSystemPrompt, fillPromptTemplate } from '../utils/prompt-template.util';
@@ -43,7 +44,7 @@ async function main(): Promise<void> {
 
     const userPrompt = fillPromptTemplate(defaultPrompt.template, {
       business_name: MOCK_BUSINESS_NAME,
-      reviewer_name: fixture.reviewerName,
+      reviewer_name: ANONYMOUS_REVIEWER,
       rating: String(fixture.rating),
       review_text: fixture.reviewText,
     });

@@ -7,7 +7,8 @@ import { AdminUsersDbService } from '@db/repositories/admin-users/admin-users.db
 import { Injectable } from '@nestjs/common';
 
 import type { AuthUser } from '../../auth/types/auth.type';
-import { AdminUserResponseDto } from '../dto/admin-user-response.dto';
+import { ADMIN_LIST_PAGE_SIZE_DEFAULT } from '../constants/admin-overview.constants';
+import { AdminUserListResponseDto, AdminUserResponseDto } from '../dto/admin-user-response.dto';
 import type { ListAdminUsersQueryDto } from '../dto/list-admin-users-query.dto';
 import {
   AdminUserNotFoundException,
@@ -21,10 +22,21 @@ export class AdminUsersService {
     private readonly adminOverviewDbService: AdminOverviewDbService
   ) {}
 
-  async list(actor: AuthUser, query: ListAdminUsersQueryDto): Promise<AdminUserResponseDto[]> {
+  async list(actor: AuthUser, query: ListAdminUsersQueryDto): Promise<AdminUserListResponseDto> {
     requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const rows = await this.adminUsersDbService.findAll(query.search);
-    return rows.map(row => AdminUserResponseDto.from(row));
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? ADMIN_LIST_PAGE_SIZE_DEFAULT;
+
+    const { rows, total } = await this.adminUsersDbService.findPage({
+      search: query.search,
+      page,
+      pageSize,
+    });
+
+    return {
+      users: rows.map(row => AdminUserResponseDto.from(row)),
+      meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    };
   }
 
   /**

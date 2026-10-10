@@ -20,7 +20,10 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
-import { AdminBusinessResponseDto } from '../dto/admin-business-response.dto';
+import {
+  AdminBusinessListResponseDto,
+  AdminBusinessResponseDto,
+} from '../dto/admin-business-response.dto';
 import { ListAdminBusinessesQueryDto } from '../dto/list-admin-businesses-query.dto';
 import { UpdateBusinessStatusDto } from '../dto/update-business-status.dto';
 import { AdminBusinessesService } from '../services/admin-businesses.service';
@@ -42,7 +45,7 @@ export class AdminBusinessesController {
   async list(
     @CurrentUser() user: AuthUser,
     @Query() query: ListAdminBusinessesQueryDto
-  ): Promise<ApiResponseDto<AdminBusinessResponseDto[]>> {
+  ): Promise<ApiResponseDto<AdminBusinessListResponseDto>> {
     const result = await this.adminBusinessesService.list(user, query);
     return ResponseUtil.success(result, undefined, HttpStatus.OK);
   }

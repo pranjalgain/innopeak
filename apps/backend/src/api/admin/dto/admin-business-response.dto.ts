@@ -1,3 +1,4 @@
+import { PaginationMetaDto } from '@common/dto/pagination-meta.dto';
 import { BusinessConnectionStatus } from '@common/enums/business-connection-status.enum';
 import { BusinessStatus } from '@common/enums/business-status.enum';
 import { toIsoString } from '@common/helpers/date.utils';
@@ -57,4 +58,12 @@ export class AdminBusinessResponseDto {
       : null;
     return dto;
   }
+}
+
+export class AdminBusinessListResponseDto {
+  @ApiProperty({ type: [AdminBusinessResponseDto], description: 'Newest first.' })
+  businesses!: AdminBusinessResponseDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta!: PaginationMetaDto;
 }

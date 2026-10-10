@@ -12,7 +12,7 @@ import type { AdminBusinessRow } from './types/admin-businesses.type';
 describe('AdminBusinessesDbService', () => {
   let target: AdminBusinessesDbService;
   let adminBusinessesRepository: {
-    findAll: jest.Mock;
+    findPage: jest.Mock;
     findById: jest.Mock;
     setStatus: jest.Mock;
     count: jest.Mock;
@@ -39,7 +39,7 @@ describe('AdminBusinessesDbService', () => {
 
   beforeEach(async () => {
     adminBusinessesRepository = {
-      findAll: jest.fn(),
+      findPage: jest.fn(),
       findById: jest.fn(),
       setStatus: jest.fn(),
       count: jest.fn(),
@@ -60,29 +60,40 @@ describe('AdminBusinessesDbService', () => {
 
   describe('status mapping', () => {
     it('maps TenantStatus.SUSPENDED to BusinessStatus.SUSPENDED', async () => {
-      adminBusinessesRepository.findAll.mockResolvedValue([
-        row({ status: TenantStatus.SUSPENDED }),
-      ]);
+      adminBusinessesRepository.findPage.mockResolvedValue({
+        rows: [row({ status: TenantStatus.SUSPENDED })],
+        total: 1,
+      });
 
-      const [summary] = await target.findAll();
+      const {
+        businesses: [summary],
+      } = await target.findPage({ page: 1, pageSize: 10 });
 
       expect(summary?.status).toBe(BusinessStatus.SUSPENDED);
     });
 
     it('collapses TenantStatus.PENDING_ACTIVATION into BusinessStatus.ACTIVE', async () => {
-      adminBusinessesRepository.findAll.mockResolvedValue([
-        row({ status: TenantStatus.PENDING_ACTIVATION }),
-      ]);
+      adminBusinessesRepository.findPage.mockResolvedValue({
+        rows: [row({ status: TenantStatus.PENDING_ACTIVATION })],
+        total: 1,
+      });
 
-      const [summary] = await target.findAll();
+      const {
+        businesses: [summary],
+      } = await target.findPage({ page: 1, pageSize: 10 });
 
       expect(summary?.status).toBe(BusinessStatus.ACTIVE);
     });
 
     it('maps TenantStatus.ERASED to BusinessStatus.ERASED', async () => {
-      adminBusinessesRepository.findAll.mockResolvedValue([row({ status: TenantStatus.ERASED })]);
+      adminBusinessesRepository.findPage.mockResolvedValue({
+        rows: [row({ status: TenantStatus.ERASED })],
+        total: 1,
+      });
 
-      const [summary] = await target.findAll();
+      const {
+        businesses: [summary],
+      } = await target.findPage({ page: 1, pageSize: 10 });
 
       expect(summary?.status).toBe(BusinessStatus.ERASED);
     });
@@ -94,69 +105,103 @@ describe('AdminBusinessesDbService', () => {
      * "Needs attention" slots and hiding real disconnections.
      */
     it('reports never_connected when there is no connection row at all', async () => {
-      adminBusinessesRepository.findAll.mockResolvedValue([
-        row({ latestConnectionStatus: null, latestConnectionDisconnectedAt: null }),
-      ]);
+      adminBusinessesRepository.findPage.mockResolvedValue({
+        rows: [row({ latestConnectionStatus: null, latestConnectionDisconnectedAt: null })],
+        total: 1,
+      });
 
-      const [summary] = await target.findAll();
+      const {
+        businesses: [summary],
+      } = await target.findPage({ page: 1, pageSize: 10 });
 
       expect(summary?.connectionStatus).toBe(BusinessConnectionStatus.NEVER_CONNECTED);
     });
 
     it('reports disconnected when the most recent connection row is disconnected, even if its status is active', async () => {
-      adminBusinessesRepository.findAll.mockResolvedValue([
-        row({
-          latestConnectionStatus: ReviewProviderConnectionStatus.ACTIVE,
-          latestConnectionDisconnectedAt: '2026-01-01T00:00:00.000Z',
-        }),
-      ]);
+      adminBusinessesRepository.findPage.mockResolvedValue({
+        rows: [
+          row({
+            latestConnectionStatus: ReviewProviderConnectionStatus.ACTIVE,
+            latestConnectionDisconnectedAt: '2026-01-01T00:00:00.000Z',
+          }),
+        ],
+        total: 1,
+      });
 
-      const [summary] = await target.findAll();
+      const {
+        businesses: [summary],
+      } = await target.findPage({ page: 1, pageSize: 10 });
 
       expect(summary?.connectionStatus).toBe(BusinessConnectionStatus.DISCONNECTED);
     });
 
     it('reports needs_reauth when the connection is live but needs reauth', async () => {
-      adminBusinessesRepository.findAll.mockResolvedValue([
-        row({
-          latestConnectionStatus: ReviewProviderConnectionStatus.NEEDS_REAUTH,
-          latestConnectionDisconnectedAt: null,
-        }),
-      ]);
+      adminBusinessesRepository.findPage.mockResolvedValue({
+        rows: [
+          row({
+            latestConnectionStatus: ReviewProviderConnectionStatus.NEEDS_REAUTH,
+            latestConnectionDisconnectedAt: null,
+          }),
+        ],
+        total: 1,
+      });
 
-      const [summary] = await target.findAll();
+      const {
+        businesses: [summary],
+      } = await target.findPage({ page: 1, pageSize: 10 });
 
       expect(summary?.connectionStatus).toBe(BusinessConnectionStatus.NEEDS_REAUTH);
     });
 
     it('reports connected for a live, active, non-disconnected connection', async () => {
-      adminBusinessesRepository.findAll.mockResolvedValue([
-        row({
-          latestConnectionStatus: ReviewProviderConnectionStatus.ACTIVE,
-          latestConnectionDisconnectedAt: null,
-        }),
-      ]);
+      adminBusinessesRepository.findPage.mockResolvedValue({
+        rows: [
+          row({
+            latestConnectionStatus: ReviewProviderConnectionStatus.ACTIVE,
+            latestConnectionDisconnectedAt: null,
+          }),
+        ],
+        total: 1,
+      });
 
-      const [summary] = await target.findAll();
+      const {
+        businesses: [summary],
+      } = await target.findPage({ page: 1, pageSize: 10 });
 
       expect(summary?.connectionStatus).toBe(BusinessConnectionStatus.CONNECTED);
     });
   });
 
+  it("reports the repository's total next to the page, not the page length", async () => {
+    adminBusinessesRepository.findPage.mockResolvedValue({ rows: [row()], total: 42 });
+
+    const result = await target.findPage({ page: 1, pageSize: 1 });
+
+    expect(result.businesses).toHaveLength(1);
+    expect(result.total).toBe(42);
+  });
+
   it('forwards the search term to the repository', async () => {
-    adminBusinessesRepository.findAll.mockResolvedValue([row()]);
+    adminBusinessesRepository.findPage.mockResolvedValue({ rows: [row()], total: 1 });
 
-    await target.findAll('coastal');
+    await target.findPage({ search: 'coastal', page: 2, pageSize: 25 });
 
-    expect(adminBusinessesRepository.findAll).toHaveBeenCalledWith('coastal');
+    expect(adminBusinessesRepository.findPage).toHaveBeenCalledWith({
+      search: 'coastal',
+      page: 2,
+      pageSize: 25,
+    });
   });
 
   it('falls back owner name/email to empty strings rather than null', async () => {
-    adminBusinessesRepository.findAll.mockResolvedValue([
-      row({ ownerName: null, ownerEmail: null }),
-    ]);
+    adminBusinessesRepository.findPage.mockResolvedValue({
+      rows: [row({ ownerName: null, ownerEmail: null })],
+      total: 1,
+    });
 
-    const [summary] = await target.findAll();
+    const {
+      businesses: [summary],
+    } = await target.findPage({ page: 1, pageSize: 10 });
 
     expect(summary?.ownerName).toBe('');
     expect(summary?.ownerEmail).toBe('');
@@ -171,7 +216,7 @@ describe('AdminBusinessesDbService', () => {
   });
 
   describe('findRecent', () => {
-    it('maps recent rows the same way findAll does, forwarding the limit', async () => {
+    it('maps recent rows the same way findPage does, forwarding the limit', async () => {
       adminBusinessesRepository.findRecent.mockResolvedValue([
         row({ status: TenantStatus.SUSPENDED }),
       ]);
