@@ -4,13 +4,11 @@
 
 import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
-import posthog from "posthog-js";
 import { useEffect, useState } from "react";
 import { LuHouse, LuRefreshCw, LuTriangleAlert } from "react-icons/lu";
 
 import { Button } from "@/components/ui/button";
 import { type AppLocale, DEFAULT_LOCALE, isSupportedLocale, LOCALE_COOKIE_NAME } from "@/i18n/locales";
-import { env } from "env";
 
 interface GlobalErrorProps {
   error: Error & { digest?: string };
@@ -31,7 +29,7 @@ const COPY: Record<AppLocale, {
   returnHome: string;
 }> = {
   en: {
-    eyebrow: "Captured by Sentry + PostHog",
+    eyebrow: "Error recorded",
     title: "Something went wrong.",
     description:
       "The exception has been recorded with diagnostic context. You can retry the request or return to a safe page.",
@@ -40,7 +38,7 @@ const COPY: Record<AppLocale, {
     returnHome: "Return home",
   },
   de: {
-    eyebrow: "Erfasst von Sentry + PostHog",
+    eyebrow: "Fehler erfasst",
     title: "Etwas ist schiefgelaufen.",
     description:
       "Der Fehler wurde mit Diagnoseinformationen erfasst. Sie können die Anfrage wiederholen oder zu einer sicheren Seite zurückkehren.",
@@ -70,9 +68,6 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
   useEffect(() => {
     console.error("global-error", error);
     Sentry.captureException(error);
-    posthog.captureException(error, {
-      environment: env.NEXT_PUBLIC_POSTHOG_ENVIRONMENT,
-    });
   }, [error]);
 
   return (

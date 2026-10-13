@@ -1,6 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
+import {
+  POST_LOGIN_REDIRECT_PARAM,
+  returnPathFor,
+  safeAdminReturnPath,
+  safeTenantReturnPath,
+} from "@/app/_libs/utils/post-login-redirect";
 
 /**
  * Matches the backend's SESSION_HINT_COOKIE_NAME. A cheap, approximate "is this visitor logged in"
@@ -57,6 +63,13 @@ const REQUIRE_TENANT_AUTH_PATHS: string[] = [
 /** `/admin` itself; `pathname.startsWith` covers nested screens. */
 const ADMIN_ROOT_PATH = ROUTES.ADMIN;
 
+/** A sign-in URL that remembers where the visitor was headed, so signing in lands there instead of on the home screen. */
+function loginUrl(request: NextRequest, loginPath: string, returnTo: string | null): URL {
+  const url = new URL(loginPath, request.url);
+  if (returnTo) url.searchParams.set(POST_LOGIN_REDIRECT_PARAM, returnTo);
+  return url;
+}
+
 export function proxy(request: NextRequest): NextResponse {
   const sessionKind = request.cookies.get(SESSION_HINT_COOKIE_NAME)?.value;
   const isTenantSession =
@@ -69,10 +82,15 @@ export function proxy(request: NextRequest): NextResponse {
     REDIRECT_IF_AUTHENTICATED_PATHS.includes(pathname)
   ) {
     // Sent to this principal's own home: an admin sent to `/dashboard` would fail the tenant-only
-    // check below and bounce back to `/login`, recreating the loop.
-    return NextResponse.redirect(
-      new URL(isAdminSession ? ROUTES.ADMIN : ROUTES.DASHBOARD, request.url)
-    );
+    // check below and bounce back to `/login`, recreating the loop. A `?next=` the sign-in redirect left behind wins
+    // over home when it is safe for this kind of principal: the login screen refreshes the router right after
+    // signing in, and that refresh arrives here as an already-signed-in visit to `/login?next=…`.
+    const requestedNext = request.nextUrl.searchParams.get(POST_LOGIN_REDIRECT_PARAM);
+    const returnTo = isAdminSession
+      ? safeAdminReturnPath(requestedNext)
+      : safeTenantReturnPath(requestedNext);
+    const home = isAdminSession ? ROUTES.ADMIN : ROUTES.DASHBOARD;
+    return NextResponse.redirect(new URL(returnTo ?? home, request.url));
   }
 
   const requiresTenantAuth =
@@ -84,7 +102,9 @@ export function proxy(request: NextRequest): NextResponse {
       return NextResponse.redirect(new URL(ROUTES.FORBIDDEN, request.url));
     }
     if (!isTenantSession) {
-      return NextResponse.redirect(new URL(ROUTES.LOGIN, request.url));
+      return NextResponse.redirect(
+        loginUrl(request, ROUTES.LOGIN, returnPathFor(pathname, request.nextUrl.search, "tenant")),
+      );
     }
   }
 
@@ -95,7 +115,13 @@ export function proxy(request: NextRequest): NextResponse {
     }
     if (!isAdminSession) {
       // The admin sign-in screen, not tenant `/login`, which has no admin path left (a dead end).
-      return NextResponse.redirect(new URL(ROUTES.ADMIN_LOGIN, request.url));
+      return NextResponse.redirect(
+        loginUrl(
+          request,
+          ROUTES.ADMIN_LOGIN,
+          returnPathFor(pathname, request.nextUrl.search, "admin"),
+        ),
+      );
     }
   }
 

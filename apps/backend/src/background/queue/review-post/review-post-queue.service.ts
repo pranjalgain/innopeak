@@ -1,11 +1,13 @@
 import { IReviewPostJob } from '@bg/interfaces/job.interface';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { POST_CLAIM_STALE_MINUTES } from '@common/constants/review-post.constants';
+import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import type { ReviewRow } from '@db/repositories/review-sync/types/review-sync.type';
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  CredentialReferenceUnresolvableError,
   ProviderAuthError,
   ProviderMappingError,
   ProviderNotFoundError,
@@ -65,9 +67,7 @@ export class ReviewPostQueueService {
     });
 
     if (!claimed) {
-      this.logger.debug(
-        `Skipping post for response ${job.responseId}: not claimable (already decided further, or claimed by a still-in-flight attempt).`
-      );
+      await this.recheckIfStillApproved(job, attempt);
       return;
     }
 
@@ -374,6 +374,39 @@ export class ReviewPostQueueService {
     throw error;
   }
 
+  /**
+   * A refused claim has two causes: the response moved on (posted, failed, superseded), where there is nothing left to do, or a
+   * fresh claim is held by an attempt that may have died with its worker. BullMQ then re-delivers the job after the stall, finds
+   * the claim still inside its staleness window and, if it just returned, would complete without ever posting, leaving the
+   * reply `approved` with no job behind it. While it is still `approved`, look again once the claim has gone stale.
+   */
+  private async recheckIfStillApproved(job: IReviewPostJob, attempt: number): Promise<void> {
+    try {
+      const response = await this.reviewSyncDbService.findResponseForTenant({
+        responseId: job.responseId,
+        reviewId: job.reviewId,
+        tenantId: job.tenantId,
+      });
+
+      if (response?.status !== ResponseStatus.APPROVED || attempt >= MAX_POST_ATTEMPTS) {
+        this.logger.debug(
+          `Skipping post for response ${job.responseId}: not claimable (already decided further).`
+        );
+        return;
+      }
+
+      if (await this.reschedule(job, attempt, RECORD_RECHECK_DELAY_MS, { releaseClaim: false })) {
+        this.logger.warn(
+          `Response ${job.responseId} is still approved but another attempt holds the claim; checking again in ${Math.round(RECORD_RECHECK_DELAY_MS / 1000)}s in case that attempt died.`
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Could not re-check unclaimable response ${job.responseId}: ${this.messageOf(error)}`
+      );
+    }
+  }
+
   private async reschedule(
     job: IReviewPostJob,
     attempt: number,
@@ -442,7 +475,10 @@ export class ReviewPostQueueService {
 
   /** The reason the owner is shown for a failed post; the raw error stays in the log. */
   private reasonFor(error: unknown): string {
-    if (error instanceof ProviderAuthError) {
+    if (
+      error instanceof ProviderAuthError ||
+      error instanceof CredentialReferenceUnresolvableError
+    ) {
       return MESSAGES.REVIEWS.POST_FAILED_RECONNECT;
     }
     if (error instanceof ProviderRateLimitError || error instanceof ProviderUnavailableError) {

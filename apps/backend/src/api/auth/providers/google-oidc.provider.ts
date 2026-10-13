@@ -56,6 +56,7 @@ export class GoogleOidcProvider extends GoogleIdentityProvider {
   async fetchIdentity(code: string): Promise<SsoIdentity> {
     const tokenResponse = await fetch(GOOGLE_AUTH.TOKEN_URL, {
       method: 'POST',
+      signal: AbortSignal.timeout(GOOGLE_AUTH.HTTP_TIMEOUT_MS),
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         code,
@@ -79,6 +80,7 @@ export class GoogleOidcProvider extends GoogleIdentityProvider {
     }
 
     const userInfoResponse = await fetch(GOOGLE_AUTH.USERINFO_URL, {
+      signal: AbortSignal.timeout(GOOGLE_AUTH.HTTP_TIMEOUT_MS),
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
 

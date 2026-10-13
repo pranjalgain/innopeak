@@ -985,6 +985,22 @@ Success `200`:
 
 Errors: `401`, `403` (member), `404 MEMBER_NOT_FOUND`, `409 MEMBER_REMOVAL_NOT_PENDING`, `500`.
 
+## Platform config
+
+### `GET /v1/settings/platform-config`
+
+Public (`@Public()`): the sign-in and sign-up screens read it before a session exists. The same shape is returned by the admin-only
+`PATCH /v1/admin/settings/platform` that changes the toggles.
+
+| Field | Type | Source |
+|---|---|---|
+| `ssoLoginEnabled` | boolean | `platform_settings.sso_login_enabled` — whether the Microsoft SSO button is offered |
+| `passwordLoginEnabled` | boolean | `platform_settings.password_login_enabled` |
+| `socialLoginEnabled` | boolean | `platform_settings.social_login_enabled` — Google social sign-in |
+| `inviteMembersEnabled` | boolean | `platform_settings.invite_members_enabled` — whether Settings → Members can send invites |
+| `paymentFeatureEnabled` | boolean | The deploy's `PAYMENT_FEATURE_ENABLED` env var, not a column |
+| `erasureGracePeriodDays` | number | The deploy's `ERASURE_GRACE_PERIOD_DAYS` env var (default 21), not a column. Days between a business or member being scheduled for erasure and the nightly purge anonymising it; the web app counts its "takes effect on" dates from it |
+
 ## Data export
 
 | Method | Path | Auth | Throttle |

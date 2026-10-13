@@ -1,6 +1,12 @@
 import type { PlatformSettingsRow } from '@db/repositories/platform-settings/types/platform-settings.type';
 import { ApiProperty } from '@nestjs/swagger';
 
+/** The settings that come from the deploy's environment rather than the `platform_settings` row. */
+export interface PlatformDeploySettings {
+  paymentFeatureEnabled: boolean;
+  erasureGracePeriodDays: number;
+}
+
 export class PlatformSettingsResponseDto {
   @ApiProperty({
     example: true,
@@ -37,16 +43,27 @@ export class PlatformSettingsResponseDto {
   })
   paymentFeatureEnabled!: boolean;
 
+  @ApiProperty({
+    example: 21,
+    description:
+      'Days between a business being scheduled for erasure and its data actually being erased — ' +
+      'the deploy-level ERASURE_GRACE_PERIOD_DAYS env var, not stored on `platform_settings` and ' +
+      'not writable through this API. The web app shows deadlines ("takes effect on …") computed ' +
+      'from it, so they match the nightly purge.',
+  })
+  erasureGracePeriodDays!: number;
+
   static from(
     row: PlatformSettingsRow,
-    paymentFeatureEnabled: boolean
+    deploy: PlatformDeploySettings
   ): PlatformSettingsResponseDto {
     const dto = new PlatformSettingsResponseDto();
     dto.ssoLoginEnabled = row.ssoLoginEnabled;
     dto.passwordLoginEnabled = row.passwordLoginEnabled;
     dto.socialLoginEnabled = row.socialLoginEnabled;
     dto.inviteMembersEnabled = row.inviteMembersEnabled;
-    dto.paymentFeatureEnabled = paymentFeatureEnabled;
+    dto.paymentFeatureEnabled = deploy.paymentFeatureEnabled;
+    dto.erasureGracePeriodDays = deploy.erasureGracePeriodDays;
     return dto;
   }
 }

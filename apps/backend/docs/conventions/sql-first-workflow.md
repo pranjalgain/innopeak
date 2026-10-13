@@ -21,6 +21,23 @@ flowchart LR
     D --> E["5. Add relations"]
 ```
 
+## Migrations are append-only once released
+
+Drizzle's migrator walks `meta/_journal.json` and never re-reads an applied file, so editing an applied migration is a silent no-op on every
+existing database. That is harmless while only disposable local databases exist and dangerous the moment one does not.
+
+`migrations.lock.json` (next to the SQL) records the SHA-256 of every shipped migration:
+
+| Command | Purpose |
+|---|---|
+| `pnpm db:migrations:verify` | Fail if a locked migration changed or vanished, or the journal lost an entry. New (unlocked) migrations are listed and allowed. |
+| `pnpm db:migrations:lock` | Re-write the lock from the files on disk. Run it deliberately: while editing in place before the first release, and once when cutting that release. |
+
+After the first release, never run `db:migrations:lock` to make a failure go away: put the change in a new numbered migration instead.
+
+In a deployed environment use `pnpm db:migrate:prod` (and `pnpm db:seed:admin:prod` for the first platform admin). They run on plain `node`
+against the built output; the SQL files are copied next to the compiled script by the build.
+
 ## Step 1: Create Migration
 
 ```bash

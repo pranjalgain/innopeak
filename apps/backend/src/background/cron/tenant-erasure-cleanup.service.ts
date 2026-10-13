@@ -42,6 +42,7 @@ export class TenantErasureCleanupService {
       await this.authDbService.setActiveLocationId({ tenantId, locationId: null });
     }
 
+    await this.credentialService.invalidateAccessToken(connection.id);
     await this.credentialService.revokeOrThrow(connection.credentialReference);
   }
 }

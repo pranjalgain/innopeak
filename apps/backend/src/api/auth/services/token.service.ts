@@ -85,6 +85,11 @@ export class TokenService {
     }
 
     if (existing.revokedAt !== null) {
+      // Revoked by a sign-out or a password change, not rotated out: a dead session, not a replayed token. Treating it as reuse
+      // would revoke the user's other, legitimate sessions, including the one a password change just minted.
+      if (!existing.rotated) {
+        throw new InvalidRefreshTokenException();
+      }
       await this.handleSpentToken({ revokedAt: existing.revokedAt, userId: payload.sub });
     }
 

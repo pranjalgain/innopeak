@@ -617,7 +617,7 @@ considerations](#security-considerations) — enumeration prevention).
 #### `POST /v1/auth/reset-password`
 
 Request (existing `ResetPasswordDto`): `{ "token": "...", "newPassword": "NewStr0ng@Pass" }`.
-Same validation and error shape as [`/v1/auth/verify-email`](#get-v1authverify-email)'s token
+Same validation and error shape as [`/v1/auth/verify-email`](#post-v1authverify-email)'s token
 lookup, `purpose = 'reset'`. On success, updates `password_hash`, marks the token used, and — since
 a successful reset is a strong signal the account may have been compromised — should also revoke
 all existing refresh tokens for the user (forces re-login everywhere).
@@ -646,7 +646,7 @@ Request (`ChangePasswordDto`):
 | Field | Type | Rules |
 |---|---|---|
 | `currentPassword` | string | required, 1–128 chars. Complexity is **not** re-checked — an older password that would fail today's policy must still be accepted as proof of identity. |
-| `newPassword` | string | required, same rules as [`POST /v1/auth/signup`](#post-v1authsignup)'s `password` (8–128 chars, `PASSWORD_PATTERN`). |
+| `newPassword` | string | required, same rules as [`POST /v1/auth/signup`](#post-v1authsignup)'s `password` (8–128 chars, `PASSWORD_PATTERN`), and different from `currentPassword`: `400 NEW_PASSWORD_SAME_AS_CURRENT` otherwise (checked only after the current password is proven, so it cannot be used to probe it). A no-change "change" would still sign every other device out. |
 
 On success, in one transaction: updates `users.password_hash`, then **revokes every refresh
 token for that user** — same as [`POST /v1/auth/reset-password`](#post-v1authreset-password).
@@ -849,7 +849,7 @@ Errors: `400 INVALID_OR_EXPIRED_TOKEN`.
 #### `POST /v1/auth/invite/accept`
 
 Password path only. Request: `{ "token": "...", "password": "NewStr0ng@Pass" }`. Validates the
-token the same way as [`/v1/auth/verify-email`](#get-v1authverify-email) (`purpose = 'invite'`),
+token the same way as [`/v1/auth/verify-email`](#post-v1authverify-email) (`purpose = 'invite'`),
 sets `password_hash`, `UPDATE users SET status = 'active', email_verified_at = now()` — clicking a
 token emailed to this specific address is proof of ownership regardless of which method finishes
 the invite, so this is set here unconditionally, not only on the SSO path below (`PLAN.md` §4.3b)
@@ -1038,13 +1038,14 @@ programmatic branching in the frontend.
 | `429` | `Too Many Requests` (`TOO_MANY_OTP_ATTEMPTS`) | delete-account | The per-account OTP attempt budget is spent. |
 | `403` | `Forbidden` (`ACCOUNT_DISABLED`) | delete-account, request-otp | The owner has been disabled. |
 | `403` | `Forbidden` (`ACCOUNT_SCHEDULED_FOR_DELETION`) | login (password) | The owner's own erasure is pending; the password was correct. Carries the scheduled date. |
-| `400` | `Validation Error` | Any endpoint with a body | One or more `class-validator` rules failed — `message` is a comma-joined list of the specific violations. |
+| `400` | `Validation Error` | Any endpoint with a body | One or more `class-validator` rules failed — `message` is a space-joined list of the specific violations. The sentences written for people ("Enter a valid email address.", "Enter your password.", the verification-code and name/business-name messages, the password rules) are translated to the caller's language (`VALIDATION` in the message catalog, matched by their English text in `translateValidationMessage`); the technical ones that start with the API field (`page must not be less than 1`, `newPassword must be between 8 and 128 characters`, `property role should not exist`) are translated by shape, keeping the field name as the identifier the caller sent. Anything unrecognised stays English rather than being guessed at. |
 | `400` | `Bad Request` (`INVALID_OR_EXPIRED_OTP`) | verify-email | Code not found, already used, past `expires_at`, or the account is no longer `pending_verification`. Same message for all causes — see [Security considerations](#security-considerations). |
 | `400` | `Bad Request` (`INVALID_OR_EXPIRED_TOKEN`) | reset-password, invite preview/accept, invite SSO entry | Token not found, already used, or past `expires_at`. Same message for all three causes — see [Security considerations](#security-considerations). |
 | `400` | `Bad Request` (`INVITE_EMAIL_MISMATCH`) | `GET /v1/auth/microsoft/callback` (`invite` intent) | The Microsoft/Google account used to accept the invite reported a different email than the one that was invited. Token is left unconsumed. |
 | `400` | `Bad Request` (`NO_PASSWORD_SET`) | change-password | Target user is SSO-only (`password_hash IS NULL`). |
 | `401` | `Unauthorized` (`INVALID_CREDENTIALS`) | login | Wrong password, unknown email, an SSO-only account attempting password login, **or an email currently locked out** (see [Brute-force protection](#brute-force-protection-throttling-and-per-account-lockout)) — one message for all four. Note: `pending_verification` is deliberately **not** in this list — see [`POST /v1/auth/login`](#post-v1authlogin), it's a 200 with a fresh OTP, not an error. |
 | `401` | `Unauthorized` (`INVALID_CURRENT_PASSWORD`) | change-password | `currentPassword` didn't match. |
+| `400` | `Bad Request` (`NEW_PASSWORD_SAME_AS_CURRENT`) | change-password | `newPassword` equals `currentPassword`. |
 | `401` | `Unauthorized` (`INVALID_REFRESH_TOKEN`) | refresh | Expired, revoked, already-rotated-out, or otherwise invalid refresh token — including one whose owning user/tenant is no longer in good standing. |
 | `401` | `Unauthorized` | Any `Bearer` route | Missing, malformed, or expired access token. |
 | `403` | `Forbidden` (`ACCOUNT_DISABLED`) | login (also as `?error=` on an OAuth `login`/`invite` callback) | `users.status = 'disabled'` or `platform_admins.status = 'disabled'`. On **refresh**, this same condition revokes every refresh token that user has, but the response is `401 INVALID_REFRESH_TOKEN`, not a 403 — see [`POST /v1/auth/refresh`](#post-v1authrefresh). |

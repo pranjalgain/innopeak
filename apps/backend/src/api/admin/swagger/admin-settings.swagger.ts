@@ -320,6 +320,7 @@ export function ApiUpdatePlatformSettings(): ReturnType<typeof applyDecorators> 
             socialLoginEnabled: false,
             inviteMembersEnabled: false,
             paymentFeatureEnabled: false,
+            erasureGracePeriodDays: 21,
           },
         },
       },

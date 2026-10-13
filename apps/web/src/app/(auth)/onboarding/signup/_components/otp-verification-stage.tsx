@@ -18,7 +18,8 @@ import { Label } from "@/components/ui/label";
 interface OtpVerificationStageProps {
   email: string;
   isLoading: boolean;
-  onVerify: (code: string) => void;
+  /** Resolves `false` when the code was rejected, so the boxes clear for a retry; anything else (success, navigation) leaves them. */
+  onVerify: (code: string) => void | boolean | Promise<void | boolean>;
   onResend: () => void;
   /** Offered only where starting over is meaningful (the signup wizard) — renders a "use a different email" link. */
   onChangeEmail?: () => void;
@@ -73,7 +74,7 @@ export function OtpVerificationStage({
     inputRefs.current[Math.min(pasted.length, CODE_LENGTH - 1)]?.focus();
   };
 
-  const handleVerify = (event: FormEvent) => {
+  const handleVerify = async (event: FormEvent) => {
     event.preventDefault();
     const code = digits.join("");
     if (code.length < CODE_LENGTH) {
@@ -81,7 +82,11 @@ export function OtpVerificationStage({
       return;
     }
     setError(null);
-    onVerify(code);
+    if ((await onVerify(code)) === false) {
+      // A wrong code would otherwise have to be erased box by box: a filled box ignores further typing.
+      setDigits(Array(CODE_LENGTH).fill(""));
+      inputRefs.current[0]?.focus();
+    }
   };
 
   const handleResend = () => {
@@ -112,6 +117,7 @@ export function OtpVerificationStage({
               maxLength={1}
               value={digit}
               onChange={(event) => handleChange(index, event.target.value)}
+              onFocus={(event) => event.target.select()}
               onKeyDown={(event) => handleKeyDown(index, event)}
               onPaste={handlePaste}
               className="h-12 w-10 p-0 text-center text-lg font-semibold"

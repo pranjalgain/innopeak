@@ -113,7 +113,7 @@ export function SettingsView() {
   const handleTabChange = useCallback(
     (value: string) => {
       // `typedRoutes` can't see that this only produces `/settings?tab=` plus a `TABS` literal.
-      router.replace(`${pathname}?tab=${value}` as Route, { scroll: false });
+      router.push(`${pathname}?tab=${value}` as Route, { scroll: false });
     },
     [router, pathname],
   );

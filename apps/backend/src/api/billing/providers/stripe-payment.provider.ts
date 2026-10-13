@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 
 import { PaymentProvider } from './payment.provider';
 
+import { STRIPE_CLIENT_OPTIONS } from '../constants/billing.constants';
 import {
   CheckoutSessionTenantMismatchException,
   PaymentMethodNotUsableException,
@@ -66,7 +67,7 @@ export class StripePaymentProvider extends PaymentProvider {
       if (this.secretKey === '') {
         throw new PaymentNotConfiguredException();
       }
-      this.client = new Stripe(this.secretKey);
+      this.client = new Stripe(this.secretKey, STRIPE_CLIENT_OPTIONS);
     }
     return this.client;
   }
@@ -390,6 +391,8 @@ export class StripePaymentProvider extends PaymentProvider {
 
   private mapEvent(event: Stripe.Event): PaymentWebhookEvent {
     switch (event.type) {
+      // `async_payment_succeeded` is the delayed-method counterpart: the payment cleared after the session completed.
+      case 'checkout.session.async_payment_succeeded':
       case 'checkout.session.completed': {
         const session = event.data.object;
         const customerId = typeof session.customer === 'string' ? session.customer : '';
@@ -399,6 +402,11 @@ export class StripePaymentProvider extends PaymentProvider {
           type: 'checkout.session.completed',
           customerId,
           subscriptionId,
+          // `unpaid` means a delayed payment method is still settling; `no_payment_required` covers a 100% discount.
+          paymentSettled:
+            event.type === 'checkout.session.async_payment_succeeded' ||
+            session.payment_status === 'paid' ||
+            session.payment_status === 'no_payment_required',
           // The payload carries no status/period fields; a just-completed Checkout subscription is
           // always active, so no second API call is needed.
           status: SubscriptionStatus.ACTIVE,

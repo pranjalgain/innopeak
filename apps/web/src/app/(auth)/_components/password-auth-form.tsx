@@ -35,7 +35,7 @@ export function PasswordAuthForm({
   submitLabel,
   submittingLabel,
 }: PasswordAuthFormProps) {
-  const t = useTranslations("auth.passwordMock");
+  const t = useTranslations("auth.passwordForm");
   const schema = useMemo(() => passwordAuthSchema(t), [t]);
 
   const {

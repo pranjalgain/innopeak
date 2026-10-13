@@ -22,12 +22,10 @@ export enum RouteNames {
   // for the platform-admin write side of the same resource.
   PLATFORM_CONFIG = 'platform-config',
   API_DOCS = 'api',
-  TRACING = 'tracing',
 
-  DEV_TOOLS = 'dev-tools',
-  DEV_TOOLS_QUEUES = 'queues',
   QUEUES_UI = 'admin/queues',
-  HEALTH_UI = 'health-ui',
+  HEALTH_LIVE = 'live',
+  HEALTH_READY = 'ready',
   LOGIN = 'login',
   LOGOUT = 'logout',
   SIGNUP = 'signup',
@@ -156,8 +154,4 @@ export enum RouteNames {
   BILLING_PROFILE = 'profile',
   BILLING_SETUP_INTENT = 'setup-intent',
   BILLING_PAYMENT_METHOD = 'payment-method',
-
-  TEST = 'test',
-  CUSTOM = 'custom',
-  STATUS = 'status',
 }

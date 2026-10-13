@@ -18,6 +18,17 @@ export class ProviderAuthError extends ProviderError {
   }
 }
 
+/**
+ * The stored credential reference cannot be read by this node (issued by another store, e.g. after a deployment-target
+ * change). Not a `ProviderAuthError`: the grant itself may be fine, so connection health is left alone, but the owner
+ * can only fix it by reconnecting, which issues a credential this node can read.
+ */
+export class CredentialReferenceUnresolvableError extends ProviderError {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 /** 429 or a provider quota error. Retryable with backoff. */
 export class ProviderRateLimitError extends ProviderError {
   constructor(

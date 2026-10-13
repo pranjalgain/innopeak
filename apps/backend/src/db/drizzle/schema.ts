@@ -1401,6 +1401,7 @@ export const tenantSubscriptions = pgTable(
       withTimezone: true,
       mode: 'string',
     }),
+    stripeLastEventAt: timestamp('stripe_last_event_at', { withTimezone: true, mode: 'string' }),
     checkoutStartedAt: timestamp('checkout_started_at', { withTimezone: true, mode: 'string' }),
   },
   table => [

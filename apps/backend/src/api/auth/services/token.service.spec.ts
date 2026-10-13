@@ -247,6 +247,7 @@ describe('TokenService', () => {
         id: 'rt-1',
         userId: user.id,
         revokedAt: new Date().toISOString(),
+        rotated: true,
       });
 
       await expect(target.rotate('some-token')).rejects.toBeInstanceOf(
@@ -256,12 +257,30 @@ describe('TokenService', () => {
       expect(authDbService.revokeAllRefreshTokensForUser).not.toHaveBeenCalled();
     });
 
+    // Regression: a password change revokes the user's other sessions, and the next refresh from one of them was read as theft,
+    // which revoked the session the password change had just minted.
+    it('does not treat a token revoked by a sign-out or password change as reuse', async () => {
+      jwtService.verify.mockReturnValue(validRefreshClaims);
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
+        id: 'rt-1',
+        userId: user.id,
+        revokedAt: new Date(Date.now() - 60_000).toISOString(),
+        rotated: false,
+      });
+
+      const rejection = target.rotate('some-token');
+      await expect(rejection).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(rejection).rejects.not.toBeInstanceOf(RefreshTokenSupersededException);
+      expect(authDbService.revokeAllRefreshTokensForUser).not.toHaveBeenCalled();
+    });
+
     it('treats a token spent long ago as reuse, revoking every session for that user', async () => {
       jwtService.verify.mockReturnValue(validRefreshClaims);
       authDbService.findRefreshTokenByHash.mockResolvedValue({
         id: 'rt-1',
         userId: user.id,
         revokedAt: new Date(Date.now() - 60_000).toISOString(),
+        rotated: true,
       });
 
       // Not the superseded subclass: this one MUST clear the caller's cookies.
@@ -281,6 +300,7 @@ describe('TokenService', () => {
         id: 'rt-1',
         userId: user.id,
         revokedAt: null,
+        rotated: false,
       });
       authDbService.findUserById.mockResolvedValue(user);
       authDbService.findTenantStatus.mockResolvedValue({ status: 'active' } as never);
@@ -297,6 +317,7 @@ describe('TokenService', () => {
         id: 'rt-1',
         userId: 'someone-else',
         revokedAt: null,
+        rotated: false,
       });
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
@@ -308,6 +329,7 @@ describe('TokenService', () => {
         id: 'rt-1',
         userId: user.id,
         revokedAt: null,
+        rotated: false,
       });
       authDbService.findUserById.mockResolvedValue({ ...user, status: UserStatus.DISABLED });
       authDbService.findTenantStatus.mockResolvedValue({
@@ -326,6 +348,7 @@ describe('TokenService', () => {
         id: 'rt-1',
         userId: user.id,
         revokedAt: null,
+        rotated: false,
       });
       authDbService.findUserById.mockResolvedValue(user);
       authDbService.findTenantStatus.mockResolvedValue({
@@ -347,6 +370,7 @@ describe('TokenService', () => {
         id: 'rt-1',
         userId: user.id,
         revokedAt: null,
+        rotated: false,
       });
       authDbService.findUserById.mockResolvedValue(user);
       authDbService.findTenantStatus.mockResolvedValue({
@@ -364,6 +388,7 @@ describe('TokenService', () => {
         id: 'rt-1',
         userId: user.id,
         revokedAt: null,
+        rotated: false,
       });
       authDbService.findUserById.mockResolvedValue(user);
       authDbService.findTenantStatus.mockResolvedValue({
@@ -405,6 +430,7 @@ describe('TokenService', () => {
         id: 'rt-1',
         userId: user.id,
         revokedAt: null,
+        rotated: false,
       });
       authDbService.findUserById.mockResolvedValue(user);
       authDbService.findTenantStatus.mockResolvedValue({

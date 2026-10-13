@@ -21,6 +21,11 @@ import type { PausedLocationsNotice, PaymentWebhookEvent } from '../types/billin
  * Only `customer.subscription.deleted` flips it to `free` (entitlement checks read `plan_id`, not
  * `status`) and enforces the location limit.
  *
+ * Webhooks are unordered, so every event that changes billing state first advances the tenant's event clock to its own
+ * Stripe `created` time (`advanceEventClock`); one older than the newest already applied is stale and is acknowledged
+ * without writing, so a late `past_due` or `active` cannot overwrite newer state. A completed Checkout whose payment has
+ * not settled (`paymentSettled: false`) is acknowledged without upgrading; the later `async_payment_succeeded` does.
+ *
  * An unresolvable customer throws so Stripe retries a transient miss (race with an uncommitted
  * Checkout, replication lag); past `UNKNOWN_CUSTOMER_RETRY_GRACE_MS` it is acknowledged and logged,
  * since failing for days risks Stripe disabling the endpoint. The one silent no-op is a stale,
@@ -111,7 +116,7 @@ export class BillingWebhooksService {
       case 'customer.subscription.deleted':
         return this.handleSubscriptionDeleted(tx, event, pausedNotices);
       case 'invoice.payment_failed':
-        return this.syncStatusByCustomerId(tx, event.customerId, SubscriptionStatus.PAST_DUE);
+        return this.syncStatusByCustomerId(tx, event, SubscriptionStatus.PAST_DUE);
       case 'invoice.payment_succeeded':
         return this.handleInvoicePaymentSucceeded(tx, event);
       case 'unhandled':
@@ -120,11 +125,48 @@ export class BillingWebhooksService {
     }
   }
 
+  /**
+   * Whether `event` is the newest one seen for the tenant (and so may write). Events carry no `createdAt` only in tests
+   * and for hand-built events, which are treated as current.
+   */
+  private async isCurrent(
+    tx: DrizzleTransaction,
+    tenantId: string,
+    event: PaymentWebhookEvent
+  ): Promise<boolean> {
+    if (event.createdAt === undefined) {
+      return true;
+    }
+    const current = await this.tenantSubscriptionsDbService.advanceEventClock(
+      tenantId,
+      event.createdAt,
+      tx
+    );
+    if (!current) {
+      this.logger.warn(
+        `Ignoring stale Stripe event ${event.id} (${event.type}) for tenant ${tenantId}: ` +
+          `a newer event (created after ${event.createdAt}) was already applied.`
+      );
+    }
+    return current;
+  }
+
   private async handleCheckoutCompleted(
     tx: DrizzleTransaction,
     event: Extract<PaymentWebhookEvent, { type: 'checkout.session.completed' }>
-  ): Promise<string> {
+  ): Promise<string | null> {
     const subscription = await this.requireSubscriptionByCustomerId(tx, event.customerId);
+
+    if (!event.paymentSettled) {
+      this.logger.log(
+        `Checkout for tenant ${subscription.tenantId} completed but its payment is still settling; ` +
+          `staying on the current plan until the payment succeeds.`
+      );
+      return null;
+    }
+    if (!(await this.isCurrent(tx, subscription.tenantId, event))) {
+      return null;
+    }
 
     await this.tenantSubscriptionsDbService.setToPaidFromCheckout(
       subscription.tenantId,
@@ -149,7 +191,7 @@ export class BillingWebhooksService {
     event: Extract<PaymentWebhookEvent, { type: 'customer.subscription.updated' }>
   ): Promise<string | null> {
     const subscription = await this.resolveSubscription(tx, event.customerId, event.subscriptionId);
-    if (!subscription) {
+    if (!subscription || !(await this.isCurrent(tx, subscription.tenantId, event))) {
       return null;
     }
 
@@ -174,7 +216,7 @@ export class BillingWebhooksService {
     pausedNotices: PausedLocationsNotice[]
   ): Promise<string | null> {
     const subscription = await this.resolveSubscription(tx, event.customerId, event.subscriptionId);
-    if (!subscription) {
+    if (!subscription || !(await this.isCurrent(tx, subscription.tenantId, event))) {
       return null;
     }
 
@@ -200,11 +242,15 @@ export class BillingWebhooksService {
   ): Promise<string> {
     const subscription = await this.requireSubscriptionByCustomerId(tx, event.customerId);
 
-    await this.tenantSubscriptionsDbService.updateStatus(
-      subscription.tenantId,
-      SubscriptionStatus.ACTIVE,
-      tx
-    );
+    // A late success must not turn a newer `past_due` back to active, but the receipt is a record of a payment that
+    // happened, so it is written either way (it is idempotent on the invoice id).
+    if (await this.isCurrent(tx, subscription.tenantId, event)) {
+      await this.tenantSubscriptionsDbService.updateStatus(
+        subscription.tenantId,
+        SubscriptionStatus.ACTIVE,
+        tx
+      );
+    }
 
     const receipt = await this.billingReceiptsDbService.recordIfNew(
       {
@@ -233,10 +279,13 @@ export class BillingWebhooksService {
 
   private async syncStatusByCustomerId(
     tx: DrizzleTransaction,
-    customerId: string,
+    event: Extract<PaymentWebhookEvent, { type: 'invoice.payment_failed' }>,
     status: SubscriptionStatus
-  ): Promise<string> {
-    const subscription = await this.requireSubscriptionByCustomerId(tx, customerId);
+  ): Promise<string | null> {
+    const subscription = await this.requireSubscriptionByCustomerId(tx, event.customerId);
+    if (!(await this.isCurrent(tx, subscription.tenantId, event))) {
+      return null;
+    }
     await this.tenantSubscriptionsDbService.updateStatus(subscription.tenantId, status, tx);
     return subscription.tenantId;
   }

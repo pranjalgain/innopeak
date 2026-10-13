@@ -12,6 +12,11 @@ function requestFor(pathname: string, sessionValue?: string): NextRequest {
   return new NextRequest(new URL(pathname, "http://localhost:3002"), { headers });
 }
 
+function redirectTarget(response: ReturnType<typeof proxy>): URL | null {
+  const location = response.headers.get("location");
+  return location ? new URL(location) : null;
+}
+
 function redirectLocation(response: ReturnType<typeof proxy>): string | null {
   const location = response.headers.get("location");
   if (!location) return null;
@@ -99,5 +104,54 @@ describe("proxy — tenant vs admin session routing", () => {
     // Fails closed to "signed out".
     const response = proxy(requestFor(ROUTES.DASHBOARD, "garbage"));
     expect(redirectLocation(response)).toBe(ROUTES.LOGIN);
+  });
+});
+
+describe("proxy — returning to the page you were headed for", () => {
+  test("a signed-out visit to a tenant page is sent to /login with that page as `next`", () => {
+    const target = redirectTarget(proxy(requestFor("/review-queue?status=new&page=2")));
+    expect(target?.pathname).toBe(ROUTES.LOGIN);
+    expect(target?.searchParams.get("next")).toBe("/review-queue?status=new&page=2");
+  });
+
+  test("a review detail link keeps its id", () => {
+    const target = redirectTarget(proxy(requestFor("/review-queue/abc-123")));
+    expect(target?.searchParams.get("next")).toBe("/review-queue/abc-123");
+  });
+
+  test("a signed-out visit to an admin page is sent to /admin-login with that page as `next`", () => {
+    const target = redirectTarget(proxy(requestFor("/admin/businesses?page=2")));
+    expect(target?.pathname).toBe(ROUTES.ADMIN_LOGIN);
+    expect(target?.searchParams.get("next")).toBe("/admin/businesses?page=2");
+  });
+
+  test("onboarding steps are not remembered: where they lead depends on account state", () => {
+    const target = redirectTarget(proxy(requestFor(ROUTES.ONBOARDING_PLAN)));
+    expect(target?.pathname).toBe(ROUTES.LOGIN);
+    expect(target?.searchParams.has("next")).toBe(false);
+  });
+
+  // The login screen refreshes the router right after signing in; that refresh is an already-signed-in visit to
+  // `/login?next=…` and must not override the destination with the default home.
+  test("a signed-in tenant landing on /login keeps a safe `next` as the destination", () => {
+    const target = redirectTarget(proxy(requestFor("/login?next=%2Freview-queue%3Fpage%3D2", "tenant")));
+    expect(target?.pathname).toBe("/review-queue");
+    expect(target?.search).toBe("?page=2");
+  });
+
+  test("a signed-in admin landing on /admin-login keeps a safe admin `next`", () => {
+    const target = redirectTarget(proxy(requestFor("/admin-login?next=%2Fadmin%2Fusers", "admin")));
+    expect(target?.pathname).toBe("/admin/users");
+  });
+
+  test.each([
+    ["tenant", "/login?next=%2F%2Fevil.example"],
+    ["tenant", "/login?next=https%3A%2F%2Fevil.example"],
+    ["tenant", "/login?next=%2Fadmin"],
+    ["admin", "/admin-login?next=%2Fdashboard"],
+  ])("a %s session ignores an unsafe or foreign `next` (%s) and goes home", (session, path) => {
+    const target = redirectTarget(proxy(requestFor(path, session)));
+    expect(target?.pathname).toBe(session === "admin" ? ROUTES.ADMIN : ROUTES.DASHBOARD);
+    expect(target?.hostname).toBe("localhost");
   });
 });

@@ -22,8 +22,6 @@ export const PROMPT_PLACEHOLDER_ALLOWLIST = [
   ...OPTIONAL_PROMPT_PLACEHOLDERS,
 ] as const;
 
-export type PromptPlaceholderName = (typeof PROMPT_PLACEHOLDER_ALLOWLIST)[number];
-
 export const PROMPT_TEMPLATE_MAX_LENGTH = 1000;
 
 export const PROMPT_TONES = [
@@ -33,12 +31,6 @@ export const PROMPT_TONES = [
   'playful',
   'empathetic',
 ] as const;
-
-/**
- * Runtime companion to `PromptCategory` so a DTO has something to validate against. Keep in sync by
- * hand.
- */
-export const PROMPT_CATEGORIES = ['positive', 'neutral', 'escalated'] as const;
 
 export type PromptToneValue = (typeof PROMPT_TONES)[number];
 

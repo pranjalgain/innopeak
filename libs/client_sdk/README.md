@@ -231,7 +231,6 @@ Class | Method | HTTP request | Description
  - [ManualReplyResponseDto](docs/ManualReplyResponseDto.md)
  - [MemberInvitePreviewDto](docs/MemberInvitePreviewDto.md)
  - [MetricsDto](docs/MetricsDto.md)
- - [MockReviewDto](docs/MockReviewDto.md)
  - [NotificationDto](docs/NotificationDto.md)
  - [NotificationListResponseDto](docs/NotificationListResponseDto.md)
  - [NotificationReadResponseDto](docs/NotificationReadResponseDto.md)

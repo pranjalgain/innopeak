@@ -113,6 +113,7 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
     try {
       const response = await fetch(GOOGLE_OAUTH.REVOKE_URL, {
         method: 'POST',
+        signal: AbortSignal.timeout(GOOGLE_OAUTH.HTTP_TIMEOUT_MS),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ token: refreshToken }).toString(),
       });
@@ -227,6 +228,7 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
     try {
       response = await fetch(url, {
         method: init?.method ?? 'GET',
+        signal: AbortSignal.timeout(GOOGLE_OAUTH.HTTP_TIMEOUT_MS),
         headers: {
           Authorization: `Bearer ${accessToken}`,
           Accept: 'application/json',
@@ -361,6 +363,7 @@ export class GoogleBusinessProfileProvider extends ReviewProvider {
     try {
       response = await fetch(GOOGLE_OAUTH.TOKEN_URL, {
         method: 'POST',
+        signal: AbortSignal.timeout(GOOGLE_OAUTH.HTTP_TIMEOUT_MS),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams(form).toString(),
       });

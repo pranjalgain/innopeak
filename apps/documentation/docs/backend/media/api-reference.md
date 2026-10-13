@@ -8,7 +8,7 @@ sidebar_position: 2
 
 This document describes **shipped code**, not a target design. All four routes below are
 implemented (`src/api/media/controllers/`), `0010_media.sql` is applied, and the web app already
-drives the flow end to end (`apps/web/src/app/_libs/services/avatar-upload.service.ts`). Where
+drives the flow end to end (`apps/web/src/app/_libs/services/avatar-upload.service.ts`). The web app refuses a file that cannot be an avatar (not one of the allowed image types, or over 10 MB) *before* asking for an authorization or sending anything, with a message in the user's language; a provider-side refusal is not shown verbatim (its text is English and written for developers) and falls back to the generic "could not save" message. Where
 something is missing rather than built — there is no delete-avatar route, for instance — this
 document says so in place rather than describing it as though it existed; the full list is in the
 overview's [Gap](./overview.md#gap-between-current-code-and-target-design).
@@ -160,7 +160,8 @@ What the server does with it, in order:
    two are not told apart.
 4. Maps the reported `format` to a MIME type through the allowlist in
    `cloudinary-storage.provider.ts`. An unmapped format — `svg` most notably, excluded on purpose
-   — is a `400` with the one message that *is* specific. (In practice Cloudinary should already
+   — is `400 UNSUPPORTED_MEDIA_FORMAT`, the one message that *is* specific, and an asset over 10 MB is
+   `400 MEDIA_FILE_TOO_LARGE` (also specific: the file is the problem, so the user can act on it). (In practice Cloudinary should already
    have refused it at upload, since the same list is signed into `allowed_formats`; this is the
    backstop, and it is also what produces the persisted `mime_type`.)
 5. Upserts the owner's single `media` row (`kind = 'avatar'`) inside a transaction held behind a
@@ -190,7 +191,7 @@ needs this one field updated. The same `avatarUrl` subsequently appears on
 `avatarUrl` is typed nullable because the DTO is shared with reads that can legitimately have no
 avatar; on a successful confirm it is never `null`.
 
-Errors: `400` validation, `400 UPLOAD_NOT_VERIFIED`, `400 UNSUPPORTED_FORMAT`, `401`,
+Errors: `400` validation, `400 AVATAR_UPLOAD_NOT_VERIFIED`, `400 UNSUPPORTED_MEDIA_FORMAT`, `400 MEDIA_FILE_TOO_LARGE`, `401`,
 `403 TENANT_ONLY`, `429`, `500`.
 
 ## Platform admin avatar
@@ -258,7 +259,7 @@ The same value then appears on
 `PlatformAdminDbService.findById` — `platform_admins` has no `avatar_url` column any more, so that
 profile read is inherently two reads joined in the DB Service layer.
 
-Errors: `400` validation, `400 UPLOAD_NOT_VERIFIED`, `400 UNSUPPORTED_FORMAT`, `401`, `403`,
+Errors: `400` validation, `400 AVATAR_UPLOAD_NOT_VERIFIED`, `400 UNSUPPORTED_MEDIA_FORMAT`, `400 MEDIA_FILE_TOO_LARGE`, `401`, `403 Forbidden resource`,
 `429`, `500`.
 
 ## The direct upload step
@@ -308,3 +309,25 @@ worth repeating to the user verbatim, the latter is not.
   leaves an orphaned asset in storage (a cost problem) rather than a `media` row pointing at an
   asset that no longer exists (a correctness problem). Do not "improve" this by awaiting the
   delete before the write.
+
+## Error reference
+
+Every error uses the standard envelope (`statusCode`, `status: "Failure"`, `message`, `error` code, `traceId`); messages are localized
+(English/German) and safe to show to a user.
+
+| Status | Code | Raised by | When |
+|---|---|---|---|
+| `400` | `Validation Error` | both `authorize`/`confirm` pairs | A body field is missing or malformed (for example `providerAssetId` empty or over 255 characters). |
+| `400` | `AVATAR_UPLOAD_NOT_VERIFIED` | `confirm` | The asset could not be read back from Cloudinary, **or** its folder is not the caller's own. Deliberately one generic message ("Could not verify the uploaded image.") for both, so a caller cannot tell "no such asset" from "someone else's asset" and probe for other owners' public ids. |
+| `400` | `UNSUPPORTED_MEDIA_FORMAT` | `confirm` | The asset's format is not on the allowlist (SVG is excluded on purpose). The message is specific so the user can pick another file. |
+| `400` | `MEDIA_FILE_TOO_LARGE` | `confirm` | The stored asset is over 10 MB. Specific for the same reason. |
+| `401` | — | all | Missing or expired access token. |
+| `403` | `TENANT_ONLY` | tenant pair | Authenticated as a platform admin. Raised by the service (`assertActorType`), so it carries a `code`. |
+| `403` | `Forbidden resource` | admin pair | Authenticated as a tenant user. Raised by `RolesGuard` (`@Roles(PLATFORM_ADMIN)`) before the controller runs, so it is Nest's plain 403 with no application `code`. |
+| `429` | — | all | Rate limit. |
+| `500` | — | all | Unexpected failure. |
+| `503` | `STORAGE_NOT_CONFIGURED` | `authorize` | The Cloudinary credentials are not set on this deploy. |
+
+The two `403`s differ only because the tenant route is also reachable by other principals (so the service checks), while the admin route is
+role-gated up front.
+

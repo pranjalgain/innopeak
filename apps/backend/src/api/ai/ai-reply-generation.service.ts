@@ -301,6 +301,15 @@ export class AiReplyGenerationService {
       throw new AiGenerationFailedException();
     }
 
+    // `length` (cut off at the token cap) or `content_filter`: the text may stop mid-sentence, so it is saved as a draft for a
+    // person to finish or discard, never published without a human look.
+    const completedNormally = result.finishReason === null || result.finishReason === 'stop';
+    if (autoPosts && !completedNormally) {
+      this.logger.warn(
+        `Review ${candidate.id}: the model finished with "${result.finishReason}", so the reply was saved as a draft instead of being auto-posted.`
+      );
+    }
+
     const generationMetadata = {
       model: result.model,
       promptTokens: result.promptTokens,
@@ -326,7 +335,7 @@ export class AiReplyGenerationService {
         });
         persisted += 1;
 
-        if (autoPosts) {
+        if (autoPosts && completedNormally) {
           await this.maybeAutoApproveAndPost(tenantId, candidate.id, responseId, content);
         }
       }

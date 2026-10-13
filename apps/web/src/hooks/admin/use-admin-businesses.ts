@@ -1,16 +1,17 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { AdminBusinessService } from "@/app/_libs/services/admin-business.service";
+import { ApiError } from "@/app/_libs/services/api-error";
 import {
   adminBusinessesQueryKey,
   adminOverviewActivityLogQueryKey,
   adminOverviewActivityQueryKey,
 } from "@/hooks/admin/admin-query-keys";
-import { useSearchInput } from "@/hooks/common/use-search-input";
+import { useUrlSearchPage } from "@/hooks/common/use-url-search-page";
 import type { AdminBusiness } from "@/types/domain";
 
 interface UseAdminBusinessesResult {
@@ -48,15 +49,9 @@ const businessesQueryKey = (search: string, page: number) =>
 export function useAdminBusinesses(): UseAdminBusinessesResult {
   const t = useTranslations("adminBusinesses.toasts");
   const queryClient = useQueryClient();
-  const { search, setSearch, debouncedSearch, isSearching } = useSearchInput(SEARCH_DEBOUNCE_MS);
-  const [page, setPageState] = useState(1);
-
-  // A new search can leave the current page out of range: start again from page 1.
-  const [lastSearch, setLastSearch] = useState(debouncedSearch);
-  if (lastSearch !== debouncedSearch) {
-    setLastSearch(debouncedSearch);
-    setPageState(1);
-  }
+  // Page and search live in the URL (`?page=2&q=term`), so Back/Forward and a reload keep your place.
+  const { search, setSearch, debouncedSearch, isSearching, page, setPage, clampPage } =
+    useUrlSearchPage(SEARCH_DEBOUNCE_MS);
 
   const businessesQuery = useQuery({
     queryKey: businessesQueryKey(debouncedSearch, page),
@@ -70,10 +65,15 @@ export function useAdminBusinesses(): UseAdminBusinessesResult {
   });
 
   const totalPages = Math.max(1, businessesQuery.data?.meta.totalPages ?? 1);
-  const setPage = useCallback(
-    (next: number) => setPageState(Math.min(Math.max(next, 1), totalPages)),
-    [totalPages],
+  const goToPage = useCallback(
+    (next: number) => setPage(Math.min(Math.max(next, 1), totalPages)),
+    [setPage, totalPages],
   );
+
+  // A stale `?page=` (an old link, a list that shrank) is pulled back to the last real page.
+  useEffect(() => {
+    if (businessesQuery.data) clampPage(totalPages);
+  }, [businessesQuery.data, totalPages, clampPage]);
 
   useEffect(() => {
     if (businessesQuery.isError) toast.error(t("loadFailed"));
@@ -133,7 +133,14 @@ export function useAdminBusinesses(): UseAdminBusinessesResult {
       try {
         await cancelErasureMutation.mutateAsync(id);
         invalidateAfterWrite();
-      } catch {
+      } catch (error) {
+        if (error instanceof ApiError && error.errorCode === "BUSINESS_ERASURE_NOT_PENDING") {
+          // Someone else (or an earlier click) already cancelled it: say so and refresh the stale row, rather than
+          // offering a generic "try again" that can never succeed.
+          toast.error(t("cancelErasureNotPending"));
+          invalidateAfterWrite();
+          return;
+        }
         toast.error(t("cancelErasureFailed"));
       }
     },
@@ -145,8 +152,8 @@ export function useAdminBusinesses(): UseAdminBusinessesResult {
     page,
     totalPages,
     total: businessesQuery.data?.meta.total ?? 0,
-    goToPreviousPage: () => setPage(page - 1),
-    goToNextPage: () => setPage(page + 1),
+    goToPreviousPage: () => goToPage(page - 1),
+    goToNextPage: () => goToPage(page + 1),
     search,
     setSearch,
     isSearching,

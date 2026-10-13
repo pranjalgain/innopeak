@@ -131,17 +131,12 @@ describe('ReviewSyncProcessor', () => {
   });
 
   describe('onStalled', () => {
-    it('pushes the stalled job to the DLQ', async () => {
-      const job = buildJob({ attemptsMade: 1 });
-
-      await processor.onStalled(job);
-
-      expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          originalQueueName: QueueName.REVIEW_SYNC,
-          originalJobId: job.id,
-        })
-      );
+    // BullMQ emits `(jobId, previousState)`; a stalled job is re-queued, or failed and then forwarded by `onFailed`.
+    it('logs the stall from the job id alone and does not write to the DLQ', () => {
+      expect(() => {
+        processor.onStalled('job-123');
+      }).not.toThrow();
+      expect(dlqService.addFailedJobToDLQ).not.toHaveBeenCalled();
     });
   });
 });

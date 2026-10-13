@@ -1,3 +1,4 @@
+import { isProduction } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -95,6 +96,12 @@ function resolveKey(
     if (key.length === CREDENTIAL_KEY_BYTES) {
       return key;
     }
+  }
+
+  // The fallback is a value public in this repository: acceptable on a laptop, never in production (which also refuses to boot without
+  // `GBP_STATE_SECRET`, so this is a second lock on the same door).
+  if (!stateSecret && isProduction()) {
+    throw new Error('GBP_STATE_SECRET must be set in production.');
   }
 
   return createHash('sha256')

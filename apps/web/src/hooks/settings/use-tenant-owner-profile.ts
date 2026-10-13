@@ -68,10 +68,15 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
         );
         toast.success(t("avatarUpdated"));
       } catch (error) {
-        // The provider's refusal ("File size too large", "unsupported format") is the only thing
-        // telling the user to pick a different file; the generic "could not save" left them
-        // retrying the same photo.
-        toast.error(AvatarUploadService.errorMessage(error, t("updateFailed")));
+        // A wrong or oversized file is named as such (the generic "could not save" left people retrying the same photo);
+        // anything else gets the generic copy.
+        toast.error(
+          AvatarUploadService.errorMessage(error, {
+            fallback: t("updateFailed"),
+            tooLarge: t("avatarTooLarge"),
+            unsupportedType: t("avatarUnsupportedType"),
+          }),
+        );
       }
     },
     [t, updateAvatarMutation, queryClient],

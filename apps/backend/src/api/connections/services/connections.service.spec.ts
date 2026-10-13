@@ -341,7 +341,14 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
       providers: [
         ConnectionsService,
         { provide: ReviewProvider, useValue: { exchangeCode } },
-        { provide: ProviderCredentialService, useValue: { replaceCredential, storeNewCredential } },
+        {
+          provide: ProviderCredentialService,
+          useValue: {
+            replaceCredential,
+            storeNewCredential,
+            invalidateAccessToken: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         {
           provide: ConnectionsDbService,
           useValue: {
@@ -564,7 +571,14 @@ describe('ConnectionsService — choosing between several Business Profile accou
       providers: [
         ConnectionsService,
         { provide: ReviewProvider, useValue: { exchangeCode } },
-        { provide: ProviderCredentialService, useValue: { replaceCredential, storeNewCredential } },
+        {
+          provide: ProviderCredentialService,
+          useValue: {
+            replaceCredential,
+            storeNewCredential,
+            invalidateAccessToken: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         {
           provide: ConnectionsDbService,
           useValue: { findConnectionByTenant, upsertConnection, reactivateLocationsForConnection },

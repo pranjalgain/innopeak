@@ -230,6 +230,24 @@ the next time translated text meets a fixed-width container.
 
 ## Signup, onboarding and billing return — behaviours worth knowing
 
+- **Signing in returns you to where you were headed.** `proxy.ts` sends a signed-out visit to a guarded page to
+  `/login?next=<path>` (or `/admin-login?next=…` for the admin console); after a successful sign-in (password, or the
+  verification step for an unverified account) the login view navigates there instead of to the dashboard. `next` is
+  accepted only for a same-origin path inside the dashboard, review queue and settings areas (admin areas for the admin
+  login): anything else, including `//host`, backslashes and `..` segments, is ignored, so it cannot be an open
+  redirect. Onboarding steps are never remembered, since where they lead depends on account state, and a visitor with
+  nothing connected yet still goes to onboarding. See `app/_libs/utils/post-login-redirect.ts`.
+- **Double submits are swallowed in the review detail hook.** Approve, reject, post, retry and the manual-reply save
+  ignore a second click on the same action while the first is in flight (a ref, not `isPending`, so two clicks in the
+  same frame are covered); the server would answer the repeat with a `409` that showed as an error toast on top of the
+  success. Approve-then-reject on one draft is still allowed.
+- **One fetch per endpoint per page load.** The app shell already loads `/v1/auth/me` (`["tenant-owner-profile"]`) and
+  `/v1/connections` (`["connection"]`) through the shared query cache. The dashboard's tenant read and Settings' connection
+  tile used to call the services directly and so fetched both again; they now read through the same cache
+  (`queryClient.fetchQuery` with the shared keys, passed to `TenantService`/`SettingsService` as readers), which dedupes an
+  in-flight request and reuses fresh data. New screens that need either should use the hook or those keys, not the service.
+- **A rejected verification code clears the boxes.** `OtpVerificationStage`'s `onVerify` may resolve `false`; the boxes
+  empty and focus returns to the first one. Focusing a filled box selects its digit, so typing replaces it.
 - **Refreshing on the verification-code step resumes it.** The password signup keeps *only the
   email awaiting its code* in this tab's `sessionStorage` (`PendingSignupService`, 30 minutes, no
   password or token), so a refresh or Back/Forward shows the code box again instead of a blank form
@@ -238,6 +256,29 @@ the next time translated text meets a fixed-width container.
 - **The onboarding "You're all set" screen only quotes an import count when it has one.** Opened
   again later (Back from the dashboard) nothing was imported *in that session*, so it reads as a
   plain confirmation rather than "imported 0 reviews".
+- **A session that dies while a page is open sends you to sign in.** When a request 401s and the refresh fails (sessions revoked
+  by a password change elsewhere, a 7-day idle expiry, an admin's 15-minute token), the response interceptor in
+  `api-sdk/config.ts` navigates to `/login?next=<this page>` (`/admin-login` for an admin) via `signInPathFor`, once. It does
+  nothing off the guarded areas (marketing, onboarding, the sign-in screens) and for a visitor who never had a session. Before
+  this the page stayed up on "Couldn't load…" states until the next navigation.
+- **Tab strips add a history entry.** Settings, Admin Settings, Admin Activity and the admin Overview/Statistics switch write
+  `?tab=` with `router.push`, so Back steps back through the tabs (filters, search and typing still *replace*, see
+  [Admin Console](./admin-console.md)).
+- **A confirm dialog confirms once per opening.** `ConfirmActionDialog` ignores a second click on its button until it is reopened:
+  the dialog closes on the first click but its button stays in the DOM through the exit animation, so a quick double-click on
+  Suspend or Request erasure used to send two requests.
+- **Erasure deadlines come from the server.** The delete dialog, the admin "Erasure takes effect on" note and the Members "Removal
+  takes effect on" note count from `erasureGracePeriodDays` on `GET /v1/settings/platform-config` (the backend's
+  `ERASURE_GRACE_PERIOD_DAYS`, read through `useErasureGracePeriodDays`; 21 while the settings load). Day counts use ICU plurals
+  ("1 day", "21 days") in both locales.
+- **There is no analytics, and error reporting needs no account of someone else's.** The app ships no tracker, tag manager or consent banner, so
+  there is nothing to consent to; adding one means adding the consent handling with it. Sentry is off unless `NEXT_PUBLIC_SENTRY_DSN` is set,
+  reports no personal data (no default PII, no replay, cookies/headers/queries scrubbed) and forwards only an allow-list of request headers;
+  source maps are uploaded and removed, never served. No third-party key is hard-coded anywhere.
+- **No starter-template pages ship.** `/users`, `/reference`, `/sentry-example-page` and their API routes are gone; `tests/e2e/smoke.spec.ts`
+  checks they stay gone and that guards and headers hold and no analytics or tag-manager script loads (`E2E_BASE_URL` points it at an environment).
+- **A checkout `session_id` the server does not recognise is reported as not found,** not as "Stripe couldn't be reached": a 404 from
+  `POST /v1/billing/checkout/reconcile` is not retried and its banner offers no "Check again".
 - **A guarded admin route with no session goes to `/admin-login`**, matching what the edge
   (`proxy.ts`) does for a fresh visit — so signing out and pressing Back no longer lands on the
   tenant sign-in page.

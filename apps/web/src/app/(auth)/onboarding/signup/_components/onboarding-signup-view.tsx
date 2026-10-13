@@ -209,7 +209,7 @@ export function OnboardingSignupView() {
             <OtpVerificationStage
               email={signupEmail}
               isLoading={isLoading}
-              onVerify={(code) => void handleVerifyOtp(code)}
+              onVerify={handleVerifyOtp}
               onResend={() => void handleResendOtp()}
               onChangeEmail={handleChangeEmail}
             />

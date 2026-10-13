@@ -59,7 +59,6 @@ export * from './login-dto';
 export * from './manual-reply-response-dto';
 export * from './member-invite-preview-dto';
 export * from './metrics-dto';
-export * from './mock-review-dto';
 export * from './notification-dto';
 export * from './notification-list-response-dto';
 export * from './notification-read-response-dto';

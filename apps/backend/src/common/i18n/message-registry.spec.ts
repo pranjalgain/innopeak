@@ -221,3 +221,19 @@ describe('stored messages', () => {
     });
   });
 });
+
+describe('day counts in erasure messages', () => {
+  // Regression: a one-day grace period read "erased in 1 days".
+  it.each([
+    ['en', 'in 1 day ', 'in 21 days '],
+    ['de', 'in 1 Tag ', 'in 21 Tagen '],
+  ] as const)('%s uses the singular for exactly one day', (locale, one, many) => {
+    for (const key of ['BUSINESS_ERASURE_REQUESTED', 'MEMBER_REMOVAL_REQUESTED'] as const) {
+      const catalog = locale === 'en' ? messagesEn : messagesDe;
+      const group = key === 'BUSINESS_ERASURE_REQUESTED' ? catalog.ADMIN : catalog.SETTINGS;
+      const build = (group as unknown as Record<string, (days: number) => string>)[key];
+      expect(build?.(1)).toContain(one);
+      expect(build?.(21)).toContain(many);
+    }
+  });
+});

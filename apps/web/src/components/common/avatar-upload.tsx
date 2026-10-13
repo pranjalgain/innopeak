@@ -4,13 +4,12 @@ import { type ChangeEvent, useRef, useState } from "react";
 
 import { LuCamera, LuLoaderCircle } from "react-icons/lu";
 
+import { ACCEPTED_AVATAR_MIME_TYPES } from "@/app/_libs/services/avatar-upload.service";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
-/** Mirrors the backend's `FORMAT_TO_MIME_TYPE` allowlist, excluding `image/svg+xml` (an SVG can carry
- *  a `<script>` and the avatar URL renders in an `<img>`). Only narrows the picker; the backend check is what's load-bearing. */
-const ACCEPTED_AVATAR_TYPES =
-  "image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic,image/heif,image/bmp";
+/** Only narrows the picker; `AvatarUploadService.validate` and then the backend are what refuse a wrong file. */
+const ACCEPTED_AVATAR_TYPES = ACCEPTED_AVATAR_MIME_TYPES.join(",");
 
 interface AvatarUploadProps {
   avatarUrl: string | null;

@@ -5,6 +5,7 @@ import {
   ProviderMappingError,
   ProviderNotFoundError,
   ProviderRateLimitError,
+  ProviderUnavailableError,
 } from '../errors/provider.error';
 
 // Regression: the token endpoint answers a revoked refresh token with 400 `invalid_grant`, which the
@@ -470,5 +471,58 @@ describe('GoogleBusinessProfileProvider.exchangeCode — accounts', () => {
     mockGoogle({});
 
     await expect(provider.exchangeCode('code')).rejects.toBeInstanceOf(ProviderMappingError);
+  });
+});
+
+// Regression: no Google call had a timeout, so a hung socket held a sync or post job (and its claim) for minutes.
+describe('GoogleBusinessProfileProvider — outbound timeouts', () => {
+  const provider = new GoogleBusinessProfileProvider({
+    clientId: 'client-id',
+    clientSecret: 'client-secret',
+    callbackUrl: 'https://app.example.com/callback',
+  });
+
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  const timeoutError = (): Error =>
+    Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+
+  it('gives the token endpoint an abort signal', async () => {
+    const fetchMock = jest.fn().mockRejectedValue(timeoutError());
+    global.fetch = fetchMock;
+
+    await provider.refreshAccessToken('a-refresh-token').catch(() => undefined);
+
+    const init = fetchMock.mock.calls[0]?.[1] as { signal?: AbortSignal };
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  // A timeout never reached a verdict from Google, so it must be retried, not sent to re-consent.
+  it('treats a timed-out token refresh as transient, not as an auth failure', async () => {
+    global.fetch = jest.fn().mockRejectedValue(timeoutError());
+
+    const rejection = provider.refreshAccessToken('a-refresh-token');
+
+    await expect(rejection).rejects.toBeInstanceOf(ProviderUnavailableError);
+    await expect(rejection).rejects.not.toBeInstanceOf(ProviderAuthError);
+  });
+
+  it('gives a review reply an abort signal and treats its timeout as transient', async () => {
+    const fetchMock = jest.fn().mockRejectedValue(timeoutError());
+    global.fetch = fetchMock;
+
+    const rejection = provider.replyToReview('at', {
+      externalAccountId: 'accounts/1',
+      externalLocationId: 'locations/1',
+      externalReviewId: 'r1',
+      comment: 'Thanks!',
+    });
+
+    await expect(rejection).rejects.toBeInstanceOf(ProviderUnavailableError);
+    const init = fetchMock.mock.calls[0]?.[1] as { signal?: AbortSignal };
+    expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 });

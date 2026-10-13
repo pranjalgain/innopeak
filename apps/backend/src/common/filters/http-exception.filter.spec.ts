@@ -4,7 +4,12 @@ import { messagesEn } from '@common/i18n/messages.en';
 import { ErrorHandlerService } from '@common/services/error-handler.service';
 import { LoggerService } from '@logger/logger.service';
 import type { ArgumentsHost } from '@nestjs/common';
-import { UnauthorizedException } from '@nestjs/common';
+import {
+  GoneException,
+  InternalServerErrorException,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
@@ -86,5 +91,50 @@ describe('HttpExceptionFilter — locale-aware message rendering', () => {
 
     const body = response.json.mock.calls[0]?.[0] as { message: string };
     expect(body.message).toBe('some ad-hoc message never passed through MESSAGES');
+  });
+
+  // Regression: every refused request (401, 410, 429) was an error line with a stack trace, burying real server faults.
+  it.each([
+    [new UnauthorizedException('nope'), 'warn'],
+    [new GoneException('expired'), 'warn'],
+    [new InternalServerErrorException('boom'), 'error'],
+  ] as const)('logs %j at %s level, with a stack only for a server fault', (exception, level) => {
+    const { host } = buildHost();
+    jest.restoreAllMocks();
+    const warn = jest.spyOn(Logger, 'warn').mockImplementation();
+    const error = jest.spyOn(Logger, 'error').mockImplementation();
+
+    filter.catch(exception, host);
+
+    const logged = level === 'warn' ? warn : error;
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(String(logged.mock.calls[0]?.[0]).includes('Stack Trace')).toBe(level === 'error');
+    expect(level === 'warn' ? error : warn).not.toHaveBeenCalled();
+  });
+
+  // The filter is `@Catch()`: it receives plain errors (a failed Stripe call, a driver error), not just HttpExceptions.
+  it('answers a plain Error with a 500 envelope instead of throwing from the filter', () => {
+    const { host, response } = buildHost();
+    jest.spyOn(Logger, 'error').mockImplementation();
+
+    expect(() => filter.catch(new Error('driver exploded') as never, host)).not.toThrow();
+
+    expect(response.status).toHaveBeenCalledWith(500);
+  });
+
+  // Regression: a Stripe outage surfaced as an anonymous 500, so nothing told the client it was worth retrying.
+  it('answers a transient Stripe failure with 503 PAYMENT_PROVIDER_UNAVAILABLE and logs the original', () => {
+    const { host, response } = buildHost();
+    const error = Object.assign(new Error('connect ETIMEDOUT api.stripe.com:443'), {
+      type: 'StripeConnectionError',
+    });
+    const logged = jest.spyOn(Logger, 'error').mockImplementation();
+
+    filter.catch(error as never, host);
+
+    expect(response.status).toHaveBeenCalledWith(503);
+    const body = response.json.mock.calls.at(-1)?.[0] as { error?: string; message: string };
+    expect(JSON.stringify(body)).not.toContain('ETIMEDOUT');
+    expect(String(logged.mock.calls.at(-1)?.[0])).toContain('ETIMEDOUT');
   });
 });

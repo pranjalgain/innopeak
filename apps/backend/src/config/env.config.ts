@@ -18,69 +18,42 @@ export class EnvConfig {
   @IsString()
   HOSTNAME?: string;
 
-  @IsNotEmpty()
-  @IsNumber()
-  PROMETHEUS_PORT!: number;
-
-  @IsNotEmpty()
-  @IsNumber()
-  PROMETHEUS_PUSH_GATEWAY_PORT!: number;
-
-  @IsNotEmpty()
-  @IsNumber()
-  PROMTAIL_PORT!: number;
-
-  @IsNotEmpty()
-  @IsNumber()
-  NODE_EXPORTER_PORT!: number;
-
-  @IsNotEmpty()
+  /**
+   * Bearer token Prometheus must send to scrape `/metrics`. Required in production (see `createMetricsGuard`); unset elsewhere
+   * leaves the endpoint open for local development.
+   */
+  @IsOptional()
   @IsString()
-  NESTJS_METRICS_TARGET!: string;
+  METRICS_TOKEN?: string;
 
-  @IsNotEmpty()
-  @IsString()
-  NODE_EXPORTER_TARGET!: string;
-
-  @IsNotEmpty()
+  /** Postgres pool size per process (API and worker each hold their own pool). Default 10. */
+  @IsOptional()
   @IsNumber()
-  GRAFANA_PORT!: number;
+  DB_POOL_MAX?: number;
 
-  @IsNotEmpty()
-  @IsString()
-  GRAFANA_ADMIN_PASSWORD!: string;
-
-  @IsNotEmpty()
+  /** Idle connections are closed after this long. Default 30000. */
+  @IsOptional()
   @IsNumber()
-  LOKI_PORT!: number;
+  DB_IDLE_TIMEOUT_MS?: number;
 
-  @IsNotEmpty()
-  @IsString()
-  LOKI_API_TOKEN!: string;
-
-  @IsNotEmpty()
+  /** How long to wait for a free connection before failing the query. Default 5000. */
+  @IsOptional()
   @IsNumber()
-  OTLP_PORT!: number;
+  DB_CONNECTION_TIMEOUT_MS?: number;
 
-  @IsNotEmpty()
-  @IsString()
-  OTEL_SERVICE_NAME!: string;
-
-  @IsNotEmpty()
-  @IsString()
-  OTEL_EXPORTER_OTLP_ENDPOINT!: string;
-
-  @IsNotEmpty()
+  /** Server-side cap on one statement. Default 30000. */
+  @IsOptional()
   @IsNumber()
-  JAEGER_PORT!: number;
+  DB_STATEMENT_TIMEOUT_MS?: number;
 
-  @IsNotEmpty()
-  @IsNumber()
-  JAEGER_COLLECTOR_PORT!: number;
+  /** `true` connects to Postgres over TLS (certificate verified unless `DB_SSL_REJECT_UNAUTHORIZED=false`). */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  DB_SSL?: string;
 
-  @IsNotEmpty()
-  @IsString()
-  JAGER_URL!: string;
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  DB_SSL_REJECT_UNAUTHORIZED?: string;
 
   @IsNotEmpty()
   @IsString()
@@ -129,22 +102,6 @@ export class EnvConfig {
   @IsNotEmpty()
   @IsNumber()
   DEFAULT_PAGE_SIZE!: number;
-
-  @IsNotEmpty()
-  @IsString()
-  GRAFANA_URL!: string;
-
-  @IsNotEmpty()
-  @IsString()
-  APP_LOGS_URL!: string;
-
-  @IsNotEmpty()
-  @IsString()
-  DEV_DOCS_URL!: string;
-
-  @IsNotEmpty()
-  @IsString()
-  SERVICES_HEALTH_URL!: string;
 
   @IsNotEmpty()
   @IsString()

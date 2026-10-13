@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { SettingsApiError, SettingsService } from "@/app/_libs/services/settings.service";
 import { connectionLocationsQueryKey } from "@/hooks/connections/use-business-switcher";
-import { useConnection } from "@/hooks/connections/use-connection";
+import { connectionQueryKey, useConnection } from "@/hooks/connections/use-connection";
 import type {
   GeneralSettings,
   NotificationChannel,
@@ -42,7 +42,14 @@ export function useSettings(enabled = true): UseSettingsResult {
 
   const settingsQuery = useQuery({
     queryKey: settingsQueryKey,
-    queryFn: () => SettingsService.getSettings(),
+    // The connection tile reads the app-wide connection cache rather than fetching `/v1/connections` a second time.
+    queryFn: () =>
+      SettingsService.getSettings(() =>
+        queryClient.fetchQuery({
+          queryKey: connectionQueryKey,
+          queryFn: ({ signal }) => ConnectionService.getState(signal),
+        }),
+      ),
     enabled,
   });
 

@@ -33,6 +33,8 @@ export class TenantOwnerProfileService {
 
   /** Mints an authorization, uploads straight to the provider, then confirms; returns only the URL, which the caller merges into its cached profile. */
   static async updateAvatar(file: File): Promise<string | null> {
+    // Before authorizing: a file that cannot be an avatar should not cost a round trip or reach the provider.
+    AvatarUploadService.validate(file);
     const authorization = await AuthService.getAvatarUploadAuthorization();
     const providerAssetId = await AvatarUploadService.upload(file, authorization);
     return AuthService.confirmAvatar(providerAssetId);

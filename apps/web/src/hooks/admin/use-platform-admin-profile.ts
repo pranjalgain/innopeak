@@ -57,7 +57,13 @@ export function usePlatformAdminProfile(): UsePlatformAdminProfileResult {
         toast.success(t("avatarUpdated"));
       } catch (error) {
         // See the tenant hook: the provider's refusal is the only message telling the user to pick another file.
-        toast.error(AvatarUploadService.errorMessage(error, t("updateFailed")));
+        toast.error(
+          AvatarUploadService.errorMessage(error, {
+            fallback: t("updateFailed"),
+            tooLarge: t("avatarTooLarge"),
+            unsupportedType: t("avatarUnsupportedType"),
+          }),
+        );
       }
     },
     [t, updateAvatarMutation, queryClient],

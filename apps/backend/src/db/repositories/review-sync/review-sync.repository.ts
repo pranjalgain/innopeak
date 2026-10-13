@@ -128,6 +128,20 @@ export class ReviewSyncRepository {
   }
 
   /**
+   * Notes why a running run is not progressing (a rate-limit wait) and counts as a heartbeat, so the run is not mistaken
+   * for a hung one. The note is replaced when the run ends: `completeSyncRun` writes the final `error_message` (null on
+   * success). Only touches a run that is still `running`.
+   */
+  async noteSyncRunWaiting(syncRunId: string, message: string): Promise<void> {
+    await this.dbService.db
+      .update(schema.syncRuns)
+      .set({ errorMessage: toStoredMessage(message), updatedAt: sql`now()` })
+      .where(
+        and(eq(schema.syncRuns.id, syncRunId), eq(schema.syncRuns.status, SyncRunStatus.RUNNING))
+      );
+  }
+
+  /**
    * CAS on `status = 'running'`: zero rows means the run was reclaimed as stale, so its result is
    * no longer authoritative (it would otherwise resurrect itself to `ok` and set
    * `onboarding_backfill_completed_at` while a second run redoes the import).

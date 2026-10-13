@@ -5,6 +5,7 @@ import type {
   ImportOutcome,
   PollImportOutcome,
 } from '@bg/types/background.type';
+import { MESSAGES } from '@common/constants/messages.constants';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { SyncTrigger } from '@common/enums/sync-trigger.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
@@ -382,11 +383,15 @@ export class ReviewSyncQueueService {
     let pageToken: string | undefined;
 
     for (let pages = 0; pages < MAX_RECONCILE_PAGES; pages += 1) {
-      const page = await this.listReviewsWithBackoff(accessToken, {
-        externalAccountId: job.externalAccountId,
-        externalLocationId: job.externalLocationId,
-        pageToken,
-      });
+      const page = await this.listReviewsWithBackoff(
+        accessToken,
+        {
+          externalAccountId: job.externalAccountId,
+          externalLocationId: job.externalLocationId,
+          pageToken,
+        },
+        null
+      );
       for (const review of page.reviews) {
         listed.add(review.externalReviewId);
       }
@@ -518,11 +523,15 @@ export class ReviewSyncQueueService {
     let maxExternalUpdatedAt: string | null = null;
 
     do {
-      const page = await this.listReviewsWithBackoff(accessToken, {
-        externalAccountId: job.externalAccountId,
-        externalLocationId: job.externalLocationId,
-        pageToken,
-      });
+      const page = await this.listReviewsWithBackoff(
+        accessToken,
+        {
+          externalAccountId: job.externalAccountId,
+          externalLocationId: job.externalLocationId,
+          pageToken,
+        },
+        syncRunId
+      );
 
       const result = await this.reviewSyncDbService.importPage({
         tenantId: job.tenantId,
@@ -600,11 +609,15 @@ export class ReviewSyncQueueService {
     let reachedCursor = false;
 
     do {
-      const page = await this.listReviewsWithBackoff(accessToken, {
-        externalAccountId: job.externalAccountId,
-        externalLocationId: job.externalLocationId,
-        pageToken,
-      });
+      const page = await this.listReviewsWithBackoff(
+        accessToken,
+        {
+          externalAccountId: job.externalAccountId,
+          externalLocationId: job.externalLocationId,
+          pageToken,
+        },
+        syncRunId
+      );
 
       const newReviews: typeof page.reviews = [];
       for (const review of page.reviews) {
@@ -672,7 +685,9 @@ export class ReviewSyncQueueService {
    */
   private async listReviewsWithBackoff(
     accessToken: string,
-    options: Parameters<ReviewProvider['listReviews']>[1]
+    options: Parameters<ReviewProvider['listReviews']>[1],
+    /** The run to note a rate-limit wait on; `null` for a read that belongs to no run of its own (the deleted-review check). */
+    syncRunId: string | null
   ): Promise<Awaited<ReturnType<ReviewProvider['listReviews']>>> {
     for (let attempt = 0; ; attempt += 1) {
       try {
@@ -689,6 +704,24 @@ export class ReviewSyncQueueService {
         this.logger.warn(
           `Rate limited listing reviews for ${options.externalLocationId}; waiting ${waitSeconds}s (attempt ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES})`
         );
+        // The run keeps its `running` status while it waits, so say why it is not progressing (and heartbeat) instead of
+        // leaving it looking hung. Best effort: failing to write the note must not fail the wait.
+        if (syncRunId !== null) {
+          await this.reviewSyncDbService
+            .noteRunWaiting(
+              syncRunId,
+              MESSAGES.REVIEWS.SYNC_WAITING_FOR_RATE_LIMIT(
+                waitSeconds,
+                attempt + 1,
+                RATE_LIMIT_MAX_RETRIES
+              )
+            )
+            .catch((noteError: unknown) => {
+              this.logger.warn(
+                `Could not note the rate-limit wait on sync run ${syncRunId}: ${String(noteError)}`
+              );
+            });
+        }
         await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
       }
     }

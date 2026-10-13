@@ -13,7 +13,8 @@ interface UseOtpVerificationParams {
 }
 
 interface UseOtpVerificationResult {
-  handleVerify: (code: string) => Promise<void>;
+  /** Resolves whether the code was accepted, so the screen can clear its boxes on a miss. */
+  handleVerify: (code: string) => Promise<boolean>;
   handleResend: () => Promise<void>;
 }
 
@@ -26,14 +27,15 @@ export function useOtpVerification({
 }: UseOtpVerificationParams): UseOtpVerificationResult {
   const tOtp = useTranslations("onboardingSignup.otp");
 
-  const handleVerify = async (code: string) => {
+  const handleVerify = async (code: string): Promise<boolean> => {
     const { verified, hasConnectedBusiness, errorMessage } = await verifySignupOtp(email, code);
     if (verified) {
       onVerified(hasConnectedBusiness);
-    } else {
-      // `errorMessage` is set only when the failure wasn't a wrong code (rate limit, network, server).
-      toast.error(errorMessage ?? tOtp("toasts.verifyFailed"));
+      return true;
     }
+    // `errorMessage` is set only when the failure wasn't a wrong code (rate limit, network, server).
+    toast.error(errorMessage ?? tOtp("toasts.verifyFailed"));
+    return false;
   };
 
   const handleResend = async () => {

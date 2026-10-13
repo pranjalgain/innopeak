@@ -337,7 +337,7 @@ been built yet, not one that has been designed away.
 ## Gap between current code and target design
 
 **Nothing of this module exists in `apps/backend/src/` today.** Verified: `src/api/` contains only
-`dev-tools`, `health`, `metrics`, and `tracing`; the only files anywhere under `src/` that mention
+`health` and `metrics`; the only files anywhere under `src/` that mention
 `platform_admin` are the three migrations and the migration journal. Unlike the auth module — which
 exists as generic boilerplate modeling a different product — this module is a clean greenfield
 build. That is the easier starting point, and it means every item below is "add," not "replace."

@@ -15,6 +15,8 @@ import { randomUUID } from 'crypto';
 
 import { CredentialStoreProvider, type StoredCredential } from './credential-store.provider';
 
+import { CredentialReferenceUnresolvableError } from '../errors/provider.error';
+
 const SCHEME = 'aws-sm';
 
 /** One secret per connection (not one blob) so a tenant's credential can be rotated, audited or deleted independently, and IAM can scope per path. */
@@ -89,7 +91,7 @@ export class AwsSecretsManagerCredentialStoreProvider extends CredentialStorePro
     const [scheme, ...rest] = reference.split(':');
 
     if (scheme !== SCHEME || rest.length === 0) {
-      throw new Error(
+      throw new CredentialReferenceUnresolvableError(
         `Credential reference "${reference}" was not issued by the ${SCHEME} store. This node cannot resolve it.`
       );
     }

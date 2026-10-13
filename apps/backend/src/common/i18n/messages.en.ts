@@ -21,6 +21,7 @@ export const messagesEn: MessageCatalog = {
     INVALID_ACCESS_TOKEN: 'Invalid or expired access token.',
     LOGGED_OUT: 'Logged out.',
     INVALID_CURRENT_PASSWORD: 'Current password is incorrect.',
+    NEW_PASSWORD_SAME_AS_CURRENT: 'Choose a password different from your current one.',
     NO_PASSWORD_SET:
       'This account has no password. Sign in with the identity provider used to create it.',
     PASSWORD_ALREADY_SET: 'This account already has a password. Use change password instead.',
@@ -101,6 +102,8 @@ export const messagesEn: MessageCatalog = {
     REVIEW_NOT_FOUND: 'Review not found.',
     TENANT_ONLY: 'Reviews are only available to tenant users.',
     FAILED_TO_ACQUIRE_SYNC_RUN: 'Failed to acquire sync run',
+    SYNC_WAITING_FOR_RATE_LIMIT: (seconds, attempt, maxAttempts) =>
+      `Google is rate limiting requests; waiting ${seconds}s before retrying (attempt ${attempt} of ${maxAttempts}).`,
     FAILED_TO_UPSERT_REVIEW: 'Failed to upsert review',
     GENERATED_RESPONSE_INSERT_FAILED: (reviewId: string): string =>
       `Failed to record the generated reply for review ${reviewId}`,
@@ -189,6 +192,8 @@ export const messagesEn: MessageCatalog = {
     SETUP_INTENT_CREATED: 'Card setup started',
     PAYMENT_METHOD_UPDATED: 'Payment method updated',
     PAYMENT_NOT_CONFIGURED: 'Payments are not available right now. Please try again later.',
+    PAYMENT_PROVIDER_UNAVAILABLE:
+      'Our payment provider is not responding right now. Please try again in a moment.',
     STRIPE_WEBHOOK_TENANT_NOT_FOUND: 'No matching tenant for this Stripe event',
     CHECKOUT_SESSION_TENANT_MISMATCH: 'Checkout session not found',
     PAYMENT_METHOD_NOT_USABLE:
@@ -217,7 +222,7 @@ export const messagesEn: MessageCatalog = {
     MEMBER_INVITE_NOT_REVOCABLE: 'This invite has already been accepted or is no longer pending.',
     MEMBER_INVITES_DISABLED: 'Inviting team members is turned off for this platform.',
     MEMBER_REMOVAL_REQUESTED: (days: number): string =>
-      `Removal requested. This member loses access now, and their data is permanently erased in ${days} days unless you cancel first.`,
+      `Removal requested. This member loses access now, and their data is permanently erased in ${days} ${days === 1 ? 'day' : 'days'} unless you cancel first.`,
     MEMBER_REMOVAL_CANCELLED: 'Removal cancelled — this member keeps their access.',
     MEMBER_REMOVAL_NOT_PENDING: 'This member has no pending removal to cancel.',
     CANNOT_REMOVE_LAST_OWNER: 'At least one owner must remain on this account.',
@@ -236,10 +241,11 @@ export const messagesEn: MessageCatalog = {
     POST_ERASURE_CHARGE_RESOLVED: 'Marked as handled.',
     BUSINESS_STATUS_UPDATED: 'Business status updated.',
     BUSINESS_ERASURE_REQUESTED: (days: number): string =>
-      `Erasure requested. Every user in this business loses access now, and their data is permanently erased in ${days} days unless you cancel first.`,
+      `Erasure requested. Every user in this business loses access now, and their data is permanently erased in ${days} ${days === 1 ? 'day' : 'days'} unless you cancel first.`,
     BUSINESS_ERASURE_CANCELLED: 'Erasure cancelled — this business is restored to active.',
     BUSINESS_ERASURE_PENDING:
       'This business has a pending erasure request. Cancel it before changing status directly.',
+    BUSINESS_ERASURE_NOT_PENDING: 'This business has no pending erasure request to cancel.',
     USER_REMOVAL_PENDING:
       'This user has a pending removal request. Cancel it before changing their status directly.',
     AVATAR_UPDATED: 'Avatar updated.',
@@ -266,6 +272,24 @@ export const messagesEn: MessageCatalog = {
     ADMIN_DISABLED: 'Admin disabled.',
     ADMIN_ENABLED: 'Admin enabled.',
     FAILED_TO_CREATE_INVITED_PLATFORM_ADMIN: 'Failed to create invited platform admin',
+  },
+  VALIDATION: {
+    EMAIL_INVALID: 'Enter a valid email address.',
+    PASSWORD_REQUIRED: 'Enter your password.',
+    PASSWORD_LENGTH: 'Password must be between 8 and 128 characters.',
+    PASSWORD_COMPLEXITY:
+      'Password must contain an uppercase letter, a lowercase letter, a digit, and a special character.',
+    OTP_REQUIRED: 'Enter the verification code.',
+    OTP_FORMAT: 'The verification code must be exactly 6 digits.',
+    FULL_NAME_REQUIRED: 'Enter your full name.',
+    FULL_NAME_LENGTH: 'Your name must be between 1 and 255 characters.',
+    BUSINESS_NAME_REQUIRED: 'Enter your business name.',
+    BUSINESS_NAME_LENGTH: 'Business name must be between 1 and 255 characters.',
+    BUSINESS_NAME_CONFIRM: 'Type the business name to confirm.',
+    NAME_REQUIRED: 'Name is required.',
+    PAYMENT_METHOD_REQUIRED: 'A payment method id is required.',
+    PAYMENT_METHOD_INVALID: 'Enter a valid payment method id.',
+    REPLY_NEEDS_TEXT: 'The reply must contain some text.',
   },
   COMMON: {
     SUCCESS: 'Success',

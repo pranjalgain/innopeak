@@ -97,8 +97,7 @@ Order matters here — each stage can short-circuit the request before it reache
 
 Run in registration order, before any guard:
 
-1. `MetricsMiddleware` — all routes (`'*'`).
-2. `DevToolsMiddleware` — scoped to `dev-tools`, `health/health-ui`, `admin/queues`, `api` only.
+1. `DevToolsMiddleware` — scoped to `admin/queues` (Bull Board) only; the request-metrics middleware and the dev-tools pages are gone.
 
 **`CookieAuthMiddleware` has been deleted**, along with its registration here — it read cookie
 names (`sid` / `refresh_token` / `temp_sid`, or `admin_*` variants) this app's auth system never

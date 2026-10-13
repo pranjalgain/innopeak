@@ -22,7 +22,7 @@ for text back.
   `ReviewSyncQueueService.classifyImportedReviews`, right after classification, in the same
   15-minute poll tick — see [§ Wired into the review-sync pipeline](#wired-into-the-review-sync-pipeline)
   below for why this is a peer step in that pipeline rather than a schedule of its own, and
-  [§ What this module deliberately doesn't do yet](#what-this-module-deliberately-doesnt-do-yet)
+  [§ What this module deliberately simplifies](#what-this-module-deliberately-simplifies)
   for the two points where it's simplified against PLAN.md §5's literal wording.
 
 This module has no HTTP endpoints; see [AI Module — API Reference](./api-reference.md) for the error codes and the CLI script.
@@ -171,7 +171,7 @@ classification failure — see `ReviewSyncQueueService.classifyImportedReviews`'
 Classification already committed by the time generation runs, so the risk that gate exists to
 guard against (`pending_classification` rows left behind) has already passed.
 
-## What this module deliberately simplifies against PLAN.md §5's literal wording
+## What this module deliberately simplifies against PLAN.md §5's literal wording {#what-this-module-deliberately-simplifies}
 
 Both flagged here rather than silently matched — real, scoped follow-up work, not oversights:
 

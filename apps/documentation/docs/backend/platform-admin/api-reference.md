@@ -7,7 +7,7 @@ sidebar_position: 2
 ## How to read this document
 
 This is the **target/spec design** for the platform-admin module's HTTP surface. None of it exists
-in code: `src/api/` contains only `dev-tools`, `health`, `metrics`, and `tracing`, and the only
+in code: `src/api/` contains only `health` and `metrics`, and the only
 files under `apps/backend/src/` that mention `platform_admin` are the three migrations and the
 migration journal. Nothing below describes current behaviour — see the overview's
 [Gap](./overview.md#gap-between-current-code-and-target-design) for the build list, and read

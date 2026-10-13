@@ -8,11 +8,6 @@ export const DEFAULT_LOCALE: AppLocale = "en";
 /** Cookie-only locale storage (no `[locale]` route segment); `NEXT_LOCALE` is next-intl's name for this setup, shared so `request.ts` and the switcher cannot drift. */
 export const LOCALE_COOKIE_NAME = "NEXT_LOCALE";
 
-export const LOCALE_LABELS: Record<AppLocale, string> = {
-  en: "English",
-  de: "Deutsch",
-};
-
 export function isSupportedLocale(value: string | undefined | null): value is AppLocale {
   return value != null && (SUPPORTED_LOCALES as readonly string[]).includes(value);
 }

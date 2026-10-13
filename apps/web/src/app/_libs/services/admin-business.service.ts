@@ -45,7 +45,7 @@ export class AdminBusinessService {
     return unwrap<ApiAdminBusiness>(response.data);
   }
 
-  /** Restores the business to active. 404 if no erasure is pending. */
+  /** Restores the business to active. 409 `BUSINESS_ERASURE_NOT_PENDING` if no erasure is pending, 404 if there is no such business. */
   static async cancelErasure(id: string): Promise<AdminBusiness> {
     const response = await adminBusinessesApi.adminBusinessesControllerCancelErasureV1({
       tenantId: id,

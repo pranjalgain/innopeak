@@ -31,8 +31,19 @@ export class CronQueue {
     await this.addCronJob(CronJobName.BILLING_RECONCILIATION_SWEEP);
   }
 
+  /**
+   * Every worker replica runs the same `@Cron` schedule, so N replicas would enqueue N copies of each tick (N polls of every
+   * location against Google's quota every 15 minutes). The id is the job name plus the minute the tick fired in: replicas ticking in
+   * the same minute produce the same id, and BullMQ keeps one job.
+   */
   private async addCronJob(jobName: CronJobName, data?: Record<string, unknown>): Promise<void> {
-    await this.queuePublisher.publish(QueueName.CRON, jobName, { jobType: jobName, data });
+    const minuteBucket = Math.floor(Date.now() / 60_000);
+    await this.queuePublisher.publish(
+      QueueName.CRON,
+      jobName,
+      { jobType: jobName, data },
+      { jobId: `${jobName}-${minuteBucket}` }
+    );
     this.logger.debug(`Added ${jobName} job`);
   }
 }

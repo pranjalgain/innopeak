@@ -227,6 +227,16 @@ describe('AdminSettingsService', () => {
       expect(platformAdminDbService.updatePasswordHash).not.toHaveBeenCalled();
     });
 
+    it('rejects a new password identical to the current one', async () => {
+      platformAdminDbService.findById.mockResolvedValue(profileRow);
+      hashingService.compare.mockResolvedValue(true);
+
+      await expect(
+        target.changePassword(admin, { currentPassword: 'Old@Pass1', newPassword: 'Old@Pass1' })
+      ).rejects.toMatchObject({ response: { code: 'NEW_PASSWORD_SAME_AS_CURRENT' } });
+      expect(platformAdminDbService.updatePasswordHash).not.toHaveBeenCalled();
+    });
+
     it('updates the hash on a correct current password', async () => {
       platformAdminDbService.findById.mockResolvedValue(profileRow);
       hashingService.compare.mockResolvedValue(true);

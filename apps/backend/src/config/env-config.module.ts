@@ -1,11 +1,9 @@
-import { JWT_SECRET_MIN_LENGTH } from '@auth/constants/auth.constants';
 import { DEFAULT_ERASURE_GRACE_PERIOD_DAYS } from '@common/constants/erasure.constants';
 import { EnvConfig } from '@config/env.config';
 import { Module } from '@nestjs/common';
 import { ConfigModule, registerAs } from '@nestjs/config';
-import * as Joi from 'joi';
 
-import { microsoftAuthoritySchema } from './microsoft-authority.schema';
+import { validationSchema } from './env-config.schema';
 
 const envConfig = registerAs(
   'env',
@@ -16,25 +14,6 @@ const envConfig = registerAs(
       // drop the Secure flag from session cookies; Joi requires it so boot fails loudly instead.
       NODE_ENV: process.env['NODE_ENV'] ?? '',
       CORS_ORIGINS: process.env['CORS_ORIGINS'] ?? '*',
-      PROMETHEUS_PORT: parseInt(process.env['PROMETHEUS_PORT'] ?? '9090', 10),
-      PROMETHEUS_PUSH_GATEWAY_PORT: parseInt(
-        process.env['PROMETHEUS_PUSH_GATEWAY_PORT'] ?? '9091',
-        10
-      ),
-      PROMTAIL_PORT: parseInt(process.env['PROMTAIL_PORT'] ?? '9080', 10),
-      NODE_EXPORTER_PORT: parseInt(process.env['NODE_EXPORTER_PORT'] ?? '9100', 10),
-      NODE_EXPORTER_TARGET: process.env['NODE_EXPORTER_TARGET'] ?? '',
-      NESTJS_METRICS_TARGET: process.env['NESTJS_METRICS_TARGET'] ?? '',
-      GRAFANA_PORT: parseInt(process.env['GRAFANA_PORT'] ?? '3001', 10),
-      GRAFANA_ADMIN_PASSWORD: process.env['GRAFANA_ADMIN_PASSWORD'] ?? '',
-      LOKI_PORT: parseInt(process.env['LOKI_PORT'] ?? '3100', 10),
-      LOKI_API_TOKEN: process.env['LOKI_API_TOKEN'] ?? '',
-      OTLP_PORT: parseInt(process.env['OTLP_PORT'] ?? '4317', 10),
-      OTEL_SERVICE_NAME: process.env['OTEL_SERVICE_NAME'] ?? '',
-      OTEL_EXPORTER_OTLP_ENDPOINT: process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] ?? '',
-      JAEGER_PORT: parseInt(process.env['JAEGER_PORT'] ?? '16686', 10),
-      JAEGER_COLLECTOR_PORT: parseInt(process.env['JAEGER_COLLECTOR_PORT'] ?? '14268', 10),
-      JAGER_URL: process.env['JAGER_URL'] ?? '',
       REDIS_HOST: process.env['REDIS_HOST'] ?? '',
       REDIS_PORT: parseInt(process.env['REDIS_PORT'] ?? '6379', 10),
       REDIS_PASSWORD: process.env['REDIS_PASSWORD'] ?? '',
@@ -56,10 +35,6 @@ const envConfig = registerAs(
       })(),
       DEFAULT_PAGE: parseInt(process.env['DEFAULT_PAGE'] ?? '1', 10),
       DEFAULT_PAGE_SIZE: parseInt(process.env['DEFAULT_PAGE_SIZE'] ?? '10', 10),
-      GRAFANA_URL: process.env['GRAFANA_URL'] ?? '',
-      APP_LOGS_URL: process.env['APP_LOGS_URL'] ?? '',
-      DEV_DOCS_URL: process.env['DEV_DOCS_URL'] ?? '',
-      SERVICES_HEALTH_URL: process.env['SERVICES_HEALTH_URL'] ?? '',
       FRONTEND_URL: process.env['FRONTEND_URL'] ?? '',
       VERIFY_EMAIL_OTP_TTL_MINUTES: parseInt(
         process.env['VERIFY_EMAIL_OTP_TTL_MINUTES'] ?? '10',
@@ -147,123 +122,6 @@ if (process.env['NODE_ENV'] === 'production' && !process.env['GBP_STATE_SECRET']
 if (process.env['NODE_ENV'] === 'production' && !process.env['GOOGLE_AUTH_STATE_SECRET']) {
   throw new Error('GOOGLE_AUTH_STATE_SECRET must be set in production.');
 }
-
-const validationSchema = Joi.object({
-  PORT: Joi.number().port().required(),
-  NODE_ENV: Joi.string().valid('development', 'production').required(),
-  CORS_ORIGINS: Joi.string().required().disallow(null, ''),
-  PROMETHEUS_PORT: Joi.number().port().allow(null, 9090),
-  PROMETHEUS_PUSH_GATEWAY_PORT: Joi.number().port().allow(null, 9091),
-  PROMTAIL_PORT: Joi.number().port().allow(null, 9080),
-  NODE_EXPORTER_PORT: Joi.number().port().allow(null, 9100),
-  NODE_EXPORTER_TARGET: Joi.string().allow(null, '127.0.0.1:3000'),
-  NESTJS_METRICS_TARGET: Joi.string().allow(null, 'node-exporter:9100'),
-  GRAFANA_PORT: Joi.number().port().allow(null),
-  GRAFANA_ADMIN_PASSWORD: Joi.string().allow(null, ''),
-  LOKI_PORT: Joi.when('NODE_ENV', {
-    is: 'development',
-    then: Joi.number().port().required(),
-    otherwise: Joi.number().port().allow(null),
-  }),
-  LOKI_API_TOKEN: Joi.when('NODE_ENV', {
-    is: 'development',
-    then: Joi.string().required(),
-    otherwise: Joi.string().allow(null, ''),
-  }),
-  OTLP_PORT: Joi.number().port().allow(null, 4318),
-  OTEL_SERVICE_NAME: Joi.string().required(),
-  OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri().required(),
-  JAEGER_PORT: Joi.number().port().allow(null, 16686),
-  JAEGER_COLLECTOR_PORT: Joi.number().port().allow(null, 14268),
-  JAGER_URL: Joi.string().uri().allow(null, 'http://localhost:16686'),
-  REDIS_HOST: Joi.string().required(),
-  REDIS_PORT: Joi.number().port().required(),
-  REDIS_PASSWORD: Joi.string().required(),
-  REDIS_TLS_ENABLED: Joi.boolean().default(false),
-  POSTGRES_DB: Joi.string().required(),
-  POSTGRES_USER: Joi.string().required(),
-  POSTGRES_PASSWORD: Joi.string().required(),
-  POSTGRES_HOST: Joi.string().required(),
-  POSTGRES_PORT: Joi.number().port().required(),
-  DATABASE_URL: Joi.string()
-    .required()
-    .pattern(/^postgresql:\/\//)
-    .messages({
-      'string.pattern.base': 'DATABASE_URL must start with "postgresql://"',
-      'string.empty': 'DATABASE_URL is required',
-    }),
-  DEFAULT_PAGE: Joi.number().default(1),
-  DEFAULT_PAGE_SIZE: Joi.number().default(10),
-  GRAFANA_URL: Joi.string().required(),
-  APP_LOGS_URL: Joi.string().required(),
-  DEV_DOCS_URL: Joi.string().required(),
-  SERVICES_HEALTH_URL: Joi.string().required(),
-  // Optional: nothing under src/ reads it yet (reserved for OAuth/redirect URLs), so requiring it
-  // would fail boot everywhere it is unset.
-  FRONTEND_URL: Joi.string().uri().allow(null, '').optional(),
-  VERIFY_EMAIL_OTP_TTL_MINUTES: Joi.number().integer().positive().default(10),
-  DEV_VERIFY_EMAIL_TOKEN: Joi.when('NODE_ENV', {
-    is: 'production',
-    then: Joi.forbidden(),
-    otherwise: Joi.string().allow(null, ''),
-  }),
-  // HS256's strength is bounded by the secret's entropy: a short one is brute-forceable offline
-  // from any single captured token, after which anyone can mint tokens for any account.
-  JWT_SECRET: Joi.string().min(JWT_SECRET_MIN_LENGTH).required(),
-  // "Must differ from JWT_SECRET in production" isn't expressible in Joi without a custom validator; see the manual check above.
-  JWT_REFRESH_SECRET: Joi.string().min(JWT_SECRET_MIN_LENGTH).allow(null, ''),
-  TRUST_PROXY_HOPS: Joi.number().integer().min(0).default(0),
-  // Optional like FRONTEND_URL: developers not working on connections have none set; the routes that need them answer 503 (see GoogleBusinessProfileProvider).
-  GOOGLE_AUTH_STATE_SECRET: Joi.string().allow(null, ''),
-  MICROSOFT_CLIENT_ID: Joi.string().allow(null, ''),
-  MICROSOFT_CLIENT_SECRET: Joi.string().allow(null, ''),
-  MICROSOFT_CALLBACK_URL: Joi.string().uri().allow(null, ''),
-  MICROSOFT_AUTHORITY: microsoftAuthoritySchema,
-  GBP_CLIENT_ID: Joi.string().allow(null, ''),
-  GBP_CLIENT_SECRET: Joi.string().allow(null, ''),
-  GBP_CALLBACK_URL: Joi.string().uri().allow(null, ''),
-  // "Must be set in production" is the manual check above, keeping both halves of the secret rules in one place.
-  GBP_STATE_SECRET: Joi.string().allow(null, ''),
-  CREDENTIAL_ENCRYPTION_KEY: Joi.string().base64().allow(null, ''),
-  PAYMENT_FEATURE_ENABLED: Joi.string().valid('true', 'false').allow(null, ''),
-  // Required in production, and in any environment that turns payments on: without the webhook secret `StripePaymentProvider`
-  // defaults to an empty string and rejects every real delivery with no boot-time signal. Optional otherwise, so an install
-  // that never takes payments needs no Stripe keys (its client is created on first use).
-  STRIPE_SECRET_KEY: Joi.when('NODE_ENV', {
-    is: 'production',
-    then: Joi.string().required(),
-    otherwise: Joi.when('PAYMENT_FEATURE_ENABLED', {
-      is: 'true',
-      then: Joi.string().required(),
-      otherwise: Joi.string().allow(null, ''),
-    }),
-  }),
-  STRIPE_WEBHOOK_SECRET: Joi.when('NODE_ENV', {
-    is: 'production',
-    then: Joi.string().required(),
-    otherwise: Joi.when('PAYMENT_FEATURE_ENABLED', {
-      is: 'true',
-      then: Joi.string().required(),
-      otherwise: Joi.string().allow(null, ''),
-    }),
-  }),
-  STRIPE_PRICE_ID_PAID: Joi.string().allow(null, ''),
-  // Optional in every environment: providers validate their own config lazily on first call (a missing key fails that
-  // generation with `AiProviderNotConfiguredException`, not app startup).
-  AI_PROVIDER: Joi.string().valid('openrouter', 'azure').allow(null, ''),
-  OPENROUTER_API_KEY: Joi.string().allow(null, ''),
-  OPENROUTER_MODEL: Joi.string().allow(null, ''),
-  AZURE_OPENAI_ENDPOINT: Joi.string().uri().allow(null, ''),
-  AZURE_OPENAI_API_KEY: Joi.string().allow(null, ''),
-  AZURE_OPENAI_DEPLOYMENT: Joi.string().allow(null, ''),
-  AZURE_OPENAI_API_VERSION: Joi.string().allow(null, ''),
-  // GDPR requires westeurope for Azure OpenAI; validated here too, in case `AzureOpenAiProvider`'s constructor check is bypassed.
-  AZURE_OPENAI_REGION: Joi.string().valid('westeurope').allow(null, ''),
-  ERASURE_GRACE_PERIOD_DAYS: Joi.number()
-    .integer()
-    .positive()
-    .default(DEFAULT_ERASURE_GRACE_PERIOD_DAYS),
-});
 
 @Module({
   imports: [

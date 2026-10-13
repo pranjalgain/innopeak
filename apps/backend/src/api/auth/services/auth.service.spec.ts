@@ -650,6 +650,31 @@ describe('AuthService', () => {
       expect(authDbService.updatePasswordAndRevokeSessions).not.toHaveBeenCalled();
     });
 
+    it('rejects a new password identical to the current one, without signing anyone out', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      hashingService.compare.mockResolvedValue(true);
+
+      await expect(
+        target.changePassword(tenantUser, {
+          currentPassword: 'StrongP@ss1',
+          newPassword: 'StrongP@ss1',
+        })
+      ).rejects.toMatchObject({ response: { code: 'NEW_PASSWORD_SAME_AS_CURRENT' } });
+      expect(authDbService.updatePasswordAndRevokeSessions).not.toHaveBeenCalled();
+    });
+
+    it('checks the current password before reporting an unchanged one, so nothing is revealed', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      hashingService.compare.mockResolvedValue(false);
+
+      await expect(
+        target.changePassword(tenantUser, {
+          currentPassword: 'Wrong@Pass1',
+          newPassword: 'Wrong@Pass1',
+        })
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
     it('updates the hash, revokes other sessions, and issues a fresh pair', async () => {
       authDbService.findUserById.mockResolvedValue(storedUser);
       hashingService.compare.mockResolvedValue(true);
@@ -1481,6 +1506,17 @@ describe('AuthService', () => {
         await callback();
 
         expect(platformAdminAuthService.findLinkedAdmin).not.toHaveBeenCalled();
+      });
+
+      it('refuses a pending team invite with INVITE_REQUIRED instead of signing the invitee in', async () => {
+        microsoftIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+        authDbService.linkSsoIdentityByEmail.mockResolvedValue({ kind: 'invited' });
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.LOGIN));
+
+        await expect(callback()).resolves.toMatchObject({
+          failure: SsoAuthFailure.INVITE_REQUIRED,
+        });
       });
 
       it('answers NO_ACCOUNT for an unknown login, and a pending business-name step for a signup', async () => {

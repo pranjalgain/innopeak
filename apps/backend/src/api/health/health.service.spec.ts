@@ -4,27 +4,27 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { RedisHealthIndicator } from '@redis/redis.health';
 
+import { getHeapStatistics } from 'node:v8';
+
 import { CustomDatabaseHealthIndicator } from './custom-database-health.indicator';
-import { CustomHttpHealthIndicator } from './custom-http-health.indicator';
-import { HealthService } from './health.service';
+import { HEALTH_CHECK_TIMEOUT_MS, HealthService } from './health.service';
 
 describe('HealthService', () => {
   let target: HealthService;
-  let http: { pingCheck: jest.Mock };
   let database: { isHealthy: jest.Mock };
   let memory: { checkHeap: jest.Mock };
   let redisHealth: { isHealthy: jest.Mock };
 
+  const up = (key: string): HealthIndicatorResult => ({ [key]: { status: 'up' } });
+
   beforeEach(async () => {
-    http = { pingCheck: jest.fn() };
-    database = { isHealthy: jest.fn() };
-    memory = { checkHeap: jest.fn() };
-    redisHealth = { isHealthy: jest.fn() };
+    database = { isHealthy: jest.fn().mockResolvedValue(up('database')) };
+    memory = { checkHeap: jest.fn().mockResolvedValue(up('memory_heap')) };
+    redisHealth = { isHealthy: jest.fn().mockResolvedValue(up('redis')) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         HealthService,
-        { provide: CustomHttpHealthIndicator, useValue: http },
         { provide: CustomDatabaseHealthIndicator, useValue: database },
         { provide: MemoryHealthIndicator, useValue: memory },
         { provide: RedisHealthIndicator, useValue: redisHealth },
@@ -36,114 +36,111 @@ describe('HealthService', () => {
 
   afterEach(() => jest.clearAllMocks());
 
+  describe('checkLiveness', () => {
+    it('reports up without touching any dependency', () => {
+      expect(target.checkLiveness()).toEqual({ status: 'up' });
+      expect(database.isHealthy).not.toHaveBeenCalled();
+      expect(redisHealth.isHealthy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('checkHealth', () => {
-    it('returns status up when all indicators are healthy', async () => {
-      const googleResult: HealthIndicatorResult = {
-        google: { status: 'up', url: 'https://google.com' },
-      };
-      const databaseResult: HealthIndicatorResult = { database: { status: 'up' } };
-      const redisResult: HealthIndicatorResult = { redis: { status: 'up' } };
-      const memoryResult: HealthIndicatorResult = { memory_heap: { status: 'up' } };
-
-      http.pingCheck.mockResolvedValue(googleResult);
-      database.isHealthy.mockResolvedValue(databaseResult);
-      redisHealth.isHealthy.mockResolvedValue(redisResult);
-      memory.checkHeap.mockResolvedValue(memoryResult);
-
+    it('returns status up when the required components are healthy', async () => {
       const result = await target.checkHealth();
 
       expect(result.status).toBe('up');
       expect(result.error).toBeUndefined();
       expect(result.info).toEqual({
-        google: googleResult['google'],
-        database: databaseResult['database'],
-        redis: redisResult['redis'],
-        memory_heap: memoryResult['memory_heap'],
+        database: { status: 'up' },
+        redis: { status: 'up' },
+        memory_heap: { status: 'up' },
       });
       expect(result.details).toEqual(result.info);
-
-      expect(http.pingCheck).toHaveBeenCalledWith('google', 'https://google.com');
-      expect(database.isHealthy).toHaveBeenCalledWith('database');
-      expect(redisHealth.isHealthy).toHaveBeenCalledWith('redis');
-      expect(memory.checkHeap).toHaveBeenCalledWith('memory_heap', 250 * 1024 * 1024);
     });
 
-    it('returns status down and captures error when the HTTP check throws', async () => {
-      http.pingCheck.mockRejectedValue(new Error('HTTP unreachable'));
-      database.isHealthy.mockResolvedValue({ database: { status: 'up' } });
-      redisHealth.isHealthy.mockResolvedValue({ redis: { status: 'up' } });
-      memory.checkHeap.mockResolvedValue({ memory_heap: { status: 'up' } });
+    // Regression: the probe pinged google.com, so a Google outage (or a blocked egress) failed readiness.
+    it('does not probe any third party', async () => {
+      const result = await target.checkHealth();
+
+      expect(Object.keys(result.info).sort()).toEqual(['database', 'memory_heap', 'redis']);
+    });
+
+    // Regression: a flat 250 MB threshold marked a busy but healthy process as down.
+    it('measures the heap against a share of the real V8 limit', async () => {
+      await target.checkHealth();
+
+      expect(memory.checkHeap).toHaveBeenCalledWith(
+        'memory_heap',
+        getHeapStatistics().heap_size_limit * 0.9
+      );
+    });
+
+    it.each([
+      ['database', () => database.isHealthy],
+      ['redis', () => redisHealth.isHealthy],
+      ['memory_heap', () => memory.checkHeap],
+    ] as const)('returns status down when the %s check throws', async (key, mock) => {
+      mock().mockRejectedValue(new Error('boom'));
 
       const result = await target.checkHealth();
 
       expect(result.status).toBe('down');
       expect(result.error).toBe('Some services are down');
-      expect(result.info.google).toEqual({
-        status: 'down',
-        message: 'HTTP check failed',
-        error: 'HTTP unreachable',
-      });
+      expect(result.info[key]?.status).toBe('down');
     });
 
-    it('returns status down when the database check throws', async () => {
-      http.pingCheck.mockResolvedValue({ google: { status: 'up' } });
-      database.isHealthy.mockRejectedValue(new Error('DB connection refused'));
-      redisHealth.isHealthy.mockResolvedValue({ redis: { status: 'up' } });
-      memory.checkHeap.mockResolvedValue({ memory_heap: { status: 'up' } });
+    it('returns status down when an indicator reports itself down', async () => {
+      database.isHealthy.mockResolvedValue({
+        database: { status: 'down', message: 'Database health check failed' },
+      });
 
       const result = await target.checkHealth();
 
       expect(result.status).toBe('down');
       expect(result.info.database).toEqual({
         status: 'down',
-        message: 'Database check failed',
-        error: 'DB connection refused',
+        message: 'Database health check failed',
       });
     });
 
-    it('returns status down when the redis check throws', async () => {
-      http.pingCheck.mockResolvedValue({ google: { status: 'up' } });
-      database.isHealthy.mockResolvedValue({ database: { status: 'up' } });
-      redisHealth.isHealthy.mockRejectedValue(new Error('Redis timeout'));
-      memory.checkHeap.mockResolvedValue({ memory_heap: { status: 'up' } });
+    // The probe is public: a driver error can carry a host name or a user name.
+    it('never puts the underlying error text in the public result', async () => {
+      database.isHealthy.mockResolvedValue({
+        database: {
+          status: 'down',
+          message: 'Database connection failed',
+          error: 'connect ECONNREFUSED 10.0.3.7:5432 (user app_rw)',
+        },
+      });
+      redisHealth.isHealthy.mockRejectedValue(new Error('NOAUTH at 10.0.3.9:6379'));
+
+      const result = await target.checkHealth();
+
+      expect(JSON.stringify(result)).not.toMatch(/10\.0\.3|app_rw|NOAUTH|ECONNREFUSED/);
+    });
+
+    // Regression: with Redis down the ping never resolved, so the readiness probe itself hung instead of answering 503.
+    it('reports a check that never answers as down, without hanging the probe', async () => {
+      jest.useFakeTimers();
+      redisHealth.isHealthy.mockReturnValue(new Promise(() => undefined));
+
+      const pending = target.checkHealth();
+      await jest.advanceTimersByTimeAsync(HEALTH_CHECK_TIMEOUT_MS);
+      const result = await pending;
+      jest.useRealTimers();
+
+      expect(result.status).toBe('down');
+      expect(result.info.redis).toEqual({ status: 'down', message: 'Redis check failed' });
+      expect(result.info.database?.status).toBe('up');
+    });
+
+    it('falls back to a down entry when the indicator result is missing the expected key', async () => {
+      redisHealth.isHealthy.mockResolvedValue({});
 
       const result = await target.checkHealth();
 
       expect(result.status).toBe('down');
-      expect(result.info.redis).toEqual({
-        status: 'down',
-        message: 'Redis check failed',
-        error: 'Redis timeout',
-      });
-    });
-
-    it('returns status down when the memory check throws', async () => {
-      http.pingCheck.mockResolvedValue({ google: { status: 'up' } });
-      database.isHealthy.mockResolvedValue({ database: { status: 'up' } });
-      redisHealth.isHealthy.mockResolvedValue({ redis: { status: 'up' } });
-      memory.checkHeap.mockRejectedValue(new Error('Heap exceeded'));
-
-      const result = await target.checkHealth();
-
-      expect(result.status).toBe('down');
-      expect(result.info.memory_heap).toEqual({
-        status: 'down',
-        message: 'Memory check failed',
-        error: 'Heap exceeded',
-      });
-    });
-
-    it('falls back to a down entry via extractEntry when the indicator result is missing the expected key', async () => {
-      // Unreachable in practice; guards the noUncheckedIndexedAccess fallback in extractEntry.
-      http.pingCheck.mockResolvedValue({ unexpected: { status: 'up' } });
-      database.isHealthy.mockResolvedValue({ database: { status: 'up' } });
-      redisHealth.isHealthy.mockResolvedValue({ redis: { status: 'up' } });
-      memory.checkHeap.mockResolvedValue({ memory_heap: { status: 'up' } });
-
-      const result = await target.checkHealth();
-
-      expect(result.info.google).toEqual({ status: 'down' });
-      expect(result.status).toBe('up');
+      expect(result.info.redis).toEqual({ status: 'down' });
     });
   });
 });

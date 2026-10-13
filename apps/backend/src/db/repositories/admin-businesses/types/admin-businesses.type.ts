@@ -11,7 +11,23 @@ export interface SetBusinessStatusInput {
 /** `erasure_pending` is distinct from `not_found`: plain suspend/reactivate must not run while an erasure
  *  is pending, or the status change leaves `erasure_requested_at` stale. */
 export type SetBusinessStatusOutcome =
-  { outcome: 'erasure_pending' } | { outcome: 'not_found' } | { outcome: 'updated' };
+  | { outcome: 'erasure_pending' }
+  | { outcome: 'not_found' }
+  /** `changed` is false when the tenant already had that status, so the caller can treat a repeat as a no-op. */
+  | { outcome: 'updated'; changed: boolean };
+
+/** `already_requested`: an admin's request is already pending, so asking again changes nothing. */
+export type RequestErasureOutcome = 'already_requested' | 'not_found' | 'requested';
+
+/** `not_pending` is distinct from `not_found`: the business exists but has no erasure to cancel. */
+export type CancelErasureResult =
+  | { outcome: 'cancelled'; summary: AdminBusinessSummary }
+  | { outcome: 'not_found' }
+  | { outcome: 'not_pending' };
+
+export type RequestErasureResult =
+  | { outcome: 'already_requested' | 'requested'; summary: AdminBusinessSummary }
+  | { outcome: 'not_found' };
 
 export interface AdminBusinessRow {
   id: string;
@@ -50,4 +66,4 @@ export interface AdminBusinessSummary {
  *  success case is overridden, to carry the mapped summary. */
 export type SetBusinessStatusResult =
   | Exclude<SetBusinessStatusOutcome, { outcome: 'updated' }>
-  | { outcome: 'updated'; summary: AdminBusinessSummary };
+  | { outcome: 'updated'; changed: boolean; summary: AdminBusinessSummary };

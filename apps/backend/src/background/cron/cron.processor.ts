@@ -107,35 +107,19 @@ export class CronProcessor extends WorkerHost {
     });
   }
 
+  /**
+   * BullMQ emits `(jobId, previousState)` here, not the job. A stalled job is either re-queued (the worker that held its lock
+   * died) or, past `maxStalledCount`, failed, which the `failed` handler already forwards to the dead-letter queue, so this only
+   * logs: writing it to the DLQ as well filed a job that was about to be retried, with an empty id, name and payload.
+   */
   @OnWorkerEvent('stalled')
-  async onStalled(job: CronJobHandle): Promise<void> {
-    this.logger.error(`Job ${job.id} has been stalled`);
-    if (typeof job.log === 'function') void job.log(`Job ${job.id} has been stalled`);
-
-    await this.dlqService.addFailedJobToDLQ({
-      originalQueueName: QueueName.CRON,
-      originalJobId: job.id ?? '',
-      originalJobName: job.name,
-      originalJobData: job.data,
-      failedReason: `Job stalled for too long. Current attempts: ${job.attemptsMade}`,
-      timestamp: Date.now(),
-    });
+  onStalled(jobId: string): void {
+    this.logger.error(`Job ${jobId} has been stalled`);
   }
 
+  /** Worker-level errors (a lost Redis connection) carry no job: BullMQ emits `(error)` only. */
   @OnWorkerEvent('error')
-  async onError(job: CronJobHandle, error: Error): Promise<void> {
-    const logMessage = `Job ${job.id} has failed with worker error: ${error.message}`;
-    this.logger.error(logMessage);
-    if (typeof job.log === 'function') void job.log(logMessage);
-
-    await this.dlqService.addFailedJobToDLQ({
-      originalQueueName: QueueName.CRON,
-      originalJobId: job.id ?? '',
-      originalJobName: job.name,
-      originalJobData: job.data,
-      failedReason: `Processor error: ${error.message}`,
-      stacktrace: error.stack ? error.stack.split('\n') : [],
-      timestamp: Date.now(),
-    });
+  onError(error: Error): void {
+    this.logger.error(`Worker error: ${error.message}`);
   }
 }

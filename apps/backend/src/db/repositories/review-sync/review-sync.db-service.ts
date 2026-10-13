@@ -123,17 +123,23 @@ export class ReviewSyncDbService {
           status: resolveStatus(review),
         });
 
-        if (!review.reply) {
+        const { reply } = review;
+        if (!reply) {
           return { inserted, replyImported: false, replyConflict: false };
         }
 
         try {
-          const replyImported = await this.reviewSyncRepository.insertImportedReply(tx, {
-            tenantId: input.tenantId,
-            reviewId: id,
-            content: review.reply.comment,
-            postedAt: review.reply.updatedAt,
-          });
+          // A savepoint: once a statement raises 23505 Postgres aborts the whole transaction, so catching it on `tx` itself
+          // would turn the commit into a silent ROLLBACK and drop the review upsert above. The nested transaction rolls back
+          // to the savepoint only, leaving the upsert committed.
+          const replyImported = await tx.transaction(nested =>
+            this.reviewSyncRepository.insertImportedReply(nested, {
+              tenantId: input.tenantId,
+              reviewId: id,
+              content: reply.comment,
+              postedAt: reply.updatedAt,
+            })
+          );
 
           return { inserted, replyImported, replyConflict: false };
         } catch (error) {
@@ -176,6 +182,10 @@ export class ReviewSyncDbService {
     const windowMs = BACKFILL_ACTIONABLE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
     return ageMs <= windowMs ? ReviewStatus.NEW : ReviewStatus.DISMISSED;
+  }
+
+  noteRunWaiting(syncRunId: string, message: string): Promise<void> {
+    return this.reviewSyncRepository.noteSyncRunWaiting(syncRunId, message);
   }
 
   recordProgress(

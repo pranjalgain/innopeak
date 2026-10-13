@@ -57,6 +57,21 @@ export class ProviderCredentialService {
     return this.refreshUnderLock(input);
   }
 
+  /**
+   * Drops the cached access token. It is keyed by connection, not by credential, so a reconnect or disconnect that changes the grant
+   * would otherwise keep serving the old token until it expires: a revoked one 401s straight back into `needs_reauth`, so the
+   * reconnect looks like it did nothing. Best-effort: Redis being unreachable must not fail a disconnect.
+   */
+  async invalidateAccessToken(connectionId: string): Promise<void> {
+    try {
+      await this.redis.del(`${ACCESS_TOKEN_CACHE_PREFIX}${connectionId}`);
+    } catch (error) {
+      this.logger.warn(
+        `Could not drop the cached access token for connection ${connectionId}: ${(error as Error).message}`
+      );
+    }
+  }
+
   async storeNewCredential(tokens: ProviderTokenSet): Promise<string> {
     return this.credentialStore.put(mergeStoredCredential(null, tokens));
   }

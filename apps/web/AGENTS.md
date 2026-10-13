@@ -555,3 +555,35 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## InnoPeak web: patterns this app already uses (follow them)
+
+These are decisions made in this codebase, not generic Next.js advice. Details live in
+`apps/documentation/docs/frontend/overview.md` and `admin-console.md`.
+
+- **Every user-facing string needs both `messages/en.json` and `messages/de.json`** (next-intl). Counts use ICU plurals
+  (`{days, plural, one {# day} other {# days}}`), never `{days} days`. Layouts must survive German (longer words): truncate or wrap
+  deliberately (`min-w-0 truncate`), and check phone width.
+- **List state lives in the URL.** Use `useUrlQueryState` / `useUrlSearchPage` / `useUrlFilterPage` (`src/hooks/common/`), not
+  `useState`, for page, filters and search. Changing page *pushes* a history entry; typing and filters *replace*. Tab strips
+  (`?tab=`) *push*. Search terms are capped at `MAX_SEARCH_LENGTH` (200) and inputs carry `maxLength`. Test with
+  `src/test/mock-navigation.ts`, and press Back/Forward in a browser before calling a navigation change done.
+- **One request per user action.** Mutating buttons must not fire twice on a double-click: `ConfirmActionDialog` already confirms once
+  per opening; for other actions guard with an in-flight key (see `once()` in `use-review-detail.ts`) or the mutation's `isPending`.
+- **Server data goes through the shared TanStack Query cache.** Read the profile and connection with the shared keys
+  (`tenantOwnerProfileQueryKey`, `connectionQueryKey`) instead of calling services directly in a component, so one screen load is one
+  request per endpoint.
+- **Deploy-level values come from the API, never a copied constant.** Read them from `usePlatformSettings()` (e.g.
+  `useErasureGracePeriodDays()`); a constant that mirrors a backend env var goes stale.
+- **Auth redirects.** A guarded page remembers where it was headed (`?next=`, validated by `post-login-redirect.ts`; never redirect to an
+  unchecked value). A 401 whose refresh fails sends a signed-in visitor to sign-in via the response interceptor in `api-sdk/config.ts`.
+- **No third-party key or account is hard-coded, and there is no analytics.** Sentry's DSN comes from the environment (off when unset); the app has
+  no analytics, tag manager or consent banner, so adding any tracker means adding consent handling with it. Anything sent to Sentry is scrubbed of
+  cookies, headers, query strings and personal identifiers (`sentry-options.ts`).
+- **Errors say what happened.** A 4xx carries copy written for the user; show it. Don't map every failure to "couldn't reach the
+  server" — distinguish not-found, validation and unreachable.
+- **Generated SDK.** `libs/client_sdk` is generated from the backend's OpenAPI; when you change a DTO, update the SDK model (or
+  regenerate) in the same change, and the web `types/domain.ts` mirror.
+- **Tests.** `pnpm test` (vitest). A bug fix ships with a regression test that fails without the fix (prove it by reverting the fix once).
+  Run `eslint --fix` / prettier only on files you changed — running them over whole directories reformats unrelated code.
+

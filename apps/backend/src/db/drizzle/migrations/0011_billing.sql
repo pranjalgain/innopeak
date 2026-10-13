@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS tenant_subscriptions (
     cancellation_source subscription_cancellation_source,
     -- Last time this row was confirmed in sync with Stripe; NULL = never.
     stripe_last_verified_at TIMESTAMPTZ,
+    -- Stripe's own `created` time of the newest webhook event applied to this row. Webhooks arrive unordered, so an
+    -- event older than this is stale and must not overwrite newer state (e.g. a late `active` after `past_due`).
+    stripe_last_event_at TIMESTAMPTZ,
     -- Bounds the nightly reconciliation sweep to tenants with a recent checkout.
     checkout_started_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

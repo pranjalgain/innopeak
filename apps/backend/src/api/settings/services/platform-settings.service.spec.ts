@@ -1,3 +1,4 @@
+import { DEFAULT_ERASURE_GRACE_PERIOD_DAYS } from '@common/constants/erasure.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import { InternalServerErrorException } from '@nestjs/common';
@@ -6,6 +7,12 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
 import { PlatformSettingsService } from './platform-settings.service';
+
+/** A `ConfigService.get` stand-in answering only the keys given, like an environment that sets just those. */
+const configWith =
+  (values: Record<string, unknown>) =>
+  (key: string): unknown =>
+    values[key];
 
 describe('PlatformSettingsService', () => {
   let target: PlatformSettingsService;
@@ -22,7 +29,9 @@ describe('PlatformSettingsService', () => {
 
   beforeEach(async () => {
     platformSettingsDbService = { get: jest.fn() };
-    configService = { get: jest.fn().mockReturnValue('false') };
+    configService = {
+      get: jest.fn((key: string) => (key === 'PAYMENT_FEATURE_ENABLED' ? 'false' : undefined)),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -54,12 +63,13 @@ describe('PlatformSettingsService', () => {
   // The route is `@Public()` and the DTO is shared with the admin-only PATCH, so the DTO is all that
   // keeps `updated_by_platform_admin_id` off an unauthenticated response. Exact key set (not a
   // `not.toHaveProperty`) so any column newly mapped in `from()` fails here.
-  it('exposes only the five public toggles — never the internal actor id', async () => {
+  it('exposes only the six public settings — never the internal actor id', async () => {
     platformSettingsDbService.get.mockResolvedValue(row);
 
     const result = await target.get();
 
     expect(Object.keys(result).sort()).toEqual([
+      'erasureGracePeriodDays',
       'inviteMembersEnabled',
       'passwordLoginEnabled',
       'paymentFeatureEnabled',
@@ -73,11 +83,22 @@ describe('PlatformSettingsService', () => {
       'runtime-toggleable copy of this flag',
     async () => {
       platformSettingsDbService.get.mockResolvedValue(row);
-      configService.get.mockReturnValue('true');
+      configService.get.mockImplementation(configWith({ PAYMENT_FEATURE_ENABLED: 'true' }));
 
       const result = await target.get();
 
       expect(result.paymentFeatureEnabled).toBe(true);
     }
   );
+
+  it('reports the deploy erasure grace period, falling back to the shared default', async () => {
+    platformSettingsDbService.get.mockResolvedValue(row);
+
+    expect((await target.get()).erasureGracePeriodDays).toBe(DEFAULT_ERASURE_GRACE_PERIOD_DAYS);
+
+    configService.get.mockImplementation(
+      configWith({ PAYMENT_FEATURE_ENABLED: 'false', ERASURE_GRACE_PERIOD_DAYS: 1 })
+    );
+    expect((await target.get()).erasureGracePeriodDays).toBe(1);
+  });
 });

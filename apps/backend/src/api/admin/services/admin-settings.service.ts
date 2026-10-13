@@ -2,6 +2,7 @@ import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import {
   InvalidCurrentPasswordException,
   InvalidOtpException,
+  NewPasswordSameAsCurrentException,
   NoPasswordSetException,
   PasswordAlreadySetException,
 } from '@auth/exceptions/auth.exceptions';
@@ -15,6 +16,7 @@ import { hashAdminSetPasswordOtp, hashToken } from '@auth/utils/token.utils';
 import { JobName } from '@bg/constants/job.constant';
 import type { IAdminInviteEmailJob, IOtpEmailJob } from '@bg/interfaces/job.interface';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
+import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { HashingService } from '@common/hashing/hashing.service';
@@ -56,7 +58,7 @@ import {
 } from '../exceptions/admin.exceptions';
 import type { SetAdminStatusParams, SetAdminStatusResult } from '../types/admin.type';
 
-/** Matches the frontend mock's own window — see `PlatformAdminInviteService`. */
+/** How long an admin invite link stays valid. The invite page states this window, so change both together. */
 const INVITE_TTL_DAYS = 7;
 
 @Injectable()
@@ -98,6 +100,9 @@ export class AdminSettingsService {
     const currentMatches = await this.hashingService.compare(dto.currentPassword, row.passwordHash);
     if (!currentMatches) {
       throw new InvalidCurrentPasswordException();
+    }
+    if (dto.newPassword === dto.currentPassword) {
+      throw new NewPasswordSameAsCurrentException();
     }
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
@@ -410,7 +415,10 @@ export class AdminSettingsService {
     }
     const paymentFeatureEnabled =
       this.configService.get<string>('PAYMENT_FEATURE_ENABLED') === 'true';
-    return PlatformSettingsResponseDto.from(row, paymentFeatureEnabled);
+    return PlatformSettingsResponseDto.from(row, {
+      paymentFeatureEnabled,
+      erasureGracePeriodDays: getErasureGracePeriodDays(this.configService),
+    });
   }
 
   /**

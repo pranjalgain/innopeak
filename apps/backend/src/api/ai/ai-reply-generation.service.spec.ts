@@ -248,6 +248,19 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
     expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
   });
 
+  it('saves a reply cut off at the token cap as a draft instead of auto-posting it', async () => {
+    settingsDbService.findAutoPostEnabled.mockResolvedValue(true);
+    reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+    aiProvider.generateReply.mockResolvedValue({ ...providerResult, finishReason: 'length' });
+
+    const result = await target.generateForClassifiedReviews({ tenantId, locationId });
+
+    expect(reviewSyncDbService.insertGeneratedResponse).toHaveBeenCalledTimes(1);
+    expect(reviewSyncDbService.approveResponse).not.toHaveBeenCalled();
+    expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
+    expect(result.generated).toBe(1);
+  });
+
   it('never auto-approves an escalated snippet even when auto_post_enabled is true', async () => {
     settingsDbService.findAutoPostEnabled.mockResolvedValue(true);
     reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([escalatedCandidate]);

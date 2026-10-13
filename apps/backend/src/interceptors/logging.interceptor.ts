@@ -1,4 +1,3 @@
-import { getTraceContext } from '@common/helpers/trace-context.util';
 import { LoggerService } from '@logger/logger.service';
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Request, Response } from 'express';
@@ -91,8 +90,6 @@ export class HttpLoggingInterceptor implements NestInterceptor {
     const referrer = Array.isArray(refererValue) ? refererValue.join(', ') : refererValue;
     const startTime = new Date().toISOString();
     const startTimestamp = Date.now();
-    const { traceId, spanId } = getTraceContext();
-    const contextInfo = `[TraceId=${traceId ?? 'unknown-trace'} | SpanId=${spanId ?? 'unknown-span'}]`;
 
     return next.handle().pipe(
       tap(() => {
@@ -103,7 +100,7 @@ export class HttpLoggingInterceptor implements NestInterceptor {
         const contentLength = response.get('content-length') ?? 'unknown';
 
         this.logger.http(
-          `HTTP Log ${contextInfo}\n` +
+          'HTTP Log\n' +
             `Start: ${startTime}, End: ${endTime}, Duration: ${responseTime}ms\n` +
             `Remote: ${remoteAddr}, Method: ${method}, URL: ${safeUrl(url)}, HTTP/${httpVersion}\n` +
             `User-Agent: ${userAgent}, Referrer: ${referrer}\n` +

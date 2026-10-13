@@ -1,7 +1,7 @@
 /**
- * Display-only mirror of the backend's `ERASURE_GRACE_PERIOD_DAYS` default
- * (apps/backend/src/common/constants/erasure.constants.ts): the API returns only
- * `erasureRequestedAt`, so the "takes effect on {date}" copy computes from this. Must be updated if
- * the env var is overridden in a real environment; the live value cannot be read client-side.
+ * Fallback for the grace period (days between a business being scheduled for erasure and its data being erased) while the
+ * platform settings are still loading. The live value is the backend's `ERASURE_GRACE_PERIOD_DAYS`, served as
+ * `erasureGracePeriodDays` on `GET /v1/settings/platform-config` and read through `useErasureGracePeriodDays`; this mirrors the
+ * backend's default (apps/backend/src/common/constants/erasure.constants.ts).
  */
-export const ERASURE_GRACE_PERIOD_DAYS = 21;
+export const DEFAULT_ERASURE_GRACE_PERIOD_DAYS = 21;

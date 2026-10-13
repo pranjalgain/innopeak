@@ -42,10 +42,14 @@ export function AppHeader({
   const { logout } = useAuth();
 
   return (
-    <header className="flex h-15 shrink-0 items-center justify-between border-b border-border px-4 sm:px-6">
-      <h2 className="text-base font-semibold">{title}</h2>
+    <header className="flex h-15 shrink-0 items-center justify-between gap-2 border-b border-border px-4 sm:px-6">
+      {/* `min-w-0` + `truncate`: a flex item won't shrink below its text, so a long title (German "Bewertungswarteschlange")
+          pushed the controls off the edge of a phone. */}
+      <h2 className="min-w-0 truncate text-base font-semibold" title={title}>
+        {title}
+      </h2>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         {showBusinessSwitcher ? <BusinessSwitcher /> : null}
         <LanguageSwitcher />
         <ThemeToggle />

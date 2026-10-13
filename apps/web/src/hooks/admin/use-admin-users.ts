@@ -1,7 +1,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { AdminUserService } from "@/app/_libs/services/admin-user.service";
@@ -10,7 +10,7 @@ import {
   adminOverviewActivityQueryKey,
   adminUsersQueryKey,
 } from "@/hooks/admin/admin-query-keys";
-import { useSearchInput } from "@/hooks/common/use-search-input";
+import { useUrlSearchPage } from "@/hooks/common/use-url-search-page";
 import type { AdminUser } from "@/types/domain";
 
 interface UseAdminUsersResult {
@@ -45,15 +45,9 @@ const usersQueryKey = (search: string, page: number) =>
 export function useAdminUsers(): UseAdminUsersResult {
   const t = useTranslations("adminUsers.toasts");
   const queryClient = useQueryClient();
-  const { search, setSearch, debouncedSearch, isSearching } = useSearchInput(SEARCH_DEBOUNCE_MS);
-  const [page, setPageState] = useState(1);
-
-  // A new search can leave the current page out of range: start again from page 1.
-  const [lastSearch, setLastSearch] = useState(debouncedSearch);
-  if (lastSearch !== debouncedSearch) {
-    setLastSearch(debouncedSearch);
-    setPageState(1);
-  }
+  // Page and search live in the URL (`?page=2&q=term`), so Back/Forward and a reload keep your place.
+  const { search, setSearch, debouncedSearch, isSearching, page, setPage, clampPage } =
+    useUrlSearchPage(SEARCH_DEBOUNCE_MS);
 
   const usersQuery = useQuery({
     queryKey: usersQueryKey(debouncedSearch, page),
@@ -67,10 +61,15 @@ export function useAdminUsers(): UseAdminUsersResult {
   });
 
   const totalPages = Math.max(1, usersQuery.data?.meta.totalPages ?? 1);
-  const setPage = useCallback(
-    (next: number) => setPageState(Math.min(Math.max(next, 1), totalPages)),
-    [totalPages],
+  const goToPage = useCallback(
+    (next: number) => setPage(Math.min(Math.max(next, 1), totalPages)),
+    [setPage, totalPages],
   );
+
+  // A stale `?page=` (an old link, a list that shrank) is pulled back to the last real page.
+  useEffect(() => {
+    if (usersQuery.data) clampPage(totalPages);
+  }, [usersQuery.data, totalPages, clampPage]);
 
   useEffect(() => {
     if (usersQuery.isError) toast.error(t("loadFailed"));
@@ -103,8 +102,8 @@ export function useAdminUsers(): UseAdminUsersResult {
     page,
     totalPages,
     total: usersQuery.data?.meta.total ?? 0,
-    goToPreviousPage: () => setPage(page - 1),
-    goToNextPage: () => setPage(page + 1),
+    goToPreviousPage: () => goToPage(page - 1),
+    goToNextPage: () => goToPage(page + 1),
     search,
     setSearch,
     isSearching,

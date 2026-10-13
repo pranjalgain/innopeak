@@ -251,7 +251,7 @@
         "validationFailed": "We couldn't check this invite link. Please try again."
       }
     },
-    "passwordMock": {
+    "passwordForm": {
       "emailLabel": "Email",
       "emailPlaceholder": "you@company.com",
       "passwordLabel": "Password",
@@ -275,6 +275,7 @@
       "ACCESS_DENIED": "Sign-in was cancelled.",
       "EMAIL_NOT_VERIFIED": "Your Google or Microsoft account has not verified that email address. Verify it there, or use email and password.",
       "ACCOUNT_UNAVAILABLE": "This account is not available. Contact support.",
+      "INVITE_REQUIRED": "You have a pending invitation. Open the invite link from your email to join.",
       "PROVIDER_ERROR": "Could not complete sign-in with your provider. Please try again.",
       "NOT_CONFIGURED": "That sign-in method is not available right now. Use email and password.",
       "INVALID_OR_EXPIRED_INVITE": "This invite link is invalid or has expired.",
@@ -620,7 +621,7 @@
           "consequences": {
             "suspended": "Everyone on your team loses access within minutes.",
             "billing": "Any paid subscription stops renewing — it ends at the close of the period you've already paid for.",
-            "erased": "After {days} days the business, its reviews and connection are erased for good.",
+            "erased": "After {days, plural, one {# day} other {# days}} the business, its reviews and connection are erased for good.",
             "restore": "Until then, sign in with your password to restore everything.",
             "noRestore": "You signed in without a password, so restoring it means contacting support before that date."
           },
@@ -641,7 +642,7 @@
         },
         "done": {
           "title": "Deletion scheduled",
-          "description": "Your business will be permanently erased on {date} ({days} days from now). You've been signed out.",
+          "description": "Your business will be permanently erased on {date} ({days, plural, one {# day} other {# days}} from now). You've been signed out.",
           "canRestore": "Changed your mind? Sign in with your email and password before then and choose Restore.",
           "contactSupport": "To undo this before then, contact support.",
           "backToSignIn": "Back to sign in"
@@ -729,7 +730,9 @@
         "passwordChanged": "Password changed. Other sessions have been signed out.",
         "passwordSet": "Password set. You can now also sign in with a password.",
         "otpSent": "Verification code sent. Check your email to continue.",
-        "tooManyRequests": "Too many attempts. Please wait a minute and try again."
+        "tooManyRequests": "Too many attempts. Please wait a minute and try again.",
+        "avatarTooLarge": "That image is too large. Please choose a file under 10 MB.",
+        "avatarUnsupportedType": "That file type isn't supported. Please choose a JPG, PNG, WebP, GIF, AVIF, HEIC or BMP image."
       },
       "errors": {
         "currentPasswordRequired": "Enter your current password.",
@@ -830,13 +833,16 @@
         "receiptDownloadFailed": "Could not download the receipt. Please try again.",
         "checkoutReconciled": "Payment confirmed — you're now on the Paid plan.",
         "checkoutReconcilePending": "Your payment is still processing — your plan will update shortly.",
-        "checkoutReconcileFailed": "We couldn't confirm your payment right now. Refresh this page to try again — if you were charged, your plan will update shortly."
+        "checkoutReconcileFailed": "We couldn't confirm your payment right now. Refresh this page to try again — if you were charged, your plan will update shortly.",
+        "checkoutReconcileNotFound": "We couldn't find that payment on your account."
       },
       "checkoutStatus": {
         "pendingTitle": "Your payment is still processing",
         "pendingDescription": "We haven't received confirmation from Stripe yet. This can take a minute. Check again, or come back later — if you were charged, your plan updates on its own.",
         "failedTitle": "We couldn't confirm your payment",
         "failedDescription": "Stripe couldn't be reached just now. Check again in a moment — if you were charged, your plan updates on its own.",
+        "notFoundTitle": "We couldn't find that payment",
+        "notFoundDescription": "This checkout link doesn't match a payment on your account, so checking again won't help. If you were charged, your plan updates on its own once Stripe confirms it — or contact support.",
         "checkAgain": "Check again",
         "checking": "Checking…"
       },
@@ -1186,7 +1192,8 @@
       "loadFailed": "Could not load businesses.",
       "updateFailed": "Could not update this business. Please try again.",
       "requestErasureFailed": "Could not request erasure for this business. Please try again.",
-      "cancelErasureFailed": "Could not cancel erasure for this business. Please try again."
+      "cancelErasureFailed": "Could not cancel erasure for this business. Please try again.",
+      "cancelErasureNotPending": "This business has no pending erasure to cancel — it may already have been cancelled."
     }
   },
   "adminUsers": {
@@ -1272,7 +1279,9 @@
         "passwordChanged": "Password changed.",
         "passwordSet": "Password set. You can now also sign in with a password.",
         "otpSent": "Verification code sent. Check your email to continue.",
-        "tooManyRequests": "Too many attempts. Please wait a minute and try again."
+        "tooManyRequests": "Too many attempts. Please wait a minute and try again.",
+        "avatarTooLarge": "That image is too large. Please choose a file under 10 MB.",
+        "avatarUnsupportedType": "That file type isn't supported. Please choose a JPG, PNG, WebP, GIF, AVIF, HEIC or BMP image."
       },
       "errors": {
         "currentPasswordRequired": "Enter your current password.",

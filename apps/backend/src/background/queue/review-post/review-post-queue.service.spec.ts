@@ -2,6 +2,7 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import type { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import type { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import {
+  CredentialReferenceUnresolvableError,
   ProviderAuthError,
   ProviderMappingError,
   ProviderNotFoundError,
@@ -36,6 +37,7 @@ describe('ReviewPostQueueService', () => {
   };
   let reviewSyncDbService: {
     claimResponseForPosting: jest.Mock;
+    findResponseForTenant: jest.Mock;
     findReviewForTenant: jest.Mock;
     markResponsePosted: jest.Mock;
     markResponsePostFailed: jest.Mock;
@@ -71,6 +73,8 @@ describe('ReviewPostQueueService', () => {
     };
     reviewSyncDbService = {
       claimResponseForPosting: jest.fn().mockResolvedValue(claimed),
+      // Default: the response moved on, so a refused claim needs no follow-up.
+      findResponseForTenant: jest.fn().mockResolvedValue({ ...claimed, status: 'posted' }),
       findReviewForTenant: jest.fn().mockResolvedValue(review),
       markResponsePosted: jest.fn().mockResolvedValue({ id: 'response-1' }),
       markResponsePostFailed: jest.fn().mockResolvedValue({ id: 'response-1' }),
@@ -98,6 +102,36 @@ describe('ReviewPostQueueService', () => {
 
       expect(reviewSyncDbService.findReviewForTenant).not.toHaveBeenCalled();
       expect(provider.getReviewReply).not.toHaveBeenCalled();
+    });
+
+    // Regression: a stalled post job was re-delivered inside the claim's staleness window, completed without posting, and left
+    // the reply approved with nothing queued.
+    it('schedules a re-check when the claim is refused but the response is still approved', async () => {
+      reviewSyncDbService.claimResponseForPosting.mockResolvedValue(null);
+      reviewSyncDbService.findResponseForTenant.mockResolvedValue({
+        ...claimed,
+        status: 'approved',
+      });
+
+      await target.postResponse(job);
+
+      expect(reviewPostQueue.addPostJob).toHaveBeenCalledWith(
+        expect.objectContaining({ responseId: 'response-1', attempt: 2 }),
+        { delayMs: 6 * 60_000 }
+      );
+      expect(reviewSyncDbService.releaseResponseClaim).not.toHaveBeenCalled();
+    });
+
+    it('does not schedule a re-check once re-checks are used up', async () => {
+      reviewSyncDbService.claimResponseForPosting.mockResolvedValue(null);
+      reviewSyncDbService.findResponseForTenant.mockResolvedValue({
+        ...claimed,
+        status: 'approved',
+      });
+
+      await target.postResponse({ ...job, attempt: 3 });
+
+      expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
     });
 
     it('marks the response failed and throws when the review row is missing', async () => {
@@ -232,6 +266,24 @@ describe('ReviewPostQueueService', () => {
         errorMessage: MESSAGES.REVIEWS.POST_FAILED_RECONNECT,
       });
       expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
+    });
+
+    // The credential reference cannot be read by this node: the owner's only fix is to reconnect, but the grant itself
+    // may be healthy, so the connection must not be flagged as needing re-auth.
+    it('tells the owner to reconnect when the stored credential cannot be read, without flagging the grant', async () => {
+      credentialService.resolveAccessToken.mockRejectedValue(
+        new CredentialReferenceUnresolvableError('not issued by this store')
+      );
+
+      await expect(target.postResponse(job)).rejects.toBeInstanceOf(
+        CredentialReferenceUnresolvableError
+      );
+
+      expect(reviewSyncDbService.markResponsePostFailed).toHaveBeenCalledWith({
+        responseId: 'response-1',
+        errorMessage: MESSAGES.REVIEWS.POST_FAILED_RECONNECT,
+      });
+      expect(connectionsDbService.markNeedsReauth).not.toHaveBeenCalled();
     });
 
     // Regression: a review deleted on Google failed with Google's raw 404 text and stayed retryable.

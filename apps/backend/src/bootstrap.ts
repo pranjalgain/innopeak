@@ -3,10 +3,10 @@ import { copyStaticAssets } from '@common/helpers/copy-static-assets';
 import { RouteNames } from '@common/route-names';
 import { ErrorHandlerService } from '@common/services/error-handler.service';
 import type { EnvConfig } from '@config/env.config';
-import { TraceIdInterceptor } from '@interceptors/trace-id.interceptor';
-import { TracingInterceptor } from '@interceptors/tracing.interceptor';
+import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import { LoggerService } from '@logger/logger.service';
 import { createOpsToolsGuard } from '@middlewares/dev-tool.middleware';
+import { createMetricsGuard } from '@middlewares/metrics-guard.middleware';
 import { Logger, ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
@@ -16,7 +16,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as bodyParser from 'body-parser';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 
 import * as path from 'path';
@@ -67,7 +67,15 @@ export async function bootstrap(): Promise<void> {
   // Platform-admin gate for ops surfaces outside the Nest route layer (Bull Board is an Express
   // sub-app the global guards never reach). Must follow cookieParser and precede routing; without
   // it Bull Board's email-OTP job payloads are world-readable (account takeover).
-  app.use(createOpsToolsGuard(app.get(JwtService), configService));
+  const opsToolsGuard = createOpsToolsGuard(
+    app.get(JwtService),
+    configService,
+    app.get(PlatformAdminDbService, { strict: false })
+  );
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    opsToolsGuard(req, res, next).catch(next);
+  });
+  app.use(createMetricsGuard(configService));
 
   const corsOrigins = configService.get<string>('CORS_ORIGINS')?.split(',') ?? [];
 
@@ -139,7 +147,6 @@ export async function bootstrap(): Promise<void> {
 
   const errorHandler = app.get(ErrorHandlerService);
   app.useGlobalFilters(new HttpExceptionFilter(errorHandler));
-  app.useGlobalInterceptors(new TraceIdInterceptor(), new TracingInterceptor(configService));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -158,19 +165,16 @@ export async function bootstrap(): Promise<void> {
   app.setViewEngine('pug');
 
   const expressApp = app.getHttpAdapter().getInstance();
-  expressApp.get(
-    ['/', '/v1', `/${RouteNames.DEV_TOOLS}`, `/${RouteNames.QUEUES_UI}`],
-    (_req: Request, res: Response) => {
-      res.status(200).render('default', {
-        app: 'Project/App Name',
-        environment,
-        isProd,
-        message: isProd
-          ? 'You are hitting a wrong URL. Please check the official API documentation.'
-          : 'Welcome to the backend service. Use the options below to explore further.',
-      });
-    }
-  );
+  expressApp.get(['/', '/v1', `/${RouteNames.QUEUES_UI}`], (_req: Request, res: Response) => {
+    res.status(200).render('default', {
+      app: 'InnoPeak',
+      environment,
+      isProd,
+      message: isProd
+        ? 'You are hitting a wrong URL. Please check the official API documentation.'
+        : 'Welcome to the backend service. Use the options below to explore further.',
+    });
+  });
   if (!isProd) {
     expressApp.get('/robots.txt', (_req: Request, res: Response) =>
       res.type('text/plain').send('User-agent: *\nDisallow: /')
@@ -183,6 +187,6 @@ export async function bootstrap(): Promise<void> {
   const port = configService.get<number>('PORT') ?? 3000;
   await app.listen(port, '0.0.0.0');
   const appUrl = await app.getUrl();
-  Logger.log(`App is running on ${appUrl}`, 'Project/App Name');
+  Logger.log(`App is running on ${appUrl}`, 'InnoPeak');
   await copyStaticAssets();
 }

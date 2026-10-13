@@ -22,4 +22,10 @@ describe('BullMqQueuePublisher', () => {
 
     expect(add).toHaveBeenCalledWith('job', { a: 1 }, {});
   });
+
+  it('passes jobId through so a repeated publish is a no-op in BullMQ', async () => {
+    await publisher.publish(QueueName.REVIEW_POST, 'job', { a: 1 }, { jobId: 'job-123' });
+
+    expect(add).toHaveBeenCalledWith('job', { a: 1 }, { jobId: 'job-123' });
+  });
 });

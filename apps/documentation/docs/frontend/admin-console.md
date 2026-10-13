@@ -20,7 +20,15 @@ Every list on the console that searches or paginates follows the same shape, fir
 `useAdminBusinesses`, `useAdminUsers`, `useAdminBillingWebhookEvents`, and
 `useAdminPlatformActivityLog`:
 
-1. **Local `search`/`page`/`filter` state**, owned by the hook, not the view.
+1. **`search`/`page`/`filter` state owned by the hook, not the view, and kept in the URL** (`?page=2&q=term&status=new`,
+   via `useUrlQueryState`, `useUrlSearchPage` for a searchable list and `useUrlFilterPage` for a filter-only one such as the
+   webhook-events and platform-activity lists, with `?type=`) so a reload, a shared link and Back/Forward keep your place. Changing
+   page *pushes* a history entry (Back returns to the previous page of the list); typing a search or choosing a filter
+   *replaces* it (those would otherwise each become a Back stop). A search or filter change drops `page` in the same
+   navigation, a `?page=` past the last page is pulled back to the last real one, and an unknown filter value in the URL
+   reads as "all". The search box keeps its own text while you type and writes the debounced term to the URL; Back/Forward
+   put the URL's term back into the box. A term is cut to 200 characters (`MAX_SEARCH_LENGTH`, the strictest list API limit) whether
+   typed, pasted or arriving in a link, and the inputs carry `maxLength`, so no input can earn a 400 that reads as a server fault.
 2. **A debounce timer on the search term only** (300ms) — `setTimeout`/`clearTimeout` in a
    `useEffect` keyed on the raw search value, writing to a separate `debouncedSearch` state that's
    what actually feeds the query. Filters and page changes are never debounced — those are
@@ -28,11 +36,10 @@ Every list on the console that searches or paginates follows the same shape, fir
 3. **The debounced value (plus page/filter) becomes the `useQuery` key**, e.g.
    `[...adminBusinessesQueryKey, { search: debouncedSearch }]`. A parameterized key, not a flat
    one — TanStack Query caches each distinct search/page/filter combination separately.
-4. **A page/filter change resets `page` to `1` during render, not in an effect.** Comparing a
-   derived `paramsKey` against a `lastParamsKey` ref-like state and resetting synchronously avoids
-   an effect running *after* the render that already fired a request for the stale page under the
-   new filter — see `useReviewQueue`'s own comment on this for the concrete wasted-round-trip
-   scenario it prevents.
+4. **A page/filter change resets `page` to `1` in the same URL update that changes the filter**, and a pending search
+   term reads as page 1 until its URL write lands, so no request is ever issued for a stale page under the new filter
+   (the wasted round trip `useReviewQueue`'s old render-time reset existed to prevent). `useReviewQueue` also keeps a
+   deep-linked page when the active business is first resolved; only a switch between two known businesses resets it.
 5. **`placeholderData: keepPreviousData`** on the `useQuery` call, so the previous result set (and
    its `total`/`totalPages`) stays on screen while the next search/page's fetch is in flight,
    instead of the list flashing empty.

@@ -481,6 +481,12 @@ export class AuthRepository {
         id: schema.refreshTokens.id,
         userId: schema.refreshTokens.userId,
         revokedAt: schema.refreshTokens.revokedAt,
+        // Rotation revokes the old row and inserts its successor in one transaction, so both carry the same `now()`.
+        rotated: sql<boolean>`exists (
+          select 1 from ${schema.refreshTokens} successor
+          where successor.user_id = ${schema.refreshTokens.userId}
+            and successor.created_at = ${schema.refreshTokens.revokedAt}
+        )`,
       })
       .from(schema.refreshTokens)
       .where(

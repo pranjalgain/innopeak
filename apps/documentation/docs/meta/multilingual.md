@@ -196,6 +196,19 @@ take an explicit `Locale` argument exactly as this design anticipated, so a job 
 needs to render a message once it has a locale to render *into*; it just has nowhere to read one
 from yet, per the schema section above.
 
+### Validation messages: translated by text, in the same place — **Implemented**
+
+`class-validator` messages are plain English strings produced inside DTO decorators, so they never pass through `MESSAGES`. A 400
+from the validation pipe is therefore translated where it is rendered: `HttpExceptionFilter` hands the request's locale to
+`ErrorHandlerService.handleBadRequest(error, context, locale)`, which calls `translateValidationMessage`
+(`src/common/i18n/validation-messages.ts`). It matches the English text against the `VALIDATION` entries in the catalog (both
+locales, with the same compile-time parity as every other message) and, for the messages class-validator generates from a field name
+("Page must not be less than 1."), against a small `PATTERN_RULES` table. An unrecognised message passes through in English rather
+than being mangled. A spec asserts every `VALIDATION` entry is actually produced by a real DTO, so a reworded DTO message fails the
+build instead of silently falling back to English.
+
+A new DTO message needs its `VALIDATION` entry in `messages.en.ts` and `messages.de.ts`.
+
 ### A trap worth naming: the anti-enumeration messages must stay identical — **Implemented**
 
 Several messages in `messages.en.ts` are *deliberately* identical to each other, with comments

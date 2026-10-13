@@ -1,3 +1,4 @@
+import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import type { EnvConfig } from '@config/env.config';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import { Injectable } from '@nestjs/common';
@@ -22,6 +23,9 @@ export class PlatformSettingsService {
     }
     const paymentFeatureEnabled =
       this.configService.get<string>('PAYMENT_FEATURE_ENABLED') === 'true';
-    return PlatformSettingsResponseDto.from(row, paymentFeatureEnabled);
+    return PlatformSettingsResponseDto.from(row, {
+      paymentFeatureEnabled,
+      erasureGracePeriodDays: getErasureGracePeriodDays(this.configService),
+    });
   }
 }

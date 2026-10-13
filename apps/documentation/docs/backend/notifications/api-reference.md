@@ -309,7 +309,7 @@ Errors: `401`.
 `GET /v1/notifications/:id` is ever added, it must be registered after them — see
 [Gap § 4](./overview.md#4-module-structure-conventions-the-new-module-must-follow).
 
-## Delivery ledger — deferred, kept for reference only
+## Delivery ledger — deferred, kept for reference only {#delivery-ledger}
 
 **Not being built this pass.** Nothing writes `notifications` yet — no escalation composer exists
 (see the overview's [Notification flows](./overview.md#notification-flows)) — so building this now

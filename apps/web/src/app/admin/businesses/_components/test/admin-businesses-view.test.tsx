@@ -3,12 +3,14 @@ import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { useAdminBusinesses } from "@/hooks/admin/use-admin-businesses";
+import { useErasureGracePeriodDays } from "@/hooks/common/use-erasure-grace-period";
 import type { AdminBusiness } from "@/types/domain";
 
 import messages from "../../../../../../messages/en.json";
 import { AdminBusinessesView } from "../admin-businesses-view";
 
 vi.mock("@/hooks/admin/use-admin-businesses", () => ({ useAdminBusinesses: vi.fn() }));
+vi.mock("@/hooks/common/use-erasure-grace-period", () => ({ useErasureGracePeriodDays: vi.fn() }));
 
 function business(overrides: Partial<AdminBusiness> = {}): AdminBusiness {
   return {
@@ -54,6 +56,7 @@ function show(value: AdminBusiness) {
 describe("AdminBusinessesView status column", () => {
   beforeEach(() => {
     vi.mocked(useAdminBusinesses).mockReset();
+    vi.mocked(useErasureGracePeriodDays).mockReturnValue(21);
   });
 
   // Regression: table cells never wrap by default, so the note ran on past the fixed-width Status column into Owner.
@@ -74,4 +77,13 @@ describe("AdminBusinessesView status column", () => {
 
     expect(screen.queryByText(/Erasure takes effect on/)).not.toBeInTheDocument();
   });
+
+  // Regression: the date was computed from a hard-coded 21 days, wrong wherever ERASURE_GRACE_PERIOD_DAYS is set otherwise.
+  test("counts the erasure deadline from the deploy's grace period", () => {
+    vi.mocked(useErasureGracePeriodDays).mockReturnValue(1);
+    show(business({ erasureRequestedAt: "2026-10-08T12:00:00.000Z" }));
+
+    expect(screen.getAllByText("Erasure takes effect on Oct 9, 2026")[0]).toBeInTheDocument();
+  });
 });
+

@@ -1,20 +1,14 @@
-import { RouteNames } from '@common/route-names';
 import { MetricsController } from '@metrics/metrics.controller';
-import { MetricsService } from '@metrics/metrics.service';
-import { Module } from '@nestjs/common';
-import { PrometheusModule } from '@willsoto/nestjs-prometheus';
+import { Module, OnModuleInit } from '@nestjs/common';
+import { collectDefaultMetrics } from 'prom-client';
 
-@Module({
-  imports: [
-    PrometheusModule.register({
-      defaultMetrics: {
-        enabled: true,
-      },
-      path: `${RouteNames.METRICS}`,
-    }),
-  ],
-  providers: [MetricsService],
-  controllers: [MetricsController],
-  exports: [MetricsService],
-})
-export class MetricsModule {}
+/**
+ * `/metrics` with Node's default process metrics (event loop lag, memory, GC, handles). Nothing app-specific is recorded: it exists
+ * so a platform that already runs Prometheus can scrape the process. `createMetricsGuard` puts a bearer token in front of it.
+ */
+@Module({ controllers: [MetricsController] })
+export class MetricsModule implements OnModuleInit {
+  onModuleInit(): void {
+    collectDefaultMetrics();
+  }
+}

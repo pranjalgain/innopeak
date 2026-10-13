@@ -8,7 +8,9 @@ import { AdminBusinessesRepository } from './admin-businesses.repository';
 import type {
   AdminBusinessRow,
   AdminBusinessSummary,
+  CancelErasureResult,
   ConnectionStateRow,
+  RequestErasureResult,
   SetBusinessStatusInput,
   SetBusinessStatusResult,
 } from './types/admin-businesses.type';
@@ -53,25 +55,31 @@ export class AdminBusinessesDbService {
       return outcome;
     }
     const row = await this.adminBusinessesRepository.findById(input.tenantId);
-    return row ? { outcome: 'updated', summary: toSummary(row) } : { outcome: 'not_found' };
+    return row
+      ? { outcome: 'updated', changed: outcome.changed, summary: toSummary(row) }
+      : { outcome: 'not_found' };
   }
 
-  async requestErasure(tenantId: string): Promise<AdminBusinessSummary | null> {
-    const updated = await this.adminBusinessesRepository.requestErasure(tenantId);
-    if (!updated) {
-      return null;
+  /** `already_requested` still returns the business, so a repeat call can answer like the first without redoing its side effects. */
+  async requestErasure(tenantId: string): Promise<RequestErasureResult> {
+    const outcome = await this.adminBusinessesRepository.requestErasure(tenantId);
+    if (outcome === 'not_found') {
+      return { outcome };
     }
     const row = await this.adminBusinessesRepository.findById(tenantId);
-    return row ? toSummary(row) : null;
+    return row ? { outcome, summary: toSummary(row) } : { outcome: 'not_found' };
   }
 
-  async cancelErasure(tenantId: string): Promise<AdminBusinessSummary | null> {
-    const updated = await this.adminBusinessesRepository.cancelErasure(tenantId);
-    if (!updated) {
-      return null;
-    }
+  /** Tells "nothing to cancel" apart from "no such business" (an erased tenant counts as the latter: it cannot be un-erased). */
+  async cancelErasure(tenantId: string): Promise<CancelErasureResult> {
+    const cancelled = await this.adminBusinessesRepository.cancelErasure(tenantId);
     const row = await this.adminBusinessesRepository.findById(tenantId);
-    return row ? toSummary(row) : null;
+    if (!row || row.status === TenantStatus.ERASED) {
+      return { outcome: 'not_found' };
+    }
+    return cancelled
+      ? { outcome: 'cancelled', summary: toSummary(row) }
+      : { outcome: 'not_pending' };
   }
 }
 

@@ -514,6 +514,7 @@ export class ConnectionsService {
     // would otherwise inherit a pointer into the old one.
     await this.authDbService.setActiveLocationId({ tenantId, locationId: null });
 
+    await this.credentialService.invalidateAccessToken(connection.id);
     const credentialRevoked = await this.credentialService.revokeAndDelete(
       connection.credentialReference
     );
@@ -792,6 +793,9 @@ export class ConnectionsService {
       credentialReference,
       tokenExpiresAt: tokens.expiresAt,
     });
+
+    // The cached token belongs to the grant being replaced; a revoked one would 401 and flip this straight back to `needs_reauth`.
+    await this.credentialService.invalidateAccessToken(connection.id);
 
     // Same-account reconnect only (`connection.id` is `existing.id`). Locations that finished their
     // backfill are left alone; the rest get a fresh backfill restarted.

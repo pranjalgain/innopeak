@@ -223,37 +223,64 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
 
   const review = reviewQuery.data ?? null;
 
+  // The same action on the same draft is never sent twice while the first is in flight (a double click): the server
+  // answers the repeat with a 409 that would surface as an error toast on top of the success. Approve-then-reject on one
+  // draft is still allowed, hence the key includes the action.
+  const inFlightActions = useRef(new Set<string>());
+  const once = useCallback((key: string, send: () => Promise<unknown>) => {
+    if (inFlightActions.current.has(key)) return;
+    inFlightActions.current.add(key);
+    void send().finally(() => inFlightActions.current.delete(key));
+  }, []);
+
   const approveDraft = useCallback(
     (draftId: string, content: string) => {
-      decideMutation.mutate({ type: "approve", draftId, content });
+      once(`approve:${draftId}`, () =>
+        decideMutation.mutateAsync({ type: "approve", draftId, content }).catch(() => undefined),
+      );
     },
-    [decideMutation],
+    [decideMutation, once],
   );
 
   const rejectDraft = useCallback(
     (draftId: string) => {
-      decideMutation.mutate({ type: "reject", draftId });
+      once(`reject:${draftId}`, () =>
+        decideMutation.mutateAsync({ type: "reject", draftId }).catch(() => undefined),
+      );
     },
-    [decideMutation],
+    [decideMutation, once],
   );
 
   const postDraft = useCallback(
-    (draftId: string) => postMutation.mutate({ type: "post", draftId }),
-    [postMutation],
+    (draftId: string) =>
+      once(`post:${draftId}`, () =>
+        postMutation.mutateAsync({ type: "post", draftId }).catch(() => undefined),
+      ),
+    [postMutation, once],
   );
 
   const retryDraft = useCallback(
-    (draftId: string) => postMutation.mutate({ type: "retry", draftId }),
-    [postMutation],
+    (draftId: string) =>
+      once(`retry:${draftId}`, () =>
+        postMutation.mutateAsync({ type: "retry", draftId }).catch(() => undefined),
+      ),
+    [postMutation, once],
   );
 
+  // A ref, not `isPending`: two clicks in the same frame both see the not-yet-re-rendered `false`. The second save would
+  // lose the live-reply race on the server and add a "could not save" toast to a save that did succeed.
+  const manualReplyInFlight = useRef(false);
   const createManualReply = useCallback(
     async (content: string) => {
+      if (manualReplyInFlight.current) return false;
+      manualReplyInFlight.current = true;
       try {
         await manualReplyMutation.mutateAsync(content);
         return true;
       } catch {
         return false;
+      } finally {
+        manualReplyInFlight.current = false;
       }
     },
     [manualReplyMutation],

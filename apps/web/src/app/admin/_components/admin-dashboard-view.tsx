@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 // than separate nav items; Businesses/Users/Billing are resource-management screens.
 const TABS = ["overview", "statistics"] as const;
 
-/** The URL, not local state, drives the tab so a `?tab=` link clicked on this page reacts; `replace` keeps Back history clean. */
+/** The URL, not local state, drives the tab so a `?tab=` link clicked on this page reacts; `push`, so Back steps back through the tabs. */
 export function AdminDashboardView() {
   const t = useTranslations("adminOverview.tabs");
   const searchParams = useSearchParams();
@@ -29,7 +29,7 @@ export function AdminDashboardView() {
   const handleTabChange = useCallback(
     (value: string) => {
       // Cast is safe: `pathname` is this route and `value` comes from TABS triggers.
-      router.replace(`${pathname}?tab=${value}` as Route, { scroll: false });
+      router.push(`${pathname}?tab=${value}` as Route, { scroll: false });
     },
     [router, pathname],
   );

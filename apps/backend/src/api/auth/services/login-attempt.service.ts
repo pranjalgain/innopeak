@@ -37,9 +37,11 @@ export class LoginAttemptService {
   }
 
   /**
-   * Fixed window, not sliding: the TTL is set only on creation so a persistent attacker cannot keep
-   * a victim locked out. `ttl < 0` repairs a counter left without an expiry (crash between INCR and
-   * EXPIRE).
+   * Fixed window, not sliding: the TTL is set only on creation, so each lockout lasts at most the window and one burst of failures
+   * does not extend it. This does NOT stop an attacker from re-locking a known email every window: any per-account ceiling can be
+   * used that way, at the price of ~`LOGIN_LOCKOUT_THRESHOLD` requests per window. The trade is deliberate (it caps credential
+   * stuffing spread across many IPs); a known-device allowance would be the next step if that lockout becomes a real problem.
+   * `ttl < 0` repairs a counter left without an expiry (crash between INCR and EXPIRE).
    */
   async recordFailure(email: string, scope: LoginAttemptScope): Promise<void> {
     const key = this.key(email, scope);

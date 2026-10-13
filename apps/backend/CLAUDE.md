@@ -58,13 +58,24 @@ The project uses maximum strictness. Key implications:
 | `0008_platform_settings` | platform_settings — a single, platform-wide singleton row (`id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1)`) controlling which login methods the sign-in/sign-up screens offer and whether tenant owners can invite teammates |
 | `0009_admin_overview` | platform_activity_log — a small, purpose-built log of platform-admin actions (business suspend/reactivate, admin invite send/revoke, admin enable/disable, user activate/deactivate), written explicitly by application code rather than trigger-populated. Not a generic audit trail — it only covers those specific actions |
 | `0010_media` | media — one row per uploaded asset, owned by either a `users` or a `platform_admins` row (nullable FK pair + a CHECK that exactly one is set, mirroring `platform_activity_log`). Two partial unique indexes keep at most one current asset per owner per `kind`, which is what makes an avatar upload a replace-in-place rather than an append. `users.avatar_url`/`platform_admins.avatar_url` were dropped in the same file — this table is now the only place an avatar lives |
+| `0011_billing` | billing_plans (seeded `free`/`paid`, NULL limits = unlimited), tenant_subscriptions (one row per tenant, always present, defaults to `free`; `stripe_last_event_at` is the stale-webhook clock), stripe_webhook_events (idempotency ledger keyed on Stripe's event id) |
+| `0012_billing_receipts` | billing_receipts — one row per paid Stripe invoice, independent of `tenant_subscriptions` so a receipt stays readable after a plan change |
 
-**Schema changes are edited into the original migration file**, not added as a follow-up `ALTER`.
-Nothing is deployed, so a local database is recreated rather than upgraded. The catch: drizzle's
-migrator walks `meta/_journal.json` by `when` timestamp and never re-reads an applied file, so an
-edited migration is a **silent no-op** on any existing database — `pnpm db:migrate` reports success
-and changes nothing. After pulling a change to an existing migration, recreate your database
-(`pnpm backend:down && pnpm backend:up`, then `pnpm db:migrate`).
+**Migrations become append-only at the first production release.** Until then nothing is deployed, so a
+schema change may still be edited into the module's original migration file and a local database is
+recreated rather than upgraded — after editing, run `pnpm db:migrations:lock` to re-baseline the checksums
+in `src/db/drizzle/migrations/migrations.lock.json`. The catch is why that has to stop: drizzle's migrator
+walks `meta/_journal.json` by `when` timestamp and never re-reads an applied file, so an edited migration
+is a **silent no-op** on any existing database — `pnpm db:migrate` reports success and changes nothing.
+
+**From the first release on:** run `pnpm db:migrations:lock` one last time when cutting it, then never
+again. A released migration is immutable (`pnpm db:migrations:verify` exits 1 if one changed or vanished,
+and lists new unlocked ones), and every schema change is a new numbered file with the `ALTER`
+(`pnpm db:create-migration <name>`).
+
+**Deployed environments** have no `ts-node` and no `src/`: apply migrations with `pnpm db:migrate:prod` and
+create the first platform admin with `pnpm db:seed:admin:prod` (both plain `node` on the built output; the
+SQL ships next to the compiled script).
 
 ## Path Aliases (baseUrl: ./src)
 
@@ -111,6 +122,11 @@ business module can inject any domain's DB Service without cross-module coupling
 **Status**: `src/db/repositories/auth/` is the only repository domain that exists, and it already
 follows the four-layer shape (`auth.repository.ts` + `auth.db-service.ts`) — use it as the
 reference. New modules follow the same convention from the start.
+
+### Deploy-level values on public DTOs
+A setting that comes from the environment rather than a table (`PAYMENT_FEATURE_ENABLED`, `ERASURE_GRACE_PERIOD_DAYS`) is reflected
+on `GET /v1/settings/platform-config` through `PlatformSettingsResponseDto.from(row, deploy)` — never a second, writable copy and
+never duplicated as a constant in the web app. Add new ones to `PlatformDeploySettings` and to the exact-key-set spec.
 
 ### Provider/Strategy Pattern
 External integrations use abstract base classes with swappable implementations:
@@ -176,8 +192,10 @@ controller) instead of flat files at the module root. Every method on every laye
 explicit return type — never inferred, never `any`.
 
 **Messages**: every user-facing string (exception messages, custom success messages passed to
-`ResponseUtil.success`) comes from `src/common/constants/messages.constants.ts` (create it the
-first time a module needs it) — never an inline literal.
+`ResponseUtil.success`) comes from the `MESSAGES` tags (`src/common/constants/messages.constants.ts`,
+backed by `src/common/i18n/`) — never an inline literal. Each needs an entry in **both**
+`messages.en.ts` and `messages.de.ts` (both are typed `MessageCatalog`, so a missing one fails
+type-check). Counts use the singular for exactly one: `${n} ${n === 1 ? 'day' : 'days'}`.
 
 **Docs first**: write `apps/documentation/docs/backend/<module>/overview.md` +
 `api-reference.md` (mirror `apps/documentation/docs/backend/auth/`) and get them confirmed
@@ -201,10 +219,14 @@ rebuilt from scratch (profile avatar upload, below) — the rest of that list st
 | Email | `src/email/` | Templated emails (SMTP/SES/Noop, Handlebars) — predates the `src/api/` convention |
 | Health | `src/api/health/` | Health checks (DB, Redis, memory, HTTP) — under `src/api/`, but predates the swagger/constants/types subfolder convention |
 | Metrics | `src/api/metrics/` | Prometheus metrics |
-| Tracing | `src/api/tracing/` | OpenTelemetry distributed tracing |
-| Dev Tools | `src/api/dev-tools/` | Developer tools dashboard (+ SQS queue-depth panel in `aws` mode) |
 | Prompts | `src/api/prompts/` | Owner prompt templates + versions (Settings → Prompts) |
 | AI | `src/api/ai/` | Calls an LLM to draft a reply — `AiProvider` plugin pair (`OpenRouterAiProvider` built, `AzureOpenAiProvider` reserved for the GDPR/`westeurope` switch, selected by `AI_PROVIDER`). `AiReplyGenerationService.generateForClassifiedReviews` runs as its own step after classification in the same review-sync poll tick (`ReviewSyncQueueService`, no separate cron); no HTTP routes — `pnpm ai:dry-run` tests the provider against a mock review outside that pipeline. See `apps/documentation/docs/backend/ai/overview.md` |
+| Admin | `src/api/admin/` | Platform-admin console API: businesses (suspend/reactivate, request/cancel erasure), users, overview/statistics, billing views, platform settings and admin invites. Repeated actions are no-ops (`changed`, `already_requested`/`not_pending` outcomes), never duplicate log rows, emails or Stripe calls |
+| Billing | `src/api/billing/` | Free/Paid plans, Stripe Checkout and Customer Portal, signed webhooks (`BillingWebhooksService`: idempotency ledger, `paymentSettled` gate, stale-event clock), entitlements/limits, receipts, and checkout reconciliation (`BillingReconciliationService`, its own module). `PaymentProvider` -> `StripePaymentProvider`. See `apps/documentation/docs/backend/billing/` |
+| Connections | `src/api/connections/` | Google Business Profile OAuth connect/disconnect, account choice (`google/accounts/pending` answers 410 when nothing waits — an expected probe), location confirm and backfill. See `apps/documentation/docs/backend/connections/` |
+| Reviews | `src/api/reviews/` | Review list/detail and the reply lifecycle (approve, reject, edit, manual reply, post). See `apps/documentation/docs/backend/reviews/` |
+| Dashboard | `src/api/dashboard/` | Tenant dashboard aggregates |
+| Notifications | `src/api/notifications/` | In-app escalation notifications |
 | Settings | `src/api/settings/` | Blocklist terms (`/v1/settings/blocklist-terms`); data access in `src/db/repositories/settings/` |
 | Review pipeline | `src/review-pipeline/` | Classification rule (blocklist then rating threshold). No HTTP. |
 | Background | `src/background/` | BullMQ email, dead-letter and review-sync queues, plus cron jobs — one of which (`review-sync-poll`, every 15 min) fans out into the review-sync queue itself (SQS in `aws` mode — see Queue Transport Pattern) |
@@ -265,7 +287,7 @@ contract: `apps/documentation/docs/backend/auth/`.
   all and fails closed on any `@Roles()` route
 - `@CurrentUser()` — param decorator for the authenticated `AuthUser` (a discriminated union:
   narrow on `type` before trusting `tenantId`/`role`)
-- Infrastructure endpoints (health, metrics, tracing, dev-tools) use `@Public()` to bypass JWT
+- Infrastructure endpoints (health, metrics) use `@Public()` to bypass JWT
 
 ## Conventions
 
@@ -276,7 +298,7 @@ contract: `apps/documentation/docs/backend/auth/`.
 
 ### Controllers
 - Business controllers: `@Controller({ path: RouteNames.X, version: '1' })` — URI versioning at `/v1/...`
-- Infrastructure controllers (health, metrics, tracing, dev-tools): `@Controller({ path: RouteNames.X, version: VERSION_NEUTRAL })` — no version prefix (`/health`, `/metrics`)
+- Infrastructure controllers (health, metrics): `@Controller({ path: RouteNames.X, version: VERSION_NEUTRAL })` — no version prefix (`/health`, `/metrics`)
 - Always use `RouteNames` enum for controller paths — never raw strings
 - No business logic, no computation — bind params, call exactly one service method, wrap the
   result with `ResponseUtil` (`src/common/helpers/response.utils.ts`), return it
@@ -323,23 +345,27 @@ In `aws` mode: queues go through SQS (see Queue Transport Pattern), secrets are 
 Secrets Manager at boot (`src/config/secrets-bootstrap.ts`, via a dynamic-`import()` gate in
 `main.ts`/`worker.main.ts` — required because `app.module.ts` builds a `ConfigService` at
 module-evaluation time), and S3/SES/SNS clients get an `endpoint` override
-(`getAwsEndpointOverride()` in `@common/helpers/aws-endpoint.util.ts`). Metrics/logs/tracing are
+(`getAwsEndpointOverride()` in `@common/helpers/aws-endpoint.util.ts`). Metrics/logs are
 **unchanged** in both modes — no CloudWatch integration. Full details: README's
 "AWS-Emulated Local Stack (Floci)" section.
 
 ## Dev Tools & Observability
+
+Deliberately small: console logs, `/metrics`, health probes, Bull Board. There is no tracing, request-metrics middleware, health page or dev-tools UI; the Prometheus/Grafana/Loki stack in docker-compose is the devops team's.
 
 | Tool | URL | Purpose |
 |------|-----|---------|
 | Swagger v1 | `localhost:3000/api/v1` | API v1 documentation |
 | Swagger | `localhost:3000/api` | Redirects to latest version |
 | Bull Board | `localhost:3000/admin/queues` | Queue management |
-| Prometheus | `localhost:9090` | Metrics |
-| Grafana | `localhost:3001` | Dashboards |
-| Jaeger | `localhost:16686` | Distributed tracing |
-| Loki | `localhost:3100` | Log aggregation |
+| Metrics | `localhost:3000/metrics` | Prometheus text (bearer `METRICS_TOKEN` in production) |
+
+**Log levels:** a request answered with a 4xx is logged at `warn` (one line, no stack) by `HttpExceptionFilter`; only a 5xx is an `error` with a stack. Expected refusals (an expired account choice `410`, a lapsed token
+`401`, a throttled `429`) therefore don't read as faults — alert on `error`.
 
 ## Common Pitfalls
+
+0. **`pnpm lint` auto-fixes the whole package** and can rewrite files you never touched — run `pnpm exec eslint <changed files>` and `git status` before committing. Jest needs `pnpm exec jest --config jest.config.ts` (package.json also has a jest key).
 
 1. **ConfigService returns undefined** — `configService.get('KEY')` is `T | undefined`. Always provide a fallback: `configService.get('PORT') ?? 3000`
 2. **Index access is `T | undefined`** — Due to `noUncheckedIndexedAccess`. Check before using: `const item = arr[0]; if (item) { ... }`

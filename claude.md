@@ -9,9 +9,12 @@ This is a **Monorepo** containing multiple applications and shared libraries man
 ```
 /
 ├── apps/
-│   └── documentation/    # Docusaurus documentation site
-│       └── docs/         # Developer & Product documentation
-├── libs/                 # For shared libraries and utilities
+│   ├── backend/          # NestJS API + BullMQ worker (rules: apps/backend/CLAUDE.md)
+│   ├── web/              # Next.js 16 app, tenant + admin consoles (rules: apps/web/AGENTS.md)
+│   └── documentation/    # Docusaurus documentation site (rules: apps/documentation/AGENT.md)
+│       └── docs/         # Developer & Product documentation (backend/, frontend/)
+├── libs/
+│   └── client_sdk/       # Generated TypeScript client for the backend API (keep in step with backend DTOs)
 ├── package.json          # Root package.json (use pnpm only)
 ├── pnpm-lock.yaml        # pnpm lock file
 ├── tsconfig.base.json    # Shared TypeScript configuration
@@ -40,7 +43,9 @@ This is a **Monorepo** containing multiple applications and shared libraries man
     - Update app-specific `.env` files with non-conflicting ports
     - Check Docker containers if using containerized services: `docker ps`
   - **Prevention:** Always check `apps/{APP_NAME}/README.md` for recommended port configurations.
-- **Application-Specific Rules:** Each application has its own AI/development rules defined in `/apps/{APP_NAME}/AGENT.md`. These files contain markup language instructions for that specific app.
+- **Application-Specific Rules:** Each application has its own AI/development rules — `apps/backend/CLAUDE.md`, `apps/web/AGENTS.md`, `apps/documentation/AGENT.md`. Read the one for the app you are changing before editing it; they hold the folder, naming and layering conventions to follow.
+- **Every user-facing string needs English and German** (`apps/web/messages/{en,de}.json`, `apps/backend/src/common/i18n/messages.{en,de}.ts`).
+- **Editing the repo:** run linters/formatters only on the files you changed (a package-wide `--fix` rewrites unrelated files), and check `git status` before committing.
 - **Documentation Standards:**
   - **Location**: `apps/documentation/docs/{APP-NAME}/`
   - **Format**: Markdown (`.md`) files
@@ -50,7 +55,8 @@ This is a **Monorepo** containing multiple applications and shared libraries man
 - **Database Development Standards:**
   - **SQL-First Approach**: Always write raw SQL migration files first, then regenerate the Drizzle schema from the database. Never use Drizzle Kit to generate migrations.
   - **Migration Files**: Create detailed SQL migrations with proper indexes, constraints, and relationships, under `src/db/drizzle/migrations/`
-  - **One Migration File Per Module**: Maintain one consolidated migration file per functional module (e.g., `auth_module.sql`, `user_management.sql`). Update the same file with all migrations required for that module rather than creating multiple separate files
+  - **Migrations are append-only once released**: until the first production release, a module's schema changes may still be edited into its original migration file (then run `pnpm db:migrations:lock` to re-baseline). From the first release on, a released migration is immutable — `pnpm db:migrations:verify` fails if one changes — and every schema change is a new numbered file (`pnpm db:create-migration <name>`). Drizzle never re-reads an applied file, so editing one is a silent no-op on every existing database.
+  - **Running migrations in a deployed environment**: `pnpm db:migrate:prod` (plain `node` on the built output, no `ts-node` or `src/` needed); the first platform admin is created with `pnpm db:seed:admin:prod`
   - **Schema Generation**: Use `pnpm db:introspect` to regenerate the Drizzle schema (`src/db/drizzle/schema.ts`) after applying SQL migrations
   - **Workflow**: SQL Migration → Update `meta/_journal.json` → Apply to DB (`pnpm db:migrate`) → Regenerate Drizzle Schema (`pnpm db:introspect`) → Implement Code
 - **Getting Started:** Refer to individual app README files for setup instructions, Located at `apps/{APP_NAME}/README.md`. These contain:

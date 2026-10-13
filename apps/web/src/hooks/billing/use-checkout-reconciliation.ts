@@ -7,11 +7,13 @@ import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ApiError } from "@/app/_libs/services/api-error";
 import { useReconcileCheckoutSession } from "@/hooks/billing/use-reconcile-checkout-session";
 
-/** Set when reconciliation did not end in "you're on Paid": `pending` (payment may still be
- *  processing) or `failed` (Stripe could not be asked). Drives the banner that outlives the toast. */
-export type CheckoutOutcome = "pending" | "failed" | null;
+/** Set when reconciliation did not end in "you're on Paid": `pending` (payment may still be processing), `failed`
+ *  (Stripe could not be asked) or `notFound` (the session isn't one of this business's, so asking again cannot help).
+ *  Drives the banner that outlives the toast. */
+export type CheckoutOutcome = "pending" | "failed" | "notFound" | null;
 
 interface UseCheckoutReconciliationResult {
   outcome: CheckoutOutcome;
@@ -50,9 +52,14 @@ export function useCheckoutReconciliation(): UseCheckoutReconciliationResult {
           setOutcome("pending");
           toast.info(t("checkoutReconcilePending"));
         }
-      } catch {
-        setOutcome("failed");
-        toast.error(t("checkoutReconcileFailed"));
+      } catch (error) {
+        if (error instanceof ApiError && error.statusCode === 404) {
+          setOutcome("notFound");
+          toast.error(t("checkoutReconcileNotFound"));
+        } else {
+          setOutcome("failed");
+          toast.error(t("checkoutReconcileFailed"));
+        }
       } finally {
         setIsChecking(false);
       }
