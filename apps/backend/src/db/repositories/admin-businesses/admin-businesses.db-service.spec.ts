@@ -254,7 +254,7 @@ describe('AdminBusinessesDbService', () => {
     });
 
     it('re-reads and maps the row after a successful update', async () => {
-      adminBusinessesRepository.setStatus.mockResolvedValue({ outcome: 'updated' });
+      adminBusinessesRepository.setStatus.mockResolvedValue({ outcome: 'updated', changed: true });
       adminBusinessesRepository.findById.mockResolvedValue(row({ status: TenantStatus.SUSPENDED }));
 
       const result = await target.setStatus({
@@ -264,42 +264,85 @@ describe('AdminBusinessesDbService', () => {
 
       expect(result).toEqual({
         outcome: 'updated',
+        changed: true,
         summary: expect.objectContaining({ status: BusinessStatus.SUSPENDED }),
       });
+    });
+
+    it('passes on that the status was already what was asked for', async () => {
+      adminBusinessesRepository.setStatus.mockResolvedValue({ outcome: 'updated', changed: false });
+      adminBusinessesRepository.findById.mockResolvedValue(row({ status: TenantStatus.SUSPENDED }));
+
+      const result = await target.setStatus({
+        tenantId: 'tenant-1',
+        status: TenantStatus.SUSPENDED,
+      });
+
+      expect(result).toMatchObject({ outcome: 'updated', changed: false });
     });
   });
 
   describe('requestErasure', () => {
-    it('returns null without re-reading when no tenant matched', async () => {
-      adminBusinessesRepository.requestErasure.mockResolvedValue(false);
+    it('reports not found without re-reading when no tenant matched', async () => {
+      adminBusinessesRepository.requestErasure.mockResolvedValue('not_found');
 
       const result = await target.requestErasure('missing');
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ outcome: 'not_found' });
       expect(adminBusinessesRepository.findById).not.toHaveBeenCalled();
     });
 
     it('re-reads and maps the row after a successful request', async () => {
-      adminBusinessesRepository.requestErasure.mockResolvedValue(true);
+      adminBusinessesRepository.requestErasure.mockResolvedValue('requested');
       adminBusinessesRepository.findById.mockResolvedValue(
         row({ status: TenantStatus.SUSPENDED, erasureRequestedAt: '2026-03-05T09:12:00.000Z' })
       );
 
       const result = await target.requestErasure('tenant-1');
 
-      expect(result?.status).toBe(BusinessStatus.SUSPENDED);
-      expect(result?.erasureRequestedAt).toBe('2026-03-05T09:12:00.000Z');
+      expect(result).toMatchObject({
+        outcome: 'requested',
+        summary: {
+          status: BusinessStatus.SUSPENDED,
+          erasureRequestedAt: '2026-03-05T09:12:00.000Z',
+        },
+      });
+    });
+
+    it('returns the business for a repeat request, flagged as already requested', async () => {
+      adminBusinessesRepository.requestErasure.mockResolvedValue('already_requested');
+      adminBusinessesRepository.findById.mockResolvedValue(
+        row({ status: TenantStatus.SUSPENDED, erasureRequestedAt: '2026-03-05T09:12:00.000Z' })
+      );
+
+      const result = await target.requestErasure('tenant-1');
+
+      expect(result.outcome).toBe('already_requested');
     });
   });
 
   describe('cancelErasure', () => {
-    it('returns null without re-reading when no tenant matched', async () => {
+    it('reports not found when there is no such tenant', async () => {
       adminBusinessesRepository.cancelErasure.mockResolvedValue(false);
+      adminBusinessesRepository.findById.mockResolvedValue(null);
 
-      const result = await target.cancelErasure('missing');
+      await expect(target.cancelErasure('missing')).resolves.toEqual({ outcome: 'not_found' });
+    });
 
-      expect(result).toBeNull();
-      expect(adminBusinessesRepository.findById).not.toHaveBeenCalled();
+    it('reports an erased tenant as not found: it cannot be un-erased', async () => {
+      adminBusinessesRepository.cancelErasure.mockResolvedValue(false);
+      adminBusinessesRepository.findById.mockResolvedValue(row({ status: TenantStatus.ERASED }));
+
+      await expect(target.cancelErasure('tenant-1')).resolves.toEqual({ outcome: 'not_found' });
+    });
+
+    it('reports nothing to cancel for a business with no pending erasure', async () => {
+      adminBusinessesRepository.cancelErasure.mockResolvedValue(false);
+      adminBusinessesRepository.findById.mockResolvedValue(
+        row({ status: TenantStatus.ACTIVE, erasureRequestedAt: null })
+      );
+
+      await expect(target.cancelErasure('tenant-1')).resolves.toEqual({ outcome: 'not_pending' });
     });
 
     it('re-reads and maps the row after a successful cancel', async () => {
@@ -310,8 +353,10 @@ describe('AdminBusinessesDbService', () => {
 
       const result = await target.cancelErasure('tenant-1');
 
-      expect(result?.status).toBe(BusinessStatus.ACTIVE);
-      expect(result?.erasureRequestedAt).toBeNull();
+      expect(result).toMatchObject({
+        outcome: 'cancelled',
+        summary: { status: BusinessStatus.ACTIVE, erasureRequestedAt: null },
+      });
     });
   });
 });

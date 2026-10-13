@@ -68,7 +68,7 @@ export function ApiUpdateAdminBusinessStatus(): ReturnType<typeof applyDecorator
       summary: 'Suspend or reactivate a tenant',
       description:
         'Reactivating always lands the real tenant_status on `active`, never back on ' +
-        '`pending_activation`.',
+        '`pending_activation`. Setting the status a tenant already has is a no-op: same response, no activity entry.',
     }),
     ApiBody({
       type: UpdateBusinessStatusDto,
@@ -102,7 +102,9 @@ export function ApiRequestBusinessErasure(): ReturnType<typeof applyDecorators> 
         'anonymization of every user runs later, in a nightly job, once ' +
         '`ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and ' +
         'billing records are never touched — no PII lives in them once every user is anonymized. ' +
-        'Cancellable any time before the grace period elapses.',
+        'Cancellable any time before the grace period elapses. Asking again while an admin request is already ' +
+        'pending changes nothing: the response is the same, but no second activity entry or owner email is ' +
+        'produced and the grace period is not restarted.',
     }),
     ApiParam({ name: 'tenantId', description: 'The tenant to erase' }),
     ApiResponse({
@@ -145,9 +147,11 @@ export function ApiCancelBusinessErasure(): ReturnType<typeof applyDecorators> {
     }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' }),
+    ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'No such tenant' }),
     ApiResponse({
-      status: HttpStatus.NOT_FOUND,
-      description: 'No such tenant, or it has no erasure pending',
+      status: HttpStatus.CONFLICT,
+      description:
+        'The business has no erasure pending, so there is nothing to cancel (`BUSINESS_ERASURE_NOT_PENDING`)',
     })
   );
 }

@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "motion/react";
 import { useFormatter, useTranslations } from "next-intl";
 import { LuBuilding2, LuSearch } from "react-icons/lu";
 
-import { ERASURE_GRACE_PERIOD_DAYS } from "@/app/_libs/constants/erasure";
 import { cn } from "@/app/_libs/utils/cn";
 import { EmptyState } from "@/components/common/empty-state";
 import { LoadErrorState } from "@/components/common/load-error-state";
@@ -15,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAdminBusinesses } from "@/hooks/admin/use-admin-businesses";
+import { useErasureGracePeriodDays } from "@/hooks/common/use-erasure-grace-period";
+import { MAX_SEARCH_LENGTH } from "@/hooks/common/use-url-search-page";
 import type { AdminBusiness, BusinessStatus } from "@/types/domain";
 
 const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
@@ -63,12 +64,13 @@ function AdminBusinessesNoResults({ onClearSearch }: { onClearSearch: () => void
   );
 }
 
-/** Static countdown date (`erasureRequestedAt + ERASURE_GRACE_PERIOD_DAYS`); no live timer or polling. */
+/** Static countdown date (`erasureRequestedAt` plus the deploy's grace period); no live timer or polling. */
 function ErasurePendingNote({ erasureRequestedAt }: { erasureRequestedAt: string }) {
   const t = useTranslations("adminBusinesses");
   const format = useFormatter();
+  const graceDays = useErasureGracePeriodDays();
   const takesEffectOn = new Date(
-    new Date(erasureRequestedAt).getTime() + ERASURE_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000,
+    new Date(erasureRequestedAt).getTime() + graceDays * 24 * 60 * 60 * 1000,
   );
 
   return (
@@ -185,6 +187,7 @@ export function AdminBusinessesView() {
             <Input
               type="text"
               placeholder={t("searchPlaceholder")}
+              maxLength={MAX_SEARCH_LENGTH}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="h-9 pl-8 text-[13px]"

@@ -87,13 +87,8 @@ pnpm start:dev             # Start API + Worker in dev mode
 | Swagger API Docs (v1) | http://localhost:3000/api/v1 |
 | Swagger API Docs (v2) | http://localhost:3000/api/v2 |
 | Health Check | http://localhost:3000/health |
-| Health UI | http://localhost:3000/health/health-ui |
-| Dev Tools | http://localhost:3000/dev-tools |
 | Bull Board (Queues) | http://localhost:3000/admin/queues |
-| Prometheus | http://localhost:9090 |
-| Grafana | http://localhost:3001 (admin/admin) |
-| Jaeger | http://localhost:16686 |
-| Loki | http://localhost:3100 |
+| Metrics | http://localhost:3000/metrics (bearer `METRICS_TOKEN` in production) |
 
 ---
 
@@ -104,9 +99,8 @@ pnpm start:dev             # Start API + Worker in dev mode
 - **NestJS 11** with strict TypeScript
 - **Drizzle ORM** (SQL-first workflow) + PostgreSQL
 - **Redis** (caching + BullMQ job queues)
-- **OpenTelemetry + Jaeger** (distributed tracing)
-- **Prometheus + Grafana** (metrics & dashboards)
-- **Winston + Loki** (structured logging)
+- **Prometheus metrics** at `/metrics` (scraping and dashboards are the devops team's)
+- **Winston** (console-only structured logging)
 - **Jest + ts-jest** (unit testing — 847 tests across every service/controller/guard/provider)
 
 ### Design Patterns
@@ -152,9 +146,7 @@ src/
 ├── gateway/            # WebSocket gateway (Socket.IO)
 ├── api/                # Infrastructure APIs
 │   ├── health/         #   Health checks (DB, Redis, memory)
-│   ├── metrics/        #   Prometheus metrics
-│   ├── tracing/        #   OpenTelemetry tracing
-│   └── dev-tools/      #   Developer tools dashboard
+│   └── metrics/        #   Prometheus metrics
 ├── background/         # BullMQ queues & workers
 ├── common/             # Shared utilities, guards, filters, decorators
 │   ├── audit/          #   Application-level audit logging
@@ -467,20 +459,13 @@ Provider-agnostic AI interface supporting Claude and OpenAI:
 
 ## Monitoring & Observability
 
-| Tool | Port | Purpose |
-|------|------|---------|
-| Prometheus | 9090 | Metrics aggregation |
-| Grafana | 3001 | Dashboards & visualization |
-| Jaeger | 16686 | Distributed tracing |
-| Loki | 3100 | Log aggregation |
-| Node Exporter | 9100 | System metrics |
+The app exposes health probes and `/metrics`, writes console logs only, and has no tracing. The Prometheus / Grafana / Loki / Node Exporter
+stack in docker-compose is for the devops team to run or replace; it is not required to run the app.
 
 ### Application Endpoints
 
 - `GET /health` — JSON health status (VERSION_NEUTRAL — no version prefix)
-- `GET /health/health-ui` — HTML health dashboard
 - `GET /metrics` — Prometheus metrics
-- `GET /tracing/status` — OpenTelemetry status
 
 ### Alert Rules (Prometheus)
 
@@ -523,11 +508,11 @@ RDS emulation and **real** Redis/Valkey behind its ElastiCache emulation — so 
 | Media/Email/SMS | Cloudinary/SMTP/Twilio, or S3/SES/SNS against real AWS | S3/SES/SNS against Floci | One optional `endpoint` override per provider (`getAwsEndpointOverride()`) |
 | Queues | BullMQ + Redis | SQS (one-by-one polling consumer) | `QueuePublisherProvider` abstraction (see below) |
 | Secrets | `.env` file | AWS Secrets Manager (one JSON blob) | Boot-time hydration gate — see below |
-| Metrics / Logs / Tracing | Prometheus/Grafana/Loki/Jaeger | **Unchanged** — same stack, same config | None |
+| Metrics / Logs | `/metrics` + console logs | **Unchanged** | None |
 
 > [!NOTE]
-> Metrics, logs, and tracing are intentionally **out of scope** — no CloudWatch integration is
-> built. Both modes run the exact same Prometheus/Grafana/Loki/Jaeger stack.
+> Metrics and logs are intentionally **out of scope** — no CloudWatch integration is
+> built. Both modes expose the same `/metrics` and console logs.
 
 ### Running it
 
@@ -559,9 +544,8 @@ pnpm run local:aws:up
   (`*-queue.service.ts`) are 100% transport-agnostic and needed zero changes.
 - **Dead-letter visibility** — failed jobs rely on SQS's native visibility-timeout-based redrive to
   a `-dlq` queue (configured per-queue in Terraform); consumers additionally call
-  `DeadLetterQueueService` for parity with the local stack's Bull Board DLQ view. See the
-  **SQS Queues** panel at `/dev-tools/queues` (aws mode) for live queue/DLQ depth — Bull Board has
-  no SQS equivalent.
+  `DeadLetterQueueService` for parity with the local stack's Bull Board DLQ view. Bull Board has
+  no SQS equivalent, so queue/DLQ depth comes from the SQS console or CloudWatch.
 - **Terraform** (`infra/floci/`) — provisions against Floci only (never the default/staging/
   production stack): `aws_db_instance`, `aws_elasticache_replication_group`, one `aws_sqs_queue` + matching
   `-dlq` queue per background queue, `aws_s3_bucket`, `aws_secretsmanager_secret`, and an
@@ -596,7 +580,7 @@ See `.env.example` for all environment variables. Key sections:
   in favor of `FidMulticastMessage`/`fids` (see `CHANGELOG.md` v2.0.0).
 - **Webhooks** — Configured per-user via API
 - **AI** — Anthropic/OpenAI API keys
-- **Observability** — Prometheus, Grafana, Jaeger, Loki settings
+- **Observability** — `METRICS_TOKEN`, `TRUST_PROXY_HOPS` (the Prometheus/Grafana/Loki stack settings in `.env.example` are docker-compose only)
 - **Deployment target** — `DEPLOYMENT_TARGET` (`local` | `aws`), `FLOCI_ENDPOINT`/`FLOCI_PORT`,
   `SECRETS_MANAGER_SECRET_ID`, `<QUEUE>_QUEUE_URL` — see
   [AWS-Emulated Local Stack (Floci)](#aws-emulated-local-stack-floci)
@@ -657,9 +641,6 @@ pnpm clean:all && pnpm install
 
 # Verify health
 curl http://localhost:3000/health
-
-# Check tracing
-curl http://localhost:3000/tracing/status
 ```
 
 > [!NOTE]
@@ -681,7 +662,7 @@ This project is designed to be **AI-agent friendly**. Agents should follow this 
 3. `pnpm db:migrate` — Apply migrations
 4. `pnpm start:dev` — Start application
 5. `curl http://localhost:3000/health` — Verify health
-6. Check observability stack (Prometheus, Grafana, Jaeger)
+6. Check `curl http://localhost:3000/health/ready` and `/metrics`
 
 See `CLAUDE.md` for comprehensive AI development instructions.
 See `docs/conventions/` for module creation patterns.

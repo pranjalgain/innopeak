@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAdminUsers } from "@/hooks/admin/use-admin-users";
+import { MAX_SEARCH_LENGTH } from "@/hooks/common/use-url-search-page";
 import type { AdminUser } from "@/types/domain";
 
 const DATE_FORMAT = { month: "short", day: "numeric", year: "numeric" } as const;
@@ -128,6 +129,7 @@ export function AdminUsersView() {
             <Input
               type="text"
               placeholder={t("searchPlaceholder")}
+              maxLength={MAX_SEARCH_LENGTH}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="h-9 pl-8 text-[13px]"

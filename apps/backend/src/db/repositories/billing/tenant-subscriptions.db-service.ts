@@ -184,6 +184,14 @@ export class TenantSubscriptionsDbService {
     return this.tenantSubscriptionsRepository.touchStripeVerifiedAt(tenantId, tx);
   }
 
+  advanceEventClock(
+    tenantId: string,
+    eventCreatedAt: string,
+    tx?: DrizzleTransaction
+  ): Promise<boolean> {
+    return this.tenantSubscriptionsRepository.advanceEventClock(tenantId, eventCreatedAt, tx);
+  }
+
   touchCheckoutStartedAt(tenantId: string, tx?: DrizzleTransaction): Promise<void> {
     return this.tenantSubscriptionsRepository.touchCheckoutStartedAt(tenantId, tx);
   }

@@ -20,6 +20,7 @@ import {
 } from '../dto/admin-business-response.dto';
 import type { ListAdminBusinessesQueryDto } from '../dto/list-admin-businesses-query.dto';
 import {
+  BusinessErasureNotPendingException,
   BusinessErasurePendingException,
   BusinessNotFoundException,
 } from '../exceptions/admin.exceptions';
@@ -59,7 +60,8 @@ export class AdminBusinessesService {
 
   /**
    * `status` is the frontend's simplified BusinessStatus; `active` always maps to TenantStatus.ACTIVE, never back to pending_activation.
-   * Logged after the write, so a not-found update logs nothing.
+   * Logged after the write, so a not-found update logs nothing. Setting the status a business already has is a no-op:
+   * it answers like the first call but writes no activity entry.
    */
   async setStatus(
     actor: AuthUser,
@@ -81,33 +83,44 @@ export class AdminBusinessesService {
     }
     const { summary } = result;
 
-    await this.adminOverviewDbService.recordActivityBestEffort({
-      type:
-        status === BusinessStatus.SUSPENDED
-          ? PlatformActivityType.BUSINESS_SUSPENDED
-          : PlatformActivityType.BUSINESS_REACTIVATED,
-      actorPlatformAdminId: admin.id,
-      actorEmail: admin.email,
-      tenantId,
-      // Snapshot of the name, so the entry survives a later rename or delete.
-      businessName: summary.name,
-    });
+    if (result.changed) {
+      await this.adminOverviewDbService.recordActivityBestEffort({
+        type:
+          status === BusinessStatus.SUSPENDED
+            ? PlatformActivityType.BUSINESS_SUSPENDED
+            : PlatformActivityType.BUSINESS_REACTIVATED,
+        actorPlatformAdminId: admin.id,
+        actorEmail: admin.email,
+        tenantId,
+        // Snapshot of the name, so the entry survives a later rename or delete.
+        businessName: summary.name,
+      });
+    }
 
     return AdminBusinessResponseDto.from(summary);
   }
 
   /**
    * Suspends immediately; anonymization happens in the nightly purge after `ERASURE_GRACE_PERIOD_DAYS`.
-   * An already-erased tenant reads as not found.
+   * An already-erased tenant reads as not found. Asking again while the request is already pending answers like the
+   * first call but does nothing more: no second subscription change, activity entry or notice to the owners, and the
+   * grace period is not restarted.
    */
   async requestErasure(
     actor: AuthUser,
     tenantId: string
   ): Promise<{ business: AdminBusinessResponseDto; gracePeriodDays: number }> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const summary = await this.adminBusinessesDbService.requestErasure(tenantId);
-    if (!summary) {
+    const result = await this.adminBusinessesDbService.requestErasure(tenantId);
+    if (result.outcome === 'not_found') {
       throw new BusinessNotFoundException();
+    }
+    const { summary } = result;
+    if (result.outcome === 'already_requested') {
+      return {
+        business: AdminBusinessResponseDto.from(summary),
+        gracePeriodDays: this.gracePeriodDays(),
+      };
     }
 
     // Best-effort: the request already took effect and the purge deletes the Stripe customer anyway,
@@ -142,10 +155,14 @@ export class AdminBusinessesService {
 
   async cancelErasure(actor: AuthUser, tenantId: string): Promise<AdminBusinessResponseDto> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const summary = await this.adminBusinessesDbService.cancelErasure(tenantId);
-    if (!summary) {
+    const result = await this.adminBusinessesDbService.cancelErasure(tenantId);
+    if (result.outcome === 'not_found') {
       throw new BusinessNotFoundException();
     }
+    if (result.outcome === 'not_pending') {
+      throw new BusinessErasureNotPendingException();
+    }
+    const { summary } = result;
 
     // Resumes only a subscription the erasure itself set to end, never one the owner cancelled.
     // Best-effort: a Stripe hiccup must not fail the cancel (worst case the owner re-subscribes).

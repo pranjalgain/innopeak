@@ -19,6 +19,8 @@ export interface MessageCatalog {
     INVALID_ACCESS_TOKEN: string;
     LOGGED_OUT: string;
     INVALID_CURRENT_PASSWORD: string;
+    /** Change-password with a new password identical to the current one. */
+    NEW_PASSWORD_SAME_AS_CURRENT: string;
     NO_PASSWORD_SET: string;
     PASSWORD_ALREADY_SET: string;
     PASSWORD_CHANGED: string;
@@ -90,6 +92,8 @@ export interface MessageCatalog {
     REVIEW_NOT_FOUND: string;
     TENANT_ONLY: string;
     FAILED_TO_ACQUIRE_SYNC_RUN: string;
+    /** Shown on a sync run that is waiting out Google's rate limit before retrying (replaced when the run ends). */
+    SYNC_WAITING_FOR_RATE_LIMIT: (seconds: number, attempt: number, maxAttempts: number) => string;
     FAILED_TO_UPSERT_REVIEW: string;
     /** Interpolating so the review id survives into the English server log while the client copy stays generic in production (`ErrorHandlerService`). */
     GENERATED_RESPONSE_INSERT_FAILED: (reviewId: string) => string;
@@ -178,6 +182,8 @@ export interface MessageCatalog {
     PAYMENT_METHOD_UPDATED: string;
     /** `STRIPE_SECRET_KEY` is unset on this server. */
     PAYMENT_NOT_CONFIGURED: string;
+    /** Stripe could not be reached or answered with a server-side fault; transient, worth retrying. */
+    PAYMENT_PROVIDER_UNAVAILABLE: string;
     SUBSCRIPTION_CANCELED: string;
     FAILED_TO_CREATE_SUBSCRIPTION: string;
     /** Should never happen: the plan row is seeded by migration. */
@@ -243,6 +249,8 @@ export interface MessageCatalog {
     /** `AdminBusinessesRepository.setStatus` refused — this tenant has a pending erasure request;
      *  cancel it first before changing status directly. */
     BUSINESS_ERASURE_PENDING: string;
+    /** Cancelling an erasure on a business that has none pending. */
+    BUSINESS_ERASURE_NOT_PENDING: string;
     /** `AdminUsersRepository.toggleActive` refused — this user has a pending team-member removal
      *  request; cancel it first before changing their status directly. */
     USER_REMOVAL_PENDING: string;
@@ -274,6 +282,28 @@ export interface MessageCatalog {
     /** `PlatformAdminRepository.createInvitedPlatformAdmin` — the insert affected no rows. */
     FAILED_TO_CREATE_INVITED_PLATFORM_ADMIN: string;
   };
+  /**
+   * Class-validator messages written for people (the sentence-style ones), looked up by their English text in
+   * `translateValidationMessage`. Technical messages that name an API field (`pairs must contain at most 20 entries`)
+   * are not translated.
+   */
+  VALIDATION: {
+    EMAIL_INVALID: string;
+    PASSWORD_REQUIRED: string;
+    PASSWORD_LENGTH: string;
+    PASSWORD_COMPLEXITY: string;
+    OTP_REQUIRED: string;
+    OTP_FORMAT: string;
+    FULL_NAME_REQUIRED: string;
+    FULL_NAME_LENGTH: string;
+    BUSINESS_NAME_REQUIRED: string;
+    BUSINESS_NAME_LENGTH: string;
+    BUSINESS_NAME_CONFIRM: string;
+    NAME_REQUIRED: string;
+    PAYMENT_METHOD_REQUIRED: string;
+    PAYMENT_METHOD_INVALID: string;
+    REPLY_NEEDS_TEXT: string;
+  };
   COMMON: {
     /** `ResponseUtil.success`'s default message when a controller passes none. */
     SUCCESS: string;
@@ -287,16 +317,3 @@ export interface MessageCatalog {
     INTERNAL_ERROR: string;
   };
 }
-
-/** Every leaf key path this catalog exposes, as `'AUTH.INVALID_CREDENTIALS'`-style dotted
- *  strings — generated from `MessageCatalog` so a renamed/added/removed key can't drift out of
- *  sync with the type it's derived from. */
-export type MessageCatalogPath = PathsOf<MessageCatalog>;
-
-type PathsOf<T, Prefix extends string = ''> = {
-  [K in string & keyof T]: T[K] extends (...args: never[]) => string
-    ? `${Prefix}${K}`
-    : T[K] extends string
-      ? `${Prefix}${K}`
-      : PathsOf<T[K], `${Prefix}${K}.`>;
-}[string & keyof T];

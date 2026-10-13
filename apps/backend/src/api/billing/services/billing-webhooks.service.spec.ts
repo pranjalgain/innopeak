@@ -38,6 +38,7 @@ describe('BillingWebhooksService', () => {
   let tenantSubscriptionsDbService: jest.Mocked<
     Pick<
       TenantSubscriptionsDbService,
+      | 'advanceEventClock'
       | 'findByStripeCustomerId'
       | 'findByStripeSubscriptionId'
       | 'setToFreeFromSubscriptionDeleted'
@@ -62,6 +63,7 @@ describe('BillingWebhooksService', () => {
     };
     stripeWebhookEventsDbService = { recordIfNew: jest.fn().mockResolvedValue(true) };
     tenantSubscriptionsDbService = {
+      advanceEventClock: jest.fn().mockResolvedValue(true),
       findByStripeCustomerId: jest.fn().mockResolvedValue(subscriptionRow),
       findByStripeSubscriptionId: jest.fn().mockResolvedValue(null),
       setToPaidFromCheckout: jest.fn(),
@@ -98,6 +100,7 @@ describe('BillingWebhooksService', () => {
         type: 'checkout.session.completed',
         customerId: 'cus_1',
         subscriptionId: 'sub_1',
+        paymentSettled: true,
         status: SubscriptionStatus.ACTIVE,
         currentPeriodStart: null,
         currentPeriodEnd: null,
@@ -119,10 +122,27 @@ describe('BillingWebhooksService', () => {
       type: 'checkout.session.completed',
       customerId: 'cus_1',
       subscriptionId: 'sub_1',
+      paymentSettled: true,
       status: SubscriptionStatus.ACTIVE,
       currentPeriodStart: '2026-08-01T00:00:00.000Z',
       currentPeriodEnd: '2026-09-01T00:00:00.000Z',
     };
+
+    it('does not upgrade a Checkout that completed before its payment did (delayed method)', async () => {
+      await target.handleEvent({ ...event, paymentSettled: false });
+
+      expect(tenantSubscriptionsDbService.setToPaidFromCheckout).not.toHaveBeenCalled();
+      expect(connectionsDbService.clearBillingPauseForTenant).not.toHaveBeenCalled();
+      expect(tenantSubscriptionsDbService.touchStripeVerifiedAt).not.toHaveBeenCalled();
+      // Still recorded, so the later settled event is processed on its own id.
+      expect(stripeWebhookEventsDbService.recordIfNew).toHaveBeenCalled();
+    });
+
+    it('upgrades when the settled event arrives later', async () => {
+      await target.handleEvent({ ...event, id: 'evt_settled', paymentSettled: true });
+
+      expect(tenantSubscriptionsDbService.setToPaidFromCheckout).toHaveBeenCalledTimes(1);
+    });
 
     it('flips plan_id to paid and clears billing_paused_at on every location', async () => {
       await target.handleEvent(event);
@@ -494,6 +514,118 @@ describe('BillingWebhooksService', () => {
       ).rejects.toBeInstanceOf(StripeWebhookTenantNotFoundException);
 
       expect(billingReceiptsDbService.recordIfNew).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('event ordering (webhooks arrive unordered)', () => {
+    const createdAt = '2026-09-01T10:00:00.000Z';
+    const updated: PaymentWebhookEvent = {
+      id: 'evt_u',
+      type: 'customer.subscription.updated',
+      customerId: 'cus_1',
+      subscriptionId: 'sub_1',
+      status: SubscriptionStatus.ACTIVE,
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      createdAt,
+    };
+
+    it("advances the tenant's event clock to the event's own Stripe time before writing", async () => {
+      await target.handleEvent(updated);
+
+      expect(tenantSubscriptionsDbService.advanceEventClock).toHaveBeenCalledWith(
+        'tenant-1',
+        createdAt,
+        fakeTx
+      );
+      expect(tenantSubscriptionsDbService.syncSubscriptionFields).toHaveBeenCalled();
+    });
+
+    it('skips an event older than one already applied, without writing or stamping', async () => {
+      tenantSubscriptionsDbService.advanceEventClock.mockResolvedValue(false);
+
+      await target.handleEvent(updated);
+
+      expect(tenantSubscriptionsDbService.syncSubscriptionFields).not.toHaveBeenCalled();
+      expect(tenantSubscriptionsDbService.touchStripeVerifiedAt).not.toHaveBeenCalled();
+    });
+
+    it('does not let a late payment_failed overwrite newer state', async () => {
+      tenantSubscriptionsDbService.advanceEventClock.mockResolvedValue(false);
+
+      await target.handleEvent({
+        id: 'evt_f',
+        type: 'invoice.payment_failed',
+        customerId: 'cus_1',
+        createdAt,
+      });
+
+      expect(tenantSubscriptionsDbService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('does not let a late .deleted downgrade a tenant whose newer state was already applied', async () => {
+      tenantSubscriptionsDbService.advanceEventClock.mockResolvedValue(false);
+
+      await target.handleEvent({
+        id: 'evt_d',
+        type: 'customer.subscription.deleted',
+        customerId: 'cus_1',
+        subscriptionId: 'sub_1',
+        createdAt,
+      });
+
+      expect(tenantSubscriptionsDbService.setToFreeFromSubscriptionDeleted).not.toHaveBeenCalled();
+      expect(billingEntitlementsService.enforceLocationLimitOnDowngrade).not.toHaveBeenCalled();
+    });
+
+    it('does not let a late checkout completion resurrect Paid', async () => {
+      tenantSubscriptionsDbService.advanceEventClock.mockResolvedValue(false);
+
+      await target.handleEvent({
+        id: 'evt_c',
+        type: 'checkout.session.completed',
+        customerId: 'cus_1',
+        subscriptionId: 'sub_1',
+        paymentSettled: true,
+        status: SubscriptionStatus.ACTIVE,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        createdAt,
+      });
+
+      expect(tenantSubscriptionsDbService.setToPaidFromCheckout).not.toHaveBeenCalled();
+    });
+
+    it('leaves the status alone for a late payment_succeeded but still records the receipt', async () => {
+      tenantSubscriptionsDbService.advanceEventClock.mockResolvedValue(false);
+
+      await target.handleEvent({
+        id: 'evt_s',
+        type: 'invoice.payment_succeeded',
+        customerId: 'cus_1',
+        invoiceId: 'in_1',
+        subscriptionId: 'sub_1',
+        amountPaid: 1900,
+        currency: 'eur',
+        invoiceNumber: 'INV-1',
+        paidAt: createdAt,
+        createdAt,
+      });
+
+      expect(tenantSubscriptionsDbService.updateStatus).not.toHaveBeenCalled();
+      expect(billingReceiptsDbService.recordIfNew).toHaveBeenCalledWith(
+        expect.objectContaining({ stripeInvoiceId: 'in_1' }),
+        fakeTx
+      );
+    });
+
+    it('treats an event with no timestamp as current (hand-built events)', async () => {
+      const { createdAt: _omitted, ...withoutTimestamp } = updated;
+      await target.handleEvent(withoutTimestamp);
+
+      expect(tenantSubscriptionsDbService.advanceEventClock).not.toHaveBeenCalled();
+      expect(tenantSubscriptionsDbService.syncSubscriptionFields).toHaveBeenCalled();
     });
   });
 

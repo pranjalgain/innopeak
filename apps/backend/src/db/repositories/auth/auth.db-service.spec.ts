@@ -1,3 +1,4 @@
+import { SsoProvider } from '@auth/constants/sso-auth.constants';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
 import type { TestingModule } from '@nestjs/testing';
@@ -19,6 +20,7 @@ describe('AuthDbService', () => {
   beforeEach(async () => {
     authRepository = {
       findUserByEmail: jest.fn(),
+      upsertUserIdentity: jest.fn(),
       findUserById: jest.fn(),
       findTenantStatusById: jest.fn(),
       hasConnectedBusiness: jest.fn(),
@@ -175,6 +177,31 @@ describe('AuthDbService', () => {
       authRepository.insertTenant.mockRejectedValue(new Error('connection lost'));
 
       await expect(target.signup(input)).rejects.toThrow('connection lost');
+    });
+  });
+
+  describe('linkSsoIdentityByEmail', () => {
+    it('does not link or sign in a pending team invite: only the invite link may accept it', async () => {
+      authRepository.findUserByEmail.mockResolvedValue({
+        id: 'invitee-1',
+        tenantId: 'tenant-1',
+        name: 'Sam',
+        email: 'sam@thecoffeehouse.com',
+        passwordHash: null,
+        role: UserRole.MEMBER,
+        status: UserStatus.INVITED,
+        locale: null,
+      });
+
+      const result = await target.linkSsoIdentityByEmail({
+        provider: SsoProvider.GOOGLE,
+        providerUserId: 'g-sub',
+        email: 'sam@thecoffeehouse.com',
+      });
+
+      expect(result).toEqual({ kind: 'invited' });
+      expect(authRepository.transaction).not.toHaveBeenCalled();
+      expect(authRepository.upsertUserIdentity).not.toHaveBeenCalled();
     });
   });
 

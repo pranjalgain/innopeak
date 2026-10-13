@@ -29,7 +29,7 @@ export function AdminActivityView() {
 
   const handleTabChange = useCallback(
     (value: string) => {
-      router.replace(`${pathname}?tab=${value}` as Route, { scroll: false });
+      router.push(`${pathname}?tab=${value}` as Route, { scroll: false });
     },
     [router, pathname],
   );

@@ -11,6 +11,7 @@ import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
 import { PasswordAuthForm } from "@/app/(auth)/_components/password-auth-form";
 import { SocialAuthButtons } from "@/app/(auth)/_components/social-auth-buttons";
 import { ROUTES } from "@/app/_libs/constants/routes";
+import { readReturnPath } from "@/app/_libs/utils/post-login-redirect";
 import { useAdminLogin } from "@/hooks/auth/use-admin-login";
 import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
@@ -39,7 +40,7 @@ export function AdminLoginView() {
     // Sign-in may restore the admin's saved language into the locale cookie, which the server reads; without dropping
     // the router cache the next screen renders from a stale payload (German only after the navigation after that).
     router.refresh();
-    router.push(ROUTES.ADMIN);
+    router.push((readReturnPath("admin") ?? ROUTES.ADMIN) as Route);
   };
 
   return (

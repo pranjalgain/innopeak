@@ -55,6 +55,13 @@ export class InvalidCurrentPasswordException extends UnauthorizedException {
   }
 }
 
+/** The new password equals the current one: "changing" it would revoke every other session for nothing. */
+export class NewPasswordSameAsCurrentException extends BadRequestException {
+  constructor(message: string = MESSAGES.AUTH.NEW_PASSWORD_SAME_AS_CURRENT) {
+    super({ message, code: 'NEW_PASSWORD_SAME_AS_CURRENT' });
+  }
+}
+
 export class PasswordAlreadySetException extends BadRequestException {
   constructor(message: string = MESSAGES.AUTH.PASSWORD_ALREADY_SET) {
     super({ message, code: 'PASSWORD_ALREADY_SET' });

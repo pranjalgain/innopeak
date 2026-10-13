@@ -3,6 +3,7 @@ import { LuSearch } from "react-icons/lu";
 
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MAX_SEARCH_LENGTH } from "@/hooks/common/use-url-search-page";
 import type { ReviewClassification, ReviewQueueFilters, ReviewStatus } from "@/types/domain";
 
 interface ReviewFiltersBarProps {
@@ -33,6 +34,7 @@ export function ReviewFiltersBar({
         <Input
           type="text"
           placeholder={t("searchPlaceholder")}
+          maxLength={MAX_SEARCH_LENGTH}
           value={filters.search}
           onChange={(event) => onSearchChange(event.target.value)}
           className="h-9 pl-8 text-[13px] md:h-8.5"

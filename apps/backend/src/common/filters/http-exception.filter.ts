@@ -1,5 +1,6 @@
 import { ApiResponse } from '@common/dto/api-response';
 import { CustomUnauthorizedException } from '@common/filters/exception/custom-unauthorized-exception';
+import { mapProviderFailure } from '@common/filters/exception/provider-failure.mapper';
 import { resolveRequestLocale } from '@common/i18n/locale';
 import { renderMessage, renderNestedMessage } from '@common/i18n/message-registry';
 import { ErrorHandlerService } from '@common/services/error-handler.service';
@@ -20,7 +21,7 @@ import { v4 as uuidv4 } from 'uuid';
 export class HttpExceptionFilter implements ExceptionFilter {
   constructor(private readonly errorHandlerService: ErrorHandlerService) {}
 
-  catch(exception: HttpException, host: ArgumentsHost): ApiResponse<unknown> | Response {
+  catch(thrown: HttpException, host: ArgumentsHost): ApiResponse<unknown> | Response {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
@@ -34,10 +35,19 @@ export class HttpExceptionFilter implements ExceptionFilter {
       request.headers['accept-language']
     );
 
-    Logger.error(
-      `[ErrorID: ${errorId}] Message: ${renderMessage(exception.message, 'en')}\nStack Trace: ${exception.stack}`,
-      'ErrorContext'
-    );
+    // A transient provider failure (Stripe down, rate limited) is answered as 503 so clients know to retry; the original is what gets logged.
+    const exception = mapProviderFailure(thrown) as HttpException;
+
+    // The stack only helps with a server fault; a 4xx is the caller's request being refused (often an expected
+    // answer, like an expired choice or a lapsed token), so it is one warning line.
+    const logLine = `[ErrorID: ${errorId}] Message: ${renderMessage(thrown.message, 'en')}`;
+    // `@Catch()` receives anything thrown, not only HttpExceptions: a plain Error has no `getStatus`, and is a server fault.
+    const status = exception instanceof HttpException ? exception.getStatus() : 500;
+    if (status >= 500) {
+      Logger.error(`${logLine}\nStack Trace: ${thrown.stack}`, 'ErrorContext');
+    } else {
+      Logger.warn(logLine, 'ErrorContext');
+    }
 
     let errorResponse: ApiResponse<unknown>;
 
@@ -47,7 +57,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       } else if (exception instanceof ForbiddenException) {
         errorResponse = this.errorHandlerService.handleForbidden(exception, context);
       } else if (exception instanceof BadRequestException) {
-        errorResponse = this.errorHandlerService.handleBadRequest(exception, context);
+        errorResponse = this.errorHandlerService.handleBadRequest(exception, context, locale);
       } else {
         errorResponse = this.errorHandlerService.handleError(exception, context);
       }

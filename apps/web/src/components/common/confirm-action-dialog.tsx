@@ -1,6 +1,6 @@
 "use client";
 
-import { cloneElement, type ReactElement, useState } from "react";
+import { cloneElement, type ReactElement, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/app/_libs/utils/cn";
 import {
@@ -42,6 +42,19 @@ export function ConfirmActionDialog({
   destructive,
   confirmDisabled,
 }: ConfirmActionDialogProps) {
+  // The dialog closes on the first click but its button stays in the DOM through the exit animation, so a quick second click
+  // lands on it again. One confirmation per opening, whatever the caller's `isPending` says (it can still be false that tick).
+  const confirmed = useRef(false);
+  useEffect(() => {
+    if (open) confirmed.current = false;
+  }, [open]);
+
+  const handleConfirm = () => {
+    if (confirmed.current) return;
+    confirmed.current = true;
+    onConfirm();
+  };
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -52,7 +65,7 @@ export function ConfirmActionDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction
-            onClick={onConfirm}
+            onClick={handleConfirm}
             disabled={confirmDisabled}
             className={cn(destructive && "bg-destructive text-white hover:bg-destructive/90")}
           >

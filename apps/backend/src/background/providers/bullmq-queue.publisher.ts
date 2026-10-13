@@ -20,6 +20,7 @@ export class BullMqQueuePublisher extends QueuePublisherProvider {
     }
 
     await queue.add(jobName, data, {
+      ...(options?.jobId ? { jobId: options.jobId } : {}),
       ...(options?.attempts ? { attempts: options.attempts } : {}),
       ...(options?.delayMs ? { delay: options.delayMs } : {}),
       ...(options?.backoffDelayMs

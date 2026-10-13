@@ -19,18 +19,28 @@ export function CheckoutStatusBanner({ outcome, isChecking, onRecheck }: Checkou
 
   if (!outcome) return null;
 
-  const isFailed = outcome === "failed";
+  const isFailed = outcome === "failed" || outcome === "notFound";
   const Icon = isFailed ? LuCircleAlert : LuClock;
+  const title =
+    outcome === "notFound" ? t("notFoundTitle") : isFailed ? t("failedTitle") : t("pendingTitle");
+  const description =
+    outcome === "notFound"
+      ? t("notFoundDescription")
+      : isFailed
+        ? t("failedDescription")
+        : t("pendingDescription");
 
   return (
     <Alert variant={isFailed ? "destructive" : "default"} className="mb-4">
       <Icon />
-      <AlertTitle>{isFailed ? t("failedTitle") : t("pendingTitle")}</AlertTitle>
+      <AlertTitle>{title}</AlertTitle>
       <AlertDescription>
-        <p>{isFailed ? t("failedDescription") : t("pendingDescription")}</p>
-        <Button type="button" size="sm" variant="outline" disabled={isChecking} onClick={onRecheck}>
-          {isChecking ? t("checking") : t("checkAgain")}
-        </Button>
+        <p>{description}</p>
+        {outcome === "notFound" ? null : (
+          <Button type="button" size="sm" variant="outline" disabled={isChecking} onClick={onRecheck}>
+            {isChecking ? t("checking") : t("checkAgain")}
+          </Button>
+        )}
       </AlertDescription>
     </Alert>
   );

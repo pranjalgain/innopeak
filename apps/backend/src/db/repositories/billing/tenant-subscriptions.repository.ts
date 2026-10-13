@@ -4,7 +4,7 @@ import { LocationStatus } from '@common/enums/location-status.enum';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, eq, gt, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm';
 
 import type {
   InsertSubscriptionInput,
@@ -140,6 +140,33 @@ export class TenantSubscriptionsRepository {
       .update(schema.tenantSubscriptions)
       .set({ stripeLastVerifiedAt: sql`now()` })
       .where(eq(schema.tenantSubscriptions.tenantId, tenantId));
+  }
+
+  /**
+   * Moves the "newest Stripe event applied" clock forward to `eventCreatedAt`, atomically. `false` means a newer event
+   * was already applied, so this one is stale and the caller must not write its (older) state. An event created in the
+   * same second as the last one counts as current: Stripe's `created` has second resolution, so there is no order to
+   * recover between them. The row update also serializes concurrent deliveries for the same tenant.
+   */
+  async advanceEventClock(
+    tenantId: string,
+    eventCreatedAt: string,
+    tx?: DrizzleTransaction
+  ): Promise<boolean> {
+    const rows = await (tx ?? this.dbService.db)
+      .update(schema.tenantSubscriptions)
+      .set({ stripeLastEventAt: eventCreatedAt })
+      .where(
+        and(
+          eq(schema.tenantSubscriptions.tenantId, tenantId),
+          or(
+            isNull(schema.tenantSubscriptions.stripeLastEventAt),
+            lte(schema.tenantSubscriptions.stripeLastEventAt, eventCreatedAt)
+          )
+        )
+      )
+      .returning({ tenantId: schema.tenantSubscriptions.tenantId });
+    return rows.length > 0;
   }
 
   /** Stamps `checkout_started_at` only, not `updated_at`, for the same reason. */

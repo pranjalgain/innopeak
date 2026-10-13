@@ -1,4 +1,5 @@
 import { SsoProvider } from '@auth/constants/sso-auth.constants';
+import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { SubscriptionCancellationSource } from '@common/enums/subscription-cancellation-source.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import type { DBService } from '@db/db.service';
@@ -34,6 +35,7 @@ describeWithDb('repositories against a real database', () => {
   let pool: Pool;
   let dbService: DBService;
   const tenants: string[] = [];
+  const platformAdmins: string[] = [];
 
   beforeAll(() => {
     pool = new Pool({ connectionString: url, max: 20 });
@@ -48,7 +50,29 @@ describeWithDb('repositories against a real database', () => {
     if (tenants.length > 0) {
       await pool.query('DELETE FROM tenants WHERE id = ANY($1::uuid[])', [tenants.splice(0)]);
     }
+    if (platformAdmins.length > 0) {
+      await pool.query('DELETE FROM platform_admins WHERE id = ANY($1::uuid[])', [
+        platformAdmins.splice(0),
+      ]);
+    }
   });
+
+  // A freshly migrated database has no platform admin (the root admin comes from seeding), so make one when there is none.
+  async function anyPlatformAdmin(): Promise<string> {
+    const { rows: existing } = await pool.query<{ id: string }>(
+      `SELECT id FROM platform_admins LIMIT 1`
+    );
+    if (existing[0]) {
+      return existing[0].id;
+    }
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO platform_admins (email, status) VALUES ($1, 'active') RETURNING id`,
+      [`db-spec-${Math.random().toString(36).slice(2)}@example.test`]
+    );
+    const id = rows[0]?.id as string;
+    platformAdmins.push(id);
+    return id;
+  }
 
   async function newTenant(status = 'active'): Promise<string> {
     const { rows } = await pool.query<{ id: string }>(
@@ -358,6 +382,176 @@ describeWithDb('repositories against a real database', () => {
       expect(page.total).toBe(3);
       expect(page.rows).toHaveLength(2);
       expect(rest.rows).toHaveLength(1);
+    });
+  });
+
+  describe('TenantSubscriptionsRepository.advanceEventClock', () => {
+    const subscribedTenant = async (): Promise<string> => {
+      const { rows: plans } = await pool.query<{ id: string }>(
+        `SELECT id FROM billing_plans WHERE code = 'free'`
+      );
+      const tenantId = await newTenant();
+      await pool.query('INSERT INTO tenant_subscriptions (tenant_id, plan_id) VALUES ($1, $2)', [
+        tenantId,
+        plans[0]?.id,
+      ]);
+      return tenantId;
+    };
+
+    it('lets the first event through and rejects anything older than the newest applied', async () => {
+      const repo = new TenantSubscriptionsRepository(dbService);
+      const tenantId = await subscribedTenant();
+
+      await expect(repo.advanceEventClock(tenantId, '2026-09-01T10:00:00.000Z')).resolves.toBe(
+        true
+      );
+      await expect(repo.advanceEventClock(tenantId, '2026-09-01T10:05:00.000Z')).resolves.toBe(
+        true
+      );
+      // A late delivery of something that happened before the newest applied event.
+      await expect(repo.advanceEventClock(tenantId, '2026-09-01T10:02:00.000Z')).resolves.toBe(
+        false
+      );
+
+      const { rows } = await pool.query(
+        'SELECT stripe_last_event_at FROM tenant_subscriptions WHERE tenant_id = $1',
+        [tenantId]
+      );
+      const row = rows[0] as { stripe_last_event_at: string };
+      expect(new Date(row.stripe_last_event_at).toISOString()).toBe('2026-09-01T10:05:00.000Z');
+    });
+
+    it('treats an event from the same second as current, since there is no order to recover', async () => {
+      const repo = new TenantSubscriptionsRepository(dbService);
+      const tenantId = await subscribedTenant();
+
+      await repo.advanceEventClock(tenantId, '2026-09-01T10:00:00.000Z');
+
+      await expect(repo.advanceEventClock(tenantId, '2026-09-01T10:00:00.000Z')).resolves.toBe(
+        true
+      );
+    });
+
+    it('reports false for a tenant with no subscription row', async () => {
+      const repo = new TenantSubscriptionsRepository(dbService);
+      const tenantId = await newTenant();
+
+      await expect(repo.advanceEventClock(tenantId, '2026-09-01T10:00:00.000Z')).resolves.toBe(
+        false
+      );
+    });
+  });
+
+  describe('AdminBusinessesRepository — repeated actions', () => {
+    it('reports whether a status change changed anything', async () => {
+      const repo = new AdminBusinessesRepository(dbService);
+      const tenantId = await newTenant('active');
+
+      await expect(repo.setStatus({ tenantId, status: TenantStatus.SUSPENDED })).resolves.toEqual({
+        outcome: 'updated',
+        changed: true,
+      });
+      await expect(repo.setStatus({ tenantId, status: TenantStatus.SUSPENDED })).resolves.toEqual({
+        outcome: 'updated',
+        changed: false,
+      });
+      await expect(repo.setStatus({ tenantId, status: TenantStatus.ACTIVE })).resolves.toEqual({
+        outcome: 'updated',
+        changed: true,
+      });
+    });
+
+    it('does not restart the grace period when erasure is requested again', async () => {
+      const repo = new AdminBusinessesRepository(dbService);
+      const tenantId = await newTenant('active');
+
+      await expect(repo.requestErasure(tenantId)).resolves.toBe('requested');
+      const first = await pool.query(`SELECT erasure_requested_at FROM tenants WHERE id = $1`, [
+        tenantId,
+      ]);
+      await expect(repo.requestErasure(tenantId)).resolves.toBe('already_requested');
+      const second = await pool.query(`SELECT erasure_requested_at FROM tenants WHERE id = $1`, [
+        tenantId,
+      ]);
+
+      expect(second.rows[0].erasure_requested_at).toEqual(first.rows[0].erasure_requested_at);
+    });
+
+    it("takes over an owner's own pending request, since it removes the owner's right to restore", async () => {
+      const repo = new AdminBusinessesRepository(dbService);
+      const tenantId = await newTenant('active');
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO users (tenant_id, email, name, role, status)
+         VALUES ($1, $2, 'Owner', 'owner', 'active') RETURNING id`,
+        [tenantId, `owner-${Math.random().toString(36).slice(2)}@example.test`]
+      );
+      await pool.query(
+        `UPDATE tenants SET erasure_requested_at = now(), erasure_requested_by_user_id = $2 WHERE id = $1`,
+        [tenantId, rows[0]?.id]
+      );
+
+      await expect(repo.requestErasure(tenantId)).resolves.toBe('requested');
+
+      const after = await pool.query(
+        `SELECT erasure_requested_by_user_id FROM tenants WHERE id = $1`,
+        [tenantId]
+      );
+      expect(after.rows[0].erasure_requested_by_user_id).toBeNull();
+    });
+
+    it('reports an unknown or already erased tenant as not found', async () => {
+      const repo = new AdminBusinessesRepository(dbService);
+      const erased = await newTenant('active');
+      await pool.query(`UPDATE tenants SET status = 'erased' WHERE id = $1`, [erased]);
+
+      await expect(repo.requestErasure('00000000-0000-0000-0000-000000000000')).resolves.toBe(
+        'not_found'
+      );
+      await expect(repo.requestErasure(erased)).resolves.toBe('not_found');
+    });
+
+    it('cancels a pending erasure once, then has nothing left to cancel', async () => {
+      const repo = new AdminBusinessesRepository(dbService);
+      const tenantId = await newTenant('active');
+      await repo.requestErasure(tenantId);
+
+      await expect(repo.cancelErasure(tenantId)).resolves.toBe(true);
+      await expect(repo.cancelErasure(tenantId)).resolves.toBe(false);
+    });
+  });
+
+  describe('ReviewSyncRepository — noting a rate-limit wait', () => {
+    it('stores the note and a heartbeat on a running run, and leaves a finished run alone', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const run = async (status: string): Promise<string> => {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO sync_runs (tenant_id, location_id, "trigger", status, updated_at)
+           VALUES ($1, $2, 'scheduled', $3::sync_run_status, now() - interval '5 minutes') RETURNING id`,
+          [tenantId, locationId, status]
+        );
+        return rows[0]?.id as string;
+      };
+      const finished = await run('ok');
+      await repo.noteSyncRunWaiting(finished, 'waiting');
+      const untouched = await pool.query('SELECT error_message FROM sync_runs WHERE id = $1', [
+        finished,
+      ]);
+      expect(untouched.rows[0].error_message).toBeNull();
+
+      const running = await run('running');
+      await repo.noteSyncRunWaiting(running, 'waiting for Google');
+
+      const { rows } = await pool.query(
+        `SELECT status, error_message, updated_at > now() - interval '1 minute' AS fresh FROM sync_runs WHERE id = $1`,
+        [running]
+      );
+      expect(rows[0]).toMatchObject({
+        status: 'running',
+        error_message: 'waiting for Google',
+        fresh: true,
+      });
     });
   });
 
@@ -875,10 +1069,7 @@ describeWithDb('repositories against a real database', () => {
         `UPDATE tenants SET erasure_requested_at = now() - interval '1 day' WHERE id = $1`,
         [tenantId]
       );
-      const { rows: admins } = await pool.query<{ id: string }>(
-        `SELECT id FROM platform_admins LIMIT 1`
-      );
-      const adminId = admins[0]?.id as string;
+      const adminId = await anyPlatformAdmin();
 
       await receipts.insertIfNew(receipt(tenantId, 'in_q', new Date().toISOString()));
       await receipts.insertIfNew({ ...receipt(tenantId, 'in_old', '2026-01-01T00:00:00Z') });

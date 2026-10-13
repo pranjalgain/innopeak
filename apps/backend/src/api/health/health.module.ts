@@ -6,12 +6,11 @@ import { TerminusModule } from '@nestjs/terminus';
 import { RedisModule } from '@redis/redis.module';
 
 import { CustomDatabaseHealthIndicator } from './custom-database-health.indicator';
-import { CustomHttpHealthIndicator } from './custom-http-health.indicator';
 
 @Module({
   imports: [TerminusModule, DBModule, RedisModule],
   controllers: [HealthController],
-  providers: [HealthService, CustomHttpHealthIndicator, CustomDatabaseHealthIndicator],
+  providers: [HealthService, CustomDatabaseHealthIndicator],
   exports: [HealthService],
 })
 export class HealthModule {}

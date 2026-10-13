@@ -161,7 +161,11 @@ reject it anyway, so raise the mapping error where it can be logged usefully.
 - **429 / quota exhaustion** — `listReviewsWithBackoff`, also shared with backfill: retries with
   Google's `Retry-After` (or a default, capped) within the run, bounded by `RATE_LIMIT_MAX_RETRIES`,
   then lets the error propagate to close the run as `error`. Never flips the connection to
-  `needs_reauth` — only a `ProviderAuthError` does that.
+  `needs_reauth` — only a `ProviderAuthError` does that. The run stays `running` while it waits, so each wait writes a
+  note onto it (`sync_runs.error_message`, tagged `SYNC_WAITING_FOR_RATE_LIMIT`: seconds, attempt, max) and refreshes
+  `updated_at`, the heartbeat the stale-run reclaim reads; the note is replaced when the run ends (null on success, the
+  real error otherwise). The deleted-review check reads Google through the same backoff but has no run of its own, so it
+  writes no note.
 - **Partial page failure** — reviews already upserted stay upserted, same idempotent-upsert
   guarantee as backfill. `reviewsFetched` (and, on success, `last_review_synced_at`) reflect only
   what a run actually committed, not what it intended to fetch — a partial run is visibly partial,
@@ -242,7 +246,10 @@ reject it anyway, so raise the mapping error where it can be logged usefully.
   `accounts/…/locations/…` path: only if that path still answers is the `404` the review's own. (A
   location-only lookup would not do: it ignores the account, so a location moved to another account
   would still look reachable.) (A location that is gone too fails the reply with `POST_FAILED_LOCATION_UNAVAILABLE` and marks
-  nothing.) The post worker then sets `reviews.removed_upstream_at` and `reviews.status = 'removed'`, and
+  nothing.) A stored credential this node cannot read at all (`CredentialReferenceUnresolvableError`, e.g. issued by
+  another store after a deployment-target change) fails the reply with `POST_FAILED_RECONNECT`, the same reason as a
+  dead grant, but without flagging the connection as needing re-auth: the grant may be fine, only reconnecting issues a
+  credential this node can read. The post worker then sets `reviews.removed_upstream_at` and `reviews.status = 'removed'`, and
   fails the reply with
   `POST_FAILED_REVIEW_REMOVED` instead of Google's raw error, without retrying. From then on post,
   retry-post and manual reply answer `409 REVIEW_REMOVED_UPSTREAM`, and the dashboard shows the
@@ -1036,8 +1043,8 @@ via `isAwsDeploymentTarget()` evaluated at module-definition time:
   entry, not just an enum value.
 - **Failure visibility.** Locally, `@OnWorkerEvent('failed')` / `'stalled'` / `'error'` handlers
   push into `DeadLetterQueueService`; in aws mode `SqsQueueConsumerBase.onProcessingFailed()` is
-  overridden to do the same, so the dev-tools DLQ panel has equivalent metadata either way. Bull
-  Board (`/admin/queues`) is local-only; aws mode gets the SQS queue-depth panel instead.
+  overridden to do the same, so the dead-letter metadata is equivalent either way. Bull
+  Board (`/admin/queues`) is local-only; the SQS queue-depth dev-tools panel was removed.
 - **Job options.** `DEFAULT_JOB_OPTIONS` is 3 attempts, exponential backoff from 60s,
   `removeOnComplete` after a day, `removeOnFail` after a week. Overrides go per publish through
   `PublishOptions` (`attempts`, `backoffDelayMs`).

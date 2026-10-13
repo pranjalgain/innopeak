@@ -61,6 +61,35 @@ describe('PendingAccountChoiceService', () => {
     return module.get(PendingAccountChoiceService);
   }
 
+  // The fallback key is derived from a string that is public in this repository.
+  describe('without any key material', () => {
+    const original = process.env['NODE_ENV'];
+    afterEach(() => {
+      process.env['NODE_ENV'] = original;
+    });
+
+    it('refuses to start in production', async () => {
+      process.env['NODE_ENV'] = 'production';
+
+      await expect(build({})).rejects.toThrow('GBP_STATE_SECRET must be set in production');
+    });
+
+    it('still works locally, where nothing is set', async () => {
+      process.env['NODE_ENV'] = 'development';
+      const target = await build({});
+
+      await target.save('tenant-1', choice);
+
+      await expect(target.peek('tenant-1')).resolves.toEqual(choice);
+    });
+
+    it('uses the state secret in production when it is set', async () => {
+      process.env['NODE_ENV'] = 'production';
+
+      await expect(build({ GBP_STATE_SECRET: 'a-real-secret-0123456789' })).resolves.toBeDefined();
+    });
+  });
+
   it('round-trips the accounts and the grant, reviving the expiry as a Date', async () => {
     const target = await build({ CREDENTIAL_ENCRYPTION_KEY: KEY_A });
 

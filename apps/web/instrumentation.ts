@@ -1,7 +1,9 @@
+import * as Sentry from "@sentry/nextjs";
 import { NextRequest } from "next/server";
 
-import * as Sentry from "@sentry/nextjs";
 import { EventEmitter } from "node:events";
+
+import { safeRequestHeaders } from "@/app/_libs/utils/sentry-options";
 
 // Sentry's Node auto-instrumentation adds its own `close`/`finish` listeners on top of Next's own,
 // past the default cap of 10 per `ServerResponse` — a fixed, known interaction with tracesSampleRate: 1
@@ -18,11 +20,6 @@ export async function register(): Promise<void> {
   }
 }
 
-interface PostHogCookieData {
-  distinct_id: string;
-  [key: string]: unknown;
-}
-
 export const onRequestError = async (
   error: unknown,
   request: NextRequest | Request,
@@ -34,33 +31,11 @@ export const onRequestError = async (
     [key: string]: unknown;
   },
 ): Promise<void> => {
-  if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { captureServerException } = await import("@/app/_libs/utils/posthog-server");
-
-    let distinctId: string | null = null;
-    const cookieString = request?.headers instanceof Headers ? request.headers.get("cookie") : null;
-    if (cookieString) {
-      const postHogCookieMatch = cookieString.match(/ph_phc_.*?_posthog=([^;]+)/);
-
-      if (postHogCookieMatch && postHogCookieMatch[1]) {
-        try {
-          const decodedCookie = decodeURIComponent(postHogCookieMatch[1]);
-          const postHogData = JSON.parse(decodedCookie) as PostHogCookieData;
-          distinctId = postHogData.distinct_id;
-        } catch (e) {
-          console.error("Error parsing PostHog cookie:", e);
-        }
-      }
-    }
-
-    await captureServerException(error, distinctId || undefined);
-  }
-
-  // Convert request to RequestInfo format expected by Sentry
+  // Convert request to RequestInfo format expected by Sentry. Allow-listed headers only: the full set carries the session cookies.
   const requestInfo = {
     path: request instanceof NextRequest ? request.nextUrl.pathname : new URL(request.url).pathname,
     method: request.method,
-    headers: Object.fromEntries(request.headers.entries()),
+    headers: safeRequestHeaders(request.headers),
   };
 
   // Ensure required properties are strings, provide defaults if undefined

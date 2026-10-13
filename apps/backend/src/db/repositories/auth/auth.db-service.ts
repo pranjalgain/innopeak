@@ -22,6 +22,7 @@ import type {
   SetActiveLocationIdInput,
   SignupInput,
   SignupResult,
+  SsoEmailLinkResult,
   SsoIdentityLookup,
   TenantMemberRow,
   TenantRow,
@@ -154,8 +155,13 @@ export class AuthDbService {
     provider: SsoProvider;
     providerUserId: string;
     email: string;
-  }): Promise<SsoIdentityLookup> {
+  }): Promise<SsoEmailLinkResult> {
     const byEmail = await this.authRepository.findUserByEmail(input.email);
+    // An invitee has no identity, password or verified address yet: signing them in here would skip the invite's plan-limit check
+    // and leave a live session on a row that revoking or re-sending the invite deletes. Only the invite link accepts it.
+    if (byEmail?.status === UserStatus.INVITED) {
+      return { kind: 'invited' };
+    }
     if (byEmail) {
       // Google verified the address, so linking also finishes a signup stalled at the OTP screen
       // (otherwise it stays pending_verification forever).

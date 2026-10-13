@@ -1,10 +1,14 @@
 import { AiReplyGenerationService } from '@ai/ai-reply-generation.service';
+import { MESSAGES } from '@common/constants/messages.constants';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Test } from '@nestjs/testing';
 import { ReviewClassificationService } from '@review-pipeline/review-classification.service';
-import { ProviderNotFoundError } from '@review-provider/errors/provider.error';
+import {
+  ProviderNotFoundError,
+  ProviderRateLimitError,
+} from '@review-provider/errors/provider.error';
 import { ProviderCredentialService } from '@review-provider/provider-credential.service';
 import { ReviewProvider } from '@review-provider/providers/review-provider.provider';
 
@@ -46,6 +50,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
   const importPollPage = jest.fn();
   const completeRun = jest.fn();
   const recordProgress = jest.fn();
+  const noteRunWaiting = jest.fn();
   const classifyPendingReviews = jest.fn();
   const generateForClassifiedReviews = jest.fn();
 
@@ -97,6 +102,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
     });
     updateLocationDetails.mockResolvedValue(undefined);
     markReviewsReconciled.mockResolvedValue(undefined);
+    noteRunWaiting.mockResolvedValue(undefined);
     findOpenReviewsForReconciliation.mockResolvedValue([]);
     markReviewsRemovedUpstream.mockResolvedValue(0);
     restoreRelistedReviews.mockResolvedValue(0);
@@ -125,6 +131,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
             importPollPage,
             completeRun,
             recordProgress,
+            noteRunWaiting,
             findOpenReviewsForReconciliation,
             markReviewsRemovedUpstream,
             restoreRelistedReviews,
@@ -255,6 +262,69 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
     expect(listReviews).toHaveBeenCalledTimes(2);
     expect(importPollPage).toHaveBeenCalledTimes(2);
+  });
+
+  describe('rate limiting by Google', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('notes the wait on the run (so it is not mistaken for a hung one), then finishes once Google answers', async () => {
+      findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
+        lastReviewSyncedAt: null,
+      });
+      listReviews
+        .mockRejectedValueOnce(new ProviderRateLimitError('quota', 30))
+        .mockResolvedValueOnce(page({ reviews: [review({ externalReviewId: 'ext-1' })] }));
+
+      const running = service.runPoll(job);
+      await jest.advanceTimersByTimeAsync(30_000);
+      await running;
+
+      expect(noteRunWaiting).toHaveBeenCalledTimes(1);
+      expect(noteRunWaiting).toHaveBeenCalledWith(
+        'run-1',
+        MESSAGES.REVIEWS.SYNC_WAITING_FOR_RATE_LIMIT(30, 1, 3)
+      );
+      expect(completeRun).toHaveBeenCalledWith(
+        expect.objectContaining({ syncRunId: 'run-1', status: SyncRunStatus.OK })
+      );
+    });
+
+    it('still waits and retries when the note cannot be written', async () => {
+      findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
+        lastReviewSyncedAt: null,
+      });
+      noteRunWaiting.mockRejectedValue(new Error('db down'));
+      listReviews
+        .mockRejectedValueOnce(new ProviderRateLimitError('quota', 5))
+        .mockResolvedValueOnce(page({ reviews: [review({ externalReviewId: 'ext-1' })] }));
+
+      const running = service.runPoll(job);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await running;
+
+      expect(listReviews).toHaveBeenCalledTimes(2);
+    });
+
+    it("fails the run with Google's error once the retries run out", async () => {
+      findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
+        lastReviewSyncedAt: null,
+      });
+      listReviews.mockRejectedValue(new ProviderRateLimitError('quota', 10));
+
+      // The job rethrows after recording the failure (BullMQ decides about a retry), so catch it before the clock moves.
+      const outcome = service.runPoll(job).catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(40_000);
+
+      await expect(outcome).resolves.toBeInstanceOf(ProviderRateLimitError);
+      expect(noteRunWaiting).toHaveBeenCalledTimes(3);
+      expect(completeRun).toHaveBeenCalledWith(
+        expect.objectContaining({ syncRunId: 'run-1', status: SyncRunStatus.ERROR })
+      );
+    });
   });
 
   /** `page.totalCount` is the lifetime count; writing it made poll rows read "3 fetched / 2000 total". */

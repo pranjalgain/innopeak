@@ -66,6 +66,8 @@ export enum SsoAuthFailure {
   NO_ACCOUNT = 'NO_ACCOUNT',
   /** The matched account is disabled, or its tenant is suspended. */
   ACCOUNT_UNAVAILABLE = 'ACCOUNT_UNAVAILABLE',
+  /** The address belongs to a pending team invite; it can only be accepted from the invite link. */
+  INVITE_REQUIRED = 'INVITE_REQUIRED',
   /** The provider's client id / secret / callback URL are not configured on this server. */
   NOT_CONFIGURED = 'NOT_CONFIGURED',
   /** `ADMIN_INVITE`/`INVITE`: the invite token was never valid, already accepted, or has expired. */

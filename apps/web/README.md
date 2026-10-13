@@ -76,8 +76,7 @@ With this template, you get the following out of the box:
 
 ### 📊 **Analytics & Monitoring**
 
-- 📈 **Analytics-ready**: [PostHog](https://posthog.com), [Vercel Analytics](https://vercel.com/analytics), [Speed Insights](https://vercel.com/docs/speed-insights), and a [GTM](https://tagmanager.google.com) proxy
-- 🧪 **Feature flags & experiments**: PostHog-ready homepage demo with a clear fallback until configured
+- 🚫 **No analytics**: no tracker, tag manager or consent banner ships; adding one means adding consent handling with it
 - 🛡️ **Error tracking-ready**: [Sentry](https://sentry.io) integration points for client, server, and edge runtimes
 
 ### 🛠️ **Developer Experience**
@@ -346,8 +345,7 @@ sequenceDiagram
 ### Key Flow Highlights:
 
 - **🔒 Type-Safe Environment**: Runtime configuration validated with Zod
-- **📊 Optional Telemetry**: PostHog, Sentry, GTM, and Vercel integrations are ready for credentials
-- **🎯 Feature Flags**: PostHog flag demo includes a safe unconfigured fallback
+- **📊 Optional error reporting**: Sentry only, off unless `NEXT_PUBLIC_SENTRY_DSN` is set
 - **🚨 Error Handling**: Branded boundaries with optional client, server, and edge reporting
 - **🔌 API Documentation**: Auto-generated OpenAPI docs with Scalar UI
 - **🗄️ Multi-Database**: Drizzle scaffolding for SQLite, PostgreSQL, and MySQL
@@ -356,13 +354,8 @@ sequenceDiagram
 
 ## 📡 Observability & Analytics
 
-- **PostHog**: Optional analytics, session replays, heatmaps, and feature flags.
-  - Proxied via Next rewrites to `/ingest` to reduce ad‑blocker impact.
-  - Client and server hooks activate when the required keys are configured.
 - **Sentry**: Optional error tracking for client, server, and edge.
   - Production source-map upload requires `SENTRY_AUTH_TOKEN`; events can use the `/monitoring` tunnel.
-- **Vercel Analytics** and **Speed Insights** are wired in.
-- **Google Tag Manager**: Rendered only when `NEXT_PUBLIC_GTM_KEY` is set, with proxied endpoints such as `/gm`.
 
 ---
 
@@ -399,19 +392,13 @@ DB_DIALECT="sqlite"
 DATABASE_URL="./your-app.db"
 ```
 
-### 📊 With Analytics (Optional)
+### 📊 With Error Reporting (Optional)
 
-Add these if you want analytics and error tracking:
+Add these if you want error tracking:
 
 ```bash
-# PostHog (analytics & feature flags)
-NEXT_PUBLIC_POSTHOG_KEY="your-posthog-key"
-
 # Sentry (error tracking)
 SENTRY_AUTH_TOKEN="your-sentry-token"
-
-# Google Tag Manager (optional)
-NEXT_PUBLIC_GTM_KEY="your-gtm-id"
 ```
 
 ### 🗄️ Database Options
@@ -451,14 +438,8 @@ NEXT_PUBLIC_APP_DESCRIPTION="Your app description"
 NEXT_PUBLIC_APP_CATEGORY="Your category"
 NEXT_PUBLIC_APP_KEYWORDS="your,keywords,here"
 
-# Analytics (all optional for development)
-NEXT_PUBLIC_GTM_KEY=""
-POSTHOG_API_KEY=""
-POSTHOG_ENV_ID=""
-NEXT_PUBLIC_POSTHOG_KEY=""
-NEXT_PUBLIC_POSTHOG_HOST="https://eu.i.posthog.com"
-NEXT_PUBLIC_POSTHOG_INGEST="/ingest"
-NEXT_PUBLIC_POSTHOG_ENVIRONMENT="development"
+# Error reporting (optional for development)
+NEXT_PUBLIC_SENTRY_DSN=""
 SENTRY_AUTH_TOKEN=""
 
 # Database

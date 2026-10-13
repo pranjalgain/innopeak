@@ -8,21 +8,10 @@ import { Pagination } from "@/components/common/pagination";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
+  PLATFORM_ACTIVITY_FILTER_TYPES,
   type PlatformActivityFilter,
   useAdminPlatformActivityLog,
 } from "@/hooks/admin/use-admin-platform-activity-log";
-import type { PlatformActivityType } from "@/types/domain";
-
-const PLATFORM_ACTIVITY_TYPES: PlatformActivityType[] = [
-  "business_suspended",
-  "business_reactivated",
-  "admin_invite_sent",
-  "admin_invite_revoked",
-  "admin_disabled",
-  "admin_enabled",
-  "user_activated",
-  "user_deactivated",
-];
 
 /**
  * Paginated platform-admin action history; unlike the Overview's `ActivityLogCard` it has no
@@ -65,7 +54,7 @@ export function PlatformActivityLogCard() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t("filters.all")}</SelectItem>
-            {PLATFORM_ACTIVITY_TYPES.map((type) => (
+            {PLATFORM_ACTIVITY_FILTER_TYPES.map((type) => (
               <SelectItem key={type} value={type}>
                 {t(`filters.types.${type}`)}
               </SelectItem>

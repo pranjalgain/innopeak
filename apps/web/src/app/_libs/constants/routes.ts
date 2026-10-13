@@ -1,8 +1,5 @@
 export const ROUTES = {
   HOME: "/",
-  REFERENCE: "/reference",
-  SENTRY_EXAMPLE: "/sentry-example-page",
-  USERS: "/users",
   LOGIN: "/login",
   // Deliberately not /admin/login: a path under /admin/* could suggest it is inside the guarded
   // admin shell when it must be public.
@@ -24,9 +21,4 @@ export const ROUTES = {
   ADMIN_SETTINGS: "/admin/settings",
   FORBIDDEN: "/forbidden",
   UNAUTHORIZED: "/unauthorized",
-} as const;
-
-export const EXTERNAL_LINKS = {
-  REPOSITORY: "https://git.geekyants.com/geekyants/coe-grp/boilerplates/frontend/nextjs",
-  SENTRY_NEXTJS_DOCS: "https://docs.sentry.io/platforms/javascript/guides/nextjs/",
 } as const;

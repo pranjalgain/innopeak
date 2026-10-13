@@ -2,7 +2,7 @@ import type { NotificationRecipientDto, UpdateTenantSettingsDto } from "@innopea
 
 import { settingsApi } from "@/app/_libs/api-sdk/settings-api";
 import { unwrap } from "@/app/_libs/services/api-error";
-import { ConnectionService } from "@/app/_libs/services/connection.service";
+import { ConnectionService, type ConnectionState } from "@/app/_libs/services/connection.service";
 import type {
   BlocklistTerm,
   ConnectionInfo,
@@ -69,13 +69,16 @@ function mapNotificationRecipient(dto: NotificationRecipientDto): NotificationRe
 
 /** No add/remove route for notification recipients yet (list and per-row edits only), matching the shipped UI. */
 export class SettingsService {
-  static async getSettings(): Promise<SettingsData> {
+  /** `loadConnection` lets a caller with a query cache supply the connection it already holds instead of fetching it again. */
+  static async getSettings(
+    loadConnection: () => Promise<ConnectionState> = () => ConnectionService.getState(),
+  ): Promise<SettingsData> {
     // Connection state is best-effort so a failure does not blank Settings; the others are not caught, since an empty list would read as "you have none".
     const [blocklist, general, recipients, state] = await Promise.all([
       this.listBlocklistTerms(),
       this.getGeneralSettings(),
       this.listNotificationRecipients(),
-      ConnectionService.getState().catch(() => null),
+      loadConnection().catch(() => null),
     ]);
 
     // Resolved live from GET /v1/connections so this tab cannot disagree with the dashboard guard. `needs_reauth` narrows to

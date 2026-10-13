@@ -74,17 +74,13 @@ export class ReviewSyncProcessor extends WorkerHost {
     });
   }
 
+  /**
+   * BullMQ emits `(jobId, previousState)` here, not the job. A stalled job is either re-queued (the worker that held its lock
+   * died) or, past `maxStalledCount`, failed, which the `failed` handler already forwards to the dead-letter queue, so this only
+   * logs: writing it to the DLQ as well filed a job that was about to be retried, with an empty id, name and payload.
+   */
   @OnWorkerEvent('stalled')
-  async onStalled(job: Job<IReviewSyncJob, void, JobName>): Promise<void> {
-    this.logger.error(`Job ${job.id} has been stalled`);
-
-    await this.dlqService.addFailedJobToDLQ({
-      originalQueueName: QueueName.REVIEW_SYNC,
-      originalJobId: job.id ?? '',
-      originalJobName: job.name,
-      originalJobData: job.data,
-      failedReason: `Job stalled for too long. Current attempts: ${job.attemptsMade}`,
-      timestamp: Date.now(),
-    });
+  onStalled(jobId: string): void {
+    this.logger.error(`Job ${jobId} has been stalled`);
   }
 }

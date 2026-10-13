@@ -1,13 +1,19 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
-import { useDebouncedValue } from "@/hooks/common/use-debounced-value";
+import { parseChoiceParam, useUrlQueryState } from "@/hooks/common/use-url-query-state";
+import { useUrlSearchPage } from "@/hooks/common/use-url-search-page";
 import { useConnection } from "@/hooks/connections/use-connection";
-import type { Review, ReviewQueueFilters } from "@/types/domain";
+import type {
+  Review,
+  ReviewClassification,
+  ReviewQueueFilters,
+  ReviewStatus,
+} from "@/types/domain";
 
 interface UseReviewQueueResult {
   reviews: Review[];
@@ -27,11 +33,22 @@ interface UseReviewQueueResult {
   goToNextPage: () => void;
 }
 
-const INITIAL_FILTERS: ReviewQueueFilters = {
-  status: "all",
-  classification: "all",
-  search: "",
-};
+const STATUS_VALUES: readonly ReviewStatus[] = [
+  "new",
+  "in_review",
+  "responded",
+  "dismissed",
+  "removed",
+];
+const CLASSIFICATION_VALUES: readonly ReviewClassification[] = [
+  "auto_reply_candidate",
+  "escalated",
+];
+
+/** A filter value from the URL, or `"all"` when it is missing or not one the queue offers (a stale or hand-edited link). */
+function filterFromUrl<T extends string>(raw: string | null, allowed: readonly T[]): T | "all" {
+  return parseChoiceParam(raw, allowed) ?? "all";
+}
 
 /** Matches the page the list actually renders — pagination is server-side, not a display slice. */
 const PAGE_SIZE = 10;
@@ -54,28 +71,42 @@ export function useReviewQueue(): UseReviewQueueResult {
   const t = useTranslations("reviewQueue.toasts");
   const { state, isLoading: isResolvingLocation } = useConnection();
   const locationId = state?.location?.id ?? null;
-  const [page, setPageState] = useState(1);
-  const [filters, setFilters] = useState<ReviewQueueFilters>(INITIAL_FILTERS);
+  // Filters, search and page live in the URL (`?status=new&q=term&page=2`), so Back/Forward and a reload keep your place.
+  const { searchParams, update } = useUrlQueryState();
+  const status = filterFromUrl(searchParams.get("status"), STATUS_VALUES);
+  const classification = filterFromUrl(searchParams.get("classification"), CLASSIFICATION_VALUES);
   // Only `search` is debounced. The two dropdowns are discrete choices a user makes once, so
   // delaying them would just feel unresponsive.
-  const debouncedSearch = useDebouncedValue(filters.search, SEARCH_DEBOUNCE_MS);
+  const {
+    search,
+    setSearch,
+    debouncedSearch,
+    page,
+    setPage: setPageInUrl,
+    clampPage,
+  } = useUrlSearchPage(SEARCH_DEBOUNCE_MS);
+  const filters: ReviewQueueFilters = { status, classification, search };
 
-  // A filter or business change invalidates the current page (page 3 may not exist in the new set), so reset it before the
-  // query params change. Adjusted during render, not in an effect: an effect runs after the render, which would already
-  // have issued `page=3&locationId=<new>` and, with `keepPreviousData`, shown the previous business's rows briefly.
-  const paramsKey = `${filters.status}|${filters.classification}|${debouncedSearch}|${locationId ?? ""}`;
-  const [lastParamsKey, setLastParamsKey] = useState(paramsKey);
-  if (lastParamsKey !== paramsKey) {
-    setLastParamsKey(paramsKey);
-    setPageState(1);
-  }
+  // Switching business invalidates the current page (page 3 may not exist for the other one). The first resolution of the
+  // active location (none known yet -> some) is not a switch: a deep link to page 3 must survive it.
+  const lastLocationId = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      lastLocationId.current !== null &&
+      locationId !== null &&
+      lastLocationId.current !== locationId
+    ) {
+      update({ page: null });
+    }
+    if (locationId !== null) lastLocationId.current = locationId;
+  }, [locationId, update]);
 
   const queryParams: ReviewQueueQueryParams = {
     page,
     pageSize: PAGE_SIZE,
     filters: {
-      status: filters.status,
-      classification: filters.classification,
+      status,
+      classification,
       search: debouncedSearch,
     },
     locationId,
@@ -112,16 +143,23 @@ export function useReviewQueue(): UseReviewQueueResult {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const setPage = useCallback(
-    (next: number) => setPageState(Math.min(Math.max(next, 1), totalPages)),
-    [totalPages],
+    (next: number) => setPageInUrl(Math.min(Math.max(next, 1), totalPages)),
+    [setPageInUrl, totalPages],
   );
+
+  // A stale `?page=` (an old link, a list that shrank) is pulled back to the last real page.
+  useEffect(() => {
+    if (reviewsQuery.data) clampPage(totalPages);
+  }, [reviewsQuery.data, totalPages, clampPage]);
 
   return {
     reviews: reviewsQuery.data?.reviews ?? [],
     filters,
-    setStatus: (status) => setFilters((prev) => ({ ...prev, status })),
-    setClassification: (classification) => setFilters((prev) => ({ ...prev, classification })),
-    setSearch: (search) => setFilters((prev) => ({ ...prev, search })),
+    // A new filter can leave the current page out of range, so it always starts again from page 1.
+    setStatus: (next) => update({ status: next === "all" ? null : next, page: null }),
+    setClassification: (next) =>
+      update({ classification: next === "all" ? null : next, page: null }),
+    setSearch,
     // First load only (no cached data): `isFetching` also flips on every page/filter change, and the view swaps its whole
     // content area to a skeleton while this is true; `keepPreviousData` already covers those. `isResolvingLocation` counts
     // as loading since the query is `enabled: false` until then. `isSwitchingBusiness && isFetching` covers what `isLoading`

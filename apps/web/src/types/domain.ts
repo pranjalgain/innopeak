@@ -429,6 +429,8 @@ export interface PlatformSettings {
    * does not affect a tenant already on the Paid plan.
    */
   paymentFeatureEnabled?: boolean;
+  /** Days between a business being scheduled for erasure and its data being erased: the backend's `ERASURE_GRACE_PERIOD_DAYS`, so deadlines shown in the UI match the nightly purge. */
+  erasureGracePeriodDays?: number;
 }
 
 /** A real `platform_activity_log` action; mirrors the backend's `platform_activity_type` enum exactly. The API does no

@@ -1,6 +1,8 @@
 import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse } from '@common/dto/api-response';
+import type { Locale } from '@common/i18n/locale';
 import { renderMessage } from '@common/i18n/message-registry';
+import { translateValidationMessage } from '@common/i18n/validation-messages';
 import { isProduction } from '@config/deployment-target.util';
 import { LoggerService } from '@logger/logger.service';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
@@ -316,7 +318,8 @@ export class ErrorHandlerService {
     return /[.!?]$/.test(capitalized) ? capitalized : `${capitalized}.`;
   }
 
-  handleBadRequest(error: unknown, context: string): ApiResponse<unknown> {
+  /** `locale` is the caller's; without it the validation sentences stay in English. */
+  handleBadRequest(error: unknown, context: string, locale: Locale = 'en'): ApiResponse<unknown> {
     const responseError = this.asResponseCarryingError(error);
     const responseMessage = responseError?.response?.message;
 
@@ -324,7 +327,9 @@ export class ErrorHandlerService {
       return {
         statusCode: HttpStatus.BAD_REQUEST,
         status: 'Failure',
-        message: responseMessage.map(msg => this.toSentence(msg)).join(' '),
+        message: responseMessage
+          .map(msg => this.toSentence(translateValidationMessage(msg, locale)))
+          .join(' '),
         error: 'Validation Error',
       };
     }

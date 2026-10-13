@@ -102,7 +102,8 @@ never back on `pending_activation` — proceeding to normal operation, not un-su
 onboarding state the tenant may have left long ago. Records a `business_suspended` /
 `business_reactivated` entry to `platform_activity_log` on success (best-effort — see [Admin
 Overview's own note](../admin-overview/overview.md#activity-log-a-purpose-built-write-not-a-generic-audit-trail)
-on why a logging failure never fails the action).
+on why a logging failure never fails the action). Setting the status a business already has is a no-op: the
+response is the same, but no activity entry is written, so a double click leaves one entry, not two.
 
 Request body:
 
@@ -135,6 +136,11 @@ erasure](./overview.md#tenant-erasure-request-and-cancel-platform-admin-only-not
 for the full design (why `suspended` is reused, the advisory-lock coordination with the cron, and
 the activity-log lifecycle). Records a `business_erasure_requested` entry to
 `platform_activity_log` on success.
+
+Asking again while an admin's request is already pending is a no-op: the response is the same, but there is no second
+subscription change, activity entry or "scheduled for deletion" email to the owners, and the grace period is **not**
+restarted. An owner's own pending request is the exception: an admin's request removes the owner's right to restore by
+signing in, so it replaces the owner's and runs the full path.
 
 No request body.
 
@@ -176,8 +182,8 @@ No request body.
 Success `200`: the same `AdminBusinessResponseDto` shape as the list above (`erasureRequestedAt`
 now `null`, `status` back to `active`).
 
-Errors: `401`, `403`, `404` `BUSINESS_NOT_FOUND` (no such tenant, no pending erasure request on it,
-or it's already fully `erased`), `429`.
+Errors: `401`, `403`, `404` `BUSINESS_NOT_FOUND` (no such tenant, or it's already fully `erased`), `409`
+`BUSINESS_ERASURE_NOT_PENDING` (the business exists but has no erasure request to cancel, e.g. a second cancel), `429`.
 
 ## Users
 

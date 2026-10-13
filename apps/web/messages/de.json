@@ -251,7 +251,7 @@
         "validationFailed": "Wir konnten diesen Einladungslink nicht überprüfen. Bitte versuchen Sie es erneut."
       }
     },
-    "passwordMock": {
+    "passwordForm": {
       "emailLabel": "E-Mail",
       "emailPlaceholder": "sie@unternehmen.de",
       "passwordLabel": "Passwort",
@@ -275,6 +275,7 @@
       "ACCESS_DENIED": "Die Anmeldung wurde abgebrochen.",
       "EMAIL_NOT_VERIFIED": "Ihr Google- oder Microsoft-Konto hat diese E-Mail-Adresse nicht verifiziert. Verifizieren Sie sie dort, oder nutzen Sie E-Mail und Passwort.",
       "ACCOUNT_UNAVAILABLE": "Dieses Konto ist nicht verfügbar. Kontaktieren Sie den Support.",
+      "INVITE_REQUIRED": "Sie haben eine ausstehende Einladung. Öffnen Sie den Einladungslink in Ihrer E-Mail, um beizutreten.",
       "PROVIDER_ERROR": "Die Anmeldung beim Anbieter konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
       "NOT_CONFIGURED": "Diese Anmeldemethode ist derzeit nicht verfügbar. Nutzen Sie E-Mail und Passwort.",
       "INVALID_OR_EXPIRED_INVITE": "Dieser Einladungslink ist ungültig oder abgelaufen.",
@@ -620,7 +621,7 @@
           "consequences": {
             "suspended": "Alle Teammitglieder verlieren innerhalb weniger Minuten den Zugriff.",
             "billing": "Ein kostenpflichtiges Abonnement wird nicht mehr verlängert – es endet mit dem bereits bezahlten Zeitraum.",
-            "erased": "Nach {days} Tagen werden das Unternehmen, seine Bewertungen und die Verbindung endgültig gelöscht.",
+            "erased": "Nach {days, plural, one {# Tag} other {# Tagen}} werden das Unternehmen, seine Bewertungen und die Verbindung endgültig gelöscht.",
             "restore": "Bis dahin können Sie alles wiederherstellen, indem Sie sich mit Ihrem Passwort anmelden.",
             "noRestore": "Sie haben sich ohne Passwort angemeldet. Eine Wiederherstellung ist daher nur über den Support vor diesem Datum möglich."
           },
@@ -641,7 +642,7 @@
         },
         "done": {
           "title": "Löschung vorgemerkt",
-          "description": "Ihr Unternehmen wird am {date} ({days} Tage ab jetzt) endgültig gelöscht. Sie wurden abgemeldet.",
+          "description": "Ihr Unternehmen wird am {date} ({days, plural, one {# Tag} other {# Tage}} ab jetzt) endgültig gelöscht. Sie wurden abgemeldet.",
           "canRestore": "Anders entschieden? Melden Sie sich bis dahin mit E-Mail und Passwort an und wählen Sie „Wiederherstellen“.",
           "contactSupport": "Um dies vorher rückgängig zu machen, wenden Sie sich an den Support.",
           "backToSignIn": "Zurück zur Anmeldung"
@@ -729,7 +730,9 @@
         "passwordChanged": "Passwort geändert. Andere Sitzungen wurden abgemeldet.",
         "passwordSet": "Passwort festgelegt. Sie können sich jetzt auch mit einem Passwort anmelden.",
         "otpSent": "Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren.",
-        "tooManyRequests": "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut."
+        "tooManyRequests": "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut.",
+        "avatarTooLarge": "Dieses Bild ist zu groß. Bitte wählen Sie eine Datei unter 10 MB.",
+        "avatarUnsupportedType": "Dieser Dateityp wird nicht unterstützt. Bitte wählen Sie ein JPG-, PNG-, WebP-, GIF-, AVIF-, HEIC- oder BMP-Bild."
       },
       "errors": {
         "currentPasswordRequired": "Geben Sie Ihr aktuelles Passwort ein.",
@@ -830,13 +833,16 @@
         "receiptDownloadFailed": "Der Beleg konnte nicht heruntergeladen werden. Bitte erneut versuchen.",
         "checkoutReconciled": "Zahlung bestätigt — Sie nutzen jetzt den kostenpflichtigen Plan.",
         "checkoutReconcilePending": "Ihre Zahlung wird noch verarbeitet — Ihr Plan wird in Kürze aktualisiert.",
-        "checkoutReconcileFailed": "Wir konnten Ihre Zahlung gerade nicht bestätigen. Laden Sie die Seite neu, um es erneut zu versuchen — falls Sie belastet wurden, wird Ihr Plan in Kürze aktualisiert."
+        "checkoutReconcileFailed": "Wir konnten Ihre Zahlung gerade nicht bestätigen. Laden Sie die Seite neu, um es erneut zu versuchen — falls Sie belastet wurden, wird Ihr Plan in Kürze aktualisiert.",
+        "checkoutReconcileNotFound": "Wir konnten diese Zahlung in Ihrem Konto nicht finden."
       },
       "checkoutStatus": {
         "pendingTitle": "Ihre Zahlung wird noch verarbeitet",
         "pendingDescription": "Wir haben von Stripe noch keine Bestätigung erhalten. Das kann einen Moment dauern. Prüfen Sie es erneut oder schauen Sie später wieder vorbei — falls Sie belastet wurden, wird Ihr Plan automatisch aktualisiert.",
         "failedTitle": "Wir konnten Ihre Zahlung nicht bestätigen",
         "failedDescription": "Stripe war gerade nicht erreichbar. Versuchen Sie es gleich noch einmal — falls Sie belastet wurden, wird Ihr Plan automatisch aktualisiert.",
+        "notFoundTitle": "Wir konnten diese Zahlung nicht finden",
+        "notFoundDescription": "Dieser Checkout-Link gehört zu keiner Zahlung in Ihrem Konto, ein erneutes Prüfen hilft daher nicht. Falls Sie belastet wurden, wird Ihr Plan automatisch aktualisiert, sobald Stripe die Zahlung bestätigt — oder wenden Sie sich an den Support.",
         "checkAgain": "Erneut prüfen",
         "checking": "Wird geprüft…"
       },
@@ -1186,7 +1192,8 @@
       "loadFailed": "Unternehmen konnten nicht geladen werden.",
       "updateFailed": "Dieses Unternehmen konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut.",
       "requestErasureFailed": "Für dieses Unternehmen konnte keine Löschung angefordert werden. Bitte versuchen Sie es erneut.",
-      "cancelErasureFailed": "Die Löschung für dieses Unternehmen konnte nicht abgebrochen werden. Bitte versuchen Sie es erneut."
+      "cancelErasureFailed": "Die Löschung für dieses Unternehmen konnte nicht abgebrochen werden. Bitte versuchen Sie es erneut.",
+      "cancelErasureNotPending": "Für dieses Unternehmen liegt keine ausstehende Löschung vor — sie wurde möglicherweise bereits abgebrochen."
     }
   },
   "adminUsers": {
@@ -1272,7 +1279,9 @@
         "passwordChanged": "Passwort geändert.",
         "passwordSet": "Passwort festgelegt. Sie können sich jetzt auch mit einem Passwort anmelden.",
         "otpSent": "Bestätigungscode gesendet. Prüfen Sie Ihre E-Mails, um fortzufahren.",
-        "tooManyRequests": "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut."
+        "tooManyRequests": "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut.",
+        "avatarTooLarge": "Dieses Bild ist zu groß. Bitte wählen Sie eine Datei unter 10 MB.",
+        "avatarUnsupportedType": "Dieser Dateityp wird nicht unterstützt. Bitte wählen Sie ein JPG-, PNG-, WebP-, GIF-, AVIF-, HEIC- oder BMP-Bild."
       },
       "errors": {
         "currentPasswordRequired": "Geben Sie Ihr aktuelles Passwort ein.",

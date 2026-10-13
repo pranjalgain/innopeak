@@ -128,6 +128,14 @@ describe('ProviderCredentialService.resolveAccessToken — lock release', () => 
     jest.useRealTimers();
   });
 
+  it('drops the cached access token for the connection, and survives Redis failing', async () => {
+    await service.invalidateAccessToken('connection-1');
+    expect(redisDel).toHaveBeenCalledWith('review-credentials:access-token:connection-1');
+
+    redisDel.mockRejectedValueOnce(new Error('redis down'));
+    await expect(service.invalidateAccessToken('connection-1')).resolves.toBeUndefined();
+  });
+
   it('does not delete the refresh lock when it never acquired it', async () => {
     redisSet.mockResolvedValue(null); // NX lost
 

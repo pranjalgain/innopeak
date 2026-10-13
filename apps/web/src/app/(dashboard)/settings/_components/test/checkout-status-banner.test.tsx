@@ -38,6 +38,13 @@ describe("CheckoutStatusBanner", () => {
     expect(screen.getByText(copy.failedTitle)).toBeTruthy();
   });
 
+  test("says the payment was not found, without offering a check that cannot help", () => {
+    renderBanner({ outcome: "notFound" });
+
+    expect(screen.getByText(copy.notFoundTitle)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: copy.checkAgain })).toBeNull();
+  });
+
   test("disables the button while a check is in flight", () => {
     renderBanner({ isChecking: true });
 

@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 
 import { LuTriangleAlert } from "react-icons/lu";
 
-import { ERASURE_GRACE_PERIOD_DAYS } from "@/app/_libs/constants/erasure";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import type { DeleteAccountResult } from "@/app/_libs/services/auth.service";
 import { PasswordInput } from "@/components/common/password-input";
@@ -19,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useErasureGracePeriodDays } from "@/hooks/common/use-erasure-grace-period";
 import { useDownloadTenantExport } from "@/hooks/settings/use-download-tenant-export";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
 
@@ -32,6 +32,7 @@ const DATE_FORMAT = { month: "long", day: "numeric", year: "numeric" } as const;
 export function DeleteBusinessSection() {
   const t = useTranslations("settings.general.deleteBusiness");
   const format = useFormatter();
+  const graceDays = useErasureGracePeriodDays();
   const { profile, requestDeleteAccountOtp, deleteAccount } = useTenantOwnerProfile();
   const exportData = useDownloadTenantExport();
 
@@ -172,7 +173,7 @@ export function DeleteBusinessSection() {
               <ul className="text-muted-foreground list-disc space-y-1 pl-5 text-[13px]">
                 <li>{t("dialog.consequences.suspended")}</li>
                 <li>{t("dialog.consequences.billing")}</li>
-                <li>{t("dialog.consequences.erased", { days: ERASURE_GRACE_PERIOD_DAYS })}</li>
+                <li>{t("dialog.consequences.erased", { days: graceDays })}</li>
                 <li>{usesPassword ? t("dialog.consequences.restore") : t("dialog.consequences.noRestore")}</li>
               </ul>
 

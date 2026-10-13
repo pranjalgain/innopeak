@@ -16,6 +16,7 @@ import { PasswordAuthForm } from "@/app/(auth)/_components/password-auth-form";
 import { SocialAuthButtons } from "@/app/(auth)/_components/social-auth-buttons";
 import { OtpVerificationStage } from "@/app/(auth)/onboarding/signup/_components/otp-verification-stage";
 import { ROUTES } from "@/app/_libs/constants/routes";
+import { readReturnPath } from "@/app/_libs/utils/post-login-redirect";
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/auth/use-auth";
@@ -42,6 +43,12 @@ export function LoginView() {
   const t = useTranslations("auth.login");
   useOAuthErrorToast();
   const router = useRouter();
+
+  /** Back to the page the visitor was headed for before being sent to sign in; onboarding always wins when nothing is connected yet. */
+  const landingPath = (hasConnectedBusiness: boolean): Route =>
+    hasConnectedBusiness
+      ? ((readReturnPath("tenant") ?? ROUTES.DASHBOARD) as Route)
+      : (ROUTES.ONBOARDING_CONNECT as Route);
   const {
     loginWithPassword,
     restoreAccount,
@@ -95,7 +102,7 @@ export function LoginView() {
     // Drops the router cache so the destination renders with the locale cookie sign-in may have
     // just restored (`AuthService.loginWithPassword`); see `AdminLoginView`.
     router.refresh();
-    router.push(result.hasConnectedBusiness ? ROUTES.DASHBOARD : ROUTES.ONBOARDING_CONNECT);
+    router.push(landingPath(result.hasConnectedBusiness));
   };
 
   const leaveRestore = () => {
@@ -118,8 +125,7 @@ export function LoginView() {
     email: pendingEmail,
     verifySignupOtp,
     resendSignupOtp,
-    onVerified: (hasConnectedBusiness) =>
-      router.push(hasConnectedBusiness ? ROUTES.DASHBOARD : ROUTES.ONBOARDING_CONNECT),
+    onVerified: (hasConnectedBusiness) => router.push(landingPath(hasConnectedBusiness)),
   });
 
   return (
@@ -229,7 +235,7 @@ export function LoginView() {
           <OtpVerificationStage
             email={pendingEmail}
             isLoading={isLoading}
-            onVerify={(code) => void handleVerifyOtp(code)}
+            onVerify={handleVerifyOtp}
             onResend={() => void handleResendOtp()}
           />
         )}

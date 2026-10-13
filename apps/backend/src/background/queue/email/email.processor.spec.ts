@@ -171,36 +171,21 @@ describe('EmailProcessor', () => {
   });
 
   describe('onStalled', () => {
-    it('logs the stall and pushes the job to the DLQ', async () => {
-      const job = buildJob({ attemptsMade: 3 });
-
-      await processor.onStalled(job);
-
-      expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          originalQueueName: QueueName.EMAIL,
-          originalJobId: job.id,
-          failedReason: 'Job stalled for too long. Current attempts: 3',
-        })
-      );
+    // BullMQ emits `(jobId, previousState)`; a stalled job is re-queued, or failed and then forwarded by `onFailed`.
+    it('logs the stall from the job id alone and does not write to the DLQ', () => {
+      expect(() => {
+        processor.onStalled('job-123');
+      }).not.toThrow();
+      expect(dlqService.addFailedJobToDLQ).not.toHaveBeenCalled();
     });
   });
 
   describe('onError', () => {
-    it('logs the worker error and pushes it to the DLQ', async () => {
-      const job = buildJob();
-      const error = new Error('worker exploded');
-
-      await processor.onError(job, error);
-
-      expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          originalQueueName: QueueName.EMAIL,
-          originalJobId: job.id,
-          failedReason: 'Processor error: worker exploded',
-          stacktrace: expect.any(Array),
-        })
-      );
+    // BullMQ emits the bare `Error` for worker-level failures such as a lost Redis connection.
+    it('logs a worker error without throwing', () => {
+      expect(() => {
+        processor.onError(new Error('worker exploded'));
+      }).not.toThrow();
     });
   });
 });

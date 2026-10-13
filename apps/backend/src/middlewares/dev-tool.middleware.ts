@@ -1,19 +1,17 @@
 import { ACCESS_TOKEN_COOKIE_NAME, JWT_SIGNING_ALGORITHM } from '@auth/constants/auth.constants';
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
+import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import { RouteNames } from '@common/route-names';
 import type { EnvConfig } from '@config/env.config';
+import type { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import type { ConfigService } from '@nestjs/config';
 import type { JwtService } from '@nestjs/jwt';
-import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
 // Bull Board is an Express sub-app Nest's router doesn't know about, so a `MiddlewareConsumer`
 // binding never attaches to it; the guard is registered as raw Express middleware in `bootstrap.ts`.
 // Swagger (`api`) is deliberately absent: no runtime data, and only mounted outside production.
-const PROTECTED_PREFIXES = [
-  `/${RouteNames.QUEUES_UI}`,
-  `/${RouteNames.DEV_TOOLS}`,
-  `/${RouteNames.HEALTH}/${RouteNames.HEALTH_UI}`,
-];
+const PROTECTED_PREFIXES = [`/${RouteNames.QUEUES_UI}`];
 
 // Case-insensitive because Express routes that way by default: `/Admin/Queues` still reaches Bull Board.
 function isProtectedPath(path: string): boolean {
@@ -46,11 +44,12 @@ function deny(res: Response, statusCode: number, message: string): void {
  */
 export function createOpsToolsGuard(
   jwtService: JwtService,
-  configService: ConfigService<EnvConfig>
-): RequestHandler {
+  configService: ConfigService<EnvConfig>,
+  adminStatuses: Pick<PlatformAdminDbService, 'findStatusById'>
+): (req: Request, res: Response, next: NextFunction) => Promise<void> {
   const secret = configService.get<string>('JWT_SECRET') ?? '';
 
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!isProtectedPath(req.path)) {
       next();
       return;
@@ -62,8 +61,9 @@ export function createOpsToolsGuard(
       return;
     }
 
+    let adminId: string;
     try {
-      const payload = jwtService.verify<{ type?: unknown }>(token, {
+      const payload = jwtService.verify<{ type?: unknown; sub?: unknown }>(token, {
         secret,
         algorithms: [JWT_SIGNING_ALGORITHM],
       });
@@ -71,8 +71,25 @@ export function createOpsToolsGuard(
         deny(res, 403, 'Platform-admin access required.');
         return;
       }
+      if (typeof payload.sub !== 'string') {
+        deny(res, 401, 'Invalid or expired token.');
+        return;
+      }
+      adminId = payload.sub;
     } catch {
       deny(res, 401, 'Invalid or expired token.');
+      return;
+    }
+
+    // A live token is not enough: like `JwtStrategy.validate`, a disabled or deleted admin must lose access at once, not when
+    // their (up to 15-minute) token lapses. Bull Board's job payloads carry email OTPs.
+    try {
+      if ((await adminStatuses.findStatusById(adminId)) !== PlatformAdminStatus.ACTIVE) {
+        deny(res, 403, 'Platform-admin access required.');
+        return;
+      }
+    } catch {
+      deny(res, 503, 'Could not verify the account. Try again.');
       return;
     }
 

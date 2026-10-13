@@ -250,7 +250,6 @@ export function mockReviewsResponse(pageToken?: string): GbpListReviewsResponse 
   };
 }
 
-export const MOCK_REVIEW_TOTAL = TOTAL_REVIEW_COUNT;
 /** Excludes the REJECTED reply, which the mapper does not import. */
 export const MOCK_REVIEWS_WITH_REPLIES = [...PAGE_ONE, ...PAGE_TWO].filter(
   r => r.reviewReply !== undefined && r.reviewReply.reviewReplyState !== 'REJECTED'

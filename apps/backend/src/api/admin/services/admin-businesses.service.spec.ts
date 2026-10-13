@@ -139,6 +139,7 @@ describe('AdminBusinessesService', () => {
     it('maps BusinessStatus.SUSPENDED to the real TenantStatus.SUSPENDED and logs the activity', async () => {
       adminBusinessesDbService.setStatus.mockResolvedValue({
         outcome: 'updated',
+        changed: true,
         summary: { ...summary, status: BusinessStatus.SUSPENDED },
       });
 
@@ -159,7 +160,11 @@ describe('AdminBusinessesService', () => {
 
     // Always lands on TenantStatus.ACTIVE, never pending_activation; both display as BusinessStatus.ACTIVE.
     it('maps BusinessStatus.ACTIVE to the real TenantStatus.ACTIVE and logs the activity', async () => {
-      adminBusinessesDbService.setStatus.mockResolvedValue({ outcome: 'updated', summary });
+      adminBusinessesDbService.setStatus.mockResolvedValue({
+        outcome: 'updated',
+        changed: true,
+        summary,
+      });
 
       await target.setStatus(admin, { tenantId: 'tenant-1', status: BusinessStatus.ACTIVE });
 
@@ -174,6 +179,22 @@ describe('AdminBusinessesService', () => {
         tenantId: 'tenant-1',
         businessName: 'The Coastal Table',
       });
+    });
+
+    it('answers like the first call but logs nothing when the business already had that status', async () => {
+      adminBusinessesDbService.setStatus.mockResolvedValue({
+        outcome: 'updated',
+        changed: false,
+        summary: { ...summary, status: BusinessStatus.SUSPENDED },
+      });
+
+      const result = await target.setStatus(admin, {
+        tenantId: 'tenant-1',
+        status: BusinessStatus.SUSPENDED,
+      });
+
+      expect(result.status).toBe(BusinessStatus.SUSPENDED);
+      expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
     });
 
     it('throws 404 when no such tenant exists, without logging any activity', async () => {
@@ -205,9 +226,12 @@ describe('AdminBusinessesService', () => {
 
     it('requests erasure, logs the activity, and reports the configured grace period', async () => {
       adminBusinessesDbService.requestErasure.mockResolvedValue({
-        ...summary,
-        status: BusinessStatus.SUSPENDED,
-        erasureRequestedAt: '2026-03-05T09:12:00.000Z',
+        outcome: 'requested',
+        summary: {
+          ...summary,
+          status: BusinessStatus.SUSPENDED,
+          erasureRequestedAt: '2026-03-05T09:12:00.000Z',
+        },
       });
       configService.get.mockReturnValue(30);
 
@@ -227,9 +251,12 @@ describe('AdminBusinessesService', () => {
 
     it('schedules the subscription to cancel at period end when erasure is requested', async () => {
       adminBusinessesDbService.requestErasure.mockResolvedValue({
-        ...summary,
-        status: BusinessStatus.SUSPENDED,
-        erasureRequestedAt: '2026-03-05T09:12:00.000Z',
+        outcome: 'requested',
+        summary: {
+          ...summary,
+          status: BusinessStatus.SUSPENDED,
+          erasureRequestedAt: '2026-03-05T09:12:00.000Z',
+        },
       });
 
       await target.requestErasure(admin, 'tenant-1');
@@ -240,7 +267,7 @@ describe('AdminBusinessesService', () => {
     });
 
     it('tells the business owners, attributing the request to a platform administrator', async () => {
-      adminBusinessesDbService.requestErasure.mockResolvedValue(summary);
+      adminBusinessesDbService.requestErasure.mockResolvedValue({ outcome: 'requested', summary });
 
       await target.requestErasure(admin, 'tenant-1');
 
@@ -253,9 +280,12 @@ describe('AdminBusinessesService', () => {
 
     it('still succeeds when Stripe cannot be reached — the purge deletes the customer anyway', async () => {
       adminBusinessesDbService.requestErasure.mockResolvedValue({
-        ...summary,
-        status: BusinessStatus.SUSPENDED,
-        erasureRequestedAt: '2026-03-05T09:12:00.000Z',
+        outcome: 'requested',
+        summary: {
+          ...summary,
+          status: BusinessStatus.SUSPENDED,
+          erasureRequestedAt: '2026-03-05T09:12:00.000Z',
+        },
       });
       billingReconciliationService.scheduleCancellationForErasure.mockRejectedValue(
         new Error('stripe unreachable')
@@ -268,15 +298,35 @@ describe('AdminBusinessesService', () => {
     });
 
     it('defaults the grace period to 21 days when unset', async () => {
-      adminBusinessesDbService.requestErasure.mockResolvedValue(summary);
+      adminBusinessesDbService.requestErasure.mockResolvedValue({ outcome: 'requested', summary });
 
       const result = await target.requestErasure(admin, 'tenant-1');
 
       expect(result.gracePeriodDays).toBe(21);
     });
 
+    it('does nothing more for a repeat request: no subscription change, activity entry or owner email', async () => {
+      adminBusinessesDbService.requestErasure.mockResolvedValue({
+        outcome: 'already_requested',
+        summary: {
+          ...summary,
+          status: BusinessStatus.SUSPENDED,
+          erasureRequestedAt: '2026-03-05T09:12:00.000Z',
+        },
+      });
+      configService.get.mockReturnValue(30);
+
+      const result = await target.requestErasure(admin, 'tenant-1');
+
+      expect(result.business.erasureRequestedAt).toBe('2026-03-05T09:12:00.000Z');
+      expect(result.gracePeriodDays).toBe(30);
+      expect(billingReconciliationService.scheduleCancellationForErasure).not.toHaveBeenCalled();
+      expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
+      expect(erasureNoticeService.notifyScheduled).not.toHaveBeenCalled();
+    });
+
     it('throws 404 when no such tenant exists (or it is already erased), without logging any activity', async () => {
-      adminBusinessesDbService.requestErasure.mockResolvedValue(null);
+      adminBusinessesDbService.requestErasure.mockResolvedValue({ outcome: 'not_found' });
 
       await expect(target.requestErasure(admin, 'missing')).rejects.toThrow(NotFoundException);
       expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
@@ -292,7 +342,7 @@ describe('AdminBusinessesService', () => {
     });
 
     it('cancels erasure and logs the activity', async () => {
-      adminBusinessesDbService.cancelErasure.mockResolvedValue(summary);
+      adminBusinessesDbService.cancelErasure.mockResolvedValue({ outcome: 'cancelled', summary });
 
       await target.cancelErasure(admin, 'tenant-1');
 
@@ -307,7 +357,7 @@ describe('AdminBusinessesService', () => {
     });
 
     it('tells the business owners it was cancelled', async () => {
-      adminBusinessesDbService.cancelErasure.mockResolvedValue(summary);
+      adminBusinessesDbService.cancelErasure.mockResolvedValue({ outcome: 'cancelled', summary });
 
       await target.cancelErasure(admin, 'tenant-1');
 
@@ -318,7 +368,7 @@ describe('AdminBusinessesService', () => {
     });
 
     it('resumes a subscription the erasure set to end', async () => {
-      adminBusinessesDbService.cancelErasure.mockResolvedValue(summary);
+      adminBusinessesDbService.cancelErasure.mockResolvedValue({ outcome: 'cancelled', summary });
 
       await target.cancelErasure(admin, 'tenant-1');
 
@@ -328,7 +378,7 @@ describe('AdminBusinessesService', () => {
     });
 
     it('still succeeds when the resume fails, since the erasure is already cancelled', async () => {
-      adminBusinessesDbService.cancelErasure.mockResolvedValue(summary);
+      adminBusinessesDbService.cancelErasure.mockResolvedValue({ outcome: 'cancelled', summary });
       billingReconciliationService.resumeAfterErasureCancelled.mockRejectedValue(
         new Error('stripe unreachable')
       );
@@ -337,8 +387,17 @@ describe('AdminBusinessesService', () => {
       expect(adminOverviewDbService.recordActivityBestEffort).toHaveBeenCalled();
     });
 
+    it('throws 409, not 404, when the business exists but has no pending erasure', async () => {
+      adminBusinessesDbService.cancelErasure.mockResolvedValue({ outcome: 'not_pending' });
+
+      await expect(target.cancelErasure(admin, 'tenant-1')).rejects.toThrow(ConflictException);
+      expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
+      expect(erasureNoticeService.notifyCancelled).not.toHaveBeenCalled();
+      expect(billingReconciliationService.resumeAfterErasureCancelled).not.toHaveBeenCalled();
+    });
+
     it('does not touch billing when there was no pending erasure to cancel', async () => {
-      adminBusinessesDbService.cancelErasure.mockResolvedValue(null);
+      adminBusinessesDbService.cancelErasure.mockResolvedValue({ outcome: 'not_found' });
 
       await expect(target.cancelErasure(admin, 'tenant-1')).rejects.toThrow();
 
@@ -346,7 +405,7 @@ describe('AdminBusinessesService', () => {
     });
 
     it('throws 404 when no such tenant exists, without logging any activity', async () => {
-      adminBusinessesDbService.cancelErasure.mockResolvedValue(null);
+      adminBusinessesDbService.cancelErasure.mockResolvedValue({ outcome: 'not_found' });
 
       await expect(target.cancelErasure(admin, 'missing')).rejects.toThrow(NotFoundException);
       expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();

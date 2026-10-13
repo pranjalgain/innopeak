@@ -32,3 +32,13 @@ export const UNLIMITED_ENTITLEMENTS = {
   maxTeamMembers: null,
   customPromptsEnabled: true,
 } as const;
+
+/**
+ * Stripe SDK defaults are an 80-second timeout and one network retry. A checkout started on a slow Stripe would hold the
+ * request, and the per-tenant database lock around it, for over a minute. These calls are user-facing and all retry-safe
+ * (idempotency keys), so fail fast and let the SDK retry transient faults itself.
+ */
+export const STRIPE_CLIENT_OPTIONS = {
+  timeout: 20_000,
+  maxNetworkRetries: 2,
+} as const;

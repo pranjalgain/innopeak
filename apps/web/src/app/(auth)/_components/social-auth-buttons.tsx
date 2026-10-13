@@ -10,7 +10,7 @@ interface SocialAuthButtonsProps {
   label: string;
 }
 
-/** Mock; gated behind `socialLoginEnabled` (off by default). No email is collected, so it always resolves to a tenant identity, never the super-admin mock. */
+/** "Continue with Google": starts the real OAuth sign-in (the caller's `onGoogleClick`); the screen shows it only when the platform's `socialLoginEnabled` is on. */
 export function SocialAuthButtons({ isLoading, onGoogleClick, label }: SocialAuthButtonsProps) {
   return (
     <Button type="button" variant="outline" size="block" disabled={isLoading} onClick={onGoogleClick}>

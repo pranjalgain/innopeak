@@ -8,6 +8,8 @@ export const GOOGLE_AUTH = {
   // Non-sensitive scopes only, so this client needs no Google verification review.
   SCOPES: ['openid', 'email', 'profile'],
   USERINFO_URL: 'https://openidconnect.googleapis.com/v1/userinfo',
+  /** A hung Google socket would otherwise hold the sign-in request open for minutes. */
+  HTTP_TIMEOUT_MS: 10_000,
 } as const;
 
 /**

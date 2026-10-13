@@ -201,62 +201,21 @@ describe('CronProcessor', () => {
   });
 
   describe('onStalled', () => {
-    it('logs the stall and pushes the job to the DLQ when called with a well-formed Job', async () => {
-      const job = buildJob({ attemptsMade: 2 });
-
-      await processor.onStalled(job);
-
-      expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          originalQueueName: QueueName.CRON,
-          originalJobId: job.id,
-          failedReason: 'Job stalled for too long. Current attempts: 2',
-        })
-      );
-    });
-
-    // KNOWN BUG, deliberately unfixed: BullMQ's `stalled` event emits `(jobId, prev)`, not a `Job`,
-    // so the handler's `Job` signature is wrong and the DLQ entry gets undefined fields. Pins that behavior.
-    it('documents the stalled-event signature mismatch: real BullMQ args produce garbage DLQ data, not a crash', async () => {
-      const realisticJobIdArg = 'job-123';
-
-      await processor.onStalled(realisticJobIdArg as unknown as CronJobHandle);
-
-      expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          originalJobId: '',
-          originalJobName: undefined,
-          originalJobData: undefined,
-          failedReason: 'Job stalled for too long. Current attempts: undefined',
-        })
-      );
+    // BullMQ emits `(jobId, previousState)`; a stalled job is re-queued, or failed and then forwarded by `onFailed`.
+    it('logs the stall from the job id alone and does not write to the DLQ', () => {
+      expect(() => {
+        processor.onStalled('job-123');
+      }).not.toThrow();
+      expect(dlqService.addFailedJobToDLQ).not.toHaveBeenCalled();
     });
   });
 
   describe('onError', () => {
-    it('logs the worker error and pushes it to the DLQ when called with a well-formed Job + Error', async () => {
-      const job = buildJob();
-      const error = new Error('worker exploded');
-
-      await processor.onError(job, error);
-
-      expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          originalQueueName: QueueName.CRON,
-          originalJobId: job.id,
-          failedReason: 'Processor error: worker exploded',
-        })
-      );
-    });
-
-    // KNOWN BUG, deliberately unfixed: BullMQ's `error` event emits a single `Error`, so the real
-    // call leaves `error` undefined and `error.message` throws. Pins that behavior.
-    it('documents the error-event signature mismatch: real BullMQ single-Error arg crashes the handler', async () => {
-      const realError = new Error('worker exploded');
-
-      await expect(
-        processor.onError(realError as unknown as CronJobHandle, undefined as unknown as Error)
-      ).rejects.toThrow(TypeError);
+    // BullMQ emits the bare `Error` for worker-level failures such as a lost Redis connection.
+    it('logs a worker error without throwing', () => {
+      expect(() => {
+        processor.onError(new Error('worker exploded'));
+      }).not.toThrow();
     });
   });
 });

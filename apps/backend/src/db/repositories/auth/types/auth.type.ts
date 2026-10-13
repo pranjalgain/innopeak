@@ -130,6 +130,9 @@ export interface SetActiveLocationIdInput {
 export type SsoIdentityLookup =
   { kind: 'known'; user: VerifiedUser; firstActivation: boolean } | { kind: 'unknown' };
 
+/** What linking by email can answer: `invited` means the address belongs to a pending team invite, which only the invite link may accept. */
+export type SsoEmailLinkResult = SsoIdentityLookup | { kind: 'invited' };
+
 export interface InsertUserIdentityInput {
   userId: string;
   provider: UserIdentityProvider;
@@ -159,6 +162,12 @@ export interface RefreshTokenRow {
   userId: string;
   /** Null while the token is still spendable; otherwise when it was rotated out or revoked. */
   revokedAt: string | null;
+  /**
+   * True when the row was revoked by rotation (its replacement was created in the same transaction, so it carries the same
+   * timestamp); false for one revoked by a sign-out, a password change or an account standing check. Only the former can be a leaked,
+   * replayed token.
+   */
+  rotated: boolean;
 }
 
 export interface InsertInvitedMemberInput {

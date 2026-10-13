@@ -200,6 +200,68 @@ describe('StripePaymentProvider', () => {
     });
   });
 
+  describe('constructWebhookEvent — checkout payment status', () => {
+    const checkoutEvent = (type: string, paymentStatus?: string) => ({
+      id: 'evt_1',
+      type,
+      created: 1_790_000_000,
+      data: {
+        object: {
+          customer: 'cus_1',
+          subscription: 'sub_1',
+          ...(paymentStatus === undefined ? {} : { payment_status: paymentStatus }),
+        },
+      },
+    });
+
+    it.each([
+      ['paid', true],
+      ['no_payment_required', true],
+      ['unpaid', false],
+    ])('reads payment_status %s as settled=%s', (paymentStatus, settled) => {
+      mockStripeInstance.webhooks.constructEvent.mockReturnValue(
+        checkoutEvent('checkout.session.completed', paymentStatus)
+      );
+
+      const event = target.constructWebhookEvent(Buffer.from('{}'), 'sig');
+
+      expect(event).toMatchObject({ type: 'checkout.session.completed', paymentSettled: settled });
+    });
+
+    it('treats a missing payment_status as not settled rather than assuming payment', () => {
+      mockStripeInstance.webhooks.constructEvent.mockReturnValue(
+        checkoutEvent('checkout.session.completed')
+      );
+
+      expect(target.constructWebhookEvent(Buffer.from('{}'), 'sig')).toMatchObject({
+        paymentSettled: false,
+      });
+    });
+
+    it('maps the delayed-payment success event to a settled completed checkout', () => {
+      mockStripeInstance.webhooks.constructEvent.mockReturnValue(
+        checkoutEvent('checkout.session.async_payment_succeeded', 'paid')
+      );
+
+      expect(target.constructWebhookEvent(Buffer.from('{}'), 'sig')).toMatchObject({
+        type: 'checkout.session.completed',
+        paymentSettled: true,
+        customerId: 'cus_1',
+        subscriptionId: 'sub_1',
+      });
+    });
+
+    it("stamps the event with Stripe's own creation time", () => {
+      mockStripeInstance.webhooks.constructEvent.mockReturnValue(
+        checkoutEvent('checkout.session.completed', 'paid')
+      );
+
+      expect(target.constructWebhookEvent(Buffer.from('{}'), 'sig').createdAt).toBe(
+        new Date(1_790_000_000 * 1000).toISOString()
+      );
+    });
+  });
+
   describe('getPaymentMethodSummary', () => {
     const CARD = { brand: 'visa', last4: '4242', exp_month: 12, exp_year: 2030 };
 

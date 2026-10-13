@@ -19,6 +19,9 @@
     "test",
     "dist",
     "**/*spec.ts",
-    "**/__fixtures__/**"
+    "**/__fixtures__/**",
+    // Developer tooling that must not ship in the production bundle: the `pnpm ai:dry-run` script and the mock reviews it feeds the model.
+    "src/api/ai/scripts/**",
+    "src/api/ai/constants/mock-review-fixtures.constant.ts"
   ]
 }

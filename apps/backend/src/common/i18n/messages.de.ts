@@ -24,6 +24,8 @@ export const messagesDe: MessageCatalog = {
     INVALID_ACCESS_TOKEN: 'Ungültiges oder abgelaufenes Zugriffstoken.',
     LOGGED_OUT: 'Abgemeldet.',
     INVALID_CURRENT_PASSWORD: 'Das aktuelle Passwort ist falsch.',
+    NEW_PASSWORD_SAME_AS_CURRENT:
+      'Wählen Sie ein Passwort, das sich von Ihrem aktuellen unterscheidet.',
     NO_PASSWORD_SET:
       'Für dieses Konto ist kein Passwort festgelegt. Melden Sie sich mit dem Identitätsanbieter an, mit dem es erstellt wurde.',
     PASSWORD_ALREADY_SET:
@@ -106,6 +108,8 @@ export const messagesDe: MessageCatalog = {
     REVIEW_NOT_FOUND: 'Rezension nicht gefunden.',
     TENANT_ONLY: 'Rezensionen stehen nur Mandantenbenutzern zur Verfügung.',
     FAILED_TO_ACQUIRE_SYNC_RUN: 'Synchronisierungslauf konnte nicht gestartet werden',
+    SYNC_WAITING_FOR_RATE_LIMIT: (seconds, attempt, maxAttempts) =>
+      `Google begrenzt die Anfragen; Wartezeit ${seconds} s vor dem nächsten Versuch (Versuch ${attempt} von ${maxAttempts}).`,
     FAILED_TO_UPSERT_REVIEW: 'Rezension konnte nicht gespeichert werden',
     GENERATED_RESPONSE_INSERT_FAILED: (reviewId: string): string =>
       `Generierte Antwort für Rezension ${reviewId} konnte nicht gespeichert werden`,
@@ -206,6 +210,8 @@ export const messagesDe: MessageCatalog = {
     PAYMENT_METHOD_UPDATED: 'Zahlungsmethode aktualisiert',
     PAYMENT_NOT_CONFIGURED:
       'Zahlungen sind derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.',
+    PAYMENT_PROVIDER_UNAVAILABLE:
+      'Unser Zahlungsanbieter antwortet gerade nicht. Bitte versuchen Sie es gleich noch einmal.',
     STRIPE_WEBHOOK_TENANT_NOT_FOUND: 'Kein passender Mandant für dieses Stripe-Ereignis gefunden',
     CHECKOUT_SESSION_TENANT_MISMATCH: 'Checkout-Sitzung nicht gefunden',
     PAYMENT_METHOD_NOT_USABLE:
@@ -237,7 +243,7 @@ export const messagesDe: MessageCatalog = {
     MEMBER_INVITES_DISABLED:
       'Das Einladen von Teammitgliedern ist für diese Plattform deaktiviert.',
     MEMBER_REMOVAL_REQUESTED: (days: number): string =>
-      `Entfernung angefordert. Dieses Mitglied verliert sofort den Zugriff, und seine Daten werden in ${days} Tagen endgültig gelöscht, sofern Sie nicht vorher abbrechen.`,
+      `Entfernung angefordert. Dieses Mitglied verliert sofort den Zugriff, und seine Daten werden in ${days} ${days === 1 ? 'Tag' : 'Tagen'} endgültig gelöscht, sofern Sie nicht vorher abbrechen.`,
     MEMBER_REMOVAL_CANCELLED: 'Entfernung abgebrochen — dieses Mitglied behält seinen Zugriff.',
     MEMBER_REMOVAL_NOT_PENDING: 'Für dieses Mitglied liegt keine ausstehende Entfernung vor.',
     CANNOT_REMOVE_LAST_OWNER: 'Mindestens ein Inhaber muss für dieses Konto bestehen bleiben.',
@@ -257,10 +263,12 @@ export const messagesDe: MessageCatalog = {
     POST_ERASURE_CHARGE_RESOLVED: 'Als bearbeitet markiert.',
     BUSINESS_STATUS_UPDATED: 'Unternehmensstatus aktualisiert.',
     BUSINESS_ERASURE_REQUESTED: (days: number): string =>
-      `Löschung angefordert. Jeder Benutzer dieses Unternehmens verliert sofort den Zugriff, und die Daten werden in ${days} Tagen endgültig gelöscht, sofern Sie nicht vorher abbrechen.`,
+      `Löschung angefordert. Jeder Benutzer dieses Unternehmens verliert sofort den Zugriff, und die Daten werden in ${days} ${days === 1 ? 'Tag' : 'Tagen'} endgültig gelöscht, sofern Sie nicht vorher abbrechen.`,
     BUSINESS_ERASURE_CANCELLED: 'Löschung abgebrochen — dieses Unternehmen ist wieder aktiv.',
     BUSINESS_ERASURE_PENDING:
       'Für dieses Unternehmen liegt eine ausstehende Löschanfrage vor. Brechen Sie diese ab, bevor Sie den Status direkt ändern.',
+    BUSINESS_ERASURE_NOT_PENDING:
+      'Für dieses Unternehmen liegt keine ausstehende Löschanfrage vor, die abgebrochen werden könnte.',
     USER_REMOVAL_PENDING:
       'Für diesen Benutzer liegt eine ausstehende Entfernungsanfrage vor. Brechen Sie diese ab, bevor Sie den Status direkt ändern.',
     AVATAR_UPDATED: 'Avatar aktualisiert.',
@@ -292,6 +300,24 @@ export const messagesDe: MessageCatalog = {
     ADMIN_ENABLED: 'Administrator aktiviert.',
     FAILED_TO_CREATE_INVITED_PLATFORM_ADMIN:
       'Eingeladener Plattform-Administrator konnte nicht erstellt werden',
+  },
+  VALIDATION: {
+    EMAIL_INVALID: 'Geben Sie eine gültige E-Mail-Adresse ein.',
+    PASSWORD_REQUIRED: 'Geben Sie Ihr Passwort ein.',
+    PASSWORD_LENGTH: 'Das Passwort muss zwischen 8 und 128 Zeichen lang sein.',
+    PASSWORD_COMPLEXITY:
+      'Das Passwort muss einen Großbuchstaben, einen Kleinbuchstaben, eine Ziffer und ein Sonderzeichen enthalten.',
+    OTP_REQUIRED: 'Geben Sie den Bestätigungscode ein.',
+    OTP_FORMAT: 'Der Bestätigungscode muss genau 6 Ziffern haben.',
+    FULL_NAME_REQUIRED: 'Geben Sie Ihren vollständigen Namen ein.',
+    FULL_NAME_LENGTH: 'Ihr Name muss zwischen 1 und 255 Zeichen lang sein.',
+    BUSINESS_NAME_REQUIRED: 'Geben Sie den Namen Ihres Unternehmens ein.',
+    BUSINESS_NAME_LENGTH: 'Der Unternehmensname muss zwischen 1 und 255 Zeichen lang sein.',
+    BUSINESS_NAME_CONFIRM: 'Geben Sie zur Bestätigung den Namen des Unternehmens ein.',
+    NAME_REQUIRED: 'Der Name ist erforderlich.',
+    PAYMENT_METHOD_REQUIRED: 'Eine Zahlungsmittel-ID ist erforderlich.',
+    PAYMENT_METHOD_INVALID: 'Geben Sie eine gültige Zahlungsmittel-ID ein.',
+    REPLY_NEEDS_TEXT: 'Die Antwort muss Text enthalten.',
   },
   COMMON: {
     SUCCESS: 'Erfolgreich',

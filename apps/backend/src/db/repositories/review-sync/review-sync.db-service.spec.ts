@@ -21,7 +21,11 @@ describe('ReviewSyncDbService.importPage', () => {
   let service: ReviewSyncDbService;
   const upsertReview = jest.fn();
   const insertImportedReply = jest.fn();
-  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn({}));
+  // `tx.transaction` is the savepoint the reply insert runs in.
+  const fakeTx: { transaction: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown> } = {
+    transaction: fn => fn(fakeTx),
+  };
+  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx));
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -136,7 +140,11 @@ describe('ReviewSyncDbService.importPollPage', () => {
   let service: ReviewSyncDbService;
   const upsertReview = jest.fn();
   const insertImportedReply = jest.fn();
-  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn({}));
+  // `tx.transaction` is the savepoint the reply insert runs in.
+  const fakeTx: { transaction: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown> } = {
+    transaction: fn => fn(fakeTx),
+  };
+  const transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx));
 
   beforeEach(async () => {
     jest.clearAllMocks();

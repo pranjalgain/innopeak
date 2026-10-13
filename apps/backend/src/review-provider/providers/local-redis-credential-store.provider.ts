@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 
 import { CredentialStoreProvider, type StoredCredential } from './credential-store.provider';
 
+import { CredentialReferenceUnresolvableError } from '../errors/provider.error';
 import { CREDENTIAL_KEY_BYTES, decryptWithKey, encryptWithKey } from '../utils/credential-crypto';
 
 const SCHEME = 'local-redis';
@@ -80,7 +81,7 @@ export class LocalRedisCredentialStoreProvider extends CredentialStoreProvider {
     const [scheme, ...rest] = reference.split(':');
 
     if (scheme !== SCHEME || rest.length === 0) {
-      throw new Error(
+      throw new CredentialReferenceUnresolvableError(
         `Credential reference "${reference}" was not issued by the ${SCHEME} store. This node cannot resolve it.`
       );
     }

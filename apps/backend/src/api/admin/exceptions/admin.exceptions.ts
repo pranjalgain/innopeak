@@ -89,6 +89,13 @@ export class BusinessErasurePendingException extends ConflictException {
   }
 }
 
+/** Cancelling an erasure that is not pending: the business exists, so this is a conflict with its state, not a missing resource. */
+export class BusinessErasureNotPendingException extends ConflictException {
+  constructor(message: string = MESSAGES.ADMIN.BUSINESS_ERASURE_NOT_PENDING) {
+    super({ message, code: 'BUSINESS_ERASURE_NOT_PENDING' });
+  }
+}
+
 /** Same reasoning as `BusinessErasurePendingException`, at the user level. */
 export class UserRemovalPendingException extends ConflictException {
   constructor(message: string = MESSAGES.ADMIN.USER_REMOVAL_PENDING) {

@@ -14,7 +14,7 @@ nothing here is a pre-implementation target design — every route, field, and d
 straight off shipped code.
 
 It assumes you have read [Billing Module — Overview](./overview.md) for the reasoning behind the
-Free/Paid entitlement split, the platform-wide `billing_enabled` flag, the payment
+Free/Paid entitlement split, the deploy-level `PAYMENT_FEATURE_ENABLED` switch, the payment
 provider, and the webhook state machine. Those narratives are not repeated here — this document
 turns them into request/response contracts.
 
@@ -164,7 +164,7 @@ Errors: `401`, `403`, `404` `SUBSCRIPTION_NOT_FOUND`, `429`.
 
 Creates (or reuses) a payment-provider customer for this tenant and starts a subscription Checkout
 session against the Paid plan's `stripe_price_id`. **Gated on
-`platform_settings.billing_enabled`** — the only route in this module that checks it. No request
+`PAYMENT_FEATURE_ENABLED`** — the only route in this module that checks it. No request
 body.
 
 Success `201`:
@@ -216,8 +216,8 @@ Errors: `404` `CHECKOUT_SESSION_TENANT_MISMATCH` (the session belongs to a diffe
 ### `POST /v1/billing/portal`
 
 Creates a Customer Portal session so the tenant can manage or cancel their existing subscription.
-**Deliberately not gated on `platform_settings.billing_enabled`** — an already-Paid tenant keeps
-full Customer Portal access regardless of the platform-wide switch. No request body.
+**Deliberately not gated on `PAYMENT_FEATURE_ENABLED`** — an already-Paid tenant keeps
+full Customer Portal access regardless of the deploy-level switch. No request body.
 
 Success `201`:
 
@@ -304,7 +304,7 @@ that surfaces them belongs to a different module.
 
 | Status | Code | Thrown by | When |
 |---|---|---|---|
-| `403` | `BILLING_NOT_ENABLED` | `POST /v1/billing/checkout` | `platform_settings.billing_enabled` is not `true` — the platform isn't currently offering upgrades. Never blocks an already-Paid tenant's Portal access. |
+| `403` | `BILLING_NOT_ENABLED` | `POST /v1/billing/checkout` | `PAYMENT_FEATURE_ENABLED` is not `true` — this deploy isn't offering upgrades. Never blocks an already-Paid tenant's Portal access. |
 | `404` | `PLAN_NOT_FOUND` | `POST /v1/billing/checkout`, any `BillingEntitlementsService.getEntitlements` call | The Paid plan row, or the tenant's own plan row, is missing — should never fire against a correctly-seeded `billing_plans` table. |
 | `404` | `SUBSCRIPTION_NOT_FOUND` | `GET /v1/billing/plans`, `GET /v1/billing/subscription`, `POST /v1/billing/checkout`, `POST /v1/billing/portal` | No `tenant_subscriptions` row for this tenant. Should never fire in practice — every tenant gets a `free` subscription row in the same transaction that creates it (`AuthDbService.signup`/`completeGoogleSignup`). |
 | `409` | `LOCATION_LIMIT_REACHED` | `POST /v1/connections/locations` confirm flow (`ConnectionsService.assertLocationLimit`, `ConnectionsDbService.confirmLocations`'s recheck) — not a billing-module route | The tenant's active, unpaused location count is already at `billing_plans.max_locations` for their plan. Reported as `409` by the connections module (a conflict with current state) with the plan-aware "upgrade to add more" message; a `403` of the same code is only raised by billing's own `LocationLimitReachedException` for the active-location choice. |

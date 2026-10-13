@@ -388,7 +388,7 @@ still not infer that an `approved` reply is live on Google purely from the `200`
 endpoint's](./api-reference.md#post-v1reviewsreviewidresponsesresponseidapprove) own note and
 [post-back status](./api-reference.md#post-back-status) for how to actually confirm delivery.
 
-### Posting, the freshness check, and `auto_post_enabled`
+### Posting, the freshness check, and `auto_post_enabled` {#posting-and-the-freshness-check-before-it}
 
 `approved → posted` is the only transition in this module with an external side effect, and it is
 now **built**: `src/background/queue/review-post/` (`ReviewPostQueueService.postResponse`), wired
@@ -656,7 +656,7 @@ To be built, in dependency order (now almost entirely complete — see the note 
   .postResponse`) is exactly this: a queue, not inline in a request handler. Approve, manual-reply,
   the manual `post` route, and the system's own non-escalated auto-approval all enqueue; the worker
   performs the freshness check, posts, and writes `posted` / `post_failed` with `posted_at` or
-  `error_message`. See [Posting, the freshness check, and `auto_post_enabled`](#posting-the-freshness-check-and-auto_post_enabled)
+  `error_message`. See [Posting, the freshness check, and `auto_post_enabled`](#posting-and-the-freshness-check-before-it)
   above.
 
 Conventions this module must follow, per

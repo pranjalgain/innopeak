@@ -3,6 +3,7 @@ import { EmailProvider } from '@email/providers/email.provider';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createTransport, Transporter } from 'nodemailer';
+import type Mail from 'nodemailer/lib/mailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 
 @Injectable()
@@ -49,7 +50,7 @@ export class SmtpEmailProvider extends EmailProvider implements OnModuleInit {
   async send(options: SendEmailOptions): Promise<EmailSendResult> {
     const { to, subject, html, text, from, replyTo, attachments } = options;
 
-    const mailOptions: SMTPTransport.Options = {
+    const mailOptions: Mail.Options = {
       from: from ?? this.defaultFrom,
       to: Array.isArray(to) ? to.join(', ') : to,
       subject,

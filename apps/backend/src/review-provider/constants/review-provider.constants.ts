@@ -19,6 +19,11 @@ export const GOOGLE_OAUTH = {
    * variant; watch for partial-scope consent.
    */
   SCOPES: ['https://www.googleapis.com/auth/business.manage'],
+  /**
+   * Every Google call carries this. Without it a hung socket held a sync or post job (and its claim) until the OS gave up,
+   * minutes later; a timeout is a transient `ProviderUnavailableError`, retried like any other network failure.
+   */
+  HTTP_TIMEOUT_MS: 15_000,
 } as const;
 
 /** Google caps the accounts list at 20 per page. */

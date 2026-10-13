@@ -13,7 +13,4 @@ export class HealthEntryDto {
 
   @ApiPropertyOptional({ description: 'Error message when the check fails' })
   error?: string;
-
-  @ApiPropertyOptional({ description: 'Target URL for HTTP-based checks' })
-  url?: string;
 }

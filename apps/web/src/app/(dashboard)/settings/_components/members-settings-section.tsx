@@ -11,7 +11,6 @@ import {
   type InviteMemberFields,
   inviteMemberSchema,
 } from "@/app/(dashboard)/settings/_schemas/invite-member.schema";
-import { ERASURE_GRACE_PERIOD_DAYS } from "@/app/_libs/constants/erasure";
 import { cn } from "@/app/_libs/utils/cn";
 import { getInitials } from "@/app/_libs/utils/initials";
 import { ConfirmActionButton } from "@/components/common/confirm-action-dialog";
@@ -23,6 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { useErasureGracePeriodDays } from "@/hooks/common/use-erasure-grace-period";
 import { usePagination } from "@/hooks/common/use-pagination";
 import { useTenantMembers } from "@/hooks/settings/use-tenant-members";
 import type { MemberStatus } from "@/types/domain";
@@ -42,6 +42,7 @@ export function MembersSettingsSection() {
   const tRole = useTranslations("settings.members.role");
   const tStatus = useTranslations("settings.members.status");
   const format = useFormatter();
+  const graceDays = useErasureGracePeriodDays();
   const { members, isLoading, inviteMember, revokeInvite, requestRemoval, cancelRemoval } =
     useTenantMembers();
   const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(members, 10);
@@ -167,7 +168,7 @@ export function MembersSettingsSection() {
                           date: format.dateTime(
                             new Date(
                               new Date(member.erasureRequestedAt).getTime() +
-                                ERASURE_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000,
+                                graceDays * 24 * 60 * 60 * 1000,
                             ),
                             REMOVAL_DATE_FORMAT,
                           ),

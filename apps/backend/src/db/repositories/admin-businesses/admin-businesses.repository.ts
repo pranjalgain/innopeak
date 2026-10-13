@@ -12,6 +12,7 @@ import type { SQL } from 'drizzle-orm';
 import type {
   AdminBusinessRow,
   ConnectionStateRow,
+  RequestErasureOutcome,
   SetBusinessStatusInput,
   SetBusinessStatusOutcome,
 } from './types/admin-businesses.type';
@@ -261,7 +262,8 @@ export class AdminBusinessesRepository {
         return { outcome: 'not_found' };
       }
       if (row.was_updated) {
-        return { outcome: 'updated' };
+        // `target` is read before the update, so its status is the one the tenant had until now.
+        return { outcome: 'updated', changed: row.status !== input.status };
       }
       if (row.status === TenantStatus.ERASED) {
         return { outcome: 'not_found' };
@@ -273,22 +275,41 @@ export class AdminBusinessesRepository {
   /**
    * Suspends immediately and starts the grace period. Stays `suspended` (no in-between status) so existing
    * suspend-checks keep working; only the nightly purge flips it to `erased`. Skips an already-erased tenant.
+   *
+   * Asking again while an admin's request is already pending changes nothing (and does not restart the grace period).
+   * An owner's own pending request is still taken over: an admin's request removes the owner's right to restore by
+   * signing in, so it is a real change.
    */
-  async requestErasure(tenantId: string): Promise<boolean> {
-    const rows = await this.dbService.db
-      .update(schema.tenants)
-      .set({
-        status: TenantStatus.SUSPENDED,
-        erasureRequestedAt: sql`now()`,
-        // An admin's request is not the owner's: it removes the owner's right to restore by signing in.
-        erasureRequestedByUserId: null,
-        erasureReminderSentAt: null,
-        updatedAt: sql`now()`,
-      })
-      .where(and(eq(schema.tenants.id, tenantId), ne(schema.tenants.status, TenantStatus.ERASED)))
-      .returning({ id: schema.tenants.id });
+  async requestErasure(tenantId: string): Promise<RequestErasureOutcome> {
+    const result = await this.dbService.db.execute(sql`
+      WITH target AS (
+        SELECT id, status,
+               (erasure_requested_at IS NOT NULL AND erasure_requested_by_user_id IS NULL) AS admin_pending
+        FROM tenants WHERE id = ${tenantId}::uuid
+      ),
+      updated AS (
+        UPDATE tenants
+        SET status = ${TenantStatus.SUSPENDED}::tenant_status,
+            erasure_requested_at = now(),
+            erasure_requested_by_user_id = NULL,
+            erasure_reminder_sent_at = NULL,
+            updated_at = now()
+        WHERE id = ${tenantId}::uuid
+          AND status <> ${TenantStatus.ERASED}::tenant_status
+          AND NOT (erasure_requested_at IS NOT NULL AND erasure_requested_by_user_id IS NULL)
+        RETURNING id
+      )
+      SELECT target.status AS status, target.admin_pending AS admin_pending, (updated.id IS NOT NULL) AS was_updated
+      FROM target
+      LEFT JOIN updated ON true
+    `);
 
-    return rows.length > 0;
+    const row = result.rows[0] as
+      { status: TenantStatus; admin_pending: boolean; was_updated: boolean } | undefined;
+    if (row === undefined || row.status === TenantStatus.ERASED) {
+      return 'not_found';
+    }
+    return row.was_updated ? 'requested' : 'already_requested';
   }
 
   /**

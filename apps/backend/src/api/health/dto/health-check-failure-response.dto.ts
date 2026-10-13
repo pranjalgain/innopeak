@@ -1,5 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+import { HealthCheckResponseDto } from './health-check-response.dto';
+
 export class HealthCheckFailureResponseDto {
   @ApiProperty({ enum: [503], example: 503 })
   statusCode!: 503;
@@ -13,6 +15,10 @@ export class HealthCheckFailureResponseDto {
   @ApiProperty({ description: 'Error message describing the failure' })
   error!: string;
 
-  @ApiProperty({ enum: [null], example: null, nullable: true })
-  data!: null;
+  @ApiProperty({
+    description: 'Per-component results, so the caller can see which dependency is down',
+    type: () => HealthCheckResponseDto,
+    nullable: true,
+  })
+  data!: HealthCheckResponseDto | null;
 }

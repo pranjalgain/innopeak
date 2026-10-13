@@ -14,22 +14,19 @@ import { TransformInterceptor } from '@interceptors/transform.interceptor';
 import { LoggerModule } from '@logger/logger.module';
 import { MediaModule } from '@media/media.module';
 import { MetricsModule } from '@metrics/metrics.module';
-import { MetricsMiddleware } from '@middlewares/metrics.middleware';
 import { BullModule } from '@nestjs/bullmq';
-import { CacheModule } from '@nestjs/cache-manager';
-import { MiddlewareConsumer, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { OtelModule } from '@otel/otel.module';
 import { PromptsModule } from '@prompts/prompts.module';
+import { RedisThrottlerStorage } from '@redis/redis-throttler.storage';
 import { RedisModule } from '@redis/redis.module';
 import { REDIS_CLIENT } from '@redis/redis.provider';
 import { ReviewPipelineModule } from '@review-pipeline/review-pipeline.module';
 import { ReviewProviderModule } from '@review-provider/review-provider.module';
-import { redisStore } from 'cache-manager-redis-store';
 import { Redis } from 'ioredis';
 
 import { AdminModule } from './api/admin/admin.module';
@@ -40,13 +37,9 @@ import { BillingModule } from './api/billing/billing.module';
 import { FreePlanCapModule } from './api/billing/free-plan-cap.module';
 import { ConnectionsModule } from './api/connections/connections.module';
 import { DashboardModule } from './api/dashboard/dashboard.module';
-import { DevToolsModule } from './api/dev-tools/dev-tools.module';
 import { NotificationsModule } from './api/notifications/notifications.module';
 import { ReviewsModule } from './api/reviews/reviews.module';
 import { SettingsModule } from './api/settings/settings.module';
-import { TracingModule } from './api/tracing/tracing.module';
-
-const configService = new ConfigService<EnvConfig>();
 
 const queueModule = BullModule.forRootAsync({
   imports: [RedisModule],
@@ -61,62 +54,35 @@ const queueModule = BullModule.forRootAsync({
 });
 
 // `ttl` is in milliseconds (@nestjs/throttler >= 5); seconds would make the window 60 ms and leave unannotated routes effectively unthrottled.
+// Counters live in Redis so every API replica shares one allowance (see `RedisThrottlerStorage`).
 const MINUTE_MS = 60 * 1000;
-const rateLimit = ThrottlerModule.forRoot([
-  {
-    name: THROTTLER_TIERS.SHORT,
-    ttl: MINUTE_MS,
-    limit: 30,
-  },
-  {
-    name: THROTTLER_TIERS.MEDIUM,
-    ttl: 5 * MINUTE_MS,
-    limit: 100,
-  },
-  {
-    name: THROTTLER_TIERS.LONG,
-    ttl: 30 * MINUTE_MS,
-    limit: 500,
-  },
-  {
-    name: THROTTLER_TIERS.VERY_LONG,
-    ttl: 60 * MINUTE_MS,
-    limit: 1000,
-  },
-]);
-
-const cacheModule = CacheModule.registerAsync({
-  useFactory: async () => {
-    const store = await redisStore({
-      socket: {
-        host: configService.get<string>('REDIS_HOST'),
-        port: configService.get<number>('REDIS_PORT'),
-      },
-    });
-
-    return {
-      store,
-      ttl: 5 * 60000, // milliseconds
-    };
-  },
-  isGlobal: true,
+const rateLimit = ThrottlerModule.forRootAsync({
+  imports: [RedisModule],
+  inject: [REDIS_CLIENT],
+  useFactory: (redisClient: Redis) => ({
+    throttlers: [
+      { name: THROTTLER_TIERS.SHORT, ttl: MINUTE_MS, limit: 30 },
+      { name: THROTTLER_TIERS.MEDIUM, ttl: 5 * MINUTE_MS, limit: 100 },
+      { name: THROTTLER_TIERS.LONG, ttl: 30 * MINUTE_MS, limit: 500 },
+      { name: THROTTLER_TIERS.VERY_LONG, ttl: 60 * MINUTE_MS, limit: 1000 },
+    ],
+    storage: new RedisThrottlerStorage(redisClient),
+  }),
 });
 
 @Module({
   imports: [
     rateLimit,
-    cacheModule,
     EnvConfigModule,
     LoggerModule,
     EventEmitterModule.forRoot(),
     RedisModule,
     DashboardModule,
     DBModule,
-    OtelModule,
     queueModule,
     QueueUIModule,
 
-    // For DevToolsMiddleware. Registered here, not reused from AuthModule: an AppModule-level provider resolves JwtService from AppModule's own imports.
+    // For the ops-tools guard (Bull Board). Registered here, not reused from AuthModule: an AppModule-level provider resolves JwtService from AppModule's own imports.
     JwtModule.registerAsync({
       useFactory: (config: ConfigService<EnvConfig>) => ({
         secret: config.get<string>('JWT_SECRET') ?? '',
@@ -133,8 +99,6 @@ const cacheModule = CacheModule.registerAsync({
     ReviewsModule,
     MetricsModule,
     HealthModule,
-    DevToolsModule,
-    TracingModule,
     PromptsModule,
     AiModule,
     SettingsModule,
@@ -170,10 +134,4 @@ const cacheModule = CacheModule.registerAsync({
     },
   ],
 })
-export class AppModule {
-  configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(MetricsMiddleware).forRoutes('*');
-
-    // The ops-tools guard isn't applied here: Bull Board is an Express sub-app a MiddlewareConsumer can't reach (see createOpsToolsGuard in bootstrap.ts).
-  }
-}
+export class AppModule {}

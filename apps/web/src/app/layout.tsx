@@ -1,14 +1,11 @@
 import "./globals.css";
 
 
-import { Analytics } from "@vercel/analytics/next";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import Script from "next/script";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import type { ReactNode } from "react";
 
-import GoogleAnalyticsScripts from "@/app/_components/google-analytics";
 import SonnarToaster from "@/app/_components/sonner-toaster";
 import { TanstackProvider } from "@/app/_components/tanstack-provider";
 import { ThemeProvider } from "@/app/_components/theme-provider";
@@ -44,9 +41,6 @@ export default async function RootLayout({
             <TanstackProvider>
               {children}
               <SonnarToaster />
-              <GoogleAnalyticsScripts />
-              <SpeedInsights />
-              <Analytics />
               <Script
                 id="json-ld"
                 type="application/ld+json"

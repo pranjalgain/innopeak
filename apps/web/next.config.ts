@@ -1,12 +1,11 @@
-import type { NextConfig } from "next";
 
 import withBundleAnalyzer from "@next/bundle-analyzer";
-import { withPostHogConfig } from "@posthog/nextjs-config";
 import { withSentryConfig } from "@sentry/nextjs";
-import { env } from "env";
+import type { NextConfig } from "next";
 import type { RemotePattern } from "next/dist/shared/lib/image-config";
 import createNextIntlPlugin from "next-intl/plugin";
 import path from "node:path";
+import { env } from "env";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
@@ -18,10 +17,11 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   outputFileTracingRoot: path.join(__dirname, "../../"),
   poweredByHeader: false,
-  productionBrowserSourceMaps: true, // sentry and posthog config
+  // Source maps are uploaded to Sentry (and removed from the build) by the plugin below; they are never served to the public.
+  productionBrowserSourceMaps: false,
   skipTrailingSlashRedirect: true,
   typedRoutes: true,
-  serverExternalPackages: ["import-in-the-middle", "require-in-the-middle"], // posthog config
+  serverExternalPackages: ["import-in-the-middle", "require-in-the-middle"], // Sentry's instrumentation
   images: {
     formats: ["image/avif", "image/webp"],
     remotePatterns,
@@ -75,85 +75,33 @@ const nextConfig: NextConfig = {
         source: "/v1/:path*",
         destination: `${env.NEXT_PUBLIC_API_URL}/v1/:path*`,
       },
-      // Google Tag Manager Proxy
-      {
-        source: "/gm",
-        destination: "https://www.googletagmanager.com/gtm.js",
-      },
-      {
-        source: "/gtm/td",
-        destination: "https://www.googletagmanager.com/td",
-      },
-      {
-        source: "/debug/bootstrap",
-        destination: "https://www.googletagmanager.com/debug/bootstrap",
-      },
-      {
-        source: "/debug/:path*",
-        destination: "https://www.googletagmanager.com/debug/:path*",
-      },
-      {
-        source: "/controller.js",
-        destination: "https://www.googletagmanager.com/controller.js",
-      },
-      {
-        source: "/gtm/:path*",
-        destination: "https://www.googletagmanager.com/gtm/:path*",
-      },
-      // PostHog Proxy
-      {
-        source: "/ingest/static/:path*",
-        destination: "https://eu-assets.i.posthog.com/static/:path*",
-      },
-      {
-        source: "/ingest/:path*",
-        destination: "https://eu.i.posthog.com/:path*",
-      },
-      {
-        source: "/ingest/flags",
-        destination: "https://eu.i.posthog.com/flags",
-      },
     ];
   },
   experimental: {
     authInterrupts: true,
     inlineCss: true,
-    optimizePackageImports: ["react-hook-form", "lodash-es", "react-icons", "vaul", "tailwind-merge", "zod"],
-    webVitalsAttribution: ["FCP", "LCP", "CLS", "FID", "TTFB", "INP"],
+    optimizePackageImports: ["react-hook-form", "lodash-es", "react-icons", "tailwind-merge", "zod"],
   },
 };
 
 const nextConfigWithIntl = withNextIntl(nextConfig);
 
-// Conditionally apply PostHog configuration only if API keys are provided
-const withPostHog =
-  env.POSTHOG_API_KEY && env.POSTHOG_ENV_ID
-    ? withPostHogConfig(nextConfigWithIntl, {
-        personalApiKey: env.POSTHOG_API_KEY, // Personal API Key
-        envId: env.POSTHOG_ENV_ID, // Environment ID
-        host: env.NEXT_PUBLIC_POSTHOG_HOST, // (optional), defaults to https://us.posthog.com
+// Conditionally apply Sentry configuration only if auth token is provided
+const withSentry =
+  env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT
+    ? withSentryConfig(nextConfigWithIntl, {
+        org: env.SENTRY_ORG,
+        project: env.SENTRY_PROJECT,
+        silent: !process.env.CI,
+        widenClientFileUpload: true,
+        tunnelRoute: "/monitoring", // ?!monitoring in next.config.ts when using middleware.ts file
+        disableLogger: true,
+        authToken: env.SENTRY_AUTH_TOKEN,
+        sourcemaps: {
+          deleteSourcemapsAfterUpload: true,
+        },
       })
     : nextConfigWithIntl;
-
-// Conditionally apply Sentry configuration only if auth token is provided
-const withSentry = env.SENTRY_AUTH_TOKEN
-  ? withSentryConfig(withPostHog, {
-      org: "test-organisation-qk",
-      project: "create-next-coe",
-      silent: !process.env.CI,
-      widenClientFileUpload: true,
-      tunnelRoute: "/monitoring", // ?!monitoring in next.config.ts when using middleware.ts file
-      disableLogger: true,
-      automaticVercelMonitors: true,
-      authToken: env.SENTRY_AUTH_TOKEN,
-      sourcemaps: {
-        deleteSourcemapsAfterUpload: false,
-      },
-      reactComponentAnnotation: {
-        enabled: true,
-      },
-    })
-  : withPostHog;
 
 export default withBundleAnalyzer({
   enabled: env.ANALYZE === "true",

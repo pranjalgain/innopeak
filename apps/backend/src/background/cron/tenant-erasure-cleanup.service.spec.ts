@@ -12,7 +12,7 @@ describe('TenantErasureCleanupService', () => {
   let connectionsDbService: { findConnectionByTenant: jest.Mock; disconnect: jest.Mock };
   let authDbService: { setActiveLocationId: jest.Mock };
   let reviewSyncDbService: { anonymizeReviewerPiiForTenant: jest.Mock };
-  let credentialService: { revokeOrThrow: jest.Mock };
+  let credentialService: { revokeOrThrow: jest.Mock; invalidateAccessToken: jest.Mock };
 
   beforeEach(() => {
     billing = { releaseBillingForErasure: jest.fn().mockResolvedValue(undefined) };
@@ -22,7 +22,10 @@ describe('TenantErasureCleanupService', () => {
     };
     authDbService = { setActiveLocationId: jest.fn().mockResolvedValue(undefined) };
     reviewSyncDbService = { anonymizeReviewerPiiForTenant: jest.fn().mockResolvedValue(3) };
-    credentialService = { revokeOrThrow: jest.fn().mockResolvedValue(undefined) };
+    credentialService = {
+      revokeOrThrow: jest.fn().mockResolvedValue(undefined),
+      invalidateAccessToken: jest.fn().mockResolvedValue(undefined),
+    };
 
     target = new TenantErasureCleanupService(
       billing as unknown as BillingReconciliationService,

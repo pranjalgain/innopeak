@@ -463,5 +463,54 @@ describe("useReviewDetail", () => {
       expect(saved).toBe(false);
       expect(toast.error).toHaveBeenCalledWith(messages.reviewDetail.toasts.saveFailed);
     });
+
+    test("two saves in the same instant send one request and one toast", async () => {
+      vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(review({ replyDrafts: [] }));
+      let release: (id: string) => void = () => undefined;
+      const create = vi
+        .spyOn(ReviewService, "createManualReply")
+        .mockImplementation(() => new Promise<string>((resolve) => (release = resolve)));
+
+      const { result } = renderHook(() => useReviewDetail("review-1"), { wrapper });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      let first = false;
+      let second = true;
+      await act(async () => {
+        const a = result.current.createManualReply("Thanks!");
+        const b = result.current.createManualReply("Thanks!");
+        // The mutation function starts a microtask later; the request must exist before it can be answered.
+        await vi.waitFor(() => expect(create).toHaveBeenCalled());
+        release("reply-1");
+        [first, second] = await Promise.all([a, b]);
+      });
+
+      expect(create).toHaveBeenCalledTimes(1);
+      expect([first, second]).toEqual([true, false]);
+      expect(toast.success).toHaveBeenCalledTimes(1);
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    test("a save can be retried after the first attempt failed", async () => {
+      vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(review({ replyDrafts: [] }));
+      const create = vi
+        .spyOn(ReviewService, "createManualReply")
+        .mockRejectedValueOnce(new Error("500"))
+        .mockResolvedValue("reply-1");
+
+      const { result } = renderHook(() => useReviewDetail("review-1"), { wrapper });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.createManualReply("Thanks!");
+      });
+      let saved = false;
+      await act(async () => {
+        saved = await result.current.createManualReply("Thanks!");
+      });
+
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(saved).toBe(true);
+    });
   });
 });

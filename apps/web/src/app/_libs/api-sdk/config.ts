@@ -3,6 +3,7 @@ import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 
 import { ApiError } from "@/app/_libs/services/api-error";
 import { TokenService } from "@/app/_libs/services/token.service";
+import { signInPathFor } from "@/app/_libs/utils/post-login-redirect";
 
 // Generated `*Api` classes fall back to the global `axios` default export when their `Configuration` has no
 // instance, so one pair of interceptors installed here covers every SDK call.
@@ -41,7 +42,7 @@ interface RefreshResponseData {
  * In-flight refresh shared by concurrent 401s. Load-bearing: the backend rotates refresh tokens strictly single-use,
  * so two concurrent refreshes would race and one would be rejected. Only within one JS context; `doRefresh` handles other tabs.
  */
-let refreshInFlight: Promise<boolean> | null = null;
+let refreshInFlight: Promise<RefreshAttempt> | null = null;
 
 /** A refresh attempt's outcome. The status is kept because only a 401 is worth retrying. */
 type RefreshAttempt = { ok: true } | { ok: false; status: number };
@@ -64,22 +65,22 @@ async function attemptRefresh(): Promise<RefreshAttempt> {
   }
 }
 
-async function doRefresh(): Promise<boolean> {
-  refreshInFlight ??= (async (): Promise<boolean> => {
+async function doRefresh(): Promise<RefreshAttempt> {
+  refreshInFlight ??= (async (): Promise<RefreshAttempt> => {
     const first = await attemptRefresh();
-    if (first.ok) return true;
+    if (first.ok) return first;
 
     // `refreshInFlight` only dedupes within one JS context, so two tabs waking from idle can rotate at once. Refresh tokens
     // are single-use: the backend serves the winner and 401s the loser, leaving its cookies intact
     // (`RefreshTokenSupersededException`), a 401 byte-identical to a dead session's. Asking again is the only way to tell
     // them apart (the loser's second attempt presents the successor); skipping it cleared live sessions and bounced tabs through /login.
     // Only a 401 earns the retry: retrying a 429 (refresh is throttled to 20/min per IP) or a 5xx only adds load.
-    if (first.status !== 401) return false;
+    if (first.status !== 401) return first;
 
     // A browser never signed in here cannot have lost a race; retrying would double every anonymous visitor's cost against the shared throttle.
-    if (!TokenService.hasSession()) return false;
+    if (!TokenService.hasSession()) return first;
 
-    return (await attemptRefresh()).ok;
+    return attemptRefresh();
   })();
 
   try {
@@ -90,8 +91,23 @@ async function doRefresh(): Promise<boolean> {
 }
 
 /** Exposed so callers can revive a session up front rather than waiting on a 401. */
-export function refreshSession(): Promise<boolean> {
-  return doRefresh();
+export async function refreshSession(): Promise<boolean> {
+  return (await doRefresh()).ok;
+}
+
+/** Set once a lapsed session has started the sign-in redirect, so the page's other in-flight 401s don't each navigate. */
+let leavingLapsedSession = false;
+
+/**
+ * The session is over (refresh failed) and the page is still open on guarded content: its requests now all 401 and it would sit
+ * on error states until the next navigation. Go to the sign-in screen instead, with a way back to this page.
+ */
+function leaveLapsedSession(kind: "tenant" | "admin"): void {
+  if (typeof window === "undefined" || leavingLapsedSession) return;
+  const target = signInPathFor(kind, window.location.pathname, window.location.search);
+  if (!target) return;
+  leavingLapsedSession = true;
+  window.location.assign(target);
 }
 
 let installed = false;
@@ -119,15 +135,25 @@ function installApiInterceptors(): void {
         !config.skipRefresh &&
         !config._retried
       ) {
-        const refreshed = await refreshSession();
+        // Read before the refresh: a failed one has the backend clear the `session` cookie this comes from.
+        const sessionKind = TokenService.getTokenType();
+        const refresh = await doRefresh();
 
-        if (refreshed) {
+        if (refresh.ok) {
           config._retried = true;
           return axios(config);
         }
-        // Only the cached display name needs clearing: the principal is read off the `session` cookie, which the backend
-        // clears itself. A platform admin has no refresh token, so their 15-minute expiry runs through here.
-        TokenService.clear();
+        // Only a 401 means the session is over: that is the one answer for which the backend clears the `session` cookie. A 429, a
+        // 5xx or a dropped connection leaves the cookie, so the proxy would send `/login` straight back to this page and the two
+        // would loop until the refresh got through. Those fall through as the request's own error, and the next call tries again.
+        if (refresh.status === 401) {
+          // Only the cached display name needs clearing: the principal is read off the `session` cookie, which the backend
+          // clears itself. A platform admin has no refresh token, so their 15-minute expiry runs through here.
+          TokenService.clear();
+          if (sessionKind) {
+            leaveLapsedSession(sessionKind === "platform_admin" ? "admin" : "tenant");
+          }
+        }
       }
 
       const data = error.response?.data as { message?: string; error?: string } | undefined;

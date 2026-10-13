@@ -21,6 +21,8 @@ export class PlatformAdminProfileService {
 
   /** Mints an authorization, uploads straight to the provider, then confirms with the backend. Returns only the confirmed URL; the caller merges it into its cached profile. */
   static async updateAvatar(file: File): Promise<string | null> {
+    // Before authorizing: a file that cannot be an avatar should not cost a round trip or reach the provider.
+    AvatarUploadService.validate(file);
     const authorization = await this.getAvatarUploadAuthorization();
     const providerAssetId = await AvatarUploadService.upload(file, authorization);
 

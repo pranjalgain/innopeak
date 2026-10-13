@@ -7,18 +7,17 @@ import { HealthService } from './health.service';
 
 describe('HealthController', () => {
   let target: HealthController;
-  let healthService: { checkHealth: jest.Mock };
+  let healthService: { checkHealth: jest.Mock; checkLiveness: jest.Mock };
+  let res: { status: jest.Mock };
 
   const healthyResponse: HealthCheckResponseDto = {
     status: 'up',
     info: {
-      google: { status: 'up' },
       database: { status: 'up' },
       redis: { status: 'up' },
       memory_heap: { status: 'up' },
     },
     details: {
-      google: { status: 'up' },
       database: { status: 'up' },
       redis: { status: 'up' },
       memory_heap: { status: 'up' },
@@ -26,7 +25,8 @@ describe('HealthController', () => {
   };
 
   beforeEach(async () => {
-    healthService = { checkHealth: jest.fn() };
+    healthService = { checkHealth: jest.fn(), checkLiveness: jest.fn(() => ({ status: 'up' })) };
+    res = { status: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HealthController],
@@ -38,11 +38,18 @@ describe('HealthController', () => {
 
   afterEach(() => jest.clearAllMocks());
 
+  describe('live', () => {
+    it('answers up from the service without checking any dependency', () => {
+      expect(target.live()).toEqual({ status: 'up' });
+      expect(healthService.checkHealth).not.toHaveBeenCalled();
+    });
+  });
+
   describe('check', () => {
-    it('returns a 200 success payload when the health check resolves', async () => {
+    it('returns a 200 success payload when the service is ready', async () => {
       healthService.checkHealth.mockResolvedValue(healthyResponse);
 
-      const result = await target.check();
+      const result = await target.check(res as never);
 
       expect(result).toEqual({
         statusCode: 200,
@@ -50,23 +57,11 @@ describe('HealthController', () => {
         message: 'Health check completed',
         data: healthyResponse,
       });
+      expect(res.status).not.toHaveBeenCalled();
     });
 
-    it('returns a 503 failure payload when the health check throws', async () => {
-      healthService.checkHealth.mockRejectedValue(new Error('Unexpected failure'));
-
-      const result = await target.check();
-
-      expect(result).toEqual({
-        statusCode: 503,
-        status: 'Failure',
-        message: 'Health check failed',
-        error: 'Unexpected failure',
-        data: null,
-      });
-    });
-
-    it('returns down status data from the service without throwing when a dependency is degraded', async () => {
+    // Regression: a down dependency used to answer HTTP 200 with the failure only in the body, so probes never saw it.
+    it('sets the HTTP status to 503 and names the failing component when a dependency is down', async () => {
       const degradedResponse: HealthCheckResponseDto = {
         ...healthyResponse,
         status: 'down',
@@ -75,43 +70,16 @@ describe('HealthController', () => {
       };
       healthService.checkHealth.mockResolvedValue(degradedResponse);
 
-      const result = await target.check();
+      const result = await target.check(res as never);
 
+      expect(res.status).toHaveBeenCalledWith(503);
       expect(result).toEqual({
-        statusCode: 200,
-        status: 'Success',
-        message: 'Health check completed',
+        statusCode: 503,
+        status: 'Failure',
+        message: 'Health check failed',
+        error: 'Some services are down',
         data: degradedResponse,
       });
-    });
-  });
-
-  describe('showHealth', () => {
-    it('returns a UI view model derived from the health check result', async () => {
-      healthService.checkHealth.mockResolvedValue(healthyResponse);
-
-      const result = await target.showHealth();
-
-      expect(result).toEqual({
-        status: 'up',
-        info: healthyResponse.info,
-        user: 'Developer',
-      });
-    });
-
-    it('propagates down status into the view model', async () => {
-      const degradedResponse: HealthCheckResponseDto = {
-        ...healthyResponse,
-        status: 'down',
-        error: 'Some services are down',
-      };
-      healthService.checkHealth.mockResolvedValue(degradedResponse);
-
-      const result = await target.showHealth();
-
-      expect(result.status).toBe('down');
-      expect(result.info).toEqual(degradedResponse.info);
-      expect(result.user).toBe('Developer');
     });
   });
 });

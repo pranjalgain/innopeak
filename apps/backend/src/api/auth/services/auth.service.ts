@@ -7,7 +7,7 @@ import { HashingService } from '@common/hashing/hashing.service';
 import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
-import type { TenantRow } from '@db/repositories/auth/types/auth.type';
+import type { SsoEmailLinkResult, TenantRow } from '@db/repositories/auth/types/auth.type';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import { MediaService } from '@media/media.service';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
@@ -51,6 +51,7 @@ import {
   InvalidOrExpiredInviteException,
   InvalidOtpException,
   InviteNotFoundException,
+  NewPasswordSameAsCurrentException,
   NoPasswordSetException,
   PasswordAlreadySetException,
   SsoPendingSignupExpiredException,
@@ -307,6 +308,11 @@ export class AuthService {
     );
     if (!currentMatches) {
       throw new InvalidCurrentPasswordException();
+    }
+    // After the current password is proven, so this cannot be used to probe it. Changing to the same password would
+    // still sign every other device out.
+    if (dto.newPassword === dto.currentPassword) {
+      throw new NewPasswordSameAsCurrentException();
     }
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
@@ -826,7 +832,10 @@ export class AuthService {
   }): Promise<SsoCallbackOutcome> {
     const { provider, identity, intent } = input;
     const email = normalizeEmail(identity.email);
-    let lookup = await this.authDbService.findSsoIdentityBySub(provider, identity.providerUserId);
+    let lookup: SsoEmailLinkResult = await this.authDbService.findSsoIdentityBySub(
+      provider,
+      identity.providerUserId
+    );
 
     if (lookup.kind === 'unknown') {
       // An address decides who someone is only here (first link, or a new tenant), so it must be
@@ -855,6 +864,10 @@ export class AuthService {
         // Login can never create a tenant it has no name for.
         return this.ssoFailureRedirect(SsoAuthFailure.NO_ACCOUNT, intent);
       }
+    }
+
+    if (lookup.kind === 'invited') {
+      return this.ssoFailureRedirect(SsoAuthFailure.INVITE_REQUIRED, intent);
     }
 
     // Same standing check as password login and `TokenService.rotate`; without it a disabled

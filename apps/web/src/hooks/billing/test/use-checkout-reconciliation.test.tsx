@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { type ReactNode, StrictMode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import { ApiError } from "@/app/_libs/services/api-error";
 import { BillingService } from "@/app/_libs/services/billing.service";
 import type { Subscription } from "@/types/domain";
 
@@ -156,5 +157,18 @@ describe("useCheckoutReconciliation", () => {
 
     await waitFor(() => expect(result.current.outcome).toBe("failed"), { timeout: 6000 });
     expect(toast.error).toHaveBeenCalledWith("checkoutReconcileFailed");
+  });
+
+  // Regression: a session that isn't this business's got the same "Stripe couldn't be reached" copy and three attempts.
+  test("reports a session the server does not recognise as not found, without retrying", async () => {
+    const reconcile = vi
+      .spyOn(BillingService, "reconcileCheckoutSession")
+      .mockRejectedValue(new ApiError(404, "Checkout session not found"));
+
+    const { result } = renderHook(() => useCheckoutReconciliation(), { wrapper });
+
+    await waitFor(() => expect(result.current.outcome).toBe("notFound"));
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledWith("checkoutReconcileNotFound");
   });
 });

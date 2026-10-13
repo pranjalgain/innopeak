@@ -32,7 +32,9 @@ contracts). The pipeline has no HTTP surface, so it has an overview only.
 | Dashboard | Read-only aggregate metrics over reviews and responses | [Overview](./dashboard/overview.md) · [API](./dashboard/api-reference.md) |
 | Admin Overview | Super Admin landing screen: stat cards, recent/at-risk businesses, signup trend, activity log | [Overview](./admin-overview/overview.md) · [API](./admin-overview/api-reference.md) |
 | Platform Admin | Cross-tenant support and operations for GeekyAnts staff | [Overview](./platform-admin/overview.md) · [API](./platform-admin/api-reference.md) |
-| Billing | Free/Paid subscription plans via Stripe, entitlement enforcement, and the platform-wide `billing_enabled` kill switch | [Overview](./billing/overview.md) · [API](./billing/api-reference.md) |
+| Billing | Free/Paid subscription plans via Stripe, entitlement enforcement, and the deploy-level `PAYMENT_FEATURE_ENABLED` switch | [Overview](./billing/overview.md) · [API](./billing/api-reference.md) |
+| Admin Management | Super Admin Businesses (suspend/reactivate, GDPR erasure request/cancel) and Users screens, with server-side search and paging | [Overview](./admin-management/overview.md) · [API](./admin-management/api-reference.md) |
+| Admin Billing | Super Admin read-only window into plan mix, subscription health and Stripe webhook activity | [Overview](./admin-billing/overview.md) · [API](./admin-billing/api-reference.md) |
 | Review Pipeline | The worker side: ingestion, classification, generation, notification, posting, retention | [Overview](./review-pipeline/overview.md) |
 
 ## Reading these docs
@@ -51,6 +53,24 @@ before writing code against any contract.
 not have, the doc says so explicitly and specifies the follow-up migration rather than assuming
 it. Those follow-ups are not yet consolidated into a single numbered plan — several modules
 propose migrations against tables another module owns.
+
+## Cross-cutting behaviour
+
+Running it in production (processes, required variables, probes, migrating, alerts) is in [Operations](./operations.md).
+
+- **Localized messages.** Every user-facing string, including validation errors, is rendered in the caller's locale at the response edge
+  ([Multilingual](../meta/multilingual.md)); both `messages.en.ts` and `messages.de.ts` are required.
+- **Log levels.** A request answered with a 4xx is one `warn` line (no stack) from `HttpExceptionFilter`; only a
+  5xx is an `error` with a stack. Expected refusals (an expired account choice `410`, a lapsed token `401`, a throttled `429`) are not faults.
+- **Deploy-level values.** Settings that come from the environment (`PAYMENT_FEATURE_ENABLED`, `ERASURE_GRACE_PERIOD_DAYS`) are reflected on
+  the public `GET /v1/settings/platform-config` ([Settings API](./settings/api-reference.md#platform-config)); there is no second copy in a table.
+- **Failure handling at the edges.** Every outbound call has a timeout (Google 15 s, Stripe 20 s with automatic retries, Google sign-in 10 s); a
+  transient Stripe failure answers `503 PAYMENT_PROVIDER_UNAVAILABLE`; Google failures are retried by the queues or surfaced to the owner
+  (`post_failed`, `needs_reauth`). Rate-limit counters live in Redis so replicas share one budget. The database pool is bounded, and a failed
+  database connection at boot stops the process. Details: [Operations](./operations.md#failure-handling-at-the-edges).
+- **Health.** `/health/live` (process only) and `/health/ready` (PostgreSQL, Redis, heap; HTTP 503 when down) are separate on purpose.
+- **Idempotent actions.** Webhooks go through an idempotency ledger and a per-tenant event clock; repeated admin actions return the same outcome
+  without duplicating logs, emails or Stripe calls.
 
 ## Conventions
 

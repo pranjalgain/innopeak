@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const post = vi.fn();
+const responseUse = vi.fn();
 
 // The module installs interceptors on the global axios at import time, so the mock must carry an `interceptors` shape.
 vi.mock("axios", () => {
@@ -8,7 +9,7 @@ vi.mock("axios", () => {
     post,
     interceptors: {
       request: { use: vi.fn() },
-      response: { use: vi.fn() },
+      response: { use: responseUse },
     },
   };
   return { __esModule: true, default: instance };
@@ -96,5 +97,76 @@ describe("refreshSession", () => {
     expect(first).toBe(true);
     expect(second).toBe(true);
     expect(post).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a 401 that cannot be refreshed", () => {
+  const assign = vi.fn();
+  const original = window.location;
+
+  function openPage(pathname: string, search = ""): void {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { pathname, search, assign },
+    });
+  }
+
+  /** The flag that stops repeat redirects lives for one page load, so each call gets a freshly loaded module. */
+  async function failWith401(refreshStatus = 401): Promise<unknown> {
+    responseUse.mockClear();
+    vi.resetModules();
+    await import("../config");
+    // `instanceof ApiError` in the module under test needs the class from the same, freshly reset, module registry.
+    const { ApiError: FreshApiError } = await import("@/app/_libs/services/api-error");
+    post.mockRejectedValue(new FreshApiError(refreshStatus, `failed with ${refreshStatus}`));
+    const rejected = responseUse.mock.calls[0]?.[1] as (error: unknown) => Promise<unknown>;
+    return rejected({ response: { status: 401, data: {} }, config: {}, message: "Unauthorized" }).catch(
+      (error: unknown) => error,
+    );
+  }
+
+  beforeEach(() => {
+    assign.mockReset();
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", { configurable: true, value: original });
+  });
+
+  // Regression: a revoked session left the open page on "Couldn't load…" states until the next navigation.
+  test("sends a signed-in visitor on a guarded page to sign in, remembering the page", async () => {
+    setSessionCookie("tenant");
+    openPage("/review-queue", "?status=new");
+
+    expect(await failWith401()).toMatchObject({ statusCode: 401 });
+    expect(assign).toHaveBeenCalledWith("/login?next=%2Freview-queue%3Fstatus%3Dnew");
+  });
+
+  // Regression: a 429 or 5xx refresh leaves the `session` cookie, so the proxy bounced /login back to the page and the two looped.
+  test.each([429, 502, 0])("does not leave the page when the refresh failed with %i rather than a 401", async (status) => {
+    setSessionCookie("tenant");
+    openPage("/dashboard");
+
+    expect(await failWith401(status)).toMatchObject({ statusCode: 401 });
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  test("sends an admin to the admin sign-in", async () => {
+    setSessionCookie("admin");
+    openPage("/admin/users");
+
+    await failWith401();
+    expect(assign).toHaveBeenCalledWith("/admin-login?next=%2Fadmin%2Fusers");
+  });
+
+  test("leaves a visitor with no session, or on an unguarded page, where they are", async () => {
+    openPage("/review-queue");
+    await failWith401();
+
+    setSessionCookie("tenant");
+    openPage("/onboarding/connect");
+    await failWith401();
+
+    expect(assign).not.toHaveBeenCalled();
   });
 });

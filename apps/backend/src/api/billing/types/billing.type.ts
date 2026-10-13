@@ -91,6 +91,12 @@ type PaymentWebhookEventBody =
       type: 'checkout.session.completed';
       customerId: string;
       subscriptionId: string;
+      /**
+       * False for a Checkout that completed before its payment did (a delayed method such as SEPA debit: Stripe sends
+       * `payment_status: 'unpaid'`). The tenant must not be upgraded until `checkout.session.async_payment_succeeded`,
+       * which is normalized to this same event type with `paymentSettled: true`.
+       */
+      paymentSettled: boolean;
       status: SubscriptionStatus;
       currentPeriodStart: string | null;
       currentPeriodEnd: string | null;

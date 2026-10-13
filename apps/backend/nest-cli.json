@@ -11,6 +11,10 @@
       {
         "include": "email/templates/**/*.hbs",
         "outDir": "dist"
+      },
+      {
+        "include": "db/drizzle/migrations/**/*.{sql,json}",
+        "outDir": "dist"
       }
     ],
     "watchAssets": true,

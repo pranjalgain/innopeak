@@ -19,8 +19,8 @@ location-selection methods), `providers/` (the `PaymentProvider` plugin pair), a
 `exceptions/`/`swagger/`/`types/` files that support them all exist and are wired into three other
 modules' services. Data access lives in `src/db/repositories/billing/`
 (`billing-plans.repository.ts`/`.db-service.ts`, `tenant-subscriptions.repository.ts`/
-`.db-service.ts`, `stripe-webhook-events.db-service.ts`), plus two columns added to existing
-domains — `platform_settings.billing_enabled` and `locations.billing_paused_at`.
+`.db-service.ts`, `stripe-webhook-events.db-service.ts`), plus one column added to an existing
+domain — `locations.billing_paused_at`.
 
 For the endpoint-by-endpoint contract, see [Billing Module — API Reference](./api-reference.md).
 
@@ -36,7 +36,6 @@ migrations-are-edited-in-place convention — see that file's own header comment
 | `billing_plans` | Seeded catalog, not admin-managed — exactly two rows (`free`, `paid`) for the lifetime of this schema version. Entitlements (`max_locations`, `max_ai_drafts_per_month`, `max_team_members`, `custom_prompts_enabled`) live directly on the row rather than a separate `plan_entitlements` table, since there are only ever two rows and entitlements never change independently of the plan itself. `NULL` on any `max_*` column means unlimited. `stripe_product_id`/`stripe_price_id` are both `NULL` for `free` — no Stripe object backs a plan with no price |
 | `tenant_subscriptions` | One row per tenant, always present — created in the same transaction as the tenant itself (`AuthDbService.signup`/`completeGoogleSignup`, via `TenantSubscriptionsDbService.insertFreeSubscription`), defaulting to the `free` plan. "Which plan is this tenant on" never needs a null-check anywhere it's read. `stripe_customer_id`/`stripe_subscription_id`/`status`/period fields are all nullable — a pure-Free tenant that has never started a checkout has none of them. Two more nullable timestamps support missed-webhook recovery (see [§ Recovering from a missed webhook](#recovering-from-a-missed-webhook)): `stripe_last_verified_at` (last time the row was confirmed against Stripe, by any path) and `checkout_started_at` (last time a Checkout Session was created, which bounds the nightly sweep) |
 | `stripe_webhook_events` | Idempotency ledger, Stripe's own recommended pattern — insert the event id first (`id VARCHAR(255) PRIMARY KEY`, Stripe's own event id string, not `uuidv7()`), treat a conflict as "already processed, skip." The one table in this schema keyed on an externally-issued id |
-| `platform_settings.billing_enabled` | `BOOLEAN NOT NULL DEFAULT false`, added directly to `0008_platform_settings.sql` alongside the other four platform toggles (`sso_login_enabled`/`password_login_enabled`/`social_login_enabled`/`invite_members_enabled`) |
 | `locations.billing_paused_at` | `TIMESTAMPTZ`, nullable, added directly to `0003_review_provider_locations.sql`. See [§ Downgrading with multiple locations](#downgrading-with-multiple-locations--the-location-choice-mechanism) for why this is a new column rather than reusing `status` or `tenants.active_location_id` |
 
 ## Free vs Paid: a hybrid usage-cap + feature-lock split
@@ -59,31 +58,21 @@ in the schema — three `SMALLINT` columns that mean "how many" and one `BOOLEAN
 (`count < max` for the caps, a plain field read for the lock) instead of each needing its own
 bespoke comparison logic.
 
-## The platform flag is global, not per-business, and never retroactive
+## The payment switch is a deploy-level env var, not per-business, and never retroactive
 
-`platform_settings.billing_enabled` is a single platform-wide switch, not a per-tenant column —
-the same singleton-settings table and pattern already used for `sso_login_enabled`/
-`password_login_enabled`/`social_login_enabled`/`invite_members_enabled`. A Super Admin flips one
-switch for the whole platform rather than opting individual businesses in.
+Whether billing exists at all is one environment variable, `PAYMENT_FEATURE_ENABLED`, not a table column or a runtime toggle: wiring
+up Stripe is a deploy-time fact, so there is deliberately no second, admin-editable copy that could disagree with it. (An earlier
+design stored `platform_settings.billing_enabled`; that column is gone.)
 
-`BillingService.createCheckoutSession` is the **only** place this flag is read
-(`platformSettings?.billingEnabled !== true` throws `BillingNotEnabledException`,
-`src/api/billing/services/billing.service.ts:80-83`). `createPortalSession` deliberately does
-**not** check it — its own doc comment says so explicitly: "an already-Paid tenant keeps full
-Customer Portal access regardless of the platform-wide switch." This is what makes disabling the
-flag non-retroactive: it gates the *entry point* (starting a new upgrade), never an
-already-subscribed tenant's existing access to manage or cancel what they already have.
+`isPaymentFeatureEnabled(configService)` (`src/api/billing/utils/payment-feature.util.ts`) reads it, and it is applied in three places:
 
-**A gap found while documenting this, not by design**: `platform_settings.billing_enabled` exists
-end-to-end at the schema and repository layer (`PlatformSettingsRow.billingEnabled`,
-`src/db/repositories/platform-settings/platform-settings.repository.ts`) and is read by
-`BillingService.createCheckoutSession`, but it is **not yet exposed on either platform-settings
-DTO** — `UpdatePlatformSettingsDto`
-(`src/api/admin/dto/update-platform-settings.dto.ts`) and `PlatformSettingsResponseDto`
-(`src/api/settings/dto/platform-settings-response.dto.ts`) both still list only the original four
-booleans. As shipped, there is no HTTP path for a Super Admin to actually flip this switch, or for
-any client to read its current value — the column can only be changed directly at the database.
-See [Known limitations](#known-limitations--follow-up-work).
+- **`BillingService.createCheckoutSession`** is the only billing route it gates: off, it throws `BillingNotEnabledException`
+  (`403 BILLING_NOT_ENABLED`). `createPortalSession` deliberately does **not** check it, so an already-Paid tenant keeps full
+  Customer Portal access — the switch gates the *entry point* (starting an upgrade), never existing access.
+- **`BillingEntitlementsService`** lifts every plan limit while it is off (`limitsApply` is false), so a deploy without payments
+  never blocks a tenant on Free-plan caps.
+- **`GET /v1/settings/platform-config`** reflects it as `paymentFeatureEnabled`, which the web uses to show or hide every
+  payment-related surface (plan choice at signup, the Billing tab, the admin Billing page).
 
 ## The payment provider
 
@@ -113,10 +102,25 @@ NOTHING` — zero rows returned means "already processed, skip"), then dispatche
 
 | Event | Effect |
 |---|---|
-| `checkout.session.completed` | Attach `stripe_subscription_id`, set `plan_id` to `paid`, clear `billing_paused_at` on every one of the tenant's locations (Paid has no location cap). |
+| `checkout.session.completed` | Attach `stripe_subscription_id`, set `plan_id` to `paid`, clear `billing_paused_at` on every one of the tenant's locations (Paid has no location cap) — **only when the payment has settled** (`payment_status` `paid` or `no_payment_required`). A Checkout that completes before its payment does (a delayed method such as SEPA debit reports `unpaid`) is recorded and acknowledged without upgrading; `checkout.session.async_payment_succeeded`, normalized to this same event, upgrades once the payment clears. |
 | `customer.subscription.updated` | Sync `status`/`current_period_start`/`current_period_end`/`cancel_at_period_end` only — `plan_id` is deliberately untouched. A tenant who has canceled but is still inside their paid period arrives here with `cancelAtPeriodEnd: true` and `status: 'active'`; `plan_id` **stays** `paid` and entitlements stay unlimited — they keep what they already paid for. It also clears `cancellation_source` when the flag arrives `false` (the subscription renews again); while the flag is still `true` the source is left as it was written — a webhook cannot know who asked. |
 | `customer.subscription.deleted` | Fires when Stripe actually ends the subscription (at period end, or immediately if canceled outside a grace period). **This is the one write that flips `plan_id` back to `free`** and clears `stripe_subscription_id`/`status`/period fields. Entitlement checks read `plan_id`, not `status` — forgetting this write would leave a canceled tenant permanently reading as `paid` with unlimited access. Also calls `BillingEntitlementsService.enforceLocationLimitOnDowngrade`. |
 | `invoice.payment_failed` / `invoice.payment_succeeded` | `status` only (`past_due` / `active`) — no email queuing in v1. |
+
+### Webhooks arrive unordered — `tenant_subscriptions.stripe_last_event_at`
+
+Stripe does not deliver events in the order they happened, so a late `past_due` could overwrite a newer `active`, or a
+late `checkout.session.completed` resurrect Paid after a `deleted`. Every event that changes billing state first moves
+the tenant's `stripe_last_event_at` forward to its own Stripe `created` time in one atomic update
+(`TenantSubscriptionsRepository.advanceEventClock`); an event **older** than the newest one already applied is stale and
+is acknowledged without writing. An event from the same second counts as current, since `created` has second resolution
+and there is no order to recover. A late `invoice.payment_succeeded` leaves the status alone but still records its
+receipt, since that is a record of a payment that happened. The redirect/sweep reconciliation paths do not move the clock
+(they read live state from Stripe, and comparing Stripe's clock with ours could drop a legitimate event).
+
+**Stripe endpoint setup:** the webhook endpoint must also be subscribed to `checkout.session.async_payment_succeeded`
+(alongside the five types above), or a tenant paying by a delayed method is only upgraded by the redirect/nightly
+reconciliation, not by the webhook.
 
 ### Who cancelled — `tenant_subscriptions.cancellation_source`
 
@@ -272,9 +276,3 @@ injected into three other modules' business services:
   deliberate, isolated follow-up work — wiring a genuinely new email type through the full
   producer → processor → Handlebars-template pipeline needs its own review and was out of this
   task's required verification scope.
-- **`billing_enabled` has no admin-facing API surface yet.** As documented
-  [above](#the-platform-flag-is-global-not-per-business-and-never-retroactive), the column and its
-  enforcement in `BillingService.createCheckoutSession` are both live, but
-  `UpdatePlatformSettingsDto`/`PlatformSettingsResponseDto` don't include the field. A Super Admin
-  cannot currently toggle it, and no client can read its value, through any HTTP route — only a
-  direct database update changes it today.
