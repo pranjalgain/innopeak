@@ -2,6 +2,7 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { toStoredMessage } from '@common/i18n/message-registry';
 import { RouteNames } from '@common/route-names';
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
+import { SSE_METADATA } from '@nestjs/common/constants';
 import { firstValueFrom, of } from 'rxjs';
 
 import { TransformInterceptor } from './transform.interceptor';
@@ -26,7 +27,7 @@ describe('TransformInterceptor', () => {
         getRequest: () => request,
         getResponse: () => response,
       }),
-      getHandler: jest.fn(),
+      getHandler: jest.fn(() => (): void => undefined),
       getClass: jest.fn(),
     } as unknown as ExecutionContext;
   };
@@ -180,6 +181,37 @@ describe('TransformInterceptor', () => {
       message: 'Request successful',
       data: 'pong',
     });
+  });
+
+  // An `@Sse` handler's events are `text/event-stream` messages, not envelopes: wrapping them would lose each event's `id` and `type`.
+  // Recognised from the handler, so the URL the request arrived on does not matter.
+  it.each([
+    '/v1/notifications/stream',
+    '/v1/notifications/stream/',
+    '/V1/Notifications/Stream',
+    '/v1/notifications/stream?x=1',
+  ])('bypasses transformation for a server-sent-events route (%s)', async url => {
+    const event = { type: 'notification', id: 'n1', data: { id: 'n1' } };
+    const handler = (): void => undefined;
+    Reflect.defineMetadata(SSE_METADATA, true, handler);
+    const context = buildHttpContext(url);
+    (context.getHandler as jest.Mock).mockReturnValue(handler);
+
+    const result = await firstValueFrom(
+      interceptor.intercept(context, { handle: () => of(event) })
+    );
+
+    expect(result).toBe(event);
+  });
+
+  it('still wraps the notifications list, which is a normal envelope', async () => {
+    const result = await firstValueFrom(
+      interceptor.intercept(buildHttpContext('/v1/notifications'), {
+        handle: () => of({ items: [] }),
+      })
+    );
+
+    expect(result).toMatchObject({ status: 'Success' });
   });
 
   it('bypasses transformation for metrics routes', async () => {

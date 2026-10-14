@@ -1,8 +1,10 @@
 export interface PlatformSettingsRow {
-  ssoLoginEnabled: boolean;
+  microsoftLoginEnabled: boolean;
   passwordLoginEnabled: boolean;
-  socialLoginEnabled: boolean;
+  googleLoginEnabled: boolean;
   inviteMembersEnabled: boolean;
+  /** Whether tenants see notification channel preferences. Off in phase one (in-app notifications only). */
+  notificationSettingsEnabled: boolean;
   /** The platform admin whose `update()` last changed the row; null on the seeded row. Set by `update()`, never by the patch. */
   updatedByPlatformAdminId: string | null;
 }

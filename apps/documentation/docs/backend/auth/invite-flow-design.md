@@ -267,7 +267,7 @@ checking `platform_admins` first.
    case to `PlatformAdminProfileService.probeSession`, an authenticated round trip that `JwtStrategy`
    answers off the cookie. Tenants keep the refresh path, which for them both proves the session
    and repairs localStorage.
-2. *The accept screen ignored `socialLoginEnabled`.* `LoginView` gates its Google button on that
+2. *The accept screen ignored `googleLoginEnabled`.* `LoginView` gates its Google button on that
    platform setting; the invite screen did not, so an invitee could mint a Google-only admin on a
    platform where Google sign-in is switched off — an account whose one credential is a button
    `/login` never renders. The accept screen now reads the same setting.
@@ -290,9 +290,11 @@ checking `platform_admins` first.
    UPDATE would slip past. Documented rather than locked down: the invariant spans two tables so
    no single-table CHECK can back it up, and the consequence is one admin re-enabling a setting.
 
-Worth knowing, and unchanged by any of this: `socialLoginEnabled` is enforced **only in the UI** —
-no backend auth path consults it, so `GET /v1/auth/google` still works when it is off. The guard
-above is about the login screen being usable, not about a security boundary.
+Worth knowing: `googleLoginEnabled` was originally enforced only in the UI. It is now also enforced
+on the server for the tenant-facing intents (`LOGIN`, `SIGNUP`, `INVITE`: authorize and callback answer
+`NOT_CONFIGURED`), but never for `ADMIN_LOGIN` or `ADMIN_INVITE`, since an admin who accepted through
+Google has no other way in. That is exactly why the guard above exists: it is what makes it safe for the
+admin intents to ignore the switch.
 
 This mirrors the single-callback-per-provider dispatch `handleGoogleCallback` already uses for
 `OAuthIntent.LOGIN`/`SIGNUP` — a third intent, not a new callback route:

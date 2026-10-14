@@ -1,8 +1,9 @@
 import { UserRole } from '@auth/enums/user-role.enum';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { NotificationChannelPref } from '@common/enums/notification-channel-pref.enum';
+import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import { SettingsDbService } from '@db/repositories/settings/settings.db-service';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
@@ -17,6 +18,7 @@ describe('NotificationRecipientsService', () => {
     listNotificationRecipients: jest.Mock;
     updateNotificationRecipient: jest.Mock;
   };
+  let platformSettingsDbService: { get: jest.Mock };
 
   const tenantUser: TenantAuthUser = {
     type: JwtTokenType.TENANT_USER,
@@ -33,10 +35,16 @@ describe('NotificationRecipientsService', () => {
       updateNotificationRecipient: jest.fn(),
     };
 
+    // On: the gate has its own tests below; everything else runs as it will once the setting is enabled.
+    platformSettingsDbService = {
+      get: jest.fn().mockResolvedValue({ notificationSettingsEnabled: true }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationRecipientsService,
         { provide: SettingsDbService, useValue: settingsDbService },
+        { provide: PlatformSettingsDbService, useValue: platformSettingsDbService },
       ],
     }).compile();
 
@@ -83,6 +91,29 @@ describe('NotificationRecipientsService', () => {
       id: 'r1',
       tenantId: 'tenant-1',
       channel: NotificationChannelPref.BOTH,
+    });
+  });
+
+  describe('while notification settings are turned off (the default)', () => {
+    it.each([false, null])('refuses to list when the platform setting is %s', async setting => {
+      platformSettingsDbService.get.mockResolvedValue(
+        setting === null ? null : { notificationSettingsEnabled: setting }
+      );
+
+      await expect(target.list(tenantUser)).rejects.toThrow(ForbiddenException);
+      await expect(target.list(tenantUser)).rejects.toThrow(
+        MESSAGES.SETTINGS.NOTIFICATION_SETTINGS_DISABLED
+      );
+      expect(settingsDbService.listNotificationRecipients).not.toHaveBeenCalled();
+    });
+
+    it('refuses to update and touches nothing', async () => {
+      platformSettingsDbService.get.mockResolvedValue({ notificationSettingsEnabled: false });
+
+      await expect(target.update(tenantUser, 'r1', { isActive: false })).rejects.toThrow(
+        ForbiddenException
+      );
+      expect(settingsDbService.updateNotificationRecipient).not.toHaveBeenCalled();
     });
   });
 

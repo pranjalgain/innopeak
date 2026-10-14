@@ -52,11 +52,9 @@ export class ConnectionsDbService {
     );
   }
 
-  markNeedsReauth(connectionId: string): Promise<void> {
-    return this.connectionsRepository.updateConnectionStatus(
-      connectionId,
-      ReviewProviderConnectionStatus.NEEDS_REAUTH
-    );
+  /** `true` when this call is what moved it into `needs_reauth`, so only that caller announces it. */
+  markNeedsReauth(connectionId: string): Promise<boolean> {
+    return this.connectionsRepository.markNeedsReauth(connectionId);
   }
 
   markConnectionStatus(

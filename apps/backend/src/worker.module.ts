@@ -11,6 +11,8 @@ import { ReviewPipelineModule } from '@review-pipeline/review-pipeline.module';
 import { ReviewProviderModule } from '@review-provider/review-provider.module';
 import Redis from 'ioredis';
 
+import { InAppNotificationsModule } from './api/notifications/in-app-notifications.module';
+
 const queueModule = BullModule.forRootAsync({
   imports: [RedisModule],
   useFactory: (redisClient: Redis) => {
@@ -23,8 +25,8 @@ const queueModule = BullModule.forRootAsync({
   inject: [REDIS_CLIENT],
 });
 
-// DBModule, ReviewProviderModule and ReviewPipelineModule are global and must be imported here:
-// CronService and the review backfill run in this process and can't reach them through an API module.
+// DBModule, ReviewProviderModule, ReviewPipelineModule and InAppNotificationsModule are global and must be imported here:
+// CronService, the review backfill and the post/sync jobs run in this process and can't reach them through an API module.
 @Module({
   imports: [
     EnvConfigModule,
@@ -33,6 +35,7 @@ const queueModule = BullModule.forRootAsync({
     DBModule,
     ReviewProviderModule,
     ReviewPipelineModule,
+    InAppNotificationsModule,
     queueModule,
     BackgroundModule,
   ],

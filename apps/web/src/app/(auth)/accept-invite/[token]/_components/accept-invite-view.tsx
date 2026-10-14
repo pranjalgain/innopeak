@@ -58,9 +58,9 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
     retryValidation,
   } = useAcceptMemberInvite(token);
 
-  // `socialLoginEnabled` gates only the Google button, not invite validity.
+  // `googleLoginEnabled` gates only the Google button, not invite validity.
   const { data: platformSettings } = usePlatformSettings();
-  const socialEnabled = platformSettings?.socialLoginEnabled ?? false;
+  const socialEnabled = platformSettings?.googleLoginEnabled ?? false;
 
   const schema = useMemo(() => acceptMemberInviteSchema(t), [t]);
   const {

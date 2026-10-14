@@ -1,5 +1,6 @@
 import { SsoProvider } from '@auth/constants/sso-auth.constants';
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
+import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import { SubscriptionCancellationSource } from '@common/enums/subscription-cancellation-source.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import type { DBService } from '@db/db.service';
@@ -17,11 +18,15 @@ import { BillingReceiptsRepository } from './billing/billing-receipts.repository
 import { TenantSubscriptionsDbService } from './billing/tenant-subscriptions.db-service';
 import { TenantSubscriptionsRepository } from './billing/tenant-subscriptions.repository';
 import { ConnectionsRepository } from './connections/connections.repository';
+import { NotificationsRepository } from './notifications/notifications.repository';
+import { PlatformSettingsRepository } from './platform-settings/platform-settings.repository';
 import { PromptsDbService } from './prompts/prompts.db-service';
 import { PromptsRepository } from './prompts/prompts.repository';
 import { ReviewSyncRepository } from './review-sync/review-sync.repository';
 import { BlocklistTermsRepository } from './settings/blocklist-terms.repository';
 import { TenantExportRepository } from './tenant-export/tenant-export.repository';
+
+import { deterministicUuid } from '../../api/notifications/utils/deterministic-uuid.util';
 
 /**
  * Opt-in: runs only when `TEST_DATABASE_URL` points at a migrated, DISPOSABLE Postgres (e.g.
@@ -145,6 +150,262 @@ describeWithDb('repositories against a real database', () => {
       expect(stored.rows[0].n).toBe(10);
       expect(results.filter(r => r.outcome === 'created')).toHaveLength(10);
       expect(results.filter(r => r.outcome === 'limit_reached')).toHaveLength(15);
+    });
+  });
+
+  describe('NotificationsRepository', () => {
+    async function userWith(
+      tenantId: string,
+      status: string,
+      extra: { anonymized?: boolean; erasure?: boolean } = {}
+    ): Promise<string> {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO users (tenant_id, email, name, role, status, anonymized_at, erasure_requested_at)
+         VALUES ($1, $2, 'Spec User', 'member', $3::user_status,
+                 CASE WHEN $4 THEN now() END, CASE WHEN $5 THEN now() END) RETURNING id`,
+        [
+          tenantId,
+          `spec-${Math.random().toString(36).slice(2)}@example.test`,
+          status,
+          extra.anonymized ?? false,
+          extra.erasure ?? false,
+        ]
+      );
+      return rows[0]?.id as string;
+    }
+
+    it('lists only active, non-anonymized users with no erasure pending', async () => {
+      const repository = new NotificationsRepository(dbService);
+      const tenantId = await newTenant();
+      const active = await userWith(tenantId, 'active');
+      await userWith(tenantId, 'disabled');
+      await userWith(tenantId, 'invited');
+      await userWith(tenantId, 'active', { anonymized: true });
+      await userWith(tenantId, 'active', { erasure: true });
+      const otherTenant = await newTenant();
+      await userWith(otherTenant, 'active');
+
+      const recipients = await repository.listActiveRecipients(tenantId);
+
+      expect(recipients.map(recipient => recipient.id)).toEqual([active]);
+    });
+
+    it('writes each notice once: a repeat for the same review and generation group is a no-op', async () => {
+      const repository = new NotificationsRepository(dbService);
+      const tenantId = await newTenant();
+      const userId = await userWith(tenantId, 'active');
+      const locationId = await newLocation(tenantId);
+      const { rows: reviewRows } = await pool.query<{ id: string }>(
+        `INSERT INTO reviews (tenant_id, location_id, external_review_id, rating)
+         VALUES ($1, $2, 'ext-1', 1) RETURNING id`,
+        [tenantId, locationId]
+      );
+      const reviewId = reviewRows[0]?.id as string;
+      const groupId = '0190c1a0-0000-7000-8000-000000000001';
+      const notice = {
+        tenantId,
+        userId,
+        type: 'reply_needs_approval',
+        title: 'Reply ready for approval',
+        description: 'A drafted reply is waiting.',
+        reviewId,
+        generationGroupId: groupId,
+      };
+
+      const first = await repository.insertMany([notice]);
+      expect(first).toEqual([{ id: expect.any(String), userId }]);
+      expect(await repository.insertMany([notice])).toEqual([]);
+      expect(await repository.insertMany([])).toEqual([]);
+    });
+
+    it('writes an escalation once per review even when the same review is announced again', async () => {
+      const repository = new NotificationsRepository(dbService);
+      const tenantId = await newTenant();
+      const userId = await userWith(tenantId, 'active');
+      const locationId = await newLocation(tenantId);
+      const { rows: reviewRows } = await pool.query<{ id: string }>(
+        `INSERT INTO reviews (tenant_id, location_id, external_review_id, rating)
+         VALUES ($1, $2, 'ext-esc', 1) RETURNING id`,
+        [tenantId, locationId]
+      );
+      const notice = {
+        tenantId,
+        userId,
+        type: 'review_escalated',
+        title: 'Review escalated',
+        description: null,
+        reviewId: reviewRows[0]?.id as string,
+        generationGroupId: deterministicUuid(`review-escalated:${reviewRows[0]?.id}`),
+      };
+
+      expect(await repository.insertMany([notice])).toHaveLength(1);
+      expect(await repository.insertMany([notice])).toEqual([]);
+    });
+
+    it('writes nothing when a later chunk fails, so a notice is never half written', async () => {
+      const repository = new NotificationsRepository(dbService);
+      const tenantId = await newTenant();
+      const userId = await userWith(tenantId, 'active');
+      const good = (n: number) => ({
+        tenantId,
+        userId,
+        type: 'connection_issue',
+        title: `t${n}`,
+        description: null,
+        reviewId: null,
+        generationGroupId: null,
+      });
+      // 600 rows span two chunks; the very last one points at a user that does not exist, which fails the second chunk.
+      const rows = [
+        ...Array.from({ length: 599 }, (_, n) => good(n)),
+        { ...good(599), userId: '0190c1a0-0000-7000-8000-00000000dead' },
+      ];
+
+      await expect(repository.insertMany(rows)).rejects.toThrow();
+
+      const { rows: left } = await pool.query(
+        `SELECT 1 FROM in_app_notifications WHERE tenant_id = $1`,
+        [tenantId]
+      );
+      expect(left).toHaveLength(0);
+    });
+
+    it('keeps each connection incident as its own notice (no review, so nothing to dedupe on)', async () => {
+      const repository = new NotificationsRepository(dbService);
+      const tenantId = await newTenant();
+      const userId = await userWith(tenantId, 'active');
+      const notice = {
+        tenantId,
+        userId,
+        type: 'connection_issue',
+        title: 'Google connection needs attention',
+        description: null,
+        reviewId: null,
+        generationGroupId: null,
+      };
+
+      expect(await repository.insertMany([notice])).toHaveLength(1);
+      expect(await repository.insertMany([notice])).toHaveLength(1);
+    });
+
+    it('purges read notices past their retention and any notice past the longer one, keeping the rest', async () => {
+      const repository = new NotificationsRepository(dbService);
+      const tenantId = await newTenant();
+      const userId = await userWith(tenantId, 'active');
+      const insert = async (readDaysAgo: number | null, createdDaysAgo: number): Promise<void> => {
+        await pool.query(
+          `INSERT INTO in_app_notifications (tenant_id, user_id, type, title, read_at, created_at)
+           VALUES ($1, $2, 'connection_issue', 't',
+                   CASE WHEN $3::int IS NULL THEN NULL ELSE now() - make_interval(days => $3::int) END,
+                   now() - make_interval(days => $4::int))`,
+          [tenantId, userId, readDaysAgo, createdDaysAgo]
+        );
+      };
+      await insert(100, 120); // read long ago: purged
+      await insert(10, 120); // read recently, old row: kept (read retention counts from reading)
+      await insert(null, 200); // unread and older than the long retention: purged
+      await insert(null, 100); // unread, within retention: kept
+      await insert(1, 2); // fresh: kept
+
+      const purged = await repository.purgeOld({ readRetentionDays: 90, unreadRetentionDays: 180 });
+      const { rows } = await pool.query(`SELECT 1 FROM in_app_notifications WHERE tenant_id = $1`, [
+        tenantId,
+      ]);
+
+      expect(purged).toBe(2);
+      expect(rows).toHaveLength(3);
+    });
+
+    it('purges across several batches until nothing expired is left', async () => {
+      const repository = new NotificationsRepository(dbService);
+      const tenantId = await newTenant();
+      const userId = await userWith(tenantId, 'active');
+      for (let i = 0; i < 5; i += 1) {
+        await pool.query(
+          `INSERT INTO in_app_notifications (tenant_id, user_id, type, title, created_at)
+           VALUES ($1, $2, 'connection_issue', 't', now() - interval '400 days')`,
+          [tenantId, userId]
+        );
+      }
+      await pool.query(
+        `INSERT INTO in_app_notifications (tenant_id, user_id, type, title) VALUES ($1, $2, 'connection_issue', 't')`,
+        [tenantId, userId]
+      );
+
+      const purged = await repository.purgeOld({
+        readRetentionDays: 90,
+        unreadRetentionDays: 180,
+        batchSize: 2,
+      });
+      const { rows } = await pool.query(`SELECT 1 FROM in_app_notifications WHERE tenant_id = $1`, [
+        tenantId,
+      ]);
+
+      expect(purged).toBe(5);
+      expect(rows).toHaveLength(1);
+    });
+  });
+
+  describe('PlatformSettingsRepository.countActiveSsoOnlyTenantUsers', () => {
+    it('counts only active, password-less users whose only identity is that provider', async () => {
+      const repository = new PlatformSettingsRepository(dbService);
+      const before = await repository.countActiveSsoOnlyTenantUsers(UserIdentityProvider.GOOGLE);
+      const tenantId = await newTenant();
+      const make = async (opts: {
+        status?: string;
+        password?: boolean;
+        anonymized?: boolean;
+        identities: string[];
+      }): Promise<void> => {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO users (tenant_id, email, name, role, status, password_hash, anonymized_at)
+           VALUES ($1, $2, 'Spec User', 'member', $3::user_status, $4, CASE WHEN $5 THEN now() END) RETURNING id`,
+          [
+            tenantId,
+            `spec-${Math.random().toString(36).slice(2)}@example.test`,
+            opts.status ?? 'active',
+            opts.password ? 'hash' : null,
+            opts.anonymized ?? false,
+          ]
+        );
+        for (const provider of opts.identities) {
+          await pool.query(
+            `INSERT INTO user_identities (user_id, provider, provider_user_id, email)
+             VALUES ($1, $2::user_identity_provider, $3, 'x@example.test')`,
+            [rows[0]?.id, provider, `sub-${Math.random().toString(36).slice(2)}`]
+          );
+        }
+      };
+
+      await make({ identities: ['google'] }); // counted
+      await make({ identities: ['google'], password: true }); // can use a password
+      await make({ identities: ['google', 'entra_id'] }); // can use Microsoft
+      await make({ identities: ['google'], status: 'disabled' }); // cannot sign in anyway
+      await make({ identities: ['google'], anonymized: true }); // erased
+      await make({ identities: ['entra_id'] }); // a different provider
+
+      expect(await repository.countActiveSsoOnlyTenantUsers(UserIdentityProvider.GOOGLE)).toBe(
+        before + 1
+      );
+    });
+  });
+
+  describe('ConnectionsRepository.markNeedsReauth', () => {
+    it('reports true only for the call that moved the connection into needs_reauth', async () => {
+      const repository = new ConnectionsRepository(dbService);
+      const tenantId = await newTenant();
+      const userId = await newUser(tenantId);
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO review_provider_connections
+           (tenant_id, connected_by_user_id, provider_account_id, credential_reference)
+         VALUES ($1, $2, 'accounts/1', 'ref') RETURNING id`,
+        [tenantId, userId]
+      );
+      const connectionId = rows[0]?.id as string;
+
+      expect(await repository.markNeedsReauth(connectionId)).toBe(true);
+      expect(await repository.markNeedsReauth(connectionId)).toBe(false);
+      expect(await repository.markNeedsReauth('0190c1a0-0000-7000-8000-00000000ffff')).toBe(false);
     });
   });
 

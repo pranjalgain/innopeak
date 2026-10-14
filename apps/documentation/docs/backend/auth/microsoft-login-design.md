@@ -85,9 +85,9 @@ for that tenant (the existing dual-identity decision).
 - **No Microsoft tokens stored**; no `offline_access`, no refresh token.
 - **Error bodies never logged** (a failed exchange can echo the code or client id).
 - **Throttled** like Google (`short` tier on the authorize route).
-- **Platform switch is UI-only, like Google's:** `platform_settings.sso_login_enabled` shows or hides the
-  Microsoft button (the Google button is `social_login_enabled`); the backend routes do not re-check it
-  for either provider. Enforcing both server-side is a separate, small follow-up.
+- **Platform switch is enforced on the server:** `platform_settings.microsoft_login_enabled` shows or hides the
+  Microsoft button and the routes refuse while it is off (`NOT_CONFIGURED`). The Google switch,
+  `google_login_enabled`, is enforced the same way (see [Platform switches](./api-reference.md#platform-switches)).
 
 ## What gets generalized
 
@@ -117,7 +117,7 @@ No schema change: `user_identity_provider` already has `entra_id`, and `user_ide
   a failed refresh of a stale set keeps using the cached key; requests time out after 10 s.
 - The token exchange times out after 10 s too, ending in `?error=PROVIDER_ERROR` rather than a
   callback that never answers.
-- `platform_settings.sso_login_enabled` is enforced on both routes (authorize and callback answer
+- `platform_settings.microsoft_login_enabled` is enforced on both routes (authorize and callback answer
   `?error=NOT_CONFIGURED` while it is off), not only by hiding the button.
 - Only `error=access_denied` from Microsoft reads as a cancellation; any other `error` is
   `PROVIDER_ERROR`.

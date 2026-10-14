@@ -419,10 +419,12 @@ export interface BillingWebhookEventList {
 
 /** Platform-wide feature settings, a single row (`platform_settings`) rather than per-tenant; read at runtime from `GET /v1/settings/platform-config`, including by signed-out visitors. */
 export interface PlatformSettings {
-  ssoLoginEnabled: boolean;
+  microsoftLoginEnabled: boolean;
   passwordLoginEnabled: boolean;
-  socialLoginEnabled: boolean;
+  googleLoginEnabled: boolean;
   inviteMembersEnabled: boolean;
+  /** Whether tenants see notification channel preferences (the Notifications tab). Off by default: phase one is in-app notifications only. */
+  notificationSettingsEnabled: boolean;
   /**
    * Whether billing exists in this deploy: reflects the backend's `PAYMENT_FEATURE_ENABLED` env var, not a runtime
    * setting (deliberately no admin UI). Gates every payment-related UI surface. Not retroactive: turning it off
@@ -432,6 +434,9 @@ export interface PlatformSettings {
   /** Days between a business being scheduled for erasure and its data being erased: the backend's `ERASURE_GRACE_PERIOD_DAYS`, so deadlines shown in the UI match the nightly purge. */
   erasureGracePeriodDays?: number;
 }
+
+/** A change to the platform settings. `confirmLockout` is not a setting: it acknowledges, for this request only, that switching Microsoft or Google off locks out the users who can only sign in with it. */
+export type PlatformSettingsPatch = Partial<PlatformSettings> & { confirmLockout?: boolean };
 
 /** A real `platform_activity_log` action; mirrors the backend's `platform_activity_type` enum exactly. The API does no
  *  runtime validation of `type` (a plain cast in `AdminActivityService`), so a missing value breaks `ActivityLogCard`'s

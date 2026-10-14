@@ -69,15 +69,20 @@ function mapNotificationRecipient(dto: NotificationRecipientDto): NotificationRe
 
 /** No add/remove route for notification recipients yet (list and per-row edits only), matching the shipped UI. */
 export class SettingsService {
-  /** `loadConnection` lets a caller with a query cache supply the connection it already holds instead of fetching it again. */
+  /**
+   * `loadConnection` lets a caller with a query cache supply the connection it already holds instead of fetching it again.
+   * `includeNotificationRecipients` is the platform's `notificationSettingsEnabled`: while it is off the recipients route
+   * answers 403 and no screen shows them, so they are not requested at all (an empty list, never an error).
+   */
   static async getSettings(
     loadConnection: () => Promise<ConnectionState> = () => ConnectionService.getState(),
+    includeNotificationRecipients = false,
   ): Promise<SettingsData> {
     // Connection state is best-effort so a failure does not blank Settings; the others are not caught, since an empty list would read as "you have none".
     const [blocklist, general, recipients, state] = await Promise.all([
       this.listBlocklistTerms(),
       this.getGeneralSettings(),
-      this.listNotificationRecipients(),
+      includeNotificationRecipients ? this.listNotificationRecipients() : Promise.resolve([]),
       loadConnection().catch(() => null),
     ]);
 

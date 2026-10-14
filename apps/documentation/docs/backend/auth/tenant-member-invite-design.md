@@ -252,7 +252,7 @@ its own hook mirroring `useAcceptAdminInvite`, with the added name field per Dec
    `countActiveGoogleOnlyAdmins`-style lockout guard is needed on `updatePlatformSettings`— a
    Google-accepted tenant member still has `set-password/request-otp` + `set-password` available
    to add a password afterward (the tenant flow, unlike the admin one, already has this), so
-   turning `socialLoginEnabled` off later never permanently strands them the way it would an
+   turning `googleLoginEnabled` off later never permanently strands them the way it would an
    admin.
 5. **Accept-invite routes live directly on `AuthController`/`AuthService`.** No new sibling
    controller — `validateMemberInvite`, `acceptMemberInvite`, `inviteGoogleAuthorize` (or a

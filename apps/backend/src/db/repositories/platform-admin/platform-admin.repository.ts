@@ -351,7 +351,7 @@ export class PlatformAdminRepository {
 
   /**
    * Active admins with no `password_hash`, i.e. Google is their only way in. Backs
-   * `updatePlatformSettings`' lockout guard: switching off `socialLoginEnabled` would strand them.
+   * `updatePlatformSettings`' lockout guard: switching off `googleLoginEnabled` would strand them.
    * `invited` (no identity yet) and `disabled` (cannot sign in anyway) are excluded.
    */
   async countActiveGoogleOnlyAdmins(): Promise<number> {

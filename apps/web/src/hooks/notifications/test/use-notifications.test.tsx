@@ -5,14 +5,22 @@ import { NextIntlClientProvider } from "next-intl";
 import { type ReactNode, StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { NOTIFICATIONS_FIXTURE } from "@/test/fixtures/notifications";
 import { NotificationService } from "@/app/_libs/services/notification.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
+import { NOTIFICATIONS_FIXTURE } from "@/test/fixtures/notifications";
 
 import messages from "../../../../messages/en.json";
-import { useNotifications } from "../use-notifications";
+import {
+  NOTIFICATIONS_POLL_MS,
+  NOTIFICATIONS_POLL_WITH_STREAM_MS,
+  useNotifications,
+} from "../use-notifications";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("@/app/_libs/api-sdk/config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/app/_libs/api-sdk/config")>()),
+  refreshSession: vi.fn().mockResolvedValue(true),
+}));
 
 // Fresh QueryClient per render so cached pages can't leak between tests.
 function wrapper({ children }: { children: ReactNode }) {
@@ -57,6 +65,51 @@ describe("useNotifications", () => {
     expect(new Set(result.current.notifications.map((n) => n.id)).size).toBe(3);
     expect(result.current.hasMore).toBe(true);
     expect(list).toHaveBeenCalledWith(0, 3);
+  });
+
+  // The bell treats the first successful count as its baseline; after a failed load the count reads 0, which is not a baseline.
+  test("reports a failed first load as not loaded, so the bell does not take its 0 as a baseline", async () => {
+    vi.spyOn(NotificationService, "list").mockRejectedValueOnce(new Error("network"));
+
+    const { result } = renderHook(() => useNotifications(), { wrapper });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.isLoaded).toBe(false);
+  });
+
+  test("reports loaded after a successful load", async () => {
+    const { result } = renderHook(() => useNotifications(), { wrapper });
+
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+  });
+
+  // The count moving back up after a failed write is a repair, not news: the hook says so while it repairs.
+  test("flags the repair after a failed mark-as-read, so the bell can stay quiet", async () => {
+    const { result } = renderHook(() => useNotifications(), { wrapper });
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    vi.spyOn(NotificationService, "markAsRead").mockRejectedValue(new Error("network"));
+    // Holds the repair's refetch open, so the in-between state can be observed.
+    let finishRepair!: () => void;
+    const repair = new Promise<void>((resolve) => {
+      finishRepair = resolve;
+    });
+    const list = vi.mocked(NotificationService.list);
+    const original = list.getMockImplementation()!;
+    list.mockImplementation(async (offset, limit) => {
+      await repair;
+      return original(offset, limit);
+    });
+    const unread = result.current.notifications.find((notification) => !notification.isRead)!;
+
+    act(() => {
+      result.current.markAsRead(unread.id);
+    });
+    await waitFor(() => expect(result.current.isResyncing).toBe(true));
+
+    await act(async () => {
+      finishRepair();
+    });
+    await waitFor(() => expect(result.current.isResyncing).toBe(false));
   });
 
   test("fetchNextPage appends the next page rather than replacing the list", async () => {
@@ -187,5 +240,185 @@ describe("useNotifications", () => {
 
     await waitFor(() => expect(result.current.isFetchingNextPage).toBe(false));
     expect(list).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useNotifications — polling for new notifications", () => {
+  let unreadOnServer = 2;
+
+  beforeEach(() => {
+    unreadOnServer = 2;
+    // Everything is faked, including react-query's own timers, so the tests drive time themselves with `flush`/`until` rather than `waitFor`.
+    vi.useFakeTimers();
+    vi.spyOn(NotificationService, "list").mockImplementation(async (offset, limit) => ({
+      items: structuredClone(NOTIFICATIONS_FIXTURE).slice(offset, offset + limit),
+      hasMore: offset + limit < NOTIFICATIONS_FIXTURE.length,
+      unreadTotal: unreadOnServer,
+    }));
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const flush = (ms = 50) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+
+  async function until(condition: () => boolean) {
+    for (let attempt = 0; attempt < 40 && !condition(); attempt += 1) await flush();
+    expect(condition()).toBe(true);
+  }
+
+  async function loaded() {
+    const rendered = renderHook(() => useNotifications(), { wrapper });
+    await until(() => !rendered.result.current.isLoading);
+    return rendered;
+  }
+
+  test("makes no extra request at mount: the first poll waits for the interval", async () => {
+    const list = vi.spyOn(NotificationService, "list");
+    await loaded();
+
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith(0, 3);
+  });
+
+  test("refetches the feed when the server reports more unread than the feed shows", async () => {
+    const { result } = await loaded();
+    expect(result.current.unreadCount).toBe(2);
+
+    unreadOnServer = 3;
+    await flush(NOTIFICATIONS_POLL_MS);
+
+    await until(() => result.current.unreadCount === 3);
+  });
+
+  test("leaves the feed alone when nothing new arrived (one tiny request, no refetch)", async () => {
+    const list = vi.spyOn(NotificationService, "list");
+    await loaded();
+    list.mockClear();
+
+    await flush(NOTIFICATIONS_POLL_MS);
+
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith(0, 1);
+  });
+
+  test("does not poll while the tab is hidden", async () => {
+    const list = vi.spyOn(NotificationService, "list");
+    await loaded();
+    list.mockClear();
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+
+    await flush(NOTIFICATIONS_POLL_MS * 2);
+
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  test("a failed poll is ignored and the next interval tries again", async () => {
+    const { result } = await loaded();
+    vi.spyOn(NotificationService, "list").mockRejectedValueOnce(new Error("network"));
+
+    await flush(NOTIFICATIONS_POLL_MS);
+    expect(result.current.unreadCount).toBe(2);
+
+    unreadOnServer = 4;
+    await flush(NOTIFICATIONS_POLL_MS);
+    await until(() => result.current.unreadCount === 4);
+  });
+});
+
+describe("useNotifications — with a live stream", () => {
+  type Handler = () => void;
+  const streams: Array<{ emit: (type: string) => void }> = [];
+
+  class FakeEventSource {
+    onerror: (() => void) | null = null;
+    private handlers = new Map<string, Handler[]>();
+    constructor() {
+      streams.push(this);
+    }
+    addEventListener(type: string, handler: Handler) {
+      this.handlers.set(type, [...(this.handlers.get(type) ?? []), handler]);
+    }
+    emit(type: string) {
+      for (const handler of this.handlers.get(type) ?? []) handler();
+    }
+    close() {}
+  }
+
+  let unreadOnServer = 2;
+
+  beforeEach(() => {
+    unreadOnServer = 2;
+    streams.length = 0;
+    vi.useFakeTimers();
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.spyOn(NotificationService, "list").mockImplementation(async (offset, limit) => ({
+      items: structuredClone(NOTIFICATIONS_FIXTURE).slice(offset, offset + limit),
+      hasMore: offset + limit < NOTIFICATIONS_FIXTURE.length,
+      unreadTotal: unreadOnServer,
+    }));
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const flush = (ms = 50) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+
+  async function until(condition: () => boolean) {
+    for (let attempt = 0; attempt < 40 && !condition(); attempt += 1) await flush();
+    expect(condition()).toBe(true);
+  }
+
+  async function loaded() {
+    const rendered = renderHook(() => useNotifications(), { wrapper });
+    await until(() => !rendered.result.current.isLoading);
+    await flush();
+    return rendered;
+  }
+
+  test("a pushed notification refetches the feed straight away, without waiting for a poll", async () => {
+    const { result } = await loaded();
+    expect(streams).toHaveLength(1);
+    act(() => streams[0]!.emit("ready"));
+
+    unreadOnServer = 3;
+    act(() => streams[0]!.emit("notification"));
+
+    await until(() => result.current.unreadCount === 3);
+  });
+
+  test("polls far less often while the stream is up", async () => {
+    const list = vi.spyOn(NotificationService, "list");
+    await loaded();
+    act(() => streams[0]!.emit("ready"));
+    await flush();
+    list.mockClear();
+
+    // The server's heartbeat keeps the stream (and so the slow cadence) alive; without it the watchdog would call it dead and reconnect.
+    const flushWithHeartbeats = async (ms: number) => {
+      for (let elapsed = 0; elapsed < ms; elapsed += 25_000) {
+        await flush(Math.min(25_000, ms - elapsed));
+        act(() => streams[0]!.emit("heartbeat"));
+      }
+    };
+
+    await flushWithHeartbeats(NOTIFICATIONS_POLL_MS * 2);
+    expect(list).not.toHaveBeenCalled();
+
+    await flushWithHeartbeats(NOTIFICATIONS_POLL_WITH_STREAM_MS);
+    expect(list).toHaveBeenCalledWith(0, 1);
   });
 });

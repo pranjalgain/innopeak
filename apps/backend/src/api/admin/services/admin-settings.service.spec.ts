@@ -1,5 +1,7 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import { GoogleIdentityProvider } from '@auth/providers/google-identity.provider';
+import { MicrosoftIdentityProvider } from '@auth/providers/microsoft-identity.provider';
 import { VerifyEmailTokenProvider } from '@auth/providers/verify-email-token.provider';
 import { OtpAttemptService } from '@auth/services/otp-attempt.service';
 import { TokenService } from '@auth/services/token.service';
@@ -27,6 +29,12 @@ import { Test } from '@nestjs/testing';
 import { AdminSettingsService } from './admin-settings.service';
 
 import { UserRole } from '../../auth/enums/user-role.enum';
+import {
+  NotificationChannelsNotImplementedException,
+  PlatformSettingsNoUsableMethodException,
+  SocialLoginDisallowedGoogleOnlyAdminException,
+  SsoLoginDisallowedSsoOnlyUsersException,
+} from '../exceptions/admin.exceptions';
 
 describe('AdminSettingsService', () => {
   let target: AdminSettingsService;
@@ -46,7 +54,13 @@ describe('AdminSettingsService', () => {
     countActiveGoogleOnlyAdmins: jest.Mock;
     updateLocale: jest.Mock;
   };
-  let platformSettingsDbService: { get: jest.Mock; update: jest.Mock };
+  let platformSettingsDbService: {
+    get: jest.Mock;
+    update: jest.Mock;
+    countActiveSsoOnlyTenantUsers: jest.Mock;
+  };
+  let googleProvider: { isConfigured: jest.Mock };
+  let microsoftProvider: { isConfigured: jest.Mock };
   let adminOverviewDbService: { recordActivityBestEffort: jest.Mock };
   let hashingService: { hash: jest.Mock; compare: jest.Mock };
   let queueManager: {
@@ -101,7 +115,14 @@ describe('AdminSettingsService', () => {
       countActiveGoogleOnlyAdmins: jest.fn().mockResolvedValue(0),
       updateLocale: jest.fn(),
     };
-    platformSettingsDbService = { get: jest.fn(), update: jest.fn() };
+    // Both providers are set up by default, so the "can this method actually be used" check never gets in the way of tests about other things.
+    googleProvider = { isConfigured: jest.fn().mockReturnValue(true) };
+    microsoftProvider = { isConfigured: jest.fn().mockReturnValue(true) };
+    platformSettingsDbService = {
+      get: jest.fn(),
+      update: jest.fn(),
+      countActiveSsoOnlyTenantUsers: jest.fn().mockResolvedValue(0),
+    };
     adminOverviewDbService = { recordActivityBestEffort: jest.fn() };
     hashingService = { hash: jest.fn(), compare: jest.fn() };
     queueManager = {
@@ -138,6 +159,8 @@ describe('AdminSettingsService', () => {
         { provide: TokenService, useValue: tokenService },
         { provide: OtpAttemptService, useValue: otpAttemptService },
         { provide: VerifyEmailTokenProvider, useValue: verifyEmailTokenProvider },
+        { provide: GoogleIdentityProvider, useValue: googleProvider },
+        { provide: MicrosoftIdentityProvider, useValue: microsoftProvider },
       ],
     }).compile();
 
@@ -644,10 +667,11 @@ describe('AdminSettingsService', () => {
 
   describe('updatePlatformSettings', () => {
     const allEnabledRow = {
-      ssoLoginEnabled: true,
+      microsoftLoginEnabled: true,
       passwordLoginEnabled: true,
-      socialLoginEnabled: true,
+      googleLoginEnabled: true,
       inviteMembersEnabled: false,
+      notificationSettingsEnabled: false,
       updatedByPlatformAdminId: null,
     };
 
@@ -663,7 +687,7 @@ describe('AdminSettingsService', () => {
       platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
       platformSettingsDbService.update.mockResolvedValue({
         ...allEnabledRow,
-        ssoLoginEnabled: false,
+        microsoftLoginEnabled: false,
       });
 
       await target.updatePlatformSettings(admin, { passwordLoginEnabled: true });
@@ -678,14 +702,14 @@ describe('AdminSettingsService', () => {
       platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
       platformSettingsDbService.update.mockResolvedValue({
         ...allEnabledRow,
-        socialLoginEnabled: false,
+        googleLoginEnabled: false,
         updatedByPlatformAdminId: admin.id,
       });
 
-      await target.updatePlatformSettings(admin, { socialLoginEnabled: false });
+      await target.updatePlatformSettings(admin, { googleLoginEnabled: false });
 
       expect(platformSettingsDbService.update).toHaveBeenCalledWith(
-        { socialLoginEnabled: false },
+        { googleLoginEnabled: false },
         admin.id
       );
     });
@@ -693,9 +717,9 @@ describe('AdminSettingsService', () => {
     it('throws 404 if the singleton row is somehow missing before the write', async () => {
       platformSettingsDbService.get.mockResolvedValue(null);
 
-      await expect(target.updatePlatformSettings(admin, { ssoLoginEnabled: true })).rejects.toThrow(
-        NotFoundException
-      );
+      await expect(
+        target.updatePlatformSettings(admin, { microsoftLoginEnabled: true })
+      ).rejects.toThrow(NotFoundException);
       expect(platformSettingsDbService.update).not.toHaveBeenCalled();
     });
 
@@ -704,7 +728,7 @@ describe('AdminSettingsService', () => {
       platformSettingsDbService.update.mockResolvedValue(null);
 
       await expect(
-        target.updatePlatformSettings(admin, { ssoLoginEnabled: false })
+        target.updatePlatformSettings(admin, { microsoftLoginEnabled: false })
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -713,9 +737,9 @@ describe('AdminSettingsService', () => {
 
       await expect(
         target.updatePlatformSettings(admin, {
-          ssoLoginEnabled: false,
+          microsoftLoginEnabled: false,
           passwordLoginEnabled: false,
-          socialLoginEnabled: false,
+          googleLoginEnabled: false,
         })
       ).rejects.toThrow(BadRequestException);
       expect(platformSettingsDbService.update).not.toHaveBeenCalled();
@@ -723,10 +747,11 @@ describe('AdminSettingsService', () => {
 
     it('rejects disabling the one remaining enabled method, even alone in the patch', async () => {
       platformSettingsDbService.get.mockResolvedValue({
-        ssoLoginEnabled: false,
+        microsoftLoginEnabled: false,
         passwordLoginEnabled: true,
-        socialLoginEnabled: false,
+        googleLoginEnabled: false,
         inviteMembersEnabled: false,
+        notificationSettingsEnabled: false,
         updatedByPlatformAdminId: null,
       });
 
@@ -748,13 +773,13 @@ describe('AdminSettingsService', () => {
       ).resolves.toMatchObject({ passwordLoginEnabled: false });
     });
 
-    // Lockout prevention: a Google-only admin has no password_hash, so `socialLoginEnabled` is their only way in.
+    // Lockout prevention: a Google-only admin has no password_hash, so `googleLoginEnabled` is their only way in.
     it('refuses to turn off Google sign-in while an admin has no other credential', async () => {
       platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
       platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(2);
 
       await expect(
-        target.updatePlatformSettings(admin, { socialLoginEnabled: false })
+        target.updatePlatformSettings(admin, { googleLoginEnabled: false })
       ).rejects.toThrow(BadRequestException);
       expect(platformSettingsDbService.update).not.toHaveBeenCalled();
     });
@@ -764,7 +789,7 @@ describe('AdminSettingsService', () => {
       platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(3);
 
       await expect(
-        target.updatePlatformSettings(admin, { socialLoginEnabled: false })
+        target.updatePlatformSettings(admin, { googleLoginEnabled: false })
       ).rejects.toThrow(MESSAGES.ADMIN.CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN(3));
     });
 
@@ -773,25 +798,162 @@ describe('AdminSettingsService', () => {
       platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(0);
       platformSettingsDbService.update.mockResolvedValue({
         ...allEnabledRow,
-        socialLoginEnabled: false,
+        googleLoginEnabled: false,
       });
 
       await expect(
-        target.updatePlatformSettings(admin, { socialLoginEnabled: false })
-      ).resolves.toMatchObject({ socialLoginEnabled: false });
+        target.updatePlatformSettings(admin, { googleLoginEnabled: false })
+      ).resolves.toMatchObject({ googleLoginEnabled: false });
     });
 
     // Scoped to the transition: re-asserting an already-off setting is a no-op, not a 400.
     it('does not block a no-op when Google sign-in is already off', async () => {
-      const socialOffRow = { ...allEnabledRow, socialLoginEnabled: false };
+      const socialOffRow = { ...allEnabledRow, googleLoginEnabled: false };
       platformSettingsDbService.get.mockResolvedValue(socialOffRow);
       platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(1);
       platformSettingsDbService.update.mockResolvedValue(socialOffRow);
 
       await expect(
-        target.updatePlatformSettings(admin, { socialLoginEnabled: false })
-      ).resolves.toMatchObject({ socialLoginEnabled: false });
+        target.updatePlatformSettings(admin, { googleLoginEnabled: false })
+      ).resolves.toMatchObject({ googleLoginEnabled: false });
       expect(platformAdminDbService.countActiveGoogleOnlyAdmins).not.toHaveBeenCalled();
+    });
+
+    describe('tenant users who can only sign in with the provider being switched off', () => {
+      it.each([
+        ['Google', { googleLoginEnabled: false }],
+        ['Microsoft', { microsoftLoginEnabled: false }],
+      ])('refuses to turn %s off while users would be locked out', async (label, patch) => {
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.countActiveSsoOnlyTenantUsers.mockResolvedValue(2);
+
+        await expect(target.updatePlatformSettings(admin, patch)).rejects.toThrow(
+          SsoLoginDisallowedSsoOnlyUsersException
+        );
+        await expect(target.updatePlatformSettings(admin, patch)).rejects.toThrow(
+          MESSAGES.ADMIN.CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS(label, 2)
+        );
+        expect(platformSettingsDbService.update).not.toHaveBeenCalled();
+      });
+
+      // Switching a provider off is also the emergency lever when it is compromised or down: it must stay possible once confirmed.
+      it.each([
+        ['Google', { googleLoginEnabled: false }],
+        ['Microsoft', { microsoftLoginEnabled: false }],
+      ])('switches %s off anyway once the lockout is confirmed', async (_label, patch) => {
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.countActiveSsoOnlyTenantUsers.mockResolvedValue(2);
+        platformSettingsDbService.update.mockResolvedValue({ ...allEnabledRow, ...patch });
+
+        await expect(
+          target.updatePlatformSettings(admin, { ...patch, confirmLockout: true })
+        ).resolves.toMatchObject(patch);
+        // The acknowledgement is for this request only: it must never reach the row.
+        expect(platformSettingsDbService.update).toHaveBeenCalledWith(patch, admin.id);
+      });
+
+      it('does not let a confirmation override the platform-admin guard', async () => {
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.countActiveSsoOnlyTenantUsers.mockResolvedValue(2);
+        platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(1);
+
+        await expect(
+          target.updatePlatformSettings(admin, { googleLoginEnabled: false, confirmLockout: true })
+        ).rejects.toThrow(SocialLoginDisallowedGoogleOnlyAdminException);
+      });
+
+      it('allows it when nobody would be locked out', async () => {
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.update.mockResolvedValue({
+          ...allEnabledRow,
+          googleLoginEnabled: false,
+        });
+
+        await expect(
+          target.updatePlatformSettings(admin, { googleLoginEnabled: false })
+        ).resolves.toMatchObject({ googleLoginEnabled: false });
+      });
+
+      it('does not count anyone when the patch leaves the provider alone or it was already off', async () => {
+        platformSettingsDbService.get.mockResolvedValue({
+          ...allEnabledRow,
+          googleLoginEnabled: false,
+        });
+        platformSettingsDbService.update.mockResolvedValue({
+          ...allEnabledRow,
+          googleLoginEnabled: false,
+        });
+
+        await target.updatePlatformSettings(admin, { googleLoginEnabled: false });
+        await target.updatePlatformSettings(admin, { inviteMembersEnabled: false });
+
+        expect(platformSettingsDbService.countActiveSsoOnlyTenantUsers).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('a sign-in method must be usable, not just enabled', () => {
+      it('refuses to switch password off when no enabled provider is set up on this server', async () => {
+        microsoftProvider.isConfigured.mockReturnValue(false);
+        googleProvider.isConfigured.mockReturnValue(false);
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+
+        await expect(
+          target.updatePlatformSettings(admin, { passwordLoginEnabled: false })
+        ).rejects.toThrow(PlatformSettingsNoUsableMethodException);
+        expect(platformSettingsDbService.update).not.toHaveBeenCalled();
+      });
+
+      it('allows it when one enabled provider is set up', async () => {
+        microsoftProvider.isConfigured.mockReturnValue(false);
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.update.mockResolvedValue({
+          ...allEnabledRow,
+          passwordLoginEnabled: false,
+        });
+
+        await expect(
+          target.updatePlatformSettings(admin, { passwordLoginEnabled: false })
+        ).resolves.toMatchObject({ passwordLoginEnabled: false });
+      });
+
+      it('does not refuse an unrelated change on a platform that is already in that state', async () => {
+        microsoftProvider.isConfigured.mockReturnValue(false);
+        googleProvider.isConfigured.mockReturnValue(false);
+        platformSettingsDbService.get.mockResolvedValue({
+          ...allEnabledRow,
+          passwordLoginEnabled: false,
+        });
+        platformSettingsDbService.update.mockResolvedValue({
+          ...allEnabledRow,
+          passwordLoginEnabled: false,
+          inviteMembersEnabled: true,
+        });
+
+        await expect(
+          target.updatePlatformSettings(admin, { inviteMembersEnabled: true })
+        ).resolves.toBeDefined();
+      });
+    });
+
+    // TODO(notifications): delete these two with the check in the service once email/Teams delivery exists.
+    it('refuses to turn notification settings on while email/Teams are not implemented', async () => {
+      await expect(
+        target.updatePlatformSettings(admin, { notificationSettingsEnabled: true })
+      ).rejects.toThrow(NotificationChannelsNotImplementedException);
+      expect(platformSettingsDbService.update).not.toHaveBeenCalled();
+    });
+
+    it('still accepts notificationSettingsEnabled: false', async () => {
+      platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+      platformSettingsDbService.update.mockResolvedValue(allEnabledRow);
+
+      await expect(
+        target.updatePlatformSettings(admin, { notificationSettingsEnabled: false })
+      ).resolves.toMatchObject({ notificationSettingsEnabled: false });
+      expect(platformSettingsDbService.update).toHaveBeenCalledWith(
+        { notificationSettingsEnabled: false },
+        admin.id
+      );
     });
 
     it('does not spend a query on the guard when the patch leaves Google sign-in alone', async () => {

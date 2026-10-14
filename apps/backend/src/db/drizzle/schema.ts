@@ -977,6 +977,13 @@ export const inAppNotifications = pgTable(
       table.reviewId.asc().nullsLast().op('enum_ops'),
       table.generationGroupId.asc().nullsLast().op('uuid_ops')
     ),
+    index('idx_in_app_notifications_created_at').using(
+      'btree',
+      table.createdAt.asc().nullsLast().op('timestamptz_ops')
+    ),
+    index('idx_in_app_notifications_read_at')
+      .using('btree', table.readAt.asc().nullsLast().op('timestamptz_ops'))
+      .where(sql`(read_at IS NOT NULL)`),
     index('idx_in_app_notifications_review_id').using(
       'btree',
       table.reviewId.asc().nullsLast().op('uuid_ops')
@@ -1224,10 +1231,11 @@ export const platformSettings = pgTable(
   'platform_settings',
   {
     id: smallint().default(1).primaryKey().notNull(),
-    ssoLoginEnabled: boolean('sso_login_enabled').default(true).notNull(),
-    passwordLoginEnabled: boolean('password_login_enabled').default(false).notNull(),
-    socialLoginEnabled: boolean('social_login_enabled').default(false).notNull(),
-    inviteMembersEnabled: boolean('invite_members_enabled').default(false).notNull(),
+    microsoftLoginEnabled: boolean('microsoft_login_enabled').default(true).notNull(),
+    passwordLoginEnabled: boolean('password_login_enabled').default(true).notNull(),
+    googleLoginEnabled: boolean('google_login_enabled').default(true).notNull(),
+    inviteMembersEnabled: boolean('invite_members_enabled').default(true).notNull(),
+    notificationSettingsEnabled: boolean('notification_settings_enabled').default(false).notNull(),
     updatedByPlatformAdminId: uuid('updated_by_platform_admin_id'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
@@ -1245,7 +1253,7 @@ export const platformSettings = pgTable(
     check('platform_settings_id_check', sql`id = 1`),
     check(
       'platform_settings_at_least_one_method_check',
-      sql`${table.ssoLoginEnabled} OR ${table.passwordLoginEnabled} OR ${table.socialLoginEnabled}`
+      sql`${table.microsoftLoginEnabled} OR ${table.passwordLoginEnabled} OR ${table.googleLoginEnabled}`
     ),
   ]
 );

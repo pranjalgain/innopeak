@@ -35,6 +35,7 @@ import { ReviewSyncQueue } from '@review-sync-queue/review-sync.queue';
 import { OAuthStateService } from './oauth-state.service';
 import { PendingAccountChoiceService } from './pending-account-choice.service';
 
+import { InAppNotificationsService } from '../../notifications/services/in-app-notifications.service';
 import {
   ACCOUNT_CHOICE_QUERY,
   DEFAULT_RETURN_TO,
@@ -92,6 +93,7 @@ export class ConnectionsService {
     private readonly authDbService: AuthDbService,
     private readonly billingEntitlementsService: BillingEntitlementsService,
     private readonly pendingAccountChoiceService: PendingAccountChoiceService,
+    private readonly inAppNotificationsService: InAppNotificationsService,
     configService: ConfigService<EnvConfig>
   ) {
     this.frontendUrl = (configService.get<string>('FRONTEND_URL') ?? '').replace(/\/$/, '');
@@ -680,7 +682,9 @@ export class ConnectionsService {
       return await call(accessToken);
     } catch (error) {
       if (error instanceof ProviderAuthError) {
-        await this.connectionsDbService.markNeedsReauth(connection.id);
+        if (await this.connectionsDbService.markNeedsReauth(connection.id)) {
+          await this.inAppNotificationsService.notifyConnectionIssue(connection.tenantId);
+        }
         throw new ConnectionNeedsReauthException();
       }
 

@@ -10,7 +10,7 @@ interface SocialAuthButtonsProps {
   label: string;
 }
 
-/** "Continue with Google": starts the real OAuth sign-in (the caller's `onGoogleClick`); the screen shows it only when the platform's `socialLoginEnabled` is on. */
+/** "Continue with Google": starts the real OAuth sign-in (the caller's `onGoogleClick`); the screen shows it only when the platform's `googleLoginEnabled` is on. */
 export function SocialAuthButtons({ isLoading, onGoogleClick, label }: SocialAuthButtonsProps) {
   return (
     <Button type="button" variant="outline" size="block" disabled={isLoading} onClick={onGoogleClick}>

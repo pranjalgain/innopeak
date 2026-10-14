@@ -1,12 +1,13 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { NOTIFICATIONS_FIXTURE } from "@/test/fixtures/notifications";
 import { NotificationService } from "@/app/_libs/services/notification.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
+import { NOTIFICATIONS_POLL_MS } from "@/hooks/notifications/use-notifications";
+import { NOTIFICATIONS_FIXTURE } from "@/test/fixtures/notifications";
 
 import messages from "../../../../../messages/en.json";
 import { NotificationPanel } from "../notification-panel";
@@ -65,5 +66,44 @@ describe("NotificationPanel", () => {
     expect(screen.getByText("Reply sent")).toBeInTheDocument();
 
     expect(screen.queryByText(messages.appShell.notificationPanel.loadingMore)).not.toBeInTheDocument();
+  });
+
+  describe("when a new notification arrives", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const flush = (ms = 50) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+
+    test("shakes the bell, pulses the dot and announces it to screen readers", async () => {
+      vi.useFakeTimers();
+      const unreadNow = NOTIFICATIONS_FIXTURE.filter((notification) => !notification.isRead).length;
+      let unreadOnServer = unreadNow;
+      vi.spyOn(NotificationService, "list").mockImplementation(async (offset, limit) => ({
+        items: structuredClone(NOTIFICATIONS_FIXTURE).slice(offset, offset + limit),
+        hasMore: offset + limit < NOTIFICATIONS_FIXTURE.length,
+        unreadTotal: unreadOnServer,
+      }));
+      const { container } = renderPanel();
+      for (let attempt = 0; attempt < 20 && container.querySelector("span.bg-destructive") === null; attempt += 1) {
+        await flush();
+      }
+
+      // Opening the page with unread notices is not news: nothing moves.
+      expect(container.querySelector(".animate-bell-ring")).toBeNull();
+
+      unreadOnServer += 1;
+      await flush(NOTIFICATIONS_POLL_MS);
+      for (let attempt = 0; attempt < 20 && container.querySelector(".animate-bell-ring") === null; attempt += 1) {
+        await flush();
+      }
+
+      expect(container.querySelector(".animate-bell-ring")).not.toBeNull();
+      expect(container.querySelector(".animate-badge-pulse")).not.toBeNull();
+      expect(screen.getByRole("status")).toHaveTextContent("1 new notification");
+    });
   });
 });

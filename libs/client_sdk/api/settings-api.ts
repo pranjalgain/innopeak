@@ -219,7 +219,7 @@ export const SettingsApiAxiosParamCreator = function (
       };
     },
     /**
-     * Owner-only. Every `notification_recipients` row for this tenant, joined to `users` for name/initials. Seeded with exactly one row (the signing-up owner) at signup — there is no add-recipient route yet, matching the shipped Settings UI, which only edits existing rows.
+     * Owner-only, and only while `notificationSettingsEnabled` is on in the platform settings (off by default). Every `notification_recipients` row for this tenant, joined to `users` for name/initials. Seeded with exactly one row (the signing-up owner) at signup — there is no add-recipient route yet, matching the shipped Settings UI, which only edits existing rows.
      * @summary List escalation notification recipients
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}

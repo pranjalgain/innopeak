@@ -20,7 +20,7 @@ import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
  * Platform-admin sign-in (`POST /v1/admin/auth/login`), separate from the tenant `LoginView`: no signup link or OTP,
  * admins are invited. The link back to the tenant login gives a stray tenant user a way off this screen.
  * The Google button is required: an admin who accepted via Google has no `password_hash`, so it is their only way in
- * (hence `AdminSettingsService.updatePlatformSettings` refuses to disable `socialLoginEnabled` while one exists).
+ * (hence `AdminSettingsService.updatePlatformSettings` refuses to disable `googleLoginEnabled` while one exists).
  * It points at `/v1/admin/auth/google`, not the tenant route, which falls through to tenant tables and sends failures to `/login`.
  */
 export function AdminLoginView() {
@@ -31,7 +31,7 @@ export function AdminLoginView() {
   const { data: platformSettings } = usePlatformSettings();
 
   // Hidden while the setting loads; the password form is always there, so a late button is fine.
-  const socialEnabled = platformSettings?.socialLoginEnabled ?? false;
+  const socialEnabled = platformSettings?.googleLoginEnabled ?? false;
 
   const handleSubmit = async (email: string, password: string) => {
     const succeeded = await loginAsAdmin(email, password);

@@ -26,6 +26,7 @@ import { ConnectionsService } from './connections.service';
 import { OAuthStateService } from './oauth-state.service';
 import { PendingAccountChoiceService } from './pending-account-choice.service';
 
+import { InAppNotificationsService } from '../../notifications/services/in-app-notifications.service';
 import { ConnectionState } from '../enums/connection-state.enum';
 import { ReturnTo } from '../enums/return-to.enum';
 import {
@@ -109,9 +110,13 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
   const completeRun = jest.fn();
   const canAddLocation = jest.fn();
   const getEntitlements = jest.fn();
+  const markNeedsReauth = jest.fn();
+  const notifyConnectionIssue = jest.fn();
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    markNeedsReauth.mockResolvedValue(true);
+    notifyConnectionIssue.mockResolvedValue(undefined);
 
     findConnectionByTenant.mockResolvedValue(connection);
     findLocationsByTenant.mockResolvedValue([]);
@@ -133,6 +138,10 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
     const moduleRef = await Test.createTestingModule({
       providers: [
         ConnectionsService,
+        {
+          provide: InAppNotificationsService,
+          useValue: { notifyConnectionIssue },
+        },
         { provide: ReviewProvider, useValue: { listLocations } },
         { provide: ProviderCredentialService, useValue: { resolveAccessToken } },
         {
@@ -142,6 +151,7 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
             findLocationsByTenant,
             confirmLocations: confirmLocationDb,
             updateTokenExpiry: jest.fn(),
+            markNeedsReauth,
           },
         },
         { provide: OAuthStateService, useValue: {} },
@@ -155,6 +165,30 @@ describe('ConnectionsService.confirmLocations — enqueue failure is compensated
     }).compile();
 
     service = moduleRef.get(ConnectionsService);
+  });
+
+  describe('a Google grant that stopped working', () => {
+    it('flags the connection and tells the tenant to reconnect', async () => {
+      listLocations.mockRejectedValue(new ProviderAuthError('invalid_grant'));
+
+      await expect(
+        service.confirmLocations({ user, externalLocationIds: ['locations/1'] })
+      ).rejects.toBeInstanceOf(ConnectionNeedsReauthException);
+
+      expect(markNeedsReauth).toHaveBeenCalledWith(connection.id);
+      expect(notifyConnectionIssue).toHaveBeenCalledWith(connection.tenantId);
+    });
+
+    it('does not announce a connection that was already flagged', async () => {
+      listLocations.mockRejectedValue(new ProviderAuthError('invalid_grant'));
+      markNeedsReauth.mockResolvedValue(false);
+
+      await expect(
+        service.confirmLocations({ user, externalLocationIds: ['locations/1'] })
+      ).rejects.toBeInstanceOf(ConnectionNeedsReauthException);
+
+      expect(notifyConnectionIssue).not.toHaveBeenCalled();
+    });
   });
 
   describe('a disconnected connection', () => {
@@ -340,6 +374,10 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
     const moduleRef = await Test.createTestingModule({
       providers: [
         ConnectionsService,
+        {
+          provide: InAppNotificationsService,
+          useValue: { notifyConnectionIssue: jest.fn().mockResolvedValue(undefined) },
+        },
         { provide: ReviewProvider, useValue: { exchangeCode } },
         {
           provide: ProviderCredentialService,
@@ -478,6 +516,10 @@ describe('ConnectionsService.getConnectionStatus — soft-disconnected connectio
     const moduleRef = await Test.createTestingModule({
       providers: [
         ConnectionsService,
+        {
+          provide: InAppNotificationsService,
+          useValue: { notifyConnectionIssue: jest.fn().mockResolvedValue(undefined) },
+        },
         { provide: ReviewProvider, useValue: {} },
         { provide: ProviderCredentialService, useValue: {} },
         {
@@ -570,6 +612,10 @@ describe('ConnectionsService — choosing between several Business Profile accou
     const moduleRef = await Test.createTestingModule({
       providers: [
         ConnectionsService,
+        {
+          provide: InAppNotificationsService,
+          useValue: { notifyConnectionIssue: jest.fn().mockResolvedValue(undefined) },
+        },
         { provide: ReviewProvider, useValue: { exchangeCode } },
         {
           provide: ProviderCredentialService,

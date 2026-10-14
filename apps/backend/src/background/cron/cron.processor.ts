@@ -41,6 +41,9 @@ export class CronProcessor extends WorkerHost {
         case CronJobName.AUTH_TOKEN_CLEANUP:
           await this.cronService.purgeStaleAuthTokens();
           break;
+        case CronJobName.NOTIFICATION_RETENTION_PURGE:
+          await this.cronService.purgeOldNotifications();
+          break;
         case CronJobName.REVIEW_SYNC_POLL:
           await this.cronService.pollDueLocations();
           break;

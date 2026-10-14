@@ -19,10 +19,11 @@ export function ApiGetPlatformSettings(): ReturnType<typeof applyDecorators> {
         default: {
           summary: 'Typical response',
           value: {
-            ssoLoginEnabled: true,
+            microsoftLoginEnabled: true,
             passwordLoginEnabled: false,
-            socialLoginEnabled: false,
+            googleLoginEnabled: false,
             inviteMembersEnabled: false,
+            notificationSettingsEnabled: false,
             paymentFeatureEnabled: false,
             erasureGracePeriodDays: 21,
           },

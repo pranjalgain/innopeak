@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTenantOwnerProfile } from "@/hooks/settings/use-tenant-owner-profile";
 
-/** Only reachable while the platform's passwordLoginEnabled setting is on — there's no password to manage otherwise. */
+/** Always reachable: the platform's password switch only closes new email/password sign-ups, so managing a password stays available. */
 export function ProfileSettingsSection() {
   const t = useTranslations("settings.profile");
   const {

@@ -226,7 +226,7 @@ rebuilt from scratch (profile avatar upload, below) — the rest of that list st
 | Connections | `src/api/connections/` | Google Business Profile OAuth connect/disconnect, account choice (`google/accounts/pending` answers 410 when nothing waits — an expected probe), location confirm and backfill. See `apps/documentation/docs/backend/connections/` |
 | Reviews | `src/api/reviews/` | Review list/detail and the reply lifecycle (approve, reject, edit, manual reply, post). See `apps/documentation/docs/backend/reviews/` |
 | Dashboard | `src/api/dashboard/` | Tenant dashboard aggregates |
-| Notifications | `src/api/notifications/` | In-app escalation notifications |
+| Notifications | `src/api/notifications/` | The bell feed (list, mark read) and its producers: `InAppNotificationsService.publish` (global module, used by the API and the worker) raises review escalated, reply needs approval, reply approved and connection issue for every active user of the tenant, folding bursts into a summary; a daily cron purges old entries; `GET /v1/notifications/stream` (SSE, fed by a Redis pub/sub channel) pushes "something new" to open browsers. Tenant notification *preferences* are a separate, off-by-default platform setting (`notification_settings_enabled`) |
 | Settings | `src/api/settings/` | Blocklist terms (`/v1/settings/blocklist-terms`); data access in `src/db/repositories/settings/` |
 | Review pipeline | `src/review-pipeline/` | Classification rule (blocklist then rating threshold). No HTTP. |
 | Background | `src/background/` | BullMQ email, dead-letter and review-sync queues, plus cron jobs — one of which (`review-sync-poll`, every 15 min) fans out into the review-sync queue itself (SQS in `aws` mode — see Queue Transport Pattern) |

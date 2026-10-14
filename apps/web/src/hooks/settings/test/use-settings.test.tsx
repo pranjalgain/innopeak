@@ -5,8 +5,10 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { ConnectionService } from "@/app/_libs/services/connection.service";
+import { PlatformSettingsService } from "@/app/_libs/services/platform-settings.service";
 import { SettingsService } from "@/app/_libs/services/settings.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
+import { platformSettingsQueryKey } from "@/hooks/common/use-platform-settings";
 import type { SettingsData } from "@/types/domain";
 
 import messages from "../../../../messages/en.json";
@@ -46,6 +48,14 @@ describe("useSettings", () => {
   beforeEach(() => {
     toast.error.mockClear();
     toast.success.mockClear();
+    // The settings query waits for the platform settings; off by default, like the platform.
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
+      microsoftLoginEnabled: true,
+      passwordLoginEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true,
+      notificationSettingsEnabled: false,
+    });
     vi.spyOn(ConnectionService, "getState").mockResolvedValue({
       status: "connected",
       connectionId: "conn-1",
@@ -100,5 +110,68 @@ describe("useSettings", () => {
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
     expect(toast.error).not.toHaveBeenCalled();
+  });
+});
+
+describe("useSettings — notification recipients follow the platform setting", () => {
+  beforeEach(() => {
+    vi.spyOn(ConnectionService, "getState").mockResolvedValue({
+      status: "connected",
+      connectionId: "conn-1",
+      providerAccountId: "acct-1",
+      connectedAt: "2026-01-01T00:00:00Z",
+      location: null,
+    });
+  });
+
+  const platform = (notificationSettingsEnabled: boolean) => ({
+    microsoftLoginEnabled: true,
+    passwordLoginEnabled: true,
+    googleLoginEnabled: true,
+    inviteMembersEnabled: true,
+    notificationSettingsEnabled,
+  });
+
+  test.each([false, true])("asks the service for recipients only when the setting is on (%s)", async (enabled) => {
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue(platform(enabled));
+    const getSettings = vi.spyOn(SettingsService, "getSettings").mockResolvedValue(settings());
+
+    const { result } = renderHook(() => useSettings(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(getSettings).toHaveBeenCalledWith(expect.any(Function), enabled);
+  });
+
+  // Regression: the recipients list was read once, through the cache, and a flag that changed afterwards left an empty list cached as "none".
+  test("loads again, with recipients, when the platform turns the setting on while Settings is open", async () => {
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue(platform(false));
+    const getSettings = vi.spyOn(SettingsService, "getSettings").mockResolvedValue(settings());
+    const client = createQueryClient();
+    const sharedWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <NextIntlClientProvider locale="en" messages={messages}>
+          {children}
+        </NextIntlClientProvider>
+      </QueryClientProvider>
+    );
+    const { result } = renderHook(() => useSettings(), { wrapper: sharedWrapper });
+    await waitFor(() => expect(result.current.settings).not.toBeNull());
+    expect(getSettings).toHaveBeenLastCalledWith(expect.any(Function), false);
+
+    act(() => {
+      client.setQueryData(platformSettingsQueryKey, platform(true));
+    });
+
+    await waitFor(() => expect(getSettings).toHaveBeenLastCalledWith(expect.any(Function), true));
+  });
+
+  test("treats unreadable platform settings as off", async () => {
+    vi.spyOn(PlatformSettingsService, "get").mockRejectedValue(new Error("network"));
+    const getSettings = vi.spyOn(SettingsService, "getSettings").mockResolvedValue(settings());
+
+    const { result } = renderHook(() => useSettings(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(getSettings).toHaveBeenCalledWith(expect.any(Function), false);
   });
 });

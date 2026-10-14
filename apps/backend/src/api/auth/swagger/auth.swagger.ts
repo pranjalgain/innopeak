@@ -293,6 +293,11 @@ export function ApiSignup(): ReturnType<typeof applyDecorators> {
       },
     }),
     ApiResponse({
+      status: 403,
+      description:
+        'The platform has new email/password sign-ups switched off (`passwordLoginEnabled`): PASSWORD_SIGNUP_DISABLED',
+    }),
+    ApiResponse({
       status: 201,
       type: SignupResponseDto,
       examples: {
@@ -581,8 +586,13 @@ export function ApiGoogleAuthorize(): ReturnType<typeof applyDecorators> {
         'signup collects one afterward, at `POST /v1/auth/sso/complete-signup`.',
     }),
     ApiQuery({ name: 'intent', enum: OAuthIntent, required: true, example: OAuthIntent.SIGNUP }),
-    ApiResponse({ status: 302, description: 'Redirect to Google' }),
-    ApiResponse({ status: 503, description: 'GOOGLE_CLIENT_ID / SECRET / CALLBACK_URL unset' })
+    ApiResponse({
+      status: 302,
+      description:
+        'Redirect to Google, or back to /login (or /onboarding/signup) with `?error=NOT_CONFIGURED&provider=google` when Google ' +
+        'sign-in is not set up on this server (GOOGLE_CLIENT_ID / SECRET / CALLBACK_URL unset) or the platform has Google ' +
+        'switched off (`googleLoginEnabled`)',
+    })
   );
 }
 

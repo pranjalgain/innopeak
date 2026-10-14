@@ -30,8 +30,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           navItems={NAV_ITEMS}
           navNamespace="nav"
           homeHref={ROUTES.DASHBOARD}
-          // Always `?tab=profile`: depending on async passwordLoginEnabled raced on a fresh tab
-          // (landing on the wrong tab). settings-view falls back to "general" if it's unavailable.
+          // Always `?tab=profile`, which every account has (the platform's password switch only affects sign-up).
           profileHref={`${ROUTES.SETTINGS}?tab=profile`}
           identity={{
             // Stored name is optimistic until /v1/auth/me answers: a blank name is more jarring than a stale one.

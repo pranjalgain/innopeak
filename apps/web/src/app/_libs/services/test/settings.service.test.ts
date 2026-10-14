@@ -65,3 +65,38 @@ describe("SettingsService.getSettings — connection tile", () => {
     expect(connection.lastSyncedAt).toBeNull();
   });
 });
+
+describe("SettingsService.getSettings — notification recipients", () => {
+  beforeEach(() => {
+    stubSources();
+    vi.spyOn(ConnectionService, "getState").mockResolvedValue({
+      status: "disconnected",
+      connectionId: null,
+      providerAccountId: null,
+      connectedAt: null,
+      location: null,
+    } as never);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  // The recipients route answers 403 while the platform setting is off, so asking for it would fail the whole Settings load.
+  it("does not request recipients unless the platform's notification settings are on", async () => {
+    const { notificationRecipients } = await SettingsService.getSettings();
+
+    expect(SettingsService.listNotificationRecipients).not.toHaveBeenCalled();
+    expect(notificationRecipients).toEqual([]);
+  });
+
+  it("requests recipients when the notification settings are on", async () => {
+    vi.spyOn(SettingsService, "listNotificationRecipients").mockResolvedValue([
+      { id: "r1", name: "Jane Doe", initials: "JD", channel: "email", isActive: true },
+    ]);
+
+    const { notificationRecipients } = await SettingsService.getSettings(
+      () => ConnectionService.getState(),
+      true,
+    );
+
+    expect(notificationRecipients).toHaveLength(1);
+  });
+});

@@ -42,10 +42,10 @@ describe("AcceptInviteView", () => {
     // spyOn returns the same mock for an already-spied method, so calls would leak between tests.
     vi.clearAllMocks();
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: false,
+      microsoftLoginEnabled: false,
       passwordLoginEnabled: true,
-      socialLoginEnabled: true,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
     });
     vi.spyOn(AuthService, "validateAdminInvite").mockResolvedValue({
       email: "priya.ops@innopeak.com",
@@ -65,10 +65,10 @@ describe("AcceptInviteView", () => {
 
   test("names only the password option when Google is not offered", async () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: false,
+      microsoftLoginEnabled: false,
       passwordLoginEnabled: true,
-      socialLoginEnabled: false,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: false,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
     });
 
     renderView();
@@ -143,10 +143,10 @@ describe("AcceptInviteView", () => {
   // Regression: offering Google here with social sign-in off locked the admin out (no password, and /login hides the button).
   test("hides Google when the platform has social sign-in disabled", async () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: false,
+      microsoftLoginEnabled: false,
       passwordLoginEnabled: true,
-      socialLoginEnabled: false,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: false,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
     });
 
     renderView();

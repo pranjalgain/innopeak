@@ -12,6 +12,7 @@ import { cn } from "@/app/_libs/utils/cn";
 import { formatRelativeTime } from "@/app/_libs/utils/relative-time";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useBellRing } from "@/hooks/notifications/use-bell-ring";
 import { useNotifications } from "@/hooks/notifications/use-notifications";
 import type { Notification, NotificationType } from "@/types/domain";
 
@@ -93,6 +94,8 @@ export function NotificationPanel() {
     notifications,
     unreadCount,
     isLoading,
+    isLoaded,
+    isResyncing,
     hasMore,
     isFetchingNextPage,
     nextPageFailed,
@@ -101,6 +104,15 @@ export function NotificationPanel() {
     markAsRead,
     markAllAsRead,
   } = useNotifications();
+
+  const [open, setOpen] = useState(false);
+  // `ready` is a successful load, not just a finished one: after a failed first load the count reads 0, and treating that as the baseline
+  // would ring for everything already unread when the next poll succeeds. `isResyncing` keeps the bell quiet while a failed
+  // mark-as-read is repaired, since the count moving back up is a correction and not news.
+  const { ringKey, isRinging, announcedCount } = useBellRing(unreadCount, {
+    ready: isLoaded,
+    suppressed: open || isResyncing,
+  });
 
   // State plus a callback ref, not a ref: Radix mounts PopoverContent a commit after `open` flips, so an effect keyed on open ran before the element existed.
   const [listEl, setListEl] = useState<HTMLDivElement | null>(null);
@@ -132,64 +144,79 @@ export function NotificationPanel() {
   ]);
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={t("notifications")} className="relative">
-          <LuBell className="size-4.5" />
-          {unreadCount > 0 ? (
-            <span className="bg-destructive absolute top-1.5 right-1.5 flex size-2 rounded-full" />
-          ) : null}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
-        <div className="border-border flex items-center justify-between border-b px-3.5 py-3">
-          <p className="text-sm font-semibold">{tPanel("title")}</p>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={unreadCount === 0}
-            onClick={markAllAsRead}
-            className="h-auto px-1.5 py-1 text-xs font-medium">
-            {tPanel("markAllRead")}
-          </Button>
-        </div>
-
-        {notifications.length === 0 ? (
-          <p className="text-muted-foreground px-3.5 py-6 text-center text-sm">{tPanel("empty")}</p>
-        ) : (
-          <div
-            ref={setListEl}
-            onScroll={handleScroll}
-            className="flex max-h-80 flex-col gap-1 overflow-y-auto p-1.5">
-            {notifications.map((notification) => (
-              <NotificationRow
-                key={notification.id}
-                notification={notification}
-                onRead={markAsRead}
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label={t("notifications")} className="relative">
+            {/* `key` restarts the swing when another notice arrives while the last one is still ringing. */}
+            <LuBell key={ringKey} className={cn("size-4.5", isRinging && "animate-bell-ring")} />
+            {unreadCount > 0 ? (
+              <span
+                key={ringKey}
+                className={cn(
+                  "bg-destructive absolute top-1.5 right-1.5 flex size-2 rounded-full",
+                  isRinging && "animate-badge-pulse",
+                )}
               />
-            ))}
-            {hasMore && nextPageFailed ? (
-              <div className="flex flex-col items-center gap-1 py-2">
-                <p className="text-muted-foreground text-xs">{tPanel("loadMoreFailed")}</p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={retryNextPage}
-                  className="h-auto px-2 py-1 text-xs font-medium">
-                  {tPanel("retry")}
-                </Button>
-              </div>
             ) : null}
-            {hasMore && !nextPageFailed ? (
-              <div className="text-muted-foreground py-2 text-center text-xs">
-                {isFetchingNextPage ? tPanel("loadingMore") : null}
-              </div>
-            ) : null}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80 p-0">
+          <div className="border-border flex items-center justify-between border-b px-3.5 py-3">
+            <p className="text-sm font-semibold">{tPanel("title")}</p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={unreadCount === 0}
+              onClick={markAllAsRead}
+              className="h-auto px-1.5 py-1 text-xs font-medium">
+              {tPanel("markAllRead")}
+            </Button>
           </div>
-        )}
-      </PopoverContent>
-    </Popover>
+
+          {notifications.length === 0 ? (
+            <p className="text-muted-foreground px-3.5 py-6 text-center text-sm">
+              {tPanel("empty")}
+            </p>
+          ) : (
+            <div
+              ref={setListEl}
+              onScroll={handleScroll}
+              className="flex max-h-80 flex-col gap-1 overflow-y-auto p-1.5">
+              {notifications.map((notification) => (
+                <NotificationRow
+                  key={notification.id}
+                  notification={notification}
+                  onRead={markAsRead}
+                />
+              ))}
+              {hasMore && nextPageFailed ? (
+                <div className="flex flex-col items-center gap-1 py-2">
+                  <p className="text-muted-foreground text-xs">{tPanel("loadMoreFailed")}</p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={retryNextPage}
+                    className="h-auto px-2 py-1 text-xs font-medium">
+                    {tPanel("retry")}
+                  </Button>
+                </div>
+              ) : null}
+              {hasMore && !nextPageFailed ? (
+                <div className="text-muted-foreground py-2 text-center text-xs">
+                  {isFetchingNextPage ? tPanel("loadingMore") : null}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+      {/* Outside the trigger so it is announced reliably. Screen readers get the same news the swing gives sighted users. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {announcedCount > 0 ? tPanel("newAnnouncement", { count: announcedCount }) : ""}
+      </span>
+    </>
   );
 }

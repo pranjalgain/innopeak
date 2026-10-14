@@ -15,6 +15,8 @@ export enum RouteNames {
   // `:notificationId/read` is two, so neither can shadow the other however they're ordered.
   NOTIFICATION_BY_ID_READ = ':notificationId/read',
   NOTIFICATIONS_READ_ALL = 'read-all',
+  /** The server-sent-events feed of "something new for you"; nested under RouteNames.NOTIFICATIONS. */
+  NOTIFICATIONS_STREAM = 'stream',
   // Settings-owned recipient config, read by the notifications fan-out but never written by it.
   NOTIFICATION_RECIPIENTS = 'notification-recipients',
   NOTIFICATION_RECIPIENT_BY_ID = ':recipientId',

@@ -22,6 +22,8 @@ import { LocationUnavailableError, ReviewRemovedUpstreamError } from './review-p
 import { ReviewPostQueue } from './review-post.queue';
 import { normalizeReplyText } from './review-post.util';
 
+import { InAppNotificationsService } from '../../../api/notifications/services/in-app-notifications.service';
+
 /**
  * Total tries, first attempt included, for a transient provider failure or a post-success DB
  * failure.
@@ -55,7 +57,8 @@ export class ReviewPostQueueService {
     private readonly credentialService: ProviderCredentialService,
     private readonly connectionsDbService: ConnectionsDbService,
     private readonly reviewSyncDbService: ReviewSyncDbService,
-    private readonly reviewPostQueue: ReviewPostQueue
+    private readonly reviewPostQueue: ReviewPostQueue,
+    private readonly inAppNotificationsService: InAppNotificationsService
   ) {}
 
   async postResponse(job: IReviewPostJob): Promise<void> {
@@ -316,8 +319,8 @@ export class ReviewPostQueueService {
       // `ReviewSyncQueueService.handleSyncFailure` does for reads).
       try {
         const connection = await this.connectionsDbService.findConnectionByTenant(job.tenantId);
-        if (connection) {
-          await this.connectionsDbService.markNeedsReauth(connection.id);
+        if (connection && (await this.connectionsDbService.markNeedsReauth(connection.id))) {
+          await this.inAppNotificationsService.notifyConnectionIssue(job.tenantId);
         }
       } catch (reauthError) {
         this.logger.error(

@@ -292,15 +292,17 @@ export function ApiUpdatePlatformSettings(): ReturnType<typeof applyDecorators> 
     ApiOperation({
       summary: 'Update platform-wide feature settings',
       description:
-        'Partial update — any field omitted is left unchanged. Controls which login methods the ' +
-        'sign-in/sign-up screens offer and whether tenant Settings > Members can send invites. ' +
-        'Takes effect immediately for every visitor; no redeploy required. Rejects a patch that ' +
-        'would leave ssoLoginEnabled/passwordLoginEnabled/socialLoginEnabled all false, and one ' +
-        'that would turn socialLoginEnabled off while a platform admin has Google as their only ' +
-        'credential (an admin who accepted their invite through Google has no password, and there ' +
-        'is no admin set-password flow to add one) — see the 400 response. Otherwise does not ' +
-        "affect platform-admin login: a Super Admin's own password field on /login is " +
-        'unconditional regardless of this setting.',
+        'Partial update — any field omitted is left unchanged. Controls which login methods tenants are offered ' +
+        '(enforced on the server, not only on the sign-in screens: Microsoft and Google are refused for tenant sign-in, ' +
+        'sign-up and invites while off; the password switch covers new email/password sign-ups only), whether tenant ' +
+        'Settings > Members can send invites and whether tenant Settings offers notification preferences (`true` is refused ' +
+        'until email/Teams exist). Takes effect immediately for every visitor; no redeploy required. Refused with 400 when ' +
+        'the patch would leave every method disabled, leave no method that is both enabled and set up on this server ' +
+        '(Microsoft and Google also need credentials), or turn Google off while a platform admin could then only sign in ' +
+        'with it (no password: there is no way to give them one). Turning Microsoft or Google off while active tenant users ' +
+        'could then only sign in with it is refused with `SSO_LOGIN_DISALLOWED_SSO_ONLY_USERS` until the request is repeated ' +
+        'with `confirmLockout: true`, which locks those users out until the provider is switched back on. Platform-admin ' +
+        "Google sign-in and a Super Admin's own password field on /login are never affected by these switches.",
     }),
     ApiBody({
       type: UpdatePlatformSettingsDto,
@@ -315,10 +317,11 @@ export function ApiUpdatePlatformSettings(): ReturnType<typeof applyDecorators> 
         default: {
           summary: 'Settings updated',
           value: {
-            ssoLoginEnabled: true,
+            microsoftLoginEnabled: true,
             passwordLoginEnabled: true,
-            socialLoginEnabled: false,
+            googleLoginEnabled: false,
             inviteMembersEnabled: false,
+            notificationSettingsEnabled: false,
             paymentFeatureEnabled: false,
             erasureGracePeriodDays: 21,
           },
@@ -329,6 +332,11 @@ export function ApiUpdatePlatformSettings(): ReturnType<typeof applyDecorators> 
       status: HttpStatus.BAD_REQUEST,
       description:
         'Validation failed, or the patch would leave every tenant-facing sign-in method disabled',
+    }),
+    ApiResponse({
+      status: HttpStatus.UNPROCESSABLE_ENTITY,
+      description:
+        'notificationSettingsEnabled: true was sent, but email/Teams notifications are not implemented yet (NOTIFICATION_CHANNELS_NOT_IMPLEMENTED). false is always accepted',
     }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })

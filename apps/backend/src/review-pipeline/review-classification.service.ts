@@ -1,3 +1,5 @@
+import { InAppNotificationType } from '@common/enums/in-app-notification-type.enum';
+import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { ReviewPipelineDbService } from '@db/repositories/review-pipeline/review-pipeline.db-service';
 import { Injectable, Logger } from '@nestjs/common';
 
@@ -6,6 +8,9 @@ import type {
   ClassifyPendingReviewsInput,
   ClassifyPendingReviewsResult,
 } from './types/classification-result.type';
+
+import { InAppNotificationsService } from '../api/notifications/services/in-app-notifications.service';
+import type { InAppNotificationEvent } from '../api/notifications/types/in-app-notification-event.type';
 
 /**
  * Deliberately above one import's ceiling, maintained by hand: a backfill imports at most `MAX_PAGES` (20,
@@ -20,7 +25,10 @@ const BATCH_LIMIT = 2000;
 export class ReviewClassificationService {
   private readonly logger = new Logger(ReviewClassificationService.name);
 
-  constructor(private readonly reviewPipelineDbService: ReviewPipelineDbService) {}
+  constructor(
+    private readonly reviewPipelineDbService: ReviewPipelineDbService,
+    private readonly inAppNotificationsService: InAppNotificationsService
+  ) {}
 
   async classifyPendingReviews(
     input: ClassifyPendingReviewsInput
@@ -42,19 +50,34 @@ export class ReviewClassificationService {
 
     let classified = 0;
     let skipped = 0;
+    const escalations: InAppNotificationEvent[] = [];
 
-    for (const review of pendingReviews) {
-      const result = classifyReview(review, context);
-      const claimed = await this.reviewPipelineDbService.applyClassification(review.id, result);
+    // In a `finally`: a review that is classified is no longer pending, so a notice lost to a later failure in this batch (a rejected
+    // claim, a killed worker) would never be raised again. One call per run, so a burst (a first backfill) folds into a few notices and a
+    // summary instead of one per review.
+    try {
+      for (const review of pendingReviews) {
+        const result = classifyReview(review, context);
+        const claimed = await this.reviewPipelineDbService.applyClassification(review.id, result);
 
-      if (claimed) {
-        classified += 1;
-      } else {
-        skipped += 1;
-        this.logger.warn(
-          `Review ${review.id} stopped being a classification candidate before it could be claimed (already classified, or no longer 'new'); skipping.`
-        );
+        if (claimed) {
+          classified += 1;
+          if (result.classification === ReviewClassification.ESCALATED) {
+            escalations.push({
+              type: InAppNotificationType.REVIEW_ESCALATED,
+              reviewId: review.id,
+              rating: review.rating,
+            });
+          }
+        } else {
+          skipped += 1;
+          this.logger.warn(
+            `Review ${review.id} stopped being a classification candidate before it could be claimed (already classified, or no longer 'new'); skipping.`
+          );
+        }
       }
+    } finally {
+      await this.inAppNotificationsService.publish(input.tenantId, escalations);
     }
 
     this.logger.log(

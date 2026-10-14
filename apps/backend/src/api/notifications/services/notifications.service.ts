@@ -2,18 +2,17 @@ import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { NotificationsDbService } from '@db/repositories/notifications/notifications.db-service';
 import { Injectable } from '@nestjs/common';
 
+import type { AuthUser } from '../../auth/types/auth.type';
 import {
   NOTIFICATIONS_LIMIT_DEFAULT,
   NOTIFICATIONS_LIMIT_MAX,
-} from './constants/notifications.constants';
-import type { ListNotificationsQueryDto } from './dto/list-notifications-query.dto';
+} from '../constants/notifications.constants';
+import type { ListNotificationsQueryDto } from '../dto/list-notifications-query.dto';
 import {
   NotificationListResponseDto,
   NotificationReadResponseDto,
-} from './dto/notification-response.dto';
-import { NotificationNotFoundException } from './exceptions/notifications.exceptions';
-
-import type { AuthUser } from '../auth/types/auth.type';
+} from '../dto/notification-response.dto';
+import { NotificationNotFoundException } from '../exceptions/notifications.exceptions';
 
 @Injectable()
 export class NotificationsService {

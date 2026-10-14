@@ -80,6 +80,20 @@ export class InvalidRefreshTokenException extends UnauthorizedException {
   }
 }
 
+/** A pending single-sign-on sign-up whose provider was switched off before it was completed. */
+export class SsoSignupDisabledException extends ForbiddenException {
+  constructor(message: string = MESSAGES.AUTH.SSO_SIGNUP_DISABLED) {
+    super({ message, code: 'SSO_SIGNUP_DISABLED' });
+  }
+}
+
+/** Only new password sign-ups: existing password sign-in, password changes and invites are unaffected (see `AuthService.signup`). */
+export class PasswordSignupDisabledException extends ForbiddenException {
+  constructor(message: string = MESSAGES.AUTH.PASSWORD_SIGNUP_DISABLED) {
+    super({ message, code: 'PASSWORD_SIGNUP_DISABLED' });
+  }
+}
+
 export class EmailAlreadyRegisteredException extends ConflictException {
   constructor(message: string = MESSAGES.AUTH.EMAIL_ALREADY_REGISTERED) {
     super({ message, code: 'EMAIL_ALREADY_REGISTERED' });

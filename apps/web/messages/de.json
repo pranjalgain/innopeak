@@ -145,7 +145,8 @@
         "loadFailed": "Benachrichtigungen konnten nicht geladen werden."
       },
       "loadMoreFailed": "Weitere konnten nicht geladen werden.",
-      "retry": "Erneut versuchen"
+      "retry": "Erneut versuchen",
+      "newAnnouncement": "{count, plural, one {# neue Benachrichtigung} other {# neue Benachrichtigungen}}"
     },
     "reconnectBanner": {
       "message": "Ihre Google Unternehmensprofil-Verbindung ist abgelaufen. Neue Bewertungen werden nicht importiert, bis Sie die Verbindung erneuern.",
@@ -277,7 +278,7 @@
       "ACCOUNT_UNAVAILABLE": "Dieses Konto ist nicht verfügbar. Kontaktieren Sie den Support.",
       "INVITE_REQUIRED": "Sie haben eine ausstehende Einladung. Öffnen Sie den Einladungslink in Ihrer E-Mail, um beizutreten.",
       "PROVIDER_ERROR": "Die Anmeldung beim Anbieter konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
-      "NOT_CONFIGURED": "Diese Anmeldemethode ist derzeit nicht verfügbar. Nutzen Sie E-Mail und Passwort.",
+      "NOT_CONFIGURED": "Diese Anmeldemethode ist derzeit nicht verfügbar. Bitte verwenden Sie eine andere Anmeldemethode.",
       "INVALID_OR_EXPIRED_INVITE": "Dieser Einladungslink ist ungültig oder abgelaufen.",
       "INVITE_EMAIL_MISMATCH": "Die E-Mail-Adresse dieses Google-Kontos stimmt nicht mit der eingeladenen Adresse überein. Melden Sie sich bei Google mit der Adresse an, an die die Einladung gesendet wurde.",
       "GOOGLE_IDENTITY_ALREADY_LINKED": "Dieses Google-Konto ist bereits mit einem anderen Konto verknüpft.",
@@ -286,7 +287,7 @@
         "ACCESS_DENIED": "Die Google-Anmeldung wurde abgebrochen.",
         "EMAIL_NOT_VERIFIED": "Google hat diese Adresse nicht verifiziert. Verifizieren Sie sie bei Google, oder nutzen Sie E-Mail und Passwort.",
         "PROVIDER_ERROR": "Google konnte nicht erreicht werden. Bitte versuchen Sie es erneut.",
-        "NOT_CONFIGURED": "Die Google-Anmeldung ist derzeit nicht verfügbar. Nutzen Sie E-Mail und Passwort.",
+        "NOT_CONFIGURED": "Die Google-Anmeldung ist derzeit nicht verfügbar. Bitte verwenden Sie eine andere Anmeldemethode.",
         "fallback": "Die Google-Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
       },
       "microsoft": {
@@ -294,7 +295,7 @@
         "ACCESS_DENIED": "Die Microsoft-Anmeldung wurde abgebrochen.",
         "EMAIL_NOT_VERIFIED": "Microsoft hat für dieses Konto keine verifizierte E-Mail-Adresse bestätigt. Bitten Sie Ihre Microsoft-Administration, die E-Mail-Adresse des Kontos festzulegen und zu verifizieren, oder nutzen Sie E-Mail und Passwort.",
         "PROVIDER_ERROR": "Die Anmeldung bei Microsoft konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
-        "NOT_CONFIGURED": "Die Microsoft-Anmeldung ist derzeit nicht verfügbar. Nutzen Sie E-Mail und Passwort.",
+        "NOT_CONFIGURED": "Die Microsoft-Anmeldung ist derzeit nicht verfügbar. Bitte verwenden Sie eine andere Anmeldemethode.",
         "fallback": "Die Microsoft-Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
       },
       "fallback": "Die Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
@@ -584,7 +585,6 @@
       "members": "Mitglieder",
       "billing": "Abrechnung"
     },
-    "noSettingsForMember": "Hier gibt es noch nichts zu konfigurieren. Wenden Sie sich an Ihren Unternehmensinhaber, wenn Sie eine Änderung benötigen.",
     "general": {
       "title": "Allgemein",
       "description": "Grundlegende Standardeinstellungen für Eskalation und Datenverarbeitung für dieses Unternehmen.",
@@ -1338,7 +1338,7 @@
     "platform": {
       "title": "Plattformeinstellungen",
       "description": "Welche Anmeldemethoden angeboten werden und ob Mandanten Teammitglieder einladen können. Änderungen wirken sofort und überall.",
-      "sso": {
+      "microsoft": {
         "label": "Microsoft SSO",
         "helper": "„Mit Microsoft fortfahren\" auf den Anmelde- und Registrierungsbildschirmen anbieten."
       },
@@ -1346,7 +1346,7 @@
         "label": "E-Mail & Passwort",
         "helper": "E-Mail/Passwort für Registrierung und Passwortverwaltung von Mandanten anbieten – die Anmeldung mit einem vorhandenen Passwort ist immer möglich."
       },
-      "social": {
+      "google": {
         "label": "Google-Anmeldung",
         "helper": "„Mit Google fortfahren\" auf den Anmelde- und Registrierungsbildschirmen anbieten."
       },
@@ -1354,9 +1354,18 @@
         "label": "Teammitglieder einladen",
         "helper": "Einem Mandanteninhaber erlauben, Teammitglieder über die eigenen Einstellungen > Mitglieder einzuladen."
       },
+      "notificationSettings": {
+        "label": "Benachrichtigungseinstellungen",
+        "helper": "Mandanten einen Reiter „Benachrichtigungen“ zur Kanalauswahl anzeigen. E-Mail und Teams sind noch nicht verfügbar, daher wird das Aktivieren derzeit abgelehnt; In-App-Benachrichtigungen sind immer aktiv."
+      },
       "toasts": {
         "updated": "Plattformeinstellungen aktualisiert.",
         "updateFailed": "Diese Änderung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
+      },
+      "lockout": {
+        "title": "Trotzdem deaktivieren?",
+        "confirm": "Deaktivieren",
+        "cancel": "Aktiviert lassen"
       }
     }
   },

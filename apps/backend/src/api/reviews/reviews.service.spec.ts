@@ -2,6 +2,7 @@ import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import type { TenantAuthUser } from '@auth/types/auth.type';
 import { MESSAGES } from '@common/constants/messages.constants';
+import { InAppNotificationType } from '@common/enums/in-app-notification-type.enum';
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
@@ -28,6 +29,8 @@ import {
   ReviewResponseNotApprovableException,
 } from './exceptions/reviews.exceptions';
 import { ReviewsService } from './reviews.service';
+
+import { InAppNotificationsService } from '../notifications/services/in-app-notifications.service';
 
 const user: TenantAuthUser = {
   type: JwtTokenType.TENANT_USER,
@@ -74,6 +77,9 @@ const pendingResponse: ReviewResponseRow = {
   errorMessage: null,
 };
 
+/** Lets work the service deliberately left running (the approval announcement) finish before the test looks at it. */
+const flushPromises = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
+
 describe('ReviewsService', () => {
   let service: ReviewsService;
   const listReviews = jest.fn();
@@ -87,6 +93,7 @@ describe('ReviewsService', () => {
   const findAutoPostEnabled = jest.fn();
   const addPostJob = jest.fn();
   const markResponsePostFailed = jest.fn();
+  const publish = jest.fn();
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -94,6 +101,7 @@ describe('ReviewsService', () => {
     findAutoPostEnabled.mockResolvedValue(false);
     addPostJob.mockResolvedValue(undefined);
     markResponsePostFailed.mockResolvedValue(null);
+    publish.mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -120,6 +128,7 @@ describe('ReviewsService', () => {
           provide: ReviewPostQueue,
           useValue: { addPostJob },
         },
+        { provide: InAppNotificationsService, useValue: { publish } },
       ],
     }).compile();
 
@@ -217,6 +226,57 @@ describe('ReviewsService', () => {
         source: ResponseSource.AI_GENERATED,
       });
       expect(result.status).toBe('approved');
+    });
+
+    // The rest of the team hears about it; the author does not hear about their own click.
+    it('tells the rest of the team about the approval, skipping the person who approved it', async () => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      approveResponse.mockResolvedValue({ ...pendingResponse, status: ResponseStatus.APPROVED });
+      findReviewForTenant.mockResolvedValue({ ...review, rating: 4 });
+
+      await service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' });
+      await flushPromises();
+
+      expect(publish).toHaveBeenCalledWith('tenant-1', [
+        {
+          type: InAppNotificationType.REPLY_APPROVED,
+          reviewId: 'review-1',
+          rating: 4,
+          actorUserId: 'user-1',
+        },
+      ]);
+    });
+
+    it('does not fail the approval when announcing it fails', async () => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      approveResponse.mockResolvedValue({ ...pendingResponse, status: ResponseStatus.APPROVED });
+      findReviewForTenant.mockRejectedValue(new Error('db blip'));
+
+      await expect(
+        service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).resolves.toMatchObject({ status: 'approved' });
+      await flushPromises();
+    });
+
+    it('does not make the approval wait for the announcement', async () => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      approveResponse.mockResolvedValue({ ...pendingResponse, status: ResponseStatus.APPROVED });
+      findReviewForTenant.mockResolvedValue({ ...review, rating: 4 });
+      publish.mockReturnValue(new Promise(() => undefined));
+
+      await expect(
+        service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).resolves.toMatchObject({ status: 'approved' });
+    });
+
+    it('says nothing when the approval itself did not go through', async () => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      approveResponse.mockResolvedValue(null);
+
+      await expect(
+        service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).rejects.toThrow(ReviewResponseNotApprovableException);
+      expect(publish).not.toHaveBeenCalled();
     });
 
     it('records human_edited when the submitted content differs from the original draft', async () => {

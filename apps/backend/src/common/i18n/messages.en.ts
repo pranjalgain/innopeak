@@ -8,6 +8,10 @@ export const messagesEn: MessageCatalog = {
     RESEND_OTP_ACK: 'If this account is awaiting verification, a code has been sent.',
     EMAIL_VERIFIED: 'Email verified.',
     EMAIL_ALREADY_REGISTERED: 'An account with this email already exists.',
+    SSO_SIGNUP_DISABLED:
+      'Signing up with this provider is turned off for this platform. Use another sign-in method.',
+    PASSWORD_SIGNUP_DISABLED:
+      'Signing up with an email and password is turned off for this platform. Use another sign-in method.',
     // Same message whether the code never existed, was used, or expired (no enumeration).
     INVALID_OR_EXPIRED_OTP: 'Invalid or expired verification code.',
     // The counter is keyed on the submitted address either way, so this doesn't reveal whether an account matches.
@@ -67,6 +71,29 @@ export const messagesEn: MessageCatalog = {
     NOT_FOUND: 'Notification not found.',
     MARKED_READ: 'Notification marked as read',
     MARKED_ALL_READ: 'All notifications marked as read',
+    FEED: {
+      REVIEW_ESCALATED_TITLE: 'Review escalated',
+      REVIEW_ESCALATED_DESCRIPTION: (rating: number): string =>
+        `A ${rating}-star review needs your attention before anyone replies.`,
+      REVIEW_ESCALATED_SUMMARY_TITLE: (count: number): string =>
+        `${count} more ${count === 1 ? 'review' : 'reviews'} escalated`,
+      REVIEW_ESCALATED_SUMMARY_DESCRIPTION: 'Open the review queue to see all escalated reviews.',
+      REPLY_NEEDS_APPROVAL_TITLE: 'Reply ready for approval',
+      REPLY_NEEDS_APPROVAL_DESCRIPTION: (rating: number): string =>
+        `A drafted reply to a ${rating}-star review is waiting for your approval.`,
+      REPLY_NEEDS_APPROVAL_SUMMARY_TITLE: (count: number): string =>
+        `${count} more ${count === 1 ? 'reply is' : 'replies are'} ready for approval`,
+      REPLY_NEEDS_APPROVAL_SUMMARY_DESCRIPTION: 'Open the review queue to approve them.',
+      REPLY_APPROVED_TITLE: 'Reply approved',
+      REPLY_APPROVED_DESCRIPTION: (rating: number): string =>
+        `The reply to a ${rating}-star review was approved and is being posted.`,
+      REPLY_APPROVED_SUMMARY_TITLE: (count: number): string =>
+        `${count} more ${count === 1 ? 'reply' : 'replies'} approved`,
+      REPLY_APPROVED_SUMMARY_DESCRIPTION: 'Open the review queue to see what was posted.',
+      CONNECTION_ISSUE_TITLE: 'Google connection needs attention',
+      CONNECTION_ISSUE_DESCRIPTION:
+        'Reconnect your Google Business Profile so new reviews keep syncing and replies can be posted.',
+    },
   },
   CONNECTIONS: {
     CONNECTION_NOT_FOUND: 'No Google Business Profile connection found for this account.',
@@ -221,6 +248,7 @@ export const messagesEn: MessageCatalog = {
     MEMBER_NOT_FOUND: 'Team member not found.',
     MEMBER_INVITE_NOT_REVOCABLE: 'This invite has already been accepted or is no longer pending.',
     MEMBER_INVITES_DISABLED: 'Inviting team members is turned off for this platform.',
+    NOTIFICATION_SETTINGS_DISABLED: 'Notification settings are not available on this platform.',
     MEMBER_REMOVAL_REQUESTED: (days: number): string =>
       `Removal requested. This member loses access now, and their data is permanently erased in ${days} ${days === 1 ? 'day' : 'days'} unless you cancel first.`,
     MEMBER_REMOVAL_CANCELLED: 'Removal cancelled — this member keeps their access.',
@@ -257,12 +285,20 @@ export const messagesEn: MessageCatalog = {
     EMAIL_ALREADY_INVITED: 'This email is already a platform admin or has a pending invite.',
     PLATFORM_SETTINGS_UPDATED: 'Platform settings updated.',
     PLATFORM_SETTINGS_NO_METHOD_ENABLED:
-      'At least one sign-in method (SSO, email/password, or Google) must stay enabled.',
+      'At least one sign-in method (Microsoft, email/password, or Google) must stay enabled.',
+    NOTIFICATION_CHANNELS_NOT_IMPLEMENTED:
+      'Email and Teams notifications are not implemented yet, so notification settings cannot be turned on.',
     CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN: (count: number): string => {
       const who = count === 1 ? 'one of your platform admins' : `${count} of your platform admins`;
       const target = count === 1 ? 'that admin' : 'those admins';
       return `Google is the only way ${who} can sign in, so turning it off would lock them out. Disable ${target} first if that is intended.`;
     },
+    CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS: (provider: string, count: number): string => {
+      const who = count === 1 ? 'one user' : `${count} users`;
+      return `${provider} is the only way ${who} can sign in. Turning it off locks them out until it is turned back on. Confirm to turn it off anyway.`;
+    },
+    PLATFORM_SETTINGS_NO_USABLE_METHOD:
+      'At least one enabled sign-in method must also be set up on this server (Microsoft and Google need their credentials configured).',
     ADMIN_NOT_FOUND: 'Platform admin not found.',
     CANNOT_DISABLE_SELF: 'You cannot disable your own admin account.',
     CANNOT_DISABLE_LAST_ADMIN: 'At least one platform admin must stay active.',

@@ -1,5 +1,6 @@
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
+import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import { SettingsDbService } from '@db/repositories/settings/settings.db-service';
 import { Injectable } from '@nestjs/common';
 
@@ -12,14 +13,27 @@ import type { UpdateNotificationRecipientDto } from '../dto/update-notification-
 import {
   NotificationRecipientNoFieldsException,
   NotificationRecipientNotFoundException,
+  NotificationSettingsDisabledException,
 } from '../exceptions/settings.exceptions';
 
 @Injectable()
 export class NotificationRecipientsService {
-  constructor(private readonly settingsDbService: SettingsDbService) {}
+  constructor(
+    private readonly settingsDbService: SettingsDbService,
+    private readonly platformSettingsDbService: PlatformSettingsDbService
+  ) {}
+
+  /** Phase one has no notification preferences: both routes answer 403 while the platform setting is off (it defaults to off). */
+  private async assertSettingsEnabled(): Promise<void> {
+    const platformSettings = await this.platformSettingsDbService.get();
+    if (platformSettings?.notificationSettingsEnabled !== true) {
+      throw new NotificationSettingsDisabledException();
+    }
+  }
 
   async list(user: AuthUser): Promise<NotificationRecipientListResponseDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.SETTINGS.TENANT_ONLY);
+    await this.assertSettingsEnabled();
     const rows = await this.settingsDbService.listNotificationRecipients(tenantUser.tenantId);
     return NotificationRecipientListResponseDto.from(rows);
   }
@@ -30,6 +44,7 @@ export class NotificationRecipientsService {
     dto: UpdateNotificationRecipientDto
   ): Promise<NotificationRecipientDto> {
     const tenantUser = requireTenantUser(user, MESSAGES.SETTINGS.TENANT_ONLY);
+    await this.assertSettingsEnabled();
 
     // A whole-object rule, not a per-property one — see the DTO's own comment on why this isn't
     // a class-validator decorator.

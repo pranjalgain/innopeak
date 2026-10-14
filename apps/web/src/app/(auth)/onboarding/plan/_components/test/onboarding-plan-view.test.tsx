@@ -66,10 +66,10 @@ describe("OnboardingPlanView", () => {
 
   test("shows only the Free plan when PAYMENT_FEATURE_ENABLED is off", async () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: true,
+      microsoftLoginEnabled: true,
       passwordLoginEnabled: true,
-      socialLoginEnabled: true,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
       paymentFeatureEnabled: false,
     });
     renderView();
@@ -85,10 +85,10 @@ describe("OnboardingPlanView", () => {
 
   describe("once the plan is Paid", () => {
     const paymentEnabled = {
-      ssoLoginEnabled: true,
+      microsoftLoginEnabled: true,
       passwordLoginEnabled: true,
-      socialLoginEnabled: true,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
       paymentFeatureEnabled: true,
     };
 
@@ -134,10 +134,10 @@ describe("OnboardingPlanView", () => {
     window.sessionStorage.clear();
     OnboardingContextService.set({ from: "signup", via: "sso" });
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: true,
+      microsoftLoginEnabled: true,
       passwordLoginEnabled: true,
-      socialLoginEnabled: true,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
       paymentFeatureEnabled: false,
     });
     const user = userEvent.setup();
@@ -153,10 +153,10 @@ describe("OnboardingPlanView", () => {
     toastInfo.mockClear();
     window.history.replaceState(null, "", "/onboarding/plan?checkout=cancel");
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: true,
+      microsoftLoginEnabled: true,
       passwordLoginEnabled: true,
-      socialLoginEnabled: true,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
       paymentFeatureEnabled: true,
     });
     renderView();
@@ -167,10 +167,10 @@ describe("OnboardingPlanView", () => {
 
   test("continuing with Free navigates straight to /onboarding/connect with no backend call", async () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: true,
+      microsoftLoginEnabled: true,
       passwordLoginEnabled: true,
-      socialLoginEnabled: true,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
       paymentFeatureEnabled: false,
     });
     const createCheckoutSession = vi.spyOn(BillingService, "createCheckoutSession");
@@ -185,10 +185,10 @@ describe("OnboardingPlanView", () => {
 
   test("shows both plans and starts checkout when PAYMENT_FEATURE_ENABLED is on", async () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: true,
+      microsoftLoginEnabled: true,
       passwordLoginEnabled: true,
-      socialLoginEnabled: true,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
       paymentFeatureEnabled: true,
     });
     const createCheckoutSession = vi

@@ -1,4 +1,5 @@
 import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
+import { InAppNotificationType } from '@common/enums/in-app-notification-type.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
@@ -21,6 +22,8 @@ import { AiProviderNotConfiguredException } from './exceptions/ai.exceptions';
 import { AiProvider } from './providers/ai.provider';
 import type { GenerateReplyResult } from './types/ai-provider.type';
 
+import { InAppNotificationsService } from '../notifications/services/in-app-notifications.service';
+
 describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
   let target: AiReplyGenerationService;
   let aiProvider: { generateReply: jest.Mock };
@@ -38,6 +41,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
   };
   let settingsDbService: { findAiReplyCount: jest.Mock; findAutoPostEnabled: jest.Mock };
   let reviewPostQueue: { addPostJob: jest.Mock };
+  let inAppNotificationsService: { publish: jest.Mock };
   let connectionsDbService: { findLocationForTenant: jest.Mock };
 
   const tenantId = '0190f4a1-7c33-7e51-9a02-6d1b8f4c0001';
@@ -103,6 +107,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
     };
     reviewPostQueue = { addPostJob: jest.fn().mockResolvedValue(undefined) };
     connectionsDbService = { findLocationForTenant: jest.fn().mockResolvedValue(null) };
+    inAppNotificationsService = { publish: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -115,6 +120,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
         { provide: ReviewSyncDbService, useValue: reviewSyncDbService },
         { provide: SettingsDbService, useValue: settingsDbService },
         { provide: ReviewPostQueue, useValue: reviewPostQueue },
+        { provide: InAppNotificationsService, useValue: inAppNotificationsService },
       ],
     }).compile();
 
@@ -246,6 +252,106 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
 
     expect(reviewSyncDbService.approveResponse).not.toHaveBeenCalled();
     expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
+  });
+
+  describe('in-app notifications', () => {
+    it('tells the tenant a draft is waiting for approval, once per review, in one call for the batch', async () => {
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+
+      await target.generateForClassifiedReviews({ tenantId, locationId });
+
+      expect(inAppNotificationsService.publish).toHaveBeenCalledTimes(1);
+      expect(inAppNotificationsService.publish).toHaveBeenCalledWith(tenantId, [
+        {
+          type: InAppNotificationType.REPLY_NEEDS_APPROVAL,
+          reviewId: autoReplyCandidate.id,
+          rating: autoReplyCandidate.rating,
+          generationGroupId: null,
+        },
+      ]);
+    });
+
+    it('tells everyone a reply was approved when it is auto-posted', async () => {
+      settingsDbService.findAutoPostEnabled.mockResolvedValue(true);
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+      reviewSyncDbService.approveResponse.mockResolvedValue({ id: 'response-1' });
+
+      await target.generateForClassifiedReviews({ tenantId, locationId });
+
+      expect(inAppNotificationsService.publish).toHaveBeenCalledWith(tenantId, [
+        {
+          type: InAppNotificationType.REPLY_APPROVED,
+          reviewId: autoReplyCandidate.id,
+          rating: autoReplyCandidate.rating,
+        },
+      ]);
+    });
+
+    it('shares the generation group of an escalated review’s drafts', async () => {
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([escalatedCandidate]);
+
+      await target.generateForClassifiedReviews({ tenantId, locationId });
+
+      const [, notices] = inAppNotificationsService.publish.mock.calls[0] as [
+        string,
+        Array<{ generationGroupId: string | null }>,
+      ];
+      expect(notices[0]?.generationGroupId).toEqual(expect.any(String));
+    });
+
+    // Regression: notices were published after the loop, so a failure mid-batch dropped the ones already earned.
+    it('still raises the notices for the reviews done before the batch fails outright', async () => {
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([
+        autoReplyCandidate,
+        { ...autoReplyCandidate, id: 'review-2' },
+      ]);
+      reviewSyncDbService.claimForGeneration
+        .mockResolvedValueOnce(true)
+        .mockRejectedValueOnce(new Error('db blip'));
+
+      await expect(target.generateForClassifiedReviews({ tenantId, locationId })).rejects.toThrow(
+        'db blip'
+      );
+
+      expect(inAppNotificationsService.publish).toHaveBeenCalledWith(tenantId, [
+        expect.objectContaining({
+          type: InAppNotificationType.REPLY_NEEDS_APPROVAL,
+          reviewId: autoReplyCandidate.id,
+        }),
+      ]);
+    });
+
+    // A draft someone else already decided (or that has a live reply) needs no approval, and nobody is asked to give one.
+    it('does not ask for approval of a draft that was already handled when auto-approve ran', async () => {
+      settingsDbService.findAutoPostEnabled.mockResolvedValue(true);
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+      reviewSyncDbService.approveResponse.mockResolvedValue(null);
+
+      await target.generateForClassifiedReviews({ tenantId, locationId });
+
+      expect(inAppNotificationsService.publish).toHaveBeenCalledWith(tenantId, []);
+    });
+
+    it('still asks for approval when the auto-approve step itself failed and the draft stays pending', async () => {
+      settingsDbService.findAutoPostEnabled.mockResolvedValue(true);
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+      reviewSyncDbService.approveResponse.mockRejectedValue(new Error('db blip'));
+
+      await target.generateForClassifiedReviews({ tenantId, locationId });
+
+      expect(inAppNotificationsService.publish).toHaveBeenCalledWith(tenantId, [
+        expect.objectContaining({ type: InAppNotificationType.REPLY_NEEDS_APPROVAL }),
+      ]);
+    });
+
+    it('raises nothing for a review whose generation failed', async () => {
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+      aiProvider.generateReply.mockRejectedValue(new Error('provider timeout'));
+
+      await target.generateForClassifiedReviews({ tenantId, locationId });
+
+      expect(inAppNotificationsService.publish).toHaveBeenCalledWith(tenantId, []);
+    });
   });
 
   it('saves a reply cut off at the token cap as a draft instead of auto-posting it', async () => {

@@ -1,4 +1,5 @@
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import {
   InvalidCurrentPasswordException,
   InvalidOtpException,
@@ -6,6 +7,8 @@ import {
   NoPasswordSetException,
   PasswordAlreadySetException,
 } from '@auth/exceptions/auth.exceptions';
+import { GoogleIdentityProvider } from '@auth/providers/google-identity.provider';
+import { MicrosoftIdentityProvider } from '@auth/providers/microsoft-identity.provider';
 import { VerifyEmailTokenProvider } from '@auth/providers/verify-email-token.provider';
 import { OtpAttemptService } from '@auth/services/otp-attempt.service';
 import { TokenService } from '@auth/services/token.service';
@@ -51,10 +54,13 @@ import {
   CannotDisableLastAdminException,
   CannotDisableRootAdminException,
   CannotDisableSelfException,
+  NotificationChannelsNotImplementedException,
   PlatformAdminNotFoundException,
   PlatformConfigNotFoundException,
   PlatformSettingsNoMethodEnabledException,
+  PlatformSettingsNoUsableMethodException,
   SocialLoginDisallowedGoogleOnlyAdminException,
+  SsoLoginDisallowedSsoOnlyUsersException,
 } from '../exceptions/admin.exceptions';
 import type { SetAdminStatusParams, SetAdminStatusResult } from '../types/admin.type';
 
@@ -74,7 +80,9 @@ export class AdminSettingsService {
     private readonly tokenService: TokenService,
     private readonly configService: ConfigService<EnvConfig>,
     private readonly otpAttemptService: OtpAttemptService,
-    private readonly verifyEmailTokenProvider: VerifyEmailTokenProvider
+    private readonly verifyEmailTokenProvider: VerifyEmailTokenProvider,
+    private readonly googleIdentityProvider: GoogleIdentityProvider,
+    private readonly microsoftIdentityProvider: MicrosoftIdentityProvider
   ) {}
 
   async getProfile(actor: AuthUser): Promise<AdminProfileResponseDto> {
@@ -365,31 +373,89 @@ export class AdminSettingsService {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
 
     const patch: PlatformSettingsPatch = {};
-    if (dto.ssoLoginEnabled !== undefined) patch.ssoLoginEnabled = dto.ssoLoginEnabled;
+    if (dto.microsoftLoginEnabled !== undefined)
+      patch.microsoftLoginEnabled = dto.microsoftLoginEnabled;
     if (dto.passwordLoginEnabled !== undefined)
       patch.passwordLoginEnabled = dto.passwordLoginEnabled;
-    if (dto.socialLoginEnabled !== undefined) patch.socialLoginEnabled = dto.socialLoginEnabled;
+    if (dto.googleLoginEnabled !== undefined) patch.googleLoginEnabled = dto.googleLoginEnabled;
     if (dto.inviteMembersEnabled !== undefined)
       patch.inviteMembersEnabled = dto.inviteMembersEnabled;
+    if (dto.notificationSettingsEnabled !== undefined)
+      patch.notificationSettingsEnabled = dto.notificationSettingsEnabled;
+
+    // TODO(notifications): delete this check once email/Teams delivery exists; it is the only thing keeping the setting off.
+    // Only `true` is refused, so `false` (and re-sending the default) is always accepted.
+    if (patch.notificationSettingsEnabled === true) {
+      throw new NotificationChannelsNotImplementedException();
+    }
 
     const current = await this.platformSettingsDbService.get();
     if (!current) {
       throw new PlatformConfigNotFoundException();
     }
 
-    const resultingSso = patch.ssoLoginEnabled ?? current.ssoLoginEnabled;
+    const resultingMicrosoft = patch.microsoftLoginEnabled ?? current.microsoftLoginEnabled;
     const resultingPassword = patch.passwordLoginEnabled ?? current.passwordLoginEnabled;
-    const resultingSocial = patch.socialLoginEnabled ?? current.socialLoginEnabled;
-    if (!resultingSso && !resultingPassword && !resultingSocial) {
+    const resultingGoogle = patch.googleLoginEnabled ?? current.googleLoginEnabled;
+    if (!resultingMicrosoft && !resultingPassword && !resultingGoogle) {
       throw new PlatformSettingsNoMethodEnabledException();
     }
 
-    // Lockout guard: a Google-only admin has no `password_hash`, so `socialLoginEnabled` is their only way
+    // A method only counts if it can be used: Microsoft and Google also need their credentials configured on this server, and the
+    // password switch only ever offers sign-up. Without this, switching password off while Microsoft is on but unconfigured leaves
+    // nobody able to sign up, and nothing would say why. Scoped to patches that touch a method, so an unrelated change on a platform
+    // already in that state is not refused.
+    const touchesMethod =
+      patch.microsoftLoginEnabled !== undefined ||
+      patch.passwordLoginEnabled !== undefined ||
+      patch.googleLoginEnabled !== undefined;
+    if (
+      touchesMethod &&
+      !resultingPassword &&
+      !(resultingMicrosoft && this.microsoftIdentityProvider.isConfigured()) &&
+      !(resultingGoogle && this.googleIdentityProvider.isConfigured())
+    ) {
+      throw new PlatformSettingsNoUsableMethodException();
+    }
+
+    // Tenant counterpart of the guard below: a tenant user who joined with Microsoft or Google has no password and the platform has
+    // no way to give them one, so turning their provider off locks them out until it is turned back on. Unlike the admin guard this one
+    // can be overridden (`confirmLockout`): switching a provider off is also the emergency lever when it is compromised or down, and
+    // that must stay possible however many people use it. Same transition scoping and read-then-write race as the admin guard.
+    for (const [provider, label, switchedOff] of [
+      [
+        UserIdentityProvider.GOOGLE,
+        'Google',
+        patch.googleLoginEnabled === false && current.googleLoginEnabled,
+      ],
+      [
+        UserIdentityProvider.ENTRA_ID,
+        'Microsoft',
+        patch.microsoftLoginEnabled === false && current.microsoftLoginEnabled,
+      ],
+    ] as const) {
+      if (!switchedOff) {
+        continue;
+      }
+      const stranded = await this.platformSettingsDbService.countActiveSsoOnlyTenantUsers(provider);
+      if (stranded > 0) {
+        if (dto.confirmLockout !== true) {
+          throw new SsoLoginDisallowedSsoOnlyUsersException(
+            MESSAGES.ADMIN.CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS(label, stranded)
+          );
+        }
+        this.logger.warn(
+          `Platform admin ${admin.id} switched ${label} sign-in off with ${stranded} active tenant user(s) who can only sign in with it`
+        );
+      }
+    }
+
+    // Lockout guard: a Google-only admin has no `password_hash`, so `googleLoginEnabled` is their only way
     // in, and they have no way to add a password themselves.
     // Scoped to the transition: re-asserting an already-off setting is a no-op.
     // Read-then-write: an invite accepted via Google in between slips past. Accepted race: no single-table
     // CHECK can back it (it spans two tables) and the cost is an admin re-enabling a setting.
-    if (patch.socialLoginEnabled === false && current.socialLoginEnabled) {
+    if (patch.googleLoginEnabled === false && current.googleLoginEnabled) {
       const googleOnlyAdmins = await this.platformAdminDbService.countActiveGoogleOnlyAdmins();
       if (googleOnlyAdmins > 0) {
         throw new SocialLoginDisallowedGoogleOnlyAdminException(

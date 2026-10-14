@@ -27,6 +27,8 @@ import {
 import { ProviderCredentialService } from '@review-provider/provider-credential.service';
 import { ReviewProvider } from '@review-provider/providers/review-provider.provider';
 
+import { InAppNotificationsService } from '../../../api/notifications/services/in-app-notifications.service';
+
 /** Replies imported as few-shot voice examples; stopping here keeps onboarding of an old business
  *  from taking an hour. Backfill-only. */
 const IMPORTED_REPLY_TARGET = 50;
@@ -72,7 +74,8 @@ export class ReviewSyncQueueService {
     private readonly connectionsDbService: ConnectionsDbService,
     private readonly reviewSyncDbService: ReviewSyncDbService,
     private readonly reviewClassificationService: ReviewClassificationService,
-    private readonly aiReplyGenerationService: AiReplyGenerationService
+    private readonly aiReplyGenerationService: AiReplyGenerationService,
+    private readonly inAppNotificationsService: InAppNotificationsService
   ) {}
 
   /**
@@ -249,7 +252,10 @@ export class ReviewSyncQueueService {
   /** A dead grant is recorded on the connection so the owner is told to reconnect, not left with a silently stale location. */
   private async handleSyncFailure(job: IReviewSyncJob, error: unknown): Promise<string> {
     if (error instanceof ProviderAuthError) {
-      await this.connectionsDbService.markNeedsReauth(job.connectionId);
+      // Only the failure that actually flips the connection tells the owner: a dead grant fails every location's poll.
+      if (await this.connectionsDbService.markNeedsReauth(job.connectionId)) {
+        await this.inAppNotificationsService.notifyConnectionIssue(job.tenantId);
+      }
     }
     return (error as Error).message;
   }

@@ -14,7 +14,7 @@ export function ApiListNotificationRecipients(): ReturnType<typeof applyDecorato
     ApiOperation({
       summary: 'List escalation notification recipients',
       description:
-        'Owner-only. Every `notification_recipients` row for this tenant, joined to `users` for ' +
+        'Owner-only, and only while `notificationSettingsEnabled` is on in the platform settings (off by default). Every `notification_recipients` row for this tenant, joined to `users` for ' +
         'name/initials. Seeded with exactly one row (the signing-up owner) at signup — there is ' +
         'no add-recipient route yet, matching the shipped Settings UI, which only edits existing ' +
         'rows.',
@@ -41,7 +41,11 @@ export function ApiListNotificationRecipients(): ReturnType<typeof applyDecorato
       },
     }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
-    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a tenant owner' })
+    ApiResponse({
+      status: HttpStatus.FORBIDDEN,
+      description:
+        'Not a tenant owner, or notification settings are turned off for this platform (NOTIFICATION_SETTINGS_DISABLED, the default)',
+    })
   );
 }
 
@@ -80,7 +84,11 @@ export function ApiUpdateNotificationRecipient(): ReturnType<typeof applyDecorat
     }),
     ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Neither field was provided' }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
-    ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a tenant owner' }),
+    ApiResponse({
+      status: HttpStatus.FORBIDDEN,
+      description:
+        'Not a tenant owner, or notification settings are turned off for this platform (NOTIFICATION_SETTINGS_DISABLED, the default)',
+    }),
     ApiResponse({
       status: HttpStatus.NOT_FOUND,
       description: 'Recipient not found for this tenant',
