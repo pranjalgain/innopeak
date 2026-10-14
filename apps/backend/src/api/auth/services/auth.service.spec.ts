@@ -29,6 +29,7 @@ import { OAuthIntent } from '../enums/oauth-intent.enum';
 import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
+import { PasswordSignupDisabledException } from '../exceptions/auth.exceptions';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
 import { MicrosoftIdentityProvider } from '../providers/microsoft-identity.provider';
 import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
@@ -158,7 +159,9 @@ describe('AuthService', () => {
       getUserAvatarUrl: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<MediaService>;
 
-    platformSettingsDbService = { get: jest.fn().mockResolvedValue({ ssoLoginEnabled: true }) };
+    platformSettingsDbService = {
+      get: jest.fn().mockResolvedValue({ microsoftLoginEnabled: true }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -193,6 +196,30 @@ describe('AuthService', () => {
       email: 'Jane@TheCoffeeHouse.com',
       password: 'StrongP@ss1',
     };
+
+    // Regression: the platform's password switch only hid the sign-up form, so a direct call still created an account.
+    it.each([[{ passwordLoginEnabled: false }]])(
+      'refuses a new email/password sign-up while the platform has it switched off (%j)',
+      async settings => {
+        platformSettingsDbService.get.mockResolvedValue(settings);
+
+        await expect(target.signup(dto)).rejects.toBeInstanceOf(PasswordSignupDisabledException);
+
+        expect(authDbService.signup).not.toHaveBeenCalled();
+        expect(queueManager.addRegisterationOtpEmailJob).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each([[{ passwordLoginEnabled: true }], [null]])(
+      'still signs up when the switch is on or the settings row is missing (%j)',
+      async settings => {
+        platformSettingsDbService.get.mockResolvedValue(settings);
+        authDbService.signup.mockResolvedValue(null);
+
+        await expect(target.signup(dto)).rejects.toThrow(ConflictException);
+        expect(authDbService.signup).toHaveBeenCalled();
+      }
+    );
 
     it('throws 409 when the DB service reports the email is already registered', async () => {
       authDbService.signup.mockResolvedValue(null);
@@ -960,6 +987,31 @@ describe('AuthService', () => {
         });
       });
 
+      // Regression: the Google switch only hid the button, so a direct link still signed people in.
+      it.each([
+        [OAuthIntent.LOGIN, SSO_REDIRECT.LOGIN],
+        [OAuthIntent.SIGNUP, SSO_REDIRECT.SIGNUP],
+      ])(
+        'refuses a %s start with NOT_CONFIGURED while the platform has Google switched off',
+        async (intent, base) => {
+          platformSettingsDbService.get.mockResolvedValue({ googleLoginEnabled: false });
+
+          await expect(target.buildGoogleAuthorizeRedirect({ intent })).resolves.toEqual({
+            ok: false,
+            redirectUrl: `${base}?error=${SsoAuthFailure.NOT_CONFIGURED}&provider=google`,
+          });
+          expect(oauthStateService.mint).not.toHaveBeenCalled();
+        }
+      );
+
+      it('treats a missing platform settings row as switched on, the column default', async () => {
+        platformSettingsDbService.get.mockResolvedValue(null);
+
+        await expect(
+          target.buildGoogleAuthorizeRedirect({ intent: OAuthIntent.LOGIN })
+        ).resolves.toMatchObject({ ok: true });
+      });
+
       it('answers with a redirect rather than throwing when the client is unconfigured', async () => {
         googleIdentityProvider.isConfigured.mockReturnValue(false);
 
@@ -997,6 +1049,80 @@ describe('AuthService', () => {
         expect(authDbService.findSsoIdentityBySub).toHaveBeenCalledWith(
           SsoProvider.GOOGLE,
           identity.providerUserId
+        );
+      });
+
+      describe('with the platform Google switch off', () => {
+        beforeEach(() => {
+          platformSettingsDbService.get.mockResolvedValue({ googleLoginEnabled: false });
+        });
+
+        const callbackInput = { code: 'c', state: 's', error: undefined, sid: 'sid' };
+        const stateFor = (intent: OAuthIntent, inviteToken?: string) => ({
+          ok: true as const,
+          record: {
+            provider: SsoProvider.GOOGLE,
+            nonce: 'n',
+            intent,
+            sidHash: 'h',
+            ...(inviteToken !== undefined && { inviteToken }),
+          },
+        });
+
+        // The switch may be turned off while someone is at Google: the callback re-checks, and never exchanges the code.
+        it.each([
+          [
+            OAuthIntent.LOGIN,
+            `${SSO_REDIRECT.LOGIN}?error=${SsoAuthFailure.NOT_CONFIGURED}&provider=google`,
+          ],
+          [
+            OAuthIntent.SIGNUP,
+            `${SSO_REDIRECT.SIGNUP}?error=${SsoAuthFailure.NOT_CONFIGURED}&provider=google`,
+          ],
+        ])('refuses a %s callback without exchanging the code', async (intent, redirectUrl) => {
+          oauthStateService.consume.mockResolvedValue(stateFor(intent));
+
+          const outcome = await target.handleGoogleCallback(callbackInput);
+
+          expect(outcome).toEqual({
+            ok: false,
+            failure: SsoAuthFailure.NOT_CONFIGURED,
+            redirectUrl,
+          });
+          expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+        });
+
+        it('refuses an invite callback and sends the invitee back to their accept page', async () => {
+          oauthStateService.consume.mockResolvedValue(stateFor(OAuthIntent.INVITE, 'raw-token-1'));
+
+          const outcome = await target.handleGoogleCallback(callbackInput);
+
+          expect(outcome).toMatchObject({
+            ok: false,
+            failure: SsoAuthFailure.NOT_CONFIGURED,
+            redirectUrl: expect.stringContaining('/accept-invite/raw-token-1?error=NOT_CONFIGURED'),
+          });
+          expect(googleIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+        });
+
+        // An admin who joined through Google has no password, so this must keep working (and the admin settings refuse to switch it
+        // off while one exists).
+        it.each([OAuthIntent.ADMIN_LOGIN, OAuthIntent.ADMIN_INVITE])(
+          'never blocks a platform admin: %s still exchanges the code',
+          async intent => {
+            oauthStateService.consume.mockResolvedValue(stateFor(intent, 'admin-token'));
+            googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+            platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: false });
+            platformAdminAuthService.completeAdminInviteGoogle.mockResolvedValue({
+              ok: false,
+              failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
+              redirectUrl: '/accept-invite',
+            });
+
+            await target.handleGoogleCallback(callbackInput);
+
+            expect(googleIdentityProvider.fetchIdentity).toHaveBeenCalledWith('c');
+          }
         );
       });
 
@@ -1222,6 +1348,49 @@ describe('AuthService', () => {
         expect(result.body.accessToken).toBe('access');
       });
 
+      // Regression: the callback checked the switch, but the business-name step that actually creates the tenant did not.
+      it.each([
+        [SsoProvider.GOOGLE, { googleLoginEnabled: false }],
+        [SsoProvider.MICROSOFT, { microsoftLoginEnabled: false }],
+      ])(
+        'refuses to create the tenant when %s was switched off during the business-name step',
+        async (provider, settings) => {
+          platformSettingsDbService.get.mockResolvedValue(settings);
+          pendingSsoSignupService.consume.mockResolvedValue({
+            ok: true,
+            identity: {
+              provider,
+              providerUserId: 'sub-1',
+              email: 'owner@example.com',
+              name: 'Jane',
+            },
+          });
+
+          await expect(
+            target.completeSsoSignup('pending-nonce', 'The Coastal Table')
+          ).rejects.toThrow(MESSAGES.AUTH.SSO_SIGNUP_DISABLED);
+          expect(authDbService.completeSsoSignup).not.toHaveBeenCalled();
+        }
+      );
+
+      it('only looks at the provider the pending sign-up came through', async () => {
+        platformSettingsDbService.get.mockResolvedValue({ microsoftLoginEnabled: false });
+        pendingSsoSignupService.consume.mockResolvedValue({
+          ok: true,
+          identity: {
+            provider: SsoProvider.GOOGLE,
+            providerUserId: 'google-sub-1',
+            email: 'owner@example.com',
+            name: 'Jane',
+          },
+        });
+        authDbService.completeSsoSignup.mockResolvedValue(resolvedUser);
+
+        await expect(
+          target.completeSsoSignup('pending-nonce', 'The Coastal Table')
+        ).resolves.toBeDefined();
+      });
+
       it('rejects a missing, expired, or already-consumed pending signup', async () => {
         pendingSsoSignupService.consume.mockResolvedValue({ ok: false });
 
@@ -1315,7 +1484,7 @@ describe('AuthService', () => {
 
       // Regression: the platform switch only hid the button, so a direct link still signed people in.
       it('refuses with NOT_CONFIGURED while the platform has Microsoft SSO switched off', async () => {
-        platformSettingsDbService.get.mockResolvedValue({ ssoLoginEnabled: false });
+        platformSettingsDbService.get.mockResolvedValue({ microsoftLoginEnabled: false });
 
         await expect(
           target.buildMicrosoftAuthorizeRedirect({ intent: OAuthIntent.SIGNUP })
@@ -1403,7 +1572,7 @@ describe('AuthService', () => {
 
       it('refuses a callback once Microsoft SSO was switched off mid-flight, without exchanging the code', async () => {
         oauthStateService.consume.mockResolvedValue(record(OAuthIntent.SIGNUP));
-        platformSettingsDbService.get.mockResolvedValue({ ssoLoginEnabled: false });
+        platformSettingsDbService.get.mockResolvedValue({ microsoftLoginEnabled: false });
 
         await expect(callback()).resolves.toEqual({
           ok: false,
@@ -1683,6 +1852,22 @@ describe('AuthService', () => {
         ok: false,
         redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.NOT_CONFIGURED}`,
       });
+    });
+
+    it('refuses to start Google for an invite while the platform has Google switched off', async () => {
+      authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+        email: 'sam.rivera@thecoffeehouse.com',
+        tenantId: 'tenant-1',
+      });
+      platformSettingsDbService.get.mockResolvedValue({ googleLoginEnabled: false });
+
+      const redirect = await target.buildMemberInviteGoogleRedirect('raw-token-1');
+
+      expect(redirect).toEqual({
+        ok: false,
+        redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.NOT_CONFIGURED}`,
+      });
+      expect(oauthStateService.mint).not.toHaveBeenCalled();
     });
 
     it('mints state carrying the INVITE intent and the invite token', async () => {

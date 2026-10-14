@@ -14,6 +14,10 @@ export const messagesDe: MessageCatalog = {
     RESEND_OTP_ACK: 'Falls für dieses Konto eine Bestätigung aussteht, wurde ein Code gesendet.',
     EMAIL_VERIFIED: 'E-Mail-Adresse bestätigt.',
     EMAIL_ALREADY_REGISTERED: 'Für diese E-Mail-Adresse existiert bereits ein Konto.',
+    SSO_SIGNUP_DISABLED:
+      'Die Registrierung mit diesem Anbieter ist auf dieser Plattform deaktiviert. Verwenden Sie eine andere Anmeldemethode.',
+    PASSWORD_SIGNUP_DISABLED:
+      'Die Registrierung mit E-Mail und Passwort ist auf dieser Plattform deaktiviert. Verwenden Sie eine andere Anmeldemethode.',
     INVALID_OR_EXPIRED_OTP: 'Ungültiger oder abgelaufener Bestätigungscode.',
     TOO_MANY_OTP_ATTEMPTS:
       'Zu viele Bestätigungsversuche. Fordern Sie einen neuen Code an und versuchen Sie es in Kürze erneut.',
@@ -70,6 +74,32 @@ export const messagesDe: MessageCatalog = {
     NOT_FOUND: 'Benachrichtigung nicht gefunden.',
     MARKED_READ: 'Benachrichtigung als gelesen markiert',
     MARKED_ALL_READ: 'Alle Benachrichtigungen als gelesen markiert',
+    FEED: {
+      REVIEW_ESCALATED_TITLE: 'Bewertung eskaliert',
+      REVIEW_ESCALATED_DESCRIPTION: (rating: number): string =>
+        `Eine ${rating}-Sterne-Bewertung braucht Ihre Aufmerksamkeit, bevor jemand antwortet.`,
+      REVIEW_ESCALATED_SUMMARY_TITLE: (count: number): string =>
+        `${count} weitere ${count === 1 ? 'Bewertung' : 'Bewertungen'} eskaliert`,
+      REVIEW_ESCALATED_SUMMARY_DESCRIPTION:
+        'Öffnen Sie die Bewertungswarteschlange, um alle eskalierten Bewertungen zu sehen.',
+      REPLY_NEEDS_APPROVAL_TITLE: 'Antwort zur Freigabe bereit',
+      REPLY_NEEDS_APPROVAL_DESCRIPTION: (rating: number): string =>
+        `Eine vorbereitete Antwort auf eine ${rating}-Sterne-Bewertung wartet auf Ihre Freigabe.`,
+      REPLY_NEEDS_APPROVAL_SUMMARY_TITLE: (count: number): string =>
+        `${count} weitere ${count === 1 ? 'Antwort wartet' : 'Antworten warten'} auf Freigabe`,
+      REPLY_NEEDS_APPROVAL_SUMMARY_DESCRIPTION:
+        'Öffnen Sie die Bewertungswarteschlange, um sie freizugeben.',
+      REPLY_APPROVED_TITLE: 'Antwort freigegeben',
+      REPLY_APPROVED_DESCRIPTION: (rating: number): string =>
+        `Die Antwort auf eine ${rating}-Sterne-Bewertung wurde freigegeben und wird veröffentlicht.`,
+      REPLY_APPROVED_SUMMARY_TITLE: (count: number): string =>
+        `${count} weitere ${count === 1 ? 'Antwort' : 'Antworten'} freigegeben`,
+      REPLY_APPROVED_SUMMARY_DESCRIPTION:
+        'Öffnen Sie die Bewertungswarteschlange, um zu sehen, was veröffentlicht wurde.',
+      CONNECTION_ISSUE_TITLE: 'Google-Verbindung erfordert Aufmerksamkeit',
+      CONNECTION_ISSUE_DESCRIPTION:
+        'Verbinden Sie Ihr Google-Unternehmensprofil erneut, damit neue Bewertungen weiter synchronisiert und Antworten veröffentlicht werden können.',
+    },
   },
   CONNECTIONS: {
     CONNECTION_NOT_FOUND:
@@ -242,6 +272,8 @@ export const messagesDe: MessageCatalog = {
       'Diese Einladung wurde bereits angenommen oder ist nicht mehr ausstehend.',
     MEMBER_INVITES_DISABLED:
       'Das Einladen von Teammitgliedern ist für diese Plattform deaktiviert.',
+    NOTIFICATION_SETTINGS_DISABLED:
+      'Benachrichtigungseinstellungen sind auf dieser Plattform nicht verfügbar.',
     MEMBER_REMOVAL_REQUESTED: (days: number): string =>
       `Entfernung angefordert. Dieses Mitglied verliert sofort den Zugriff, und seine Daten werden in ${days} ${days === 1 ? 'Tag' : 'Tagen'} endgültig gelöscht, sofern Sie nicht vorher abbrechen.`,
     MEMBER_REMOVAL_CANCELLED: 'Entfernung abgebrochen — dieses Mitglied behält seinen Zugriff.',
@@ -282,13 +314,23 @@ export const messagesDe: MessageCatalog = {
       'Diese E-Mail-Adresse ist bereits ein Plattform-Administrator oder hat eine ausstehende Einladung.',
     PLATFORM_SETTINGS_UPDATED: 'Plattformeinstellungen aktualisiert.',
     PLATFORM_SETTINGS_NO_METHOD_ENABLED:
-      'Mindestens eine Anmeldemethode (SSO, E-Mail/Passwort oder Google) muss aktiviert bleiben.',
+      'Mindestens eine Anmeldemethode (Microsoft, E-Mail/Passwort oder Google) muss aktiviert bleiben.',
+    NOTIFICATION_CHANNELS_NOT_IMPLEMENTED:
+      'E-Mail- und Teams-Benachrichtigungen sind noch nicht umgesetzt, daher können die Benachrichtigungseinstellungen nicht aktiviert werden.',
     CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN: (count: number): string => {
       if (count === 1) {
         return 'Google ist die einzige Anmeldemöglichkeit für einen Ihrer Plattform-Administratoren. Ein Deaktivieren würde ihn aussperren. Deaktivieren Sie zuerst dieses Administratorkonto, falls dies beabsichtigt ist.';
       }
       return `Google ist die einzige Anmeldemöglichkeit für ${count} Ihrer Plattform-Administratoren. Ein Deaktivieren würde sie aussperren. Deaktivieren Sie zuerst diese Administratorkonten, falls dies beabsichtigt ist.`;
     },
+    CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS: (provider: string, count: number): string => {
+      if (count === 1) {
+        return `${provider} ist die einzige Anmeldemöglichkeit für einen Benutzer. Wird es deaktiviert, ist er ausgesperrt, bis es wieder aktiviert wird. Bestätigen Sie, um es trotzdem zu deaktivieren.`;
+      }
+      return `${provider} ist die einzige Anmeldemöglichkeit für ${count} Benutzer. Wird es deaktiviert, sind sie ausgesperrt, bis es wieder aktiviert wird. Bestätigen Sie, um es trotzdem zu deaktivieren.`;
+    },
+    PLATFORM_SETTINGS_NO_USABLE_METHOD:
+      'Mindestens eine aktivierte Anmeldemethode muss auf diesem Server auch eingerichtet sein (Microsoft und Google benötigen konfigurierte Zugangsdaten).',
     ADMIN_NOT_FOUND: 'Plattform-Administrator nicht gefunden.',
     CANNOT_DISABLE_SELF: 'Sie können Ihr eigenes Administratorkonto nicht deaktivieren.',
     CANNOT_DISABLE_LAST_ADMIN: 'Mindestens ein Plattform-Administrator muss aktiv bleiben.',

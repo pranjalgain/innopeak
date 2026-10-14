@@ -53,7 +53,7 @@ export class IdTokenVerifier {
   private lastRefetchAt = 0;
   /** One request at a time: concurrent callbacks that all find the cache stale share it. */
   private loading: Promise<void> | null = null;
-  private missedKids = new Map<string, number>();
+  private readonly missedKids = new Map<string, number>();
 
   constructor(
     private readonly jwksUri: string,

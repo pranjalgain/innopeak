@@ -38,10 +38,10 @@ describe("OnboardingSignupView", () => {
     window.sessionStorage.clear();
     // SSO-only, the platform's shipped default (see the platform_settings migration).
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: true,
+      microsoftLoginEnabled: true,
       passwordLoginEnabled: false,
-      socialLoginEnabled: false,
-      inviteMembersEnabled: false,
+      googleLoginEnabled: false,
+      inviteMembersEnabled: false, notificationSettingsEnabled: false,
     });
   });
 

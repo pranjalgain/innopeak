@@ -54,7 +54,9 @@ import {
   NewPasswordSameAsCurrentException,
   NoPasswordSetException,
   PasswordAlreadySetException,
+  PasswordSignupDisabledException,
   SsoPendingSignupExpiredException,
+  SsoSignupDisabledException,
   TenantSuspendedException,
 } from '../exceptions/auth.exceptions';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
@@ -83,6 +85,17 @@ import { hashToken } from '../utils/token.utils';
  */
 function providerErrorFailure(error: string): SsoAuthFailure {
   return error === 'access_denied' ? SsoAuthFailure.ACCESS_DENIED : SsoAuthFailure.PROVIDER_ERROR;
+}
+
+/**
+ * Intents a tenant starts from the sign-in, sign-up or invite screens, which the platform's Google switch governs. The admin intents are
+ * deliberately not here: an admin who accepted their invite through Google has no password, so that button must always work for them
+ * (`AdminSettingsService` refuses to switch Google off for the same reason).
+ */
+function isTenantGoogleIntent(intent: OAuthIntent): boolean {
+  return (
+    intent === OAuthIntent.LOGIN || intent === OAuthIntent.SIGNUP || intent === OAuthIntent.INVITE
+  );
 }
 
 @Injectable()
@@ -124,6 +137,12 @@ export class AuthService {
    * `AdminSettingsService.sendInvite` has no mirror guard either.
    */
   async signup(dto: SignupDto): Promise<SignupResponseDto> {
+    // The platform's password switch, enforced here and not only by hiding the form. It covers new sign-ups only: someone who already
+    // has a password still signs in, changes it and accepts invites, so switching it off never locks anyone out.
+    if (!(await this.isPasswordSignupEnabled())) {
+      throw new PasswordSignupDisabledException();
+    }
+
     const email = normalizeEmail(dto.email);
 
     const passwordHash = await this.hashingService.hash(dto.password);
@@ -520,7 +539,7 @@ export class AuthService {
       };
     }
 
-    if (!this.googleIdentityProvider.isConfigured()) {
+    if (!this.googleIdentityProvider.isConfigured() || !(await this.isGoogleSignInEnabled())) {
       return {
         ok: false,
         redirectUrl: this.memberInviteFailureUrl(inviteToken, SsoAuthFailure.NOT_CONFIGURED),
@@ -666,7 +685,7 @@ export class AuthService {
    * here directly, so the controller must redirect either way.
    */
   async buildGoogleAuthorizeRedirect(input: SsoAuthorizeInput): Promise<SsoAuthorizeRedirect> {
-    if (!this.googleIdentityProvider.isConfigured()) {
+    if (!this.googleIdentityProvider.isConfigured() || !(await this.isGoogleSignInEnabled())) {
       const base = input.intent === OAuthIntent.SIGNUP ? SSO_REDIRECT.SIGNUP : SSO_REDIRECT.LOGIN;
       return {
         ok: false,
@@ -715,6 +734,16 @@ export class AuthService {
 
     if (!consumed.ok) {
       return this.ssoFailureRedirect(SsoAuthFailure.INVALID_STATE);
+    }
+
+    // Re-checked here: the switch may have been turned off while this person was at Google. Only the tenant-facing intents are
+    // gated: a platform admin who joined through Google has no other way in, so `ADMIN_LOGIN` and `ADMIN_INVITE` always proceed.
+    if (isTenantGoogleIntent(consumed.record.intent) && !(await this.isGoogleSignInEnabled())) {
+      return this.ssoFailureRedirect(
+        SsoAuthFailure.NOT_CONFIGURED,
+        consumed.record.intent,
+        inviteToken
+      );
     }
 
     if (input.code === undefined || input.code === '') {
@@ -919,13 +948,29 @@ export class AuthService {
   }
 
   /**
-   * `platform_settings.sso_login_enabled` is the platform's Microsoft switch; enforced here, not only by hiding the button, so
+   * `platform_settings.google_login_enabled` is the platform's Google switch for tenant sign-in, sign-up and invites; enforced here, not
+   * only by hiding the button. The admin intents never consult it (see `isTenantGoogleIntent`). A missing row reads as on (the column
+   * default).
+   */
+  private async isGoogleSignInEnabled(): Promise<boolean> {
+    const settings = await this.platformSettingsDbService.get();
+    return settings?.googleLoginEnabled !== false;
+  }
+
+  /** The same rule for new email/password sign-ups; a missing row reads as on. */
+  private async isPasswordSignupEnabled(): Promise<boolean> {
+    const settings = await this.platformSettingsDbService.get();
+    return settings?.passwordLoginEnabled !== false;
+  }
+
+  /**
+   * `platform_settings.microsoft_login_enabled` is the platform's Microsoft switch; enforced here, not only by hiding the button, so
    * a bookmarked or crafted URL can't sign anyone in or create a tenant once it is off. A missing row reads as on (the column
    * default).
    */
   private async isMicrosoftSignInEnabled(): Promise<boolean> {
     const settings = await this.platformSettingsDbService.get();
-    return settings?.ssoLoginEnabled !== false;
+    return settings?.microsoftLoginEnabled !== false;
   }
 
   /**
@@ -1068,6 +1113,16 @@ export class AuthService {
     const pending = await this.pendingSsoSignupService.consume(pendingSignupCookie);
     if (!pending.ok) {
       throw new SsoPendingSignupExpiredException();
+    }
+
+    // The callback that minted this pending sign-up checked the switch, but it can be turned off during the (up to 15 minute) business
+    // name step, and this is the step that actually creates the tenant.
+    const providerEnabled =
+      pending.identity.provider === SsoProvider.GOOGLE
+        ? await this.isGoogleSignInEnabled()
+        : await this.isMicrosoftSignInEnabled();
+    if (!providerEnabled) {
+      throw new SsoSignupDisabledException();
     }
 
     const user = await this.authDbService.completeSsoSignup({

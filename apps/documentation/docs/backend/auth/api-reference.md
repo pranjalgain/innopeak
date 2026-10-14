@@ -256,7 +256,7 @@ stated as a hard requirement here and not a style preference.
 >   check yet.
 > - Config: `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_CALLBACK_URL`, optional
 >   `MICROSOFT_AUTHORITY`.
-> - Both routes honour `platform_settings.sso_login_enabled`: while it is off they answer
+> - Both routes honour `platform_settings.microsoft_login_enabled`: while it is off they answer
 >   `?error=NOT_CONFIGURED&provider=microsoft` instead of signing anyone in. The Azure app needs the `email` and `xms_edov` optional ID-token claims.
 
 Every OAuth entry route below — signup, login, and (further down)
@@ -268,6 +268,23 @@ that route's own section below. An earlier draft of this document gave signup an
 callback URLs; that fell apart the moment invite-acceptance needed OAuth too, since it's neither
 signup nor a plain login. One callback, dispatching on signed `state`, is the pattern every entry
 point uses consistently instead.
+
+#### Platform switches
+
+The platform admin's sign-in switches are enforced here, not only by hiding buttons:
+
+| Switch | What the server refuses while it is off | What it never touches |
+|---|---|---|
+| `microsoftLoginEnabled` | Microsoft authorize and callback (`NOT_CONFIGURED`) | Anything else |
+| `googleLoginEnabled` | Tenant Google authorize and callback for login, sign-up and invites (`NOT_CONFIGURED`), including a callback already in flight | Platform-admin Google sign-in and admin invites |
+| `passwordLoginEnabled` | New email/password sign-ups: `POST /v1/auth/signup` answers 403 `PASSWORD_SIGNUP_DISABLED` | Existing password sign-in, password changes and invite acceptance, so switching it off never locks anyone out |
+
+A missing settings row reads as on, like the column default. Beyond refusing the routes, these rules keep the switches from stranding anyone:
+
+- A pending single-sign-on sign-up (the business-name step, up to 15 minutes after the callback) is re-checked against its provider's switch when it completes, since that step is what creates the tenant (`POST /v1/auth/sso/complete-signup` answers 403 `SSO_SIGNUP_DISABLED`).
+- `PATCH /v1/admin/settings/platform-config` refuses with 400 `SSO_LOGIN_DISALLOWED_SSO_ONLY_USERS` to turn Microsoft or Google off while active tenant users could then only sign in with it (no password, no other provider), because there is no way to give such a user a password. Unlike the platform-admin guard it can be overridden: repeating the request with `confirmLockout: true` (the admin console asks for confirmation first) switches the provider off and locks those users out until it is switched back on. The override exists because switching a provider off is also the emergency lever when it is compromised or down, and that must work however many people use it. The flag is never stored, and the override is logged as a warning with the number of users affected.
+- It also refuses, with 400 `PLATFORM_SETTINGS_NO_USABLE_METHOD`, a change that would leave no sign-up method both enabled and set up on the server (Microsoft and Google also need credentials; password counts as always set up). An unrelated change on a platform already in that state is not refused.
+- The web Settings screen keeps the Profile tab (password change or set) whatever the password switch says, since the server leaves that unaffected.
 
 #### `POST /v1/auth/signup`
 

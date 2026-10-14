@@ -75,9 +75,9 @@ export function OnboardingSignupView() {
   }, []);
 
   const authMethods = {
-    sso: platformSettings?.ssoLoginEnabled ?? false,
+    sso: platformSettings?.microsoftLoginEnabled ?? false,
     password: platformSettings?.passwordLoginEnabled ?? false,
-    social: platformSettings?.socialLoginEnabled ?? false,
+    social: platformSettings?.googleLoginEnabled ?? false,
   };
   const bothSsoLike = authMethods.sso && authMethods.social;
   const stepperSteps = viaPassword ? PASSWORD_STEPS : SSO_LIKE_STEPS;

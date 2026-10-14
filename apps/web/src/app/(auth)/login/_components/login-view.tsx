@@ -31,7 +31,7 @@ type LoginStep = "credentials" | "otp" | "restore";
  * below the sign-up prompt, since otherwise an admin on the wrong form just sees "Invalid email or
  * password" with no path off that dead end.
  *
- * The password form is always available regardless of the ssoLoginEnabled/socialLoginEnabled
+ * The password form is always available regardless of the microsoftLoginEnabled/googleLoginEnabled
  * settings, which gate only the buttons below it. A `pending_verification` account gets a fresh OTP
  * from the backend instead of an error, so this screen swaps to `OtpVerificationStage`; verifying
  * there issues tokens directly (the password was already proven).
@@ -78,8 +78,8 @@ export function LoginView() {
   // form is fine. A failed fetch (retry: false) defaults the same way, which is worth a visible
   // retry (see `platformSettingsError` below) because an SSO-only tenant has no password and would
   // otherwise lose their only way in silently.
-  const ssoEnabled = platformSettings?.ssoLoginEnabled ?? false;
-  const socialEnabled = platformSettings?.socialLoginEnabled ?? false;
+  const ssoEnabled = platformSettings?.microsoftLoginEnabled ?? false;
+  const socialEnabled = platformSettings?.googleLoginEnabled ?? false;
   const bothSsoLike = ssoEnabled && socialEnabled;
   const anySsoLike = ssoEnabled || socialEnabled;
 

@@ -37,6 +37,7 @@ import { BillingModule } from './api/billing/billing.module';
 import { FreePlanCapModule } from './api/billing/free-plan-cap.module';
 import { ConnectionsModule } from './api/connections/connections.module';
 import { DashboardModule } from './api/dashboard/dashboard.module';
+import { InAppNotificationsModule } from './api/notifications/in-app-notifications.module';
 import { NotificationsModule } from './api/notifications/notifications.module';
 import { ReviewsModule } from './api/reviews/reviews.module';
 import { SettingsModule } from './api/settings/settings.module';
@@ -103,6 +104,7 @@ const rateLimit = ThrottlerModule.forRootAsync({
     AiModule,
     SettingsModule,
     NotificationsModule,
+    InAppNotificationsModule,
     AdminModule,
     BillingModule,
     FreePlanCapModule,

@@ -994,10 +994,11 @@ Public (`@Public()`): the sign-in and sign-up screens read it before a session e
 
 | Field | Type | Source |
 |---|---|---|
-| `ssoLoginEnabled` | boolean | `platform_settings.sso_login_enabled` — whether the Microsoft SSO button is offered |
-| `passwordLoginEnabled` | boolean | `platform_settings.password_login_enabled` |
-| `socialLoginEnabled` | boolean | `platform_settings.social_login_enabled` — Google social sign-in |
+| `microsoftLoginEnabled` | boolean | `platform_settings.microsoft_login_enabled` — whether the Microsoft sign-in button is offered (formerly `ssoLoginEnabled` / `sso_login_enabled`) |
+| `passwordLoginEnabled` | boolean | `platform_settings.password_login_enabled` — whether new email/password sign-ups are offered. While it is off `POST /v1/auth/signup` answers 403 `PASSWORD_SIGNUP_DISABLED`. It does not affect existing password sign-in, password changes or invites |
+| `googleLoginEnabled` | boolean | `platform_settings.google_login_enabled` — whether Google sign-in is offered to tenants (formerly `socialLoginEnabled` / `social_login_enabled`). While it is off the tenant Google routes (login, sign-up and invite authorize and callback) answer `NOT_CONFIGURED`; platform-admin Google sign-in and admin invites are never affected |
 | `inviteMembersEnabled` | boolean | `platform_settings.invite_members_enabled` — whether Settings → Members can send invites |
+| `notificationSettingsEnabled` | boolean | `platform_settings.notification_settings_enabled` — whether Settings shows the Notifications tab and the notification-recipients routes answer. Defaults to `false`. Writing `true` is refused with 422 `NOTIFICATION_CHANNELS_NOT_IMPLEMENTED` until email/Teams delivery exists; while it is off the recipients routes answer 403 `NOTIFICATION_SETTINGS_DISABLED` |
 | `paymentFeatureEnabled` | boolean | The deploy's `PAYMENT_FEATURE_ENABLED` env var, not a column |
 | `erasureGracePeriodDays` | number | The deploy's `ERASURE_GRACE_PERIOD_DAYS` env var (default 21), not a column. Days between a business or member being scheduled for erasure and the nightly purge anonymising it; the web app counts its "takes effect on" dates from it |
 

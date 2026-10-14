@@ -8,6 +8,7 @@ import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import type { AcquireErasureLock } from '@db/repositories/auth/types/auth.type';
 import { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
+import { NotificationsDbService } from '@db/repositories/notifications/notifications.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -25,6 +26,7 @@ describe('CronService', () => {
   let reviewSyncQueue: jest.Mocked<ReviewSyncQueue>;
   let reviewSyncDbService: jest.Mocked<ReviewSyncDbService>;
   let accountAnonymizationService: jest.Mocked<AccountAnonymizationService>;
+  let notificationsDbService: { purgeOld: jest.Mock };
   let adminOverviewDbService: jest.Mocked<AdminOverviewDbService>;
   let billingReconciliationService: jest.Mocked<
     Pick<BillingReconciliationService, 'reconcileTenantSubscription'>
@@ -73,6 +75,8 @@ describe('CronService', () => {
       purgeExpiredReviewerPii: jest.fn(),
     } as unknown as jest.Mocked<ReviewSyncDbService>;
 
+    notificationsDbService = { purgeOld: jest.fn().mockResolvedValue(0) };
+
     accountAnonymizationService = {
       anonymizeUser: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<AccountAnonymizationService>;
@@ -115,6 +119,7 @@ describe('CronService', () => {
         { provide: TenantSubscriptionsDbService, useValue: tenantSubscriptionsDbService },
         { provide: TenantErasureCleanupService, useValue: tenantErasureCleanupService },
         { provide: ErasureNoticeService, useValue: erasureNoticeService },
+        { provide: NotificationsDbService, useValue: notificationsDbService },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -169,6 +174,27 @@ describe('CronService', () => {
       authDbService.purgeStaleTokens.mockRejectedValue(new Error('db down'));
 
       await expect(target.purgeStaleAuthTokens()).rejects.toThrow('db down');
+    });
+  });
+
+  describe('purgeOldNotifications', () => {
+    it('purges with the configured retention and logs the count', async () => {
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+      notificationsDbService.purgeOld.mockResolvedValue(42);
+
+      await target.purgeOldNotifications();
+
+      expect(notificationsDbService.purgeOld).toHaveBeenCalledWith({
+        readRetentionDays: 90,
+        unreadRetentionDays: 180,
+      });
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('42 old in-app'));
+    });
+
+    it('propagates a DB failure so the job is retried / lands in the DLQ', async () => {
+      notificationsDbService.purgeOld.mockRejectedValue(new Error('db down'));
+
+      await expect(target.purgeOldNotifications()).rejects.toThrow('db down');
     });
   });
 

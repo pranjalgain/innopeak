@@ -25,6 +25,13 @@ export class CronScheduler implements OnModuleInit {
     await this.cronQueue.addAuthTokenCleanupJob();
   }
 
+  /** Half past 3: after the auth-token cleanup, so the two housekeeping jobs never start on the same tick. */
+  @Cron('0 30 3 * * *')
+  async scheduleNotificationRetentionPurge(): Promise<void> {
+    this.logger.debug('Scheduling notification retention purge job');
+    await this.cronQueue.addNotificationRetentionPurgeJob();
+  }
+
   /** `CronExpression` has no 15-minute member. Six fields, seconds first: a five-field expression would be misread. */
   @Cron('0 */15 * * * *')
   async scheduleReviewSyncPoll(): Promise<void> {

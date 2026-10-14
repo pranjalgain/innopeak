@@ -1,11 +1,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 
 import { ConnectionService } from "@/app/_libs/services/connection.service";
 import { SettingsApiError, SettingsService } from "@/app/_libs/services/settings.service";
+import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 import { connectionLocationsQueryKey } from "@/hooks/connections/use-business-switcher";
 import { connectionQueryKey, useConnection } from "@/hooks/connections/use-connection";
 import type {
@@ -40,17 +41,26 @@ export function useSettings(enabled = true): UseSettingsResult {
   const queryClient = useQueryClient();
   const { refresh: refreshConnection } = useConnection();
 
+  // The platform's notification switch decides whether recipients are part of the data, so it is part of the query's identity: a change
+  // in the flag is a different query, never a stale cached list read as "no recipients". The query waits for the (public, cached)
+  // platform settings to resolve first; if they cannot be read the preferences are off, which is also the platform default.
+  const { data: platformSettings, isLoading: platformSettingsLoading } = usePlatformSettings();
+  const includeRecipients = platformSettings?.notificationSettingsEnabled === true;
+  const queryKey = useMemo(() => [...settingsQueryKey, includeRecipients] as const, [includeRecipients]);
+
   const settingsQuery = useQuery({
-    queryKey: settingsQueryKey,
+    queryKey,
     // The connection tile reads the app-wide connection cache rather than fetching `/v1/connections` a second time.
     queryFn: () =>
-      SettingsService.getSettings(() =>
-        queryClient.fetchQuery({
-          queryKey: connectionQueryKey,
-          queryFn: ({ signal }) => ConnectionService.getState(signal),
-        }),
+      SettingsService.getSettings(
+        () =>
+          queryClient.fetchQuery({
+            queryKey: connectionQueryKey,
+            queryFn: ({ signal }) => ConnectionService.getState(signal),
+          }),
+        includeRecipients,
       ),
-    enabled,
+    enabled: enabled && !platformSettingsLoading,
   });
 
   useEffect(() => {
@@ -61,8 +71,8 @@ export function useSettings(enabled = true): UseSettingsResult {
   const settings = settingsQuery.data ?? null;
 
   const setSettings = useCallback(
-    (next: SettingsData) => queryClient.setQueryData(settingsQueryKey, next),
-    [queryClient],
+    (next: SettingsData) => queryClient.setQueryData(queryKey, next),
+    [queryClient, queryKey],
   );
 
   /**
@@ -71,7 +81,7 @@ export function useSettings(enabled = true): UseSettingsResult {
    */
   const replaceRecipient = useCallback(
     (recipient: NotificationRecipient) => {
-      queryClient.setQueryData<SettingsData>(settingsQueryKey, (current) =>
+      queryClient.setQueryData<SettingsData>(queryKey, (current) =>
         current
           ? {
               ...current,
@@ -82,7 +92,7 @@ export function useSettings(enabled = true): UseSettingsResult {
           : current,
       );
     },
-    [queryClient],
+    [queryClient, queryKey],
   );
 
   // Optimistic-local + fire-and-forget persist; a failed write rolls the edit back. Callbacks live
@@ -99,7 +109,7 @@ export function useSettings(enabled = true): UseSettingsResult {
       successMessage: string;
     }) => SettingsService.updateNotificationRecipient(id, patch),
     onMutate: ({ id, patch }) => {
-      const previous = queryClient.getQueryData<SettingsData>(settingsQueryKey);
+      const previous = queryClient.getQueryData<SettingsData>(queryKey);
       const restore = previous?.notificationRecipients.find((recipient) => recipient.id === id);
       if (previous) {
         setSettings({
@@ -263,7 +273,8 @@ export function useSettings(enabled = true): UseSettingsResult {
 
   return {
     settings,
-    isLoading: settingsQuery.isLoading,
+    // Includes the wait for the platform settings, which the query depends on: a disabled query is otherwise reported as not loading.
+    isLoading: settingsQuery.isLoading || (enabled && platformSettingsLoading),
     saveGeneral,
     addBlocklistTerm,
     removeBlocklistTerm,

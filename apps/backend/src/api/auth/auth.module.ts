@@ -105,6 +105,8 @@ const microsoftIdentityProvider = {
     VerifyEmailTokenProvider,
     AccountAnonymizationService,
     ErasureNoticeService,
+    GoogleIdentityProvider, // AdminSettingsService.updatePlatformSettings asks which sign-in methods are actually set up
+    MicrosoftIdentityProvider,
   ],
 })
 export class AuthModule {}

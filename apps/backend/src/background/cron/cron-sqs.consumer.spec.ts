@@ -15,6 +15,7 @@ describe('CronSqsConsumer', () => {
     cronService = {
       sendDailyMail: jest.fn(),
       purgeStaleAuthTokens: jest.fn().mockResolvedValue(undefined),
+      purgeOldNotifications: jest.fn().mockResolvedValue(undefined),
       pollDueLocations: jest.fn().mockResolvedValue(undefined),
       purgeExpiredReviewerPii: jest.fn().mockResolvedValue(undefined),
       purgeErasureRequests: jest.fn().mockResolvedValue(undefined),
@@ -41,6 +42,12 @@ describe('CronSqsConsumer', () => {
       await consumer.process(CronJobName.AUTH_TOKEN_CLEANUP, undefined);
 
       expect(cronService.purgeStaleAuthTokens).toHaveBeenCalledTimes(1);
+    });
+
+    it('dispatches NOTIFICATION_RETENTION_PURGE jobs to CronService.purgeOldNotifications and awaits it', async () => {
+      await consumer.process(CronJobName.NOTIFICATION_RETENTION_PURGE, undefined);
+
+      expect(cronService.purgeOldNotifications).toHaveBeenCalledTimes(1);
     });
 
     it('dispatches REVIEW_SYNC_POLL jobs to CronService.pollDueLocations and awaits it', async () => {

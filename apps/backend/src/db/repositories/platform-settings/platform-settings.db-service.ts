@@ -1,3 +1,4 @@
+import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import { Injectable } from '@nestjs/common';
 
 import { PlatformSettingsRepository } from './platform-settings.repository';
@@ -16,5 +17,9 @@ export class PlatformSettingsDbService {
     actorPlatformAdminId: string
   ): Promise<PlatformSettingsRow | null> {
     return this.platformSettingsRepository.update(patch, actorPlatformAdminId);
+  }
+
+  countActiveSsoOnlyTenantUsers(provider: UserIdentityProvider): Promise<number> {
+    return this.platformSettingsRepository.countActiveSsoOnlyTenantUsers(provider);
   }
 }

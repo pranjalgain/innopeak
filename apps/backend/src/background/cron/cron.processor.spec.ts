@@ -30,6 +30,7 @@ describe('CronProcessor', () => {
     cronService = {
       sendDailyMail: jest.fn(),
       purgeStaleAuthTokens: jest.fn().mockResolvedValue(undefined),
+      purgeOldNotifications: jest.fn().mockResolvedValue(undefined),
       pollDueLocations: jest.fn().mockResolvedValue(undefined),
       purgeExpiredReviewerPii: jest.fn().mockResolvedValue(undefined),
       purgeErasureRequests: jest.fn().mockResolvedValue(undefined),
@@ -66,6 +67,17 @@ describe('CronProcessor', () => {
       expect(cronService.purgeStaleAuthTokens).toHaveBeenCalledTimes(1);
       expect(cronService.sendDailyMail).not.toHaveBeenCalled();
       expect(job.log).toHaveBeenCalledWith(expect.stringContaining('Completed job'));
+    });
+
+    it('dispatches NOTIFICATION_RETENTION_PURGE jobs to CronService.purgeOldNotifications and awaits it', async () => {
+      const job = buildJob({
+        name: CronJobName.NOTIFICATION_RETENTION_PURGE,
+        data: { jobType: CronJobName.NOTIFICATION_RETENTION_PURGE },
+      });
+
+      await processor.process(job);
+
+      expect(cronService.purgeOldNotifications).toHaveBeenCalledTimes(1);
     });
 
     it('dispatches REVIEW_SYNC_POLL jobs to CronService.pollDueLocations and awaits it', async () => {

@@ -64,6 +64,8 @@ export enum CronJobName {
   AUTH_TOKEN_CLEANUP = 'auth-token-cleanup',
   /** Enqueues a JobName.REVIEW_POLL job per eligible location. */
   REVIEW_SYNC_POLL = 'review-sync-poll',
+  /** Daily purge of old bell-feed entries (read after 90 days, unread after 180). */
+  NOTIFICATION_RETENTION_PURGE = 'notification-retention-purge',
   /** Nightly reviewer-PII retention purge. */
   REVIEWER_RETENTION_PURGE = 'reviewer-retention-purge',
   /** GDPR grace-period sweep (team-member removal + tenant erasure). */

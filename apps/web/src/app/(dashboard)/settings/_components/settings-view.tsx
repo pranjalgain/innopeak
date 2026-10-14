@@ -94,19 +94,21 @@ export function SettingsView() {
     platformSettings?.paymentFeatureEnabled === true || subscription?.planCode === "paid";
 
   /** `Tabs` is controlled from `?tab=`, so OAuth redirects land on the right tab and an AppShell breakpoint remount just re-reads the URL without resetting the tab strip's scroll. */
-  /** Falls back to "general" for an unknown tab and for profile/members when unavailable: a value with no `TabsTrigger` leaves Radix with nothing selected (e.g. a stale bookmark). */
+  /** Falls back to "general" for an unknown tab and for members/notifications/billing when unavailable: a value with no `TabsTrigger` leaves Radix with nothing selected (e.g. a stale bookmark). */
   const requestedTab = searchParams.get("tab");
   const activeTab = useMemo(() => {
     if (!TABS.includes(requestedTab as (typeof TABS)[number])) return "general";
-    if (requestedTab === "profile" && !platformSettings?.passwordLoginEnabled) return "general";
     if (requestedTab === "members" && !platformSettings?.inviteMembersEnabled) return "general";
+    if (requestedTab === "notifications" && !platformSettings?.notificationSettingsEnabled) {
+      return "general";
+    }
     if (requestedTab === "billing" && !billingTabAvailable) return "general";
     // `TABS.includes` doesn't narrow `string | null` for TypeScript.
     return requestedTab!;
   }, [
     requestedTab,
-    platformSettings?.passwordLoginEnabled,
     platformSettings?.inviteMembersEnabled,
+    platformSettings?.notificationSettingsEnabled,
     billingTabAvailable,
   ]);
 
@@ -120,15 +122,8 @@ export function SettingsView() {
 
   if (isMember) {
     // Profile is the only tab offered to a member: the settings query is disabled for them, so return before the
-    // `!settings` skeleton gate to avoid a permanent loading state. Still gated on `passwordLoginEnabled`.
-    if (!platformSettings?.passwordLoginEnabled) {
-      return (
-        <div className="p-fluid-page flex flex-col gap-6">
-          <p className="text-muted-foreground text-sm">{t("noSettingsForMember")}</p>
-        </div>
-      );
-    }
-
+    // `!settings` skeleton gate to avoid a permanent loading state. Not gated on the platform's password switch: that switch only
+    // closes new email/password sign-ups, and changing or setting a password stays available to everyone who has an account.
     return (
       <div className="p-fluid-page flex flex-col gap-6">
         <Tabs defaultValue="profile" className="max-w-3xl gap-5">
@@ -158,12 +153,10 @@ export function SettingsView() {
             <LuSettings2 />
             {t("tabs.general")}
           </TabsTrigger>
-          {platformSettings?.passwordLoginEnabled ? (
-            <TabsTrigger value="profile">
-              <LuUser />
-              {t("tabs.profile")}
-            </TabsTrigger>
-          ) : null}
+          <TabsTrigger value="profile">
+            <LuUser />
+            {t("tabs.profile")}
+          </TabsTrigger>
           {platformSettings?.inviteMembersEnabled ? (
             <TabsTrigger value="members">
               <LuUsers />
@@ -174,10 +167,12 @@ export function SettingsView() {
             <LuBan />
             {t("tabs.blocklist")}
           </TabsTrigger>
-          <TabsTrigger value="notifications">
-            <LuBell />
-            {t("tabs.notifications")}
-          </TabsTrigger>
+          {platformSettings?.notificationSettingsEnabled ? (
+            <TabsTrigger value="notifications">
+              <LuBell />
+              {t("tabs.notifications")}
+            </TabsTrigger>
+          ) : null}
           <TabsTrigger value="connection">
             <LuPlug />
             {t("tabs.connection")}
@@ -210,13 +205,15 @@ export function SettingsView() {
           />
         </TabsContent>
 
-        <TabsContent value="notifications">
-          <NotificationsSettingsSection
-            recipients={settings.notificationRecipients}
-            onChannelChange={updateRecipientChannel}
-            onToggleActive={toggleRecipientActive}
-          />
-        </TabsContent>
+        {platformSettings?.notificationSettingsEnabled ? (
+          <TabsContent value="notifications">
+            <NotificationsSettingsSection
+              recipients={settings.notificationRecipients}
+              onChannelChange={updateRecipientChannel}
+              onToggleActive={toggleRecipientActive}
+            />
+          </TabsContent>
+        ) : null}
 
         <TabsContent value="connection">
           <ConnectionSettingsSection connection={settings.connection} onDisconnect={disconnect} />
@@ -229,11 +226,9 @@ export function SettingsView() {
           />
         </TabsContent>
 
-        {platformSettings?.passwordLoginEnabled ? (
-          <TabsContent value="profile">
-            <ProfileSettingsSection />
-          </TabsContent>
-        ) : null}
+        <TabsContent value="profile">
+          <ProfileSettingsSection />
+        </TabsContent>
 
         {platformSettings?.inviteMembersEnabled ? (
           <TabsContent value="members">

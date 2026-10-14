@@ -1,15 +1,19 @@
 import { EscalationReason } from '@common/enums/escalation-reason.enum';
+import { InAppNotificationType } from '@common/enums/in-app-notification-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { ReviewPipelineDbService } from '@db/repositories/review-pipeline/review-pipeline.db-service';
 import { Test } from '@nestjs/testing';
 
 import { ReviewClassificationService } from './review-classification.service';
 
+import { InAppNotificationsService } from '../api/notifications/services/in-app-notifications.service';
+
 describe('ReviewClassificationService.classifyPendingReviews', () => {
   let service: ReviewClassificationService;
   const loadClassificationContext = jest.fn();
   const findPendingReviews = jest.fn();
   const applyClassification = jest.fn();
+  const publish = jest.fn();
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -18,6 +22,7 @@ describe('ReviewClassificationService.classifyPendingReviews', () => {
       escalationRatingThreshold: 3,
     });
     applyClassification.mockResolvedValue(true);
+    publish.mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -26,6 +31,7 @@ describe('ReviewClassificationService.classifyPendingReviews', () => {
           provide: ReviewPipelineDbService,
           useValue: { loadClassificationContext, findPendingReviews, applyClassification },
         },
+        { provide: InAppNotificationsService, useValue: { publish } },
       ],
     }).compile();
 
@@ -133,5 +139,52 @@ describe('ReviewClassificationService.classifyPendingReviews', () => {
     // (MAX_PAGES 20 x GBP_REVIEWS_PAGE_SIZE 50 = 1000), or a maxed-out import truncates.
     const requestedLimit = findPendingReviews.mock.calls[0]?.[2] as number;
     expect(requestedLimit).toBeGreaterThan(20 * 50);
+  });
+  describe('in-app notifications', () => {
+    it('raises one notice per escalated review, in a single call for the run', async () => {
+      findPendingReviews.mockResolvedValue([
+        { id: 'review-1', rating: 5, reviewText: 'Great service.' },
+        { id: 'review-2', rating: 1, reviewText: 'Terrible.' },
+        { id: 'review-3', rating: 2, reviewText: 'Bad.' },
+      ]);
+
+      await service.classifyPendingReviews({ tenantId: 'tenant-1', locationId: 'location-1' });
+
+      expect(publish).toHaveBeenCalledTimes(1);
+      expect(publish).toHaveBeenCalledWith('tenant-1', [
+        { type: InAppNotificationType.REVIEW_ESCALATED, reviewId: 'review-2', rating: 1 },
+        { type: InAppNotificationType.REVIEW_ESCALATED, reviewId: 'review-3', rating: 2 },
+      ]);
+    });
+
+    // Regression: notices were published after the loop, so a failure mid-batch dropped them, and a classified review is never revisited.
+    it('still raises the notices for the reviews classified before a later one fails', async () => {
+      findPendingReviews.mockResolvedValue([
+        { id: 'review-1', rating: 1, reviewText: 'Terrible.' },
+        { id: 'review-2', rating: 1, reviewText: 'Awful.' },
+      ]);
+      applyClassification
+        .mockResolvedValueOnce(true)
+        .mockRejectedValueOnce(new Error('connection terminated'));
+
+      await expect(
+        service.classifyPendingReviews({ tenantId: 'tenant-1', locationId: 'location-1' })
+      ).rejects.toThrow('connection terminated');
+
+      expect(publish).toHaveBeenCalledWith('tenant-1', [
+        { type: InAppNotificationType.REVIEW_ESCALATED, reviewId: 'review-1', rating: 1 },
+      ]);
+    });
+
+    it('does not announce a review whose claim was lost to another worker', async () => {
+      findPendingReviews.mockResolvedValue([
+        { id: 'review-2', rating: 1, reviewText: 'Terrible.' },
+      ]);
+      applyClassification.mockResolvedValue(false);
+
+      await service.classifyPendingReviews({ tenantId: 'tenant-1', locationId: 'location-1' });
+
+      expect(publish).toHaveBeenCalledWith('tenant-1', []);
+    });
   });
 });

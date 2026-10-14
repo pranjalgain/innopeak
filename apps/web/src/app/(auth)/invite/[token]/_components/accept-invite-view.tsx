@@ -50,7 +50,7 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
   // sign-in off they'd be locked out (/login hides the button; no admin set-password flow).
   // Hidden while loading or on failure; the password form is always available.
   const { data: platformSettings } = usePlatformSettings();
-  const socialEnabled = platformSettings?.socialLoginEnabled ?? false;
+  const socialEnabled = platformSettings?.googleLoginEnabled ?? false;
 
   const schema = useMemo(() => acceptInviteSchema(t), [t]);
   const {

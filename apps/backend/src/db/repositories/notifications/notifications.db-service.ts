@@ -2,6 +2,11 @@ import type { InAppNotificationType } from '@common/enums/in-app-notification-ty
 import { Injectable } from '@nestjs/common';
 
 import { NotificationsRepository } from './notifications.repository';
+import type {
+  InsertedNotification,
+  InsertInAppNotificationInput,
+  NotificationRecipientUser,
+} from './types/notifications.type';
 
 import type {
   ListNotificationsInput,
@@ -14,6 +19,19 @@ import type {
 @Injectable()
 export class NotificationsDbService {
   constructor(private readonly notificationsRepository: NotificationsRepository) {}
+
+  listActiveRecipients(tenantId: string): Promise<NotificationRecipientUser[]> {
+    return this.notificationsRepository.listActiveRecipients(tenantId);
+  }
+
+  purgeOld(input: { readRetentionDays: number; unreadRetentionDays: number }): Promise<number> {
+    return this.notificationsRepository.purgeOld(input);
+  }
+
+  /** One transaction, in chunks inside the repository: all or nothing. */
+  insertMany(rows: InsertInAppNotificationInput[]): Promise<InsertedNotification[]> {
+    return this.notificationsRepository.insertMany(rows);
+  }
 
   async listPage(input: ListNotificationsInput): Promise<NotificationsPage> {
     const [rows, unreadTotal] = await Promise.all([

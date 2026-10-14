@@ -3,12 +3,12 @@ import { render, screen } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { SETTINGS_FIXTURE } from "@/test/fixtures/settings";
 import { BillingService } from "@/app/_libs/services/billing.service";
 import { PlatformSettingsService } from "@/app/_libs/services/platform-settings.service";
 import { SettingsService } from "@/app/_libs/services/settings.service";
 import { TenantOwnerProfileService } from "@/app/_libs/services/tenant-owner-profile.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
+import { SETTINGS_FIXTURE } from "@/test/fixtures/settings";
 import type { PlatformSettings, Subscription, TenantOwnerProfile } from "@/types/domain";
 
 import messages from "../../../../../../messages/en.json";
@@ -31,10 +31,10 @@ const OWNER_PROFILE: TenantOwnerProfile = {
 };
 
 const PLATFORM_SETTINGS_BILLING_OFF: PlatformSettings = {
-  ssoLoginEnabled: true,
+  microsoftLoginEnabled: true,
   passwordLoginEnabled: true,
-  socialLoginEnabled: true,
-  inviteMembersEnabled: true,
+  googleLoginEnabled: true,
+  inviteMembersEnabled: true, notificationSettingsEnabled: false,
   paymentFeatureEnabled: false,
 };
 
@@ -113,3 +113,53 @@ describe("SettingsView — Billing tab availability", () => {
     expect(await screen.findByRole("tab", { name: /billing/i })).toBeInTheDocument();
   });
 });
+
+describe("SettingsView — Notifications tab availability", () => {
+  beforeEach(() => {
+    vi.spyOn(TenantOwnerProfileService, "get").mockResolvedValue(OWNER_PROFILE);
+    vi.spyOn(SettingsService, "getSettings").mockResolvedValue(SETTINGS_FIXTURE);
+    vi.spyOn(BillingService, "getSubscription").mockResolvedValue(FREE_SUBSCRIPTION);
+  });
+
+  // Phase one is in-app notifications only, so the preferences tab stays out of the Settings screen by default.
+  test("hides the Notifications tab while the platform's notification settings are off", async () => {
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue(PLATFORM_SETTINGS_BILLING_OFF);
+
+    renderView();
+
+    expect(await screen.findByRole("tab", { name: /general/i })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /notifications/i })).not.toBeInTheDocument();
+  });
+
+  test("shows the Notifications tab once the platform turns the setting on", async () => {
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
+      ...PLATFORM_SETTINGS_BILLING_OFF,
+      notificationSettingsEnabled: true,
+    });
+
+    renderView();
+
+    expect(await screen.findByRole("tab", { name: /notifications/i })).toBeInTheDocument();
+  });
+});
+
+describe("SettingsView — Profile tab and the password switch", () => {
+  beforeEach(() => {
+    vi.spyOn(TenantOwnerProfileService, "get").mockResolvedValue(OWNER_PROFILE);
+    vi.spyOn(SettingsService, "getSettings").mockResolvedValue(SETTINGS_FIXTURE);
+    vi.spyOn(BillingService, "getSubscription").mockResolvedValue(FREE_SUBSCRIPTION);
+  });
+
+  // The switch only closes new email/password sign-ups; managing an existing password must stay available (and the server agrees).
+  test("keeps the Profile tab for an owner while password sign-ups are switched off", async () => {
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
+      ...PLATFORM_SETTINGS_BILLING_OFF,
+      passwordLoginEnabled: false,
+    });
+
+    renderView();
+
+    expect(await screen.findByRole("tab", { name: /profile/i })).toBeInTheDocument();
+  });
+});
+

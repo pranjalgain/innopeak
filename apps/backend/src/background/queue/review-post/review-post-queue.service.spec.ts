@@ -15,6 +15,8 @@ import type { ReviewProvider } from '@review-provider/providers/review-provider.
 import { ReviewPostQueueService } from './review-post-queue.service';
 import type { ReviewPostQueue } from './review-post.queue';
 
+import type { InAppNotificationsService } from '../../../api/notifications/services/in-app-notifications.service';
+
 const job = { tenantId: 'tenant-1', reviewId: 'review-1', responseId: 'response-1' };
 const claimed = { id: 'response-1', content: 'Thanks for visiting!\nSee you soon.' };
 const review = {
@@ -47,6 +49,7 @@ describe('ReviewPostQueueService', () => {
     markReviewRemovedUpstream: jest.Mock;
   };
   let reviewPostQueue: { addPostJob: jest.Mock };
+  let inAppNotificationsService: { notifyConnectionIssue: jest.Mock };
 
   beforeEach(() => {
     provider = {
@@ -69,7 +72,7 @@ describe('ReviewPostQueueService', () => {
       }),
       findLocationForTenant: jest.fn().mockResolvedValue({ externalLocationId: 'locations/1' }),
       updateTokenExpiry: jest.fn().mockResolvedValue(undefined),
-      markNeedsReauth: jest.fn().mockResolvedValue(undefined),
+      markNeedsReauth: jest.fn().mockResolvedValue(true),
     };
     reviewSyncDbService = {
       claimResponseForPosting: jest.fn().mockResolvedValue(claimed),
@@ -84,13 +87,15 @@ describe('ReviewPostQueueService', () => {
       importLiveReply: jest.fn().mockResolvedValue(true),
     };
     reviewPostQueue = { addPostJob: jest.fn().mockResolvedValue(undefined) };
+    inAppNotificationsService = { notifyConnectionIssue: jest.fn().mockResolvedValue(undefined) };
 
     target = new ReviewPostQueueService(
       provider as unknown as ReviewProvider,
       credentialService as unknown as ProviderCredentialService,
       connectionsDbService as unknown as ConnectionsDbService,
       reviewSyncDbService as unknown as ReviewSyncDbService,
-      reviewPostQueue as unknown as ReviewPostQueue
+      reviewPostQueue as unknown as ReviewPostQueue,
+      inAppNotificationsService as unknown as InAppNotificationsService
     );
   });
 
@@ -261,11 +266,22 @@ describe('ReviewPostQueueService', () => {
       await expect(target.postResponse(job)).rejects.toBeInstanceOf(ProviderAuthError);
 
       expect(connectionsDbService.markNeedsReauth).toHaveBeenCalledWith('conn-1');
+      expect(inAppNotificationsService.notifyConnectionIssue).toHaveBeenCalledWith('tenant-1');
       expect(reviewSyncDbService.markResponsePostFailed).toHaveBeenCalledWith({
         responseId: 'response-1',
         errorMessage: MESSAGES.REVIEWS.POST_FAILED_RECONNECT,
       });
       expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
+    });
+
+    // Many failing jobs report the same dead grant; only the one that flips the connection announces it.
+    it('does not announce a connection that was already flagged', async () => {
+      provider.getReviewReply.mockRejectedValue(new ProviderAuthError('revoked'));
+      connectionsDbService.markNeedsReauth.mockResolvedValue(false);
+
+      await expect(target.postResponse(job)).rejects.toBeInstanceOf(ProviderAuthError);
+
+      expect(inAppNotificationsService.notifyConnectionIssue).not.toHaveBeenCalled();
     });
 
     // The credential reference cannot be read by this node: the owner's only fix is to reconnect, but the grant itself

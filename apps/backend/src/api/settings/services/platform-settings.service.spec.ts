@@ -20,10 +20,11 @@ describe('PlatformSettingsService', () => {
   let configService: { get: jest.Mock };
 
   const row = {
-    ssoLoginEnabled: true,
+    microsoftLoginEnabled: true,
     passwordLoginEnabled: false,
-    socialLoginEnabled: false,
+    googleLoginEnabled: false,
     inviteMembersEnabled: false,
+    notificationSettingsEnabled: false,
     updatedByPlatformAdminId: null,
   };
 
@@ -49,7 +50,7 @@ describe('PlatformSettingsService', () => {
 
     const result = await target.get();
 
-    expect(result.ssoLoginEnabled).toBe(true);
+    expect(result.microsoftLoginEnabled).toBe(true);
     expect(result.passwordLoginEnabled).toBe(false);
   });
 
@@ -63,18 +64,19 @@ describe('PlatformSettingsService', () => {
   // The route is `@Public()` and the DTO is shared with the admin-only PATCH, so the DTO is all that
   // keeps `updated_by_platform_admin_id` off an unauthenticated response. Exact key set (not a
   // `not.toHaveProperty`) so any column newly mapped in `from()` fails here.
-  it('exposes only the six public settings — never the internal actor id', async () => {
+  it('exposes only the seven public settings — never the internal actor id', async () => {
     platformSettingsDbService.get.mockResolvedValue(row);
 
     const result = await target.get();
 
     expect(Object.keys(result).sort()).toEqual([
       'erasureGracePeriodDays',
+      'googleLoginEnabled',
       'inviteMembersEnabled',
+      'microsoftLoginEnabled',
+      'notificationSettingsEnabled',
       'passwordLoginEnabled',
       'paymentFeatureEnabled',
-      'socialLoginEnabled',
-      'ssoLoginEnabled',
     ]);
   });
 

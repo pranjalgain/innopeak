@@ -1,5 +1,10 @@
 import { MESSAGES } from '@common/constants/messages.constants';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 
 export class AdminUserNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.ADMIN.USER_NOT_FOUND) {
@@ -65,6 +70,29 @@ export class CannotDisableLastAdminException extends BadRequestException {
 export class PlatformSettingsNoMethodEnabledException extends BadRequestException {
   constructor(message: string = MESSAGES.ADMIN.PLATFORM_SETTINGS_NO_METHOD_ENABLED) {
     super({ message, code: 'PLATFORM_SETTINGS_NO_METHOD_ENABLED' });
+  }
+}
+
+/** Always carries the provider name and how many users would be locked out; the admin can repeat the request with `confirmLockout`. */
+export class SsoLoginDisallowedSsoOnlyUsersException extends BadRequestException {
+  constructor(message: string) {
+    super({ message, code: 'SSO_LOGIN_DISALLOWED_SSO_ONLY_USERS' });
+  }
+}
+
+export class PlatformSettingsNoUsableMethodException extends BadRequestException {
+  constructor(message: string = MESSAGES.ADMIN.PLATFORM_SETTINGS_NO_USABLE_METHOD) {
+    super({ message, code: 'PLATFORM_SETTINGS_NO_USABLE_METHOD' });
+  }
+}
+
+/**
+ * 422, not 501: the API logs 5xx at error level with a stack, and an expected refusal should not read as an incident.
+ * TODO(notifications): remove with the check in `AdminSettingsService.updatePlatformSettings` once email/Teams delivery exists.
+ */
+export class NotificationChannelsNotImplementedException extends UnprocessableEntityException {
+  constructor(message: string = MESSAGES.ADMIN.NOTIFICATION_CHANNELS_NOT_IMPLEMENTED) {
+    super({ message, code: 'NOTIFICATION_CHANNELS_NOT_IMPLEMENTED' });
   }
 }
 

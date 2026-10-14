@@ -43,10 +43,10 @@ describe("AcceptInviteView (tenant member)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: false,
+      microsoftLoginEnabled: false,
       passwordLoginEnabled: true,
-      socialLoginEnabled: true,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
     });
     vi.spyOn(AuthService, "validateMemberInvite").mockResolvedValue({
       email: "sam.rivera@thecoffeehouse.com",
@@ -67,10 +67,10 @@ describe("AcceptInviteView (tenant member)", () => {
 
   test("names only the password option when Google is not offered", async () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: false,
+      microsoftLoginEnabled: false,
       passwordLoginEnabled: true,
-      socialLoginEnabled: false,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: false,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
     });
 
     renderView();
@@ -212,10 +212,10 @@ describe("AcceptInviteView (tenant member)", () => {
 
   test("hides Google when the platform has social sign-in disabled", async () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      ssoLoginEnabled: false,
+      microsoftLoginEnabled: false,
       passwordLoginEnabled: true,
-      socialLoginEnabled: false,
-      inviteMembersEnabled: true,
+      googleLoginEnabled: false,
+      inviteMembersEnabled: true, notificationSettingsEnabled: false,
     });
 
     renderView();

@@ -1,4 +1,5 @@
 import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
+import { InAppNotificationType } from '@common/enums/in-app-notification-type.enum';
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
@@ -45,12 +46,31 @@ import {
   parseMultiSnippetReplies,
 } from './utils/prompt-template.util';
 
+import { InAppNotificationsService } from '../notifications/services/in-app-notifications.service';
+import type { InAppNotificationEvent } from '../notifications/types/in-app-notification-event.type';
+
 /** Same index `ReviewsService.approveReply` guards; a freshly generated response can still lose this race (see `maybeAutoApproveAndPost`). */
 const LIVE_REPLY_INDEX = 'idx_review_responses_review_id_live_reply';
 
 interface BatchSettings {
   aiReplyCount: number;
   autoPostEnabled: boolean;
+}
+
+/** What became of a draft the system tried to auto-approve, which decides whether anyone is told about it. */
+enum AutoApproveOutcome {
+  /** Approved and queued to post: everyone hears it is being posted. */
+  APPROVED = 'approved',
+  /** Not approved because it was already decided, superseded or has a live reply: nothing is pending, so nobody is asked to approve. */
+  ALREADY_HANDLED = 'already_handled',
+  /** The auto-approve step failed and the draft stays pending: a person has to approve it. */
+  STILL_PENDING = 'still_pending',
+}
+
+/** What one review produced: how many drafts were saved (the quota unit) and the notices they warrant. */
+interface GeneratedForCandidate {
+  drafts: number;
+  notices: InAppNotificationEvent[];
 }
 
 /**
@@ -69,7 +89,8 @@ export class AiReplyGenerationService {
     private readonly billingEntitlementsService: BillingEntitlementsService,
     private readonly reviewSyncDbService: ReviewSyncDbService,
     private readonly settingsDbService: SettingsDbService,
-    private readonly reviewPostQueue: ReviewPostQueue
+    private readonly reviewPostQueue: ReviewPostQueue,
+    private readonly inAppNotificationsService: InAppNotificationsService
   ) {}
 
   /** The phone and website the business lists on Google for this location; `null` when there are none to offer. */
@@ -160,76 +181,86 @@ export class AiReplyGenerationService {
     let failed = 0;
     let consecutiveFailures = 0;
     let quotaExhaustedMidBatch = false;
+    // One call per batch, so a burst (a backfill) folds into a few notices and a summary instead of one per review.
+    const notices: InAppNotificationEvent[] = [];
 
-    for (const candidate of candidates) {
-      if (remainingQuota <= 0) {
-        // `batchLimit` only bounds reviews fetched; stopping here leaves the rest at `new` for the next tick.
-        quotaExhaustedMidBatch = true;
-        break;
-      }
+    // In a `finally`: drafts already saved are no longer 'new', so a notice lost to a later failure in this batch (a rejected claim, a
+    // killed worker, a lost lock) would never be raised again. Batches are slow (an AI call per review), so this also means the
+    // notices of the reviews done so far are not held hostage by the rest.
+    try {
+      for (const candidate of candidates) {
+        if (remainingQuota <= 0) {
+          // `batchLimit` only bounds reviews fetched; stopping here leaves the rest at `new` for the next tick.
+          quotaExhaustedMidBatch = true;
+          break;
+        }
 
-      const claimed = await this.reviewSyncDbService.claimForGeneration(candidate.id);
-      if (!claimed) {
-        skipped += 1;
-        reviewsHandled += 1;
-        this.logger.warn(
-          `Review ${candidate.id} stopped being a generation candidate before it could be claimed (already generated for, or no longer 'new'); skipping.`
-        );
-        continue;
-      }
+        const claimed = await this.reviewSyncDbService.claimForGeneration(candidate.id);
+        if (!claimed) {
+          skipped += 1;
+          reviewsHandled += 1;
+          this.logger.warn(
+            `Review ${candidate.id} stopped being a generation candidate before it could be claimed (already generated for, or no longer 'new'); skipping.`
+          );
+          continue;
+        }
 
-      try {
-        const draftsGenerated = await this.generateAndPersistForCandidate(
-          input.tenantId,
-          candidate,
-          business,
-          promptCache,
-          remainingQuota,
-          batchSettings
-        );
-        generated += draftsGenerated;
-        remainingQuota -= draftsGenerated;
-        reviewsHandled += 1;
-        consecutiveFailures = 0;
-      } catch (error) {
-        failed += 1;
-        reviewsHandled += 1;
-        consecutiveFailures += 1;
-        this.logger.error(
-          `Generation failed for review ${candidate.id}: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-
-        // Must not escape: a rejection here (likely when the DB is degraded) would abandon the remaining
-        // candidates. A stale claim is swept by `reclaimStaleGenerationClaims`.
         try {
-          await this.reviewSyncDbService.releaseGenerationClaim(candidate.id);
-        } catch (releaseError) {
+          const outcome = await this.generateAndPersistForCandidate(
+            input.tenantId,
+            candidate,
+            business,
+            promptCache,
+            remainingQuota,
+            batchSettings
+          );
+          generated += outcome.drafts;
+          remainingQuota -= outcome.drafts;
+          notices.push(...outcome.notices);
+          reviewsHandled += 1;
+          consecutiveFailures = 0;
+        } catch (error) {
+          failed += 1;
+          reviewsHandled += 1;
+          consecutiveFailures += 1;
           this.logger.error(
-            `Could not release the generation claim on review ${candidate.id}; it will be swept as a stale claim in ${'~30 minutes'}: ${
-              releaseError instanceof Error ? releaseError.message : String(releaseError)
+            `Generation failed for review ${candidate.id}: ${
+              error instanceof Error ? error.message : String(error)
             }`
           );
-        }
 
-        // Stop when the next attempt would fail identically (missing API key, provider outage); each costs a
-        // claim, a 30s timeout and a release.
-        if (error instanceof AiProviderNotConfiguredException) {
-          this.logger.error(
-            `AI provider is not configured — abandoning the remaining ${
-              candidates.length - reviewsHandled
-            } candidate(s) for location ${input.locationId} rather than failing each one identically.`
-          );
-          break;
-        }
-        if (consecutiveFailures >= MAX_CONSECUTIVE_GENERATION_FAILURES) {
-          this.logger.error(
-            `${consecutiveFailures} generation failures in a row for location ${input.locationId} — treating the provider as unavailable and abandoning the rest of this batch; the next tick retries.`
-          );
-          break;
+          // Must not escape: a rejection here (likely when the DB is degraded) would abandon the remaining
+          // candidates. A stale claim is swept by `reclaimStaleGenerationClaims`.
+          try {
+            await this.reviewSyncDbService.releaseGenerationClaim(candidate.id);
+          } catch (releaseError) {
+            this.logger.error(
+              `Could not release the generation claim on review ${candidate.id}; it will be swept as a stale claim in ${'~30 minutes'}: ${
+                releaseError instanceof Error ? releaseError.message : String(releaseError)
+              }`
+            );
+          }
+
+          // Stop when the next attempt would fail identically (missing API key, provider outage); each costs a
+          // claim, a 30s timeout and a release.
+          if (error instanceof AiProviderNotConfiguredException) {
+            this.logger.error(
+              `AI provider is not configured — abandoning the remaining ${
+                candidates.length - reviewsHandled
+              } candidate(s) for location ${input.locationId} rather than failing each one identically.`
+            );
+            break;
+          }
+          if (consecutiveFailures >= MAX_CONSECUTIVE_GENERATION_FAILURES) {
+            this.logger.error(
+              `${consecutiveFailures} generation failures in a row for location ${input.locationId} — treating the provider as unavailable and abandoning the rest of this batch; the next tick retries.`
+            );
+            break;
+          }
         }
       }
+    } finally {
+      await this.inAppNotificationsService.publish(input.tenantId, notices);
     }
 
     this.logger.log(
@@ -257,7 +288,7 @@ export class AiReplyGenerationService {
     promptCache: Map<PromptCategory, CurrentPromptForCategory | null>,
     maxSnippets: number,
     settings: BatchSettings
-  ): Promise<number> {
+  ): Promise<GeneratedForCandidate> {
     const category = resolvePromptCategoryForReview(candidate);
 
     let current = promptCache.get(category);
@@ -321,6 +352,8 @@ export class AiReplyGenerationService {
     };
 
     let persisted = 0;
+    let autoApproved = false;
+    let awaitingApproval = false;
     try {
       for (const content of contents) {
         const responseId = await this.reviewSyncDbService.insertGeneratedResponse({
@@ -336,7 +369,17 @@ export class AiReplyGenerationService {
         persisted += 1;
 
         if (autoPosts && completedNormally) {
-          await this.maybeAutoApproveAndPost(tenantId, candidate.id, responseId, content);
+          const outcome = await this.maybeAutoApproveAndPost(
+            tenantId,
+            candidate.id,
+            responseId,
+            content
+          );
+          autoApproved = autoApproved || outcome === AutoApproveOutcome.APPROVED;
+          // Only a draft that is really still pending needs a person: one already decided (or live) by someone else does not.
+          awaitingApproval = awaitingApproval || outcome === AutoApproveOutcome.STILL_PENDING;
+        } else {
+          awaitingApproval = true;
         }
       }
     } catch (error) {
@@ -352,7 +395,26 @@ export class AiReplyGenerationService {
       );
     }
 
-    return persisted;
+    // Drafts a person still has to approve raise one notice per review (drafts generated together share a group); an auto-approved
+    // reply tells everyone it is being posted. Neither is raised for a review that persisted nothing.
+    const notices: InAppNotificationEvent[] = [];
+    if (awaitingApproval) {
+      notices.push({
+        type: InAppNotificationType.REPLY_NEEDS_APPROVAL,
+        reviewId: candidate.id,
+        rating: candidate.rating,
+        generationGroupId,
+      });
+    }
+    if (autoApproved) {
+      notices.push({
+        type: InAppNotificationType.REPLY_APPROVED,
+        reviewId: candidate.id,
+        rating: candidate.rating,
+      });
+    }
+
+    return { drafts: persisted, notices };
   }
 
   /**
@@ -365,7 +427,7 @@ export class AiReplyGenerationService {
     reviewId: string,
     responseId: string,
     content: string
-  ): Promise<void> {
+  ): Promise<AutoApproveOutcome> {
     try {
       const approved = await this.reviewSyncDbService.approveResponse({
         responseId,
@@ -380,7 +442,7 @@ export class AiReplyGenerationService {
         this.logger.warn(
           `Auto-approve skipped for response ${responseId} (review ${reviewId}): it was no longer pending approval by the time this ran.`
         );
-        return;
+        return AutoApproveOutcome.ALREADY_HANDLED;
       }
 
       // Never throws: if the queue is unreachable the response is moved to `post_failed` (visible,
@@ -393,18 +455,21 @@ export class AiReplyGenerationService {
         },
         { tenantId, reviewId, responseId }
       );
+      return AutoApproveOutcome.APPROVED;
     } catch (error) {
       if (isUniqueViolation(error, LIVE_REPLY_INDEX)) {
         this.logger.warn(
           `Auto-approve skipped for response ${responseId} (review ${reviewId}): the review already has a live reply.`
         );
-        return;
+        return AutoApproveOutcome.ALREADY_HANDLED;
       }
       this.logger.error(
         `Auto-post step failed for response ${responseId} (review ${reviewId}); the draft itself was still persisted and remains pending approval: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
+      // The draft itself was kept and is still pending approval.
+      return AutoApproveOutcome.STILL_PENDING;
     }
   }
 

@@ -17,6 +17,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  ne,
   notInArray,
   or,
   sql,
@@ -140,6 +141,25 @@ export class ConnectionsRepository {
       throw new Error(MESSAGES.CONNECTIONS.FAILED_TO_UPSERT_CONNECTION);
     }
     return row as ProviderConnectionRow;
+  }
+
+  /**
+   * `true` only when this call moved the connection into `needs_reauth`; already there (many failing jobs report the same dead grant)
+   * is `false`, so the owner is told once per incident rather than once per failure.
+   */
+  async markNeedsReauth(connectionId: string): Promise<boolean> {
+    const rows = await this.dbService.db
+      .update(schema.reviewProviderConnections)
+      .set({ status: ReviewProviderConnectionStatus.NEEDS_REAUTH, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(schema.reviewProviderConnections.id, connectionId),
+          ne(schema.reviewProviderConnections.status, ReviewProviderConnectionStatus.NEEDS_REAUTH)
+        )
+      )
+      .returning({ id: schema.reviewProviderConnections.id });
+
+    return rows.length > 0;
   }
 
   async updateConnectionStatus(

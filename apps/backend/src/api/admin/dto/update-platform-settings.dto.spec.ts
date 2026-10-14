@@ -13,13 +13,13 @@ async function errorsFor(body: Record<string, unknown>) {
 
 describe('UpdatePlatformSettingsDto', () => {
   it('leaves an omitted field alone', async () => {
-    expect(await errorsFor({ ssoLoginEnabled: true })).toEqual([]);
+    expect(await errorsFor({ microsoftLoginEnabled: true })).toEqual([]);
   });
 
   it.each([
-    'ssoLoginEnabled',
+    'microsoftLoginEnabled',
     'passwordLoginEnabled',
-    'socialLoginEnabled',
+    'googleLoginEnabled',
     'inviteMembersEnabled',
   ])(
     'rejects an explicit null for %s instead of letting it reach the UPDATE as a NOT NULL violation',

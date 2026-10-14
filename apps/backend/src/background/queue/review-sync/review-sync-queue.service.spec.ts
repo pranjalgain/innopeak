@@ -6,6 +6,7 @@ import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db
 import { Test } from '@nestjs/testing';
 import { ReviewClassificationService } from '@review-pipeline/review-classification.service';
 import {
+  ProviderAuthError,
   ProviderNotFoundError,
   ProviderRateLimitError,
 } from '@review-provider/errors/provider.error';
@@ -14,6 +15,7 @@ import { ReviewProvider } from '@review-provider/providers/review-provider.provi
 
 import { ReviewSyncQueueService } from './review-sync-queue.service';
 
+import { InAppNotificationsService } from '../../../api/notifications/services/in-app-notifications.service';
 import type {
   ProviderReview,
   ProviderReviewPage,
@@ -60,6 +62,8 @@ describe('ReviewSyncQueueService.runPoll', () => {
   const restoreRelistedReviews = jest.fn();
   const markReviewsReconciled = jest.fn();
   const getReviewReply = jest.fn();
+  const markNeedsReauth = jest.fn();
+  const notifyConnectionIssue = jest.fn();
 
   const job = {
     tenantId: 'tenant-1',
@@ -107,10 +111,16 @@ describe('ReviewSyncQueueService.runPoll', () => {
     markReviewsRemovedUpstream.mockResolvedValue(0);
     restoreRelistedReviews.mockResolvedValue(0);
     getReviewReply.mockResolvedValue(null);
+    markNeedsReauth.mockResolvedValue(true);
+    notifyConnectionIssue.mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         ReviewSyncQueueService,
+        {
+          provide: InAppNotificationsService,
+          useValue: { notifyConnectionIssue },
+        },
         { provide: ReviewProvider, useValue: { listReviews, getLocation, getReviewReply } },
         { provide: ProviderCredentialService, useValue: { resolveAccessToken } },
         {
@@ -121,7 +131,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
             updateLocationDetails,
             markLocationDetailsAttempted,
             markReviewsReconciled,
-            markNeedsReauth: jest.fn(),
+            markNeedsReauth,
           },
         },
         {
@@ -324,6 +334,32 @@ describe('ReviewSyncQueueService.runPoll', () => {
       expect(completeRun).toHaveBeenCalledWith(
         expect.objectContaining({ syncRunId: 'run-1', status: SyncRunStatus.ERROR })
       );
+    });
+  });
+
+  describe('a revoked Google grant', () => {
+    beforeEach(() => {
+      findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
+        lastReviewSyncedAt: null,
+      });
+      listReviews.mockRejectedValue(new ProviderAuthError('invalid_grant'));
+    });
+
+    it('flags the connection and tells the tenant to reconnect', async () => {
+      await expect(service.runPoll(job)).rejects.toBeInstanceOf(ProviderAuthError);
+
+      expect(markNeedsReauth).toHaveBeenCalledWith('connection-1');
+      expect(notifyConnectionIssue).toHaveBeenCalledWith('tenant-1');
+    });
+
+    // A dead grant fails every location's poll; only the failure that flips the connection announces it.
+    it('does not announce it again once the connection is already flagged', async () => {
+      markNeedsReauth.mockResolvedValue(false);
+
+      await expect(service.runPoll(job)).rejects.toBeInstanceOf(ProviderAuthError);
+
+      expect(notifyConnectionIssue).not.toHaveBeenCalled();
     });
   });
 
@@ -764,6 +800,10 @@ describe('ReviewSyncQueueService.runBackfill — retry reopens the carried sync 
     const moduleRef = await Test.createTestingModule({
       providers: [
         ReviewSyncQueueService,
+        {
+          provide: InAppNotificationsService,
+          useValue: { notifyConnectionIssue: jest.fn().mockResolvedValue(undefined) },
+        },
         { provide: ReviewProvider, useValue: { listReviews } },
         { provide: ProviderCredentialService, useValue: { resolveAccessToken } },
         {
@@ -881,6 +921,10 @@ describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-
     const moduleRef = await Test.createTestingModule({
       providers: [
         ReviewSyncQueueService,
+        {
+          provide: InAppNotificationsService,
+          useValue: { notifyConnectionIssue: jest.fn().mockResolvedValue(undefined) },
+        },
         { provide: ReviewProvider, useValue: { listReviews } },
         { provide: ProviderCredentialService, useValue: { resolveAccessToken } },
         {

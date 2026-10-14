@@ -180,17 +180,17 @@ exclusivity check was never actually needed once login stops being the thing for
   `/admin/login`: that path sitting textually under `/admin/*` could visually suggest it's inside
   the guarded admin shell when it must be public. Reuses `PasswordAuthForm`, `AuthLogo`; no
   SSO/social button branching to inherit since the platform settings'
-  `ssoLoginEnabled`/`socialLoginEnabled` gate tenant-facing methods only — admin password login is
+  `microsoftLoginEnabled`/`googleLoginEnabled` gate tenant-facing methods only — admin password login is
   unconditional today and this split doesn't change that.
 
   **Correction, applied during review:** the "no SSO/social button branching" line above was wrong
   for Google. An admin who accepted their invite through Google has no `password_hash` at all, so
   a password-only screen cannot sign them in — and `AdminSettingsService.updatePlatformSettings`
-  already refuses to disable `socialLoginEnabled` on exactly the grounds that that button is "the
+  already refuses to disable `googleLoginEnabled` on exactly the grounds that that button is "the
   only thing standing between them and no way in." A password-only `/admin-login` would have
   locked that class of admin out of the page built for them, leaving the tenant `/login` Google
   button as their only route in. The screen therefore carries a Google button gated on
-  `socialLoginEnabled`, pointing at its own `GET /v1/admin/auth/google`
+  `googleLoginEnabled`, pointing at its own `GET /v1/admin/auth/google`
   (`OAuthIntent.ADMIN_LOGIN`) rather than the tenant route — that one falls through to the tenant
   tables when no admin identity matches, so the admin screen could hand back a *tenant* session,
   and it sends failures to `/login`, which carries no admin path.

@@ -281,6 +281,54 @@
 }
 
 /*
+ * Notification bell: a damped swing (about 14 degrees, settling in 0.8s) pivoting near the top like a real bell, plus a one-off pulse on
+ * the unread dot. `transform-box: fill-box` makes the origin relative to the icon itself rather than the whole SVG viewport.
+ */
+@keyframes bell-ring {
+  0% { transform: rotate(0); }
+  12% { transform: rotate(14deg); }
+  28% { transform: rotate(-12deg); }
+  44% { transform: rotate(9deg); }
+  60% { transform: rotate(-6deg); }
+  76% { transform: rotate(3deg); }
+  100% { transform: rotate(0); }
+}
+
+@keyframes badge-pulse {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.9); }
+  100% { transform: scale(1); }
+}
+
+@keyframes badge-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@layer utilities {
+  .animate-bell-ring {
+    animation: bell-ring 0.8s ease-in-out 1;
+    transform-box: fill-box;
+    transform-origin: 50% 8%;
+  }
+
+  .animate-badge-pulse {
+    animation: badge-pulse 0.8s ease-out 1;
+  }
+
+  /* Respects a reduced-motion preference: no shaking, only a brief flash of the unread dot. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-bell-ring {
+      animation: none;
+    }
+
+    .animate-badge-pulse {
+      animation: badge-flash 0.8s linear 1;
+    }
+  }
+}
+
+/*
  * Indeterminate progress sweep — used by <Progress indeterminate> when a backfill has no known
  * total to divide by. A looping traverse rather than a pulse, so it reads as "work in progress"
  * instead of "waiting".

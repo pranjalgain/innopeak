@@ -7,6 +7,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+export class NotificationSettingsDisabledException extends ForbiddenException {
+  constructor(message: string = MESSAGES.SETTINGS.NOTIFICATION_SETTINGS_DISABLED) {
+    super({ message, code: 'NOTIFICATION_SETTINGS_DISABLED' });
+  }
+}
+
 export class MemberInvitesDisabledException extends ForbiddenException {
   constructor(message: string = MESSAGES.SETTINGS.MEMBER_INVITES_DISABLED) {
     super({ message, code: 'MEMBER_INVITES_DISABLED' });

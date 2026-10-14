@@ -10,12 +10,18 @@ import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-ov
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
+import { NotificationsDbService } from '@db/repositories/notifications/notifications.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ReviewSyncQueue } from '@review-sync-queue/review-sync.queue';
 
 import { TenantErasureCleanupService } from './tenant-erasure-cleanup.service';
+
+import {
+  NOTIFICATION_READ_RETENTION_DAYS,
+  NOTIFICATION_UNREAD_RETENTION_DAYS,
+} from '../../api/notifications/constants/notifications.constants';
 
 /** `platform_activity_log.actor_email` for entries with no human admin behind them. */
 const SYSTEM_ACTOR_EMAIL = 'system@innopeak.internal';
@@ -35,7 +41,8 @@ export class CronService {
     private readonly tenantSubscriptionsDbService: TenantSubscriptionsDbService,
     private readonly tenantErasureCleanupService: TenantErasureCleanupService,
     private readonly configService: ConfigService<EnvConfig>,
-    private readonly erasureNoticeService: ErasureNoticeService
+    private readonly erasureNoticeService: ErasureNoticeService,
+    private readonly notificationsDbService: NotificationsDbService
   ) {}
 
   sendDailyMail(data?: ICronJob): void {
@@ -48,6 +55,15 @@ export class CronService {
     this.logger.log(
       `Purged ${purged.otpTokens} stale OTP token(s) and ${purged.refreshTokens} stale refresh token(s)`
     );
+  }
+
+  /** Keeps the bell-feed table from growing with every review for every user, forever. */
+  async purgeOldNotifications(): Promise<void> {
+    const purged = await this.notificationsDbService.purgeOld({
+      readRetentionDays: NOTIFICATION_READ_RETENTION_DAYS,
+      unreadRetentionDays: NOTIFICATION_UNREAD_RETENTION_DAYS,
+    });
+    this.logger.log(`Purged ${purged} old in-app notification(s)`);
   }
 
   /**

@@ -10,6 +10,10 @@ export interface MessageCatalog {
     RESEND_OTP_ACK: string;
     EMAIL_VERIFIED: string;
     EMAIL_ALREADY_REGISTERED: string;
+    /** `platform_settings.password_login_enabled` is off: new email/password sign-ups are refused. */
+    PASSWORD_SIGNUP_DISABLED: string;
+    /** The provider a pending single-sign-on sign-up came through was switched off before the business name step. */
+    SSO_SIGNUP_DISABLED: string;
     INVALID_OR_EXPIRED_OTP: string;
     TOO_MANY_OTP_ATTEMPTS: string;
     INVALID_CREDENTIALS: string;
@@ -63,6 +67,26 @@ export interface MessageCatalog {
     NOT_FOUND: string;
     MARKED_READ: string;
     MARKED_ALL_READ: string;
+    /**
+     * Bell-feed text, rendered once per recipient in their own locale and stored on the row (so a later wording change never rewrites
+     * history). Read from the catalogs directly (`in-app-notification-copy.util.ts`), not through the tagged `MESSAGES`.
+     */
+    FEED: {
+      REVIEW_ESCALATED_TITLE: string;
+      REVIEW_ESCALATED_DESCRIPTION: (rating: number) => string;
+      REVIEW_ESCALATED_SUMMARY_TITLE: (count: number) => string;
+      REVIEW_ESCALATED_SUMMARY_DESCRIPTION: string;
+      REPLY_NEEDS_APPROVAL_TITLE: string;
+      REPLY_NEEDS_APPROVAL_DESCRIPTION: (rating: number) => string;
+      REPLY_NEEDS_APPROVAL_SUMMARY_TITLE: (count: number) => string;
+      REPLY_NEEDS_APPROVAL_SUMMARY_DESCRIPTION: string;
+      REPLY_APPROVED_TITLE: string;
+      REPLY_APPROVED_DESCRIPTION: (rating: number) => string;
+      REPLY_APPROVED_SUMMARY_TITLE: (count: number) => string;
+      REPLY_APPROVED_SUMMARY_DESCRIPTION: string;
+      CONNECTION_ISSUE_TITLE: string;
+      CONNECTION_ISSUE_DESCRIPTION: string;
+    };
   };
   CONNECTIONS: {
     CONNECTION_NOT_FOUND: string;
@@ -216,6 +240,8 @@ export interface MessageCatalog {
     /** No longer `invited`; 409 not 404, since the roster entry exists. */
     MEMBER_INVITE_NOT_REVOCABLE: string;
     MEMBER_INVITES_DISABLED: string;
+    /** Notification preferences are not offered while `platform_settings.notification_settings_enabled` is off. */
+    NOTIFICATION_SETTINGS_DISABLED: string;
     /** `days` is the erasure grace period, so the owner knows when the data is anonymized. */
     MEMBER_REMOVAL_REQUESTED: (days: number) => string;
     MEMBER_REMOVAL_CANCELLED: string;
@@ -264,9 +290,15 @@ export interface MessageCatalog {
     PLATFORM_SETTINGS_UPDATED: string;
     /** `sso`/`password`/`social` would all end up false — see `AdminSettingsService.updatePlatformSettings`'s own comment for why this is rejected outright rather than merely discouraged. */
     PLATFORM_SETTINGS_NO_METHOD_ENABLED: string;
+    /** `notificationSettingsEnabled: true` is refused until email/Teams delivery exists. */
+    NOTIFICATION_CHANNELS_NOT_IMPLEMENTED: string;
     /** Turning off Google sign-in would strand admins who have no password — same
      *  lockout-prevention family as `CANNOT_DISABLE_LAST_ADMIN`. */
     CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN: (count: number) => string;
+    /** Turning Microsoft or Google off while tenant users have no other way in (no password, no other provider). */
+    CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS: (provider: string, count: number) => string;
+    /** The patch would leave no method that can actually be used: Microsoft and Google also need to be configured on this server. */
+    PLATFORM_SETTINGS_NO_USABLE_METHOD: string;
     ADMIN_NOT_FOUND: string;
     CANNOT_DISABLE_SELF: string;
     CANNOT_DISABLE_LAST_ADMIN: string;

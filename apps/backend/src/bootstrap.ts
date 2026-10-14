@@ -59,7 +59,22 @@ export async function bootstrap(): Promise<void> {
     app.set('trust proxy', trustProxyHops);
   }
 
-  app.use(compression());
+  // Compression buffers a response until it has a chunk to compress, which would hold back every event of a server-sent-events stream.
+  app.use(
+    compression({
+      filter: (req, res) => {
+        // By what the response is, not only what the client asked for: curl, fetch and health probes send `Accept: */*`.
+        const contentType = res.getHeader('Content-Type');
+        if (
+          (typeof contentType === 'string' && contentType.includes('text/event-stream')) ||
+          req.headers.accept?.includes('text/event-stream') === true
+        ) {
+          return false;
+        }
+        return compression.filter(req, res);
+      },
+    })
+  );
 
   // Populates req.cookies (refresh_token for refresh/logout).
   app.use(cookieParser());

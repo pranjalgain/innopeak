@@ -11,6 +11,7 @@ import {
 } from '@common/i18n/message-registry';
 import { RouteNames } from '@common/route-names';
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import { SSE_METADATA } from '@nestjs/common/constants';
 import { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -46,10 +47,14 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
         pathname.includes(`/${RouteNames.BILLING}/${RouteNames.BILLING_RECEIPTS}/`) &&
         pathname.endsWith('/pdf');
 
+      // A server-sent-events route (`@Sse`) streams `text/event-stream` messages, which are never wrapped in an envelope. Read off the
+      // handler, not the URL, so every such route is covered however it is reached (case, trailing slash, prefix).
+      const isServerSentEvents = Reflect.getMetadata(SSE_METADATA, context.getHandler()) === true;
+
       // The data export is the file itself, not an `ApiResponse`.
       const isDataExport = pathname === `/v1/${RouteNames.SETTINGS}/${RouteNames.SETTINGS_EXPORT}`;
 
-      if (isMetricsOrHealth || isReceiptPdf || isDataExport) {
+      if (isMetricsOrHealth || isReceiptPdf || isDataExport || isServerSentEvents) {
         // These bypass transformation; `CallHandler.handle()` is typed `Observable<any>`.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-return
         return next.handle();

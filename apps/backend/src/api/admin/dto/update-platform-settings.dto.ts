@@ -15,7 +15,7 @@ export class UpdatePlatformSettingsDto {
   @ValidateIf((_object, value: unknown) => value !== undefined)
   @Transform(parseBooleanInput)
   @IsBoolean()
-  ssoLoginEnabled?: boolean;
+  microsoftLoginEnabled?: boolean;
 
   @ApiPropertyOptional({ example: false })
   @ValidateIf((_object, value: unknown) => value !== undefined)
@@ -27,11 +27,32 @@ export class UpdatePlatformSettingsDto {
   @ValidateIf((_object, value: unknown) => value !== undefined)
   @Transform(parseBooleanInput)
   @IsBoolean()
-  socialLoginEnabled?: boolean;
+  googleLoginEnabled?: boolean;
 
   @ApiPropertyOptional({ example: false })
   @ValidateIf((_object, value: unknown) => value !== undefined)
   @Transform(parseBooleanInput)
   @IsBoolean()
   inviteMembersEnabled?: boolean;
+
+  @ApiPropertyOptional({
+    example: false,
+    description:
+      'Not implemented yet: `true` is refused with 422 NOTIFICATION_CHANNELS_NOT_IMPLEMENTED until email/Teams delivery exists.',
+  })
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @Transform(parseBooleanInput)
+  @IsBoolean()
+  notificationSettingsEnabled?: boolean;
+
+  @ApiPropertyOptional({
+    example: false,
+    description:
+      'Acknowledges that switching Microsoft or Google off locks out active tenant users who can only sign in with it. Without it ' +
+      'that change is refused with 400 SSO_LOGIN_DISALLOWED_SSO_ONLY_USERS. Never stored; it applies to this request only.',
+  })
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @Transform(parseBooleanInput)
+  @IsBoolean()
+  confirmLockout?: boolean;
 }

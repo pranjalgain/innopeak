@@ -53,6 +53,9 @@ CREATE INDEX idx_in_app_notifications_tenant_id ON in_app_notifications(tenant_i
 CREATE INDEX idx_in_app_notifications_review_id ON in_app_notifications(review_id);
 CREATE INDEX idx_in_app_notifications_user_created ON in_app_notifications(user_id, created_at DESC, id DESC);
 CREATE INDEX idx_in_app_notifications_user_unread ON in_app_notifications(user_id) WHERE read_at IS NULL;
+-- The nightly retention purge filters on age, not on user, so the per-user indexes above cannot serve it.
+CREATE INDEX idx_in_app_notifications_created_at ON in_app_notifications(created_at);
+CREATE INDEX idx_in_app_notifications_read_at ON in_app_notifications(read_at) WHERE read_at IS NOT NULL;
 -- NULLs are distinct, so connection_issue rows (no review or group) are never deduplicated; each
 -- incident is a new notice.
 CREATE UNIQUE INDEX idx_in_app_notifications_dedupe ON in_app_notifications(user_id, type, review_id, generation_group_id);

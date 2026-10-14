@@ -101,3 +101,24 @@ export function ApiMarkAllNotificationsRead(): ReturnType<typeof applyDecorators
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' })
   );
 }
+
+export function ApiNotificationStream(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiBearerAuth(),
+    ApiOperation({
+      summary: 'Stream "something new" events (server-sent events)',
+      description:
+        'One long response (`text/event-stream`) that stays open and receives an event whenever a notification is created for the ' +
+        'caller: `event: notification` with `{ id }` (the notification id), plus `ready` on connect and `heartbeat` every 25 seconds. ' +
+        'Events carry ids only; fetch the notice with `GET /v1/notifications`. Authenticated by the session cookie (a browser ' +
+        '`EventSource` cannot set headers). The stream ends when the access token expires (at most 30 minutes) and the client ' +
+        'reconnects; at most 3 streams per user (the oldest is closed). Not part of the generated client.',
+    }),
+    ApiResponse({ status: HttpStatus.OK, description: 'An open `text/event-stream` response' }),
+    ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
+    ApiResponse({
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      description: 'This replica is at its stream limit; the client falls back to polling',
+    })
+  );
+}

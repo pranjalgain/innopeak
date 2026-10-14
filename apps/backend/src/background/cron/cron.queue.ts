@@ -15,6 +15,10 @@ export class CronQueue {
     await this.addCronJob(CronJobName.AUTH_TOKEN_CLEANUP);
   }
 
+  async addNotificationRetentionPurgeJob(): Promise<void> {
+    await this.addCronJob(CronJobName.NOTIFICATION_RETENTION_PURGE);
+  }
+
   async addReviewSyncPollJob(): Promise<void> {
     await this.addCronJob(CronJobName.REVIEW_SYNC_POLL);
   }

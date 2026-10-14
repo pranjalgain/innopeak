@@ -1,6 +1,7 @@
 import type { AuthUser } from '@auth/types/auth.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
+import { InAppNotificationType } from '@common/enums/in-app-notification-type.enum';
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
@@ -46,6 +47,8 @@ import {
   ReviewResponseNotFoundException,
 } from './exceptions/reviews.exceptions';
 
+import { InAppNotificationsService } from '../notifications/services/in-app-notifications.service';
+
 /** Postgres reports a unique-index (not named-constraint) violation's index name as `constraint`; checked at
  *  this layer, not the DB service (see `approveReply`). */
 const LIVE_REPLY_INDEX = 'idx_review_responses_review_id_live_reply';
@@ -76,7 +79,8 @@ export class ReviewsService {
   constructor(
     private readonly reviewSyncDbService: ReviewSyncDbService,
     private readonly settingsDbService: SettingsDbService,
-    private readonly reviewPostQueue: ReviewPostQueue
+    private readonly reviewPostQueue: ReviewPostQueue,
+    private readonly inAppNotificationsService: InAppNotificationsService
   ) {}
 
   async listReviews(input: {
@@ -286,8 +290,42 @@ export class ReviewsService {
     }
 
     await this.postIfAutoPostEnabled(tenantUser.tenantId, input.reviewId, approved.id);
+    // Not awaited: the lookup, the recipients query, the insert and the Redis publish are all for the team's benefit, and the person who
+    // clicked Approve should not wait on them (with Redis degraded that is half a second on every approval). It never rejects.
+    void this.announceApproval(tenantUser.tenantId, input.reviewId, tenantUser.id);
 
     return this.toResponseItem(approved);
+  }
+
+  /**
+   * Tells the rest of the team a reply was approved (not the person who did it). Best-effort, like the post step: a notice must never
+   * undo or fail an approval that already committed. Never rejects, so the caller can leave it running.
+   */
+  private async announceApproval(
+    tenantId: string,
+    reviewId: string,
+    approvedByUserId: string
+  ): Promise<void> {
+    try {
+      const review = await this.reviewSyncDbService.findReviewForTenant({ reviewId, tenantId });
+      if (!review) {
+        return;
+      }
+      await this.inAppNotificationsService.publish(tenantId, [
+        {
+          type: InAppNotificationType.REPLY_APPROVED,
+          reviewId,
+          rating: review.rating,
+          actorUserId: approvedByUserId,
+        },
+      ]);
+    } catch (error) {
+      this.logger.error(
+        `Could not announce the approval on review ${reviewId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   /**

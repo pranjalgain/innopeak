@@ -12,7 +12,7 @@ export class PlatformSettingsResponseDto {
     example: true,
     description: 'Whether the sign-in/sign-up screens offer the Microsoft SSO button.',
   })
-  ssoLoginEnabled!: boolean;
+  microsoftLoginEnabled!: boolean;
 
   @ApiProperty({
     example: false,
@@ -24,13 +24,21 @@ export class PlatformSettingsResponseDto {
     example: false,
     description: 'Whether the sign-in/sign-up screens offer Google social sign-in.',
   })
-  socialLoginEnabled!: boolean;
+  googleLoginEnabled!: boolean;
 
   @ApiProperty({
     example: false,
     description: "Whether a tenant owner's Settings > Members tab can send invites.",
   })
   inviteMembersEnabled!: boolean;
+
+  @ApiProperty({
+    example: false,
+    description:
+      "Whether a tenant's Settings screen offers notification channel preferences (the Notifications tab). " +
+      'Off by default: phase one delivers in-app notifications only, which need no preferences.',
+  })
+  notificationSettingsEnabled!: boolean;
 
   @ApiProperty({
     example: false,
@@ -58,10 +66,11 @@ export class PlatformSettingsResponseDto {
     deploy: PlatformDeploySettings
   ): PlatformSettingsResponseDto {
     const dto = new PlatformSettingsResponseDto();
-    dto.ssoLoginEnabled = row.ssoLoginEnabled;
+    dto.microsoftLoginEnabled = row.microsoftLoginEnabled;
     dto.passwordLoginEnabled = row.passwordLoginEnabled;
-    dto.socialLoginEnabled = row.socialLoginEnabled;
+    dto.googleLoginEnabled = row.googleLoginEnabled;
     dto.inviteMembersEnabled = row.inviteMembersEnabled;
+    dto.notificationSettingsEnabled = row.notificationSettingsEnabled;
     dto.paymentFeatureEnabled = deploy.paymentFeatureEnabled;
     dto.erasureGracePeriodDays = deploy.erasureGracePeriodDays;
     return dto;
