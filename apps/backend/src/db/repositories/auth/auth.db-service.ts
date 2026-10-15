@@ -1,6 +1,7 @@
 import { IDENTITY_PROVIDER_FOR, SsoProvider } from '@auth/constants/sso-auth.constants';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
+import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { type DrizzleTransaction } from '@db/db.service';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
@@ -34,6 +35,7 @@ import type {
   VerifyEmailInput,
 } from './types/auth.type';
 
+import { AdminOverviewDbService } from '../admin-overview/admin-overview.db-service';
 import { TenantSubscriptionsDbService } from '../billing/tenant-subscriptions.db-service';
 import { PromptsDbService } from '../prompts/prompts.db-service';
 
@@ -46,8 +48,36 @@ export class AuthDbService {
   constructor(
     private readonly authRepository: AuthRepository,
     private readonly promptsDbService: PromptsDbService,
-    private readonly tenantSubscriptionsDbService: TenantSubscriptionsDbService
+    private readonly tenantSubscriptionsDbService: TenantSubscriptionsDbService,
+    private readonly adminOverviewDbService: AdminOverviewDbService
   ) {}
+
+  /**
+   * "A new business joined" for the platform activity feed, written once the signup is a real, active business (not at the unverified
+   * signup, which may never complete). Best-effort and after the activating transaction: a failed log entry must never fail or undo
+   * someone's signup. The actor is the owner themselves, since no platform admin did anything.
+   */
+  private async recordBusinessJoined(input: {
+    tenantId: string;
+    businessName: string;
+    ownerEmail: string;
+  }): Promise<void> {
+    await this.adminOverviewDbService.recordActivityBestEffort({
+      type: PlatformActivityType.BUSINESS_JOINED,
+      actorPlatformAdminId: null,
+      actorEmail: input.ownerEmail,
+      tenantId: input.tenantId,
+      businessName: input.businessName,
+    });
+  }
+
+  private async recordBusinessJoinedForTenant(tenantId: string, ownerEmail: string): Promise<void> {
+    const tenant = await this.authRepository.findTenantStatusById(tenantId);
+    // Skipped, not thrown, when the tenant cannot be read: the log entry is a courtesy to the platform feed, never a reason to fail a signup.
+    if (tenant) {
+      await this.recordBusinessJoined({ tenantId, businessName: tenant.name, ownerEmail });
+    }
+  }
 
   /**
    * Returns null when the email is already registered (caller maps it to a 409). The
@@ -193,6 +223,10 @@ export class AuthDbService {
         return promoted;
       });
 
+      if (activated) {
+        await this.recordBusinessJoinedForTenant(byEmail.tenantId, byEmail.email);
+      }
+
       return {
         kind: 'known',
         user: this.toVerifiedUser(
@@ -222,8 +256,9 @@ export class AuthDbService {
   }): Promise<VerifiedUser | null> {
     const ownerName = input.name ?? input.email;
 
+    let created: VerifiedUser;
     try {
-      return await this.authRepository.transaction(async tx => {
+      created = await this.authRepository.transaction(async tx => {
         const tenant = await this.authRepository.insertTenant(tx, { name: input.businessName });
         const user = await this.authRepository.insertVerifiedOwnerUser(tx, {
           tenantId: tenant.id,
@@ -265,6 +300,13 @@ export class AuthDbService {
       }
       throw error;
     }
+
+    await this.recordBusinessJoined({
+      tenantId: created.tenantId,
+      businessName: input.businessName,
+      ownerEmail: input.email,
+    });
+    return created;
   }
 
   private toVerifiedUser(user: UserByEmail): VerifiedUser {
@@ -350,7 +392,7 @@ export class AuthDbService {
       return null;
     }
 
-    return this.authRepository.transaction(async tx => {
+    const verified = await this.authRepository.transaction(async tx => {
       const consumed = await this.authRepository.consumeVerifyEmailToken(tx, {
         userId: user.id,
         tokenHash,
@@ -379,6 +421,11 @@ export class AuthDbService {
         locale: user.locale,
       };
     });
+
+    if (verified !== null) {
+      await this.recordBusinessJoinedForTenant(verified.tenantId, verified.email);
+    }
+    return verified;
   }
 
   async findUserForLogin(email: string): Promise<UserByEmail | null> {

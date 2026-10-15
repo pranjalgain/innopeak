@@ -7,11 +7,15 @@ export interface MicrosoftAuthorizeParams {
   nonce: string;
   /** S256 PKCE challenge. */
   codeChallenge: string;
+  /** Pins the round trip to one directory instead of the configured authority (admin sign-in). */
+  tenantId?: string;
 }
 
 export interface MicrosoftTokenContext {
   codeVerifier: string;
   nonce: string;
+  /** Must match the `tenantId` the round trip started with. */
+  tenantId?: string;
 }
 
 export abstract class MicrosoftIdentityProvider {

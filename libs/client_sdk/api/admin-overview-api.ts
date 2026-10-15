@@ -942,6 +942,8 @@ export const AdminOverviewControllerListActivityV1TypeEnum = {
   UserDeactivated: 'user_deactivated',
   AdminDisabled: 'admin_disabled',
   AdminEnabled: 'admin_enabled',
+  BusinessJoined: 'business_joined',
+  PlatformSettingsChanged: 'platform_settings_changed',
 } as const;
 export type AdminOverviewControllerListActivityV1TypeEnum =
   (typeof AdminOverviewControllerListActivityV1TypeEnum)[keyof typeof AdminOverviewControllerListActivityV1TypeEnum];

@@ -11,4 +11,6 @@ export enum PlatformActivityType {
   USER_DEACTIVATED = 'user_deactivated',
   ADMIN_DISABLED = 'admin_disabled',
   ADMIN_ENABLED = 'admin_enabled',
+  BUSINESS_JOINED = 'business_joined',
+  PLATFORM_SETTINGS_CHANGED = 'platform_settings_changed',
 }

@@ -19,6 +19,18 @@ export interface ConnectionLocationDto {
    * The business\'s website as listed on Google; null when it lists none.
    */
   websiteUri?: object | null;
+  /**
+   * The business\'s primary category as Google names it; null when it lists none or has not been read yet.
+   */
+  category?: object | null;
+  /**
+   * Google\'s own overall rating for the business, covering every review (not just the ones imported here); null until the first sync reads it.
+   */
+  googleRating?: object | null;
+  /**
+   * Google\'s own total review count for the business; null until the first sync reads it.
+   */
+  googleReviewCount?: object | null;
   status: ConnectionLocationDtoStatusEnum;
   lastSyncedAt?: object | null;
   lastSyncStatus?: ConnectionLocationDtoLastSyncStatusEnum | null;

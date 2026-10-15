@@ -1,9 +1,13 @@
+import type { Locale } from '@common/i18n/locale';
+
 import type { BusinessContact } from '../utils/prompt-template.util';
 
 /** What a reply is drafted on behalf of: the business name for the template, its contact details for the system prompt. */
 export interface BusinessForReply {
   name: string;
   contact: BusinessContact | null;
+  /** The language a star-only review is answered in; `null` when the batch has none, so it was not looked up. */
+  replyLanguage: Locale | null;
 }
 
 export interface GenerateForClassifiedReviewsInput {

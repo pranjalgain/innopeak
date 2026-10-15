@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import SonnarToaster from "@/app/_components/sonner-toaster";
 import { TanstackProvider } from "@/app/_components/tanstack-provider";
 import { ThemeProvider } from "@/app/_components/theme-provider";
+import { ThemeTransition } from "@/app/_components/theme-transition";
 import { firacode, geologica } from "@/app/_config/fonts";
 import { getJsonLd } from "@/app/_config/json-id";
 import { metadata } from "@/app/_config/metadata";
@@ -38,6 +39,7 @@ export default async function RootLayout({
               low-end device, the fix is to narrow the `*` rule's property list, not to switch
               suppression on — that would take the deliberate fade with it. */}
           <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+            <ThemeTransition />
             <TanstackProvider>
               {children}
               <SonnarToaster />

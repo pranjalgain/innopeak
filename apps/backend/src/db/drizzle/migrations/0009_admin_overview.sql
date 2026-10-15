@@ -9,7 +9,11 @@ CREATE TYPE platform_activity_type AS ENUM (
     'admin_enabled',
     'business_erasure_requested',
     'business_erasure_cancelled',
-    'business_erased'
+    'business_erased',
+    -- A new business finished signing up (its owner verified their email, or signed up with Google/Microsoft).
+    'business_joined',
+    -- A platform admin changed the platform-wide switches; `details` says which and from what to what.
+    'platform_settings_changed'
 );
 
 CREATE TABLE IF NOT EXISTS platform_activity_log (
@@ -27,11 +31,15 @@ CREATE TABLE IF NOT EXISTS platform_activity_log (
     -- A plain value, not a FK: a revoked invite's row is deleted but the log must still name it.
     target_email VARCHAR(255),
     occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- What an entry changed, for the types that need more than a name: `platform_settings_changed` stores
+    -- {"changes": [{"field": ..., "from": ..., "to": ...}]}. NULL for every other type.
+    details JSONB,
     -- One arm per event family, pinning every column the entry renders from.
     CONSTRAINT platform_activity_log_target_check CHECK (
-        (type IN ('business_suspended', 'business_reactivated', 'business_erasure_requested', 'business_erasure_cancelled', 'business_erased') AND business_name IS NOT NULL AND target_email IS NULL) OR
+        (type IN ('business_suspended', 'business_reactivated', 'business_erasure_requested', 'business_erasure_cancelled', 'business_erased', 'business_joined') AND business_name IS NOT NULL AND target_email IS NULL) OR
         (type IN ('admin_invite_sent', 'admin_invite_revoked', 'admin_disabled', 'admin_enabled') AND target_email IS NOT NULL AND business_name IS NULL AND tenant_id IS NULL) OR
-        (type IN ('user_activated', 'user_deactivated') AND target_email IS NOT NULL AND business_name IS NOT NULL)
+        (type IN ('user_activated', 'user_deactivated') AND target_email IS NOT NULL AND business_name IS NOT NULL) OR
+        (type = 'platform_settings_changed' AND details IS NOT NULL AND business_name IS NULL AND target_email IS NULL AND tenant_id IS NULL)
     )
 );
 

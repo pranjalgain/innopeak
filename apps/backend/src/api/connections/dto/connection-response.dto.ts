@@ -69,6 +69,30 @@ export class ConnectionLocationDto {
   })
   websiteUri!: string | null;
 
+  @ApiPropertyOptional({
+    example: 'Restaurant',
+    nullable: true,
+    description:
+      "The business's primary category as Google names it; null when it lists none or has not been read yet.",
+  })
+  category!: string | null;
+
+  @ApiPropertyOptional({
+    example: 4.3,
+    nullable: true,
+    description:
+      "Google's own overall rating for the business, covering every review (not just the ones imported here); null until the first sync reads it.",
+  })
+  googleRating!: number | null;
+
+  @ApiPropertyOptional({
+    example: 212,
+    nullable: true,
+    description:
+      "Google's own total review count for the business; null until the first sync reads it.",
+  })
+  googleReviewCount!: number | null;
+
   @ApiProperty({ example: LocationStatus.ACTIVE, enum: LocationStatus })
   status!: LocationStatus;
 

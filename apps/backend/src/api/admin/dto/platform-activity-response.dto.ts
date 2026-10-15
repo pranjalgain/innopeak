@@ -1,13 +1,37 @@
 import { PaginationMetaDto } from '@common/dto/pagination-meta.dto';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { toIsoString } from '@common/helpers/date.utils';
-import type { AdminBusinessSummary } from '@db/repositories/admin-businesses/types/admin-businesses.type';
-import type { PlatformActivityRow } from '@db/repositories/admin-overview/types/admin-overview.type';
+import type {
+  PlatformActivityDetails,
+  PlatformActivityRow,
+} from '@db/repositories/admin-overview/types/admin-overview.type';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-/** Not a real `platform_activity_type`: a signup has no platform-admin actor. Synthesized from
- *  `AdminBusinessSummary.createdAt` and merged into the recent-activity feed. */
-export const BUSINESS_JOINED_TYPE = 'business_joined';
+export class PlatformSettingChangeDto {
+  @ApiProperty({
+    example: 'googleLoginEnabled',
+    description: 'The platform setting that changed, as its API field name.',
+  })
+  field!: string;
+
+  @ApiProperty({ example: true })
+  from!: boolean;
+
+  @ApiProperty({ example: false })
+  to!: boolean;
+}
+
+export class PlatformActivityDetailsDto {
+  @ApiProperty({ type: [PlatformSettingChangeDto] })
+  changes!: PlatformSettingChangeDto[];
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      'Present when the admin confirmed switching a provider off although users could then only sign in with it.',
+  })
+  lockoutConfirmed?: boolean;
+}
 
 export class PlatformActivityResponseDto {
   @ApiProperty({ example: '0190f3b4-1a88-70c5-8d19-6b2e4f7a9c33' })
@@ -15,23 +39,22 @@ export class PlatformActivityResponseDto {
 
   @ApiProperty({
     example: PlatformActivityType.BUSINESS_SUSPENDED,
-    enum: [...Object.values(PlatformActivityType), BUSINESS_JOINED_TYPE],
+    enum: PlatformActivityType,
   })
-  type!: PlatformActivityType | typeof BUSINESS_JOINED_TYPE;
+  type!: PlatformActivityType;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: 'admin@innopeak.com',
-    type: String,
-    nullable: true,
-    description: 'Null for a synthesized business_joined entry — see its own comment.',
+    description:
+      'Who did it: the platform admin; the business owner\'s email for business_joined; the label "owner (self-service)" for an owner\'s own erasure request or cancellation; or the system actor for the nightly erasure.',
   })
-  actorEmail!: string | null;
+  actorEmail!: string;
 
   @ApiPropertyOptional({
     example: 'Oak & Iron Hardware',
     type: String,
     nullable: true,
-    description: 'Set for business_suspended/business_reactivated/business_joined entries only.',
+    description: 'Set for the business_* entries (including business_joined) and user_* entries.',
   })
   businessName!: string | null;
 
@@ -43,6 +66,13 @@ export class PlatformActivityResponseDto {
   })
   email!: string | null;
 
+  @ApiPropertyOptional({
+    type: PlatformActivityDetailsDto,
+    nullable: true,
+    description: 'What a platform_settings_changed entry changed; null for every other type.',
+  })
+  details!: PlatformActivityDetailsDto | null;
+
   @ApiProperty({ example: '2026-09-11T09:12:00.000Z' })
   occurredAt!: string;
 
@@ -53,18 +83,22 @@ export class PlatformActivityResponseDto {
     dto.actorEmail = row.actorEmail;
     dto.businessName = row.businessName;
     dto.email = row.targetEmail;
+    dto.details =
+      row.details === null ? null : PlatformActivityResponseDto.detailsFrom(row.details);
     dto.occurredAt = toIsoString(row.occurredAt);
     return dto;
   }
 
-  static fromBusinessJoined(business: AdminBusinessSummary): PlatformActivityResponseDto {
-    const dto = new PlatformActivityResponseDto();
-    dto.id = `business-joined-${business.id}`;
-    dto.type = BUSINESS_JOINED_TYPE;
-    dto.actorEmail = null;
-    dto.businessName = business.name;
-    dto.email = null;
-    dto.occurredAt = business.createdAt;
+  private static detailsFrom(details: PlatformActivityDetails): PlatformActivityDetailsDto {
+    const dto = new PlatformActivityDetailsDto();
+    dto.changes = details.changes.map(change => ({
+      field: change.field,
+      from: change.from,
+      to: change.to,
+    }));
+    if (details.lockoutConfirmed === true) {
+      dto.lockoutConfirmed = true;
+    }
     return dto;
   }
 }

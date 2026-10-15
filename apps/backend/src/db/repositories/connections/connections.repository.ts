@@ -28,6 +28,7 @@ import type {
   PollableLocationRow,
   ProviderConnectionRow,
   UpdateLocationDetailsInput,
+  UpdateLocationRatingInput,
   UpsertConnectionInput,
   UpsertLocationInput,
 } from './types/connections.type';
@@ -55,6 +56,9 @@ const LOCATION_COLUMNS = {
   address: schema.locations.address,
   phone: schema.locations.phone,
   websiteUri: schema.locations.websiteUri,
+  category: schema.locations.category,
+  googleRating: schema.locations.googleRating,
+  googleReviewCount: schema.locations.googleReviewCount,
   detailsRefreshedAt: schema.locations.detailsRefreshedAt,
   reviewsReconciledAt: schema.locations.reviewsReconciledAt,
   status: schema.locations.status,
@@ -197,10 +201,42 @@ export class ConnectionsRepository {
         address: input.address,
         phone: input.phone,
         websiteUri: input.websiteUri,
+        category: input.category,
         detailsRefreshedAt: sql`now()`,
         updatedAt: sql`now()`,
       })
       .where(eq(schema.locations.id, input.locationId));
+  }
+
+  /**
+   * Written only when something changed (`IS DISTINCT FROM`), so a poll that finds the same figures costs a read and no write or `updated_at`
+   * churn. A `null` for either value keeps what is stored.
+   */
+  async updateLocationRating(input: UpdateLocationRatingInput): Promise<void> {
+    if (input.rating === null && input.reviewCount === null) {
+      return;
+    }
+
+    await this.dbService.db
+      .update(schema.locations)
+      .set({
+        ...(input.rating === null ? {} : { googleRating: input.rating }),
+        ...(input.reviewCount === null ? {} : { googleReviewCount: input.reviewCount }),
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(schema.locations.id, input.locationId),
+          or(
+            input.rating === null
+              ? undefined
+              : sql`${schema.locations.googleRating} IS DISTINCT FROM ${input.rating}`,
+            input.reviewCount === null
+              ? undefined
+              : sql`${schema.locations.googleReviewCount} IS DISTINCT FROM ${input.reviewCount}`
+          )
+        )
+      );
   }
 
   async updateTokenExpiry(connectionId: string, tokenExpiresAt: Date): Promise<void> {
@@ -301,6 +337,7 @@ export class ConnectionsRepository {
         address: input.address,
         phone: input.phone,
         websiteUri: input.websiteUri,
+        category: input.category,
         detailsRefreshedAt: sql`now()`,
         status: LocationStatus.ACTIVE,
       })
@@ -311,6 +348,7 @@ export class ConnectionsRepository {
           address: sql`excluded.address`,
           phone: sql`excluded.phone`,
           websiteUri: sql`excluded.website_uri`,
+          category: sql`excluded.category`,
           detailsRefreshedAt: sql`now()`,
           status: LocationStatus.ACTIVE,
           updatedAt: sql`now()`,

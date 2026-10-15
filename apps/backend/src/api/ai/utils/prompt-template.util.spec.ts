@@ -82,6 +82,90 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('repeat any name that appears in the review');
   });
 
+  // Staff are named in negative reviews and a public reply must not repeat the name either.
+  it('also forbids repeating the name of a member of staff', () => {
+    expect(buildSystemPrompt({ tone: 'professional' })).toContain(
+      `whether the reviewer's or a member of staff's`
+    );
+  });
+
+  describe('style rules', () => {
+    const prompt = buildSystemPrompt({ tone: 'professional' });
+
+    it('bans the stock filler and asks for a specific, varied opening', () => {
+      expect(prompt).toContain('feedback, comfort or satisfaction is important');
+      expect(prompt).toContain('open with something specific to this review');
+      expect(prompt).toContain('vary how you open and close');
+    });
+
+    it('forbids claiming action is under way and confirming or disputing the complaint', () => {
+      expect(prompt).toContain('Do not claim that anything is being done');
+      expect(prompt).toContain('Do not confirm or dispute what the reviewer describes');
+    });
+
+    it('keeps a star-only review short and does not let the model guess what was liked', () => {
+      expect(prompt).toContain('If the review has no written comment');
+      expect(prompt).toContain('do not guess what they liked');
+    });
+
+    // Regression: naming German in the rules made the model answer English reviews in German.
+    it('ties the language to the review, with the formal "Sie" only for a German one', () => {
+      expect(prompt).toContain('Reply in the same language as the review');
+      expect(prompt).toContain('an English review gets an English reply');
+      expect(prompt).toContain('Never switch language');
+      expect(prompt).toContain('a German review a German reply (in the formal "Sie" form)');
+    });
+
+    it('speaks as the business', () => {
+      expect(prompt).toContain('Speak as the business ("we"), never as an individual ("I")');
+    });
+
+    // The neutral template asks for an invitation to come back, so the "end on the contact invitation" rule is for complaints only.
+    it('ends only an escalated reply on the invitation to get in touch', () => {
+      const closing =
+        'Finish with the invitation to get in touch directly and add nothing after it';
+
+      expect(buildSystemPrompt({ tone: 'professional', category: 'escalated' })).toContain(closing);
+      expect(buildSystemPrompt({ tone: 'professional', category: 'neutral' })).not.toContain(
+        closing
+      );
+      expect(buildSystemPrompt({ tone: 'professional', category: 'positive' })).not.toContain(
+        closing
+      );
+      expect(prompt).not.toContain(closing);
+    });
+
+    it('does not ban inviting the reviewer back, which the neutral template asks for', () => {
+      expect(prompt).not.toContain('welcoming you back');
+    });
+
+    // Regression: a star-only review has only the English placeholder as text, so "same language as the review" meant English.
+    describe('a star-only review', () => {
+      it('is answered in the business language, overriding the templates\' "reply in English if unclear"', () => {
+        const german = buildSystemPrompt({ tone: 'professional', noCommentLanguage: 'de' });
+
+        expect(german).toContain(
+          'This review has no written comment, so there is no language to follow'
+        );
+        expect(german).toContain('write the reply in German, in the formal "Sie" form');
+        expect(german).toContain('whatever the instructions below say about unclear languages');
+        expect(buildSystemPrompt({ tone: 'professional', noCommentLanguage: 'en' })).toContain(
+          'write the reply in English'
+        );
+      });
+
+      it('adds nothing for a review that has text', () => {
+        expect(prompt).not.toContain('no language to follow');
+      });
+    });
+
+    it('applies to the multi-option prompt as well', () => {
+      expect(buildSystemPrompt({ tone: 'professional', snippetCount: 3 })).toContain(
+        'vary how you open and close'
+      );
+    });
+  });
+
   it('defaults to the single-reply instruction when snippetCount is omitted', () => {
     expect(buildSystemPrompt({ tone: 'professional' })).not.toContain('JSON array');
   });

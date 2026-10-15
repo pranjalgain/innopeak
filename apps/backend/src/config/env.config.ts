@@ -165,6 +165,14 @@ export class EnvConfig {
   @IsString()
   MICROSOFT_AUTHORITY?: string;
 
+  /**
+   * The Entra directory (a GUID) platform admins sign in from. Unset keeps "Continue with Microsoft" off the admin sign-in
+   * page: admin sign-in is pinned to one organization, never to `common`.
+   */
+  @IsOptional()
+  @IsString()
+  ADMIN_MICROSOFT_TENANT_ID?: string;
+
   // Separate from GOOGLE_*: sign-in and the review-data grant need different scopes, and sharing one client would let revoking review access break sign-in.
   @IsOptional()
   @IsString()
@@ -392,7 +400,7 @@ export class EnvConfig {
   @IsString()
   AZURE_OPENAI_API_VERSION?: string;
 
-  /** Checked `=== 'westeurope'` at provider construction: GDPR requires that region for Azure OpenAI. */
+  /** Must be one of `ALLOWED_AZURE_OPENAI_REGIONS` (checked at boot and again when the provider builds its client): GDPR keeps Azure OpenAI in the approved EU regions. */
   @IsOptional()
   @IsString()
   AZURE_OPENAI_REGION?: string;

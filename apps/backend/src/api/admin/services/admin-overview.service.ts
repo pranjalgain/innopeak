@@ -17,7 +17,6 @@ import {
   PlatformActivityListResponseDto,
   PlatformActivityResponseDto,
 } from '../dto/platform-activity-response.dto';
-import { buildActivityFeed } from '../utils/activity-feed.utils';
 import { fillSignupTrendWindow } from '../utils/signup-trend.utils';
 
 @Injectable()
@@ -65,15 +64,11 @@ export class AdminOverviewService {
     });
   }
 
-  /** Merges the admin-action log with synthesized `business_joined` entries; see `buildActivityFeed` for why `limit` rows per source suffice. */
+  /** The newest `limit` entries of `platform_activity_log`: the Overview page's glance feed (the Activity page pages through the same rows). */
   async getRecentActivity(actor: AuthUser, limit: number): Promise<PlatformActivityResponseDto[]> {
     requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
-    const [rows, businesses] = await Promise.all([
-      this.adminOverviewDbService.getRecentActivity(limit),
-      this.adminOverviewDbService.getRecentBusinesses(limit),
-    ]);
-    const activities = rows.map(row => PlatformActivityResponseDto.from(row));
-    return buildActivityFeed(activities, businesses, limit);
+    const rows = await this.adminOverviewDbService.getRecentActivity(limit);
+    return rows.map(row => PlatformActivityResponseDto.from(row));
   }
 
   async listActivity(

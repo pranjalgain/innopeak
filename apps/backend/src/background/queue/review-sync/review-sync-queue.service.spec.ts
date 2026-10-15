@@ -36,7 +36,7 @@ function review(overrides: Partial<ProviderReview> = {}): ProviderReview {
 }
 
 function page(overrides: Partial<ProviderReviewPage> = {}): ProviderReviewPage {
-  return { reviews: [], nextPageToken: null, totalCount: null, ...overrides };
+  return { reviews: [], nextPageToken: null, totalCount: null, averageRating: null, ...overrides };
 }
 
 describe('ReviewSyncQueueService.runPoll', () => {
@@ -44,6 +44,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
   const listReviews = jest.fn();
   const getLocation = jest.fn();
   const updateLocationDetails = jest.fn();
+  const updateLocationRating = jest.fn();
   const markLocationDetailsAttempted = jest.fn();
   const resolveAccessToken = jest.fn();
   const findConnectionByTenant = jest.fn();
@@ -103,8 +104,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
       address: '214 Harbor St',
       phone: '+49 30 1234567',
       websiteUri: 'https://coastal.example',
+      category: 'Restaurant',
     });
     updateLocationDetails.mockResolvedValue(undefined);
+    updateLocationRating.mockResolvedValue(undefined);
     markReviewsReconciled.mockResolvedValue(undefined);
     noteRunWaiting.mockResolvedValue(undefined);
     findOpenReviewsForReconciliation.mockResolvedValue([]);
@@ -129,6 +132,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
             findConnectionByTenant,
             findLocationForTenant,
             updateLocationDetails,
+            updateLocationRating,
             markLocationDetailsAttempted,
             markReviewsReconciled,
             markNeedsReauth,
@@ -272,6 +276,46 @@ describe('ReviewSyncQueueService.runPoll', () => {
 
     expect(listReviews).toHaveBeenCalledTimes(2);
     expect(importPollPage).toHaveBeenCalledTimes(2);
+  });
+
+  // Google's overall rating and review count ride on the first page of every reviews read, so the dashboard card stays current for free.
+  describe("Google's rating and review count", () => {
+    beforeEach(() => {
+      findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
+        lastReviewSyncedAt: null,
+        detailsRefreshedAt: RECENT,
+      });
+    });
+
+    it('records the rating and total from the first page of a poll', async () => {
+      listReviews.mockResolvedValue(page({ totalCount: 212, averageRating: 4.3 }));
+
+      await service.runPoll(job);
+
+      expect(updateLocationRating).toHaveBeenCalledWith({
+        locationId: 'location-1',
+        rating: 4.3,
+        reviewCount: 212,
+      });
+    });
+
+    it('does nothing for a page that carries neither figure', async () => {
+      listReviews.mockResolvedValue(page());
+
+      await service.runPoll(job);
+
+      expect(updateLocationRating).not.toHaveBeenCalled();
+    });
+
+    // The figures are only shown on a card: failing to store them must never fail the run (or stop the import of reviews).
+    it('still completes the run when the figures cannot be stored', async () => {
+      updateLocationRating.mockRejectedValue(new Error('db blip'));
+      listReviews.mockResolvedValue(page({ totalCount: 5, averageRating: 4.8 }));
+
+      await expect(service.runPoll(job)).resolves.not.toThrow();
+      expect(completeRun).toHaveBeenCalled();
+    });
   });
 
   describe('rate limiting by Google', () => {
@@ -617,6 +661,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
         address: '214 Harbor St',
         phone: '+49 30 1234567',
         websiteUri: 'https://coastal.example',
+        category: 'Restaurant',
       });
       expect(updateLocationDetails.mock.invocationCallOrder[0]).toBeLessThan(
         generateForClassifiedReviews.mock.invocationCallOrder[0] ?? 0
@@ -638,6 +683,7 @@ describe('ReviewSyncQueueService.runPoll', () => {
         address: null,
         phone: '+49 30 1234567',
         websiteUri: null,
+        category: null,
       });
 
       await service.runPoll(job);

@@ -125,6 +125,9 @@ Success `200`:
     "address": "214 Harbor St, Portland, ME",
     "phone": "+1 207-555-0142",
     "websiteUri": "https://coastaltable.example",
+    "category": "Restaurant",
+    "googleRating": 4.3,
+    "googleReviewCount": 212,
     "status": "active",
     "lastSyncedAt": "2026-09-01T14:15:00.000Z",
     "lastSyncStatus": "ok",
@@ -139,6 +142,15 @@ when it lists none. They are stored on `locations` when a location is confirmed 
 address, by the 15-minute poll at most once a day (`locations.details_refreshed_at`); a failed re-read is logged
 and retried on the next tick, never failing the poll. The dashboard's business card shows them, and the AI reply
 prompt uses them (see [AI overview](../ai/overview.md)). Google exposes no business email address, so there is none.
+
+`category` is Google's primary category for the business (`categories.primaryCategory.displayName`, read with the
+other details through the location read mask) and is `null` when it lists none. `googleRating` and
+`googleReviewCount` are **Google's own** overall rating and total review count, which cover every review of the
+business, unlike the ones imported here (a first import stops after about 1,000 reviews). They come from the first page of
+every reviews read (`averageRating` and `totalReviewCount`), so each 15-minute poll keeps them current without an extra
+call; the write only happens when a figure changed, and a failed write is logged and never fails the sync. All three are
+`null` until a sync has read them. The dashboard's business card shows them with a sync badge built from
+`lastSyncStatus`: green when it is `ok`, red when it is `error`, none before the first sync.
 
 Errors: `401` (missing/expired token), `403 TENANT_SUSPENDED`, `429`.
 

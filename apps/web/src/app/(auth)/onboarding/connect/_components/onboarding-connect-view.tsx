@@ -7,7 +7,6 @@ import { useEffect, useState } from "react";
 
 
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
-import type { OnboardingStep } from "@/app/(auth)/onboarding/_components/onboarding-step.types";
 import { OnboardingStepper } from "@/app/(auth)/onboarding/_components/onboarding-stepper";
 import { AccountPickerStage } from "@/app/(auth)/onboarding/connect/_components/account-picker-stage";
 import { BackfillingStage } from "@/app/(auth)/onboarding/connect/_components/backfilling-stage";
@@ -22,10 +21,9 @@ import {
   OnboardingContextService,
 } from "@/app/_libs/services/onboarding-context.service";
 import { Button } from "@/components/ui/button";
+import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 import { useOnboardingConnectFlow } from "@/hooks/onboarding/use-onboarding-connect-flow";
-
-const PASSWORD_STEPS: OnboardingStep[] = ["identity", "otp", "plan", "connect"];
-const SSO_LIKE_STEPS: OnboardingStep[] = ["identity", "plan", "connect"];
+import { isPlanStepSkipped, useOnboardingSteps } from "@/hooks/onboarding/use-onboarding-steps";
 
 /**
  * Final signup step and the standalone reconnect screen: the OAuth round trip can't happen on /onboarding/signup because
@@ -67,10 +65,14 @@ function OnboardingConnectFlow({ context }: { context: OnboardingContext | null 
   const router = useRouter();
   const t = useTranslations("onboardingConnect");
   const flow = useOnboardingConnectFlow();
+  const steps = useOnboardingSteps(context?.via === "password");
+  const { data: platformSettings } = usePlatformSettings();
 
   // Free can still be changed until locations are being imported; Paid cannot, since the plan screen would offer a second payment.
+  // With payments off there is no other plan to change to.
   const canChangePlan =
     context?.plan === "free" &&
+    !isPlanStepSkipped(platformSettings) &&
     (flow.stage === "connect" ||
       flow.stage === "redirecting" ||
       flow.stage === "confirm_location");
@@ -104,7 +106,7 @@ function OnboardingConnectFlow({ context }: { context: OnboardingContext | null 
       <div className="flex w-full max-w-[480px] flex-col items-center gap-6">
         {context ? (
           <OnboardingStepper
-            steps={context.via === "password" ? PASSWORD_STEPS : SSO_LIKE_STEPS}
+            steps={steps}
             currentStep="connect"
             completedSteps={flow.stage === "done" ? ["connect"] : []}
           />

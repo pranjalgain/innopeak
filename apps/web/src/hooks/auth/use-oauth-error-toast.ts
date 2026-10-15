@@ -7,13 +7,16 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
+import { ROUTES } from "@/app/_libs/constants/routes";
+
 const PROVIDERS = ["google", "microsoft"];
 
 /**
  * Surfaces the `?error=` the Google/Microsoft callbacks redirect back with (it cannot answer with JSON
  * mid-navigation). `?provider=` selects that provider's own wording where it has some ("verify it with
- * Google" vs "ask your Microsoft admin"); codes without one share the neutral copy. Both params are
- * stripped once shown so a refresh cannot replay them, via
+ * Google" vs "ask your Microsoft admin"); codes without one share the neutral copy. On the admin sign-in
+ * screen `ssoErrors.admin.<code>` wins where it exists, since "sign up first" is wrong where admins are
+ * invited. Both params are stripped once shown so a refresh cannot replay them, via
  * `history.replaceState` since this is a URL tidy-up, not a navigation (and typed routes reject a
  * bare `pathname`).
  *
@@ -36,14 +39,17 @@ export function useOAuthErrorToast(): void {
 
     // `t.has` avoids next-intl throwing on a code this build doesn't know (backend deployed ahead).
     const providerKey = provider === null ? null : `${provider}.${error}`;
+    const adminKey = pathname === ROUTES.ADMIN_LOGIN ? `admin.${error}` : null;
     const message =
-      providerKey !== null && t.has(providerKey)
-        ? t(providerKey)
-        : t.has(error)
-          ? t(error)
-          : provider !== null
-            ? t(`${provider}.fallback`)
-            : t("fallback");
+      adminKey !== null && t.has(adminKey)
+        ? t(adminKey)
+        : providerKey !== null && t.has(providerKey)
+          ? t(providerKey)
+          : t.has(error)
+            ? t(error)
+            : provider !== null
+              ? t(`${provider}.fallback`)
+              : t("fallback");
     toast.error(message);
     window.history.replaceState(null, "", pathname);
   }, [error, provider, t, pathname]);

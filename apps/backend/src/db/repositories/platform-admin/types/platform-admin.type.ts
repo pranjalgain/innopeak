@@ -1,4 +1,5 @@
 import type { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import type { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import type { Locale } from '@common/i18n/locale';
 
 export interface PlatformAdminProfileRow {
@@ -59,6 +60,21 @@ export type AcceptInviteOutcome =
   | { outcome: 'accepted'; id: string; email: string; locale: Locale | null }
   | { outcome: 'identity_already_linked' }
   | { outcome: 'invalid' };
+
+/**
+ * Linking an identity to an admin by verified email, on first use. Only an `active` admin can be linked: `invited` collapses
+ * into `no_account` (an invite is redeemed through its own link), and a race on the unique identity index does too.
+ */
+export type LinkAdminIdentityOutcome =
+  | { outcome: 'linked'; id: string; email: string; locale: Locale | null }
+  | { outcome: 'no_account' }
+  | { outcome: 'unavailable' };
+
+export interface LinkAdminIdentityInput {
+  provider: UserIdentityProvider;
+  providerUserId: string;
+  email: string;
+}
 
 export interface SetAdminStatusGuardInput {
   id: string;

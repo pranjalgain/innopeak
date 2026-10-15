@@ -43,6 +43,12 @@ CREATE TABLE IF NOT EXISTS locations (
     -- invitation to get in touch carries real details instead of a placeholder.
     phone VARCHAR(50),
     website_uri VARCHAR(2048),
+    -- Google's primary category ("Restaurant"), re-read with the other details above.
+    category VARCHAR(255),
+    -- Google's overall rating and review count for the location, refreshed from the reviews list on every poll. Google's own figures:
+    -- they cover every review, unlike the ones we import.
+    google_rating NUMERIC(3,2),
+    google_review_count INTEGER,
     -- Last attempt to re-read name/address/phone/website from the provider, successful or not; the poll tries at
     -- most daily, so a location Google keeps refusing costs one call a day rather than one per tick.
     details_refreshed_at TIMESTAMPTZ,

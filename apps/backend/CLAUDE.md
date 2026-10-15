@@ -56,7 +56,7 @@ The project uses maximum strictness. Key implications:
 | `0006_prompts` | prompts, prompt_versions (`template VARCHAR(1000)`) |
 | `0007_auth_hardening` | refresh_tokens |
 | `0008_platform_settings` | platform_settings — a single, platform-wide singleton row (`id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1)`) controlling which login methods the sign-in/sign-up screens offer and whether tenant owners can invite teammates |
-| `0009_admin_overview` | platform_activity_log — a small, purpose-built log of platform-admin actions (business suspend/reactivate, admin invite send/revoke, admin enable/disable, user activate/deactivate), written explicitly by application code rather than trigger-populated. Not a generic audit trail — it only covers those specific actions |
+| `0009_admin_overview` | platform_activity_log — a small, purpose-built log of platform activity (business suspend/reactivate, erasure requested/cancelled/erased, a new business joining, platform settings changes with a `details` JSONB of what moved, admin invite send/revoke, admin enable/disable, user activate/deactivate), written explicitly by application code rather than trigger-populated. Not a generic audit trail — it only covers those specific actions |
 | `0010_media` | media — one row per uploaded asset, owned by either a `users` or a `platform_admins` row (nullable FK pair + a CHECK that exactly one is set, mirroring `platform_activity_log`). Two partial unique indexes keep at most one current asset per owner per `kind`, which is what makes an avatar upload a replace-in-place rather than an append. `users.avatar_url`/`platform_admins.avatar_url` were dropped in the same file — this table is now the only place an avatar lives |
 | `0011_billing` | billing_plans (seeded `free`/`paid`, NULL limits = unlimited), tenant_subscriptions (one row per tenant, always present, defaults to `free`; `stripe_last_event_at` is the stale-webhook clock), stripe_webhook_events (idempotency ledger keyed on Stripe's event id) |
 | `0012_billing_receipts` | billing_receipts — one row per paid Stripe invoice, independent of `tenant_subscriptions` so a receipt stays readable after a plan change |
@@ -127,6 +127,8 @@ reference. New modules follow the same convention from the start.
 A setting that comes from the environment rather than a table (`PAYMENT_FEATURE_ENABLED`, `ERASURE_GRACE_PERIOD_DAYS`) is reflected
 on `GET /v1/settings/platform-config` through `PlatformSettingsResponseDto.from(row, deploy)` — never a second, writable copy and
 never duplicated as a constant in the web app. Add new ones to `PlatformDeploySettings` and to the exact-key-set spec.
+`adminMicrosoftLoginAvailable` is one (derived from `ADMIN_MICROSOFT_TENANT_ID` + the Microsoft client): platform-admin Microsoft sign-in is
+sign-in only and pinned to that Entra directory — see `docs/backend/auth/microsoft-login-design.md`.
 
 ### Provider/Strategy Pattern
 External integrations use abstract base classes with swappable implementations:
@@ -257,10 +259,10 @@ contract: `apps/documentation/docs/backend/auth/`.
   invitee has no `platform_admin_identities` row yet for that callback branch to find — completion
   happens at the shared `GET /v1/auth/google/callback` via a third `OAuthIntent.ADMIN_INVITE`,
   which requires the IdP-verified email to exactly match the invited address
-  (`INVITE_EMAIL_MISMATCH` otherwise). That same callback also resolves an *already-linked* admin
-  identity on ordinary `login`/`signup` round trips — a Google-accepted admin has no
-  `password_hash` and no refresh token, so without that read their session ended 15 minutes after
-  acceptance with no way back. See `apps/documentation/docs/backend/auth/invite-flow-design.md`
+  (`INVITE_EMAIL_MISMATCH` otherwise). A Google-accepted admin has no `password_hash` and no refresh
+  token, so their way back in is the admin sign-in page's own Google button
+  (`GET /v1/admin/auth/google`, `OAuthIntent.ADMIN_LOGIN`); the tenant `login`/`signup` buttons never
+  consult admin identities, since the same address may be both an admin and a tenant user. See `apps/documentation/docs/backend/auth/invite-flow-design.md`
 
 **Tokens**
 - Access token: JWT, 15 min (`ACCESS_TOKEN_TTL_SECONDS`). Sent both as an httpOnly `access_token`

@@ -10,22 +10,25 @@ export interface ListPlatformActivityParams {
   type?: PlatformActivityType;
 }
 
-// `actorEmail` stays `string | null` (always present; null for `business_joined`). `businessName`/`email` are
-// coalesced to `undefined` because they are genuinely absent depending on `type`.
-function toDomain(dto: {
+interface ActivityDto {
   id: string;
   type: PlatformActivityEntry["type"];
-  actorEmail: string | null;
+  actorEmail: string;
   businessName: string | null;
   email: string | null;
+  details: PlatformActivityEntry["details"] | null;
   occurredAt: string;
-}): PlatformActivityEntry {
+}
+
+// `businessName`/`email`/`details` are coalesced to `undefined` because they are genuinely absent depending on `type`.
+function toDomain(dto: ActivityDto): PlatformActivityEntry {
   return {
     id: dto.id,
     type: dto.type,
     actorEmail: dto.actorEmail,
     businessName: dto.businessName ?? undefined,
     email: dto.email ?? undefined,
+    ...(dto.details ? { details: dto.details } : {}),
     occurredAt: dto.occurredAt,
   };
 }
@@ -33,16 +36,7 @@ function toDomain(dto: {
 export class AdminActivityService {
   static async getRecentActivity(): Promise<PlatformActivityEntry[]> {
     const response = await adminOverviewApi.adminOverviewControllerGetRecentActivityV1();
-    const rows = unwrap<
-      {
-        id: string;
-        type: PlatformActivityEntry["type"];
-        actorEmail: string | null;
-        businessName: string | null;
-        email: string | null;
-        occurredAt: string;
-      }[]
-    >(response.data);
+    const rows = unwrap<ActivityDto[]>(response.data);
     return rows.map(toDomain);
   }
 
@@ -54,17 +48,7 @@ export class AdminActivityService {
       // Same string-literal set as `PlatformActivityType` but a distinct nominal type; safe to cast.
       type: params.type as AdminOverviewControllerListActivityV1TypeEnum,
     });
-    const dto = unwrap<{
-      activities: {
-        id: string;
-        type: PlatformActivityEntry["type"];
-        actorEmail: string | null;
-        businessName: string | null;
-        email: string | null;
-        occurredAt: string;
-      }[];
-      meta: PlatformActivityList["meta"];
-    }>(response.data);
+    const dto = unwrap<{ activities: ActivityDto[]; meta: PlatformActivityList["meta"] }>(response.data);
     return { activities: dto.activities.map(toDomain), meta: dto.meta };
   }
 }

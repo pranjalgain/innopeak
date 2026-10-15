@@ -60,6 +60,8 @@ export interface AppendPromptVersionInput {
 /** Only what generation reads: live tone plus the current version's template. */
 export interface CurrentPromptForCategory {
   promptId: string;
+  /** `prompt_versions.id` of the version `template` came from: stamped on every draft it generates, which is what Settings > Prompts counts by. */
+  promptVersionId: string;
   tone: PromptTone;
   template: string;
 }

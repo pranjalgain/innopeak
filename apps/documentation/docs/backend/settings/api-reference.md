@@ -1001,6 +1001,7 @@ Public (`@Public()`): the sign-in and sign-up screens read it before a session e
 | `notificationSettingsEnabled` | boolean | `platform_settings.notification_settings_enabled` — whether Settings shows the Notifications tab and the notification-recipients routes answer. Defaults to `false`. Writing `true` is refused with 422 `NOTIFICATION_CHANNELS_NOT_IMPLEMENTED` until email/Teams delivery exists; while it is off the recipients routes answer 403 `NOTIFICATION_SETTINGS_DISABLED` |
 | `paymentFeatureEnabled` | boolean | The deploy's `PAYMENT_FEATURE_ENABLED` env var, not a column |
 | `erasureGracePeriodDays` | number | The deploy's `ERASURE_GRACE_PERIOD_DAYS` env var (default 21), not a column. Days between a business or member being scheduled for erasure and the nightly purge anonymising it; the web app counts its "takes effect on" dates from it |
+| `adminMicrosoftLoginAvailable` | boolean | Derived from the environment, not a column: the Microsoft client (`MICROSOFT_CLIENT_ID`/`_SECRET`/`_CALLBACK_URL`) is configured **and** `ADMIN_MICROSOFT_TENANT_ID` pins the Entra directory platform admins sign in from. Whether the admin sign-in page offers "Continue with Microsoft" (sign-in only; admins are invite-only). Independent of `microsoftLoginEnabled`, which governs tenant sign-in |
 
 ## Data export
 

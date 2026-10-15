@@ -22,6 +22,7 @@ function draft(overrides: Partial<ReviewReplyDraft>): ReviewReplyDraft {
     content: "Thanks!",
     originalContent: "Thanks!",
     status: "approved",
+    source: "ai_generated",
     promptId: "p",
     promptVersion: 1,
     createdAt: "2026-01-01T00:00:00.000Z",

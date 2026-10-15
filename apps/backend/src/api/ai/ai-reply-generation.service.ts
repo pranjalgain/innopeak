@@ -3,6 +3,7 @@ import { InAppNotificationType } from '@common/enums/in-app-notification-type.en
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
+import { DEFAULT_LOCALE, type Locale } from '@common/i18n/locale';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
@@ -26,6 +27,7 @@ import {
   MAX_AI_REPLY_COUNT,
   MAX_CONSECUTIVE_GENERATION_FAILURES,
   MIN_AI_REPLY_COUNT,
+  NO_WRITTEN_COMMENT,
 } from './constants/ai.constants';
 import {
   AiGenerationFailedException,
@@ -112,6 +114,15 @@ export class AiReplyGenerationService {
   }
 
   /**
+   * The language a star-only review is answered in: the business owner's chosen language in the app (an Austrian owner who set German
+   * gets German replies), else the app's default. Only the first active owner is asked; a business has one in practice.
+   */
+  private async resolveBusinessReplyLanguage(tenantId: string): Promise<Locale> {
+    const owners = await this.authDbService.findTenantOwnerRecipients(tenantId);
+    return owners.find(owner => owner.locale !== null)?.locale ?? DEFAULT_LOCALE;
+  }
+
+  /**
    * Claims each review (CAS) before its AI call to prevent double generation. The quota is a budget, not a gate: the
    * remaining allowance clamps the batch size, so a tenant one draft under its cap can't generate a full batch.
    * Residual race: the count is an unreserved SELECT, so two locations of one tenant could overspend; unreachable
@@ -170,7 +181,11 @@ export class AiReplyGenerationService {
       this.resolveBusinessName(input.tenantId),
       this.resolveLocationContact(input.tenantId, input.locationId),
     ]);
-    const business: BusinessForReply = { name: businessName, contact };
+    // Read only when the batch holds a star-only review, the one case that has no language of its own to follow.
+    const replyLanguage = candidates.some(candidate => candidate.reviewText === null)
+      ? await this.resolveBusinessReplyLanguage(input.tenantId)
+      : null;
+    const business: BusinessForReply = { name: businessName, contact, replyLanguage };
     // `undefined` = not yet asked, `null` = asked and no prompt exists, so a missing category is cached too.
     const promptCache = new Map<PromptCategory, CurrentPromptForCategory | null>();
     const batchSettings = await this.resolveBatchSettings(input.tenantId);
@@ -304,7 +319,7 @@ export class AiReplyGenerationService {
       business_name: business.name,
       reviewer_name: ANONYMOUS_REVIEWER,
       rating: String(candidate.rating),
-      review_text: candidate.reviewText ?? '(no written comment — rating only)',
+      review_text: candidate.reviewText ?? NO_WRITTEN_COMMENT,
     });
 
     const isEscalated = candidate.classification === ReviewClassification.ESCALATED;
@@ -319,6 +334,10 @@ export class AiReplyGenerationService {
       tone: current.tone,
       snippetCount,
       contact: business.contact,
+      category,
+      // Only a star-only review: one with text is answered in the reviewer's own language.
+      noCommentLanguage:
+        candidate.reviewText === null ? (business.replyLanguage ?? undefined) : undefined,
     });
     const result = await this.aiProvider.generateReply({
       systemPrompt,
@@ -363,6 +382,7 @@ export class AiReplyGenerationService {
             ? ResponseType.ESCALATION_SNIPPET
             : ResponseType.AUTO_REPLY_SUGGESTION,
           content,
+          promptVersionId: current.promptVersionId,
           generationGroupId,
           generationMetadata,
         });

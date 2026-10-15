@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -42,6 +42,7 @@ describe("OnboardingSignupView", () => {
       passwordLoginEnabled: false,
       googleLoginEnabled: false,
       inviteMembersEnabled: false, notificationSettingsEnabled: false,
+      paymentFeatureEnabled: true,
     });
   });
 
@@ -60,6 +61,23 @@ describe("OnboardingSignupView", () => {
     expect(screen.getByText("Choose your plan")).toBeInTheDocument();
     expect(screen.getByText("Connect business profile")).toBeInTheDocument();
     expect(screen.queryByText("Verify email")).not.toBeInTheDocument();
+  });
+
+  // Payments off: every signup is on Free, so the wizard has no plan step to show.
+  test("leaves the plan step out of the stepper when the payment feature is off", async () => {
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
+      microsoftLoginEnabled: true,
+      passwordLoginEnabled: false,
+      googleLoginEnabled: false,
+      inviteMembersEnabled: false, notificationSettingsEnabled: false,
+      paymentFeatureEnabled: false,
+    });
+    renderView();
+
+    expect(await screen.findByRole("button", { name: "Continue with Microsoft" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Choose your plan")).not.toBeInTheDocument());
+    expect(screen.getByText("Create account")).toBeInTheDocument();
+    expect(screen.getByText("Connect business profile")).toBeInTheDocument();
   });
 
   /** Navigation to the backend, which redirects to Microsoft; a business name is collected after the callback, not here. */

@@ -36,7 +36,9 @@ export function AttentionReviewsGrid({ reviews }: AttentionReviewsGridProps) {
             )}
             style={{ animationDelay: `${index * 60}ms` }}
           >
-            <CardContent className="flex flex-col gap-3">
+            {/* `flex-1` makes the content fill the (grid-stretched) card, and `mt-auto` on the footer pins the badge and button to the
+                bottom edge, so a short review does not leave them floating mid-card beside a longer one. */}
+            <CardContent className="flex flex-1 flex-col gap-3">
               <div className="flex items-center gap-2">
                 <Avatar className="size-8">
                   <AvatarFallback className="bg-accent text-xs font-medium text-accent-foreground">
@@ -51,7 +53,7 @@ export function AttentionReviewsGrid({ reviews }: AttentionReviewsGridProps) {
 
               <p className="line-clamp-3 text-sm text-muted-foreground">{review.snippet}</p>
 
-              <div className="flex min-w-0 items-center justify-between gap-2">
+              <div className="mt-auto flex min-w-0 items-center justify-between gap-2">
                 {review.escalationReason ? (
                   <EscalationBadge reason={review.escalationReason} short className="py-1.5" />
                 ) : (

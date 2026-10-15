@@ -477,6 +477,7 @@ export class ReviewSyncQueueService {
         address: details.address,
         phone: details.phone,
         websiteUri: details.websiteUri,
+        category: details.category,
       });
     } catch (error) {
       this.logger.warn(
@@ -538,6 +539,7 @@ export class ReviewSyncQueueService {
         },
         syncRunId
       );
+      await this.recordGoogleRating(job, page);
 
       const result = await this.reviewSyncDbService.importPage({
         tenantId: job.tenantId,
@@ -624,6 +626,7 @@ export class ReviewSyncQueueService {
         },
         syncRunId
       );
+      await this.recordGoogleRating(job, page);
 
       const newReviews: typeof page.reviews = [];
       for (const review of page.reviews) {
@@ -674,6 +677,32 @@ export class ReviewSyncQueueService {
       // without it a null-cursor location with more than MAX_POLL_PAGES pages would fail every poll.
       truncated: cursor !== null && Boolean(pageToken) && !reachedCursor,
     };
+  }
+
+  /**
+   * Google's own overall rating and review count come back on the first page of every reviews read, so keeping them current costs no extra
+   * call. Best-effort: a failed write must never fail the sync run, since the figures are only shown on the dashboard card and the next
+   * poll writes them again. Pages without them (later pages) are a no-op.
+   */
+  private async recordGoogleRating(
+    job: IReviewSyncJob,
+    page: { averageRating: number | null; totalCount: number | null }
+  ): Promise<void> {
+    if (page.averageRating === null && page.totalCount === null) {
+      return;
+    }
+
+    try {
+      await this.connectionsDbService.updateLocationRating({
+        locationId: job.locationId,
+        rating: page.averageRating,
+        reviewCount: page.totalCount,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not record Google's rating for location ${job.locationId}: ${(error as Error).message}`
+      );
+    }
   }
 
   /** Numeric, not string, comparison: immune to ISO-8601 formatting or precision quirks. */

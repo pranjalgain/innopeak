@@ -65,6 +65,8 @@ export interface GbpLocation {
   storefrontAddress?: GbpPostalAddress;
   websiteUri?: string;
   phoneNumbers?: { primaryPhone?: string; additionalPhones?: string[] };
+  /** `displayName` is the localised name ("Restaurant"); only the primary category is read. */
+  categories?: { primaryCategory?: { name?: string; displayName?: string } };
 }
 
 export interface GbpListLocationsResponse {

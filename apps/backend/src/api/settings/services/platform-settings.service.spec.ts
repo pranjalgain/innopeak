@@ -64,12 +64,13 @@ describe('PlatformSettingsService', () => {
   // The route is `@Public()` and the DTO is shared with the admin-only PATCH, so the DTO is all that
   // keeps `updated_by_platform_admin_id` off an unauthenticated response. Exact key set (not a
   // `not.toHaveProperty`) so any column newly mapped in `from()` fails here.
-  it('exposes only the seven public settings — never the internal actor id', async () => {
+  it('exposes only the eight public settings — never the internal actor id', async () => {
     platformSettingsDbService.get.mockResolvedValue(row);
 
     const result = await target.get();
 
     expect(Object.keys(result).sort()).toEqual([
+      'adminMicrosoftLoginAvailable',
       'erasureGracePeriodDays',
       'googleLoginEnabled',
       'inviteMembersEnabled',
@@ -102,5 +103,27 @@ describe('PlatformSettingsService', () => {
       configWith({ PAYMENT_FEATURE_ENABLED: 'false', ERASURE_GRACE_PERIOD_DAYS: 1 })
     );
     expect((await target.get()).erasureGracePeriodDays).toBe(1);
+  });
+
+  // Derived from the environment alone: the Microsoft client AND a pinned directory.
+  it('offers admin Microsoft sign-in only when the client is configured and a directory is pinned', async () => {
+    platformSettingsDbService.get.mockResolvedValue(row);
+    const full = {
+      ADMIN_MICROSOFT_TENANT_ID: '3f2b8c1e-5a47-4d90-8e6b-0c1d2e3f4a5b',
+      MICROSOFT_CLIENT_ID: 'id',
+      MICROSOFT_CLIENT_SECRET: 'secret',
+      MICROSOFT_CALLBACK_URL: 'https://app.test/v1/auth/microsoft/callback',
+    };
+
+    expect((await target.get()).adminMicrosoftLoginAvailable).toBe(false);
+
+    configService.get.mockImplementation(configWith(full));
+    expect((await target.get()).adminMicrosoftLoginAvailable).toBe(true);
+
+    configService.get.mockImplementation(configWith({ ...full, ADMIN_MICROSOFT_TENANT_ID: '' }));
+    expect((await target.get()).adminMicrosoftLoginAvailable).toBe(false);
+
+    configService.get.mockImplementation(configWith({ ...full, MICROSOFT_CLIENT_SECRET: '' }));
+    expect((await target.get()).adminMicrosoftLoginAvailable).toBe(false);
   });
 });

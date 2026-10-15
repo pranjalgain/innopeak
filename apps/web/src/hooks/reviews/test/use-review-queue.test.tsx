@@ -1,9 +1,9 @@
 
-import { QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
   type ConnectedLocation,
@@ -260,3 +260,68 @@ describe("useReviewQueue", () => {
     });
   });
 });
+
+/** New reviews arrive in the background, so the queue refreshes itself when the window is focused again. */
+describe("useReviewQueue — staying current", () => {
+  const T0 = new Date("2026-06-01T10:00:00Z").getTime();
+  const returnToWindow = () => {
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    resetNavigation("/review-queue");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(T0);
+    vi.spyOn(ConnectionService, "getState").mockResolvedValue(connectionState());
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("does not refetch when the window is refocused within a minute", async () => {
+    const getReviews = vi.spyOn(ReviewService, "getReviews").mockResolvedValue(page([]));
+    const { wrapper: withClient } = renderWithClient();
+    renderHook(() => useReviewQueue(), { wrapper: withClient });
+    await waitFor(() => expect(getReviews).toHaveBeenCalledTimes(1));
+
+    vi.setSystemTime(T0 + 30_000);
+    returnToWindow();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getReviews).toHaveBeenCalledTimes(1);
+  });
+
+  test("refetches when the window is refocused after a minute", async () => {
+    const getReviews = vi.spyOn(ReviewService, "getReviews").mockResolvedValue(page([]));
+    const { wrapper: withClient } = renderWithClient();
+    renderHook(() => useReviewQueue(), { wrapper: withClient });
+    await waitFor(() => expect(getReviews).toHaveBeenCalledTimes(1));
+
+    vi.setSystemTime(T0 + 61_000);
+    returnToWindow();
+
+    await waitFor(() => expect(getReviews).toHaveBeenCalledTimes(2));
+  });
+
+  // Replacing a list the person is reading with an error screen because a refocus refetch failed would be worse than slightly old rows.
+  test("keeps the rows and reports no error when a background refresh fails", async () => {
+    const getReviews = vi.spyOn(ReviewService, "getReviews").mockResolvedValueOnce(page([{ id: "r1" } as Review], 1));
+    const { wrapper: withClient } = renderWithClient();
+    const { result } = renderHook(() => useReviewQueue(), { wrapper: withClient });
+    await waitFor(() => expect(result.current.reviews).toHaveLength(1));
+
+    getReviews.mockRejectedValue(new Error("offline"));
+    vi.setSystemTime(T0 + 61_000);
+    returnToWindow();
+    await waitFor(() => expect(getReviews).toHaveBeenCalledTimes(2));
+
+    expect(result.current.isError).toBe(false);
+    expect(result.current.reviews).toHaveLength(1);
+  });
+});
+

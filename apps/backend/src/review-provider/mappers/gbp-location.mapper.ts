@@ -37,6 +37,7 @@ export function mapGbpLocation(location: GbpLocation): ProviderLocation {
     address: formatAddress(location.storefrontAddress),
     phone: nonEmpty(location.phoneNumbers?.primaryPhone),
     websiteUri: nonEmpty(location.websiteUri),
+    category: nonEmpty(location.categories?.primaryCategory?.displayName),
   };
 }
 

@@ -11,6 +11,8 @@ interface UseAdminLoginResult {
   loginAsAdmin: (email: string, password: string) => Promise<boolean>;
   /** Navigates away — there is no return value to check. */
   startAdminGoogleLogin: () => void;
+  /** Navigates away too; sign-in only, since admins are invite-only. */
+  startAdminMicrosoftLogin: () => void;
   isLoading: boolean;
 }
 
@@ -19,7 +21,7 @@ export function useAdminLogin(): UseAdminLoginResult {
   const t = useTranslations("auth.toasts");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Same bfcache hazard as `useAuth`: Google login navigates away, so browser-back can restore this
+  // Same bfcache hazard as `useAuth`: Google and Microsoft login navigate away, so browser-back can restore this
   // page with `isLoading: true` and no remount to clear it.
   useEffect(() => {
     const handlePageShow = (event: PageTransitionEvent) => {
@@ -54,5 +56,10 @@ export function useAdminLogin(): UseAdminLoginResult {
     AuthService.startAdminGoogleLogin();
   }, []);
 
-  return { loginAsAdmin, startAdminGoogleLogin, isLoading };
+  const startAdminMicrosoftLogin = useCallback(() => {
+    setIsLoading(true);
+    AuthService.startAdminMicrosoftLogin();
+  }, []);
+
+  return { loginAsAdmin, startAdminGoogleLogin, startAdminMicrosoftLogin, isLoading };
 }

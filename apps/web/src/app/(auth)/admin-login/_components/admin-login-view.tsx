@@ -12,6 +12,8 @@ import { PasswordAuthForm } from "@/app/(auth)/_components/password-auth-form";
 import { SocialAuthButtons } from "@/app/(auth)/_components/social-auth-buttons";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { readReturnPath } from "@/app/_libs/utils/post-login-redirect";
+import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
+import { Button } from "@/components/ui/button";
 import { useAdminLogin } from "@/hooks/auth/use-admin-login";
 import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
@@ -22,16 +24,21 @@ import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
  * The Google button is required: an admin who accepted via Google has no `password_hash`, so it is their only way in
  * (hence `AdminSettingsService.updatePlatformSettings` refuses to disable `googleLoginEnabled` while one exists).
  * It points at `/v1/admin/auth/google`, not the tenant route, which falls through to tenant tables and sends failures to `/login`.
+ * The Microsoft button is sign-in only (admins are invite-only, so there is no sign-up) and follows `adminMicrosoftLoginAvailable`, a
+ * deploy-level fact (Microsoft client + the pinned Entra directory), not the tenant-facing `microsoftLoginEnabled` switch.
  */
 export function AdminLoginView() {
   const t = useTranslations("auth.adminLogin");
   useOAuthErrorToast();
   const router = useRouter();
-  const { loginAsAdmin, startAdminGoogleLogin, isLoading } = useAdminLogin();
+  const { loginAsAdmin, startAdminGoogleLogin, startAdminMicrosoftLogin, isLoading } =
+    useAdminLogin();
   const { data: platformSettings } = usePlatformSettings();
 
   // Hidden while the setting loads; the password form is always there, so a late button is fine.
-  const socialEnabled = platformSettings?.googleLoginEnabled ?? false;
+  const googleEnabled = platformSettings?.googleLoginEnabled ?? false;
+  const microsoftEnabled = platformSettings?.adminMicrosoftLoginAvailable ?? false;
+  const bothEnabled = googleEnabled && microsoftEnabled;
 
   const handleSubmit = async (email: string, password: string) => {
     const succeeded = await loginAsAdmin(email, password);
@@ -55,14 +62,29 @@ export function AdminLoginView() {
           onSubmit={(email, password) => void handleSubmit(email, password)}
         />
 
-        {socialEnabled ? (
+        {googleEnabled || microsoftEnabled ? (
           <>
             <AuthDivider label={t("orDivider")} />
-            <SocialAuthButtons
-              isLoading={isLoading}
-              onGoogleClick={startAdminGoogleLogin}
-              label={t("continueWithGoogle")}
-            />
+            <div className={bothEnabled ? "grid grid-cols-2 gap-3" : "grid gap-3"}>
+              {microsoftEnabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="block"
+                  disabled={isLoading}
+                  onClick={startAdminMicrosoftLogin}>
+                  <MicrosoftLogo />
+                  {bothEnabled ? t("microsoft") : t("continueWithMicrosoft")}
+                </Button>
+              ) : null}
+              {googleEnabled ? (
+                <SocialAuthButtons
+                  isLoading={isLoading}
+                  onGoogleClick={startAdminGoogleLogin}
+                  label={bothEnabled ? t("google") : t("continueWithGoogle")}
+                />
+              ) : null}
+            </div>
           </>
         ) : null}
 

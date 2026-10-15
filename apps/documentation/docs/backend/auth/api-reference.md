@@ -258,6 +258,16 @@ stated as a hard requirement here and not a style preference.
 >   `MICROSOFT_AUTHORITY`.
 > - Both routes honour `platform_settings.microsoft_login_enabled`: while it is off they answer
 >   `?error=NOT_CONFIGURED&provider=microsoft` instead of signing anyone in. The Azure app needs the `email` and `xms_edov` optional ID-token claims.
+>
+> **Platform-admin sign-in (sign-in only).** `GET /v1/admin/auth/microsoft` (public, 10 / min) starts an
+> `admin_login` round trip pinned to the directory in `ADMIN_MICROSOFT_TENANT_ID`; the same callback
+> finishes it and, on success, sets the admin session cookies and redirects to `/admin`. It signs in only an
+> existing **active** platform admin (matched by `(entra_id, sub)`, else linked by verified email on first
+> use); no admin is ever created or invited through it. Failures go to
+> `/admin-login?error=<code>&provider=microsoft` (`NO_ACCOUNT` for an unknown/invited address or another
+> directory, `ACCOUNT_UNAVAILABLE` for a disabled admin, `EMAIL_NOT_VERIFIED`, `NOT_CONFIGURED`). It ignores
+> `microsoft_login_enabled` (a tenant-facing switch); availability is
+> `adminMicrosoftLoginAvailable` on `GET /v1/settings/platform-config`.
 
 Every OAuth entry route below — signup, login, and (further down)
 [invite-accept](#get-v1authinvitetokenmicrosoft) — funnels into **one** callback per provider,
@@ -936,7 +946,7 @@ matching tenant-user section above.
 > | `GET` | `/v1/auth/invite/:token` | Public | 20 / min — preview only, **is** offered (see caveat below) |
 > | `POST` | `/v1/auth/invite/accept` | Public | 5 / min — password path |
 > | `GET` | `/v1/auth/invite/:token/google` | Public | 10 / min — Google path, own route (not `/v1/auth/google`), since a first-time invitee has no `platform_admin_identities` row for the login callback to find |
-> | `GET` | `/v1/auth/google/callback` | Public | shared with tenant login/signup — dispatches on a third `OAuthIntent.ADMIN_INVITE`, and on `login`/`signup` also resolves an already-linked `platform_admin_identities` row (that is how a Google-accepted admin signs in again afterwards — they have no password) |
+> | `GET` | `/v1/auth/google/callback` | Public | shared with tenant login/signup — dispatches on a third `OAuthIntent.ADMIN_INVITE`, and `OAuthIntent.ADMIN_LOGIN` (the admin sign-in page's Google button, which resolves `platform_admin_identities` only). On tenant `login`/`signup` it never consults admin identities: the same address may be both an admin and a tenant user |
 >
 > `POST /v1/admin/settings/invites` (bearer, platform-admin-only) is what actually sends the
 > invite — see the admin module's own API reference, not this one; `AuthController` only owns

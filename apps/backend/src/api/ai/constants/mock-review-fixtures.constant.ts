@@ -1,5 +1,7 @@
 import type { PromptCategory } from '@prompts/types/prompt.type';
 
+import { NO_WRITTEN_COMMENT } from './ai.constants';
+
 export interface MockReviewFixture {
   key: string;
   description: string;
@@ -10,8 +12,9 @@ export interface MockReviewFixture {
 }
 
 /**
- * Shared by `scripts/ai-dry-run.script.ts` and `GenerateReplyDryRunDto`'s Swagger examples. Includes
- * a long 1-star (word-limit instruction) and a non-English review (reply-in-the-same-language).
+ * Used by `scripts/ai-dry-run.script.ts` to judge prompt changes. Covers the cases that go wrong in practice: a long 1-star (word
+ * limit), non-English reviews (same language, and formal German), a star-only review (nothing to invent from), a named member of staff
+ * (the name must not be repeated), and a demand for money back (no promises).
  */
 export const MOCK_REVIEW_FIXTURES: readonly MockReviewFixture[] = [
   {
@@ -66,5 +69,48 @@ export const MOCK_REVIEW_FIXTURES: readonly MockReviewFixture[] = [
     reviewText:
       'Excelente servicio y comida deliciosa, volveremos pronto. ' +
       '(Translated by Google) Excellent service and delicious food, we will be back soon.',
+  },
+  {
+    key: 'positive-four-star-caveat',
+    description: '4-star, praise with a small complaint',
+    category: 'positive',
+    reviewerName: 'Tom B.',
+    rating: 4,
+    reviewText: 'Really good pizza and quick service. It was a bit too loud to talk, though.',
+  },
+  {
+    key: 'positive-rating-only',
+    description: '5-star with no written comment: there is nothing specific to refer to',
+    category: 'positive',
+    reviewerName: 'Alex M.',
+    rating: 5,
+    reviewText: NO_WRITTEN_COMMENT,
+  },
+  {
+    key: 'escalated-staff-named',
+    description: '1-star blaming a named member of staff: the name must not be repeated',
+    category: 'escalated',
+    reviewerName: 'Nora V.',
+    rating: 1,
+    reviewText:
+      'Our waiter Stefan was rude and rolled his eyes when we asked about the allergens. Never again.',
+  },
+  {
+    key: 'escalated-refund-demand',
+    description: '1-star demanding money back: no promise of a refund or compensation',
+    category: 'escalated',
+    reviewerName: 'Chris D.',
+    rating: 1,
+    reviewText:
+      'Absolute scam. Overcharged on the bill and nobody cared. I want my money back immediately or I will report you.',
+  },
+  {
+    key: 'escalated-german',
+    description: 'German-language 2-star (the client is Austrian): reply in German, formal "Sie"',
+    category: 'escalated',
+    reviewerName: 'Katharina H.',
+    rating: 2,
+    reviewText:
+      'Das Essen war lauwarm und die Bedienung ziemlich unfreundlich. Schade, wir hatten uns mehr erwartet.',
   },
 ];

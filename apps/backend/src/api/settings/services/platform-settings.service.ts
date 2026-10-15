@@ -1,3 +1,4 @@
+import { isAdminMicrosoftLoginAvailable } from '@auth/utils/admin-microsoft.util';
 import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import type { EnvConfig } from '@config/env.config';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
@@ -26,6 +27,7 @@ export class PlatformSettingsService {
     return PlatformSettingsResponseDto.from(row, {
       paymentFeatureEnabled,
       erasureGracePeriodDays: getErasureGracePeriodDays(this.configService),
+      adminMicrosoftLoginAvailable: isAdminMicrosoftLoginAvailable(this.configService),
     });
   }
 }

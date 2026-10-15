@@ -8,7 +8,6 @@ import { LuCheck, LuLoaderCircle } from "react-icons/lu";
 import { toast } from "sonner";
 
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
-import type { OnboardingStep } from "@/app/(auth)/onboarding/_components/onboarding-step.types";
 import { OnboardingStepper } from "@/app/(auth)/onboarding/_components/onboarding-stepper";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import {
@@ -22,10 +21,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useBillingPlans } from "@/hooks/billing/use-billing-plans";
 import { useCreateCheckoutSession } from "@/hooks/billing/use-create-checkout-session";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
+import { isPlanStepSkipped, useOnboardingSteps } from "@/hooks/onboarding/use-onboarding-steps";
 import type { BillingPlan } from "@/types/domain";
-
-const PASSWORD_STEPS: OnboardingStep[] = ["identity", "otp", "plan", "connect"];
-const SSO_LIKE_STEPS: OnboardingStep[] = ["identity", "plan", "connect"];
 
 interface PlanCardProps {
   name: string;
@@ -126,6 +123,17 @@ export function OnboardingPlanView() {
     context?.plan === "paid" ||
     (paidPlan !== undefined && plansResult?.currentPlanId === paidPlan.id);
 
+  // Payments off: there is nothing to choose (every signup is on Free), so the step is skipped, not shown with a single card. Recorded as
+  // a Free choice, which is what the connect screen's gate looks for, then on to connect.
+  const planStepSkipped = isPlanStepSkipped(platformSettings);
+  useEffect(() => {
+    if (!planStepSkipped) return;
+    OnboardingContextService.setPlan("free");
+    router.replace(ROUTES.ONBOARDING_CONNECT);
+  }, [planStepSkipped, router]);
+
+  const steps = useOnboardingSteps(context?.via === "password");
+
   useEffect(() => {
     if (!isAlreadyPaid) return;
     // Recorded before leaving: the connect screen stays closed to a signup with no plan choice.
@@ -140,7 +148,7 @@ export function OnboardingPlanView() {
       <div className="flex w-full max-w-[720px] flex-col items-center gap-6">
         {context ? (
           <OnboardingStepper
-            steps={context.via === "password" ? PASSWORD_STEPS : SSO_LIKE_STEPS}
+            steps={steps}
             currentStep="plan"
           />
         ) : null}
@@ -156,7 +164,7 @@ export function OnboardingPlanView() {
                 void refetchPlans();
               }}
             />
-          ) : isLoading || !freePlan || isAlreadyPaid ? (
+          ) : isLoading || !freePlan || isAlreadyPaid || planStepSkipped ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Skeleton className="h-64 w-full rounded-xl" />
               <Skeleton className="h-64 w-full rounded-xl" />

@@ -95,3 +95,54 @@ describe('PlatformAdminAuthController.acceptAdminInvite', () => {
     expect(res.clearCookie).not.toHaveBeenCalled();
   });
 });
+
+describe('PlatformAdminAuthController.microsoftLogin', () => {
+  let controller: PlatformAdminAuthController;
+  const buildAdminLoginMicrosoftRedirect = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [PlatformAdminAuthController],
+      providers: [
+        { provide: PlatformAdminAuthService, useValue: { buildAdminLoginMicrosoftRedirect } },
+      ],
+    }).compile();
+
+    controller = moduleRef.get(PlatformAdminAuthController);
+  });
+
+  it('binds the round trip to this browser with the Microsoft binding cookie and redirects to Microsoft', async () => {
+    buildAdminLoginMicrosoftRedirect.mockResolvedValue({
+      ok: true,
+      authorizationUrl: 'https://login.microsoftonline.com/tid/oauth2/v2.0/authorize?x=1',
+      sid: 'raw-sid',
+    });
+    const res = mockResponse();
+
+    await controller.microsoftLogin(res);
+
+    expect(res.cookie).toHaveBeenCalledWith('microsoft_auth_sid', 'raw-sid', expect.anything());
+    expect(res.redirect).toHaveBeenCalledWith(
+      302,
+      'https://login.microsoftonline.com/tid/oauth2/v2.0/authorize?x=1'
+    );
+  });
+
+  it('redirects straight back to the admin sign-in page, setting no cookie, when it cannot start', async () => {
+    buildAdminLoginMicrosoftRedirect.mockResolvedValue({
+      ok: false,
+      redirectUrl: '/admin-login?error=NOT_CONFIGURED&provider=microsoft',
+    });
+    const res = mockResponse();
+
+    await controller.microsoftLogin(res);
+
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(
+      302,
+      '/admin-login?error=NOT_CONFIGURED&provider=microsoft'
+    );
+  });
+});

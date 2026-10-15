@@ -1,0 +1,302 @@
+{
+  "info": {
+    "name": "InnoPeak \u2014 Google Business Profile",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Google Business Profile calls made by apps/backend (GoogleBusinessProfileProvider) plus the app endpoint that serves the details. Run '1. Refresh access token' first. Authorization: the collection uses Google OAuth 2.0 (scope business.manage). Add https://oauth.pstmn.io/v1/callback as an authorized redirect URI on the Google OAuth client, set gbp_client_id / gbp_client_secret, then Get New Access Token. Import innopeak-local.postman_environment.json and select it: all variables (client id/secret, tokens, account, location, baseUrl) live there."
+  },
+  "item": [
+    {
+      "name": "Google APIs",
+      "item": [
+        {
+          "name": "1. Refresh access token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "url": {
+              "raw": "https://oauth2.googleapis.com/token",
+              "host": [
+                "oauth2",
+                "googleapis",
+                "com"
+              ],
+              "path": [
+                "token"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "client_id",
+                  "value": "{{gbp_client_id}}"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "{{gbp_client_secret}}"
+                },
+                {
+                  "key": "refresh_token",
+                  "value": "{{refresh_token}}"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "refresh_token"
+                }
+              ]
+            },
+            "description": "Run first. Exchanges the stored refresh token for a ~1 h access token; copy `access_token` into the collection variable. Same call the app makes in GoogleBusinessProfileProvider.",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "2. List accounts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://mybusinessaccountmanagement.googleapis.com/v1/accounts?pageSize=20",
+              "host": [
+                "mybusinessaccountmanagement",
+                "googleapis",
+                "com"
+              ],
+              "path": [
+                "v1",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Account Management API. Returns `accounts/{id}`; pageSize max 20, follow `nextPageToken`."
+          }
+        },
+        {
+          "name": "3. List locations of an account",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://mybusinessbusinessinformation.googleapis.com/v1/{{account}}/locations?readMask=name,title,storefrontAddress,websiteUri,phoneNumbers,categories&pageSize=100",
+              "host": [
+                "mybusinessbusinessinformation",
+                "googleapis",
+                "com"
+              ],
+              "path": [
+                "v1",
+                "{{account}}",
+                "locations"
+              ],
+              "query": [
+                {
+                  "key": "readMask",
+                  "value": "name,title,storefrontAddress,websiteUri,phoneNumbers,categories"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "Business Information API. `readMask` is mandatory (omitting it is a 400). `{{account}}` looks like `accounts/123456789`. pageSize max 100, follow `nextPageToken`."
+          }
+        },
+        {
+          "name": "4. Get one location (business details)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://mybusinessbusinessinformation.googleapis.com/v1/{{location}}?readMask=name,title,storefrontAddress,websiteUri,phoneNumbers,categories",
+              "host": [
+                "mybusinessbusinessinformation",
+                "googleapis",
+                "com"
+              ],
+              "path": [
+                "v1",
+                "{{location}}"
+              ],
+              "query": [
+                {
+                  "key": "readMask",
+                  "value": "name,title,storefrontAddress,websiteUri,phoneNumbers,categories"
+                }
+              ]
+            },
+            "description": "The business details the app shows: title, storefrontAddress, websiteUri, phoneNumbers, categories (primaryCategory.displayName is the category on the card). `{{location}}` looks like `locations/987654321`."
+          }
+        },
+        {
+          "name": "5. List reviews (also returns averageRating + totalReviewCount)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://mybusiness.googleapis.com/v4/{{account}}/{{location}}/reviews?pageSize=50&orderBy=updateTime desc",
+              "host": [
+                "mybusiness",
+                "googleapis",
+                "com"
+              ],
+              "path": [
+                "v4",
+                "{{account}}",
+                "{{location}}",
+                "reviews"
+              ],
+              "query": [
+                {
+                  "key": "pageSize",
+                  "value": "50"
+                },
+                {
+                  "key": "orderBy",
+                  "value": "updateTime desc"
+                }
+              ]
+            },
+            "description": "Legacy v4 host (reviews have no v1 replacement). The response's `averageRating` and `totalReviewCount` cover every review and feed the card's star rating. pageSize max 50."
+          }
+        }
+      ],
+      "description": "Inherits the collection's OAuth 2.0: open the collection > Authorization > Get New Access Token (sign in as the Google account that manages the business). Request 1 is an alternative that refreshes a stored refresh token instead."
+    },
+    {
+      "name": "InnoPeak API",
+      "item": [
+        {
+          "name": "Connection + location details (what the dashboard card reads)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connections",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connections"
+              ]
+            },
+            "description": "The app's own API. Returns the connection state and the connected location(s): name, address, phone, websiteUri, category, googleRating, googleReviewCount, lastSyncedAt, syncStatus. Auth: Bearer access token of a tenant user (or the access_token cookie).",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{app_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List locations (pending choice)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connections/google/available-locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connections",
+                "google",
+                "available-locations"
+              ]
+            },
+            "description": "Locations Google offers for the connected account, before one is confirmed.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{app_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [],
+  "auth": {
+    "type": "oauth2",
+    "oauth2": [
+      {
+        "key": "grant_type",
+        "value": "authorization_code",
+        "type": "string"
+      },
+      {
+        "key": "authUrl",
+        "value": "https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&prompt=consent",
+        "type": "string"
+      },
+      {
+        "key": "accessTokenUrl",
+        "value": "https://oauth2.googleapis.com/token",
+        "type": "string"
+      },
+      {
+        "key": "clientId",
+        "value": "{{gbp_client_id}}",
+        "type": "string"
+      },
+      {
+        "key": "clientSecret",
+        "value": "{{gbp_client_secret}}",
+        "type": "string"
+      },
+      {
+        "key": "scope",
+        "value": "https://www.googleapis.com/auth/business.manage",
+        "type": "string"
+      },
+      {
+        "key": "redirect_uri",
+        "value": "https://oauth.pstmn.io/v1/callback",
+        "type": "string"
+      },
+      {
+        "key": "client_authentication",
+        "value": "body",
+        "type": "string"
+      },
+      {
+        "key": "addTokenTo",
+        "value": "header",
+        "type": "string"
+      },
+      {
+        "key": "tokenName",
+        "value": "Google Business Profile",
+        "type": "string"
+      },
+      {
+        "key": "useBrowser",
+        "value": true,
+        "type": "boolean"
+      }
+    ]
+  }
+}

@@ -243,35 +243,42 @@ Errors: `400` validation (`months` non-integer or outside 1–24), `401`, `403`,
 
 ### `GET /v1/admin/overview/activity`
 
-The most recent rows from `platform_activity_log`, merged with synthesized `business_joined`
-entries, newest first, capped at `limit` — the Overview page's glance feed. See [Overview § Recent
-activity is merged server-side](./overview.md#recent-activity-is-merged-server-side-with-synthesized-business_joined-entries)
-for the merge mechanics and why fetching `limit` rows from each of the two sources before merging
-is always sufficient. `platform_activity_log` itself is a purpose-built log of exactly eight
-platform-admin action types (business suspend/reactivate, admin invite send/revoke, admin
-enable/disable, tenant-user activate/deactivate), written explicitly by the services that perform
-those actions rather than trigger-populated — see [Overview § Activity
-log](./overview.md#activity-log-a-purpose-built-write-not-a-generic-audit-trail).
+The newest rows from `platform_activity_log`, newest first, capped at `limit` — the Overview page's glance feed. See
+[Overview § Recent activity](./overview.md#recent-activity-one-log-one-source). `platform_activity_log` is a
+purpose-built log of a fixed set of event types (business suspend/reactivate, erasure requested/cancelled/erased, a new
+business joining, platform settings changes, admin invite send/revoke, admin enable/disable, tenant-user
+activate/deactivate), written explicitly by the services that perform those actions rather than trigger-populated — see
+[Overview § Activity log](./overview.md#activity-log-a-purpose-built-write-not-a-generic-audit-trail).
 
 | Query param | Type | Rules |
 |---|---|---|
-| `limit` | integer | optional, default `8`, min `1`, max `50`. Applied to *each* source independently before merging — see the reasoning linked above. Example: `8` |
+| `limit` | integer | optional, default `8`, min `1`, max `50`. Example: `8` |
 
 `businessName` and `email` are mutually exclusive per entry — which one is populated depends on
-`type`. `actorEmail` is `null` for a synthesized `business_joined` entry (a signup has no
-platform-admin actor at all):
+`type`; `details` is set only for `platform_settings_changed`. `actorEmail` is always present: the platform admin, the
+owner's email for `business_joined`, the label `owner (self-service)` for an owner's own erasure request or cancellation, or the system actor for the nightly erasure:
 
 Success `200`:
 
 ```json
 [
   {
-    "id": "business-joined-0190f3c1-2a88-70c5-8d19-6b2e4f7a9c33",
+    "id": "0190f3c1-2a88-70c5-8d19-6b2e4f7a9c33",
     "type": "business_joined",
-    "actorEmail": null,
+    "actorEmail": "maria@coastaltable.com",
     "businessName": "The Coastal Table",
     "email": null,
+    "details": null,
     "occurredAt": "2026-09-11T09:12:00.000Z"
+  },
+  {
+    "id": "0190f3c2-3b99-70c5-8d19-6b2e4f7a9c44",
+    "type": "platform_settings_changed",
+    "actorEmail": "admin@innopeak.com",
+    "businessName": null,
+    "email": null,
+    "details": { "changes": [{ "field": "googleLoginEnabled", "from": true, "to": false }] },
+    "occurredAt": "2026-09-11T08:30:00.000Z"
   },
   {
     "id": "0190f3b4-1a88-70c5-8d19-6b2e4f7a9c33",
@@ -294,12 +301,13 @@ Success `200`:
 
 | Field | Type | Rules |
 |---|---|---|
-| `[].id` | string (uuid) \| string | `platform_activity_log.id` for a real row; `business-joined-<tenants.id>` for a synthesized one |
-| `[].type` | enum | `business_suspended` \| `business_reactivated` \| `admin_invite_sent` \| `admin_invite_revoked` \| `admin_disabled` \| `admin_enabled` \| `user_activated` \| `user_deactivated` (`platform_activity_type`), or the synthesized `business_joined` — the latter never appears on [`GET /activity-log`](#get-v1adminoverviewactivity-log) below |
-| `[].actorEmail` | string \| null | Snapshotted at write time from the acting admin's `AuthUser`, not joined from `platform_admins` — survives that admin's row being deleted. `null` for `business_joined` |
-| `[].businessName` | string \| null | Set (non-null) for `business_suspended` / `business_reactivated` / `user_activated` / `user_deactivated` / `business_joined`; `null` otherwise. Snapshotted, not joined from `tenants`, so a later rename or deletion doesn't retroactively rewrite what a past entry says happened |
+| `[].id` | string (uuid) | `platform_activity_log.id` |
+| `[].type` | enum | `business_suspended` \| `business_reactivated` \| `business_erasure_requested` \| `business_erasure_cancelled` \| `business_erased` \| `business_joined` \| `platform_settings_changed` \| `admin_invite_sent` \| `admin_invite_revoked` \| `admin_disabled` \| `admin_enabled` \| `user_activated` \| `user_deactivated` (`platform_activity_type`) |
+| `[].actorEmail` | string | Snapshotted at write time from the acting admin's `AuthUser` (or the owner's address, the self-service label, or the system actor), not joined from `platform_admins` — survives that admin's row being deleted |
+| `[].details` | object \| null | Only `platform_settings_changed`: `{ changes: [{ field, from, to }], lockoutConfirmed? }`. `field` is the platform setting's API name; `lockoutConfirmed` is present when the admin confirmed switching a provider off although users could then only sign in with it. `null` for every other type |
+| `[].businessName` | string \| null | Set (non-null) for the `business_*` types (including `business_joined`) and `user_activated` / `user_deactivated`; `null` otherwise. Snapshotted, not joined from `tenants`, so a later rename or deletion doesn't retroactively rewrite what a past entry says happened |
 | `[].email` | string \| null | Set (non-null) only for `admin_invite_sent` / `admin_invite_revoked` / `admin_disabled` / `admin_enabled` / `user_activated` / `user_deactivated`; `null` otherwise |
-| `[].occurredAt` | string (ISO) | `platform_activity_log.occurred_at`, or `tenants.created_at` for a synthesized entry |
+| `[].occurredAt` | string (ISO) | `platform_activity_log.occurred_at` |
 
 There is no `404`/empty-state error for a platform with no logged activity yet — an empty array is
 a normal response, rendered by `ActivityLogCard` as its own "nothing yet" copy rather than treated
@@ -317,14 +325,13 @@ Errors: `400` validation (`limit` non-integer or outside 1–50), `401`, `403`, 
 
 The same `platform_activity_log` rows `GET /activity` above reads, but paginated and filterable by
 `type` rather than a bounded top-`limit` read — backs the dedicated Activity page's "Platform
-activity" tab, distinct from the Overview page's small glance card. **Never includes the
-synthesized `business_joined` entry** — see [Overview § why this endpoint is real-log-only](./overview.md#recent-activity-is-merged-server-side-with-synthesized-business_joined-entries).
+activity" tab, distinct from the Overview page's small glance card.
 
 | Query param | Type | Rules |
 |---|---|---|
 | `page` | integer | optional, default `1`, min `1`. Example: `1` |
 | `pageSize` | integer | optional, default `20`, min `1`, max `100`. Example: `20` |
-| `type` | enum | optional, one of the eight real `platform_activity_type` values (never `business_joined`). Example: `business_suspended` |
+| `type` | enum | optional, one of the `platform_activity_type` values listed above. Example: `business_suspended` |
 
 Success `200`:
 
@@ -337,6 +344,7 @@ Success `200`:
       "actorEmail": "admin@innopeak.com",
       "businessName": "Oak & Iron Hardware",
       "email": null,
+      "details": null,
       "occurredAt": "2026-09-11T09:12:00.000Z"
     }
   ],
@@ -344,11 +352,10 @@ Success `200`:
 }
 ```
 
-Same per-entry field shape as [`GET /activity`](#get-v1adminoverviewactivity) above, minus the
-`business_joined` variant. `meta` is the shared `PaginationMetaDto` — `{ page, pageSize, total,
+Same per-entry field shape as [`GET /activity`](#get-v1adminoverviewactivity) above. `meta` is the shared `PaginationMetaDto` — `{ page, pageSize, total,
 totalPages }`.
 
-Errors: `400` validation (`type` not one of the eight values, `page`/`pageSize` non-integer or out
+Errors: `400` validation (`type` not one of the listed values, `page`/`pageSize` non-integer or out
 of range), `401`, `403`, `429`.
 
 ## Error reference

@@ -249,10 +249,13 @@ branch — tracked as a separate follow-up task.
 first cut of this let a Google-accepted admin sign in exactly once: no `password_hash` to log in
 with, no refresh token for this principal type, and neither `revokeInvite` nor a re-invite
 available afterwards (both are scoped to `status = 'invited'`) — a permanent lockout recoverable
-only by hand in SQL. The shared Google callback therefore also resolves a linked admin identity on
-plain `login`/`signup` round trips (`PlatformAdminRepository.findByGoogleIdentity`), signing that
-admin in and taking the request exclusively — the same rule password `login` already applies by
-checking `platform_admins` first.
+only by hand in SQL. The way back in is the admin sign-in page's own Google button
+(`GET /v1/admin/auth/google`, `OAuthIntent.ADMIN_LOGIN`), which resolves a linked admin identity
+(`PlatformAdminRepository.findByGoogleIdentity`) and never touches the tenant tables. The tenant
+`login`/`signup` buttons do **not** look at admin identities: an admin and a tenant user may share an
+address (an admin can own a separate business), so an admin using the tenant button is an ordinary
+tenant sign-in. (An earlier cut also resolved admin identities on the tenant callback; that was
+removed when the admin sign-in page got its own Google and Microsoft entries.)
 
 **Two browser-side consequences, both found in review and fixed.**
 

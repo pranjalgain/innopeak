@@ -22,6 +22,7 @@ function draft(overrides: Partial<ReviewReplyDraft> = {}): ReviewReplyDraft {
     content: "Thanks so much!",
     originalContent: "Thanks so much!",
     status: "pending_approval",
+    source: "ai_generated",
     promptId: "prompt-1",
     promptVersion: 1,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -514,3 +515,74 @@ describe("useReviewDetail", () => {
     });
   });
 });
+
+/** Regression: after a failed post on a review deleted on Google, the queue still showed it as normal until its cache aged out. */
+describe("useReviewDetail — keeping the lists current", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function renderWithSpiedClient() {
+    const queryClient = createQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    function withClient({ children }: { children: ReactNode }) {
+      return (
+        <QueryClientProvider client={queryClient}>
+          <NextIntlClientProvider locale="en" messages={messages}>
+            {children}
+          </NextIntlClientProvider>
+        </QueryClientProvider>
+      );
+    }
+    return { invalidate, wrapper: withClient };
+  }
+
+  const invalidatedKeys = (invalidate: { mock: { calls: unknown[][] } }): string[] =>
+    invalidate.mock.calls.map((call) => JSON.stringify((call[0] as { queryKey: unknown }).queryKey));
+
+  test("marks the queue and dashboard stale when the person leaves the screen", async () => {
+    vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(review());
+    const { invalidate, wrapper: withClient } = renderWithSpiedClient();
+    const { result, unmount } = renderHook(() => useReviewDetail("review-1"), { wrapper: withClient });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    invalidate.mockClear();
+
+    unmount();
+
+    expect(invalidatedKeys(invalidate)).toEqual(expect.arrayContaining(['["reviews"]', '["dashboard"]']));
+  });
+
+  test("marks them stale as soon as a delivery outcome is known, without waiting for the person to leave", async () => {
+    vi.spyOn(ReviewService, "getReviewById").mockResolvedValue(
+      review({ replyDrafts: [draft({ status: "approved", decidedAt: "2026-01-02T00:00:00.000Z" })] }),
+    );
+    vi.spyOn(ReviewService, "postReply").mockResolvedValue();
+    vi.spyOn(ReviewService, "getPostStatus").mockResolvedValue({
+      status: "post_failed",
+      postedAt: null,
+      errorMessage: "This review was deleted on Google by its author.",
+    });
+    const { invalidate, wrapper: withClient } = renderWithSpiedClient();
+    const { result } = renderHook(() => useReviewDetail("review-1"), { wrapper: withClient });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    invalidate.mockClear();
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      act(() => {
+        result.current.postDraft("draft-1");
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3500);
+      });
+      await waitFor(() => expect(result.current.postingDraftIds.has("draft-1")).toBe(false));
+
+      expect(invalidatedKeys(invalidate)).toEqual(
+        expect.arrayContaining(['["review","review-1"]', '["reviews"]', '["dashboard"]']),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+

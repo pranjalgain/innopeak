@@ -121,7 +121,7 @@ request/response contracts:
 | Route | Query params | Response |
 |---|---|---|
 | `GET /v1/dashboard/metrics` | `days` (1–365, default 7) | `MetricsDto` (includes `ratingDistribution`) |
-| `GET /v1/dashboard/recent-escalated` | `limit` (1–50, default 4) | `RecentEscalatedDto[]` |
+| `GET /v1/dashboard/recent-escalated` | `limit` (1–50, default 3) | `RecentEscalatedDto[]` |
 
 Both narrow to a tenant user in the service layer via `requireTenantUser`, with a
 module-specific message (`MESSAGES.DASHBOARD.TENANT_ONLY`) rather than the generic

@@ -39,10 +39,11 @@ interface ReplyDraftCardProps {
 }
 
 /** What the card shows — the draft's own status, except that an approved one splits by delivery. */
-type DisplayStatus = ReviewReplyDraft["status"] | "posted" | "post_failed";
+type DisplayStatus = ReviewReplyDraft["status"] | "posted" | "post_failed" | "imported";
 
 const STATUS_BADGE_CLASSNAME: Record<DisplayStatus, string> = {
   pending_approval: "bg-accent text-primary",
+  imported: "bg-muted text-muted-foreground",
   approved: "bg-success-soft text-success",
   posted: "bg-success-soft text-success",
   post_failed: "bg-destructive-soft text-destructive",
@@ -51,6 +52,7 @@ const STATUS_BADGE_CLASSNAME: Record<DisplayStatus, string> = {
 };
 
 const CONFIRMATION_CLASSNAME: Partial<Record<DisplayStatus, string>> = {
+  imported: "bg-muted text-muted-foreground",
   approved: "bg-success-soft text-success",
   posted: "bg-success-soft text-success",
   post_failed: "bg-destructive-soft text-destructive",
@@ -61,6 +63,7 @@ const CONFIRMATION_CLASSNAME: Partial<Record<DisplayStatus, string>> = {
 const CONFIRMATION_ICON: Partial<
   Record<DisplayStatus, ComponentType<{ className?: string }>>
 > = {
+  imported: LuInfo,
   approved: LuCheck,
   posted: LuCheck,
   post_failed: LuCircleAlert,
@@ -86,8 +89,17 @@ export function ReplyDraftCard({
 
   const isDecided = draft.status !== "pending_approval";
   const delivery = getReplyDeliveryState(draft);
-  const displayStatus: DisplayStatus =
-    delivery === "posted" ? "posted" : delivery === "failed" ? "post_failed" : draft.status;
+  // A reply someone wrote on Google itself, picked up by sync: it was never sent from this app, so it must not claim "Posted to your
+  // Google Business Profile" (that is what a reply approved here says). Its own status, and no Post/Retry controls (`delivery` is
+  // already "posted").
+  const isImported = draft.source === "imported";
+  const displayStatus: DisplayStatus = isImported
+    ? "imported"
+    : delivery === "posted"
+      ? "posted"
+      : delivery === "failed"
+        ? "post_failed"
+        : draft.status;
   const ConfirmationIcon = CONFIRMATION_ICON[displayStatus];
 
   const handleCancelEdit = () => {
@@ -100,7 +112,7 @@ export function ReplyDraftCard({
       <CardContent className="flex h-full flex-col gap-3">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground text-[13px] font-semibold">
-            {t("snippetLabel", { label: draft.label })}
+            {isImported ? t("importedLabel") : t("snippetLabel", { label: draft.label })}
           </span>
           <span
             className={cn(

@@ -150,12 +150,10 @@ export function ApiGetRecentActivity(): ReturnType<typeof applyDecorators> {
     ApiOperation({
       summary: 'Recent platform activity — the Overview page’s glance feed',
       description:
-        'The purpose-built admin-action log (`platform_activity_log`: business suspend/' +
-        'reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized ' +
-        '`business_joined` entries (a signup has no platform-admin actor, so it was never added ' +
-        'to that log) into one time-sorted, capped feed. Previously two endpoints stitched ' +
-        'together client-side; this is the one response the Overview activity panel now needs. ' +
-        'See `ApiListPlatformActivity` for the paginated, real-log-only view instead.',
+        'The newest entries of the platform activity log (`platform_activity_log`): business suspend/reactivate, ' +
+        'erasure requested/cancelled/erased (by an admin, by the owner, or by the nightly purge), a new business ' +
+        'joining, admin invite send/revoke, admin/user enable-disable and platform settings changes. ' +
+        "The Overview page's glance feed; `ApiListPlatformActivity` is the paginated, filterable view of the same rows.",
     }),
     ApiResponse({
       status: HttpStatus.OK,
@@ -173,12 +171,22 @@ export function ApiGetRecentActivity(): ReturnType<typeof applyDecorators> {
               occurredAt: '2026-09-11T09:12:00.000Z',
             },
             {
-              id: 'business-joined-0190f3c1-2a88-70c5-8d19-6b2e4f7a9c33',
+              id: '0190f3c1-2a88-70c5-8d19-6b2e4f7a9c33',
               type: 'business_joined',
-              actorEmail: null,
+              actorEmail: 'maria@coastaltable.com',
               businessName: 'The Coastal Table',
               email: null,
+              details: null,
               occurredAt: '2026-09-10T14:03:00.000Z',
+            },
+            {
+              id: '0190f3c2-3b99-70c5-8d19-6b2e4f7a9c44',
+              type: 'platform_settings_changed',
+              actorEmail: 'admin@innopeak.com',
+              businessName: null,
+              email: null,
+              details: { changes: [{ field: 'googleLoginEnabled', from: true, to: false }] },
+              occurredAt: '2026-09-09T11:30:00.000Z',
             },
           ],
         },

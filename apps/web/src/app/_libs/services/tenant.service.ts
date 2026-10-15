@@ -26,7 +26,11 @@ export class TenantService {
               address: location.address,
               phone: location.phone ?? null,
               websiteUri: location.websiteUri ?? null,
+              category: location.category ?? null,
+              googleRating: location.googleRating ?? null,
+              googleReviewCount: location.googleReviewCount ?? null,
               lastSyncedAt: location.lastSyncedAt,
+              syncStatus: location.lastSyncStatus,
             }
           : null,
     };

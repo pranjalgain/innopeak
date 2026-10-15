@@ -7,6 +7,7 @@ import { LoadErrorState } from "@/components/common/load-error-state";
 import { Pagination } from "@/components/common/pagination";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useActivityMessage } from "@/hooks/admin/use-activity-message";
 import {
   PLATFORM_ACTIVITY_FILTER_TYPES,
   type PlatformActivityFilter,
@@ -14,13 +15,12 @@ import {
 } from "@/hooks/admin/use-admin-platform-activity-log";
 
 /**
- * Paginated platform-admin action history; unlike the Overview's `ActivityLogCard` it has no
- * synthesized "business joined" entries, and it reuses that card's icon/color language and message
- * templates.
+ * Paginated history of the platform activity log, the same entries the Overview's `ActivityLogCard` shows the newest of. It reuses
+ * that card's icon/color language and message templates.
  */
 export function PlatformActivityLogCard() {
   const t = useTranslations("adminActivity");
-  const tMessages = useTranslations("adminOverview.activityLog.messages");
+  const describeActivity = useActivityMessage();
   const locale = useLocale();
   const {
     activities,
@@ -86,10 +86,7 @@ export function PlatformActivityLogCard() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm">
-                      {tMessages(entry.type, {
-                        businessName: entry.businessName ?? "",
-                        email: entry.email ?? "",
-                      })}
+                      {describeActivity(entry)}
                     </p>
                     <p className="truncate text-[13px] text-muted-foreground">
                       {formatRelativeTime(entry.occurredAt, locale)}

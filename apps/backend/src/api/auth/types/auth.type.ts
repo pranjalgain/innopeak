@@ -132,6 +132,8 @@ export interface SsoIdentity {
   emailVerified: boolean;
   /** Absent on some accounts; the caller falls back to the email. */
   name: string | null;
+  /** Microsoft only: the Entra directory (`tid`) that signed the user in. Admin sign-in requires it to be the pinned one. */
+  tenantId?: string;
 }
 
 export interface GoogleAuthorizeRequest {
@@ -160,7 +162,7 @@ export interface SsoCallbackInput {
 export type SsoCallbackOutcome =
   /** `redirectUrl` is already the full `<page>?error=<failure>&provider=<provider>` target. */
   | { ok: false; failure: SsoAuthFailure; redirectUrl: string }
-  /** `ADMIN_INVITE` completed, or a returning Google-linked admin signed in on an ordinary login/signup round trip. */
+  /** `ADMIN_INVITE` completed, or an admin signed in through the admin sign-in page (`ADMIN_LOGIN`, Google or Microsoft). */
   | { ok: true; kind: 'admin_signed_in'; tokens: PlatformAdminLoginResult }
   /** A genuinely new person — the caller sets `pendingSignupCookie` and redirects to collect a business name. */
   | { ok: true; kind: 'needs_business_name'; pendingSignupCookie: string }

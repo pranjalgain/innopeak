@@ -22,6 +22,8 @@ export interface ProviderLocation {
   /** The primary phone number the business lists, as Google formats it. */
   phone: string | null;
   websiteUri: string | null;
+  /** The business's primary category as Google names it ("Restaurant"); `null` when it lists none. */
+  category: string | null;
 }
 
 export interface ProviderReviewReply {
@@ -48,6 +50,8 @@ export interface ProviderReviewPage {
   nextPageToken: string | null;
   /** Not defaulted to `reviews.length`: a fabricated denominator makes the progress bar hit 100% on page one. */
   totalCount: number | null;
+  /** Google's overall rating across every review of the location (not just this page); `null` when it did not send one, as on later pages. */
+  averageRating: number | null;
 }
 
 export interface ProviderConnectionResult {

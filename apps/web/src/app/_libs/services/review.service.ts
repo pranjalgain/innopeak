@@ -36,7 +36,7 @@ interface ApiLatestResponse {
   id: string;
   status: ReviewReplyDraft["status"];
   responseType: string;
-  source: string;
+  source: ReviewReplyDraft["source"];
   createdAt: string;
 }
 
@@ -60,6 +60,7 @@ interface ApiReviewResponse {
   content: string;
   originalContent: string | null;
   status: ReviewReplyDraft["status"];
+  source: ReviewReplyDraft["source"];
   promptId?: string | null;
   promptVersion?: number | null;
   createdAt: string;
@@ -200,6 +201,7 @@ export class ReviewService {
               content: "",
               originalContent: "",
               status: item.latestResponse.status,
+              source: item.latestResponse.source,
               promptId: "",
               promptVersion: 0,
               createdAt: item.latestResponse.createdAt,
@@ -220,6 +222,7 @@ export class ReviewService {
       // null for imported historical and manual replies (no AI draft); falling back to `content` keeps the card's "edited" comparison a no-op.
       originalContent: response.originalContent ?? response.content,
       status: response.status,
+      source: response.source,
       promptId: response.promptId ?? "",
       promptVersion: response.promptVersion ?? 0,
       createdAt: response.createdAt,

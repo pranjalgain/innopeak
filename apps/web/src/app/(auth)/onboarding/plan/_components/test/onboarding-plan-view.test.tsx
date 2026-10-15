@@ -64,23 +64,46 @@ describe("OnboardingPlanView", () => {
     });
   });
 
-  test("shows only the Free plan when PAYMENT_FEATURE_ENABLED is off", async () => {
-    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
-      microsoftLoginEnabled: true,
-      passwordLoginEnabled: true,
-      googleLoginEnabled: true,
-      inviteMembersEnabled: true, notificationSettingsEnabled: false,
-      paymentFeatureEnabled: false,
+  // With payments off there is nothing to choose: the step is skipped rather than shown with a single card nobody can act on usefully.
+  describe("when PAYMENT_FEATURE_ENABLED is off", () => {
+    beforeEach(() => {
+      window.sessionStorage.clear();
+      OnboardingContextService.set({ from: "signup", via: "sso" });
+      vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
+        microsoftLoginEnabled: true,
+        passwordLoginEnabled: true,
+        googleLoginEnabled: true,
+        inviteMembersEnabled: true, notificationSettingsEnabled: false,
+        paymentFeatureEnabled: false,
+      });
     });
-    renderView();
 
-    expect(await screen.findByText("Free plan")).toBeInTheDocument();
-    expect(screen.getByText("1 location")).toBeInTheDocument();
-    expect(screen.getByText("20 AI reply drafts a month")).toBeInTheDocument();
-    expect(screen.getByText("1 team member")).toBeInTheDocument();
-    expect(screen.getByText("Default prompt only")).toBeInTheDocument();
-    expect(screen.queryByText("Paid plan")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Upgrade to Paid" })).not.toBeInTheDocument();
+    test("skips the plan step: records Free and goes straight to connect", async () => {
+      renderView();
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
+      expect(OnboardingContextService.get()?.plan).toBe("free");
+    });
+
+    test("never shows the plan cards or an upgrade button", async () => {
+      renderView();
+
+      await waitFor(() => expect(replace).toHaveBeenCalled());
+      expect(screen.queryByText("Free plan")).not.toBeInTheDocument();
+      expect(screen.queryByText("Paid plan")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Continue with Free" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Upgrade to Paid" })).not.toBeInTheDocument();
+    });
+
+    test("leaves the stepper without a plan step", async () => {
+      renderView();
+
+      await waitFor(() => expect(replace).toHaveBeenCalled());
+      // The page heading reads "Choose your plan" too, so look at the stepper's own items.
+      const stepLabels = screen.getAllByRole("listitem").map((item) => item.textContent);
+      expect(stepLabels.join(" ")).toContain("Connect business profile");
+      expect(stepLabels.join(" ")).not.toContain("Choose your plan");
+    });
   });
 
   describe("once the plan is Paid", () => {
@@ -138,7 +161,7 @@ describe("OnboardingPlanView", () => {
       passwordLoginEnabled: true,
       googleLoginEnabled: true,
       inviteMembersEnabled: true, notificationSettingsEnabled: false,
-      paymentFeatureEnabled: false,
+      paymentFeatureEnabled: true,
     });
     const user = userEvent.setup();
     renderView();
@@ -171,7 +194,7 @@ describe("OnboardingPlanView", () => {
       passwordLoginEnabled: true,
       googleLoginEnabled: true,
       inviteMembersEnabled: true, notificationSettingsEnabled: false,
-      paymentFeatureEnabled: false,
+      paymentFeatureEnabled: true,
     });
     const createCheckoutSession = vi.spyOn(BillingService, "createCheckoutSession");
     const user = userEvent.setup();

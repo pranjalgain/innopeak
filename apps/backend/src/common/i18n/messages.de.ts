@@ -205,7 +205,7 @@ export const messagesDe: MessageCatalog = {
       'Der Azure-OpenAI-Anbieter ist nicht konfiguriert. Setzen Sie AZURE_OPENAI_ENDPOINT, ' +
       'AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT und AZURE_OPENAI_API_VERSION.',
     AZURE_REGION_INVALID:
-      'AZURE_OPENAI_REGION muss „westeurope" sein — eine DSGVO-Anforderung für diese Bereitstellung.',
+      'AZURE_OPENAI_REGION muss „westeurope" oder „northeurope" sein — die für diese Bereitstellung freigegebenen EU-Regionen (DSGVO).',
     GENERATION_FAILED: 'KI-Antwort konnte nicht generiert werden. Bitte versuchen Sie es erneut.',
   },
   BILLING: {

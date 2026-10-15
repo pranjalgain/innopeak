@@ -7,6 +7,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   smallint,
@@ -31,6 +32,8 @@ export const platformActivityType = pgEnum('platform_activity_type', [
   'business_erasure_requested',
   'business_erasure_cancelled',
   'business_erased',
+  'business_joined',
+  'platform_settings_changed',
 ]);
 export const escalationReason = pgEnum('escalation_reason', ['low_rating', 'blocklist_match']);
 export const googleConnectionStatus = pgEnum('google_connection_status', [
@@ -666,6 +669,9 @@ export const locations = pgTable(
     address: varchar({ length: 500 }),
     phone: varchar({ length: 50 }),
     websiteUri: varchar('website_uri', { length: 2048 }),
+    category: varchar({ length: 255 }),
+    googleRating: numeric('google_rating', { precision: 3, scale: 2, mode: 'number' }),
+    googleReviewCount: integer('google_review_count'),
     detailsRefreshedAt: timestamp('details_refreshed_at', { withTimezone: true, mode: 'string' }),
     reviewsReconciledAt: timestamp('reviews_reconciled_at', { withTimezone: true, mode: 'string' }),
     status: locationStatus().default('active').notNull(),
@@ -1274,6 +1280,7 @@ export const platformActivityLog = pgTable(
     occurredAt: timestamp('occurred_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
+    details: jsonb(),
   },
   table => [
     index('idx_platform_activity_log_actor_platform_admin_id').using(
@@ -1300,7 +1307,7 @@ export const platformActivityLog = pgTable(
     }).onDelete('set null'),
     check(
       'platform_activity_log_target_check',
-      sql`((type = ANY (ARRAY['business_suspended'::platform_activity_type, 'business_reactivated'::platform_activity_type, 'business_erasure_requested'::platform_activity_type, 'business_erasure_cancelled'::platform_activity_type, 'business_erased'::platform_activity_type])) AND (business_name IS NOT NULL) AND (target_email IS NULL)) OR ((type = ANY (ARRAY['admin_invite_sent'::platform_activity_type, 'admin_invite_revoked'::platform_activity_type, 'admin_disabled'::platform_activity_type, 'admin_enabled'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NULL) AND (tenant_id IS NULL)) OR ((type = ANY (ARRAY['user_activated'::platform_activity_type, 'user_deactivated'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NOT NULL))`
+      sql`((type = ANY (ARRAY['business_suspended'::platform_activity_type, 'business_reactivated'::platform_activity_type, 'business_erasure_requested'::platform_activity_type, 'business_erasure_cancelled'::platform_activity_type, 'business_erased'::platform_activity_type, 'business_joined'::platform_activity_type])) AND (business_name IS NOT NULL) AND (target_email IS NULL)) OR ((type = ANY (ARRAY['admin_invite_sent'::platform_activity_type, 'admin_invite_revoked'::platform_activity_type, 'admin_disabled'::platform_activity_type, 'admin_enabled'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NULL) AND (tenant_id IS NULL)) OR ((type = ANY (ARRAY['user_activated'::platform_activity_type, 'user_deactivated'::platform_activity_type])) AND (target_email IS NOT NULL) AND (business_name IS NOT NULL)) OR ((type = 'platform_settings_changed'::platform_activity_type) AND (details IS NOT NULL) AND (business_name IS NULL) AND (target_email IS NULL) AND (tenant_id IS NULL))`
     ),
   ]
 );

@@ -13,6 +13,7 @@ import { VerifyEmailTokenProvider } from '@auth/providers/verify-email-token.pro
 import { OtpAttemptService } from '@auth/services/otp-attempt.service';
 import { TokenService } from '@auth/services/token.service';
 import { buildAdminInviteLink } from '@auth/utils/admin-invite-link.util';
+import { isAdminMicrosoftLoginAvailable } from '@auth/utils/admin-microsoft.util';
 import { remainingSessionSeconds } from '@auth/utils/remaining-session-seconds.util';
 import { requirePlatformAdmin } from '@auth/utils/require-platform-admin.util';
 import { hashAdminSetPasswordOtp, hashToken } from '@auth/utils/token.utils';
@@ -29,7 +30,10 @@ import { isCheckViolation, isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
-import type { PlatformSettingsPatch } from '@db/repositories/platform-settings/types/platform-settings.type';
+import type {
+  PlatformSettingsPatch,
+  PlatformSettingsRow,
+} from '@db/repositories/platform-settings/types/platform-settings.type';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -66,6 +70,15 @@ import type { SetAdminStatusParams, SetAdminStatusResult } from '../types/admin.
 
 /** How long an admin invite link stays valid. The invite page states this window, so change both together. */
 const INVITE_TTL_DAYS = 7;
+
+/** The platform switches a settings change is diffed over, in the order they are listed in the activity entry. */
+const PLATFORM_SETTING_FIELDS = [
+  'microsoftLoginEnabled',
+  'passwordLoginEnabled',
+  'googleLoginEnabled',
+  'inviteMembersEnabled',
+  'notificationSettingsEnabled',
+] as const satisfies ReadonlyArray<keyof PlatformSettingsRow>;
 
 @Injectable()
 export class AdminSettingsService {
@@ -422,6 +435,7 @@ export class AdminSettingsService {
     // no way to give them one, so turning their provider off locks them out until it is turned back on. Unlike the admin guard this one
     // can be overridden (`confirmLockout`): switching a provider off is also the emergency lever when it is compromised or down, and
     // that must stay possible however many people use it. Same transition scoping and read-then-write race as the admin guard.
+    let lockoutConfirmed = false;
     for (const [provider, label, switchedOff] of [
       [
         UserIdentityProvider.GOOGLE,
@@ -447,6 +461,7 @@ export class AdminSettingsService {
         this.logger.warn(
           `Platform admin ${admin.id} switched ${label} sign-in off with ${stranded} active tenant user(s) who can only sign in with it`
         );
+        lockoutConfirmed = true;
       }
     }
 
@@ -479,11 +494,41 @@ export class AdminSettingsService {
     if (!row) {
       throw new PlatformConfigNotFoundException();
     }
+
+    await this.recordSettingsChange({ admin, before: current, after: row, lockoutConfirmed });
+
     const paymentFeatureEnabled =
       this.configService.get<string>('PAYMENT_FEATURE_ENABLED') === 'true';
     return PlatformSettingsResponseDto.from(row, {
       paymentFeatureEnabled,
       erasureGracePeriodDays: getErasureGracePeriodDays(this.configService),
+      adminMicrosoftLoginAvailable: isAdminMicrosoftLoginAvailable(this.configService),
+    });
+  }
+
+  /**
+   * One activity entry per saved change that actually moved a switch, saying which and from what to what, so the platform's sign-in rules
+   * have a history. Best-effort like the other entries: the write already committed. Nothing is recorded when the request re-sent the
+   * values it already had.
+   */
+  private async recordSettingsChange(input: {
+    admin: { id: string; email: string };
+    before: PlatformSettingsRow;
+    after: PlatformSettingsRow;
+    lockoutConfirmed: boolean;
+  }): Promise<void> {
+    const changes = PLATFORM_SETTING_FIELDS.filter(
+      field => input.before[field] !== input.after[field]
+    ).map(field => ({ field, from: input.before[field], to: input.after[field] }));
+    if (changes.length === 0) {
+      return;
+    }
+
+    await this.adminOverviewDbService.recordActivityBestEffort({
+      type: PlatformActivityType.PLATFORM_SETTINGS_CHANGED,
+      actorPlatformAdminId: input.admin.id,
+      actorEmail: input.admin.email,
+      details: { changes, ...(input.lockoutConfirmed ? { lockoutConfirmed: true } : {}) },
     });
   }
 

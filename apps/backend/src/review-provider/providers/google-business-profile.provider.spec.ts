@@ -329,6 +329,9 @@ describe('GoogleBusinessProfileProvider.getLocation', () => {
       title: 'The Coastal Table',
       websiteUri: 'https://coastal.example',
       phoneNumbers: { primaryPhone: '+49 30 1234567', additionalPhones: ['+49 30 7654321'] },
+      categories: {
+        primaryCategory: { name: 'categories/gcid:restaurant', displayName: 'Restaurant' },
+      },
     });
 
     const location = await provider.getLocation('access-token', 'locations/42');
@@ -336,13 +339,24 @@ describe('GoogleBusinessProfileProvider.getLocation', () => {
     const url = String((fetchMock.mock.calls[0] as [string])[0]);
     expect(url).toContain('https://mybusinessbusinessinformation.googleapis.com/v1/locations/42?');
     expect(decodeURIComponent(url)).toContain('phoneNumbers');
+    // Without `categories` in the read mask Google leaves the field out, so the card would never get a category.
+    expect(decodeURIComponent(url)).toContain('categories');
     expect(location).toEqual({
       externalLocationId: 'locations/42',
       name: 'The Coastal Table',
       address: null,
       phone: '+49 30 1234567',
       websiteUri: 'https://coastal.example',
+      category: 'Restaurant',
     });
+  });
+
+  it('reports no category when the business lists none', async () => {
+    mockLocation({ name: 'locations/42', title: 'The Coastal Table' });
+
+    const location = await provider.getLocation('access-token', 'locations/42');
+
+    expect(location.category).toBeNull();
   });
 
   it('reports no phone or website when the business lists none', async () => {
