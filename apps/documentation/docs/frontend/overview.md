@@ -117,6 +117,45 @@ rather than reflecting anything from the original design:
   pair it with `tw-animate-css`'s utilities (`fade-in`, `slide-in-from-bottom-2`,
   `fill-mode-backwards`, `delay-*`) rather than a bare `duration-*` when adding new motion.
 
+**Business card.** The dashboard's business card (`BusinessProfileCard`) shows the business name, its Google category,
+Google's own rating with one decimal and the review count (the rating covers every review, not just the imported
+ones), the address, phone and website when listed, and the last sync time with a badge: green "Sync OK", red "Sync
+failed" (hover explains that new reviews may be missing and that it is retried), none before the first sync. Category
+and rating are left out until a sync has read them. Screen readers get the full sentence ("Rated 4.3 out of 5 on Google, from
+212 reviews") as visually hidden text, and the short visible form is hidden from them; an `aria-label` on a plain span would be
+ignored. See `GET /v1/connections` in the connections API reference.
+
+**Billing-only admin surfaces follow one rule.** Stripe webhook deliveries only exist where billing does, so the admin Billing
+nav item and the **Webhook activity** tab on `/admin/activity` are shown when the deploy has payments on
+(`paymentFeatureEnabled`) **or** while any business is still on Paid (Stripe keeps billing them, so their events still
+arrive), and hidden while that is loading. If either check *fails*, the tab is shown anyway: hiding it would present "no
+deliveries" for events that may well be arriving. A bookmarked link to the hidden tab opens Platform activity instead.
+
+**Floating sidebar.** The desktop sidebar (`AppShell`, shared by the tenant dashboard and the admin console) is the
+shadcn `floating` variant: a detached, rounded panel (`rounded-3xl`, `shadow-elevated`) inset from the screen edge,
+with pill-shaped nav items. The active item is a pill that slides between items (a shared `motion` `layoutId`) and
+carries a soft glow in the brand colour (`--sidebar-primary`); when the sidebar collapses to icons, the active icon
+shows its own circle instead. The list is padded inside the panel so the pill and its glow never touch the rounded edge (the list scrolls, so a glow outside its box would be clipped into a pale rectangle), and the panel is 17.5rem wide so the longest German label ("Bewertungswarteschlange") is not truncated; check that width before adding a longer label. The mobile bottom nav is unchanged.
+
+**Dark palette.** The `.dark` tokens in `globals.css` are a "midnight indigo": surfaces lean violet (hue about 285) with real
+chroma instead of near-neutral navy, layered in lightness (page, card, popover, accent), and the brand blue is pushed
+toward electric indigo (`--primary` 0.62 / 0.23 / 268). The semantic colours (success, warning, destructive and their
+`-soft` surfaces) are brighter and more saturated. Contrast was checked, not eyeballed: body text on page and card is
+about 18-19:1 (near-white, 0.99), muted text 12-14:1 (a light 0.88 grey rather than a mid grey, which read dim beside bold text), brand colour as text on the page 4.95:1 and white on the brand colour 3.9:1 (the
+light theme is unchanged). `--primary` is the one token used both as a background under white text and as text on dark
+surfaces, so its lightness is a compromise; do not raise it without checking both uses.
+
+**Theme-change scenes.** Switching theme plays a short one-shot scene over the page (`ThemeTransition`,
+mounted once in the root layout): a thunderstorm with two lightning strikes going to dark, a sunrise with a
+rising sun and rays going to light, about 2.6 seconds (`THEME_EFFECT_MS`; the CSS keyframes read it through
+`--theme-fx-duration`, so the two cannot drift). It plays only on a change, never on page load or for the first
+theme the provider reports, and it also reacts to a change made in another tab. It is decorative: `aria-hidden`,
+`pointer-events: none` so it never blocks a click, the whole scene is drawn at 60% strength so it reads as a backdrop, only opacity and transform are animated (with a gentle ease and flashes that swell and fade instead of snapping), and it is not rendered
+at all under `prefers-reduced-motion`. The styles (`.theme-fx*` and the `theme-storm-*` / `theme-sun-*`
+keyframes) live in `globals.css`; their colours are literals on purpose, since they paint a moment in the sky and
+not a surface that should follow the light/dark tokens. It is deliberately not a looping background: a permanent
+animation behind a data-heavy dashboard would distract and cost battery.
+
 ## Component placement
 
 - **Page/feature-specific** components live colocated with the route, in that route's
@@ -279,6 +318,11 @@ the next time translated text meets a fixed-width container.
   checks they stay gone and that guards and headers hold and no analytics or tag-manager script loads (`E2E_BASE_URL` points it at an environment).
 - **A checkout `session_id` the server does not recognise is reported as not found,** not as "Stripe couldn't be reached": a 404 from
   `POST /v1/billing/checkout/reconcile` is not retried and its banner offers no "Check again".
+- **The admin sign-in page offers "Continue with Microsoft" (sign-in only), and tells admins there is no sign-up.** The button follows
+  `adminMicrosoftLoginAvailable` on `GET /v1/settings/platform-config` (the Microsoft client plus a pinned Entra directory, a deploy
+  fact), not the tenant-facing `microsoftLoginEnabled` switch, and navigates to `/v1/admin/auth/microsoft`; with Google also on, the two
+  sit side by side like on the tenant sign-in. Failures return as `/admin-login?error=…&provider=microsoft`, and on that page
+  `ssoErrors.admin.NO_ACCOUNT` replaces "sign up first" with "admin accounts are by invitation only".
 - **A guarded admin route with no session goes to `/admin-login`**, matching what the edge
   (`proxy.ts`) does for a fresh visit — so signing out and pressing Back no longer lands on the
   tenant sign-in page.
@@ -289,6 +333,14 @@ the next time translated text meets a fixed-width container.
   returning owner reconnecting from Settings has no wizard context and is never gated. A context
   saved before this gate shipped carries no `planGated` marker and reads as Free, so anyone
   mid-wizard at deploy time isn't bounced (transitional; removable a week after deploy).
+- **The plan step only exists when billing does.** With the platform's payment feature off
+  (`paymentFeatureEnabled` from `GET /v1/settings/platform-config`, i.e. `PAYMENT_FEATURE_ENABLED`) every
+  signup is on Free and there is nothing to choose, so the step is skipped: the signup and business-name steps hand off
+  (`useHandOffAfterSignup`) straight to `/onboarding/connect` with Free already recorded, so nobody lands on the plan page.
+  `/onboarding/plan` keeps the same record-and-forward as a safety net for a signup that finished before the settings had
+  loaded. The stepper (`useOnboardingSteps`)
+  leaves the "Choose your plan" step out, and the connect screen does not offer "Back to plan selection".
+  While the settings are still unknown the step is kept, so a deploy with payments on never loses it.
 - **Returning from Checkout during signup.** Stripe returns to `/settings?…&checkout=…`, which
   `ConnectionGuard` bounces for an owner with no connected business, so the guard handles it: a
   cancelled checkout goes back to `/onboarding/plan?checkout=cancel` (with a toast) and forgets the
@@ -324,6 +376,19 @@ open instead of blanking the shell again. Measured against a stub API answering 
 7–8 requests in 20 seconds, down from ~100 a second. A page left open through a backend outage
 heals itself too: `refetchOnWindowFocus` is on **only for a query currently in the `error` state**,
 one request per focus, never a loop.
+
+**How fresh the data is.** The default `staleTime` is 5 minutes: moving between tabs or pages inside that window
+shows the cached data without a request, and after it the screen shows the cache and refreshes in the
+background. That suits data the user changes themselves (their own edits update or invalidate the cache). Two
+screens show data that changes on the server without the user doing anything, a new review arriving from the
+15-minute poll or a teammate approving a reply, so the **review queue** and the **dashboard** spread
+`liveQueryOptions` (`query-client.ts`): a 60-second `staleTime` and `refetchOnWindowFocus: true`. Returning to the
+window after a minute refreshes them, and refocusing within a minute does nothing. Their error state uses
+`isLoadingError`, not `isError`, so a refresh that fails in the background (a focus refetch while offline) keeps the
+rows and figures already on screen instead of swapping them for an error. A new review that creates no
+notification (a 5-star reply handled automatically, say) is only picked up this way, since the notification
+stream does not cover it. Use `liveQueryOptions` for any new screen whose data changes without the user acting;
+there is deliberately no polling.
 
 When a request must survive a Strict Mode remount (a redirect after a mutation, say), read its
 outcome from the promise `mutateAsync` returns — a per-call `onSuccess` and the mutation's

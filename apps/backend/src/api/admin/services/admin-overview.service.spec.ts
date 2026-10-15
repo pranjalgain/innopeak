@@ -215,41 +215,55 @@ describe('AdminOverviewService', () => {
       expect(adminOverviewDbService.getRecentActivity).not.toHaveBeenCalled();
     });
 
-    it('merges real activity rows with synthesized business_joined entries, newest first', async () => {
+    it('returns the newest rows of the activity log as they are, including a business joining and a settings change', async () => {
       adminOverviewDbService.getRecentActivity.mockResolvedValue([
+        {
+          id: 'activity-3',
+          type: PlatformActivityType.PLATFORM_SETTINGS_CHANGED,
+          actorEmail: 'admin@innopeak.com',
+          businessName: null,
+          targetEmail: null,
+          details: { changes: [{ field: 'googleLoginEnabled', from: true, to: false }] },
+          occurredAt: '2026-09-12T09:00:00.000Z',
+        },
+        {
+          id: 'activity-2',
+          type: PlatformActivityType.BUSINESS_JOINED,
+          actorEmail: 'maria@coastaltable.com',
+          businessName: 'The Coastal Table',
+          targetEmail: null,
+          details: null,
+          occurredAt: '2026-09-11T09:00:00.000Z',
+        },
         {
           id: 'activity-1',
           type: PlatformActivityType.BUSINESS_SUSPENDED,
           actorEmail: 'admin@innopeak.com',
           businessName: 'Oak & Iron Hardware',
           targetEmail: null,
+          details: null,
           occurredAt: '2026-09-10T09:00:00.000Z',
-        },
-      ]);
-      adminOverviewDbService.getRecentBusinesses.mockResolvedValue([
-        {
-          id: 'tenant-1',
-          name: 'The Coastal Table',
-          status: BusinessStatus.ACTIVE,
-          connectionStatus: BusinessConnectionStatus.CONNECTED,
-          ownerName: 'Maria Delgado',
-          ownerEmail: 'maria@coastaltable.com',
-          userCount: 4,
-          createdAt: '2026-09-11T09:00:00.000Z',
         },
       ]);
 
       const result = await target.getRecentActivity(admin, 5);
 
       expect(adminOverviewDbService.getRecentActivity).toHaveBeenCalledWith(5);
-      expect(adminOverviewDbService.getRecentBusinesses).toHaveBeenCalledWith(5);
-      expect(result).toHaveLength(2);
-      // Newer business_joined entry (Sep 11) sorts ahead of the older activity row (Sep 10).
-      expect(result[0]?.type).toBe('business_joined');
-      expect(result[0]?.businessName).toBe('The Coastal Table');
-      expect(result[0]?.actorEmail).toBeNull();
-      expect(result[1]?.businessName).toBe('Oak & Iron Hardware');
-      expect(result[1]?.email).toBeNull();
+      // The log is the one source: nothing is synthesized from the businesses list any more.
+      expect(adminOverviewDbService.getRecentBusinesses).not.toHaveBeenCalled();
+      expect(result.map(entry => entry.type)).toEqual([
+        PlatformActivityType.PLATFORM_SETTINGS_CHANGED,
+        PlatformActivityType.BUSINESS_JOINED,
+        PlatformActivityType.BUSINESS_SUSPENDED,
+      ]);
+      expect(result[0]?.details).toEqual({
+        changes: [{ field: 'googleLoginEnabled', from: true, to: false }],
+      });
+      expect(result[1]).toMatchObject({
+        actorEmail: 'maria@coastaltable.com',
+        businessName: 'The Coastal Table',
+        details: null,
+      });
     });
   });
 
@@ -268,6 +282,7 @@ describe('AdminOverviewService', () => {
             actorEmail: 'admin@innopeak.com',
             businessName: 'Oak & Iron Hardware',
             targetEmail: null,
+            details: null,
             occurredAt: '2026-09-11T09:00:00.000Z',
           },
         ],

@@ -11,8 +11,9 @@ const error = vi.fn();
 vi.mock("sonner", () => ({ toast: { error: (...a: unknown[]) => error(...a) } }));
 
 let params = new URLSearchParams();
+let path = "/login";
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/login",
+  usePathname: () => path,
   useSearchParams: () => params,
 }));
 
@@ -32,6 +33,7 @@ function renderWith(qs: string) {
 
 describe("useOAuthErrorToast", () => {
   beforeEach(() => {
+    path = "/login";
     error.mockClear();
     window.history.replaceState(null, "", "/login?error=x");
   });
@@ -98,5 +100,22 @@ describe("useOAuthErrorToast", () => {
     );
 
     expect(error).toHaveBeenCalledTimes(1);
+  });
+
+  // Platform admins are invited, so "Sign up first" would send them nowhere.
+  it("words NO_ACCOUNT for admins on the admin sign-in screen, whichever provider answered", () => {
+    path = "/admin-login";
+
+    renderWith("error=NO_ACCOUNT&provider=microsoft");
+
+    expect(error).toHaveBeenCalledWith(messages.auth.ssoErrors.admin.NO_ACCOUNT);
+  });
+
+  it("still uses the provider's wording for codes the admin copy does not cover", () => {
+    path = "/admin-login";
+
+    renderWith("error=EMAIL_NOT_VERIFIED&provider=microsoft");
+
+    expect(error).toHaveBeenCalledWith(messages.auth.ssoErrors.microsoft.EMAIL_NOT_VERIFIED);
   });
 });

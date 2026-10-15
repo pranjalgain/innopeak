@@ -16,8 +16,9 @@ work/school (Entra ID) and personal (outlook.com, hotmail.com, live.com, Xbox) a
 handling, session issuance, web buttons, config, docs, tests. There is no dev stand-in: Microsoft
 sign-in only ever runs against Microsoft.
 
-**Out of scope (deliberately, can follow):** platform-admin sign-in with Microsoft, accepting a
-member invite with Microsoft (`/invite/:token/microsoft`), and any Microsoft Graph access. The
+**Out of scope (deliberately, can follow):** accepting a member or admin invite with Microsoft
+(`/invite/:token/microsoft`), platform-admin *sign-up* with Microsoft (admins are invite-only), and any
+Microsoft Graph access. Platform-admin **sign-in** is covered by [its own section](#platform-admin-sign-in-with-microsoft-sign-in-only). The
 sign-in client requests only `openid email profile` and stores **no Microsoft token** — same
 discipline as the Google sign-in client.
 
@@ -66,9 +67,40 @@ Identical in shape to Google's, tenant-only (`login` and `signup` intents):
    is `ACCOUNT_UNAVAILABLE`.
 4. Session: the same refresh-token + access-token cookies as every other sign-in.
 
-Platform-admin handling is **not** part of the Microsoft path: no admin has a Microsoft identity, and
-none is created here. An admin who also owns a tenant under the same address may still sign up/in
-for that tenant (the existing dual-identity decision).
+The tenant routes never resolve a platform admin: they only mint `login`/`signup`. An admin who also
+owns a tenant under the same address may still sign up/in for that tenant (the existing
+dual-identity decision). Admin sign-in has its own entry route and intent, below.
+
+## Platform-admin sign-in with Microsoft (sign-in only)
+
+The admin sign-in page (`/admin-login`) offers "Continue with Microsoft" next to the password form.
+**Sign-in only**: platform admins are invite-only (`platform_admin_invites`), so there is no admin
+sign-up with Microsoft and Microsoft can neither create an admin nor accept an invite.
+
+- **Entry:** `GET /v1/admin/auth/microsoft` (public, throttled 10/min, like the admin Google route). It
+  mints a state with the existing `OAuthIntent.ADMIN_LOGIN` (+ PKCE) and redirects to Microsoft, pinned to
+  the organization's directory (`https://login.microsoftonline.com/<ADMIN_MICROSOFT_TENANT_ID>`), so
+  personal accounts and other organizations never see a consent screen.
+- **Callback:** the shared `GET /v1/auth/microsoft/callback` (the one redirect URI registered on the Azure
+  app) now also accepts `ADMIN_LOGIN`. Admin failures redirect to `/admin-login?error=<code>&provider=microsoft`;
+  success sets the admin session cookies and goes to `/admin`.
+- **Resolution (never touches the tenant tables):**
+  1. the ID token's `tid` must equal `ADMIN_MICROSOFT_TENANT_ID`, else `NO_ACCOUNT` (logged);
+  2. an identity already linked as `(entra_id, sub)` signs in if its admin is `active`, else
+     `ACCOUNT_UNAVAILABLE`;
+  3. otherwise the email must be verified (`xms_edov`, else `EMAIL_NOT_VERIFIED`) and is linked to an
+     **existing active** admin holding that address (row inserted into `platform_admin_identities`); an
+     `invited` admin or an unknown address answers `NO_ACCOUNT` (an invite is accepted through the invite
+     link, not by signing in), a `disabled` admin `ACCOUNT_UNAVAILABLE`.
+- **Switches:** the platform's `microsoft_login_enabled` setting governs *tenant* sign-in only; like Google,
+  admin sign-in ignores it so an admin who relies on Microsoft is never locked out by a tenant-facing
+  switch. The feature is available only when the Microsoft client is configured **and**
+  `ADMIN_MICROSOFT_TENANT_ID` is set; the public platform-config answers `adminMicrosoftLoginAvailable`
+  (derived from env, not stored) and the web shows the button from it.
+- **Config:** `ADMIN_MICROSOFT_TENANT_ID` (optional, a directory GUID). No schema change: the existing
+  `platform_admin_identities (provider, provider_user_id)` already holds `entra_id` identities.
+- **Azure:** the same app registration; for a single-organization directory the app must be allowed to sign
+  in users of that directory (the default multi-tenant registration does).
 
 ## Security properties (and why)
 

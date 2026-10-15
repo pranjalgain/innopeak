@@ -1,4 +1,5 @@
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
+import type { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import type { Locale } from '@common/i18n/locale';
 import { MediaDbService } from '@db/repositories/media/media.db-service';
 import { Injectable } from '@nestjs/common';
@@ -6,6 +7,8 @@ import { Injectable } from '@nestjs/common';
 import { PlatformAdminRepository } from './platform-admin.repository';
 import type {
   AcceptInviteOutcome,
+  LinkAdminIdentityInput,
+  LinkAdminIdentityOutcome,
   PlatformAdminAlertRecipient,
   PlatformAdminInviteRow,
   PlatformAdminLoginRow,
@@ -171,6 +174,23 @@ export class PlatformAdminDbService {
     locale: Locale | null;
   } | null> {
     return this.platformAdminRepository.findByGoogleIdentity(providerUserId);
+  }
+
+  /** The provider-neutral login-side read of a linked admin identity. */
+  async findByIdentity(
+    provider: UserIdentityProvider,
+    providerUserId: string
+  ): Promise<{
+    id: string;
+    email: string;
+    status: PlatformAdminStatus;
+    locale: Locale | null;
+  } | null> {
+    return this.platformAdminRepository.findByIdentity(provider, providerUserId);
+  }
+
+  async linkIdentityByEmail(input: LinkAdminIdentityInput): Promise<LinkAdminIdentityOutcome> {
+    return this.platformAdminRepository.linkIdentityByEmail(input);
   }
 
   /** Read-only; does not consume. */

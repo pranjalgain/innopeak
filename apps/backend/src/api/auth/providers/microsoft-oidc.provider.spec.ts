@@ -122,6 +122,8 @@ describe('MicrosoftOidcProvider', () => {
       email: 'Jane@Acme.test',
       emailVerified: true,
       name: 'Jane Doe',
+      // The directory that signed the user in, lower-cased: admin sign-in requires it to be the pinned one.
+      tenantId: TID,
     });
     const tokenCall = fetchMock.mock.calls.find(([url]) =>
       String(url).endsWith('/oauth2/v2.0/token')
@@ -133,6 +135,30 @@ describe('MicrosoftOidcProvider', () => {
       code_verifier: 'verifier-1',
       grant_type: 'authorization_code',
     });
+  });
+
+  it('pins the authorize URL and the token exchange to one directory when asked, for admin sign-in', async () => {
+    // Mocked before construction: the ID-token verifier captures `fetch` when it is built.
+    const fetchMock = mockMicrosoft({
+      id_token: idToken({ email: 'a@acme.test', xms_edov: true }),
+    });
+    const provider = new MicrosoftOidcProvider(config(baseConfig));
+    const url = new URL(
+      provider.buildAuthorizationUrl({
+        state: 'st',
+        nonce: 'n-1',
+        codeChallenge: 'chal',
+        tenantId: TID,
+      })
+    );
+    expect(`${url.origin}${url.pathname}`).toBe(
+      `https://login.microsoftonline.com/${TID}/oauth2/v2.0/authorize`
+    );
+
+    await provider.fetchIdentity('code-1', { ...context, tenantId: TID });
+
+    const urls = fetchMock.mock.calls.map(([called]) => String(called));
+    expect(urls).toContain(`https://login.microsoftonline.com/${TID}/oauth2/v2.0/token`);
   });
 
   /** The reason this provider exists in this shape: Microsoft's email claim is not proof of anything. */

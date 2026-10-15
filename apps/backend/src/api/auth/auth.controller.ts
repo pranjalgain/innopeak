@@ -46,8 +46,6 @@ import {
   SSO_PENDING_SIGNUP_COOKIE_PATH,
   SSO_PENDING_SIGNUP_TTL_SECONDS,
   SSO_REDIRECT,
-  SsoAuthFailure,
-  SsoProvider,
 } from './constants/sso-auth.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
@@ -452,17 +450,15 @@ export class AuthController {
       return;
     }
 
-    // `admin_signed_in` is unreachable: the Microsoft path never resolves a platform admin.
-    if (outcome.kind === 'signed_in') {
-      this.setSessionCookies(res, outcome.tokens.refreshToken, outcome.tokens.body.accessToken);
-      res.redirect(HttpStatus.FOUND, SSO_REDIRECT.SUCCESS);
+    // The admin sign-in route's round trip (`OAuthIntent.ADMIN_LOGIN`) lands here too.
+    if (outcome.kind === 'admin_signed_in') {
+      setAdminSessionCookies(res, outcome.tokens.body.accessToken);
+      res.redirect(HttpStatus.FOUND, SSO_REDIRECT.ADMIN_SUCCESS);
       return;
     }
 
-    res.redirect(
-      HttpStatus.FOUND,
-      `${SSO_REDIRECT.LOGIN}?error=${SsoAuthFailure.PROVIDER_ERROR}&provider=${SsoProvider.MICROSOFT}`
-    );
+    this.setSessionCookies(res, outcome.tokens.refreshToken, outcome.tokens.body.accessToken);
+    res.redirect(HttpStatus.FOUND, SSO_REDIRECT.SUCCESS);
   }
 
   @Get(RouteNames.INVITE_VALIDATE)

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
+import { liveQueryOptions } from "@/app/_libs/utils/query-client";
 import { parseChoiceParam, useUrlQueryState } from "@/hooks/common/use-url-query-state";
 import { useUrlSearchPage } from "@/hooks/common/use-url-search-page";
 import { useConnection } from "@/hooks/connections/use-connection";
@@ -121,12 +122,16 @@ export function useReviewQueue(): UseReviewQueueResult {
     enabled: !isResolvingLocation,
     // Keeps the previous page's rows on screen while the next loads, instead of flashing empty.
     placeholderData: keepPreviousData,
+    // New reviews arrive in the background: refresh after a minute and when the window is focused again.
+    ...liveQueryOptions,
   });
 
+  // `isLoadingError`, not `isError`: a background refresh that fails (a focus refetch while offline) keeps the rows already on screen,
+  // so it must neither toast nor swap the list for the error state.
   useEffect(() => {
-    if (reviewsQuery.isError) toast.error(t("loadFailed"));
+    if (reviewsQuery.isLoadingError) toast.error(t("loadFailed"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewsQuery.isError]);
+  }, [reviewsQuery.isLoadingError]);
 
   // Which business's rows are safe to show. `keepPreviousData` keeps the previous business's rows with `isLoading` false
   // during a switch's refetch, and `switchTo` writes `["connection"]` via `setQueryData`, so `isResolvingLocation` never
@@ -170,7 +175,7 @@ export function useReviewQueue(): UseReviewQueueResult {
       (isSwitchingBusiness && reviewsQuery.isFetching),
     // `keepPreviousData` only holds rows while pending; once settled as an error, `reviews` reverts to empty, indistinguishable
     // from a genuinely empty result unless the caller checks this.
-    isError: reviewsQuery.isError,
+    isError: reviewsQuery.isLoadingError,
     retry: () => {
       void reviewsQuery.refetch();
     },

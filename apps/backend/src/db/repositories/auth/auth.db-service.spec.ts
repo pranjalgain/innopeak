@@ -1,12 +1,14 @@
 import { SsoProvider } from '@auth/constants/sso-auth.constants';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
+import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
 import { AuthDbService } from './auth.db-service';
 import { AuthRepository } from './auth.repository';
 
+import { AdminOverviewDbService } from '../admin-overview/admin-overview.db-service';
 import { TenantSubscriptionsDbService } from '../billing/tenant-subscriptions.db-service';
 import { PromptsDbService } from '../prompts/prompts.db-service';
 
@@ -15,6 +17,7 @@ describe('AuthDbService', () => {
   let authRepository: jest.Mocked<AuthRepository>;
   let promptsDbService: jest.Mocked<PromptsDbService>;
   let tenantSubscriptionsDbService: jest.Mocked<TenantSubscriptionsDbService>;
+  let adminOverviewDbService: { recordActivityBestEffort: jest.Mock };
   const tx = {} as never;
 
   beforeEach(async () => {
@@ -61,12 +64,15 @@ describe('AuthDbService', () => {
       insertFreeSubscription: jest.fn(),
     } as unknown as jest.Mocked<TenantSubscriptionsDbService>;
 
+    adminOverviewDbService = { recordActivityBestEffort: jest.fn().mockResolvedValue(undefined) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthDbService,
         { provide: AuthRepository, useValue: authRepository },
         { provide: PromptsDbService, useValue: promptsDbService },
         { provide: TenantSubscriptionsDbService, useValue: tenantSubscriptionsDbService },
+        { provide: AdminOverviewDbService, useValue: adminOverviewDbService },
       ],
     }).compile();
 
@@ -351,6 +357,83 @@ describe('AuthDbService', () => {
         tokenHash: 'code-hash',
       });
       expect(authRepository.activateUser).toHaveBeenCalledWith(tx, user.id);
+    });
+
+    // A new business joining is what the platform activity feed shows: the owner is the actor, and it is written once the signup is real.
+    it('records that a new business joined, after the activation committed', async () => {
+      authRepository.findUserByEmail.mockResolvedValue(user);
+      authRepository.consumeVerifyEmailToken.mockResolvedValue(true);
+      authRepository.activateUser.mockResolvedValue(true);
+      authRepository.findTenantStatusById.mockResolvedValue({
+        status: 'active',
+        name: 'The Coffee House',
+      } as never);
+
+      await target.verifyEmail({ email: user.email, tokenHash: 'code-hash' });
+
+      expect(adminOverviewDbService.recordActivityBestEffort).toHaveBeenCalledWith({
+        type: PlatformActivityType.BUSINESS_JOINED,
+        actorPlatformAdminId: null,
+        actorEmail: user.email,
+        tenantId: user.tenantId,
+        businessName: 'The Coffee House',
+      });
+    });
+
+    it('records nothing when the code is wrong, so nothing joined', async () => {
+      authRepository.findUserByEmail.mockResolvedValue(user);
+      authRepository.consumeVerifyEmailToken.mockResolvedValue(false);
+
+      await target.verifyEmail({ email: user.email, tokenHash: 'bad' });
+
+      expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('completeSsoSignup', () => {
+    it('records that a new business joined, named as the owner typed it', async () => {
+      authRepository.findUserByEmail.mockResolvedValue(null);
+      authRepository.insertTenant.mockResolvedValue({ id: 'tenant-9' });
+      authRepository.insertVerifiedOwnerUser = jest.fn().mockResolvedValue({ id: 'user-9' });
+      authRepository.upsertUserIdentity.mockResolvedValue(undefined);
+      authRepository.activateTenant.mockResolvedValue(undefined);
+
+      await target.completeSsoSignup({
+        provider: SsoProvider.GOOGLE,
+        providerUserId: 'g-sub',
+        email: 'owner@thecoffeehouse.com',
+        name: 'Owner',
+        businessName: 'The Coffee House',
+      });
+
+      expect(adminOverviewDbService.recordActivityBestEffort).toHaveBeenCalledWith({
+        type: PlatformActivityType.BUSINESS_JOINED,
+        actorPlatformAdminId: null,
+        actorEmail: 'owner@thecoffeehouse.com',
+        tenantId: 'tenant-9',
+        businessName: 'The Coffee House',
+      });
+    });
+
+    it('records nothing when the email was registered in the meantime', async () => {
+      const pgError = Object.assign(new Error('duplicate key value violates unique constraint'), {
+        code: '23505',
+        constraint: 'idx_users_email_active',
+      });
+      authRepository.transaction.mockRejectedValueOnce(
+        Object.assign(new Error('Failed query'), { cause: pgError })
+      );
+
+      const result = await target.completeSsoSignup({
+        provider: SsoProvider.GOOGLE,
+        providerUserId: 'g-sub',
+        email: 'owner@thecoffeehouse.com',
+        name: null,
+        businessName: 'The Coffee House',
+      });
+
+      expect(result).toBeNull();
+      expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
     });
   });
 

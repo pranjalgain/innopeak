@@ -6,18 +6,39 @@ export interface PlatformActivityResponseDto {
   id: string;
   type: PlatformActivityResponseDtoTypeEnum;
   /**
-   * Null for a synthesized business_joined entry — see its own comment.
+   * Who did it: the platform admin; the business owner\'s email for business_joined; the label "owner (self-service)" for an owner\'s own erasure request or cancellation; or the system actor for the nightly erasure.
    */
-  actorEmail?: string | null;
+  actorEmail: string;
   /**
-   * Set for business_suspended/business_reactivated/business_joined entries only.
+   * Set for the business_* entries (including business_joined) and user_* entries.
    */
   businessName?: string | null;
   /**
    * Set for admin_invite_sent/admin_invite_revoked entries only.
    */
   email?: string | null;
+  /**
+   * What a platform_settings_changed entry changed; null for every other type.
+   */
+  details?: PlatformActivityDetailsDto | null;
   occurredAt: string;
+}
+
+export interface PlatformSettingChangeDto {
+  /**
+   * The platform setting that changed, as its API field name.
+   */
+  field: string;
+  from: boolean;
+  to: boolean;
+}
+
+export interface PlatformActivityDetailsDto {
+  changes: PlatformSettingChangeDto[];
+  /**
+   * Present when the admin confirmed switching a provider off although users could then only sign in with it.
+   */
+  lockoutConfirmed?: boolean;
 }
 
 export const PlatformActivityResponseDtoTypeEnum = {
@@ -33,6 +54,7 @@ export const PlatformActivityResponseDtoTypeEnum = {
   AdminDisabled: 'admin_disabled',
   AdminEnabled: 'admin_enabled',
   BusinessJoined: 'business_joined',
+  PlatformSettingsChanged: 'platform_settings_changed',
 } as const;
 
 export type PlatformActivityResponseDtoTypeEnum =

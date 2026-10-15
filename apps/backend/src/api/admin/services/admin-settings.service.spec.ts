@@ -714,6 +714,78 @@ describe('AdminSettingsService', () => {
       );
     });
 
+    // The sign-in rules have a history: which switch moved, from what to what, and by whom.
+    describe('the activity entry', () => {
+      it('names each switch that moved, from and to, with the admin as the actor', async () => {
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.update.mockResolvedValue({
+          ...allEnabledRow,
+          googleLoginEnabled: false,
+          inviteMembersEnabled: true,
+        });
+
+        await target.updatePlatformSettings(admin, {
+          googleLoginEnabled: false,
+          inviteMembersEnabled: true,
+        });
+
+        expect(adminOverviewDbService.recordActivityBestEffort).toHaveBeenCalledWith({
+          type: PlatformActivityType.PLATFORM_SETTINGS_CHANGED,
+          actorPlatformAdminId: admin.id,
+          actorEmail: admin.email,
+          details: {
+            changes: [
+              { field: 'googleLoginEnabled', from: true, to: false },
+              { field: 'inviteMembersEnabled', from: false, to: true },
+            ],
+          },
+        });
+      });
+
+      it('records nothing when the request re-sent the values it already had', async () => {
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.update.mockResolvedValue(allEnabledRow);
+
+        await target.updatePlatformSettings(admin, { googleLoginEnabled: true });
+
+        expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
+      });
+
+      it('notes when the admin confirmed switching a provider off despite stranded users', async () => {
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.countActiveSsoOnlyTenantUsers.mockResolvedValue(2);
+        platformSettingsDbService.update.mockResolvedValue({
+          ...allEnabledRow,
+          googleLoginEnabled: false,
+        });
+
+        await target.updatePlatformSettings(admin, {
+          googleLoginEnabled: false,
+          confirmLockout: true,
+        });
+
+        expect(adminOverviewDbService.recordActivityBestEffort).toHaveBeenCalledWith(
+          expect.objectContaining({
+            details: {
+              changes: [{ field: 'googleLoginEnabled', from: true, to: false }],
+              lockoutConfirmed: true,
+            },
+          })
+        );
+      });
+
+      it('records nothing for a change that was refused', async () => {
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.countActiveSsoOnlyTenantUsers.mockResolvedValue(2);
+
+        await expect(
+          target.updatePlatformSettings(admin, { googleLoginEnabled: false })
+        ).rejects.toThrow();
+
+        expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
+      });
+    });
+
     it('throws 404 if the singleton row is somehow missing before the write', async () => {
       platformSettingsDbService.get.mockResolvedValue(null);
 

@@ -8,7 +8,7 @@ import { adminOverviewActivityLogQueryKey } from "@/hooks/admin/admin-query-keys
 import { useUrlFilterPage } from "@/hooks/common/use-url-filter-page";
 import type { PlatformActivityEntry, PlatformActivityType } from "@/types/domain";
 
-/** `"all"` or one of the 8 real `PlatformActivityType` values. */
+/** `"all"` or one of the `PlatformActivityType` values the log records. */
 export type PlatformActivityFilter = "all" | PlatformActivityType;
 
 interface UseAdminPlatformActivityLogResult {
@@ -28,10 +28,15 @@ interface UseAdminPlatformActivityLogResult {
 
 const PAGE_SIZE = 10;
 
-/** The action types the filter offers (a subset of `PlatformActivityType`: the log screen leaves out erasure lifecycle entries). */
+/** The action types the filter offers: every one the log records. */
 export const PLATFORM_ACTIVITY_FILTER_TYPES: PlatformActivityType[] = [
+  "business_joined",
   "business_suspended",
   "business_reactivated",
+  "business_erasure_requested",
+  "business_erasure_cancelled",
+  "business_erased",
+  "platform_settings_changed",
   "admin_invite_sent",
   "admin_invite_revoked",
   "admin_disabled",

@@ -11,6 +11,10 @@ import {
   GOOGLE_AUTH_SID_COOKIE_NAME,
   GOOGLE_AUTH_SID_COOKIE_PATH,
 } from './constants/google-auth.constants';
+import {
+  MICROSOFT_AUTH_SID_COOKIE_NAME,
+  MICROSOFT_AUTH_SID_COOKIE_PATH,
+} from './constants/microsoft-auth.constants';
 import { OAUTH_STATE_TTL_SECONDS } from './constants/sso-auth.constants';
 import { Public } from './decorators/public.decorator';
 import { AcceptAdminInviteDto } from './dto/accept-admin-invite.dto';
@@ -22,6 +26,7 @@ import {
   ApiAcceptAdminInvite,
   ApiAdminGoogleLogin,
   ApiAdminLogin,
+  ApiAdminMicrosoftLogin,
   ApiInviteGoogleAuthorize,
   ApiValidateAdminInvite,
 } from './swagger/platform-admin-auth.swagger';
@@ -71,6 +76,30 @@ export class PlatformAdminAuthController {
       GOOGLE_AUTH_SID_COOKIE_NAME,
       redirect.sid,
       buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS)
+    );
+    res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
+  }
+
+  /**
+   * Admin Microsoft sign-in: sign-in only, since admins are invite-only. Completes at the shared
+   * `GET /v1/auth/microsoft/callback` via `OAuthIntent.ADMIN_LOGIN`; failures land on `/admin-login`.
+   */
+  @Get(RouteNames.MICROSOFT)
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiAdminMicrosoftLogin()
+  async microsoftLogin(@Res() res: Response): Promise<void> {
+    const redirect = await this.platformAdminAuthService.buildAdminLoginMicrosoftRedirect();
+
+    if (!redirect.ok) {
+      res.redirect(HttpStatus.FOUND, redirect.redirectUrl);
+      return;
+    }
+
+    res.cookie(
+      MICROSOFT_AUTH_SID_COOKIE_NAME,
+      redirect.sid,
+      buildCookieOptions(MICROSOFT_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS)
     );
     res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }

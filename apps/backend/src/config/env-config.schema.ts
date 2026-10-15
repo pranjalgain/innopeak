@@ -1,4 +1,5 @@
 import { JWT_SECRET_MIN_LENGTH } from '@auth/constants/auth.constants';
+import { ALLOWED_AZURE_OPENAI_REGIONS } from '@common/constants/azure-openai.constants';
 import { DEFAULT_ERASURE_GRACE_PERIOD_DAYS } from '@common/constants/erasure.constants';
 import * as Joi from 'joi';
 
@@ -68,6 +69,9 @@ export const validationSchema = Joi.object({
   MICROSOFT_CLIENT_SECRET: Joi.string().allow(null, ''),
   MICROSOFT_CALLBACK_URL: Joi.string().uri().allow(null, ''),
   MICROSOFT_AUTHORITY: microsoftAuthoritySchema,
+  ADMIN_MICROSOFT_TENANT_ID: Joi.string()
+    .pattern(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    .allow(null, ''),
   GBP_CLIENT_ID: Joi.string().allow(null, ''),
   GBP_CLIENT_SECRET: Joi.string().allow(null, ''),
   GBP_CALLBACK_URL: Joi.string().uri().allow(null, ''),
@@ -106,8 +110,10 @@ export const validationSchema = Joi.object({
   AZURE_OPENAI_API_KEY: Joi.string().allow(null, ''),
   AZURE_OPENAI_DEPLOYMENT: Joi.string().allow(null, ''),
   AZURE_OPENAI_API_VERSION: Joi.string().allow(null, ''),
-  // GDPR requires westeurope for Azure OpenAI; validated here too, in case `AzureOpenAiProvider`'s constructor check is bypassed.
-  AZURE_OPENAI_REGION: Joi.string().valid('westeurope').allow(null, ''),
+  // GDPR keeps Azure OpenAI inside the approved EU regions; validated here too, in case `AzureOpenAiProvider`'s check is bypassed.
+  AZURE_OPENAI_REGION: Joi.string()
+    .valid(...ALLOWED_AZURE_OPENAI_REGIONS)
+    .allow(null, ''),
   ERASURE_GRACE_PERIOD_DAYS: Joi.number()
     .integer()
     .positive()

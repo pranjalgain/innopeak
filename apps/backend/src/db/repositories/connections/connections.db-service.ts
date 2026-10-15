@@ -15,6 +15,7 @@ import type {
   PollableLocationRow,
   ProviderConnectionRow,
   UpdateLocationDetailsInput,
+  UpdateLocationRatingInput,
   UpsertConnectionInput,
 } from './types/connections.type';
 
@@ -74,6 +75,10 @@ export class ConnectionsDbService {
 
   updateLocationDetails(input: UpdateLocationDetailsInput): Promise<void> {
     return this.connectionsRepository.updateLocationDetails(input);
+  }
+
+  updateLocationRating(input: UpdateLocationRatingInput): Promise<void> {
+    return this.connectionsRepository.updateLocationRating(input);
   }
 
   updateTokenExpiry(connectionId: string, tokenExpiresAt: Date): Promise<void> {
@@ -199,6 +204,7 @@ export class ConnectionsDbService {
           address: match.address,
           phone: match.phone,
           websiteUri: match.websiteUri,
+          category: match.category,
         });
 
         await this.connectionsRepository.attachUserToLocation(tx, {

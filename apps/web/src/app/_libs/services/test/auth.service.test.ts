@@ -263,6 +263,12 @@ describe("AuthService — SSO navigation", () => {
     expect(assign).toHaveBeenCalledWith("/v1/auth/microsoft?intent=login");
   });
 
+  it("sends the admin Microsoft button to the admin route, never the tenant one", () => {
+    AuthService.startAdminMicrosoftLogin();
+
+    expect(assign).toHaveBeenCalledWith("/v1/admin/auth/microsoft");
+  });
+
   it("sends Microsoft sign-up to the backend with the signup intent", () => {
     AuthService.startMicrosoftSignup();
 

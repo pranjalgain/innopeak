@@ -539,6 +539,9 @@ export class ReviewSyncRepository {
         reviewId: input.reviewId,
         responseType: input.responseType,
         content: input.content,
+        // Immutable copy of what the model wrote: an owner's edit changes `content` only, and the "needed edits" rate compares the two.
+        originalContent: input.content,
+        promptVersionId: input.promptVersionId,
         source: ResponseSource.AI_GENERATED,
         status: ResponseStatus.PENDING_APPROVAL,
         generationGroupId: input.generationGroupId,

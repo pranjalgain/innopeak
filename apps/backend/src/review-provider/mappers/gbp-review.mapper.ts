@@ -60,5 +60,6 @@ export function mapGbpReviewPage(response: GbpListReviewsResponse): ProviderRevi
     nextPageToken: response.nextPageToken ?? null,
     // `?? null`, never the page length: a per-page count posing as a total makes progress hit 100% on page one.
     totalCount: response.totalReviewCount ?? null,
+    averageRating: response.averageRating ?? null,
   };
 }

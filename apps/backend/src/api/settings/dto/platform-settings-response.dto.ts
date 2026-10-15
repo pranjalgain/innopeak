@@ -5,6 +5,7 @@ import { ApiProperty } from '@nestjs/swagger';
 export interface PlatformDeploySettings {
   paymentFeatureEnabled: boolean;
   erasureGracePeriodDays: number;
+  adminMicrosoftLoginAvailable: boolean;
 }
 
 export class PlatformSettingsResponseDto {
@@ -61,6 +62,16 @@ export class PlatformSettingsResponseDto {
   })
   erasureGracePeriodDays!: number;
 
+  @ApiProperty({
+    example: true,
+    description:
+      'Whether the admin sign-in page offers "Continue with Microsoft": the Microsoft client is ' +
+      'configured and `ADMIN_MICROSOFT_TENANT_ID` pins the directory admins sign in from. A pure reflection of ' +
+      'the deploy environment, not stored on `platform_settings` and not writable through this API; ' +
+      'independent of `microsoftLoginEnabled`, which governs tenant sign-in only.',
+  })
+  adminMicrosoftLoginAvailable!: boolean;
+
   static from(
     row: PlatformSettingsRow,
     deploy: PlatformDeploySettings
@@ -73,6 +84,7 @@ export class PlatformSettingsResponseDto {
     dto.notificationSettingsEnabled = row.notificationSettingsEnabled;
     dto.paymentFeatureEnabled = deploy.paymentFeatureEnabled;
     dto.erasureGracePeriodDays = deploy.erasureGracePeriodDays;
+    dto.adminMicrosoftLoginAvailable = deploy.adminMicrosoftLoginAvailable;
     return dto;
   }
 }

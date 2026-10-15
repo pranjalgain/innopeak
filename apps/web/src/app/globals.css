@@ -97,54 +97,54 @@
 }
 
 .dark {
-  --background: oklch(0.125 0.025 260);
-  --foreground: oklch(0.975 0.006 248);
-  --card: oklch(0.17 0.028 260);
-  --card-foreground: oklch(0.975 0.006 248);
-  --popover: oklch(0.17 0.028 260);
-  --popover-foreground: oklch(0.975 0.006 248);
-  --primary: oklch(0.66 0.2 255);
-  --primary-foreground: oklch(0.99 0.004 248);
-  --secondary: oklch(0.22 0.03 260);
-  --secondary-foreground: oklch(0.975 0.006 248);
-  --muted: oklch(0.22 0.03 260);
-  --muted-foreground: oklch(0.76 0.03 255);
-  --accent: oklch(0.25 0.045 258);
-  --accent-foreground: oklch(0.975 0.006 248);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-soft: oklch(0.28 0.06 27);
-  --success: oklch(0.65 0.15 155);
-  --success-foreground: oklch(0.16 0.03 155);
-  --success-soft: oklch(0.27 0.05 155);
-  --warning: oklch(0.75 0.15 80);
-  --warning-foreground: oklch(0.18 0.03 80);
-  --warning-soft: oklch(0.28 0.05 80);
-  --border: oklch(0.32 0.03 258 / 80%);
-  --input: oklch(0.32 0.03 258 / 85%);
-  --ring: oklch(0.66 0.2 255);
-  --shadow-tint: oklch(0 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.21 0.006 285.885);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.546 0.245 262.881);
-  --sidebar-primary-foreground: oklch(0.379 0.146 265.522);
-  /* Was oklch(0.274 0.006 286.033) — the stock shadcn dark value, never harmonized with this
-     brand's palette. Its chroma (0.006, effectively neutral) and hue (286, violet-leaning) don't
-     match `--accent`'s 0.045/258 (blue, tracking `--primary`), unlike light mode where
-     `--sidebar-accent` deliberately mirrors `--accent` almost exactly. The result was a selected
-     nav item distinguished from the sidebar only by a +0.064 lightness step with no hue shift at
-     all — imperceptible at a glance, unlike light mode's clearly blue-tinted pill. Now mirrors
-     `--accent`'s hue/chroma, with lightness raised to 0.32 (vs `--accent`'s 0.25) since the
-     sidebar's own background (0.21) sits well above the page background (0.125) this is layered
-     on top of. */
-  --sidebar-accent: oklch(0.32 0.05 258);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
+  /*
+   * Midnight indigo: the surfaces lean violet (hue ~285) with real chroma instead of the former near-neutral navy, so the dark theme has
+   * depth and colour of its own rather than reading as "light theme, switched off". Layers step up in lightness (page, card, accent)
+   * and in saturation; the brand blue (`--primary`) is kept but pushed toward electric indigo so it glows against them, and the
+   * semantic colours are brighter and more saturated than before. Text is near-white (0.99) and the secondary grey is light (0.88,
+   * about 13:1 on the page) rather than a mid grey, so labels and descriptions stay easy to read on the dark surfaces.
+   */
+  --background: oklch(0.15 0.045 285);
+  --foreground: oklch(0.99 0.004 285);
+  --card: oklch(0.2 0.055 285);
+  --card-foreground: oklch(0.99 0.004 285);
+  --popover: oklch(0.215 0.058 285);
+  --popover-foreground: oklch(0.99 0.004 285);
+  --primary: oklch(0.62 0.23 268);
+  --primary-foreground: oklch(0.99 0.004 270);
+  --secondary: oklch(0.255 0.06 285);
+  --secondary-foreground: oklch(0.99 0.004 285);
+  --muted: oklch(0.255 0.06 285);
+  --muted-foreground: oklch(0.88 0.03 282);
+  --accent: oklch(0.31 0.1 285);
+  --accent-foreground: oklch(0.99 0.004 285);
+  --destructive: oklch(0.7 0.2 20);
+  --destructive-soft: oklch(0.31 0.1 20);
+  --success: oklch(0.74 0.18 160);
+  --success-foreground: oklch(0.16 0.04 160);
+  --success-soft: oklch(0.3 0.08 160);
+  --warning: oklch(0.82 0.16 82);
+  --warning-foreground: oklch(0.2 0.04 80);
+  --warning-soft: oklch(0.33 0.08 80);
+  --border: oklch(0.4 0.08 285 / 65%);
+  --input: oklch(0.4 0.08 285 / 70%);
+  --ring: oklch(0.7 0.2 268);
+  --shadow-tint: oklch(0.04 0.04 285);
+  --chart-1: oklch(0.68 0.23 285);
+  --chart-2: oklch(0.8 0.14 210);
+  --chart-3: oklch(0.82 0.16 82);
+  --chart-4: oklch(0.7 0.26 330);
+  --chart-5: oklch(0.72 0.2 20);
+  --sidebar: oklch(0.21 0.06 285);
+  --sidebar-foreground: oklch(0.99 0.004 285);
+  --sidebar-primary: oklch(0.62 0.23 268);
+  --sidebar-primary-foreground: oklch(0.99 0.004 270);
+  /* Mirrors `--accent`'s hue and chroma so a selected nav item is a clearly coloured pill, not just a lightness step; lighter than
+     `--accent` because the sidebar's own background sits above the page's. */
+  --sidebar-accent: oklch(0.32 0.11 285);
+  --sidebar-accent-foreground: oklch(0.985 0.004 285);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.488 0.243 264.376);
+  --sidebar-ring: oklch(0.7 0.2 268);
 }
 
 @layer base {
@@ -324,6 +324,184 @@
 
     .animate-badge-pulse {
       animation: badge-flash 0.8s linear 1;
+    }
+  }
+}
+
+/*
+ * Theme-change scenes (`ThemeTransition`): a thunderstorm going to dark, a sunrise going to light. One-shot, decorative, pointer-events none,
+ * only opacity/transform are animated (cheap on the compositor), and not rendered at all under reduced motion. Colours are literals on
+ * purpose: they paint a moment in the sky, not a surface of the app, so they do not follow the light/dark tokens.
+ */
+@keyframes theme-fx-fade {
+  0% { opacity: 0; }
+  28% { opacity: 1; }
+  66% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes theme-storm-rain {
+  from { background-position: 0 0; }
+  to { background-position: -160px 640px; }
+}
+
+/* Two strikes that swell and fade rather than snap: a double flicker early on, a softer one near the end. */
+@keyframes theme-storm-flash {
+  0%, 12% { opacity: 0; }
+  18% { opacity: 0.55; }
+  23% { opacity: 0.12; }
+  28% { opacity: 0.45; }
+  38% { opacity: 0; }
+  50% { opacity: 0; }
+  57% { opacity: 0.6; }
+  63% { opacity: 0.15; }
+  68% { opacity: 0.4; }
+  80% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+@keyframes theme-storm-bolt-a {
+  0%, 12% { opacity: 0; }
+  18% { opacity: 0.85; }
+  23% { opacity: 0.2; }
+  28% { opacity: 0.7; }
+  38%, 100% { opacity: 0; }
+}
+
+@keyframes theme-storm-bolt-b {
+  0%, 50% { opacity: 0; }
+  57% { opacity: 0.85; }
+  63% { opacity: 0.25; }
+  68% { opacity: 0.65; }
+  80%, 100% { opacity: 0; }
+}
+
+@keyframes theme-sun-rise {
+  0% { opacity: 0; transform: translate(-50%, 70%) scale(0.85); }
+  30% { opacity: 1; }
+  70% { opacity: 1; transform: translate(-50%, -8%) scale(1.04); }
+  100% { opacity: 0; transform: translate(-50%, -22%) scale(1.08); }
+}
+
+@keyframes theme-sun-rays {
+  0% { opacity: 0; transform: translateX(-50%) rotate(-6deg); }
+  35% { opacity: 0.5; }
+  70% { opacity: 0.4; transform: translateX(-50%) rotate(4deg); }
+  100% { opacity: 0; transform: translateX(-50%) rotate(6deg); }
+}
+
+@layer utilities {
+  .theme-fx {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    overflow: hidden;
+    pointer-events: none;
+    /* The whole scene is a backdrop, not a takeover: every layer is further scaled down by this. */
+    opacity: 0.6;
+  }
+
+  .theme-fx > * {
+    position: absolute;
+    animation-duration: var(--theme-fx-duration, 2.6s);
+    animation-fill-mode: both;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .theme-fx-clouds {
+    inset: 0;
+    background:
+      radial-gradient(60% 45% at 20% 0%, oklch(0.2 0.03 265 / 0.7), transparent 72%),
+      radial-gradient(55% 40% at 80% -5%, oklch(0.22 0.035 262 / 0.65), transparent 72%),
+      linear-gradient(180deg, oklch(0.16 0.03 265 / 0.5), oklch(0.2 0.03 262 / 0.22) 55%, transparent);
+    animation-name: theme-fx-fade;
+  }
+
+  .theme-fx-rain {
+    inset: -20% 0 0;
+    background-image: repeating-linear-gradient(
+      105deg,
+      transparent 0 22px,
+      oklch(0.85 0.04 250 / 0.1) 22px 23px
+    );
+    background-size: 160px 160px;
+    animation-name: theme-fx-fade, theme-storm-rain;
+    animation-timing-function: ease-in-out, linear;
+    animation-iteration-count: 1, infinite;
+  }
+
+  .theme-fx-flash {
+    inset: 0;
+    background: radial-gradient(70% 60% at 50% 0%, oklch(0.97 0.03 250 / 0.6), oklch(0.85 0.08 265 / 0.25) 60%, transparent);
+    animation-name: theme-storm-flash;
+    animation-timing-function: ease-out;
+  }
+
+  .theme-fx-bolt {
+    top: 0;
+    height: 62vh;
+    width: auto;
+    color: oklch(0.98 0.02 250);
+    filter: drop-shadow(0 0 6px oklch(0.8 0.15 265)) drop-shadow(0 0 18px oklch(0.75 0.17 270));
+    opacity: 0;
+    animation-timing-function: ease-out;
+  }
+
+  .theme-fx-bolt-a {
+    left: 14%;
+    animation-name: theme-storm-bolt-a;
+  }
+
+  .theme-fx-bolt-b {
+    right: 16%;
+    transform: scaleX(-1);
+    animation-name: theme-storm-bolt-b;
+  }
+
+  .theme-fx-sky {
+    inset: 0;
+    background: linear-gradient(
+      to top,
+      oklch(0.82 0.16 55 / 0.5),
+      oklch(0.88 0.11 75 / 0.3) 32%,
+      oklch(0.93 0.05 230 / 0) 78%
+    );
+    animation-name: theme-fx-fade;
+  }
+
+  .theme-fx-rays {
+    left: 50%;
+    bottom: -40vmax;
+    width: 150vmax;
+    height: 150vmax;
+    background: repeating-conic-gradient(
+      from 0deg at 50% 50%,
+      oklch(0.97 0.09 90 / 0.3) 0 4deg,
+      transparent 4deg 12deg
+    );
+    mask-image: radial-gradient(closest-side, black 10%, transparent 72%);
+    animation-name: theme-sun-rays;
+  }
+
+  .theme-fx-sun {
+    left: 50%;
+    bottom: 0;
+    width: min(72vmin, 540px);
+    aspect-ratio: 1;
+    border-radius: 9999px;
+    background: radial-gradient(
+      circle,
+      oklch(0.98 0.1 98 / 0.9) 0 26%,
+      oklch(0.9 0.17 70 / 0.7) 42%,
+      oklch(0.85 0.17 55 / 0.28) 60%,
+      transparent 72%
+    );
+    animation-name: theme-sun-rise;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .theme-fx {
+      display: none;
     }
   }
 }

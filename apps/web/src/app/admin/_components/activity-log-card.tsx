@@ -8,6 +8,7 @@ import {
   LuMailX,
   LuShieldCheck,
   LuShieldOff,
+  LuSlidersHorizontal,
   LuTrash2,
   LuUserCheck,
   LuUserMinus,
@@ -18,6 +19,7 @@ import {
 import { cn } from "@/app/_libs/utils/cn";
 import { formatRelativeTime } from "@/app/_libs/utils/relative-time";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useActivityMessage } from "@/hooks/admin/use-activity-message";
 import type { PlatformActivityEntry } from "@/types/domain";
 
 interface ActivityLogCardProps {
@@ -43,6 +45,7 @@ export const TYPE_ICON: Record<
   user_activated: LuUserPlus,
   user_deactivated: LuUserMinus,
   business_joined: LuBuilding2,
+  platform_settings_changed: LuSlidersHorizontal,
 };
 
 export const TYPE_ICON_CLASSNAME: Record<PlatformActivityEntry["type"], string> = {
@@ -58,10 +61,12 @@ export const TYPE_ICON_CLASSNAME: Record<PlatformActivityEntry["type"], string> 
   user_activated: "bg-success-soft text-success",
   user_deactivated: "bg-destructive-soft text-destructive",
   business_joined: "bg-accent text-primary",
+  platform_settings_changed: "bg-warning-soft text-warning",
 };
 
 export function ActivityLogCard({ entries, viewAllHref }: ActivityLogCardProps) {
   const t = useTranslations("adminOverview.activityLog");
+  const describeActivity = useActivityMessage();
   const locale = useLocale();
 
   return (
@@ -88,10 +93,7 @@ export function ActivityLogCard({ entries, viewAllHref }: ActivityLogCardProps) 
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm">
-                    {t(`messages.${entry.type}`, {
-                      businessName: entry.businessName ?? "",
-                      email: entry.email ?? "",
-                    })}
+                    {describeActivity(entry)}
                   </p>
                   <p className="text-[13px] text-muted-foreground">
                     {formatRelativeTime(entry.occurredAt, locale)}

@@ -2,7 +2,7 @@ import { HashingService } from '@common/hashing/hashing.service';
 import type { Locale } from '@common/i18n/locale';
 import { EnvConfig } from '@config/env.config';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { randomBytes } from 'crypto';
@@ -19,6 +19,7 @@ import { PlatformAdminSummaryDto } from '../dto/platform-admin-summary.dto';
 import { PlatformAdminTokenResponseDto } from '../dto/platform-admin-token-response.dto';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 import { PlatformAdminStatus } from '../enums/platform-admin-status.enum';
+import { UserIdentityProvider } from '../enums/user-identity-provider.enum';
 import {
   AccountDisabledException,
   InvalidCredentialsException,
@@ -26,6 +27,7 @@ import {
   InviteNotFoundException,
 } from '../exceptions/auth.exceptions';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
+import { MicrosoftIdentityProvider } from '../providers/microsoft-identity.provider';
 import type {
   LinkedAdminLookup,
   PlatformAdminLoginResult,
@@ -33,6 +35,10 @@ import type {
   SsoIdentity,
 } from '../types/auth.type';
 import { buildAdminInviteLink } from '../utils/admin-invite-link.util';
+import {
+  getAdminMicrosoftTenantId,
+  isAdminMicrosoftLoginAvailable,
+} from '../utils/admin-microsoft.util';
 import { normalizeEmail } from '../utils/email.utils';
 import { hashToken } from '../utils/token.utils';
 
@@ -43,6 +49,8 @@ import { hashToken } from '../utils/token.utils';
  */
 @Injectable()
 export class PlatformAdminAuthService {
+  private readonly logger = new Logger(PlatformAdminAuthService.name);
+
   constructor(
     private readonly platformAdminDbService: PlatformAdminDbService,
     private readonly hashingService: HashingService,
@@ -50,6 +58,7 @@ export class PlatformAdminAuthService {
     private readonly loginAttemptService: LoginAttemptService,
     private readonly oauthStateService: OAuthStateService,
     private readonly googleIdentityProvider: GoogleIdentityProvider,
+    private readonly microsoftIdentityProvider: MicrosoftIdentityProvider,
     private readonly configService: ConfigService<EnvConfig>
   ) {}
 
@@ -188,9 +197,105 @@ export class PlatformAdminAuthService {
   }
 
   /**
-   * `{ linked: false }` means not a returning admin and lets the caller fall through to tenant
-   * resolution. Checked for `signup` too: an admin-linked Google account on the signup button is
-   * someone clicking the wrong button, and the right answer is their admin session.
+   * The Microsoft button on the admin sign-in screen. Sign-in only (admins are invite-only), pinned to the organization's
+   * directory so no other tenant or personal account ever reaches a consent screen. Never throws; the browser is mid-navigation.
+   */
+  async buildAdminLoginMicrosoftRedirect(): Promise<SsoAuthorizeRedirect> {
+    const tenantId = getAdminMicrosoftTenantId(this.configService);
+    if (tenantId === undefined || !this.isAdminMicrosoftConfigured()) {
+      return {
+        ok: false,
+        redirectUrl: `${SSO_REDIRECT.ADMIN_LOGIN}?error=${SsoAuthFailure.NOT_CONFIGURED}&provider=${SsoProvider.MICROSOFT}`,
+      };
+    }
+
+    const minted = await this.oauthStateService.mint({
+      provider: SsoProvider.MICROSOFT,
+      intent: OAuthIntent.ADMIN_LOGIN,
+      pkce: true,
+    });
+
+    return {
+      ok: true,
+      authorizationUrl: this.microsoftIdentityProvider.buildAuthorizationUrl({
+        state: minted.state,
+        nonce: minted.nonce,
+        codeChallenge: minted.codeChallenge ?? '',
+        tenantId,
+      }),
+      sid: minted.sid,
+    };
+  }
+
+  /**
+   * Re-checked at the callback: the setting may have been removed while the admin was at Microsoft. One definition, shared with the
+   * public platform-config's `adminMicrosoftLoginAvailable` (the Microsoft client and the pinned directory), so what the admin page
+   * offers and what the route accepts cannot drift apart.
+   */
+  isAdminMicrosoftConfigured(): boolean {
+    return isAdminMicrosoftLoginAvailable(this.configService);
+  }
+
+  /** The directory the callback must see in the ID token (`tid`) and send the token exchange to. */
+  adminMicrosoftTenantId(): string | undefined {
+    return getAdminMicrosoftTenantId(this.configService);
+  }
+
+  /**
+   * Resolves a validated Microsoft identity to an existing platform admin; never creates one. Against
+   * `platform_admin_identities` and `platform_admins` only, so it can't hand back a tenant session.
+   * Order matters: the directory first (an address in any other Entra tenant, or a personal account,
+   * proves nothing about an admin), then the immutable `sub`, and only then the verified email, to link
+   * an admin's first Microsoft sign-in.
+   */
+  async signInWithMicrosoft(
+    identity: SsoIdentity
+  ): Promise<
+    { ok: false; failure: SsoAuthFailure } | { ok: true; tokens: PlatformAdminLoginResult }
+  > {
+    const pinned = getAdminMicrosoftTenantId(this.configService);
+    if (pinned === undefined || identity.tenantId !== pinned) {
+      this.logger.warn(
+        `Admin Microsoft sign-in refused: directory ${identity.tenantId ?? 'unknown'} is not the configured one`
+      );
+      return { ok: false, failure: SsoAuthFailure.NO_ACCOUNT };
+    }
+
+    const linked = await this.platformAdminDbService.findByIdentity(
+      UserIdentityProvider.ENTRA_ID,
+      identity.providerUserId
+    );
+    if (linked) {
+      return linked.status === PlatformAdminStatus.ACTIVE
+        ? { ok: true, tokens: this.buildPlatformAdminLoginResult(linked) }
+        : { ok: false, failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE };
+    }
+
+    // An address decides who someone is only here, on the first link, so it must be verified here.
+    if (!identity.emailVerified) {
+      return { ok: false, failure: SsoAuthFailure.EMAIL_NOT_VERIFIED };
+    }
+
+    const result = await this.platformAdminDbService.linkIdentityByEmail({
+      provider: UserIdentityProvider.ENTRA_ID,
+      providerUserId: identity.providerUserId,
+      email: normalizeEmail(identity.email),
+    });
+    if (result.outcome === 'linked') {
+      return { ok: true, tokens: this.buildPlatformAdminLoginResult(result) };
+    }
+    return {
+      ok: false,
+      failure:
+        result.outcome === 'unavailable'
+          ? SsoAuthFailure.ACCOUNT_UNAVAILABLE
+          : SsoAuthFailure.NO_ACCOUNT,
+    };
+  }
+
+  /**
+   * The admin sign-in page's Google lookup: `{ linked: false }` means this Google account is not a
+   * linked admin (the caller answers `NO_ACCOUNT`; it never falls through to tenant tables).
    */
   async findLinkedAdmin(providerUserId: string): Promise<LinkedAdminLookup> {
     const linkedAdmin = await this.platformAdminDbService.findByGoogleIdentity(providerUserId);

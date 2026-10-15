@@ -10,6 +10,9 @@ export const AI_ERROR_CODES = {
  */
 export const ANONYMOUS_REVIEWER = 'a reviewer';
 
+/** What fills `{{review_text}}` for a star-only review, which has no written comment. */
+export const NO_WRITTEN_COMMENT = '(no written comment — rating only)';
+
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 /** Bounds cost/latency on a model that ignores the templates' 60-80 word limit. */

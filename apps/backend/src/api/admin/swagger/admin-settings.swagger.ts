@@ -324,6 +324,7 @@ export function ApiUpdatePlatformSettings(): ReturnType<typeof applyDecorators> 
             notificationSettingsEnabled: false,
             paymentFeatureEnabled: false,
             erasureGracePeriodDays: 21,
+            adminMicrosoftLoginAvailable: false,
           },
         },
       },

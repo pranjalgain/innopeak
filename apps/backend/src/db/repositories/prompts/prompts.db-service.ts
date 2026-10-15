@@ -99,7 +99,12 @@ export class PromptsDbService {
       return null;
     }
 
-    return { promptId: prompt.id, tone: prompt.tone, template: version.template };
+    return {
+      promptId: prompt.id,
+      promptVersionId: version.id,
+      tone: prompt.tone,
+      template: version.template,
+    };
   }
 
   async updateTone(input: UpdatePromptToneInput): Promise<PromptRecord | null> {

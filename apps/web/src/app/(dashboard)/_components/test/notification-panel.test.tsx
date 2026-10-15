@@ -105,5 +105,30 @@ describe("NotificationPanel", () => {
       expect(container.querySelector(".animate-badge-pulse")).not.toBeNull();
       expect(screen.getByRole("status")).toHaveTextContent("1 new notification");
     });
+
+    // Regression: the bell and the dot shared one `key`, so every ring could leave the previous bell behind on screen.
+    test("keeps exactly one bell and one dot however many notices ring it", async () => {
+      vi.useFakeTimers();
+      let unreadOnServer = NOTIFICATIONS_FIXTURE.filter((notification) => !notification.isRead).length;
+      vi.spyOn(NotificationService, "list").mockImplementation(async (offset, limit) => ({
+        items: structuredClone(NOTIFICATIONS_FIXTURE).slice(offset, offset + limit),
+        hasMore: offset + limit < NOTIFICATIONS_FIXTURE.length,
+        unreadTotal: unreadOnServer,
+      }));
+      const { container } = renderPanel();
+      for (let attempt = 0; attempt < 20 && container.querySelector("span.bg-destructive") === null; attempt += 1) {
+        await flush();
+      }
+
+      for (let ring = 0; ring < 3; ring += 1) {
+        unreadOnServer += 1;
+        await flush(NOTIFICATIONS_POLL_MS);
+        for (let attempt = 0; attempt < 20; attempt += 1) await flush();
+      }
+
+      const trigger = screen.getByRole("button", { name: messages.appShell.notifications });
+      expect(trigger.querySelectorAll("svg")).toHaveLength(1);
+      expect(container.querySelectorAll("span.bg-destructive")).toHaveLength(1);
+    });
   });
 });

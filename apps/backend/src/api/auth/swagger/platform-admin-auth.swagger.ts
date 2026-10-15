@@ -179,6 +179,25 @@ export function ApiAdminGoogleLogin(): ReturnType<typeof applyDecorators> {
   );
 }
 
+export function ApiAdminMicrosoftLogin(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Start a platform-admin Microsoft sign-in',
+      description:
+        'The Microsoft button on the admin sign-in screen. Sign-in only: platform admins are invite-only, so ' +
+        'this never creates or invites one. Its own route and `OAuthIntent.ADMIN_LOGIN`, pinned to the ' +
+        'directory in `ADMIN_MICROSOFT_TENANT_ID`; the returned identity is resolved against ' +
+        '`platform_admin_identities` (by the Entra `sub`, else linked by verified email to an existing active ' +
+        'admin on first use) and never reaches the tenant tables. Completion happens at the shared ' +
+        '`GET /v1/auth/microsoft/callback`; failures land on `/admin-login?error=…&provider=microsoft`.',
+    }),
+    ApiResponse({
+      status: 302,
+      description: 'Redirect to Microsoft, or back to /admin-login with ?error=NOT_CONFIGURED',
+    })
+  );
+}
+
 export function ApiInviteGoogleAuthorize(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
     ApiOperation({

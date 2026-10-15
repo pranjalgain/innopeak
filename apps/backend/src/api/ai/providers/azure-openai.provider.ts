@@ -1,3 +1,4 @@
+import { isAllowedAzureOpenAiRegion } from '@common/constants/azure-openai.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
 import type { EnvConfig } from '@config/env.config';
 import { Injectable, Logger } from '@nestjs/common';
@@ -17,9 +18,6 @@ import {
   AiProviderNotConfiguredException,
 } from '../exceptions/ai.exceptions';
 import type { GenerateReplyInput, GenerateReplyResult } from '../types/ai-provider.type';
-
-/** GDPR requirement, not a preference, so it is validated rather than left to convention. */
-const REQUIRED_AZURE_REGION = 'westeurope';
 
 /**
  * Default `AiProvider` (`AI_PROVIDER=azure`). Always calls the configured Azure OpenAI deployment; there
@@ -119,7 +117,8 @@ export class AzureOpenAiProvider extends AiProvider {
     }
 
     const region = this.configService.get<string>('AZURE_OPENAI_REGION');
-    if (region !== REQUIRED_AZURE_REGION) {
+    // GDPR requirement, not a preference, so it is validated rather than left to convention.
+    if (!isAllowedAzureOpenAiRegion(region)) {
       throw new AiProviderNotConfiguredException(MESSAGES.AI.AZURE_REGION_INVALID);
     }
 

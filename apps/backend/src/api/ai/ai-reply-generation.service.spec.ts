@@ -28,7 +28,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
   let target: AiReplyGenerationService;
   let aiProvider: { generateReply: jest.Mock };
   let promptsDbService: { findCurrentForCategory: jest.Mock };
-  let authDbService: { findTenantStatus: jest.Mock };
+  let authDbService: { findTenantStatus: jest.Mock; findTenantOwnerRecipients: jest.Mock };
   let billingEntitlementsService: { getEntitlements: jest.Mock };
   let reviewSyncDbService: {
     findClassifiedNeedingGeneration: jest.Mock;
@@ -77,6 +77,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
     promptsDbService = {
       findCurrentForCategory: jest.fn().mockResolvedValue({
         promptId: 'prompt-1',
+        promptVersionId: 'prompt-version-1',
         tone: 'professional',
         template:
           'You are replying on behalf of {{business_name}} to a {{rating}}-star review from {{reviewer_name}}.\n\nReview: "{{review_text}}"',
@@ -84,6 +85,7 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
     };
     authDbService = {
       findTenantStatus: jest.fn().mockResolvedValue({ id: tenantId, name: 'Acme Cafe' }),
+      findTenantOwnerRecipients: jest.fn().mockResolvedValue([{ locale: 'de' }]),
     };
     billingEntitlementsService = {
       // Paid plan by default (null = unlimited) so quota never constrains tests not about quota.
@@ -208,6 +210,8 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
       reviewId: 'review-1',
       responseType: ResponseType.AUTO_REPLY_SUGGESTION,
       content: providerResult.content,
+      // Which version of the prompt wrote it: what Settings > Prompts counts and rates replies by.
+      promptVersionId: 'prompt-version-1',
       generationGroupId: null,
       generationMetadata: {
         model: providerResult.model,
@@ -662,6 +666,74 @@ describe('AiReplyGenerationService.generateForClassifiedReviews', () => {
     expect(aiProvider.generateReply).toHaveBeenCalledWith(
       expect.objectContaining({
         userPrompt: expect.stringContaining('a reviewer'),
+      })
+    );
+  });
+
+  describe('the language of a star-only review', () => {
+    const starOnly = { ...autoReplyCandidate, reviewerName: null, reviewText: null };
+
+    it("is the owner's language in the app, since there is no review text to take one from", async () => {
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([starOnly]);
+
+      await target.generateForClassifiedReviews({ tenantId, locationId });
+
+      expect(authDbService.findTenantOwnerRecipients).toHaveBeenCalledWith(tenantId);
+      expect(aiProvider.generateReply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          systemPrompt: expect.stringContaining(
+            'write the reply in German, in the formal "Sie" form'
+          ),
+        })
+      );
+    });
+
+    it("falls back to the app's default language while the owner has not chosen one", async () => {
+      authDbService.findTenantOwnerRecipients.mockResolvedValue([{ locale: null }]);
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([starOnly]);
+
+      await target.generateForClassifiedReviews({ tenantId, locationId });
+
+      expect(aiProvider.generateReply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          systemPrompt: expect.stringContaining('write the reply in English'),
+        })
+      );
+    });
+
+    it('is not asked for, and not applied, when every review in the batch has text', async () => {
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([autoReplyCandidate]);
+
+      await target.generateForClassifiedReviews({ tenantId, locationId });
+
+      expect(authDbService.findTenantOwnerRecipients).not.toHaveBeenCalled();
+      expect(aiProvider.generateReply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          systemPrompt: expect.not.stringContaining('no language to follow'),
+        })
+      );
+    });
+
+    it('asks once for a batch with several star-only reviews', async () => {
+      reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([
+        starOnly,
+        { ...starOnly, id: 'review-4' },
+      ]);
+
+      await target.generateForClassifiedReviews({ tenantId, locationId });
+
+      expect(authDbService.findTenantOwnerRecipients).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('passes the prompt category so only a complaint is told to end on the contact invitation', async () => {
+    reviewSyncDbService.findClassifiedNeedingGeneration.mockResolvedValue([escalatedCandidate]);
+
+    await target.generateForClassifiedReviews({ tenantId, locationId });
+
+    expect(aiProvider.generateReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining('Finish with the invitation to get in touch'),
       })
     );
   });

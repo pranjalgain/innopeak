@@ -1,7 +1,7 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { focusManager, QueryClientProvider } from "@tanstack/react-query";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
   type ConnectedLocation,
@@ -109,7 +109,7 @@ describe("useDashboardStats — location scoping", () => {
     renderHook(() => useDashboardStats("30d"), { wrapper });
 
     await waitFor(() => expect(getMetrics).toHaveBeenCalledWith("30d", "loc-1"));
-    expect(getAttentionReviews).toHaveBeenCalledWith(4, "loc-1");
+    expect(getAttentionReviews).toHaveBeenCalledWith(3, "loc-1");
   });
 
   test("aggregates across every location when nothing is active yet", async () => {
@@ -143,5 +143,74 @@ describe("useDashboardStats — location scoping", () => {
     rerender();
 
     await waitFor(() => expect(getMetrics).toHaveBeenCalledWith("30d", "loc-2"));
+  });
+});
+
+/** Figures change on the server without the user doing anything, so the screen refreshes itself when the window is focused again. */
+describe("useDashboardStats — staying current", () => {
+  const T0 = new Date("2026-06-01T10:00:00Z").getTime();
+  const returnToWindow = () => {
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    // Only the clock: `waitFor` and the query machinery need real timers.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(T0);
+    vi.spyOn(ConnectionService, "getState").mockResolvedValue(connectionState());
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("does not refetch when the window is refocused within a minute", async () => {
+    const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue(metrics());
+    vi.spyOn(DashboardService, "getAttentionReviews").mockResolvedValue([]);
+    const { wrapper } = renderWithClient();
+    renderHook(() => useDashboardStats("30d"), { wrapper });
+    await waitFor(() => expect(getMetrics).toHaveBeenCalledTimes(1));
+
+    vi.setSystemTime(T0 + 30_000);
+    returnToWindow();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getMetrics).toHaveBeenCalledTimes(1);
+  });
+
+  test("refetches both queries when the window is refocused after a minute", async () => {
+    const getMetrics = vi.spyOn(DashboardService, "getMetrics").mockResolvedValue(metrics());
+    const getAttention = vi.spyOn(DashboardService, "getAttentionReviews").mockResolvedValue([]);
+    const { wrapper } = renderWithClient();
+    renderHook(() => useDashboardStats("30d"), { wrapper });
+    await waitFor(() => expect(getMetrics).toHaveBeenCalledTimes(1));
+
+    vi.setSystemTime(T0 + 61_000);
+    returnToWindow();
+
+    await waitFor(() => expect(getMetrics).toHaveBeenCalledTimes(2));
+    expect(getAttention).toHaveBeenCalledTimes(2);
+  });
+
+  test("keeps showing the figures when a background refresh fails", async () => {
+    const getMetrics = vi
+      .spyOn(DashboardService, "getMetrics")
+      .mockResolvedValueOnce(metrics({ stats: { ...metrics().stats, reviewCount: 42 } }));
+    vi.spyOn(DashboardService, "getAttentionReviews").mockResolvedValue([]);
+    const { wrapper } = renderWithClient();
+    const { result } = renderHook(() => useDashboardStats("30d"), { wrapper });
+    await waitFor(() => expect(result.current.stats?.reviewCount).toBe(42));
+
+    getMetrics.mockRejectedValue(new Error("offline"));
+    vi.setSystemTime(T0 + 61_000);
+    returnToWindow();
+    await waitFor(() => expect(getMetrics).toHaveBeenCalledTimes(2));
+
+    expect(result.current.stats?.reviewCount).toBe(42);
+    expect(result.current.error).toBeNull();
   });
 });

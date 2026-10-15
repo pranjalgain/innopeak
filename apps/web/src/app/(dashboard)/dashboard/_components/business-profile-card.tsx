@@ -1,6 +1,7 @@
 import { useFormatter, useTranslations } from "next-intl";
-import { LuClock, LuGlobe, LuMapPin, LuPhone, LuStore } from "react-icons/lu";
+import { LuClock, LuGlobe, LuMapPin, LuPhone, LuStar, LuStore, LuTag } from "react-icons/lu";
 
+import { cn } from "@/app/_libs/utils/cn";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Tenant } from "@/types/domain";
 
@@ -23,12 +24,16 @@ function displayWebsite(uri: string): string {
   return uri.replace(/^https?:\/\//i, "").replace(/\/$/, "");
 }
 
-/** Read-only summary from the backend. Phone and website appear only when the business lists them on Google; its
- *  category and rating are never fetched. Connection management lives in Settings → Connection. */
+/** Read-only summary from the backend. Phone, website, category and Google's rating appear only when the business lists them or the
+ *  first sync has read them. The rating and review count are Google's own, covering every review, not just the imported ones. The sync
+ *  badge says whether reviews are coming in. Connection management lives in Settings → Connection. */
 export function BusinessProfileCard({ tenant }: BusinessProfileCardProps) {
   const t = useTranslations("dashboard.businessProfile");
   const format = useFormatter();
   const { location } = tenant;
+  // One decimal, as Google shows it ("4.3"); a locale that uses a comma gets one.
+  const formatRating = (rating: number) =>
+    format.number(rating, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
   if (!location) {
     return (
@@ -45,6 +50,34 @@ export function BusinessProfileCard({ tenant }: BusinessProfileCardProps) {
           <LuStore className="size-4 shrink-0" />
           {location.name}
         </span>
+        {location.category ? (
+          // A plain span cannot carry an accessible name, so the full sentence is visually hidden text and the short visible form is
+          // hidden from assistive tech (otherwise a screen reader reads both).
+          <span className="inline-flex items-center gap-1.5">
+            <LuTag className="size-4 shrink-0" aria-hidden="true" />
+            <span aria-hidden="true">{location.category}</span>
+            <span className="sr-only">{t("categoryLabel", { category: location.category })}</span>
+          </span>
+        ) : null}
+        {location.googleRating !== null ? (
+          <span className="inline-flex items-center gap-1.5 tabular-nums">
+            <span aria-hidden="true" className="inline-flex items-center gap-1.5">
+              <LuStar className="fill-warning text-warning size-4 shrink-0" />
+              <span className="text-foreground font-medium">{formatRating(location.googleRating)}</span>
+              {location.googleReviewCount !== null ? (
+                <span>({format.number(location.googleReviewCount)})</span>
+              ) : null}
+            </span>
+            <span className="sr-only">
+              {location.googleReviewCount === null
+                ? t("ratingOnlyLabel", { rating: formatRating(location.googleRating) })
+                : t("ratingLabel", {
+                    rating: formatRating(location.googleRating),
+                    count: location.googleReviewCount,
+                  })}
+            </span>
+          </span>
+        ) : null}
         <span className="inline-flex items-center gap-1.5">
           <LuMapPin className="size-4 shrink-0" />
           {location.address ?? t("noAddress")}
@@ -81,6 +114,17 @@ export function BusinessProfileCard({ tenant }: BusinessProfileCardProps) {
                 }),
               })
             : t("neverSynced")}
+          {location.syncStatus ? (
+            <span
+              title={location.syncStatus === "error" ? t("syncFailedHint") : undefined}
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                location.syncStatus === "ok" && "bg-success-soft text-success",
+                location.syncStatus === "error" && "bg-destructive-soft text-destructive",
+              )}>
+              {location.syncStatus === "ok" ? t("syncOk") : t("syncFailed")}
+            </span>
+          ) : null}
         </span>
       </CardContent>
     </Card>

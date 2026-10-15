@@ -69,7 +69,7 @@ flowchart TB
         TH -- yes --> ESC2["classification='escalated'<br/>escalation_reason='low_rating'"]
         TH -- no --> AUTO["classification='auto_reply_candidate'"]
     end
-    subgraph Generation["AI generation — Azure OpenAI GPT-4, westeurope"]
+    subgraph Generation["AI generation — Azure OpenAI GPT-4, approved EU region"]
         AUTO --> G1["ai_reply_count rows (1 when auto-posted)<br/>auto_reply_suggestion / pending_approval"]
         ESC --> G2["ai_reply_count rows, one generation_group_id<br/>escalation_snippet / pending_approval"]
         ESC2 --> G2
@@ -506,7 +506,9 @@ costs money per invocation and the only one whose latency is measured in seconds
 validated *at the client-config level*, not left to convention: the client should refuse to
 construct against a non-`westeurope` endpoint, so a misconfigured environment fails at boot rather
 than silently sending personal data to another region. §6 extends the same standard to where the
-data lives at rest — a hosting concern, same requirement.
+data lives at rest — a hosting concern, same requirement. *Update:* the check is now an allow-list of
+EU regions, `westeurope` and `northeurope` (the client's Azure OpenAI resource was created in North
+Europe); see `../ai/overview.md`.
 
 **Writes.** One `review_responses` insert per generated variant:
 
@@ -516,7 +518,7 @@ data lives at rest — a hosting concern, same requirement.
 | `escalated` | `ai_reply_count` (1–3) | `escalation_snippet` | one shared UUID across the batch, **never `NULL`** | `pending_approval` | `ai_generated` |
 
 Every row also gets `tenant_id`, `review_id`, `content`, `generation_metadata` (JSONB — model
-name/version, region `westeurope`, token counts, per §2), and `prompt_version_id` (added by
+name/version, region, token counts, per §2), and `prompt_version_id` (added by
 `0006_prompts.sql`, FK to `prompt_versions`, `ON DELETE SET NULL`). `original_content`, also from
 `0006`, gets the same text as `content` at generation time, so a later human edit leaves the
 pre-edit AI text recoverable for the prompt-performance analytics that column serves.
@@ -1109,7 +1111,7 @@ applied.
 
 - ~~Azure OpenAI client. Nothing exists.~~ **Built** — `AzureOpenAiProvider`
   (`src/api/ai/providers/azure-openai.provider.ts`) is the default `AiProvider`
-  (`AI_PROVIDER=azure`), with the `westeurope` region pin enforced at client-construction time
+  (`AI_PROVIDER=azure`), with the EU region pin (`westeurope` or `northeurope`) enforced at client-construction time
   exactly as §5 requires, not left to convention. See `../ai/overview.md`'s own provider-abstraction
   section.
 - ~~GBP API client. Nothing exists.~~ **Built** — `GoogleBusinessProfileProvider`

@@ -16,6 +16,7 @@ function draft(overrides: Partial<ReviewReplyDraft> = {}): ReviewReplyDraft {
     content: "Thanks for visiting!",
     originalContent: "Thanks for visiting!",
     status: "approved",
+    source: "ai_generated",
     promptId: "prompt-1",
     promptVersion: 1,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -58,6 +59,42 @@ describe("ReplyDraftCard delivery states", () => {
     expect(screen.getByText(replies.confirmation.posted)).toBeTruthy();
     expect(screen.queryByRole("button", { name: replies.post })).toBeNull();
     expect(screen.queryByRole("button", { name: replies.retryPost })).toBeNull();
+  });
+
+  // Regression: a reply someone wrote on Google itself said "Posted to your Google Business Profile", as if this app had sent it.
+  describe("a reply that was already on Google (imported by sync)", () => {
+    const imported = () =>
+      draft({ source: "imported", postedAt: "2026-01-02T00:00:05.000Z", originalContent: "Thanks for visiting!" });
+
+    test("says it was replied to directly on Google, not posted from the app", () => {
+      renderCard({ draft: imported() });
+
+      expect(screen.getByText(replies.confirmation.imported)).toBeTruthy();
+      expect(screen.queryByText(replies.confirmation.posted)).toBeNull();
+      expect(screen.getByText(replies.status.imported)).toBeTruthy();
+      expect(screen.queryByText(replies.status.posted)).toBeNull();
+    });
+
+    test("is labelled as the Google reply, not as an AI snippet", () => {
+      renderCard({ draft: imported() });
+
+      expect(screen.getByText(replies.importedLabel)).toBeTruthy();
+      expect(screen.queryByText("Snippet A")).toBeNull();
+    });
+
+    test("offers no action", () => {
+      renderCard({ draft: imported() });
+
+      expect(screen.queryByRole("button", { name: replies.post })).toBeNull();
+      expect(screen.queryByRole("button", { name: replies.retryPost })).toBeNull();
+    });
+  });
+
+  test("a reply written from scratch in the app and posted still says it was posted", () => {
+    renderCard({ draft: draft({ source: "human_manual", postedAt: "2026-01-02T00:00:05.000Z" }) });
+
+    expect(screen.getByText(replies.confirmation.posted)).toBeTruthy();
+    expect(screen.queryByText(replies.confirmation.imported)).toBeNull();
   });
 
   test("a failed draft shows Google's reason and offers Retry, not Post", () => {

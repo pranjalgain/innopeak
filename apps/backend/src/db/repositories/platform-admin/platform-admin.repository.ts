@@ -11,6 +11,8 @@ import { and, desc, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 
 import type {
   AcceptInviteOutcome,
+  LinkAdminIdentityInput,
+  LinkAdminIdentityOutcome,
   PlatformAdminAlertRecipient,
   PlatformAdminLoginRow,
   PlatformAdminProfileRow,
@@ -387,6 +389,19 @@ export class PlatformAdminRepository {
     status: PlatformAdminStatus;
     locale: Locale | null;
   } | null> {
+    return this.findByIdentity(UserIdentityProvider.GOOGLE, providerUserId);
+  }
+
+  /** The provider-neutral form of the above, keyed on `(provider, provider_user_id)`. */
+  async findByIdentity(
+    provider: UserIdentityProvider,
+    providerUserId: string
+  ): Promise<{
+    id: string;
+    email: string;
+    status: PlatformAdminStatus;
+    locale: Locale | null;
+  } | null> {
     const rows = await this.dbService.db
       .select({
         id: schema.platformAdmins.id,
@@ -401,7 +416,7 @@ export class PlatformAdminRepository {
       )
       .where(
         and(
-          eq(schema.platformAdminIdentities.provider, UserIdentityProvider.GOOGLE),
+          eq(schema.platformAdminIdentities.provider, provider),
           eq(schema.platformAdminIdentities.providerUserId, providerUserId)
         )
       )
@@ -412,6 +427,50 @@ export class PlatformAdminRepository {
         | { id: string; email: string; status: PlatformAdminStatus; locale: Locale | null }
         | undefined) ?? null
     );
+  }
+
+  /**
+   * First sign-in of an existing admin with a new provider: links the identity to the `active` admin holding the (already
+   * verified) address. Never creates or activates an admin, so an invite can only ever be redeemed through its own link.
+   */
+  async linkIdentityByEmail(input: LinkAdminIdentityInput): Promise<LinkAdminIdentityOutcome> {
+    return this.dbService.db.transaction(async tx => {
+      const rows = await tx
+        .select({
+          id: schema.platformAdmins.id,
+          email: schema.platformAdmins.email,
+          status: schema.platformAdmins.status,
+          locale: schema.platformAdmins.locale,
+        })
+        .from(schema.platformAdmins)
+        .where(eq(schema.platformAdmins.email, input.email))
+        .limit(1);
+
+      const admin = rows[0];
+      const status = admin?.status as PlatformAdminStatus | undefined;
+      if (!admin || status === PlatformAdminStatus.INVITED) {
+        return { outcome: 'no_account' };
+      }
+      if (status !== PlatformAdminStatus.ACTIVE) {
+        return { outcome: 'unavailable' };
+      }
+
+      try {
+        await tx.insert(schema.platformAdminIdentities).values({
+          platformAdminId: admin.id,
+          provider: input.provider,
+          providerUserId: input.providerUserId,
+        });
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          // The same account was linked to an admin between the caller's lookup and now.
+          return { outcome: 'no_account' };
+        }
+        throw error;
+      }
+
+      return { outcome: 'linked', id: admin.id, email: admin.email, locale: admin.locale };
+    });
   }
 
   /**

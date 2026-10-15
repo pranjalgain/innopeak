@@ -2,7 +2,6 @@
 
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import { useTranslations } from "next-intl";
 import { type FormEvent, useState } from "react";
@@ -10,11 +9,11 @@ import { type FormEvent, useState } from "react";
 
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
 import { ROUTES } from "@/app/_libs/constants/routes";
-import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/auth/use-auth";
+import { useHandOffAfterSignup } from "@/hooks/onboarding/use-onboarding-steps";
 
 /**
  * Screen between the Google/Microsoft OAuth callback and /onboarding/plan: an SSO provider returns a person, not a business, and `tenants.name` is NOT NULL.
@@ -23,7 +22,7 @@ import { useAuth } from "@/hooks/auth/use-auth";
  */
 export function BusinessNameView() {
   const t = useTranslations("onboardingBusinessName");
-  const router = useRouter();
+  const handOffAfterSignup = useHandOffAfterSignup();
   const { completeSsoSignup, isLoading } = useAuth();
   const [businessName, setBusinessName] = useState("");
   // Set only on submit, never blur: the input is `autoFocus`, so an incidental blur (autofill, password manager)
@@ -41,9 +40,8 @@ export function BusinessNameView() {
     const succeeded = await completeSsoSignup(trimmed);
     if (succeeded) {
       // Same handoff as onboarding-signup-view's SSO path (the stepper reads this). Goes to /onboarding/plan so every
-      // fresh signup sees the Free/Paid choice first (see its `handOffToPlan`).
-      OnboardingContextService.set({ from: "signup", via: "sso" });
-      router.replace(ROUTES.ONBOARDING_PLAN);
+      // fresh signup sees the Free/Paid choice first, or straight to connect when payments are off (see `useHandOffAfterSignup`).
+      handOffAfterSignup("sso");
     }
   };
 

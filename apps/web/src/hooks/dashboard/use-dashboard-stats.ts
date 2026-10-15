@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { DashboardService } from "@/app/_libs/services/dashboard.service";
+import { liveQueryOptions } from "@/app/_libs/utils/query-client";
 import { useConnection } from "@/hooks/connections/use-connection";
 import type {
   AttentionReview,
@@ -9,7 +10,8 @@ import type {
   RatingDistributionRow,
 } from "@/types/domain";
 
-const ATTENTION_REVIEWS_LIMIT = 4;
+/** One row of the attention grid (three columns on a wide screen), so the section never ends in a lone card. */
+const ATTENTION_REVIEWS_LIMIT = 3;
 
 export const dashboardMetricsQueryKey = (range: DateRange, locationId: string | null) =>
   ["dashboard", "metrics", range, locationId] as const;
@@ -43,6 +45,7 @@ export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
     queryKey: dashboardMetricsQueryKey(range, locationId),
     queryFn: () => DashboardService.getMetrics(range, locationId ?? undefined),
     enabled: isReady,
+    ...liveQueryOptions,
   });
 
   const attentionQuery = useQuery({
@@ -50,6 +53,7 @@ export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
     queryFn: () =>
       DashboardService.getAttentionReviews(ATTENTION_REVIEWS_LIMIT, locationId ?? undefined),
     enabled: isReady,
+    ...liveQueryOptions,
   });
 
   const metrics = metricsQuery.data;
@@ -61,6 +65,10 @@ export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
     // `!isReady` matters: a disabled query reports `isLoading: false` with no data, which would flash the empty state
     // before the active location resolves.
     isLoading: !isReady || metricsQuery.isLoading || attentionQuery.isLoading,
-    error: metricsQuery.isError || attentionQuery.isError ? "Could not load dashboard data." : null,
+    // `isLoadingError`: a failed background refresh keeps the numbers already shown rather than replacing them with the error.
+    error:
+      metricsQuery.isLoadingError || attentionQuery.isLoadingError
+        ? "Could not load dashboard data."
+        : null,
   };
 }

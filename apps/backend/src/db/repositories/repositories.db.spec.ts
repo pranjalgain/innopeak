@@ -1,6 +1,7 @@
 import { SsoProvider } from '@auth/constants/sso-auth.constants';
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
+import { ResponseType } from '@common/enums/response-type.enum';
 import { SubscriptionCancellationSource } from '@common/enums/subscription-cancellation-source.enum';
 import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import type { DBService } from '@db/db.service';
@@ -10,6 +11,8 @@ import { Pool } from 'pg';
 
 import { AdminBillingRepository } from './admin-billing/admin-billing.repository';
 import { AdminBusinessesRepository } from './admin-businesses/admin-businesses.repository';
+import { AdminOverviewDbService } from './admin-overview/admin-overview.db-service';
+import { AdminOverviewRepository } from './admin-overview/admin-overview.repository';
 import { AdminUsersRepository } from './admin-users/admin-users.repository';
 import { AuthDbService } from './auth/auth.db-service';
 import { AuthRepository } from './auth/auth.repository';
@@ -19,10 +22,12 @@ import { TenantSubscriptionsDbService } from './billing/tenant-subscriptions.db-
 import { TenantSubscriptionsRepository } from './billing/tenant-subscriptions.repository';
 import { ConnectionsRepository } from './connections/connections.repository';
 import { NotificationsRepository } from './notifications/notifications.repository';
+import { PlatformAdminRepository } from './platform-admin/platform-admin.repository';
 import { PlatformSettingsRepository } from './platform-settings/platform-settings.repository';
 import { PromptsDbService } from './prompts/prompts.db-service';
 import { PromptsRepository } from './prompts/prompts.repository';
 import { ReviewSyncRepository } from './review-sync/review-sync.repository';
+import { ReviewsReadRepository } from './review-sync/reviews-read.repository';
 import { BlocklistTermsRepository } from './settings/blocklist-terms.repository';
 import { TenantExportRepository } from './tenant-export/tenant-export.repository';
 
@@ -409,6 +414,52 @@ describeWithDb('repositories against a real database', () => {
     });
   });
 
+  describe('ConnectionsRepository.updateLocationRating', () => {
+    const read = async (locationId: string) =>
+      (
+        await pool.query(
+          `SELECT google_rating::float AS rating, google_review_count AS count, updated_at FROM locations WHERE id = $1`,
+          [locationId]
+        )
+      ).rows[0] as { rating: number | null; count: number | null; updated_at: Date };
+
+    it("stores Google's rating and review count, and keeps what it has when a page sends only one", async () => {
+      const repository = new ConnectionsRepository(dbService);
+      const locationId = await newLocation(await newTenant());
+
+      await repository.updateLocationRating({ locationId, rating: 4.3, reviewCount: 212 });
+      expect(await read(locationId)).toMatchObject({ rating: 4.3, count: 212 });
+
+      await repository.updateLocationRating({ locationId, rating: null, reviewCount: 230 });
+      expect(await read(locationId)).toMatchObject({ rating: 4.3, count: 230 });
+
+      await repository.updateLocationRating({ locationId, rating: 4.25, reviewCount: null });
+      expect(await read(locationId)).toMatchObject({ rating: 4.25, count: 230 });
+    });
+
+    // A poll runs every 15 minutes and usually finds the same figures: that must cost no write and no updated_at churn.
+    it('writes nothing when the figures are unchanged', async () => {
+      const repository = new ConnectionsRepository(dbService);
+      const locationId = await newLocation(await newTenant());
+      await repository.updateLocationRating({ locationId, rating: 4.3, reviewCount: 212 });
+      const before = await read(locationId);
+
+      await repository.updateLocationRating({ locationId, rating: 4.3, reviewCount: 212 });
+
+      expect((await read(locationId)).updated_at).toEqual(before.updated_at);
+    });
+
+    it('ignores a call with neither figure', async () => {
+      const repository = new ConnectionsRepository(dbService);
+      const locationId = await newLocation(await newTenant());
+
+      await expect(
+        repository.updateLocationRating({ locationId, rating: null, reviewCount: null })
+      ).resolves.toBeUndefined();
+      expect(await read(locationId)).toMatchObject({ rating: null, count: null });
+    });
+  });
+
   describe('ConnectionsRepository.findLocationsDueForPoll', () => {
     it('polls an active tenant but not a suspended or erased one', async () => {
       const repo = new ConnectionsRepository(dbService);
@@ -453,6 +504,51 @@ describeWithDb('repositories against a real database', () => {
       expect(byId[myReview].reviewer_name).toBeNull();
       expect(byId[myReview].anonymized_at).not.toBeNull();
       expect(byId[otherReview].reviewer_name).toBe('Real Person');
+    });
+
+    // Regression: generated drafts were saved with no prompt version and no original text, so Settings > Prompts read "No replies
+    // generated with this prompt yet" however many had been, and "needed edits" could never rise above 0%.
+    it('stores the prompt version and the original text with a generated draft, and the prompt statistics count it', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const reviewId = await newReview(tenantId, await newLocation(tenantId), 'r-stats');
+      const prompt = await pool.query<{ id: string }>(
+        `INSERT INTO prompts (tenant_id, category, name) VALUES ($1, 'positive', 'Positive') RETURNING id`,
+        [tenantId]
+      );
+      const promptId = prompt.rows[0]?.id as string;
+      const version = await pool.query<{ id: string }>(
+        `INSERT INTO prompt_versions (prompt_id, version, template) VALUES ($1, 1, 'Reply to {{review_text}}') RETURNING id`,
+        [promptId]
+      );
+      const promptVersionId = version.rows[0]?.id as string;
+
+      const responseId = await repo.insertGeneratedResponse({
+        tenantId,
+        reviewId,
+        responseType: ResponseType.AUTO_REPLY_SUGGESTION,
+        content: 'Thanks for coming!',
+        promptVersionId,
+        generationGroupId: null,
+        generationMetadata: {},
+      });
+
+      const stored = await pool.query(
+        `SELECT prompt_version_id, original_content, content FROM review_responses WHERE id = $1`,
+        [responseId]
+      );
+      expect(stored.rows[0]).toMatchObject({
+        prompt_version_id: promptVersionId,
+        original_content: 'Thanks for coming!',
+        content: 'Thanks for coming!',
+      });
+
+      const stats = await new ReviewsReadRepository(dbService).getPromptVersionStats({
+        tenantId,
+        promptId,
+        version: 1,
+      });
+      expect(stats).toMatchObject({ totalGenerated: 1, pendingCount: 1 });
     });
 
     it('supersedes a post_failed sibling when another reply is chosen, but leaves a posted one', async () => {
@@ -928,6 +1024,144 @@ describeWithDb('repositories against a real database', () => {
     });
   });
 
+  describe('platform_activity_log — the entry shapes the table accepts', () => {
+    const insert = (columns: string, values: unknown[]): Promise<unknown> =>
+      pool.query(
+        `INSERT INTO platform_activity_log (type, actor_email, ${columns}) VALUES ($1::platform_activity_type, 'admin@example.test', ${values
+          .slice(1)
+          .map((_, index) => `$${index + 2}`)
+          .join(', ')})`,
+        values
+      );
+
+    afterEach(async () => {
+      await pool.query(
+        `DELETE FROM platform_activity_log WHERE actor_email = 'admin@example.test'`
+      );
+    });
+
+    it('accepts a settings change that carries its details and nothing business-specific', async () => {
+      await expect(
+        insert('details', [
+          'platform_settings_changed',
+          JSON.stringify({ changes: [{ field: 'googleLoginEnabled', from: true, to: false }] }),
+        ])
+      ).resolves.toBeDefined();
+    });
+
+    it('refuses a settings change without details, or one that names a business', async () => {
+      await expect(
+        pool.query(
+          `INSERT INTO platform_activity_log (type, actor_email) VALUES ('platform_settings_changed', 'admin@example.test')`
+        )
+      ).rejects.toThrow(/platform_activity_log_target_check/);
+      await expect(
+        insert('business_name, details', ['platform_settings_changed', 'Acme', '{"changes":[]}'])
+      ).rejects.toThrow(/platform_activity_log_target_check/);
+    });
+
+    it('accepts business_joined with a business name, and refuses it without one', async () => {
+      await expect(insert('business_name', ['business_joined', 'Acme'])).resolves.toBeDefined();
+      await expect(
+        pool.query(
+          `INSERT INTO platform_activity_log (type, actor_email) VALUES ('business_joined', 'admin@example.test')`
+        )
+      ).rejects.toThrow(/platform_activity_log_target_check/);
+    });
+  });
+
+  describe('PlatformAdminRepository — Microsoft identities', () => {
+    const repository = (): PlatformAdminRepository => new PlatformAdminRepository(dbService);
+
+    /** Never the root: the single-root index allows only the seeded admin to have no inviter. */
+    async function newAdmin(status: string): Promise<{ id: string; email: string }> {
+      const inviter = await anyPlatformAdmin();
+      const email = `ms-admin-${Math.random().toString(36).slice(2)}@example.test`;
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO platform_admins (email, status, invited_by_platform_admin_id)
+         VALUES ($1, $2::platform_admin_status, $3) RETURNING id`,
+        [email, status, inviter]
+      );
+      const id = rows[0]?.id as string;
+      platformAdmins.push(id);
+      return { id, email };
+    }
+
+    const sub = (): string => `ms-sub-${Math.random().toString(36).slice(2)}`;
+
+    it('links an entra_id identity to the active admin holding the address, then finds it by sub for Microsoft only', async () => {
+      const admin = await newAdmin('active');
+      const providerUserId = sub();
+
+      await expect(
+        repository().linkIdentityByEmail({
+          provider: UserIdentityProvider.ENTRA_ID,
+          providerUserId,
+          email: admin.email,
+        })
+      ).resolves.toMatchObject({ outcome: 'linked', id: admin.id });
+
+      await expect(
+        repository().findByIdentity(UserIdentityProvider.ENTRA_ID, providerUserId)
+      ).resolves.toMatchObject({ id: admin.id, email: admin.email });
+      // The same `sub` under Google is a different identity.
+      await expect(repository().findByGoogleIdentity(providerUserId)).resolves.toBeNull();
+    });
+
+    it('never links an invited admin (an invite is redeemed through its own link) and answers disabled as unavailable', async () => {
+      const invited = await newAdmin('invited');
+      const disabled = await newAdmin('disabled');
+
+      await expect(
+        repository().linkIdentityByEmail({
+          provider: UserIdentityProvider.ENTRA_ID,
+          providerUserId: sub(),
+          email: invited.email,
+        })
+      ).resolves.toEqual({ outcome: 'no_account' });
+      await expect(
+        repository().linkIdentityByEmail({
+          provider: UserIdentityProvider.ENTRA_ID,
+          providerUserId: sub(),
+          email: disabled.email,
+        })
+      ).resolves.toEqual({ outcome: 'unavailable' });
+
+      const { rows } = await pool.query(
+        `SELECT 1 FROM platform_admin_identities WHERE platform_admin_id = ANY($1::uuid[])`,
+        [[invited.id, disabled.id]]
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it('answers no_account for an unknown address, and when the account is already linked to another admin', async () => {
+      const first = await newAdmin('active');
+      const second = await newAdmin('active');
+      const providerUserId = sub();
+
+      await expect(
+        repository().linkIdentityByEmail({
+          provider: UserIdentityProvider.ENTRA_ID,
+          providerUserId,
+          email: 'nobody@example.test',
+        })
+      ).resolves.toEqual({ outcome: 'no_account' });
+
+      await repository().linkIdentityByEmail({
+        provider: UserIdentityProvider.ENTRA_ID,
+        providerUserId,
+        email: first.email,
+      });
+      await expect(
+        repository().linkIdentityByEmail({
+          provider: UserIdentityProvider.ENTRA_ID,
+          providerUserId,
+          email: second.email,
+        })
+      ).resolves.toEqual({ outcome: 'no_account' });
+    });
+  });
+
   describe('AuthDbService — SSO identities per provider', () => {
     const authDb = (): AuthDbService =>
       new AuthDbService(
@@ -936,7 +1170,9 @@ describeWithDb('repositories against a real database', () => {
         new TenantSubscriptionsDbService(
           new TenantSubscriptionsRepository(dbService),
           new BillingPlansRepository(dbService)
-        )
+        ),
+        // Recording an entry only needs the repository; the sibling DB services are for the overview reads.
+        new AdminOverviewDbService(new AdminOverviewRepository(dbService), {} as never, {} as never)
       );
     const sub = (): string => `sub-${Math.random().toString(36).slice(2)}`;
     const email = (): string => `sso-${Math.random().toString(36).slice(2)}@example.test`;
@@ -960,6 +1196,21 @@ describeWithDb('repositories against a real database', () => {
         [user?.id]
       );
       expect(rows).toEqual([{ provider: 'entra_id' }]);
+
+      // The platform activity feed learns a new business joined, with the owner as the actor.
+      const activity = await pool.query(
+        `SELECT type, actor_email, business_name, actor_platform_admin_id FROM platform_activity_log WHERE tenant_id = $1`,
+        [user?.tenantId]
+      );
+      expect(activity.rows).toEqual([
+        {
+          type: 'business_joined',
+          actor_email: user?.email,
+          business_name: 'Contoso Bistro',
+          actor_platform_admin_id: null,
+        },
+      ]);
+
       await expect(
         service.findSsoIdentityBySub(SsoProvider.MICROSOFT, providerUserId)
       ).resolves.toMatchObject({

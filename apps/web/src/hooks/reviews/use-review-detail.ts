@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ReviewService } from "@/app/_libs/services/review.service";
+import { invalidateReviewLists } from "@/hooks/reviews/invalidate-review-lists";
 import type { Review } from "@/types/domain";
 
 export const reviewQueryKey = (reviewId: string) => ["review", reviewId] as const;
@@ -51,6 +52,11 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
     if (reviewQuery.isError) toast.error(t("loadFailed"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewQuery.isError]);
+
+  // Leaving this screen: whatever happened here (approved, posted, deleted on Google, a reply that failed) may have changed the queue row
+  // and the dashboard counts, which are cached for a minute. Marked stale so the list opened next fetches fresh data instead of showing
+  // the review as it was.
+  useEffect(() => () => invalidateReviewLists(queryClient), [queryClient]);
 
   // Callbacks live on the mutation itself, not on the individual `mutate()` call — per-call ones
   // are dropped when a second `mutate()` supersedes the first on the same observer (approve then
@@ -175,6 +181,8 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
           return next;
         });
         void queryClient.invalidateQueries({ queryKey: reviewQueryKey(reviewId) });
+        // A delivery outcome (posted, failed, or "deleted on Google", which also marks the review removed) changes the list too.
+        invalidateReviewLists(queryClient);
       }
       // Anything still unfinished is polled again; finished ids drop out via the state update,
       // which re-runs this effect with the smaller set.

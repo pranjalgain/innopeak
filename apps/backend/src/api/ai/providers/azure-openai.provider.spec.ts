@@ -99,7 +99,22 @@ describe('AzureOpenAiProvider', () => {
     );
   });
 
-  it('throws AiProviderNotConfiguredException when AZURE_OPENAI_REGION is not westeurope, before ever constructing the client', async () => {
+  it.each(['westeurope', 'northeurope'])('accepts the approved EU region %s', async region => {
+    mockOpenAiInstance.chat.completions.create.mockResolvedValue({
+      model: 'gpt-4.1-mini',
+      choices: [{ message: { content: 'Thanks!' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    const target = new AzureOpenAiProvider(
+      configServiceReturning({ ...REAL_CONFIG, AZURE_OPENAI_REGION: region })
+    );
+
+    await expect(
+      target.generateReply({ systemPrompt: 's', userPrompt: 'u' })
+    ).resolves.toMatchObject({ content: 'Thanks!' });
+  });
+
+  it('throws AiProviderNotConfiguredException when AZURE_OPENAI_REGION is not an approved EU region, before ever constructing the client', async () => {
     const target = new AzureOpenAiProvider(
       configServiceReturning({ ...REAL_CONFIG, AZURE_OPENAI_REGION: 'eastus' })
     );

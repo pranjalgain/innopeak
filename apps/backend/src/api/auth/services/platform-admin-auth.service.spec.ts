@@ -11,10 +11,14 @@ import { OAuthStateService } from './oauth-state.service';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { TokenService } from './token.service';
 
-import { SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
+import { SSO_REDIRECT, SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 import { PlatformAdminStatus } from '../enums/platform-admin-status.enum';
+import { UserIdentityProvider } from '../enums/user-identity-provider.enum';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
+import { MicrosoftIdentityProvider } from '../providers/microsoft-identity.provider';
+
+const ADMIN_TID = '3f2b8c1e-5a47-4d90-8e6b-0c1d2e3f4a5b';
 
 describe('PlatformAdminAuthService', () => {
   let target: PlatformAdminAuthService;
@@ -24,6 +28,8 @@ describe('PlatformAdminAuthService', () => {
   let loginAttemptService: jest.Mocked<LoginAttemptService>;
   let oauthStateService: jest.Mocked<OAuthStateService>;
   let googleIdentityProvider: jest.Mocked<GoogleIdentityProvider>;
+  let microsoftIdentityProvider: jest.Mocked<MicrosoftIdentityProvider>;
+  let env: Record<string, string | undefined>;
 
   beforeEach(async () => {
     platformAdminDbService = {
@@ -32,6 +38,8 @@ describe('PlatformAdminAuthService', () => {
       acceptInviteWithPassword: jest.fn(),
       acceptInviteWithGoogleIdentity: jest.fn(),
       findByGoogleIdentity: jest.fn(),
+      findByIdentity: jest.fn(),
+      linkIdentityByEmail: jest.fn(),
     } as unknown as jest.Mocked<PlatformAdminDbService>;
 
     hashingService = {
@@ -62,10 +70,22 @@ describe('PlatformAdminAuthService', () => {
         .mockReturnValue('https://accounts.google.com/o/oauth2/v2/auth?x=1'),
     } as unknown as jest.Mocked<GoogleIdentityProvider>;
 
+    microsoftIdentityProvider = {
+      isConfigured: jest.fn().mockReturnValue(true),
+      buildAuthorizationUrl: jest
+        .fn()
+        .mockReturnValue('https://login.microsoftonline.com/tid/oauth2/v2.0/authorize?x=1'),
+    } as unknown as jest.Mocked<MicrosoftIdentityProvider>;
+
+    env = {
+      FRONTEND_URL: 'https://app.innopeak.test',
+      ADMIN_MICROSOFT_TENANT_ID: ADMIN_TID,
+      MICROSOFT_CLIENT_ID: 'client',
+      MICROSOFT_CLIENT_SECRET: 'secret',
+      MICROSOFT_CALLBACK_URL: 'https://app.innopeak.test/v1/auth/microsoft/callback',
+    };
     const configService = {
-      get: jest.fn((key: string) => {
-        return key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : undefined;
-      }),
+      get: jest.fn((key: string) => env[key]),
     } as unknown as ConfigService;
 
     const module: TestingModule = await Test.createTestingModule({
@@ -77,6 +97,7 @@ describe('PlatformAdminAuthService', () => {
         { provide: LoginAttemptService, useValue: loginAttemptService },
         { provide: OAuthStateService, useValue: oauthStateService },
         { provide: GoogleIdentityProvider, useValue: googleIdentityProvider },
+        { provide: MicrosoftIdentityProvider, useValue: microsoftIdentityProvider },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -412,5 +433,164 @@ describe('PlatformAdminAuthService', () => {
 
       expect(result).toEqual({ linked: true, active: false });
     });
+  });
+  describe('buildAdminLoginMicrosoftRedirect', () => {
+    beforeEach(() => {
+      oauthStateService.mint.mockResolvedValue({
+        state: 'signed-state',
+        sid: 'raw-sid',
+        nonce: 'oidc-nonce',
+        codeChallenge: 'challenge',
+      });
+    });
+
+    it('mints an ADMIN_LOGIN state with PKCE and sends the browser to the pinned directory', async () => {
+      const redirect = await target.buildAdminLoginMicrosoftRedirect();
+
+      expect(oauthStateService.mint).toHaveBeenCalledWith({
+        provider: SsoProvider.MICROSOFT,
+        intent: OAuthIntent.ADMIN_LOGIN,
+        pkce: true,
+      });
+      expect(microsoftIdentityProvider.buildAuthorizationUrl).toHaveBeenCalledWith({
+        state: 'signed-state',
+        nonce: 'oidc-nonce',
+        codeChallenge: 'challenge',
+        tenantId: ADMIN_TID,
+      });
+      expect(redirect).toMatchObject({ ok: true, sid: 'raw-sid' });
+    });
+
+    // One definition of "configured": the environment alone, the same one the public platform-config reports as
+    // `adminMicrosoftLoginAvailable`, so the button and the route cannot disagree.
+    it.each([
+      ['no directory is pinned', 'ADMIN_MICROSOFT_TENANT_ID'],
+      ['the Microsoft client id is missing', 'MICROSOFT_CLIENT_ID'],
+      ['the Microsoft client secret is missing', 'MICROSOFT_CLIENT_SECRET'],
+      ['the Microsoft callback URL is missing', 'MICROSOFT_CALLBACK_URL'],
+    ])(
+      'sends the admin back to their sign-in page with NOT_CONFIGURED when %s',
+      async (_label, missingKey) => {
+        env[missingKey] = undefined;
+
+        await expect(target.buildAdminLoginMicrosoftRedirect()).resolves.toEqual({
+          ok: false,
+          redirectUrl: `${SSO_REDIRECT.ADMIN_LOGIN}?error=NOT_CONFIGURED&provider=microsoft`,
+        });
+        expect(oauthStateService.mint).not.toHaveBeenCalled();
+      }
+    );
+
+    it('answers isAdminMicrosoftConfigured from the same environment check', () => {
+      expect(target.isAdminMicrosoftConfigured()).toBe(true);
+
+      env['MICROSOFT_CLIENT_SECRET'] = undefined;
+      expect(target.isAdminMicrosoftConfigured()).toBe(false);
+    });
+  });
+
+  describe('signInWithMicrosoft', () => {
+    const identity = {
+      providerUserId: 'ms-sub-1',
+      email: 'Priya.Ops@InnoPeak.com',
+      emailVerified: true,
+      name: 'Priya',
+      tenantId: ADMIN_TID,
+    };
+    const adminRow = {
+      id: 'admin-1',
+      email: 'priya.ops@innopeak.com',
+      status: PlatformAdminStatus.ACTIVE,
+      locale: null,
+    };
+
+    it('signs in an admin already linked as (entra_id, sub), without reading the email', async () => {
+      platformAdminDbService.findByIdentity.mockResolvedValue(adminRow);
+
+      const result = await target.signInWithMicrosoft({ ...identity, emailVerified: false });
+
+      expect(platformAdminDbService.findByIdentity).toHaveBeenCalledWith(
+        UserIdentityProvider.ENTRA_ID,
+        'ms-sub-1'
+      );
+      expect(result).toMatchObject({ ok: true });
+      expect(platformAdminDbService.linkIdentityByEmail).not.toHaveBeenCalled();
+    });
+
+    it('refuses a linked admin who is no longer active', async () => {
+      platformAdminDbService.findByIdentity.mockResolvedValue({
+        ...adminRow,
+        status: PlatformAdminStatus.DISABLED,
+      });
+
+      await expect(target.signInWithMicrosoft(identity)).resolves.toEqual({
+        ok: false,
+        failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE,
+      });
+    });
+
+    it('links the identity to the active admin holding the verified address on first use', async () => {
+      platformAdminDbService.findByIdentity.mockResolvedValue(null);
+      platformAdminDbService.linkIdentityByEmail.mockResolvedValue({
+        outcome: 'linked',
+        id: 'admin-1',
+        email: 'priya.ops@innopeak.com',
+        locale: null,
+      });
+
+      const result = await target.signInWithMicrosoft(identity);
+
+      expect(platformAdminDbService.linkIdentityByEmail).toHaveBeenCalledWith({
+        provider: UserIdentityProvider.ENTRA_ID,
+        providerUserId: 'ms-sub-1',
+        email: 'priya.ops@innopeak.com',
+      });
+      expect(result).toMatchObject({ ok: true });
+    });
+
+    // Another Entra organization (or a personal account) can carry any address it likes: only the pinned directory may vouch for one.
+    const { tenantId: _pinned, ...withoutDirectory } = identity;
+    it.each([
+      ['another directory', { ...identity, tenantId: '00000000-0000-0000-0000-000000000001' }],
+      ['no directory claim', withoutDirectory],
+    ])('refuses an identity from %s before looking anything up', async (_label, other) => {
+      await expect(target.signInWithMicrosoft(other)).resolves.toEqual({
+        ok: false,
+        failure: SsoAuthFailure.NO_ACCOUNT,
+      });
+      expect(platformAdminDbService.findByIdentity).not.toHaveBeenCalled();
+      expect(platformAdminDbService.linkIdentityByEmail).not.toHaveBeenCalled();
+    });
+
+    it('refuses everything while no directory is pinned', async () => {
+      env['ADMIN_MICROSOFT_TENANT_ID'] = undefined;
+
+      await expect(target.signInWithMicrosoft(identity)).resolves.toMatchObject({
+        ok: false,
+        failure: SsoAuthFailure.NO_ACCOUNT,
+      });
+    });
+
+    it('does not link by an address Microsoft has not verified', async () => {
+      platformAdminDbService.findByIdentity.mockResolvedValue(null);
+
+      await expect(
+        target.signInWithMicrosoft({ ...identity, emailVerified: false })
+      ).resolves.toEqual({ ok: false, failure: SsoAuthFailure.EMAIL_NOT_VERIFIED });
+      expect(platformAdminDbService.linkIdentityByEmail).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['no_account', SsoAuthFailure.NO_ACCOUNT],
+      ['unavailable', SsoAuthFailure.ACCOUNT_UNAVAILABLE],
+    ] as const)(
+      'maps a %s link outcome to %s (never creates an admin)',
+      async (outcome, failure) => {
+        platformAdminDbService.findByIdentity.mockResolvedValue(null);
+        platformAdminDbService.linkIdentityByEmail.mockResolvedValue({ outcome });
+
+        await expect(target.signInWithMicrosoft(identity)).resolves.toEqual({ ok: false, failure });
+      }
+    );
   });
 });

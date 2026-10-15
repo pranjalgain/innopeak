@@ -10,7 +10,7 @@ export const DASHBOARD_WINDOW_DAYS_DEFAULT = 7;
  */
 export const DASHBOARD_WINDOW_DAYS_MAX = 365;
 
-export const DASHBOARD_ESCALATED_LIMIT_DEFAULT = 4;
+export const DASHBOARD_ESCALATED_LIMIT_DEFAULT = 3;
 export const DASHBOARD_ESCALATED_LIMIT_MAX = 50;
 
 export class DashboardWindowQueryDto {

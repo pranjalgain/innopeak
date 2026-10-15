@@ -115,7 +115,20 @@ describe('mapGbpReviewPage', () => {
   });
 
   it('maps an empty page without a nextPageToken', () => {
-    expect(mapGbpReviewPage({})).toEqual({ reviews: [], nextPageToken: null, totalCount: null });
+    expect(mapGbpReviewPage({})).toEqual({
+      reviews: [],
+      nextPageToken: null,
+      totalCount: null,
+      averageRating: null,
+    });
+  });
+
+  it("carries Google's overall rating, and leaves it null on a page that does not send one", () => {
+    expect(mapGbpReviewPage({ totalReviewCount: 212, averageRating: 4.3 })).toMatchObject({
+      totalCount: 212,
+      averageRating: 4.3,
+    });
+    expect(mapGbpReviewPage({ reviews: [] }).averageRating).toBeNull();
   });
 
   it('paginates the fixtures over two pages and terminates', () => {

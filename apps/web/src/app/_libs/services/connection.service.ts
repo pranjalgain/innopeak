@@ -21,6 +21,10 @@ export interface ConnectedLocation {
   /** The phone and website the business lists on Google. Only `GET /v1/connections` reports them. */
   phone?: string | null;
   websiteUri?: string | null;
+  /** Google's primary category, and its own overall rating and review count (covering every review, not just the imported ones). Only `GET /v1/connections` reports them; `null` until the first sync has read them. */
+  category?: string | null;
+  googleRating?: number | null;
+  googleReviewCount?: number | null;
   status: "active" | "inactive";
   lastSyncedAt: string | null;
   lastSyncStatus: "ok" | "error" | null;

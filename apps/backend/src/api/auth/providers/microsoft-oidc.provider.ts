@@ -74,24 +74,27 @@ export class MicrosoftOidcProvider extends MicrosoftIdentityProvider {
       prompt: 'select_account',
     });
 
-    return `${this.authority}${MICROSOFT_AUTH.AUTHORIZE_PATH}?${query.toString()}`;
+    return `${this.authorityFor(params.tenantId)}${MICROSOFT_AUTH.AUTHORIZE_PATH}?${query.toString()}`;
   }
 
   async fetchIdentity(code: string, context: MicrosoftTokenContext): Promise<SsoIdentity> {
-    const response = await fetch(`${this.authority}${MICROSOFT_AUTH.TOKEN_PATH}`, {
-      method: 'POST',
-      signal: AbortSignal.timeout(MICROSOFT_AUTH.HTTP_TIMEOUT_MS),
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code,
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-        redirect_uri: this.callbackUrl,
-        grant_type: 'authorization_code',
-        code_verifier: context.codeVerifier,
-        scope: MICROSOFT_AUTH.SCOPES.join(' '),
-      }).toString(),
-    });
+    const response = await fetch(
+      `${this.authorityFor(context.tenantId)}${MICROSOFT_AUTH.TOKEN_PATH}`,
+      {
+        method: 'POST',
+        signal: AbortSignal.timeout(MICROSOFT_AUTH.HTTP_TIMEOUT_MS),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: this.clientId,
+          client_secret: this.clientSecret,
+          redirect_uri: this.callbackUrl,
+          grant_type: 'authorization_code',
+          code_verifier: context.codeVerifier,
+          scope: MICROSOFT_AUTH.SCOPES.join(' '),
+        }).toString(),
+      }
+    );
 
     if (!response.ok) {
       // Body deliberately not logged: a failed exchange can echo the code or the client id.
@@ -120,6 +123,12 @@ export class MicrosoftOidcProvider extends MicrosoftIdentityProvider {
         claims.email !== '' &&
         isDomainVerified(claims.xms_edov),
       name: typeof claims.name === 'string' && claims.name !== '' ? claims.name : null,
+      ...(typeof claims.tid === 'string' ? { tenantId: claims.tid.toLowerCase() } : {}),
     };
+  }
+
+  /** The configured authority, or one directory's when the caller pins it. */
+  private authorityFor(tenantId: string | undefined): string {
+    return tenantId === undefined ? this.authority : `${this.authorityBase}/${tenantId}`;
   }
 }

@@ -20,6 +20,17 @@ vi.mock("next/navigation", () => ({
 
 const useOnboardingConnectFlow = vi.fn();
 
+// Payments on by default, so the plan step (and "back to plan selection") exists unless a test turns it off.
+const platformSettings = vi.hoisted(() => ({ paymentFeatureEnabled: true as boolean | undefined }));
+vi.mock("@/hooks/common/use-platform-settings", () => ({
+  usePlatformSettings: () => ({
+    data:
+      platformSettings.paymentFeatureEnabled === undefined
+        ? undefined
+        : { paymentFeatureEnabled: platformSettings.paymentFeatureEnabled },
+  }),
+}));
+
 vi.mock("@/hooks/onboarding/use-onboarding-connect-flow", () => ({
   useOnboardingConnectFlow: () => useOnboardingConnectFlow(),
 }));
@@ -56,6 +67,7 @@ describe("OnboardingConnectView plan gate", () => {
   beforeEach(() => {
     replace.mockClear();
     push.mockClear();
+    platformSettings.paymentFeatureEnabled = true;
     useOnboardingConnectFlow.mockReset();
     useOnboardingConnectFlow.mockImplementation(flowAtConnectStage);
     window.sessionStorage.clear();
@@ -76,6 +88,16 @@ describe("OnboardingConnectView plan gate", () => {
     // A second payment is what the plan screen would invite.
     test("is not offered once Paid", async () => {
       OnboardingContextService.set({ from: "signup", via: "sso", plan: "paid" });
+      renderView();
+
+      await screen.findByRole("button", { name: "Connect Google Business Profile" });
+      expect(screen.queryByRole("button", { name: "← Back to plan selection" })).not.toBeInTheDocument();
+    });
+
+    // The plan step is skipped when payments are off, so there is no plan screen to go back to.
+    test("is not offered when the payment feature is off", async () => {
+      platformSettings.paymentFeatureEnabled = false;
+      OnboardingContextService.set({ from: "signup", via: "sso", plan: "free" });
       renderView();
 
       await screen.findByRole("button", { name: "Connect Google Business Profile" });

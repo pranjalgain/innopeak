@@ -806,58 +806,24 @@ export class AuthService {
       return { ok: true, kind: 'admin_signed_in', tokens: admin.tokens };
     }
 
-    // Tenant resolution is split in two with the admin-identity check between: the first step
-    // matches on the provider's `sub` and reads, the second matches on email and writes
-    // (`linkSsoIdentityByEmail`). Which accounts may reach the second step is the security
-    // decision this ordering expresses.
+    // Tenant sign-in never looks at platform admins: an admin and a tenant user may share an address (an admin can own a separate
+    // business), and the admin console has its own entry (`ADMIN_LOGIN`). An admin using this button is an ordinary tenant sign-in.
     return this.resolveTenantSsoIdentity({
       provider: SsoProvider.GOOGLE,
       identity,
       intent: consumed.record.intent,
-      beforeEmailLink: async email => {
-        // A linked platform admin takes over before the email fallback, which matches on address
-        // alone: an admin's address is exactly what an attacker can seed a `pending_verification`
-        // signup with, so the fallback would enrol them as owner of a tenant they never created.
-        const linkedAdmin = await this.platformAdminAuthService.findLinkedAdmin(
-          identity.providerUserId
-        );
-        if (!linkedAdmin.linked) {
-          return null;
-        }
-
-        // A platform admin signing up their own separate tenant is intentional (dual identity), so
-        // this mints a new tenant rather than returning an admin session. Admin status, even
-        // disabled, is not consulted, and a stalled tenant signup under this address is not
-        // adopted: it can't be told apart from a seeded one.
-        if (consumed.record.intent === OAuthIntent.SIGNUP) {
-          return this.mintPendingSsoSignup(SsoProvider.GOOGLE, identity, email);
-        }
-
-        if (!linkedAdmin.active) {
-          return this.ssoFailureRedirect(
-            SsoAuthFailure.ACCOUNT_UNAVAILABLE,
-            consumed.record.intent
-          );
-        }
-
-        // Without this, a Google-accepted admin's session would end after one access-token
-        // lifetime: no `password_hash` and no refresh token to come back with.
-        return { ok: true, kind: 'admin_signed_in', tokens: linkedAdmin.tokens };
-      },
     });
   }
 
   /**
    * The provider-independent tail of a tenant sign-in/sign-up: find by the provider's `sub`, else
    * link by verified email, else (signup) hand back a pending identity or (login) refuse; then the
-   * same standing checks as password login. `beforeEmailLink` lets Google run its platform-admin
-   * carve-out between the read and the write; Microsoft has none, since no admin has a Microsoft identity.
+   * same standing checks as password login. Shared by Google and Microsoft, and never about platform admins.
    */
   private async resolveTenantSsoIdentity(input: {
     provider: SsoProvider;
     identity: SsoIdentity;
     intent: OAuthIntent;
-    beforeEmailLink?: (email: string) => Promise<SsoCallbackOutcome | null>;
   }): Promise<SsoCallbackOutcome> {
     const { provider, identity, intent } = input;
     const email = normalizeEmail(identity.email);
@@ -871,11 +837,6 @@ export class AuthService {
       // verified here. A returning identity matched on `sub` above needs no such proof.
       if (!identity.emailVerified) {
         return this.ssoFailureRedirect(SsoAuthFailure.EMAIL_NOT_VERIFIED, intent);
-      }
-
-      const takeover = await input.beforeEmailLink?.(email);
-      if (takeover) {
-        return takeover;
       }
 
       // Links this provider's identity to the tenant user holding the address, finishing a signup
@@ -990,11 +951,13 @@ export class AuthService {
       input.state,
       input.sid
     );
-    // Only the two intents the authorize route can mint; anything else is not ours to act on.
+    // Only the intents the Microsoft authorize routes can mint (tenant login/signup, and the admin sign-in
+    // route); anything else is not ours to act on.
     const intent =
       consumed.ok &&
       (consumed.record.intent === OAuthIntent.LOGIN ||
-        consumed.record.intent === OAuthIntent.SIGNUP)
+        consumed.record.intent === OAuthIntent.SIGNUP ||
+        consumed.record.intent === OAuthIntent.ADMIN_LOGIN)
         ? consumed.record.intent
         : undefined;
 
@@ -1006,8 +969,13 @@ export class AuthService {
       return this.ssoFailureRedirect(SsoAuthFailure.INVALID_STATE);
     }
 
-    // Re-checked here: the switch may have been turned off while this person was at Microsoft.
-    if (!(await this.isMicrosoftSignInEnabled())) {
+    // Re-checked here: the switch may have been turned off while this person was at Microsoft. The tenant switch
+    // governs tenant sign-in only; admin sign-in has its own configuration (see `isAdminMicrosoftConfigured`).
+    const isAdminLogin = intent === OAuthIntent.ADMIN_LOGIN;
+    const available = isAdminLogin
+      ? this.platformAdminAuthService.isAdminMicrosoftConfigured()
+      : await this.isMicrosoftSignInEnabled();
+    if (!available) {
       return this.ssoFailureRedirect(SsoAuthFailure.NOT_CONFIGURED, intent);
     }
 
@@ -1021,13 +989,24 @@ export class AuthService {
 
     let identity: SsoIdentity;
     try {
+      const tenantId = isAdminLogin
+        ? this.platformAdminAuthService.adminMicrosoftTenantId()
+        : undefined;
       identity = await this.microsoftIdentityProvider.fetchIdentity(input.code, {
         codeVerifier: consumed.record.codeVerifier,
         nonce: consumed.record.nonce,
+        ...(tenantId === undefined ? {} : { tenantId }),
       });
     } catch (error) {
       this.logger.warn(`Microsoft identity exchange failed: ${(error as Error).message}`);
       return this.ssoFailureRedirect(SsoAuthFailure.PROVIDER_ERROR, intent);
+    }
+
+    if (isAdminLogin) {
+      const admin = await this.platformAdminAuthService.signInWithMicrosoft(identity);
+      return admin.ok
+        ? { ok: true, kind: 'admin_signed_in', tokens: admin.tokens }
+        : this.ssoFailureRedirect(admin.failure, intent);
     }
 
     return this.resolveTenantSsoIdentity({ provider: SsoProvider.MICROSOFT, identity, intent });

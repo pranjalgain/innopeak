@@ -148,11 +148,12 @@ export function NotificationPanel() {
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button variant="ghost" size="icon" aria-label={t("notifications")} className="relative">
-            {/* `key` restarts the swing when another notice arrives while the last one is still ringing. */}
-            <LuBell key={ringKey} className={cn("size-4.5", isRinging && "animate-bell-ring")} />
+            {/* `key` restarts the swing when another notice arrives while the last one is still ringing. The two keys must differ: siblings
+                sharing one key make React keep the previous bell on screen instead of replacing it. */}
+            <LuBell key={`bell-${ringKey}`} className={cn("size-4.5", isRinging && "animate-bell-ring")} />
             {unreadCount > 0 ? (
               <span
-                key={ringKey}
+                key={`dot-${ringKey}`}
                 className={cn(
                   "bg-destructive absolute top-1.5 right-1.5 flex size-2 rounded-full",
                   isRinging && "animate-badge-pulse",

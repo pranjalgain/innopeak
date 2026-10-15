@@ -113,15 +113,31 @@ describe("useAdminPlatformActivityLog — URL state", () => {
     expect(list).toHaveBeenCalledWith({ page: 3, pageSize: 10, type: "user_activated" });
   });
 
-  test("ignores an action type the log screen does not offer", async () => {
-    // Real activity type, but not one of the filter's options.
-    resetNavigation("/admin/activity?type=business_erased");
+  test("ignores an action type the log does not record (a stale or hand-edited link)", async () => {
+    resetNavigation("/admin/activity?type=business_deleted");
     const list = mockList(5);
 
     const { result } = renderHook(() => useAdminPlatformActivityLog(), { wrapper });
     await waitFor(() => expect(list).toHaveBeenCalled());
 
     expect(result.current.filter).toBe("all");
+  });
+
+  // The filter offers every type the log records, including the businesses joining, the erasure lifecycle and settings changes.
+  test.each([
+    "business_joined",
+    "business_erasure_requested",
+    "business_erasure_cancelled",
+    "business_erased",
+    "platform_settings_changed",
+  ])("accepts the %s filter from the URL", async (type) => {
+    resetNavigation(`/admin/activity?type=${type}`);
+    const list = mockList(5);
+
+    const { result } = renderHook(() => useAdminPlatformActivityLog(), { wrapper });
+    await waitFor(() => expect(list).toHaveBeenCalled());
+
+    expect(result.current.filter).toBe(type);
   });
 
   test("choosing a filter writes it to the URL and drops the page; clearing it removes it", async () => {

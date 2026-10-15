@@ -19,6 +19,7 @@ const ACTIVITY_COLUMNS = {
   // deleted and silently change when it is renamed.
   businessName: schema.platformActivityLog.businessName,
   targetEmail: schema.platformActivityLog.targetEmail,
+  details: schema.platformActivityLog.details,
   occurredAt: schema.platformActivityLog.occurredAt,
 } as const;
 
@@ -76,6 +77,7 @@ export class AdminOverviewRepository {
       tenantId: input.tenantId ?? null,
       businessName: input.businessName ?? null,
       targetEmail: input.targetEmail ?? null,
+      details: input.details ?? null,
     });
   }
 

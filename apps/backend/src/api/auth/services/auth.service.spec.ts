@@ -34,6 +34,8 @@ import { GoogleIdentityProvider } from '../providers/google-identity.provider';
 import { MicrosoftIdentityProvider } from '../providers/microsoft-identity.provider';
 import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
 
+const ADMIN_TID = '3f2b8c1e-5a47-4d90-8e6b-0c1d2e3f4a5b';
+
 describe('AuthService', () => {
   let target: AuthService;
   let googleIdentityProvider: jest.Mocked<GoogleIdentityProvider>;
@@ -117,6 +119,9 @@ describe('AuthService', () => {
     platformAdminAuthService = {
       findLinkedAdmin: jest.fn().mockResolvedValue({ linked: false }),
       completeAdminInviteGoogle: jest.fn(),
+      isAdminMicrosoftConfigured: jest.fn().mockReturnValue(true),
+      adminMicrosoftTenantId: jest.fn().mockReturnValue(ADMIN_TID),
+      signInWithMicrosoft: jest.fn(),
       adminInviteFailureUrl: jest
         .fn()
         .mockImplementation(
@@ -1563,11 +1568,93 @@ describe('AuthService', () => {
         expect(microsoftIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
       });
 
-      it('refuses a state whose intent is not one this route mints', async () => {
-        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.ADMIN_LOGIN));
+      it.each([OAuthIntent.ADMIN_INVITE, OAuthIntent.INVITE])(
+        'refuses a state whose intent (%s) is not one the Microsoft routes mint',
+        async intent => {
+          oauthStateService.consume.mockResolvedValue(record(intent));
 
-        await expect(callback()).resolves.toMatchObject({ failure: SsoAuthFailure.INVALID_STATE });
-        expect(microsoftIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+          await expect(callback()).resolves.toMatchObject({
+            failure: SsoAuthFailure.INVALID_STATE,
+          });
+          expect(microsoftIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+        }
+      );
+
+      describe('platform-admin sign-in (ADMIN_LOGIN)', () => {
+        const adminTokens = { admin: true as const, body: { accessToken: 'admin-access' } };
+
+        beforeEach(() => {
+          oauthStateService.consume.mockResolvedValue(record(OAuthIntent.ADMIN_LOGIN));
+          microsoftIdentityProvider.fetchIdentity.mockResolvedValue({
+            ...identity,
+            tenantId: ADMIN_TID,
+          });
+        });
+
+        it('exchanges the code against the pinned directory and signs a resolved admin in, never touching the tenant tables', async () => {
+          platformAdminAuthService.signInWithMicrosoft.mockResolvedValue({
+            ok: true,
+            tokens: adminTokens as never,
+          });
+
+          await expect(callback()).resolves.toEqual({
+            ok: true,
+            kind: 'admin_signed_in',
+            tokens: adminTokens,
+          });
+          expect(microsoftIdentityProvider.fetchIdentity).toHaveBeenCalledWith('c', {
+            codeVerifier: 'verifier',
+            nonce: 'oidc-nonce',
+            tenantId: ADMIN_TID,
+          });
+          expect(authDbService.findSsoIdentityBySub).not.toHaveBeenCalled();
+        });
+
+        it.each([
+          SsoAuthFailure.NO_ACCOUNT,
+          SsoAuthFailure.ACCOUNT_UNAVAILABLE,
+          SsoAuthFailure.EMAIL_NOT_VERIFIED,
+        ])('sends a %s failure to the admin sign-in page, tagged as Microsoft', async failure => {
+          platformAdminAuthService.signInWithMicrosoft.mockResolvedValue({ ok: false, failure });
+
+          await expect(callback()).resolves.toEqual({
+            ok: false,
+            failure,
+            redirectUrl: `${SSO_REDIRECT.ADMIN_LOGIN}?error=${failure}&provider=microsoft`,
+          });
+        });
+
+        // The platform's Microsoft switch governs tenant sign-in only, like Google's.
+        it('ignores the tenant Microsoft switch', async () => {
+          platformSettingsDbService.get.mockResolvedValue({ microsoftLoginEnabled: false });
+          platformAdminAuthService.signInWithMicrosoft.mockResolvedValue({
+            ok: true,
+            tokens: adminTokens as never,
+          });
+
+          await expect(callback()).resolves.toMatchObject({ ok: true, kind: 'admin_signed_in' });
+        });
+
+        it('refuses with NOT_CONFIGURED, without exchanging the code, once the admin setup was removed mid-flight', async () => {
+          platformAdminAuthService.isAdminMicrosoftConfigured.mockReturnValue(false);
+
+          await expect(callback()).resolves.toEqual({
+            ok: false,
+            failure: SsoAuthFailure.NOT_CONFIGURED,
+            redirectUrl: `${SSO_REDIRECT.ADMIN_LOGIN}?error=NOT_CONFIGURED&provider=microsoft`,
+          });
+          expect(microsoftIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
+        });
+
+        it('reports a failed exchange as PROVIDER_ERROR on the admin page', async () => {
+          microsoftIdentityProvider.fetchIdentity.mockRejectedValue(new Error('bad token'));
+
+          await expect(callback()).resolves.toMatchObject({
+            failure: SsoAuthFailure.PROVIDER_ERROR,
+            redirectUrl: `${SSO_REDIRECT.ADMIN_LOGIN}?error=PROVIDER_ERROR&provider=microsoft`,
+          });
+          expect(platformAdminAuthService.signInWithMicrosoft).not.toHaveBeenCalled();
+        });
       });
 
       it('refuses a callback once Microsoft SSO was switched off mid-flight, without exchanging the code', async () => {
@@ -2296,146 +2383,71 @@ describe('AuthService', () => {
       expect(platformAdminAuthService.completeAdminInviteGoogle).not.toHaveBeenCalled();
     });
 
-    it('signs a Google-linked admin in on a plain login round trip once tenant resolution comes back unknown', async () => {
-      oauthStateService.consume.mockResolvedValue({
-        ok: true as const,
-        record: {
-          provider: SsoProvider.GOOGLE,
-          nonce: 'n',
-          intent: OAuthIntent.LOGIN,
-          sidHash: 'h',
-        },
-      });
+    // An admin and a tenant user may share an address (an admin can own a separate business), so the tenant buttons never consult admin
+    // identities: the admin console has its own entry (`ADMIN_LOGIN`).
+    const tenantRecord = (intent: OAuthIntent) => ({
+      ok: true as const,
+      record: { provider: SsoProvider.GOOGLE, nonce: 'n', intent, sidHash: 'h' },
+    });
+    const callbackArgs = {
+      code: 'auth-code',
+      state: 'signed-state',
+      error: undefined,
+      sid: 'raw-sid',
+    };
+
+    it('links a tenant user holding the same address as a platform admin, without asking whether the account is an admin', async () => {
+      oauthStateService.consume.mockResolvedValue(tenantRecord(OAuthIntent.LOGIN));
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
       authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
-      const tokens = {
-        admin: true as const,
-        body: {
-          accessToken: 'admin-access',
-          expiresIn: 900,
-          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com', locale: null },
+      authDbService.linkSsoIdentityByEmail.mockResolvedValue({
+        kind: 'known',
+        user: {
+          id: 'user-1',
+          tenantId: 'tenant-1',
+          email: 'priya.ops@innopeak.com',
+          name: 'Priya',
+          role: UserRole.OWNER,
+          passwordHash: 'hashed',
+          status: UserStatus.ACTIVE,
+          locale: null,
         },
-      };
-      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({
-        linked: true,
-        active: true,
-        tokens,
+        firstActivation: false,
+      });
+      authDbService.findTenantStatus.mockResolvedValue({
+        status: TenantStatus.ACTIVE,
+        name: 'Test Tenant',
       });
 
-      const outcome = await target.handleGoogleCallback({
-        code: 'auth-code',
-        state: 'signed-state',
-        error: undefined,
-        sid: 'raw-sid',
-      });
+      const outcome = await target.handleGoogleCallback(callbackArgs);
 
-      // Tenant resolution first; an admin-only account falls back to its admin session only once
-      // the `sub` lookup comes back empty.
-      expect(authDbService.findSsoIdentityBySub).toHaveBeenCalled();
-      expect(platformAdminAuthService.findLinkedAdmin).toHaveBeenCalledWith('google-sub-1');
-      // And the email fallback is never reached: see the seeded-tenant regression test below.
-      expect(authDbService.linkSsoIdentityByEmail).not.toHaveBeenCalled();
-      expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
+      expect(platformAdminAuthService.findLinkedAdmin).not.toHaveBeenCalled();
+      expect(authDbService.linkSsoIdentityByEmail).toHaveBeenCalled();
+      expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
     });
 
-    /**
-     * Regression: `linkSsoIdentityByEmail` matches on address alone and writes, and anyone can
-     * seed a signup under an address they don't own, so an admin's Google account would be enrolled
-     * as owner of someone else's tenant. The admin check must come first.
-     */
-    it('never adopts a tenant row seeded under an admin’s address on a login round trip', async () => {
-      oauthStateService.consume.mockResolvedValue({
-        ok: true as const,
-        record: {
-          provider: SsoProvider.GOOGLE,
-          nonce: 'n',
-          intent: OAuthIntent.LOGIN,
-          sidHash: 'h',
-        },
-      });
+    it('answers NO_ACCOUNT on a tenant login when no tenant user matches, even if the account is a platform admin', async () => {
+      oauthStateService.consume.mockResolvedValue(tenantRecord(OAuthIntent.LOGIN));
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
       authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
-      const tokens = {
-        admin: true as const,
-        body: {
-          accessToken: 'admin-access',
-          expiresIn: 900,
-          admin: { id: 'admin-1', email: 'priya.ops@innopeak.com', locale: null },
-        },
-      };
-      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({
-        linked: true,
-        active: true,
-        tokens,
-      });
+      authDbService.linkSsoIdentityByEmail.mockResolvedValue({ kind: 'unknown' });
 
-      const outcome = await target.handleGoogleCallback({
-        code: 'auth-code',
-        state: 'signed-state',
-        error: undefined,
-        sid: 'raw-sid',
-      });
+      const outcome = await target.handleGoogleCallback(callbackArgs);
 
-      expect(authDbService.linkSsoIdentityByEmail).not.toHaveBeenCalled();
-      expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
+      expect(platformAdminAuthService.findLinkedAdmin).not.toHaveBeenCalled();
+      expect(outcome).toMatchObject({ ok: false, failure: SsoAuthFailure.NO_ACCOUNT });
     });
 
-    it('refuses a disabled linked admin rather than signing them in', async () => {
-      oauthStateService.consume.mockResolvedValue({
-        ok: true as const,
-        record: {
-          provider: SsoProvider.GOOGLE,
-          nonce: 'n',
-          intent: OAuthIntent.LOGIN,
-          sidHash: 'h',
-        },
-      });
+    it('lets an admin sign up their own tenant: a signup with no matching tenant user goes to the business-name step', async () => {
+      oauthStateService.consume.mockResolvedValue(tenantRecord(OAuthIntent.SIGNUP));
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
       authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
-      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: true, active: false });
-
-      const outcome = await target.handleGoogleCallback({
-        code: 'auth-code',
-        state: 'signed-state',
-        error: undefined,
-        sid: 'raw-sid',
-      });
-
-      expect(outcome).toMatchObject({
-        ok: false,
-        failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE,
-      });
-    });
-
-    /**
-     * Regression: a linked admin on a signup round trip must get a brand-new tenant, never an admin
-     * session or an adopted existing row, otherwise an admin could never sign up their own tenant.
-     * Admin status is not consulted, so a disabled admin can still become a customer.
-     */
-    it('creates a new tenant on signup even when the Google account is a linked admin', async () => {
-      oauthStateService.consume.mockResolvedValue({
-        ok: true as const,
-        record: {
-          provider: SsoProvider.GOOGLE,
-          nonce: 'n',
-          intent: OAuthIntent.SIGNUP,
-          sidHash: 'h',
-        },
-      });
-      googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
-      platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: true, active: false });
+      authDbService.linkSsoIdentityByEmail.mockResolvedValue({ kind: 'unknown' });
       pendingSsoSignupService.mint.mockResolvedValue('pending-signup-cookie');
 
-      const outcome = await target.handleGoogleCallback({
-        code: 'auth-code',
-        state: 'signed-state',
-        error: undefined,
-        sid: 'raw-sid',
-      });
+      const outcome = await target.handleGoogleCallback(callbackArgs);
 
-      expect(authDbService.linkSsoIdentityByEmail).not.toHaveBeenCalled();
-      expect(pendingSsoSignupService.mint).toHaveBeenCalled();
+      expect(platformAdminAuthService.findLinkedAdmin).not.toHaveBeenCalled();
       expect(outcome).toEqual({
         ok: true,
         kind: 'needs_business_name',
@@ -2480,13 +2492,12 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      // Tenant identity wins without asking whether the account is also an admin; the admin
-      // fallback only runs once tenant resolution comes back unknown.
+      // The tenant buttons never ask whether the account is also an admin.
       expect(platformAdminAuthService.findLinkedAdmin).not.toHaveBeenCalled();
       expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
     });
 
-    it('falls through to ordinary tenant resolution when the identity is not linked to any admin', async () => {
+    it('resolves a plain tenant account the ordinary way', async () => {
       oauthStateService.consume.mockResolvedValue({
         ok: true as const,
         record: {

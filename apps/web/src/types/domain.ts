@@ -1,13 +1,18 @@
 export interface Tenant {
   name: string;
-  /** `null` when none is connected. Phone and website are as the business lists them on Google; its category and
-   *  aggregate rating are never fetched, so they are not modelled here. */
+  /** `null` when none is connected. Phone, website, category, rating and review count are Google's own figures for the business
+   *  (the rating covers every review, not just the imported ones), `null` when it lists none or the first sync has not read them. */
   location: {
     name: string;
     address: string | null;
     phone: string | null;
     websiteUri: string | null;
+    category: string | null;
+    googleRating: number | null;
+    googleReviewCount: number | null;
     lastSyncedAt: string | null;
+    /** How the last sync went: `null` until one has run. */
+    syncStatus: "ok" | "error" | null;
   } | null;
 }
 
@@ -54,6 +59,9 @@ export type ReviewClassification =
   | "unclassified"
   | "pending_classification";
 
+/** Where a reply came from: written by the AI, the AI's draft edited by a person, written from scratch in the app, or a reply already on Google that was imported by sync (never sent from this app). */
+export type ReplySource = "ai_generated" | "human_edited" | "human_manual" | "imported";
+
 export type ReplyDraftStatus = "pending_approval" | "approved" | "rejected" | "superseded";
 
 /** Approving one supersedes any sibling still pending: only one reply can be posted per review. */
@@ -65,6 +73,7 @@ export interface ReviewReplyDraft {
   /** The AI's draft as generated; immutable. */
   originalContent: string;
   status: ReplyDraftStatus;
+  source: ReplySource;
   /** Which prompt (and which of its versions) generated this draft — the link analytics is built on. */
   promptId: string;
   promptVersion: number;
@@ -433,14 +442,16 @@ export interface PlatformSettings {
   paymentFeatureEnabled?: boolean;
   /** Days between a business being scheduled for erasure and its data being erased: the backend's `ERASURE_GRACE_PERIOD_DAYS`, so deadlines shown in the UI match the nightly purge. */
   erasureGracePeriodDays?: number;
+  /** Whether the admin sign-in page offers "Continue with Microsoft": the backend's Microsoft client plus `ADMIN_MICROSOFT_TENANT_ID`. Deploy-level like `paymentFeatureEnabled`; independent of `microsoftLoginEnabled`, which is the tenant switch. */
+  adminMicrosoftLoginAvailable?: boolean;
 }
 
 /** A change to the platform settings. `confirmLockout` is not a setting: it acknowledges, for this request only, that switching Microsoft or Google off locks out the users who can only sign in with it. */
 export type PlatformSettingsPatch = Partial<PlatformSettings> & { confirmLockout?: boolean };
 
-/** A real `platform_activity_log` action; mirrors the backend's `platform_activity_type` enum exactly. The API does no
+/** A `platform_activity_log` action; mirrors the backend's `platform_activity_type` enum exactly. The API does no
  *  runtime validation of `type` (a plain cast in `AdminActivityService`), so a missing value breaks `ActivityLogCard`'s
- *  exhaustive `Record`s. Also the Activity tab's filter vocabulary, which never includes `business_joined`. */
+ *  exhaustive `Record`s. Also the Activity tab's filter vocabulary. */
 export type PlatformActivityType =
   | "business_suspended"
   | "business_reactivated"
@@ -452,21 +463,30 @@ export type PlatformActivityType =
   | "admin_disabled"
   | "admin_enabled"
   | "user_activated"
-  | "user_deactivated";
+  | "user_deactivated"
+  | "business_joined"
+  | "platform_settings_changed";
 
-/** `"business_joined"` is not a real `platform_activity_type`: a signup has no admin actor, so the backend synthesizes it
- *  from `AdminBusinessSummary.createdAt` and merges it server-side into `GET /v1/admin/overview/activity` (`actorEmail`
- *  is `null`). The paginated Activity tab never returns it. */
+/** One switch a `platform_settings_changed` entry moved; `field` is the platform setting's API name (`googleLoginEnabled`). */
+export interface PlatformSettingChange {
+  field: string;
+  from: boolean;
+  to: boolean;
+}
+
 export interface PlatformActivityEntry {
   id: string;
-  type: PlatformActivityType | "business_joined";
-  /** `null`, not omitted, for a synthesized `business_joined` entry; matches the backend DTO. Unlike `businessName`/`email`
-   *  below, which the service coalesces to `undefined` since they are absent-vs-present by `type`. */
-  actorEmail: string | null;
+  type: PlatformActivityType;
+  /** Who did it: the platform admin, the owner's email for `business_joined`, the label "owner (self-service)" for an owner's own
+   *  erasure request or cancellation, or the system actor for the nightly erasure. Always present. `businessName`/`email` below are absent-vs-present by `type`,
+   *  which the service coalesces to `undefined`. */
+  actorEmail: string;
   /** The business a `business_*`/`business_joined` entry acted on. */
   businessName?: string;
   /** The email an `admin_invite_*` (invitee) or `user_*` (the tenant user) entry acted on. */
   email?: string;
+  /** What a `platform_settings_changed` entry changed (and whether a lockout was confirmed); absent for every other type. */
+  details?: { changes: PlatformSettingChange[]; lockoutConfirmed?: boolean };
   occurredAt: string;
 }
 

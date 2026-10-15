@@ -31,4 +31,8 @@ export interface PlatformSettingsResponseDto {
    * Days between a business being scheduled for erasure and its data actually being erased — the deploy-level ERASURE_GRACE_PERIOD_DAYS env var, not stored on `platform_settings` and not writable through this API. The web app shows deadlines (\"takes effect on …\") computed from it, so they match the nightly purge.
    */
   erasureGracePeriodDays: number;
+  /**
+   * Whether the admin sign-in page offers \"Continue with Microsoft\": the Microsoft client is configured and `ADMIN_MICROSOFT_TENANT_ID` pins the directory admins sign in from. A pure reflection of the deploy environment, not stored on `platform_settings` and not writable through this API; independent of `microsoftLoginEnabled`, which governs tenant sign-in only.
+   */
+  adminMicrosoftLoginAvailable: boolean;
 }

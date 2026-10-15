@@ -114,7 +114,7 @@ screen meant to surface them.
 
 | Query param | Type | Rules |
 |---|---|---|
-| `limit` | integer | Optional, default `4`, min `1`, max `50`. |
+| `limit` | integer | Optional, default `3`, min `1`, max `50`. |
 
 Every field is read straight off the `reviews` row — there is no derived/projected field (no
 `initials`, no truncated `snippet`) in the shipped response; the client renders whatever

@@ -50,7 +50,7 @@ export class DashboardService {
     });
   }
 
-  static async getAttentionReviews(limit = 4, locationId?: string): Promise<AttentionReview[]> {
+  static async getAttentionReviews(limit = 3, locationId?: string): Promise<AttentionReview[]> {
     const response = await dashboardApi.dashboardControllerGetRecentEscalatedV1({
       limit,
       locationId,

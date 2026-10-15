@@ -176,6 +176,15 @@ export class AuthService {
     window.location.assign("/v1/admin/auth/google");
   }
 
+  /**
+   * Admin sign-in Microsoft button. Sign-in only (admins are invite-only): resolves `platform_admin_identities` for the
+   * configured Entra directory and errors to `/admin-login`. Never the tenant route, for the same reason as `startAdminGoogleLogin`.
+   */
+  static startAdminMicrosoftLogin(): void {
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above
+    window.location.assign("/v1/admin/auth/microsoft");
+  }
+
   /** Same contract as `startGoogleLogin`: a full-page navigation, never resolves, and an unknown identity returns `?error=NO_ACCOUNT`. */
   static startMicrosoftLogin(): void {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above

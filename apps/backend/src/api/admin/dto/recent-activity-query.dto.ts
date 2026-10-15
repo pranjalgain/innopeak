@@ -2,8 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
-// Size of the merged feed (real rows + synthesized business_joined); `limit` rows are fetched from
-// each source before merging.
+// Size of the Overview page's glance feed: the newest `limit` entries of the activity log.
 export const ADMIN_ACTIVITY_LIMIT_DEFAULT = 8;
 export const ADMIN_ACTIVITY_LIMIT_MAX = 50;
 

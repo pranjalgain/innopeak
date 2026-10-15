@@ -101,11 +101,17 @@ the same chat-completions request/response shape through that SDK, so `AzureOpen
 from `OpenRouterAiProvider` mainly in how the client's `baseURL`/auth are constructed, not in how a
 completion is requested or parsed, exactly as this section originally predicted.
 
-**The `westeurope` region pin is enforced, not just documented.** `getClient()` reads
+**The EU region pin is enforced, not just documented.** `getClient()` reads
 `AZURE_OPENAI_REGION` and throws `AiProviderNotConfiguredException` (`MESSAGES.AI
-.AZURE_REGION_INVALID`) unless it is exactly `'westeurope'` — PLAN.md §5's instruction to
-"hardcode/validate the region at the client-config level, not just convention" is implemented as a
-literal string comparison (`REQUIRED_AZURE_REGION` in `azure-openai.provider.ts`), not a comment.
+.AZURE_REGION_INVALID`) unless it is one of `ALLOWED_AZURE_OPENAI_REGIONS`
+(`src/common/constants/azure-openai.constants.ts`): `westeurope` (Netherlands, the original
+requirement) and `northeurope` (Ireland, added when the client's Azure OpenAI resource was created
+there). PLAN.md §5's instruction to "hardcode/validate the region at the client-config level, not
+just convention" is implemented as that allow-list check, repeated in the Joi env schema so a bad
+value also fails at boot, not as a comment. A region is added only with the client's agreement. The
+region of a resource cannot be changed after creation, so `AZURE_OPENAI_REGION` must name the region
+the resource was created in. The deployment type must be Standard or Data Zone Standard (EU): a
+Global Standard deployment can process requests outside the EU.
 The same method also requires `AZURE_OPENAI_ENDPOINT`/`AZURE_OPENAI_API_KEY`/
 `AZURE_OPENAI_DEPLOYMENT`/`AZURE_OPENAI_API_VERSION` all non-empty before constructing the client,
 throwing the same exception (`MESSAGES.AI.AZURE_PROVIDER_NOT_CONFIGURED`) if any is missing.
@@ -197,6 +203,16 @@ persisted snippet spends one unit, so a review drafted with three snippets spend
 mid-batch the leftovers wait for the next tick (`quotaReached` in the batch result). While payments are disabled the
 limits are lifted and the quota never applies.
 
+## What a generated draft records
+
+Every draft `AiReplyGenerationService` saves carries the **prompt version it was generated from**
+(`review_responses.prompt_version_id`, from `PromptsDbService.findCurrentForCategory`) and an immutable copy of what
+the model wrote (`original_content`). Both are what Settings → Prompts reads: replies are counted and rated per
+version through `prompt_version_id`, and "needed edits" compares `original_content` with the final `content`.
+Without them a prompt reads "No replies generated with this prompt yet" however many were generated, and the edit
+rate can never rise above 0% (a missing `original_content` counts as unchanged). Drafts generated before this was
+stamped have neither, so they are not counted.
+
 ## System prompt vs. template — where each instruction lives
 
 A generated reply is driven by two separate pieces of text, composed in
@@ -204,7 +220,7 @@ A generated reply is driven by two separate pieces of text, composed in
 
 | | Lives in | Owner-editable | Content |
 |---|---|---|---|
-| System prompt | `buildSystemPrompt` (fixed code) | No | Output format (no preamble/markdown/quotes), the requested tone, "never invent facts/promises", never addressing the reviewer by name or repeating a name from the review (the reviewer's name is not even sent to the provider: `{{reviewer_name}}` is filled with the neutral phrase `a reviewer`, `ANONYMOUS_REVIEWER`), and contact details: the location's Google phone and website as the only ones a reply may use, never a placeholder such as `[phone/email]`, and with none listed an invitation to get in touch that names no channel. |
+| System prompt | `buildSystemPrompt` (fixed code) | No | Output format (no preamble/markdown/quotes), the requested tone, "never invent facts/promises", never addressing the reviewer by name or repeating a name from the review (the reviewer's name is not even sent to the provider: `{{reviewer_name}}` is filled with the neutral phrase `a reviewer`, `ANONYMOUS_REVIEWER`), and contact details: the location's Google phone and website as the only ones a reply may use, never a placeholder such as `[phone/email]`, and with none listed an invitation to get in touch that names no channel. It also holds the house style (`STYLE_RULES`): reply in the review's language (formal "Sie" for German), never repeat a member of staff's name either ("our team"), open specifically and vary the opening and closing, no corporate filler ("your feedback is important to us"), no claims that anything is being done and no vague promises, neither confirm nor dispute the complaint, a short general reply for a star-only review, speak as "we" not "I", and end an *escalated* (complaint) reply on the invitation to get in touch (the neutral template asks for an invitation to come back instead, so the rule is stated only for the `escalated` category, which `buildSystemPrompt` receives as `category`). A star-only review has no text to take a language from, so `noCommentLanguage` makes the reply use the business's language: the owner's language in the app (`users.locale`), else the app default, instead of falling back to English. |
 | User prompt | The tenant's `prompt_versions.template`, filled in | Yes (Settings → Prompts) | What to acknowledge, word limits, the GDPR "don't repeat the reviewer's name" house rule (PLAN.md §6) — all already present in `DEFAULT_PROMPTS` |
 
 `tone` is **not** a `{{placeholder}}` — it's a separate axis applied only in the system prompt,
@@ -216,5 +232,26 @@ tone slot and was never meant to.
 `pnpm ai:dry-run` runs the provider against **mock** reviews with the category's *default* prompt
 (`DEFAULT_PROMPTS`), needing no server and no database. It shows the raw provider round-trip, latency and token
 counts, and never touches a real review or persists anything. The mock reviews come from `MOCK_REVIEW_FIXTURES`
-(short 5-star, mixed 3-star, angry 1-star, a long rambling 1-star, and a non-English review) — see that file's own
-doc comment for why each one is there.
+(short 5-star, mixed 3-star, angry 1-star, a long rambling 1-star, a Spanish review, a 4-star with a caveat, a star-only
+review, a 1-star naming a waiter, a 1-star demanding a refund, and a German 2-star) — see that file's own doc comment
+for why each one is there. The script uses whichever provider `AI_PROVIDER` selects (`createAiProvider`), so it
+exercises exactly what the app would.
+
+**Judging a prompt change.** Run the script before and after and compare the replies side by side. Model output varies
+from run to run (temperature 0.7), so run each version at least twice and look for patterns rather than one reply.
+What to look for: a staff or reviewer name repeated, stock filler ("your feedback is important to us"), invented
+commitments ("we are working to improve"), agreeing with a complaint as fact, replying in the wrong language, "I"
+instead of "we", and a complaint that does not end on the invitation to get in touch. The system prompt changes reach
+every tenant immediately; the *default templates* are copied into a tenant's own prompts when the tenant is created,
+so a change to `DEFAULT_PROMPTS` affects new tenants only (existing tenants keep, and can edit, their own versions).
+
+**Lesson from tuning the style rules:** a rule that names a language ("use the formal Sie in German") made the model
+answer English reviews in German, so language rules lead with "same language as the review" and give one example per
+language. A bare ban on a phrase was not enough on its own: "finish a complaint with the invitation to get in touch and
+add nothing after it" removed the trailing "your feedback is important to us" that bans did not.
+
+**Star-only reviews and language.** The `{{review_text}}` placeholder for a review with no comment is an English phrase, so
+"same language as the review" made every star-only review answer in English, and the default templates add "if the language is
+unclear, reply in English". For these reviews `buildSystemPrompt` is given the business's language (`noCommentLanguage`) and says
+the reply is written in it, whatever the instructions below say about unclear languages. The language is read once per batch, and
+only when the batch holds a star-only review.

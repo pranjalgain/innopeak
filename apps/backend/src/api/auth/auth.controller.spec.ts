@@ -490,16 +490,27 @@ describe('AuthController — Microsoft sign-in', () => {
       expect(res.redirect).toHaveBeenCalledWith(302, '/login?error=EMAIL_NOT_VERIFIED');
     });
 
-    it('tags even the unexpected-outcome fallback with the provider, like every other failure', async () => {
-      handleMicrosoftCallback.mockResolvedValue({ ok: true, kind: 'admin_signed_in', tokens: {} });
+    it('signs a platform admin in with the admin cookies only and sends them to the console', async () => {
+      handleMicrosoftCallback.mockResolvedValue({
+        ok: true,
+        kind: 'admin_signed_in',
+        tokens: { admin: true, body: { accessToken: 'admin-access' } },
+      });
       const res = mockResponse();
 
       await controller.microsoftCallback(request({ code: 'c', state: 's' }), res);
 
-      expect(res.redirect).toHaveBeenCalledWith(
-        302,
-        '/login?error=PROVIDER_ERROR&provider=microsoft'
+      expect(res.cookie).toHaveBeenCalledWith(
+        ADMIN_ACCESS_TOKEN_COOKIE_NAME,
+        'admin-access',
+        expect.anything()
       );
+      expect(res.cookie).not.toHaveBeenCalledWith(
+        REFRESH_TOKEN_COOKIE_NAME,
+        expect.anything(),
+        expect.anything()
+      );
+      expect(res.redirect).toHaveBeenCalledWith(302, '/admin');
     });
   });
 

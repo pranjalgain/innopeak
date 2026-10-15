@@ -195,6 +195,9 @@
       "title": "Admin-Anmeldung",
       "orDivider": "oder",
       "continueWithGoogle": "Mit Google fortfahren",
+      "continueWithMicrosoft": "Mit Microsoft fortfahren",
+      "google": "Google",
+      "microsoft": "Microsoft",
       "notAdmin": "Kein Plattform-Administrator?",
       "tenantSignIn": "Hier anmelden"
     },
@@ -297,6 +300,9 @@
         "PROVIDER_ERROR": "Die Anmeldung bei Microsoft konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
         "NOT_CONFIGURED": "Die Microsoft-Anmeldung ist derzeit nicht verfügbar. Bitte verwenden Sie eine andere Anmeldemethode.",
         "fallback": "Die Microsoft-Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
+      },
+      "admin": {
+        "NO_ACCOUNT": "Zu dieser Anmeldung gibt es kein Plattform-Administratorkonto. Administratorkonten gibt es nur auf Einladung: Bitten Sie einen bestehenden Administrator, Sie einzuladen."
       },
       "fallback": "Die Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
     }
@@ -416,7 +422,7 @@
       "toasts": {
         "resent": "Code erneut gesendet.",
         "resendFailed": "Der Code konnte nicht erneut gesendet werden. Bitte versuchen Sie es in Kürze erneut.",
-        "verifyFailed": "Dieser Code konnte nicht verifiziert werden. Bitte versuchen Sie es erneut."
+        "verifyFailed": "Falscher oder abgelaufener Code. Versuchen Sie es erneut oder fordern Sie einen neuen an."
       }
     }
   },
@@ -481,11 +487,17 @@
       "reviewCta": "Prüfen"
     },
     "businessProfile": {
+      "categoryLabel": "Kategorie: {category}",
       "lastSynced": "Zuletzt synchronisiert: {date}",
       "neverSynced": "Noch nicht synchronisiert",
       "noAddress": "Keine Adresse hinterlegt",
       "noLocation": "Es ist kein Standort des Google-Unternehmensprofils verbunden.",
       "phoneLabel": "{phone} anrufen",
+      "ratingLabel": "Mit {rating} von 5 bei Google bewertet, aus {count, plural, one {# Bewertung} other {# Bewertungen}}",
+      "ratingOnlyLabel": "Mit {rating} von 5 bei Google bewertet",
+      "syncFailed": "Sync fehlgeschlagen",
+      "syncFailedHint": "Die letzte Synchronisierung wurde nicht abgeschlossen, daher fehlen möglicherweise neue Bewertungen. Sie wird automatisch wiederholt.",
+      "syncOk": "Sync OK",
       "websiteLabel": "{website} besuchen (öffnet in neuem Tab)"
     }
   },
@@ -540,6 +552,7 @@
       "descriptionOne": "Für diese Bewertung wurde ein KI-Antwortentwurf erstellt. Geben Sie ihn unverändert frei, bearbeiten Sie ihn zuerst oder lehnen Sie ihn ab.",
       "descriptionMany": "Für diese Bewertung wurden {count} KI-Antwortentwürfe erstellt. Die Freigabe eines Entwurfs ersetzt automatisch die anderen — pro Bewertung kann immer nur eine Antwort veröffentlicht werden.",
       "snippetLabel": "Entwurf {label}",
+      "importedLabel": "Antwort auf Google",
       "approve": "Freigeben",
       "edit": "Bearbeiten",
       "cancelEdit": "Bearbeitung abbrechen",
@@ -550,14 +563,16 @@
         "rejected": "Abgelehnt",
         "superseded": "Ersetzt",
         "posted": "Veröffentlicht",
-        "post_failed": "Veröffentlichung fehlgeschlagen"
+        "post_failed": "Veröffentlichung fehlgeschlagen",
+        "imported": "Von Google"
       },
       "confirmation": {
         "approved": "Freigegeben — noch nicht auf Google veröffentlicht.",
         "rejected": "Abgelehnt — dieser Entwurf wird nicht verwendet.",
         "superseded": "Ersetzt — für diese Bewertung wurde eine andere Antwort freigegeben.",
         "posted": "Im Google Unternehmensprofil veröffentlicht.",
-        "post_failed": "Freigegeben, aber Google hat die Antwort nicht angenommen."
+        "post_failed": "Freigegeben, aber Google hat die Antwort nicht angenommen.",
+        "imported": "Direkt auf Google beantwortet — nicht über diese App veröffentlicht."
       },
       "post": "Auf Google veröffentlichen",
       "retryPost": "Erneut versuchen",
@@ -1037,9 +1052,22 @@
         "admin_disabled": "Administrator {email} deaktiviert",
         "admin_enabled": "Administrator {email} aktiviert",
         "user_activated": "{email} bei {businessName} reaktiviert",
-        "user_deactivated": "{email} bei {businessName} deaktiviert"
+        "user_deactivated": "{email} bei {businessName} deaktiviert",
+        "platform_settings_changed": "Plattformeinstellungen geändert — {changes}{lockout}"
       },
-      "viewAll": "Mehr anzeigen →"
+      "viewAll": "Mehr anzeigen →",
+      "settingChanges": {
+        "on": "ein",
+        "off": "aus",
+        "lockoutConfirmed": " (bestätigt, obwohl sich Benutzer nur so anmelden konnten)",
+        "labels": {
+          "microsoftLoginEnabled": "Microsoft-SSO",
+          "passwordLoginEnabled": "E-Mail & Passwort",
+          "googleLoginEnabled": "Google-Anmeldung",
+          "inviteMembersEnabled": "Teammitglieder einladen",
+          "notificationSettingsEnabled": "Benachrichtigungseinstellungen"
+        }
+      }
     },
     "toasts": {
       "loadFailed": "Die Übersicht konnte nicht geladen werden."
@@ -1442,7 +1470,7 @@
     },
     "platformActivityLog": {
       "title": "Aktivität",
-      "subtitle": "Plattform-Admin-Aktionen — Unternehmen sperren/reaktivieren, Admin-Einladungen, Statusänderungen von Mitgliedern",
+      "subtitle": "Plattformaktivität — neue Unternehmen, Sperrungen, Löschanfragen, Admin-Einladungen, Statusänderungen von Mitgliedern und Änderungen der Plattformeinstellungen",
       "empty": "Noch keine Aktivität."
     },
     "filters": {
@@ -1460,7 +1488,9 @@
         "admin_disabled": "Admin deaktiviert",
         "admin_enabled": "Admin aktiviert",
         "user_activated": "Benutzer aktiviert",
-        "user_deactivated": "Benutzer deaktiviert"
+        "user_deactivated": "Benutzer deaktiviert",
+        "business_joined": "Neues Unternehmen beigetreten",
+        "platform_settings_changed": "Plattformeinstellungen geändert"
       }
     }
   }

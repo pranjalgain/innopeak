@@ -187,7 +187,7 @@ export const messagesEn: MessageCatalog = {
       'The Azure OpenAI provider is not configured. Set AZURE_OPENAI_ENDPOINT, ' +
       'AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT, and AZURE_OPENAI_API_VERSION.',
     AZURE_REGION_INVALID:
-      'AZURE_OPENAI_REGION must be "westeurope" — a GDPR requirement for this deployment.',
+      'AZURE_OPENAI_REGION must be "westeurope" or "northeurope" — the EU regions approved for this deployment (GDPR).',
     GENERATION_FAILED: 'Failed to generate an AI reply. Please try again.',
   },
   BILLING: {

@@ -2,10 +2,9 @@
 
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 
 
@@ -20,7 +19,6 @@ import {
 } from "@/app/(auth)/onboarding/signup/_components/create-account-form";
 import { OtpVerificationStage } from "@/app/(auth)/onboarding/signup/_components/otp-verification-stage";
 import { ROUTES } from "@/app/_libs/constants/routes";
-import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
 import { PendingSignupService } from "@/app/_libs/services/pending-signup.service";
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
 import { LoadErrorState } from "@/components/common/load-error-state";
@@ -30,12 +28,11 @@ import { useAuth } from "@/hooks/auth/use-auth";
 import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { useOtpVerification } from "@/hooks/auth/use-otp-verification";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
+import { useHandOffAfterSignup, useOnboardingSteps } from "@/hooks/onboarding/use-onboarding-steps";
 
 /** Steps 1-2 only. Steps 3-4 ("plan", "connect") live on their own routes — see `handOffToPlan`. */
 type SignupStep = Extract<OnboardingStep, "identity" | "otp">;
 
-const SSO_LIKE_STEPS: OnboardingStep[] = ["identity", "plan", "connect"];
-const PASSWORD_STEPS: OnboardingStep[] = ["identity", "otp", "plan", "connect"];
 
 /**
  * Steps 1-2 of onboarding; steps 3-4 live on their own routes (see `handOffToPlan`). Step 4 is a Google OAuth grant that
@@ -46,7 +43,6 @@ export function OnboardingSignupView() {
   const t = useTranslations("onboardingSignup");
   const tLogin = useTranslations("auth.login");
   useOAuthErrorToast();
-  const router = useRouter();
   const {
     signupWithPassword,
     startGoogleSignup,
@@ -80,17 +76,11 @@ export function OnboardingSignupView() {
     social: platformSettings?.googleLoginEnabled ?? false,
   };
   const bothSsoLike = authMethods.sso && authMethods.social;
-  const stepperSteps = viaPassword ? PASSWORD_STEPS : SSO_LIKE_STEPS;
+  const stepperSteps = useOnboardingSteps(viaPassword);
 
-  /** `replace`, not `push`: Back must not return an authenticated user to a route that bounces to /dashboard. Hands off to
-   *  /onboarding/plan so every fresh signup sees the Free/Paid choice before the location-picker. */
-  const handOffToPlan = useCallback(
-    (via: "password" | "sso") => {
-      OnboardingContextService.set({ from: "signup", via });
-      router.replace(ROUTES.ONBOARDING_PLAN);
-    },
-    [router],
-  );
+  /** Hands off to /onboarding/plan so every fresh signup sees the Free/Paid choice before the location-picker (straight to connect when
+   *  payments are off, see `useHandOffAfterSignup`). */
+  const handOffToPlan = useHandOffAfterSignup();
 
   const handlePasswordSubmit = async (values: CreateAccountFormValues) => {
     const succeeded = await signupWithPassword(values);

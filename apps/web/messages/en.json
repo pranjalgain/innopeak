@@ -195,6 +195,9 @@
       "title": "Admin sign in",
       "orDivider": "or",
       "continueWithGoogle": "Continue with Google",
+      "continueWithMicrosoft": "Continue with Microsoft",
+      "google": "Google",
+      "microsoft": "Microsoft",
       "notAdmin": "Not a platform admin?",
       "tenantSignIn": "Sign in here"
     },
@@ -297,6 +300,9 @@
         "PROVIDER_ERROR": "Could not complete sign-in with Microsoft. Please try again.",
         "NOT_CONFIGURED": "Microsoft sign-in is not available right now. Try another way to sign in.",
         "fallback": "Microsoft sign-in did not complete. Please try again."
+      },
+      "admin": {
+        "NO_ACCOUNT": "No platform admin account matches that sign-in. Admin accounts are by invitation only: ask an existing admin to invite you."
       },
       "fallback": "Sign-in did not complete. Please try again."
     }
@@ -416,7 +422,7 @@
       "toasts": {
         "resent": "Code resent.",
         "resendFailed": "Could not resend the code. Please try again in a moment.",
-        "verifyFailed": "Could not verify this code. Please try again."
+        "verifyFailed": "Incorrect or expired code. Try again or request a new one."
       }
     }
   },
@@ -481,11 +487,17 @@
       "reviewCta": "Review"
     },
     "businessProfile": {
+      "categoryLabel": "Category: {category}",
       "lastSynced": "Last synced {date}",
       "neverSynced": "Not synced yet",
       "noAddress": "No address on file",
       "noLocation": "No Google Business Profile location is connected.",
       "phoneLabel": "Call {phone}",
+      "ratingLabel": "Rated {rating} out of 5 on Google, from {count, plural, one {# review} other {# reviews}}",
+      "ratingOnlyLabel": "Rated {rating} out of 5 on Google",
+      "syncFailed": "Sync failed",
+      "syncFailedHint": "The last sync did not complete, so new reviews may be missing. It is retried automatically.",
+      "syncOk": "Sync OK",
       "websiteLabel": "Visit {website} (opens in a new tab)"
     }
   },
@@ -540,6 +552,7 @@
       "descriptionOne": "An AI-drafted response was generated for this review. Approve it as written, edit it first, or reject it.",
       "descriptionMany": "{count} AI-drafted responses were generated for this review. Approving one automatically supersedes the others — only one reply can ever be posted per review.",
       "snippetLabel": "Snippet {label}",
+      "importedLabel": "Reply on Google",
       "approve": "Approve",
       "edit": "Edit",
       "cancelEdit": "Cancel edit",
@@ -550,14 +563,16 @@
         "rejected": "Rejected",
         "superseded": "Superseded",
         "posted": "Posted",
-        "post_failed": "Posting failed"
+        "post_failed": "Posting failed",
+        "imported": "From Google"
       },
       "confirmation": {
         "approved": "Approved — not posted to Google yet.",
         "rejected": "Rejected — this snippet will not be used.",
         "superseded": "Superseded — another reply was approved for this review.",
         "posted": "Posted to your Google Business Profile.",
-        "post_failed": "Approved, but Google didn't accept the reply."
+        "post_failed": "Approved, but Google didn't accept the reply.",
+        "imported": "Replied directly on Google — not posted from this app."
       },
       "post": "Post to Google",
       "retryPost": "Retry posting",
@@ -1037,9 +1052,22 @@
         "admin_disabled": "Disabled admin {email}",
         "admin_enabled": "Enabled admin {email}",
         "user_activated": "Reactivated {email} at {businessName}",
-        "user_deactivated": "Deactivated {email} at {businessName}"
+        "user_deactivated": "Deactivated {email} at {businessName}",
+        "platform_settings_changed": "Changed platform settings — {changes}{lockout}"
       },
-      "viewAll": "Show more →"
+      "viewAll": "Show more →",
+      "settingChanges": {
+        "on": "on",
+        "off": "off",
+        "lockoutConfirmed": " (confirmed despite users who could only sign in that way)",
+        "labels": {
+          "microsoftLoginEnabled": "Microsoft SSO",
+          "passwordLoginEnabled": "Email & password",
+          "googleLoginEnabled": "Google sign-in",
+          "inviteMembersEnabled": "Invite teammates",
+          "notificationSettingsEnabled": "Notification preferences"
+        }
+      }
     },
     "toasts": {
       "loadFailed": "Could not load the overview."
@@ -1442,7 +1470,7 @@
     },
     "platformActivityLog": {
       "title": "Activity",
-      "subtitle": "Platform-admin actions — business suspend/reactivate, admin invites, member status changes",
+      "subtitle": "Platform activity — new businesses, suspensions, erasure requests, admin invites, member status changes and platform settings changes",
       "empty": "No activity yet."
     },
     "filters": {
@@ -1460,7 +1488,9 @@
         "admin_disabled": "Admin disabled",
         "admin_enabled": "Admin enabled",
         "user_activated": "User activated",
-        "user_deactivated": "User deactivated"
+        "user_deactivated": "User deactivated",
+        "business_joined": "New business joined",
+        "platform_settings_changed": "Platform settings changed"
       }
     }
   }

@@ -39,7 +39,7 @@ function Logo({ homeHref }: { homeHref: string }) {
   return (
     <Link
       href={homeHref as Route}
-      className="flex items-center px-2 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+      className="flex items-center px-3 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
     >
       <InnoPeakLogo className="h-9 w-auto group-data-[collapsible=icon]:hidden" />
       <InnoPeakDiamondMark className="hidden h-8 w-auto group-data-[collapsible=icon]:block" />
@@ -94,22 +94,26 @@ export function AppShell({
 
   return (
     <SidebarProvider open={breakpoint === "desktop"}>
-      <Sidebar collapsible="icon">
-        <SidebarHeader>
+      <Sidebar variant="floating" collapsible="icon">
+        <SidebarHeader className="px-3 pt-4 group-data-[collapsible=icon]:px-2">
           <Logo homeHref={homeHref} />
         </SidebarHeader>
 
-        <SidebarContent>
+        {/* Horizontal padding is what lets the pill (and its glow) float inside the rounded panel instead of touching its edges; the list
+            scrolls, so anything outside its box, such as a wide glow, would be clipped into a pale rectangle. */}
+        <SidebarContent className="px-3 pt-2 group-data-[collapsible=icon]:px-2">
           <SidebarMenu>
             {navItems.map((item) => {
               const isActive = isNavItemActive(pathname, item.href, homeHref);
               return (
               <SidebarMenuItem key={item.href}>
                 {isActive && (
+                  // The sliding pill behind the active item: it glides from one item to the next (shared `layoutId`) and carries a soft glow
+                  // in the brand colour. Hidden when collapsed, where the active icon's own circle shows instead.
                   <motion.div
                     layoutId="sidebar-active-indicator"
                     transition={{ type: "spring", stiffness: 380, damping: 32 }}
-                    className="absolute inset-y-0 left-0 w-[2px] bg-primary group-data-[collapsible=icon]:hidden"
+                    className="bg-sidebar-accent ring-sidebar-primary/25 absolute inset-0 rounded-full shadow-[0_4px_14px_-6px_var(--sidebar-primary)] ring-1 group-data-[collapsible=icon]:hidden"
                   />
                 )}
                 <SidebarMenuButton
@@ -121,7 +125,7 @@ export function AppShell({
                   // children, not as `[&>svg]:` brackets here: a `group-data-[...]/navitem:[&>x]:` class on the
                   // element carrying `group/navitem` requires it to be its own descendant and never matches.
                   // Icon size stays here because a class on `<item.icon>` loses to the variant's parent-scoped `[&>svg]:size-4`.
-                  className="group/navitem h-9 rounded-none pl-[10px] text-sm [&>svg]:size-4.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:rounded-md group-data-[collapsible=icon]:[&>svg]:size-5"
+                  className="group/navitem relative z-10 h-10 rounded-full px-3 text-sm hover:bg-sidebar-accent/60 data-[active=true]:bg-transparent [&>svg]:size-4.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:[&>svg]:size-5"
                 >
                   <Link href={item.href as Route}>
                     {/* `scale-*`, not a bigger size: a transform never affects the layout box, so siblings can't shift.
@@ -140,14 +144,14 @@ export function AppShell({
           </SidebarMenu>
         </SidebarContent>
 
-        <SidebarFooter>
+        <SidebarFooter className="px-3 pb-3 group-data-[collapsible=icon]:px-2">
           <SidebarMenu>
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton
                     size="lg"
-                    className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                    className="rounded-2xl data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:rounded-full"
                   >
                     <Avatar className="size-8 shrink-0">
                       {identity.avatarUrl ? <AvatarImage src={identity.avatarUrl} alt="" /> : null}

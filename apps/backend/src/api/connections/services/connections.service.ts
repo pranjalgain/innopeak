@@ -152,6 +152,9 @@ export class ConnectionsService {
             address: activeLocation.address,
             phone: activeLocation.phone,
             websiteUri: activeLocation.websiteUri,
+            category: activeLocation.category,
+            googleRating: activeLocation.googleRating,
+            googleReviewCount: activeLocation.googleReviewCount,
             status: activeLocation.status,
             lastSyncedAt: activeLocation.lastSyncedAt,
             lastSyncStatus: activeLocation.lastSyncStatus,
@@ -429,6 +432,7 @@ export class ConnectionsService {
           address: match.address,
           phone: match.phone,
           websiteUri: match.websiteUri,
+          category: match.category,
         })),
         maxActiveLocations,
       });

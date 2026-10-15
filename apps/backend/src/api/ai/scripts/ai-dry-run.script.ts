@@ -7,9 +7,9 @@ import { DEFAULT_PROMPT_TONE, DEFAULT_PROMPTS } from '@prompts/constants/default
 
 /* eslint-disable no-console -- standalone CLI script, no Nest Logger/DI context available */
 
-import { ANONYMOUS_REVIEWER } from '../constants/ai.constants';
+import { ANONYMOUS_REVIEWER, NO_WRITTEN_COMMENT } from '../constants/ai.constants';
 import { MOCK_REVIEW_FIXTURES } from '../constants/mock-review-fixtures.constant';
-import { OpenRouterAiProvider } from '../providers/openrouter-ai.provider';
+import { createAiProvider } from '../providers/create-ai-provider';
 import { buildSystemPrompt, fillPromptTemplate } from '../utils/prompt-template.util';
 
 // Exception messages are locale-tagged proxies resolved only by HttpExceptionFilter inside a request;
@@ -29,9 +29,13 @@ const MOCK_BUSINESS_NAME = 'The Coffee House';
 // Runs fixtures against DEFAULT_PROMPTS, not a tenant's saved template (the HTTP dry-run endpoint does that).
 async function main(): Promise<void> {
   const configService = new ConfigService<EnvConfig>(process.env);
-  const provider = new OpenRouterAiProvider(configService);
+  const provider = createAiProvider(configService);
 
-  console.log(`Running ${MOCK_REVIEW_FIXTURES.length} mock reviews through the AI provider...\n`);
+  console.log(
+    `Running ${MOCK_REVIEW_FIXTURES.length} mock reviews through the ${
+      configService.get<string>('AI_PROVIDER') ?? 'azure'
+    } AI provider...\n`
+  );
 
   for (const fixture of MOCK_REVIEW_FIXTURES) {
     const defaultPrompt = DEFAULT_PROMPTS.find(prompt => prompt.category === fixture.category);
@@ -48,7 +52,13 @@ async function main(): Promise<void> {
       rating: String(fixture.rating),
       review_text: fixture.reviewText,
     });
-    const systemPrompt = buildSystemPrompt({ tone: DEFAULT_PROMPT_TONE });
+    // Mirrors the app: the category picks the closing rule, and a star-only review is answered in the business's language (German here,
+    // since the client is Austrian) because it has no text to take one from.
+    const systemPrompt = buildSystemPrompt({
+      tone: DEFAULT_PROMPT_TONE,
+      category: fixture.category,
+      ...(fixture.reviewText === NO_WRITTEN_COMMENT ? { noCommentLanguage: 'de' as const } : {}),
+    });
 
     console.log('─'.repeat(72));
     console.log(`[${fixture.key}] ${fixture.description}`);

@@ -69,6 +69,8 @@ export interface InsertGeneratedResponseInput {
   reviewId: string;
   responseType: ResponseType.AUTO_REPLY_SUGGESTION | ResponseType.ESCALATION_SNIPPET;
   content: string;
+  /** The prompt version the draft was generated from, so Settings > Prompts can count and rate replies per version. */
+  promptVersionId: string;
   /** Non-null only for `ESCALATION_SNIPPET` rows. */
   generationGroupId: string | null;
   generationMetadata: Record<string, unknown>;

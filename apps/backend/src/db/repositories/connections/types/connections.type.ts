@@ -29,6 +29,11 @@ export interface LocationRow {
   /** The business's public phone and website, from the provider; `null` when it lists none. */
   phone: string | null;
   websiteUri: string | null;
+  /** Google's primary category ("Restaurant"); `null` when it lists none. */
+  category: string | null;
+  /** Google's own overall rating and review count, refreshed on every poll; `null` until the first read. They cover every review, not just the imported ones. */
+  googleRating: number | null;
+  googleReviewCount: number | null;
   /** Last attempt to re-read name/address/phone/website from the provider, successful or not; `null` until the first. */
   detailsRefreshedAt: string | null;
   /** Last attempt to compare Google's full review list with ours, successful or not; `null` until the first. */
@@ -77,6 +82,7 @@ export interface UpsertLocationInput {
   address: string | null;
   phone: string | null;
   websiteUri: string | null;
+  category: string | null;
 }
 
 export interface ConfirmLocationMatch {
@@ -85,6 +91,7 @@ export interface ConfirmLocationMatch {
   address: string | null;
   phone: string | null;
   websiteUri: string | null;
+  category: string | null;
 }
 
 /** The provider-owned fields of a location, re-read by the poll. */
@@ -94,6 +101,15 @@ export interface UpdateLocationDetailsInput {
   address: string | null;
   phone: string | null;
   websiteUri: string | null;
+  category: string | null;
+}
+
+/** Google's own figures for a location, from the first page of its reviews list. */
+export interface UpdateLocationRatingInput {
+  locationId: string;
+  /** `null` leaves the stored rating as it is (a page that did not carry one). */
+  rating: number | null;
+  reviewCount: number | null;
 }
 
 export interface ConfirmLocationsInput {
