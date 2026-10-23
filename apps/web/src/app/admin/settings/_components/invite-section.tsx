@@ -137,9 +137,8 @@ export function InviteSection() {
                       trigger={
                         <Button
                           type="button"
-                          variant="outline"
-                          size="sm"
-                          className="border-destructive text-destructive hover:bg-destructive/10">
+                          variant="destructive-outline"
+                          size="sm">
                           {t("revoke")}
                         </Button>
                       }
@@ -165,9 +164,8 @@ export function InviteSection() {
                       trigger={
                         <Button
                           type="button"
-                          variant="outline"
-                          size="sm"
-                          className="border-destructive text-destructive hover:bg-destructive/10">
+                          variant="destructive-outline"
+                          size="sm">
                           {t("disable")}
                         </Button>
                       }

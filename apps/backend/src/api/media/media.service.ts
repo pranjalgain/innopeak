@@ -48,7 +48,8 @@ export class MediaService {
 
   /**
    * GDPR anonymization's hook into this module; a no-op when the owner never had an avatar. Storage is deleted before the
-   * `media` row so a swallowed Cloudinary failure leaves the row for a retry instead of a silent leak.
+   * `media` row, and a storage failure is rethrown with the row left in place: the caller must not go on to anonymize the
+   * account (nothing would ever come back for the photo), and the next purge retries the whole step.
    * `StorageAssetNotFoundError` still proceeds to the DB delete: a previous run already removed the asset, and every
    * retry would otherwise fail forever.
    */
@@ -67,7 +68,7 @@ export class MediaService {
             error instanceof Error ? error.message : String(error)
           }`
         );
-        return;
+        throw error;
       }
       this.logger.warn(
         `Avatar asset "${existing.providerAssetId}" was already gone from storage during ` +

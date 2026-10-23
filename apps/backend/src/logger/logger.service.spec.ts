@@ -41,6 +41,30 @@ describe('LoggerService', () => {
     expect(options.transports).toHaveLength(1);
   });
 
+  // `error(message, trace)` accepted a stack and the format dropped it, so a logged failure had no call site.
+  describe('the line format', () => {
+    const render = (entry: Record<string, unknown>): string => {
+      new LoggerService(configFor('development'));
+      const options = createLoggerMock.mock.calls[0]?.[0] as {
+        format: { transform: (info: Record<string, unknown>) => Record<symbol, string> };
+      };
+      const out = options.format.transform({ level: 'error', timestamp: 'T', ...entry });
+      // The format stamps its own time; compare everything after it.
+      return (out[Symbol.for('message')] as string).replace(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/, 'T');
+    };
+
+    it('prints the stack under the message', () => {
+      const line = render({ message: 'boom', trace: 'Error: boom\n    at a.ts:1', context: 'Ctx' });
+
+      expect(line).toBe('T [error] [Ctx]: boom\nError: boom\n    at a.ts:1');
+    });
+
+    it('adds nothing when there is no stack', () => {
+      expect(render({ message: 'fine', context: 'Ctx' })).toBe('T [error] [Ctx]: fine');
+      expect(render({ message: 'fine', trace: '', context: 'Ctx' })).toBe('T [error] [Ctx]: fine');
+    });
+  });
+
   it('maps each method to the matching level and carries the context', () => {
     const target = new LoggerService(configFor('development'));
 

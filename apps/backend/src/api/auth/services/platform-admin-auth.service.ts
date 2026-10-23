@@ -158,16 +158,20 @@ export class PlatformAdminAuthService {
       };
     }
 
-    const { state, sid } = await this.oauthStateService.mint({
+    const minted = await this.oauthStateService.mint({
       provider: SsoProvider.GOOGLE,
       intent: OAuthIntent.ADMIN_INVITE,
       inviteToken,
+      pkce: true,
     });
 
     return {
       ok: true,
-      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl(state),
-      sid,
+      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl({
+        state: minted.state,
+        ...(minted.codeChallenge === undefined ? {} : { codeChallenge: minted.codeChallenge }),
+      }),
+      sid: minted.sid,
     };
   }
 
@@ -184,15 +188,19 @@ export class PlatformAdminAuthService {
       };
     }
 
-    const { state, sid } = await this.oauthStateService.mint({
+    const minted = await this.oauthStateService.mint({
       provider: SsoProvider.GOOGLE,
       intent: OAuthIntent.ADMIN_LOGIN,
+      pkce: true,
     });
 
     return {
       ok: true,
-      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl(state),
-      sid,
+      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl({
+        state: minted.state,
+        ...(minted.codeChallenge === undefined ? {} : { codeChallenge: minted.codeChallenge }),
+      }),
+      sid: minted.sid,
     };
   }
 

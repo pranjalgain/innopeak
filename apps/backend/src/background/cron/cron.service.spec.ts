@@ -6,6 +6,7 @@ import { BillingReconciliationService } from '@billing/services/billing-reconcil
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import type { AcquireErasureLock } from '@db/repositories/auth/types/auth.type';
+import { StripeWebhookEventsDbService } from '@db/repositories/billing/stripe-webhook-events.db-service';
 import { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { NotificationsDbService } from '@db/repositories/notifications/notifications.db-service';
@@ -29,10 +30,17 @@ describe('CronService', () => {
   let notificationsDbService: { purgeOld: jest.Mock };
   let adminOverviewDbService: jest.Mocked<AdminOverviewDbService>;
   let billingReconciliationService: jest.Mocked<
-    Pick<BillingReconciliationService, 'reconcileTenantSubscription'>
+    Pick<
+      BillingReconciliationService,
+      'reconcileTenantSubscription' | 'scheduleCancellationForErasure'
+    >
   >;
+  let stripeWebhookEventsDbService: { purgeProcessedBefore: jest.Mock };
   let tenantSubscriptionsDbService: jest.Mocked<
-    Pick<TenantSubscriptionsDbService, 'findStaleFreeWithStripeCustomer'>
+    Pick<
+      TenantSubscriptionsDbService,
+      'findPendingErasureWithBillableSubscription' | 'findStaleFreeWithStripeCustomer'
+    >
   >;
   let erasureNoticeService: {
     sendDueReminders: jest.Mock;
@@ -79,6 +87,7 @@ describe('CronService', () => {
 
     accountAnonymizationService = {
       anonymizeUser: jest.fn().mockResolvedValue(undefined),
+      deleteAvatar: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<AccountAnonymizationService>;
 
     adminOverviewDbService = {
@@ -87,10 +96,14 @@ describe('CronService', () => {
 
     billingReconciliationService = {
       reconcileTenantSubscription: jest.fn().mockResolvedValue(undefined),
+      scheduleCancellationForErasure: jest.fn().mockResolvedValue(undefined),
     };
+
+    stripeWebhookEventsDbService = { purgeProcessedBefore: jest.fn().mockResolvedValue(0) };
 
     tenantSubscriptionsDbService = {
       findStaleFreeWithStripeCustomer: jest.fn().mockResolvedValue([]),
+      findPendingErasureWithBillableSubscription: jest.fn().mockResolvedValue([]),
     };
 
     tenantErasureCleanupService = {
@@ -117,6 +130,7 @@ describe('CronService', () => {
         { provide: AdminOverviewDbService, useValue: adminOverviewDbService },
         { provide: BillingReconciliationService, useValue: billingReconciliationService },
         { provide: TenantSubscriptionsDbService, useValue: tenantSubscriptionsDbService },
+        { provide: StripeWebhookEventsDbService, useValue: stripeWebhookEventsDbService },
         { provide: TenantErasureCleanupService, useValue: tenantErasureCleanupService },
         { provide: ErasureNoticeService, useValue: erasureNoticeService },
         { provide: NotificationsDbService, useValue: notificationsDbService },
@@ -161,13 +175,18 @@ describe('CronService', () => {
   describe('purgeStaleAuthTokens', () => {
     it('delegates to AuthDbService.purgeStaleTokens and logs the counts', async () => {
       const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
-      authDbService.purgeStaleTokens.mockResolvedValue({ otpTokens: 3, refreshTokens: 12 });
+      authDbService.purgeStaleTokens.mockResolvedValue({
+        otpTokens: 3,
+        refreshTokens: 12,
+        pendingSignups: 2,
+      });
 
       await target.purgeStaleAuthTokens();
 
       expect(authDbService.purgeStaleTokens).toHaveBeenCalledTimes(1);
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('3 stale OTP'));
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('12 stale refresh'));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('2 unverified sign-up'));
     });
 
     it('propagates a DB failure so the job is retried / lands in the DLQ', async () => {
@@ -418,7 +437,7 @@ describe('CronService', () => {
       authDbService.findNonAnonymizedUserIdsForTenant
         .mockResolvedValueOnce(['user-1'])
         .mockResolvedValueOnce([]);
-      accountAnonymizationService.anonymizeUser.mockRejectedValueOnce(new Error('cloudinary down'));
+      accountAnonymizationService.deleteAvatar.mockRejectedValueOnce(new Error('cloudinary down'));
       authDbService.markTenantErased.mockResolvedValue({ name: 'Fine Co' });
 
       await expect(target.purgeErasureRequests()).resolves.toBeUndefined();
@@ -428,6 +447,24 @@ describe('CronService', () => {
       expect(erasureNoticeService.notifyPurgeSkipped).toHaveBeenCalledWith([
         expect.objectContaining({ name: 'Broken Co', reason: 'cloudinary down' }),
       ]);
+    });
+
+    // The "erased" notice reads its recipients before anonymizing and cannot rebuild them afterwards, so a photo that
+    // fails must not leave half the business anonymized.
+    it('deletes every photo before anonymizing anyone, so a failed delete leaves the business untouched', async () => {
+      authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
+        { id: 'tenant-1', name: 'Broken Co', erasureRequestedAt: null },
+      ]);
+      authDbService.findNonAnonymizedUserIdsForTenant.mockResolvedValue(['user-1', 'user-2']);
+      accountAnonymizationService.deleteAvatar
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('cloudinary down'));
+
+      await target.purgeErasureRequests();
+
+      expect(accountAnonymizationService.anonymizeUser).not.toHaveBeenCalled();
+      expect(authDbService.markTenantErased).not.toHaveBeenCalled();
+      expect(erasureNoticeService.notifyErased).not.toHaveBeenCalled();
     });
 
     it('sends no alert when nothing was skipped', async () => {
@@ -455,8 +492,23 @@ describe('CronService', () => {
         expect.objectContaining({
           actorPlatformAdminId: null,
           tenantId: 'tenant-1',
-          businessName: 'The Coastal Table',
+          // The entry says an erasure happened, not whose: the name is already gone from the rest of the data.
+          businessName: '[erased]',
         })
+      );
+    });
+
+    it('still tells the former members which business was erased', async () => {
+      authDbService.findTenantsDueForErasurePurge.mockResolvedValue([
+        { id: 'tenant-1', name: 'The Coastal Table', erasureRequestedAt: null },
+      ]);
+      authDbService.findNonAnonymizedUserIdsForTenant.mockResolvedValue([]);
+      authDbService.markTenantErased.mockResolvedValue({ name: 'The Coastal Table' });
+
+      await target.purgeErasureRequests();
+
+      expect(erasureNoticeService.notifyErased).toHaveBeenCalledWith(
+        expect.objectContaining({ businessName: 'The Coastal Table' })
       );
     });
 
@@ -506,6 +558,19 @@ describe('CronService', () => {
       );
       expect(authDbService.isUserStillDueForErasure).toHaveBeenCalledWith('user-3', 21);
       expect(accountAnonymizationService.anonymizeUser).not.toHaveBeenCalled();
+    });
+
+    // One failing photo used to throw out of the loop: the rest of the members were never reached and no alert was sent.
+    it('keeps going after one standalone member fails, and alerts about it', async () => {
+      authDbService.findUsersDueForErasurePurge.mockResolvedValue(['user-3', 'user-4']);
+      accountAnonymizationService.anonymizeUser.mockRejectedValueOnce(new Error('cloudinary down'));
+
+      await expect(target.purgeErasureRequests()).resolves.toBeUndefined();
+
+      expect(accountAnonymizationService.anonymizeUser).toHaveBeenCalledWith('user-4');
+      expect(erasureNoticeService.notifyPurgeSkipped).toHaveBeenCalledWith([
+        expect.objectContaining({ name: 'team member user-3', reason: 'cloudinary down' }),
+      ]);
     });
 
     it('anonymizes standalone due member removals independent of any tenant erasure', async () => {
@@ -558,6 +623,98 @@ describe('CronService', () => {
       await target.reconcileStaleBillingSubscriptions();
 
       expect(billingReconciliationService.reconcileTenantSubscription).not.toHaveBeenCalled();
+    });
+
+    // The request-time cancellation only logs a failure; a business waiting out a 21-day grace period would keep being charged.
+    describe('retrying the cancellation for businesses pending erasure', () => {
+      it('asks again for each business still billing, even when nothing else is stale', async () => {
+        tenantSubscriptionsDbService.findPendingErasureWithBillableSubscription.mockResolvedValue([
+          'tenant-1',
+          'tenant-2',
+        ]);
+
+        await target.reconcileStaleBillingSubscriptions();
+
+        expect(billingReconciliationService.scheduleCancellationForErasure).toHaveBeenCalledTimes(
+          2
+        );
+        expect(billingReconciliationService.scheduleCancellationForErasure).toHaveBeenCalledWith(
+          'tenant-1'
+        );
+        expect(billingReconciliationService.scheduleCancellationForErasure).toHaveBeenCalledWith(
+          'tenant-2'
+        );
+      });
+
+      it('keeps going past one that fails, and still runs when the stale reconcile failed', async () => {
+        tenantSubscriptionsDbService.findStaleFreeWithStripeCustomer.mockResolvedValue([
+          { tenantId: 'tenant-9', stripeCustomerId: 'cus_9' },
+        ]);
+        billingReconciliationService.reconcileTenantSubscription.mockRejectedValue(
+          new Error('Stripe timeout')
+        );
+        tenantSubscriptionsDbService.findPendingErasureWithBillableSubscription.mockResolvedValue([
+          'tenant-1',
+          'tenant-2',
+        ]);
+        billingReconciliationService.scheduleCancellationForErasure.mockRejectedValueOnce(
+          new Error('Stripe down')
+        );
+
+        await expect(target.reconcileStaleBillingSubscriptions()).resolves.toBeUndefined();
+
+        expect(billingReconciliationService.scheduleCancellationForErasure).toHaveBeenCalledTimes(
+          2
+        );
+      });
+    });
+
+    // The ledger only has to outlast Stripe's three days of redelivery; it grew with every event, forever.
+    describe('the webhook ledger', () => {
+      it('purges rows older than 90 days as part of the nightly sweep', async () => {
+        stripeWebhookEventsDbService.purgeProcessedBefore.mockResolvedValue(4);
+        const before = Date.now();
+
+        await target.reconcileStaleBillingSubscriptions();
+
+        const [cutoff] = stripeWebhookEventsDbService.purgeProcessedBefore.mock.calls[0] as [Date];
+        expect(Math.round((before - cutoff.getTime()) / 86_400_000)).toBe(90);
+      });
+
+      it('never fails the sweep when the purge itself fails', async () => {
+        stripeWebhookEventsDbService.purgeProcessedBefore.mockRejectedValue(new Error('db down'));
+
+        await expect(target.reconcileStaleBillingSubscriptions()).resolves.toBeUndefined();
+      });
+    });
+
+    // Regression: the erasure query failing skipped the ledger purge, and the candidate query failing skipped both.
+    describe('when one step fails', () => {
+      it('still retries the erasure cancellations and purges the ledger, then reports the failure', async () => {
+        tenantSubscriptionsDbService.findStaleFreeWithStripeCustomer.mockRejectedValue(
+          new Error('db down')
+        );
+        tenantSubscriptionsDbService.findPendingErasureWithBillableSubscription.mockResolvedValue([
+          'tenant-1',
+        ]);
+
+        await expect(target.reconcileStaleBillingSubscriptions()).rejects.toThrow('db down');
+
+        expect(billingReconciliationService.scheduleCancellationForErasure).toHaveBeenCalledWith(
+          'tenant-1'
+        );
+        expect(stripeWebhookEventsDbService.purgeProcessedBefore).toHaveBeenCalledTimes(1);
+      });
+
+      it('still purges the ledger when the pending-erasure query fails', async () => {
+        tenantSubscriptionsDbService.findPendingErasureWithBillableSubscription.mockRejectedValue(
+          new Error('db down')
+        );
+
+        await expect(target.reconcileStaleBillingSubscriptions()).rejects.toThrow('db down');
+
+        expect(stripeWebhookEventsDbService.purgeProcessedBefore).toHaveBeenCalledTimes(1);
+      });
     });
 
     // One tenant's Stripe lookup failing must not starve the other candidates.

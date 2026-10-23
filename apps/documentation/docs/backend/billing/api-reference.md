@@ -186,7 +186,7 @@ would let a second Checkout through: pressing Back from Stripe, or a second tab,
 subscription. For a tenant that already has a Stripe customer, the route first calls
 `PaymentProvider.prepareNewCheckout`:
 
-- If Stripe reports a live subscription (`active`, `trialing`, `past_due`, `unpaid` or `incomplete`),
+- If Stripe reports a live subscription (`active`, `trialing` or `past_due`; an `unpaid` or abandoned `incomplete` one is cancelled instead, so it cannot block resubscribing),
   it is recorded on the row straight away (`BillingReconciliationService.reconcileTenantSubscription`;
   a failure there is logged and left to the webhook) and the request answers `409 ALREADY_SUBSCRIBED`.
 - Otherwise every still-open Checkout Session for the customer is expired before the new one is

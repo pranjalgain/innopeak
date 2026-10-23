@@ -3,11 +3,11 @@ import { useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
-import { FIELD_ERROR_CLASS } from "@/app/(dashboard)/settings/_components/field-error";
 import {
   type ChangePasswordFields,
   changePasswordSchema,
 } from "@/app/(dashboard)/settings/_schemas/change-password.schema";
+import { FieldError } from "@/components/common/field-error";
 import { PasswordInput } from "@/components/common/password-input";
 import {
   checkPasswordRequirements,
@@ -90,10 +90,12 @@ export function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) 
         <PasswordInput
           id="owner-current-password"
           autoComplete="current-password"
+          aria-invalid={errors.currentPassword ? true : undefined}
+          aria-describedby={errors.currentPassword ? "owner-current-password-error" : undefined}
           {...register("currentPassword")}
         />
         {errors.currentPassword ? (
-          <p className={FIELD_ERROR_CLASS}>{errors.currentPassword.message}</p>
+          <FieldError id="owner-current-password-error">{errors.currentPassword.message}</FieldError>
         ) : null}
       </div>
 
@@ -102,11 +104,17 @@ export function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) 
         <PasswordInput
           id="owner-new-password"
           autoComplete="new-password"
+          aria-invalid={errors.newPassword ? true : undefined}
+          aria-describedby={errors.newPassword ? "owner-new-password-error" : undefined}
           {...register("newPassword", {
             onChange: (event) => setNewPasswordValue(event.target.value),
           })}
         />
-        {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
+        {showRequirements ? (
+          <PasswordRequirementsList requirements={requirements} />
+        ) : errors.newPassword ? (
+          <FieldError id="owner-new-password-error">{errors.newPassword.message}</FieldError>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -114,10 +122,12 @@ export function ChangePasswordForm({ changePassword }: ChangePasswordFormProps) 
         <PasswordInput
           id="owner-confirm-password"
           autoComplete="new-password"
+          aria-invalid={errors.confirmPassword ? true : undefined}
+          aria-describedby={errors.confirmPassword ? "owner-confirm-password-error" : undefined}
           {...register("confirmPassword")}
         />
         {errors.confirmPassword ? (
-          <p className={FIELD_ERROR_CLASS}>{errors.confirmPassword.message}</p>
+          <FieldError id="owner-confirm-password-error">{errors.confirmPassword.message}</FieldError>
         ) : null}
       </div>
 

@@ -8,19 +8,23 @@ import { JwtStrategy } from './jwt.strategy';
 
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { UserRole } from '../enums/user-role.enum';
+import type { SessionRevocationService } from '../services/session-revocation.service';
 
 describe('JwtStrategy', () => {
   let target: JwtStrategy;
   let platformAdminDbService: { findStatusById: jest.Mock };
+  let sessionRevocationService: { isRevoked: jest.Mock };
 
   beforeEach(() => {
     const configService = {
       get: jest.fn(() => 'access-secret'),
     } as unknown as ConfigService<EnvConfig>;
     platformAdminDbService = { findStatusById: jest.fn() };
+    sessionRevocationService = { isRevoked: jest.fn().mockResolvedValue(false) };
     target = new JwtStrategy(
       configService,
-      platformAdminDbService as unknown as PlatformAdminDbService
+      platformAdminDbService as unknown as PlatformAdminDbService,
+      sessionRevocationService as unknown as SessionRevocationService
     );
   });
 
@@ -44,6 +48,59 @@ describe('JwtStrategy', () => {
     });
     // Only platform admins pay for the per-request DB status check.
     expect(platformAdminDbService.findStatusById).not.toHaveBeenCalled();
+  });
+
+  // A JWT cannot be taken back, so logout, a password change, a disabled user and a suspended business end an access token through a
+  // "not before" mark in Redis instead of leaving it to run out its 15 minutes.
+  describe('a revoked session', () => {
+    const tenantPayload = {
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      email: 'jane@thecoffeehouse.com',
+      role: UserRole.OWNER,
+      type: JwtTokenType.TENANT_USER,
+      iat: 1_800_000_000,
+    };
+
+    it('asks about this user, this business and when the token was issued', async () => {
+      await target.validate(tenantPayload);
+
+      expect(sessionRevocationService.isRevoked).toHaveBeenCalledWith({
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        issuedAt: 1_800_000_000,
+      });
+    });
+
+    it('rejects a tenant token issued before a revocation, like any other bad token', async () => {
+      sessionRevocationService.isRevoked.mockResolvedValue(true);
+
+      await expect(target.validate(tenantPayload)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('passes a token with no issue time to the check as undefined, which it cannot place in time', async () => {
+      const { iat: _iat, ...withoutIat } = tenantPayload;
+
+      await target.validate(withoutIat);
+
+      expect(sessionRevocationService.isRevoked).toHaveBeenCalledWith(
+        expect.objectContaining({ issuedAt: undefined })
+      );
+    });
+  });
+
+  // Lets `updateLocale` re-sign to the same deadline: a fresh TTL on every call would let a stolen access token renew itself forever.
+  it("carries a tenant token's expiry as sessionExpiresAt", async () => {
+    await expect(
+      target.validate({
+        sub: 'user-1',
+        tenantId: 'tenant-1',
+        email: 'jane@thecoffeehouse.com',
+        role: UserRole.OWNER,
+        type: JwtTokenType.TENANT_USER,
+        exp: 1_900_000_000,
+      })
+    ).resolves.toMatchObject({ sessionExpiresAt: 1_900_000_000 });
   });
 
   it('defaults locale to null for a token signed before the claim existed, or carrying a bogus value', async () => {
@@ -103,6 +160,42 @@ describe('JwtStrategy', () => {
       id: 'admin-1',
       email: 'root@innopeak.io',
       locale: 'de',
+    });
+  });
+
+  describe('a revoked platform-admin session', () => {
+    const adminClaims = {
+      sub: 'admin-1',
+      email: 'root@innopeak.io',
+      type: JwtTokenType.PLATFORM_ADMIN,
+      iat: 1_700_000_000,
+    };
+
+    beforeEach(() => {
+      platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.ACTIVE);
+    });
+
+    it('is refused once the user mark postdates the token, reading no tenant mark', async () => {
+      sessionRevocationService.isRevoked.mockResolvedValue(true);
+
+      await expect(target.validate(adminClaims)).rejects.toThrow(UnauthorizedException);
+
+      expect(sessionRevocationService.isRevoked).toHaveBeenCalledWith({
+        userId: 'admin-1',
+        issuedAt: 1_700_000_000,
+      });
+    });
+
+    it('is accepted when nothing has been marked', async () => {
+      await expect(target.validate(adminClaims)).resolves.toMatchObject({ id: 'admin-1' });
+    });
+
+    it('is not looked up for a disabled admin, whose status already refuses it', async () => {
+      platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.DISABLED);
+
+      await expect(target.validate(adminClaims)).rejects.toThrow(UnauthorizedException);
+
+      expect(sessionRevocationService.isRevoked).not.toHaveBeenCalled();
     });
   });
 

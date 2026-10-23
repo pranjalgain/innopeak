@@ -1,8 +1,8 @@
-import { QueueName } from '@bg/constants/job.constant';
+import { QUEUE_JOB_OPTIONS, QueueName } from '@bg/constants/job.constant';
 import { QueueTransportModule } from '@bg/providers/queue-transport.module';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { BullBoardModule } from '@bull-board/nestjs';
-import { isAwsDeploymentTarget, isProduction } from '@config/deployment-target.util';
+import { isAwsDeploymentTarget, isLocalDevelopment } from '@config/deployment-target.util';
 import { BullModule } from '@nestjs/bullmq';
 import { DynamicModule, Injectable, Module } from '@nestjs/common';
 import { ReviewPostQueue } from '@review-post-queue/review-post.queue';
@@ -15,14 +15,7 @@ export class ReviewPostQueueConfig {
     return BullModule.registerQueue({
       name: QueueName.REVIEW_POST,
       streams: { events: { maxLen: 1000 } },
-      defaultJobOptions: {
-        // Deliberately 1, not the project default of 3: a blind BullMQ retry would replay a stale
-        // decision instead of re-running the freshness check. Recovery is the user-triggered
-        // `retry-post` route.
-        attempts: 1,
-        removeOnFail: { age: 7 * 24 * 3600 },
-        removeOnComplete: { age: 7 * 24 * 3600 },
-      },
+      defaultJobOptions: QUEUE_JOB_OPTIONS[QueueName.REVIEW_POST],
     });
   }
 
@@ -31,7 +24,7 @@ export class ReviewPostQueueConfig {
       name: QueueName.REVIEW_POST,
       adapter: BullMQAdapter,
       options: {
-        readOnlyMode: isProduction(),
+        readOnlyMode: !isLocalDevelopment(),
         displayName: 'Review Post Queue',
         description: 'Queue for posting approved replies back to Google Business Profile',
       },

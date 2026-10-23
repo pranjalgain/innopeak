@@ -1,8 +1,10 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
+import { OtpScope } from '@auth/enums/otp-scope.enum';
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import { GoogleIdentityProvider } from '@auth/providers/google-identity.provider';
 import { MicrosoftIdentityProvider } from '@auth/providers/microsoft-identity.provider';
 import { VerifyEmailTokenProvider } from '@auth/providers/verify-email-token.provider';
+import { LoginAttemptScope, LoginAttemptService } from '@auth/services/login-attempt.service';
 import { OtpAttemptService } from '@auth/services/otp-attempt.service';
 import { TokenService } from '@auth/services/token.service';
 import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth.type';
@@ -32,7 +34,6 @@ import { UserRole } from '../../auth/enums/user-role.enum';
 import {
   NotificationChannelsNotImplementedException,
   PlatformSettingsNoUsableMethodException,
-  SocialLoginDisallowedGoogleOnlyAdminException,
   SsoLoginDisallowedSsoOnlyUsersException,
 } from '../exceptions/admin.exceptions';
 
@@ -43,6 +44,7 @@ describe('AdminSettingsService', () => {
     findByEmail: jest.Mock;
     updatePasswordHash: jest.Mock;
     listInvites: jest.Mock;
+    findInviteRowById: jest.Mock;
     createInvite: jest.Mock;
     revokeInvite: jest.Mock;
     deleteExpiredInvite: jest.Mock;
@@ -51,7 +53,6 @@ describe('AdminSettingsService', () => {
     putSetPasswordOtp: jest.Mock;
     consumeSetPasswordOtp: jest.Mock;
     setStatusGuardingLastActive: jest.Mock;
-    countActiveGoogleOnlyAdmins: jest.Mock;
     updateLocale: jest.Mock;
   };
   let platformSettingsDbService: {
@@ -68,8 +69,21 @@ describe('AdminSettingsService', () => {
     addAdminSetPasswordOtpEmailJob: jest.Mock;
   };
   let configService: { get: jest.Mock };
-  let tokenService: { signPlatformAdminAccessToken: jest.Mock };
-  let otpAttemptService: { consumeAttempt: jest.Mock; claimResend: jest.Mock; reset: jest.Mock };
+  let tokenService: {
+    signPlatformAdminAccessToken: jest.Mock;
+    revokePlatformAdminSessions: jest.Mock;
+  };
+  let loginAttemptService: {
+    isLockedOut: jest.Mock;
+    recordFailure: jest.Mock;
+    reset: jest.Mock;
+  };
+  let otpAttemptService: {
+    consumeAttempt: jest.Mock;
+    claimResend: jest.Mock;
+    releaseResend: jest.Mock;
+    reset: jest.Mock;
+  };
   let verifyEmailTokenProvider: { generate: jest.Mock };
 
   const admin: PlatformAdminAuthUser = {
@@ -101,7 +115,8 @@ describe('AdminSettingsService', () => {
       findById: jest.fn(),
       findByEmail: jest.fn(),
       updatePasswordHash: jest.fn(),
-      listInvites: jest.fn(),
+      listInvites: jest.fn().mockResolvedValue([]),
+      findInviteRowById: jest.fn().mockResolvedValue(null),
       createInvite: jest.fn(),
       revokeInvite: jest.fn(),
       deleteExpiredInvite: jest.fn(),
@@ -111,8 +126,6 @@ describe('AdminSettingsService', () => {
       putSetPasswordOtp: jest.fn(),
       consumeSetPasswordOtp: jest.fn(),
       setStatusGuardingLastActive: jest.fn(),
-      // Default: no Google-only admins, so the social-login lockout guard stays inert.
-      countActiveGoogleOnlyAdmins: jest.fn().mockResolvedValue(0),
       updateLocale: jest.fn(),
     };
     // Both providers are set up by default, so the "can this method actually be used" check never gets in the way of tests about other things.
@@ -138,11 +151,18 @@ describe('AdminSettingsService', () => {
       signPlatformAdminAccessToken: jest
         .fn()
         .mockReturnValue({ accessToken: 'admin-access-token', expiresIn: 900 }),
+      revokePlatformAdminSessions: jest.fn().mockResolvedValue(undefined),
     };
     // Defaults leave the OTP attempt/resend limits inert unless a test targets the add-password flow.
+    loginAttemptService = {
+      isLockedOut: jest.fn().mockResolvedValue(false),
+      recordFailure: jest.fn().mockResolvedValue(undefined),
+      reset: jest.fn().mockResolvedValue(undefined),
+    };
     otpAttemptService = {
       consumeAttempt: jest.fn().mockResolvedValue(true),
       claimResend: jest.fn().mockResolvedValue(true),
+      releaseResend: jest.fn().mockResolvedValue(undefined),
       reset: jest.fn().mockResolvedValue(undefined),
     };
     verifyEmailTokenProvider = { generate: jest.fn().mockReturnValue('482913') };
@@ -158,6 +178,7 @@ describe('AdminSettingsService', () => {
         { provide: ConfigService, useValue: configService },
         { provide: TokenService, useValue: tokenService },
         { provide: OtpAttemptService, useValue: otpAttemptService },
+        { provide: LoginAttemptService, useValue: loginAttemptService },
         { provide: VerifyEmailTokenProvider, useValue: verifyEmailTokenProvider },
         { provide: GoogleIdentityProvider, useValue: googleProvider },
         { provide: MicrosoftIdentityProvider, useValue: microsoftProvider },
@@ -250,6 +271,28 @@ describe('AdminSettingsService', () => {
       expect(platformAdminDbService.updatePasswordHash).not.toHaveBeenCalled();
     });
 
+    it('counts a wrong current password against the admin sign-in budget', async () => {
+      platformAdminDbService.findById.mockResolvedValue(profileRow);
+      hashingService.compare.mockResolvedValue(false);
+
+      await expect(target.changePassword(admin, dto)).rejects.toThrow(UnauthorizedException);
+
+      expect(loginAttemptService.recordFailure).toHaveBeenCalledWith(
+        profileRow.email.toLowerCase(),
+        LoginAttemptScope.ADMIN
+      );
+    });
+
+    it('answers a locked-out admin like a wrong password, without comparing', async () => {
+      platformAdminDbService.findById.mockResolvedValue(profileRow);
+      loginAttemptService.isLockedOut.mockResolvedValue(true);
+
+      await expect(target.changePassword(admin, dto)).rejects.toThrow(UnauthorizedException);
+
+      expect(hashingService.compare).not.toHaveBeenCalled();
+      expect(platformAdminDbService.updatePasswordHash).not.toHaveBeenCalled();
+    });
+
     it('rejects a new password identical to the current one', async () => {
       platformAdminDbService.findById.mockResolvedValue(profileRow);
       hashingService.compare.mockResolvedValue(true);
@@ -272,6 +315,45 @@ describe('AdminSettingsService', () => {
         'new-hashed-password'
       );
     });
+
+    // A copied access token used to outlive the password change it was supposed to be cut off by.
+    it("ends the older access tokens, sparing the caller's own, and hands back a fresh one", async () => {
+      platformAdminDbService.findById.mockResolvedValue(profileRow);
+      hashingService.compare.mockResolvedValue(true);
+      hashingService.hash.mockResolvedValue('new-hashed-password');
+
+      const result = await target.changePassword(admin, dto);
+
+      expect(tokenService.revokePlatformAdminSessions).toHaveBeenCalledWith('admin-1', {
+        exceptCurrentSecond: true,
+      });
+      expect(result).toEqual({ accessToken: 'admin-access-token' });
+    });
+
+    it("signs the fresh token to the presented token's own deadline, so this is no way to extend a session", async () => {
+      platformAdminDbService.findById.mockResolvedValue(profileRow);
+      hashingService.compare.mockResolvedValue(true);
+      hashingService.hash.mockResolvedValue('new-hashed-password');
+      const sixtySecondsLeft = Math.floor(Date.now() / 1000) + 60;
+
+      await target.changePassword({ ...admin, sessionExpiresAt: sixtySecondsLeft }, dto);
+
+      const [, expiresInSeconds] = tokenService.signPlatformAdminAccessToken.mock.calls[0] as [
+        unknown,
+        number,
+      ];
+      expect(expiresInSeconds).toBeLessThanOrEqual(60);
+      expect(expiresInSeconds).toBeGreaterThan(0);
+    });
+
+    it('revokes nothing when the password was not changed', async () => {
+      platformAdminDbService.findById.mockResolvedValue(profileRow);
+      hashingService.compare.mockResolvedValue(false);
+
+      await expect(target.changePassword(admin, dto)).rejects.toThrow(UnauthorizedException);
+
+      expect(tokenService.revokePlatformAdminSessions).not.toHaveBeenCalled();
+    });
   });
 
   describe('requestSetPasswordOtp', () => {
@@ -280,6 +362,20 @@ describe('AdminSettingsService', () => {
 
       await expect(target.requestSetPasswordOtp(admin)).rejects.toThrow(BadRequestException);
       expect(platformAdminDbService.putSetPasswordOtp).not.toHaveBeenCalled();
+    });
+
+    it('answers 503 and gives the cooldown back when the email queue refuses the code', async () => {
+      platformAdminDbService.findById.mockResolvedValue({ ...profileRow, passwordHash: null });
+      queueManager.addAdminSetPasswordOtpEmailJob.mockRejectedValue(new Error('redis down'));
+
+      await expect(target.requestSetPasswordOtp(admin)).rejects.toMatchObject({
+        response: { code: 'EMAIL_QUEUE_UNAVAILABLE' },
+      });
+
+      expect(otpAttemptService.releaseResend).toHaveBeenCalledWith({
+        scope: OtpScope.ADMIN_SET_PASSWORD,
+        identity: 'admin-1',
+      });
     });
 
     it('mints and stores an OTP for a passwordless admin', async () => {
@@ -353,8 +449,17 @@ describe('AdminSettingsService', () => {
         'new-hashed-password'
       );
       // Releases the attempt budget, else a code accepted on the last try leaves the account locked out.
-      expect(otpAttemptService.reset).toHaveBeenCalledWith(admin.email);
-      expect(result).toEqual({ message: MESSAGES.AUTH.PASSWORD_SET });
+      expect(otpAttemptService.reset).toHaveBeenCalledWith({
+        scope: OtpScope.ADMIN_SET_PASSWORD,
+        identity: admin.id,
+      });
+      expect(result).toEqual({
+        message: MESSAGES.AUTH.PASSWORD_SET,
+        accessToken: 'admin-access-token',
+      });
+      expect(tokenService.revokePlatformAdminSessions).toHaveBeenCalledWith('admin-1', {
+        exceptCurrentSecond: true,
+      });
     });
 
     /**
@@ -386,6 +491,27 @@ describe('AdminSettingsService', () => {
       );
       expect(platformAdminDbService.deleteExpiredInvite).not.toHaveBeenCalled();
       expect(platformAdminDbService.createInvite).not.toHaveBeenCalled();
+    });
+
+    // An invite nobody received would only block its address as "already invited" until someone revoked it by hand.
+    it('takes the invite back, logs no activity and answers 503 when the email queue refuses it', async () => {
+      platformAdminDbService.findByEmail.mockResolvedValue(null);
+      platformAdminDbService.createInvite.mockResolvedValue({
+        id: 'invite-9',
+        email: 'new@innopeak.com',
+        status: PlatformAdminStatus.INVITED,
+        invitedAt: '2026-03-01T00:00:00.000Z',
+        expiresAt: '2026-03-08T00:00:00.000Z',
+      });
+      platformAdminDbService.revokeInvite.mockResolvedValue({ outcome: 'revoked' });
+      queueManager.addAdminInviteEmailJob.mockRejectedValue(new Error('redis down'));
+
+      await expect(target.sendInvite(admin, { email: 'new@innopeak.com' })).rejects.toMatchObject({
+        response: { code: 'EMAIL_QUEUE_UNAVAILABLE' },
+      });
+
+      expect(platformAdminDbService.revokeInvite).toHaveBeenCalledWith('invite-9');
+      expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
     });
 
     // Nothing sweeps `platform_admin_invites`, so a lapsed invite must not claim its address forever.
@@ -576,6 +702,36 @@ describe('AdminSettingsService', () => {
       expect(adminOverviewDbService.recordActivityBestEffort).toHaveBeenCalledWith(
         expect.objectContaining({ type: PlatformActivityType.ADMIN_ENABLED })
       );
+    });
+
+    it('treats a repeated request as a no-op: no activity row, and the roster row keeps its real dates', async () => {
+      platformAdminDbService.findStatusById.mockResolvedValue(PlatformAdminStatus.DISABLED);
+      platformAdminDbService.setStatusGuardingLastActive.mockResolvedValue({
+        outcome: 'unchanged',
+        id: 'admin-2',
+        email: 'other@innopeak.com',
+        status: PlatformAdminStatus.DISABLED,
+      });
+      platformAdminDbService.findInviteRowById.mockResolvedValue({
+        id: 'admin-2',
+        email: 'other@innopeak.com',
+        status: PlatformAdminStatus.DISABLED,
+        invitedAt: '2026-03-01T09:12:00.000Z',
+        expiresAt: null,
+        isRoot: false,
+      });
+
+      const result = await target.setAdminStatus(admin, {
+        targetAdminId: 'admin-2',
+        enabled: false,
+      });
+
+      // Only that admin's row is read, not the whole roster.
+      expect(platformAdminDbService.findInviteRowById).toHaveBeenCalledWith('admin-2');
+      expect(platformAdminDbService.listInvites).not.toHaveBeenCalled();
+      expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
+      expect(result.admin.invitedAt).toBe('2026-03-01T09:12:00.000Z');
+      expect(result.admin.status).toBe(PlatformAdminStatus.DISABLED);
     });
 
     it('refuses to disable your own account (self-lockout)', async () => {
@@ -845,29 +1001,9 @@ describe('AdminSettingsService', () => {
       ).resolves.toMatchObject({ passwordLoginEnabled: false });
     });
 
-    // Lockout prevention: a Google-only admin has no password_hash, so `googleLoginEnabled` is their only way in.
-    it('refuses to turn off Google sign-in while an admin has no other credential', async () => {
+    // Admin Google sign-in never consults the switch (it is the tenant-side one), so an admin with only Google cannot be stranded by it.
+    it('turns off Google sign-in without looking at admins', async () => {
       platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
-      platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(2);
-
-      await expect(
-        target.updatePlatformSettings(admin, { googleLoginEnabled: false })
-      ).rejects.toThrow(BadRequestException);
-      expect(platformSettingsDbService.update).not.toHaveBeenCalled();
-    });
-
-    it('names how many admins would be stranded', async () => {
-      platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
-      platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(3);
-
-      await expect(
-        target.updatePlatformSettings(admin, { googleLoginEnabled: false })
-      ).rejects.toThrow(MESSAGES.ADMIN.CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN(3));
-    });
-
-    it('allows turning off Google sign-in when every admin has a password', async () => {
-      platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
-      platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(0);
       platformSettingsDbService.update.mockResolvedValue({
         ...allEnabledRow,
         googleLoginEnabled: false,
@@ -876,19 +1012,6 @@ describe('AdminSettingsService', () => {
       await expect(
         target.updatePlatformSettings(admin, { googleLoginEnabled: false })
       ).resolves.toMatchObject({ googleLoginEnabled: false });
-    });
-
-    // Scoped to the transition: re-asserting an already-off setting is a no-op, not a 400.
-    it('does not block a no-op when Google sign-in is already off', async () => {
-      const socialOffRow = { ...allEnabledRow, googleLoginEnabled: false };
-      platformSettingsDbService.get.mockResolvedValue(socialOffRow);
-      platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(1);
-      platformSettingsDbService.update.mockResolvedValue(socialOffRow);
-
-      await expect(
-        target.updatePlatformSettings(admin, { googleLoginEnabled: false })
-      ).resolves.toMatchObject({ googleLoginEnabled: false });
-      expect(platformAdminDbService.countActiveGoogleOnlyAdmins).not.toHaveBeenCalled();
     });
 
     describe('tenant users who can only sign in with the provider being switched off', () => {
@@ -922,16 +1045,6 @@ describe('AdminSettingsService', () => {
         ).resolves.toMatchObject(patch);
         // The acknowledgement is for this request only: it must never reach the row.
         expect(platformSettingsDbService.update).toHaveBeenCalledWith(patch, admin.id);
-      });
-
-      it('does not let a confirmation override the platform-admin guard', async () => {
-        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
-        platformSettingsDbService.countActiveSsoOnlyTenantUsers.mockResolvedValue(2);
-        platformAdminDbService.countActiveGoogleOnlyAdmins.mockResolvedValue(1);
-
-        await expect(
-          target.updatePlatformSettings(admin, { googleLoginEnabled: false, confirmLockout: true })
-        ).rejects.toThrow(SocialLoginDisallowedGoogleOnlyAdminException);
       });
 
       it('allows it when nobody would be locked out', async () => {
@@ -1026,18 +1139,6 @@ describe('AdminSettingsService', () => {
         { notificationSettingsEnabled: false },
         admin.id
       );
-    });
-
-    it('does not spend a query on the guard when the patch leaves Google sign-in alone', async () => {
-      platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
-      platformSettingsDbService.update.mockResolvedValue({
-        ...allEnabledRow,
-        inviteMembersEnabled: false,
-      });
-
-      await target.updatePlatformSettings(admin, { inviteMembersEnabled: false });
-
-      expect(platformAdminDbService.countActiveGoogleOnlyAdmins).not.toHaveBeenCalled();
     });
   });
 });

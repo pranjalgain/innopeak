@@ -16,6 +16,7 @@ import {
   acceptInviteSchema,
 } from "@/app/(auth)/invite/[token]/_schemas/accept-invite.schema";
 import { ROUTES } from "@/app/_libs/constants/routes";
+import { FieldError } from "@/components/common/field-error";
 import { PasswordInput } from "@/components/common/password-input";
 import {
   checkPasswordRequirements,
@@ -28,8 +29,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAcceptAdminInvite } from "@/hooks/auth/use-accept-admin-invite";
 import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
-
-const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
 
 const CARD_CLASS =
   "animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page border-border bg-card shadow-elevated ease-fluid w-full max-w-[420px] rounded-xl border duration-500";
@@ -126,11 +125,17 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
             <PasswordInput
               id="invite-password"
               autoComplete="new-password"
+              aria-invalid={errors.password ? true : undefined}
+              aria-describedby={errors.password ? "invite-password-error" : undefined}
               {...register("password", {
-                onChange: (event) => setPasswordValue(event.target.value),
-              })}
+                    onChange: (event) => setPasswordValue(event.target.value),
+                  })}
             />
-            {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
+            {showRequirements ? (
+              <PasswordRequirementsList requirements={requirements} />
+            ) : errors.password ? (
+              <FieldError id="invite-password-error">{errors.password.message}</FieldError>
+            ) : null}
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -138,10 +143,12 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
             <PasswordInput
               id="invite-confirm-password"
               autoComplete="new-password"
+              aria-invalid={errors.confirmPassword ? true : undefined}
+              aria-describedby={errors.confirmPassword ? "invite-confirm-password-error" : undefined}
               {...register("confirmPassword")}
             />
             {errors.confirmPassword ? (
-              <p className={FIELD_ERROR_CLASS}>{errors.confirmPassword.message}</p>
+              <FieldError id="invite-confirm-password-error">{errors.confirmPassword.message}</FieldError>
             ) : null}
           </div>
 

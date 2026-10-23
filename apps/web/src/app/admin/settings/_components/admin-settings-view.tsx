@@ -33,7 +33,8 @@ export function AdminSettingsView() {
   const handleTabChange = useCallback(
     (value: string) => {
       // `typedRoutes` can't see that this only produces `/admin/settings?tab=` plus a `TABS` literal.
-      router.push(`${pathname}?tab=${value}` as Route, { scroll: false });
+      // `replace`: a tab is a view of one page, and an arrow-key walk along the strip would otherwise push a history entry per key.
+      router.replace(`${pathname}?tab=${value}` as Route, { scroll: false });
     },
     [router, pathname],
   );

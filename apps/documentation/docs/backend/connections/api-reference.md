@@ -407,9 +407,7 @@ inactive locations too, so a disconnected tenant's history is still addressable;
 
 Available to any authenticated tenant user, not just an owner: a `member` works the review queue
 and needs to know which location the queue belongs to. The MVP result is a one-element array, and
-the query joins through `user_locations` rather than filtering on `locations.tenant_id` alone —
-identical results today (see the overview's [MVP scope](./overview.md#mvp-scope)), and already
-correct on the day a tenant has two locations and a member is scoped to one.
+the query lists every location of the caller's business (scoped through the user's own `tenant_id`). It used to join `user_locations`, which assumed every user is attached, but only the owner who confirms a location ever is, so an invited member got an empty list; a per-store member scope would filter on `user_locations` again.
 
 | Query param | Type | Rules |
 |---|---|---|

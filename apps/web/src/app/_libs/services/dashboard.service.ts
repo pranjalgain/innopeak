@@ -58,13 +58,13 @@ export class DashboardService {
     const reviews = unwrap<RecentEscalatedDto[]>(response.data);
 
     return reviews.map((review) => {
-      // The API returns null for an anonymous or anonymized reviewer; the card expects a string.
-      const reviewerName = review.reviewerName?.trim() || "Anonymous";
+      // The API returns null for an anonymous or anonymized reviewer; the label is applied where it renders (`useReviewerName`).
+      const reviewerName = review.reviewerName?.trim() || null;
 
       return {
         id: review.id,
         reviewerName,
-        initials: this.toInitials(reviewerName),
+        initials: reviewerName === null ? "" : this.toInitials(reviewerName),
         rating: review.rating,
         snippet: review.reviewText ?? "",
         // Read from the API, never inferred from the rating: the two reasons are independent of
@@ -82,7 +82,7 @@ export class DashboardService {
         .filter(Boolean)
         .slice(0, 2)
         .join("")
-        .toUpperCase() || "AN"
+        .toUpperCase()
     );
   }
 }

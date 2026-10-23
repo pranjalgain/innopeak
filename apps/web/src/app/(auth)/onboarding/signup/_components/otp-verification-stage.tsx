@@ -53,7 +53,17 @@ export function OtpVerificationStage({
   }, [cooldown]);
 
   const handleChange = (index: number, rawValue: string) => {
-    const value = rawValue.replace(/\D/g, "").slice(-1);
+    const typed = rawValue.replace(/\D/g, "");
+    // More than one new character at once is not typing: it is an OS or password-manager autofill of the whole code, which lands in
+    // whichever box has focus. Spread it from that box instead of keeping its last digit.
+    if (typed.length > 2) {
+      const filled = typed.slice(0, CODE_LENGTH - index);
+      setDigits((prev) => prev.map((digit, i) => (i >= index ? (filled[i - index] ?? digit) : digit)));
+      setError(null);
+      inputRefs.current[Math.min(index + filled.length, CODE_LENGTH - 1)]?.focus();
+      return;
+    }
+    const value = typed.slice(-1);
     setDigits((prev) => prev.map((digit, i) => (i === index ? value : digit)));
     setError(null);
     if (value && index < CODE_LENGTH - 1) inputRefs.current[index + 1]?.focus();
@@ -103,28 +113,35 @@ export function OtpVerificationStage({
         <Label htmlFor="otp-digit-0" className="sr-only">
           {t("codeLabel")}
         </Label>
-        <div className="flex justify-center gap-2">
+        <div className="flex justify-center gap-2" role="group" aria-label={t("codeLabel")}>
           {digits.map((digit, index) => (
             <Input
               key={index}
               id={`otp-digit-${index}`}
+              aria-label={`${t("codeLabel")} ${index + 1} / ${CODE_LENGTH}`}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? "otp-error" : undefined}
               ref={(el) => {
                 inputRefs.current[index] = el;
               }}
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
-              maxLength={1}
+              // No `maxLength`: a cap of one character made the browser truncate an autofilled code to its first digit (see `handleChange`).
               value={digit}
               onChange={(event) => handleChange(index, event.target.value)}
               onFocus={(event) => event.target.select()}
               onKeyDown={(event) => handleKeyDown(index, event)}
               onPaste={handlePaste}
-              className="h-12 w-10 p-0 text-center text-lg font-semibold"
+              className="h-12 w-9 p-0 text-center text-lg font-semibold min-[360px]:w-10"
             />
           ))}
         </div>
-        {error ? <p className="text-destructive text-[12.5px]">{error}</p> : null}
+        {error ? (
+          <p id="otp-error" role="alert" className="text-destructive text-[12.5px]">
+            {error}
+          </p>
+        ) : null}
       </div>
 
       <Button type="submit" size="block" disabled={isLoading}>

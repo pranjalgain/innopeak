@@ -2,7 +2,7 @@
 
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { motion } from "motion/react";
-import { type ComponentProps, createContext, useContext, useId, useState } from "react";
+import { type ComponentProps, createContext, useContext, useEffect, useId, useRef, useState } from "react";
 
 
 import { cn } from "@/app/_libs/utils/cn";
@@ -64,9 +64,17 @@ function TabsTrigger({
 }: ComponentProps<typeof TabsPrimitive.Trigger>) {
   const context = useContext(TabsIndicatorContext);
   const isActive = context?.activeValue === value;
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // A strip wider than its box (eight tabs on a phone) scrolls sideways: bring the active tab into view, so a `?tab=` deep link or a
+  // keyboard move does not leave it off-screen. `nearest` on both axes never scrolls the page itself, only the strip.
+  useEffect(() => {
+    if (isActive) triggerRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [isActive]);
 
   return (
     <TabsPrimitive.Trigger
+      ref={triggerRef}
       data-slot="tabs-trigger"
       value={value}
       className={cn(

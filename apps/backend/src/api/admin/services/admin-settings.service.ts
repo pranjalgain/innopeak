@@ -1,6 +1,8 @@
+import { OtpScope } from '@auth/enums/otp-scope.enum';
 import { PlatformAdminStatus } from '@auth/enums/platform-admin-status.enum';
 import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import {
+  EmailQueueUnavailableException,
   InvalidCurrentPasswordException,
   InvalidOtpException,
   NewPasswordSameAsCurrentException,
@@ -10,10 +12,13 @@ import {
 import { GoogleIdentityProvider } from '@auth/providers/google-identity.provider';
 import { MicrosoftIdentityProvider } from '@auth/providers/microsoft-identity.provider';
 import { VerifyEmailTokenProvider } from '@auth/providers/verify-email-token.provider';
+import { LoginAttemptScope, LoginAttemptService } from '@auth/services/login-attempt.service';
 import { OtpAttemptService } from '@auth/services/otp-attempt.service';
 import { TokenService } from '@auth/services/token.service';
+import type { PlatformAdminTokenSubject } from '@auth/types/auth.type';
 import { buildAdminInviteLink } from '@auth/utils/admin-invite-link.util';
 import { isAdminMicrosoftLoginAvailable } from '@auth/utils/admin-microsoft.util';
+import { normalizeEmail } from '@auth/utils/email.utils';
 import { remainingSessionSeconds } from '@auth/utils/remaining-session-seconds.util';
 import { requirePlatformAdmin } from '@auth/utils/require-platform-admin.util';
 import { hashAdminSetPasswordOtp, hashToken } from '@auth/utils/token.utils';
@@ -24,7 +29,7 @@ import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { HashingService } from '@common/hashing/hashing.service';
-import { isProduction } from '@config/deployment-target.util';
+import { isLocalDevelopment } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
 import { isCheckViolation, isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
@@ -63,7 +68,6 @@ import {
   PlatformConfigNotFoundException,
   PlatformSettingsNoMethodEnabledException,
   PlatformSettingsNoUsableMethodException,
-  SocialLoginDisallowedGoogleOnlyAdminException,
   SsoLoginDisallowedSsoOnlyUsersException,
 } from '../exceptions/admin.exceptions';
 import type { SetAdminStatusParams, SetAdminStatusResult } from '../types/admin.type';
@@ -93,6 +97,7 @@ export class AdminSettingsService {
     private readonly tokenService: TokenService,
     private readonly configService: ConfigService<EnvConfig>,
     private readonly otpAttemptService: OtpAttemptService,
+    private readonly loginAttemptService: LoginAttemptService,
     private readonly verifyEmailTokenProvider: VerifyEmailTokenProvider,
     private readonly googleIdentityProvider: GoogleIdentityProvider,
     private readonly microsoftIdentityProvider: MicrosoftIdentityProvider
@@ -107,8 +112,14 @@ export class AdminSettingsService {
     return AdminProfileResponseDto.from(row);
   }
 
-  /** No session to revoke afterward: a platform admin has no refresh token. */
-  async changePassword(actor: AuthUser, dto: ChangeAdminPasswordDto): Promise<void> {
+  /**
+   * Ends the admin's older access tokens (a platform admin has no refresh token to revoke) and hands back a fresh one, signed to the
+   * presenting token's own deadline so this cannot extend the session; the controller sets it as the cookie.
+   */
+  async changePassword(
+    actor: AuthUser,
+    dto: ChangeAdminPasswordDto
+  ): Promise<{ accessToken: string }> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const row = await this.platformAdminDbService.findById(admin.id);
     if (!row) {
@@ -118,23 +129,35 @@ export class AdminSettingsService {
       throw new NoPasswordSetException();
     }
 
-    const currentMatches = await this.hashingService.compare(dto.currentPassword, row.passwordHash);
-    if (!currentMatches) {
+    // The sign-in budget, shared: a copied access token (15 minutes) could otherwise guess the current password through this route at
+    // the per-IP rate with no per-account ceiling. A locked account is answered like a wrong password.
+    const budgetKey = normalizeEmail(row.email);
+    if (await this.loginAttemptService.isLockedOut(budgetKey, LoginAttemptScope.ADMIN)) {
       throw new InvalidCurrentPasswordException();
     }
+    const currentMatches = await this.hashingService.compare(dto.currentPassword, row.passwordHash);
+    if (!currentMatches) {
+      await this.loginAttemptService.recordFailure(budgetKey, LoginAttemptScope.ADMIN);
+      throw new InvalidCurrentPasswordException();
+    }
+    await this.loginAttemptService.reset(budgetKey, LoginAttemptScope.ADMIN);
     if (dto.newPassword === dto.currentPassword) {
       throw new NewPasswordSameAsCurrentException();
     }
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
     await this.platformAdminDbService.updatePasswordHash(admin.id, newPasswordHash);
+    return this.reissueAfterPasswordChange(admin, row);
   }
 
   /**
    * For admins with no password (Google invite or seeded): proves intent with a fresh OTP from
-   * `requestSetPasswordOtp` instead of a current password. No token reissue; admins have no refresh token.
+   * `requestSetPasswordOtp` instead of a current password. Older access tokens end and a fresh one is returned, as in `changePassword`.
    */
-  async setPassword(actor: AuthUser, dto: SetAdminPasswordDto): Promise<{ message: string }> {
+  async setPassword(
+    actor: AuthUser,
+    dto: SetAdminPasswordDto
+  ): Promise<{ message: string; accessToken: string }> {
     const admin = requirePlatformAdmin(actor, MESSAGES.ADMIN.ADMIN_ONLY);
     const row = await this.platformAdminDbService.findById(admin.id);
     if (!row) {
@@ -146,7 +169,12 @@ export class AdminSettingsService {
 
     // Budget spent before comparison so an exhausted account can't be probed for the code.
     // 429 rather than 400 (as in `AuthService.setPassword`): "wait and retry" differs from "wrong code".
-    if (!(await this.otpAttemptService.consumeAttempt(admin.email))) {
+    if (
+      !(await this.otpAttemptService.consumeAttempt({
+        scope: OtpScope.ADMIN_SET_PASSWORD,
+        identity: admin.id,
+      }))
+    ) {
       throw new HttpException(MESSAGES.AUTH.TOO_MANY_OTP_ATTEMPTS, HttpStatus.TOO_MANY_REQUESTS);
     }
 
@@ -158,12 +186,27 @@ export class AdminSettingsService {
       throw new InvalidOtpException();
     }
     // Releases the budget, else a code accepted on the last try locks the account out of OTP-gated actions.
-    await this.otpAttemptService.reset(admin.email);
+    await this.otpAttemptService.reset({ scope: OtpScope.ADMIN_SET_PASSWORD, identity: admin.id });
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
     await this.platformAdminDbService.updatePasswordHash(admin.id, newPasswordHash);
 
-    return { message: MESSAGES.AUTH.PASSWORD_SET };
+    return {
+      message: MESSAGES.AUTH.PASSWORD_SET,
+      ...(await this.reissueAfterPasswordChange(admin, row)),
+    };
+  }
+
+  private async reissueAfterPasswordChange(
+    admin: { id: string; sessionExpiresAt?: number },
+    row: PlatformAdminTokenSubject
+  ): Promise<{ accessToken: string }> {
+    await this.tokenService.revokePlatformAdminSessions(admin.id, { exceptCurrentSecond: true });
+    const { accessToken } = this.tokenService.signPlatformAdminAccessToken(
+      row,
+      remainingSessionSeconds(admin.sessionExpiresAt)
+    );
+    return { accessToken };
   }
 
   /**
@@ -180,14 +223,25 @@ export class AdminSettingsService {
       throw new PasswordAlreadySetException();
     }
 
-    if (await this.otpAttemptService.claimResend(admin.email)) {
+    if (
+      await this.otpAttemptService.claimResend({
+        scope: OtpScope.ADMIN_SET_PASSWORD,
+        identity: admin.id,
+      })
+    ) {
       const rawOtp = this.verifyEmailTokenProvider.generate();
       await this.platformAdminDbService.putSetPasswordOtp({
         platformAdminId: admin.id,
         tokenHash: hashAdminSetPasswordOtp(admin.id, rawOtp),
         expiresAt: this.otpExpiresAt().toISOString(),
       });
-      this.sendSetPasswordOtpEmail({ email: admin.email, rawOtp });
+      if (!(await this.sendSetPasswordOtpEmail({ email: admin.email, rawOtp }))) {
+        await this.otpAttemptService.releaseResend({
+          scope: OtpScope.ADMIN_SET_PASSWORD,
+          identity: admin.id,
+        });
+        throw new EmailQueueUnavailableException();
+      }
     }
 
     return { message: MESSAGES.AUTH.SET_PASSWORD_OTP_ACK };
@@ -268,14 +322,23 @@ export class AdminSettingsService {
       throw error;
     }
 
+    if (!(await this.sendInviteEmail({ email: dto.email, rawToken }))) {
+      // Nothing reached the invitee, so the invite is taken back: an invite that exists but was never mailed would only
+      // block the address ("already invited") until someone revoked it by hand.
+      await this.platformAdminDbService.revokeInvite(row.id).catch((error: unknown) => {
+        this.logger.warn(
+          `Could not take back invite ${row.id} after its email failed: ${(error as Error).message}`
+        );
+      });
+      throw new EmailQueueUnavailableException();
+    }
+
     await this.adminOverviewDbService.recordActivityBestEffort({
       type: PlatformActivityType.ADMIN_INVITE_SENT,
       actorPlatformAdminId: admin.id,
       actorEmail: admin.email,
       targetEmail: dto.email,
     });
-
-    this.sendInviteEmail({ email: dto.email, rawToken });
 
     return AdminInviteResponseDto.from(row);
   }
@@ -352,12 +415,18 @@ export class AdminSettingsService {
       throw new CannotDisableLastAdminException();
     }
 
-    await this.adminOverviewDbService.recordActivityBestEffort({
-      type: enabled ? PlatformActivityType.ADMIN_ENABLED : PlatformActivityType.ADMIN_DISABLED,
-      actorPlatformAdminId: admin.id,
-      actorEmail: admin.email,
-      targetEmail: result.email,
-    });
+    // A repeat of the same request writes nothing, so it must not log an activity row either.
+    if (result.outcome === 'updated') {
+      await this.adminOverviewDbService.recordActivityBestEffort({
+        type: enabled ? PlatformActivityType.ADMIN_ENABLED : PlatformActivityType.ADMIN_DISABLED,
+        actorPlatformAdminId: admin.id,
+        actorEmail: admin.email,
+        targetEmail: result.email,
+      });
+    }
+
+    // The roster's own row, so `invitedAt`/`expiresAt` are the recorded ones and not a stamp made for this response.
+    const rosterRow = await this.platformAdminDbService.findInviteRowById(result.id);
 
     // Same roster DTO shape the Members tab renders, so the client can swap the row without a refetch.
     return {
@@ -365,8 +434,8 @@ export class AdminSettingsService {
         id: result.id,
         email: result.email,
         status: result.status,
-        invitedAt: new Date().toISOString(),
-        expiresAt: null,
+        invitedAt: rosterRow?.invitedAt ?? new Date().toISOString(),
+        expiresAt: rosterRow?.expiresAt ?? null,
         isRoot: isRootTarget,
       }),
       message: enabled ? MESSAGES.ADMIN.ADMIN_ENABLED : MESSAGES.ADMIN.ADMIN_DISABLED,
@@ -465,19 +534,8 @@ export class AdminSettingsService {
       }
     }
 
-    // Lockout guard: a Google-only admin has no `password_hash`, so `googleLoginEnabled` is their only way
-    // in, and they have no way to add a password themselves.
-    // Scoped to the transition: re-asserting an already-off setting is a no-op.
-    // Read-then-write: an invite accepted via Google in between slips past. Accepted race: no single-table
-    // CHECK can back it (it spans two tables) and the cost is an admin re-enabling a setting.
-    if (patch.googleLoginEnabled === false && current.googleLoginEnabled) {
-      const googleOnlyAdmins = await this.platformAdminDbService.countActiveGoogleOnlyAdmins();
-      if (googleOnlyAdmins > 0) {
-        throw new SocialLoginDisallowedGoogleOnlyAdminException(
-          MESSAGES.ADMIN.CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN(googleOnlyAdmins)
-        );
-      }
-    }
+    // No guard for admins whose only credential is Google: the admin Google intents never consult `googleLoginEnabled` (that switch
+    // governs tenant sign-in, sign-up and invites), so switching it off cannot strand them.
 
     // Two admins disabling different methods can both pass the check above; map the CHECK violation
     // back to the same 400.
@@ -503,6 +561,7 @@ export class AdminSettingsService {
       paymentFeatureEnabled,
       erasureGracePeriodDays: getErasureGracePeriodDays(this.configService),
       adminMicrosoftLoginAvailable: isAdminMicrosoftLoginAvailable(this.configService),
+      adminGoogleLoginAvailable: this.googleIdentityProvider.isConfigured(),
     });
   }
 
@@ -533,18 +592,17 @@ export class AdminSettingsService {
   }
 
   /**
-   * Fire-and-forget: the invite transaction already committed, so a publish failure must not fail the
-   * request (revoke and re-send is the recovery). `!isProduction()` also logs the link so the flow works
-   * locally without a mailbox.
+   * `false` when the queue refused the job (the queue manager has logged why); the caller takes the invite back and answers 503.
+   * `isLocalDevelopment()` also logs the link so the flow works locally without a mailbox.
    */
-  private sendInviteEmail(input: { email: string; rawToken: string }): void {
+  private async sendInviteEmail(input: { email: string; rawToken: string }): Promise<boolean> {
     const { email, rawToken } = input;
     const inviteLink = buildAdminInviteLink(
       this.configService.get<string>('FRONTEND_URL'),
       rawToken
     );
 
-    if (!isProduction()) {
+    if (isLocalDevelopment()) {
       this.logger.log(`[dev] Admin invite for ${email}: ${inviteLink}`);
     }
 
@@ -553,9 +611,12 @@ export class AdminSettingsService {
       inviteLink,
       expiresIn: `${INVITE_TTL_DAYS} days`,
     };
-    void this.queueManager
-      .addAdminInviteEmailJob(JobName.ADMIN_INVITE_EMAIL, job)
-      .catch(() => undefined);
+    try {
+      await this.queueManager.addAdminInviteEmailJob(JobName.ADMIN_INVITE_EMAIL, job);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Shared with `AuthService.otpExpiresAt`: one TTL for every OTP. */
@@ -564,15 +625,25 @@ export class AdminSettingsService {
     return new Date(Date.now() + ttlMinutes * 60 * 1000);
   }
 
-  private sendSetPasswordOtpEmail(input: { email: string; rawOtp: string }): void {
+  /** `false` when the queue refused the job (already logged); never throws. */
+  private async sendSetPasswordOtpEmail(input: {
+    email: string;
+    rawOtp: string;
+  }): Promise<boolean> {
     const ttlMinutes = this.configService.get<number>('VERIFY_EMAIL_OTP_TTL_MINUTES') ?? 10;
     const job: IOtpEmailJob = {
       email: input.email,
       otp: input.rawOtp,
       expiresIn: `${ttlMinutes} minutes`,
     };
-    void this.queueManager
-      .addAdminSetPasswordOtpEmailJob(JobName.ADMIN_SET_PASSWORD_OTP_EMAIL, job)
-      .catch(() => undefined);
+    try {
+      await this.queueManager.addAdminSetPasswordOtpEmailJob(
+        JobName.ADMIN_SET_PASSWORD_OTP_EMAIL,
+        job
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

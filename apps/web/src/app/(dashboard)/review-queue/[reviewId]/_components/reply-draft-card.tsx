@@ -124,6 +124,7 @@ export function ReplyDraftCard({
         </div>
 
         <Textarea
+          aria-label={t("draftLabel")}
           value={text}
           onChange={(event) => setText(event.target.value)}
           readOnly={isDecided || !isEditing}

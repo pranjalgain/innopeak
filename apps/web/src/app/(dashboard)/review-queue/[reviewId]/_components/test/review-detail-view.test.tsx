@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -51,6 +51,8 @@ function show(value: Review) {
   vi.mocked(useReviewDetail).mockReturnValue({
     review: value,
     isLoading: false,
+    loadFailed: false,
+    refetch: vi.fn(),
     approveDraft: vi.fn(),
     rejectDraft: vi.fn(),
     postDraft: vi.fn(),
@@ -137,5 +139,34 @@ describe("ReviewDetailView — manual reply availability", () => {
       expect(draftsContainer?.contains(screen.getByText(manualTitle))).toBe(false);
       expect(manualContainer?.contains(screen.getByText("Snippet A"))).toBe(false);
     });
+  });
+
+  // A dropped connection used to read "Review not found", with no way to try again.
+  test("offers a retry, not 'not found', when the load itself failed", () => {
+    const refetch = vi.fn();
+    vi.mocked(useReviewDetail).mockReturnValue({
+      review: null,
+      isLoading: false,
+      loadFailed: true,
+      refetch,
+      approveDraft: vi.fn(),
+      rejectDraft: vi.fn(),
+      postDraft: vi.fn(),
+      retryDraft: vi.fn(),
+      postingDraftIds: new Set(),
+      decidingDraftIds: new Set(),
+      createManualReply: vi.fn(),
+      isCreatingManualReply: false,
+    });
+    render(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <ReviewDetailView reviewId="review-1" />
+      </NextIntlClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: messages.common.loadError.retry }));
+
+    expect(refetch).toHaveBeenCalledOnce();
+    expect(screen.queryByText(messages.reviewDetail.notFound)).toBeNull();
   });
 });

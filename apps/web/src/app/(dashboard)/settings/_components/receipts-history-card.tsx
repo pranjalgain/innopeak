@@ -3,16 +3,10 @@ import { LuDownload, LuReceipt } from "react-icons/lu";
 import { toast } from "sonner";
 
 import { DATE_FORMAT } from "@/app/_libs/utils/date";
-import { formatCurrency } from "@/app/_libs/utils/math";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDownloadReceiptPdf } from "@/hooks/billing/use-download-receipt-pdf";
 import type { Receipt } from "@/types/domain";
-
-/** `amountPaid` is in the smallest currency unit; dividing by 100 assumes a 2-decimal currency, as on the backend. */
-function formatReceiptAmount(amountPaid: number, currency: string): string {
-  return formatCurrency(amountPaid / 100, currency.toUpperCase());
-}
 
 export function ReceiptsHistoryCard({ receipts }: { receipts: Receipt[] }) {
   const t = useTranslations("settings.billing.receipts");
@@ -36,7 +30,12 @@ export function ReceiptsHistoryCard({ receipts }: { receipts: Receipt[] }) {
             className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3 last:border-b-0 last:pb-0">
             <div className="flex flex-col gap-0.5">
               <span className="text-sm font-medium">
-                {formatReceiptAmount(receipt.amountPaid, receipt.currency)}
+                {/* `amountPaid` is in the smallest currency unit; dividing by 100 assumes a 2-decimal currency, as on the backend. Formatted for the
+                    viewer's locale ("49,00 €" in German), which a fixed "en-US" never was. */}
+                {format.number(receipt.amountPaid / 100, {
+                  style: "currency",
+                  currency: receipt.currency.toUpperCase(),
+                })}
               </span>
               <span className="text-muted-foreground text-[12.5px]">
                 {format.dateTime(new Date(receipt.paidAt), DATE_FORMAT)}

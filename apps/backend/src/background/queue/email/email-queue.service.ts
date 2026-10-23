@@ -10,6 +10,7 @@ import { APP_NAME } from '@common/constants/app.constants';
 import { EmailService } from '@email/email.service';
 import { buildErasureNotice, buildPurgeAlert } from '@email-queue/erasure-notice.copy';
 import { buildLocationsPausedNotice } from '@email-queue/locations-paused.copy';
+import { buildMemberInvite } from '@email-queue/member-invite.copy';
 import { Injectable, Logger } from '@nestjs/common';
 
 @Injectable()
@@ -58,19 +59,21 @@ export class EmailQueueService {
    * subjects thread together in mail clients, and a business name is recognizable before opening.
    */
   async sendMemberInviteEmail(data: IMemberInviteEmailJob): Promise<void> {
+    const content = buildMemberInvite(data, APP_NAME);
     await this.send('member invite email', data.email, () =>
       this.emailService.sendTemplateEmail(
         data.email,
-        'member-invite',
+        'erasure-notice',
         {
-          name: data.customerName ?? 'there',
-          businessName: data.businessName,
-          inviteUrl: data.inviteLink,
-          expiresIn: data.expiresIn ?? '7 days',
+          lang: data.locale ?? 'en',
+          title: content.title,
+          body: content.body,
+          actionText: content.actionText,
+          actionUrl: content.actionUrl,
           appName: APP_NAME,
           year: new Date().getFullYear(),
         },
-        { subject: `You've been invited to join ${data.businessName} on ${APP_NAME}` }
+        { subject: content.subject }
       )
     );
   }

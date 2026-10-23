@@ -219,6 +219,39 @@ describe('ConnectionsDbService.confirmLocations — location limit is rechecked 
     expect(upsertLocation).toHaveBeenCalled();
   });
 
+  // The backfill walks up to 20 pages of Google and blocks the location's polls while it runs; re-running it for nothing cost both.
+  it('starts no backfill for a location that already finished onboarding, but still attaches the user', async () => {
+    findLocationsByTenant.mockResolvedValue([locationRow('locations/1')]);
+    upsertLocation.mockResolvedValue({
+      ...locationRow('locations/1'),
+      onboardingBackfillCompletedAt: '2026-01-02T00:00:00.000Z',
+    });
+
+    const [result] = await service.confirmLocations({
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      connection,
+      locations: [
+        {
+          externalLocationId: 'locations/1',
+          name: 'The Coffee House',
+          address: null,
+          phone: null,
+          websiteUri: null,
+          category: null,
+        },
+      ],
+      maxActiveLocations: 1,
+    });
+
+    expect(acquireSyncRun).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ backfill: null, backfillAlreadyRunning: false });
+    expect(attachUserToLocation).toHaveBeenCalledWith(expect.anything(), {
+      userId: 'user-1',
+      locationId: 'location-locations/1',
+    });
+  });
+
   it('allows a new location under the limit', async () => {
     findLocationsByTenant.mockResolvedValue([]);
 

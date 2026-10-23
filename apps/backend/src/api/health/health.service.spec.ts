@@ -58,6 +58,23 @@ describe('HealthService', () => {
       expect(result.details).toEqual(result.info);
     });
 
+    // The probe is public and unthrottled; each real check is two round trips, so a loop against it cost that per request.
+    it('answers repeated and concurrent probes from one check, then checks again once the answer is stale', async () => {
+      jest.useFakeTimers();
+      try {
+        await Promise.all([target.checkHealth(), target.checkHealth(), target.checkHealth()]);
+        await target.checkHealth();
+        expect(database.isHealthy).toHaveBeenCalledTimes(1);
+        expect(redisHealth.isHealthy).toHaveBeenCalledTimes(1);
+
+        jest.setSystemTime(Date.now() + 2_001);
+        await target.checkHealth();
+        expect(database.isHealthy).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     // Regression: the probe pinged google.com, so a Google outage (or a blocked egress) failed readiness.
     it('does not probe any third party', async () => {
       const result = await target.checkHealth();

@@ -155,3 +155,49 @@ describe("proxy — returning to the page you were headed for", () => {
     expect(target?.hostname).toBe("localhost");
   });
 });
+
+describe("proxy — Content-Security-Policy", () => {
+  const pass = (pathname: string) => proxy(requestFor(pathname));
+
+  test("a page response carries a policy whose nonce is the one handed to the layout", () => {
+    const response = pass("/login");
+    const policy = response.headers.get("content-security-policy") ?? "";
+    const nonce = /'nonce-([^']+)'/.exec(policy)?.[1];
+
+    expect(nonce).toBeTruthy();
+    // The request override is how Next learns the nonce, and how the root layout reads `x-nonce`.
+    expect(response.headers.get("x-middleware-override-headers")).toContain("x-nonce");
+    expect(response.headers.get("x-middleware-request-x-nonce")).toBe(nonce);
+    expect(response.headers.get("x-middleware-request-content-security-policy")).toBe(policy);
+  });
+
+  test("every request gets its own nonce", () => {
+    const first = pass("/login").headers.get("content-security-policy");
+    const second = pass("/login").headers.get("content-security-policy");
+    expect(first).not.toBe(second);
+  });
+
+  test("a redirect carries no policy: there is no document to protect", () => {
+    const response = proxy(requestFor(ROUTES.DASHBOARD));
+    expect(response.headers.get("location")).not.toBeNull();
+    expect(response.headers.get("content-security-policy")).toBeNull();
+  });
+});
+
+describe("proxy — a path typed with a trailing slash", () => {
+  // `skipTrailingSlashRedirect` keeps `/dashboard/` as typed, and it used to miss every exact-path rule: a signed-out visitor was not
+  // redirected here, so the client-side guard sent them to a bare /login and the return path was lost.
+  test.each([`${ROUTES.DASHBOARD}/`, `${ROUTES.SETTINGS}/`, `${ROUTES.SETTINGS_PROMPTS}/`])(
+    "%s without a session goes to /login and remembers where it was headed",
+    (path) => {
+      const target = redirectTarget(proxy(requestFor(path)));
+
+      expect(target?.pathname).toBe(ROUTES.LOGIN);
+      expect(target?.searchParams.get("next")).toBe(path.replace(/\/$/, ""));
+    },
+  );
+
+  test("a signed-in visitor to /login/ is sent home like one on /login", () => {
+    expect(redirectLocation(proxy(requestFor(`${ROUTES.LOGIN}/`, "tenant")))).toBe(ROUTES.DASHBOARD);
+  });
+});

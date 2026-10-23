@@ -2,7 +2,7 @@ import { QueueName } from '@bg/constants/job.constant';
 import { QueueTransportModule } from '@bg/providers/queue-transport.module';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { BullBoardModule } from '@bull-board/nestjs';
-import { isProduction } from '@config/deployment-target.util';
+import { isLocalDevelopment } from '@config/deployment-target.util';
 import { Module } from '@nestjs/common';
 import { ReviewSyncQueueProducerModule } from '@review-sync-queue/review-sync-queue-producer.module';
 import { ReviewSyncQueueEvents } from '@review-sync-queue/review-sync-queue.events';
@@ -11,7 +11,7 @@ const reviewSyncQueueUIConfig = BullBoardModule.forFeature({
   name: QueueName.REVIEW_SYNC,
   adapter: BullMQAdapter,
   options: {
-    readOnlyMode: isProduction(),
+    readOnlyMode: !isLocalDevelopment(),
     displayName: 'Review Sync Queue',
     description: 'Historical review backfill and scheduled review polling',
   },

@@ -70,7 +70,7 @@ function AdminUsersNoResults({ onClearSearch }: { onClearSearch: () => void }) {
 
 interface UserActionsMenuProps {
   user: AdminUser;
-  onToggleActive: (id: string) => void;
+  onToggleActive: (id: string, active: boolean) => void;
 }
 
 // See `RowActionsMenu` for why the confirm dialog is a sibling of `DropdownMenu`.
@@ -91,7 +91,7 @@ function UserActionsMenu({ user, onToggleActive }: UserActionsMenuProps) {
       confirmLabel={user.isActive ? t("deactivate") : t("activate")}
       cancelLabel={t("cancel")}
       destructive={user.isActive}
-      onConfirm={() => onToggleActive(user.id)}
+      onConfirm={() => onToggleActive(user.id, !user.isActive)}
     />
   );
 }
@@ -117,7 +117,7 @@ export function AdminUsersView() {
     toggleActive,
   } = useAdminUsers();
 
-  const toggle = (id: string) => void toggleActive(id);
+  const toggle = (id: string, active: boolean) => void toggleActive(id, active);
 
   return (
     <div className="flex min-h-full flex-col gap-6 p-fluid-page">
@@ -129,6 +129,7 @@ export function AdminUsersView() {
             <Input
               type="text"
               placeholder={t("searchPlaceholder")}
+              aria-label={t("searchPlaceholder")}
               maxLength={MAX_SEARCH_LENGTH}
               value={search}
               onChange={(event) => setSearch(event.target.value)}

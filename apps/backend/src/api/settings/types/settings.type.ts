@@ -26,7 +26,8 @@ export interface DeleteBlocklistTermInput {
 export interface NotificationRecipientRecord {
   id: string;
   userId: string;
-  name: string;
+  /** Null once the user was anonymized in place (GDPR erasure keeps the recipient row); the API layer picks the label. */
+  name: string | null;
   channel: NotificationChannelPref;
   isActive: boolean;
 }

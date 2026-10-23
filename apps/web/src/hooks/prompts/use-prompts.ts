@@ -24,8 +24,11 @@ export const promptsQueryKey = ["prompts"] as const;
 interface UsePromptsResult {
   prompts: AiPrompt[];
   isLoading: boolean;
+  isError: boolean;
+  refetch: () => void;
   isSaving: boolean;
-  saveNewVersion: (id: string, template: string) => Promise<void>;
+  /** Whether the version was saved: the editor stays open (keeping the edited text) when it was not. */
+  saveNewVersion: (id: string, template: string) => Promise<boolean>;
   updateTone: (id: string, tone: PromptTone) => Promise<void>;
 }
 
@@ -82,13 +85,14 @@ export function usePrompts(): UsePromptsResult {
   const saveNewVersion = useCallback(
     async (id: string, template: string) => {
       const prompt = promptsQuery.data?.find((p) => p.id === id);
-      if (!prompt) return;
-      // Swallows the rejection after the onError toast so a failed save surfaces only as that toast; `prompt-editor-dialog` awaits
-      // this and would skip closing on an uncaught rejection.
+      if (!prompt) return false;
+      // The rejection is turned into `false` after the onError toast, so the editor can keep the edited template open instead of closing on it.
       try {
         await saveVersionMutation.mutateAsync({ prompt, template });
+        return true;
       } catch {
         // Already reported via the mutation's onError toast.
+        return false;
       }
     },
     [promptsQuery.data, saveVersionMutation],
@@ -111,6 +115,9 @@ export function usePrompts(): UsePromptsResult {
   return {
     prompts: promptsQuery.data ?? [],
     isLoading: promptsQuery.isLoading,
+    // A failed *refresh* keeps the data already on screen (and the editor open over it); only a load that left nothing is an error screen.
+    isError: promptsQuery.isError && promptsQuery.data === undefined,
+    refetch: () => void promptsQuery.refetch(),
     isSaving: saveVersionMutation.isPending,
     saveNewVersion,
     updateTone,

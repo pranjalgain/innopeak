@@ -63,7 +63,7 @@ export function BlocklistSettingsSection({
                   size="icon"
                   onClick={() => void onRemoveTerm(term.id)}
                   aria-label={t("removeTerm", { term: term.term })}
-                  className="text-muted-foreground hover:bg-background/60 hover:text-foreground size-5 rounded-full">
+                  className="text-muted-foreground hover:bg-background/60 hover:text-foreground relative size-5 rounded-full after:absolute after:-inset-0.5">
                   <LuX className="size-3" />
                 </Button>
               </div>
@@ -75,6 +75,7 @@ export function BlocklistSettingsSection({
           <Input
             type="text"
             placeholder={t("addPlaceholder")}
+            aria-label={t("addPlaceholder")}
             value={newTerm}
             onChange={(event) => setNewTerm(event.target.value)}
             onKeyDown={(event) => {

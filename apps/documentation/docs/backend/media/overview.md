@@ -214,6 +214,10 @@ than the only one. The two produce different response bodies for the same condit
   is genuinely actionable: the user picked the wrong file.
 - **`tooLarge` → a specific message** naming the 10 MB limit. Safe and actionable for exactly the
   same reason as `unsupportedFormat`: the caller already owns the asset it is asking about.
+- **A rejected upload is deleted.** On `unsupportedFormat` or `tooLarge` the provider removes the asset it just inspected (best-effort, after
+  the folder check, so only an upload in the caller's own folder is ever touched; the rejection answer does not depend on it). An upload
+  that is never confirmed at all (the browser closes between upload and confirm) is not swept: that needs a Cloudinary search over the
+  avatar folders, which is not built.
 - **`notFound` → the generic "Could not verify the uploaded image."** This one reason covers both
   "no such asset" and "the asset is in someone else's folder," collapsed deliberately. Either could
   equally be a client bug or someone probing the confirm endpoint with a guessed id, and telling

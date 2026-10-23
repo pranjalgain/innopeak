@@ -313,15 +313,17 @@ describe('MediaService', () => {
       expect(mediaDbService.deleteAvatar).toHaveBeenCalledWith({ userId: 'user-1' });
     });
 
-    /** A Cloudinary failure must not block anonymization, nor delete the `media` row of a still-live asset (keeps retry possible). */
-    it('swallows a storage-provider deletion failure and leaves the DB row untouched', async () => {
+    /** A swallowed failure let the account be anonymized (and never revisited) with its photo still on a public URL. */
+    it('rethrows a storage-provider deletion failure and leaves the DB row untouched', async () => {
       mediaDbService.findAvatarAsset.mockResolvedValue({
         provider: 'cloudinary',
         providerAssetId: 'avatars/users/user-1/asset-1',
       });
       storageProvider.delete.mockRejectedValue(new Error('Cloudinary is down'));
 
-      await expect(target.deleteAvatarIfPresent({ userId: 'user-1' })).resolves.toBeUndefined();
+      await expect(target.deleteAvatarIfPresent({ userId: 'user-1' })).rejects.toThrow(
+        'Cloudinary is down'
+      );
       expect(mediaDbService.deleteAvatar).not.toHaveBeenCalled();
     });
 

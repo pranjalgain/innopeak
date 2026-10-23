@@ -65,6 +65,9 @@ export abstract class PaymentProvider {
    */
   abstract prepareNewCheckout(customerId: string): Promise<NewCheckoutPreparation>;
 
+  /** Cancels the subscriptions `prepareNewCheckout` reported as stale; one Stripe no longer has is already what was wanted. */
+  abstract cancelStaleSubscriptions(subscriptionIds: string[]): Promise<void>;
+
   /** For tenants whose local row has no (or a stale) `stripe_subscription_id`. `null` means no active subscription, not an error. */
   abstract retrieveActiveSubscriptionForCustomer(
     customerId: string

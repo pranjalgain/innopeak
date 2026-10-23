@@ -4,8 +4,10 @@ import { useFormatter, useTranslations } from "next-intl";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ClassificationBadge } from "@/components/common/classification-badge";
+import { EscalationBadge } from "@/components/common/escalation-badge";
 import { ReviewStatusBadge } from "@/components/common/review-status-badge";
 import { StarRating } from "@/components/common/star-rating";
+import { useReviewerName } from "@/hooks/common/use-reviewer-name";
 import type { Review } from "@/types/domain";
 
 interface ReviewCardListProps {
@@ -18,7 +20,7 @@ const DATE_FORMAT = { month: "short", day: "numeric" } as const;
 export function ReviewCardList({ reviews }: ReviewCardListProps) {
   const t = useTranslations("reviewQueue");
   const format = useFormatter();
-  const tEscalation = useTranslations("common.escalationReason");
+  const reviewerName = useReviewerName();
 
   return (
     <div className="flex flex-col gap-3">
@@ -30,18 +32,16 @@ export function ReviewCardList({ reviews }: ReviewCardListProps) {
           style={{ animationDelay: `${Math.min(index, 8) * 50}ms` }}
         >
           <div className="flex items-start justify-between gap-2">
-            <span className="text-sm font-semibold">{review.reviewerName}</span>
+            <span className="min-w-0 text-sm font-semibold break-words">{reviewerName(review.reviewerName)}</span>
             <StarRating rating={review.rating} className="shrink-0" />
           </div>
 
-          <p className="text-[13px] text-muted-foreground">{review.reviewText}</p>
+          <p className="line-clamp-4 text-[13px] break-words text-muted-foreground">{review.reviewText}</p>
 
           <div className="flex flex-wrap gap-1.5">
             <ClassificationBadge classification={review.classification} />
             {review.escalationReason ? (
-              <span className="inline-flex items-center gap-1 rounded-md border border-warning px-2.5 py-0.5 text-xs font-medium text-warning">
-                {tEscalation(review.escalationReason)}
-              </span>
+              <EscalationBadge reason={review.escalationReason} />
             ) : null}
           </div>
 

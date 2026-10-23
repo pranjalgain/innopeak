@@ -15,6 +15,7 @@ import {
 import {
   AiGenerationFailedException,
   AiProviderNotConfiguredException,
+  AiReplyUnusableException,
 } from '../exceptions/ai.exceptions';
 import type { GenerateReplyInput, GenerateReplyResult } from '../types/ai-provider.type';
 
@@ -139,7 +140,7 @@ export class OpenRouterAiProvider extends AiProvider {
           choice?.finish_reason ?? 'unknown'
         }).${describeEmptyContentCause(choice, completion)}`
       );
-      throw new AiGenerationFailedException();
+      throw new AiReplyUnusableException();
     }
 
     const finishReason = choice?.finish_reason ?? null;

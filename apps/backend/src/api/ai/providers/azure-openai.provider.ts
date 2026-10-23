@@ -16,6 +16,7 @@ import {
 import {
   AiGenerationFailedException,
   AiProviderNotConfiguredException,
+  AiReplyUnusableException,
 } from '../exceptions/ai.exceptions';
 import type { GenerateReplyInput, GenerateReplyResult } from '../types/ai-provider.type';
 
@@ -73,7 +74,7 @@ export class AzureOpenAiProvider extends AiProvider {
           choice?.finish_reason ?? 'unknown'
         }).`
       );
-      throw new AiGenerationFailedException();
+      throw new AiReplyUnusableException();
     }
 
     const finishReason = choice?.finish_reason ?? null;

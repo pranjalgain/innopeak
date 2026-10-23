@@ -187,7 +187,7 @@ export function OnboardingSignupView() {
                 {/* Identity step only — offering "sign in" mid-OTP would abandon a half-created account. */}
                 <div className="text-muted-foreground mt-6 text-center text-sm">
                   {t("haveAccount")}{" "}
-                  <Link href={ROUTES.LOGIN} className="font-medium">
+                  <Link href={ROUTES.LOGIN} className="font-medium text-primary underline underline-offset-4">
                     {t("signIn")}
                   </Link>
                 </div>

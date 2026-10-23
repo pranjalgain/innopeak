@@ -35,6 +35,8 @@ import {
   AccountNotInChoiceException,
   ConnectionNeedsReauthException,
   ConnectionNotFoundException,
+  LocationBillingPausedException,
+  LocationInactiveException,
   ProviderUnavailableException,
 } from '../exceptions/connections.exceptions';
 
@@ -335,6 +337,7 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
   const consume = jest.fn();
   const exchangeCode = jest.fn();
   const findConnectionByTenant = jest.fn();
+  const findConnectionByTenantAndAccount = jest.fn();
   const upsertConnection = jest.fn();
   const reactivateLocationsForConnection = jest.fn();
   const restartIncompleteBackfills = jest.fn();
@@ -367,6 +370,8 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
     upsertConnection.mockResolvedValue(connection);
     replaceCredential.mockResolvedValue('local-redis:secret-1');
     storeNewCredential.mockResolvedValue('local-redis:secret-2');
+    // No earlier row for the account unless a test says there is one.
+    findConnectionByTenantAndAccount.mockResolvedValue(null);
     // Default to no reactivated locations; only the restart-path test sets its own value.
     reactivateLocationsForConnection.mockResolvedValue([]);
     restartIncompleteBackfills.mockResolvedValue([]);
@@ -391,6 +396,7 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
           provide: ConnectionsDbService,
           useValue: {
             findConnectionByTenant,
+            findConnectionByTenantAndAccount,
             upsertConnection,
             reactivateLocationsForConnection,
             restartIncompleteBackfills,
@@ -484,6 +490,31 @@ describe('ConnectionsService.handleCallback — reconnect reactivates locations'
 
     expect(storeNewCredential).toHaveBeenCalled();
     expect(reactivateLocationsForConnection).not.toHaveBeenCalled();
+  });
+
+  // A -> B -> A: `findConnectionByTenant` only returns the latest row (B), so A's own row was invisible and a reconnect of A looked like a
+  // new account: its credential reference was overwritten and its locations stayed disconnected.
+  it('treats a return to an earlier account as a reconnect of that account, not a new one', async () => {
+    findConnectionByTenant.mockResolvedValue({
+      ...connection,
+      id: 'connection-b',
+      providerAccountId: 'accounts/2',
+      disconnectedAt: '2026-02-01T00:00:00.000Z',
+    });
+    findConnectionByTenantAndAccount.mockResolvedValue({
+      ...connection,
+      id: 'connection-a',
+      providerAccountId: 'accounts/1',
+      credentialReference: 'local-redis:kept-grant',
+      disconnectedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await service.handleCallback({ code: 'auth-code', state: 'state', sid: 'sid' });
+
+    expect(findConnectionByTenantAndAccount).toHaveBeenCalledWith('tenant-1', 'accounts/1');
+    expect(replaceCredential).toHaveBeenCalledWith('local-redis:kept-grant', tokens);
+    expect(storeNewCredential).not.toHaveBeenCalled();
+    expect(reactivateLocationsForConnection).toHaveBeenCalled();
   });
 
   it('does not reactivate anything on an ACCOUNT_MISMATCH (existing live connection, different account)', async () => {
@@ -580,6 +611,7 @@ describe('ConnectionsService — choosing between several Business Profile accou
   const reactivateLocationsForConnection = jest.fn();
   const replaceCredential = jest.fn();
   const storeNewCredential = jest.fn();
+  const revokeAndDelete = jest.fn();
   const save = jest.fn();
   const peek = jest.fn();
   const claim = jest.fn();
@@ -622,6 +654,7 @@ describe('ConnectionsService — choosing between several Business Profile accou
           useValue: {
             replaceCredential,
             storeNewCredential,
+            revokeAndDelete,
             invalidateAccessToken: jest.fn().mockResolvedValue(undefined),
           },
         },
@@ -760,6 +793,33 @@ describe('ConnectionsService — choosing between several Business Profile accou
       tokens,
     };
 
+    // The peek and the claim are two steps; another consent can replace the waiting choice between them, and what is claimed is what gets connected.
+    it('refuses, and puts back, a choice that turned out to belong to someone else when it was claimed', async () => {
+      peek.mockResolvedValue(waiting);
+      const someoneElses = { ...waiting, userId: 'user-9' };
+      claim.mockResolvedValue(someoneElses);
+
+      await expect(service.selectAccount({ user, accountId: 'accounts/2' })).rejects.toBeInstanceOf(
+        AccountChoiceExpiredException
+      );
+
+      expect(save).toHaveBeenCalledWith('tenant-1', someoneElses);
+      expect(upsertConnection).not.toHaveBeenCalled();
+    });
+
+    it('refuses, and puts back, a claimed choice that no longer offers the account', async () => {
+      peek.mockResolvedValue(waiting);
+      const replaced = { ...waiting, accounts: [personal] };
+      claim.mockResolvedValue(replaced);
+
+      await expect(service.selectAccount({ user, accountId: 'accounts/2' })).rejects.toBeInstanceOf(
+        AccountChoiceExpiredException
+      );
+
+      expect(save).toHaveBeenCalledWith('tenant-1', replaced);
+      expect(upsertConnection).not.toHaveBeenCalled();
+    });
+
     it('connects the chosen account through the same path as a one-account callback', async () => {
       peek.mockResolvedValue(waiting);
       claim.mockResolvedValue(waiting);
@@ -827,6 +887,38 @@ describe('ConnectionsService — choosing between several Business Profile accou
       expect(upsertConnection).not.toHaveBeenCalled();
     });
 
+    // The mismatch check above is read-then-write; a second consent flow can commit its live connection in between, and the database
+    // (one live connection per tenant and provider) refuses the second. That is the same 409, and the credential it minted is discarded.
+    it('answers the mismatch 409, and discards the credential it just stored, when it loses the race for the live connection', async () => {
+      peek.mockResolvedValue(waiting);
+      claim.mockResolvedValue(waiting);
+      revokeAndDelete.mockResolvedValue(true);
+      upsertConnection.mockRejectedValue(
+        Object.assign(new Error('duplicate key'), {
+          code: '23505',
+          constraint: 'idx_review_provider_connections_tenant_provider_live',
+        })
+      );
+
+      await expect(service.selectAccount({ user, accountId: 'accounts/2' })).rejects.toBeInstanceOf(
+        AccountMismatchException
+      );
+      expect(revokeAndDelete).toHaveBeenCalledWith('local-redis:secret-2');
+    });
+
+    it('does not mistake some other unique violation for that race', async () => {
+      peek.mockResolvedValue(waiting);
+      claim.mockResolvedValue(waiting);
+      upsertConnection.mockRejectedValue(
+        Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'something_else' })
+      );
+
+      await expect(
+        service.selectAccount({ user, accountId: 'accounts/2' })
+      ).rejects.not.toBeInstanceOf(AccountMismatchException);
+      expect(revokeAndDelete).not.toHaveBeenCalled();
+    });
+
     // Regression: the grant was claimed before connecting, so a transient failure lost it and "Try again" could not work.
     it('puts the grant back and answers 502 when connecting fails, so the owner can try again', async () => {
       peek.mockResolvedValue(waiting);
@@ -876,5 +968,79 @@ describe('ConnectionsService — choosing between several Business Profile accou
       expect(replaceCredential).toHaveBeenCalledWith('local-redis:secret-1', tokens);
       expect(reactivateLocationsForConnection).toHaveBeenCalledWith('connection-1');
     });
+  });
+});
+
+describe('ConnectionsService.setActiveLocation', () => {
+  let service: ConnectionsService;
+  const findLocationForTenant = jest.fn();
+  const setActiveLocationId = jest.fn();
+  const ownerUser = {
+    type: JwtTokenType.TENANT_USER,
+    id: 'user-1',
+    tenantId: 'tenant-1',
+    email: 'owner@example.com',
+    role: UserRole.OWNER,
+    locale: null,
+  } as const;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    setActiveLocationId.mockResolvedValue(undefined);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConnectionsService,
+        { provide: InAppNotificationsService, useValue: {} },
+        { provide: ReviewProvider, useValue: {} },
+        { provide: ProviderCredentialService, useValue: {} },
+        { provide: ConnectionsDbService, useValue: { findLocationForTenant } },
+        { provide: OAuthStateService, useValue: {} },
+        { provide: ReviewSyncQueue, useValue: {} },
+        { provide: ReviewSyncDbService, useValue: {} },
+        { provide: AuthDbService, useValue: { setActiveLocationId } },
+        { provide: BillingEntitlementsService, useValue: {} },
+        { provide: PendingAccountChoiceService, useValue: {} },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('') } },
+      ],
+    }).compile();
+
+    service = moduleRef.get(ConnectionsService);
+  });
+
+  it('points the whole team at an active, unpaused location', async () => {
+    findLocationForTenant.mockResolvedValue({ ...location, billingPausedAt: null });
+
+    await service.setActiveLocation({ user: ownerUser, locationId: 'location-1' });
+
+    expect(setActiveLocationId).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      locationId: 'location-1',
+    });
+  });
+
+  // Polling and replies are off for a location the plan paused, so it cannot be what every member's dashboard shows.
+  it('refuses a location the plan has paused', async () => {
+    findLocationForTenant.mockResolvedValue({
+      ...location,
+      billingPausedAt: '2026-10-01T00:00:00.000Z',
+    });
+
+    await expect(
+      service.setActiveLocation({ user: ownerUser, locationId: 'location-1' })
+    ).rejects.toBeInstanceOf(LocationBillingPausedException);
+    expect(setActiveLocationId).not.toHaveBeenCalled();
+  });
+
+  it('still refuses a disconnected location first', async () => {
+    findLocationForTenant.mockResolvedValue({
+      ...location,
+      status: LocationStatus.INACTIVE,
+      billingPausedAt: null,
+    });
+
+    await expect(
+      service.setActiveLocation({ user: ownerUser, locationId: 'location-1' })
+    ).rejects.toBeInstanceOf(LocationInactiveException);
   });
 });

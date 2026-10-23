@@ -3,14 +3,25 @@ import type { Reflector } from '@nestjs/core';
 
 import { RolesGuard } from './roles.guard';
 
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import type { RoleRequirement } from '../decorators/roles.decorator';
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { UserRole } from '../enums/user-role.enum';
 import type { AuthUser } from '../types/auth.type';
 
-function contextWithUser(user: AuthUser | undefined, requiredRoles?: RoleRequirement[]) {
+function contextWithUser(
+  user: AuthUser | undefined,
+  requiredRoles?: RoleRequirement[],
+  options: { isPublic?: boolean } = {}
+) {
   const reflector = {
-    getAllAndOverride: jest.fn().mockReturnValue(requiredRoles),
+    // Answers by key: the guard asks for `@Public()` as well as `@Roles()`.
+    getAllAndOverride: jest.fn((key: string): unknown => {
+      if (key === IS_PUBLIC_KEY) {
+        return options.isPublic;
+      }
+      return requiredRoles;
+    }),
   } as unknown as Reflector;
 
   const context = {
@@ -43,9 +54,39 @@ const platformAdmin: AuthUser = {
 };
 
 describe('RolesGuard', () => {
-  it('allows any authenticated principal when no @Roles() is set', () => {
-    const { guard, context } = contextWithUser(tenantOwner, undefined);
-    expect(guard.canActivate(context)).toBe(true);
+  // With no @Roles() a route is a tenant route: the tenant services narrow the principal themselves, and every admin route lists
+  // PLATFORM_ADMIN. The default used to be "any authenticated principal", so a route that forgot its check was open to an admin token.
+  describe('a route with no @Roles()', () => {
+    it('allows a tenant user, owner or member', () => {
+      for (const user of [tenantOwner, tenantMember]) {
+        const { guard, context } = contextWithUser(user, undefined);
+        expect(guard.canActivate(context)).toBe(true);
+      }
+    });
+
+    it('refuses a platform-admin token', () => {
+      const { guard, context } = contextWithUser(platformAdmin, undefined);
+      expect(guard.canActivate(context)).toBe(false);
+    });
+
+    it('refuses a request with no principal at all', () => {
+      const { guard, context } = contextWithUser(undefined, undefined);
+      expect(guard.canActivate(context)).toBe(false);
+    });
+
+    it('treats an empty @Roles() the same way', () => {
+      const { guard, context } = contextWithUser(platformAdmin, []);
+      expect(guard.canActivate(context)).toBe(false);
+    });
+  });
+
+  describe('a @Public() route', () => {
+    it('lets a request through with no principal, with or without a @Roles()', () => {
+      for (const roles of [undefined, [UserRole.OWNER]]) {
+        const { guard, context } = contextWithUser(undefined, roles, { isPublic: true });
+        expect(guard.canActivate(context)).toBe(true);
+      }
+    });
   });
 
   it('allows a tenant user whose role matches one of the required roles', () => {

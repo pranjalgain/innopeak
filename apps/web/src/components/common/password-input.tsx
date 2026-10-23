@@ -19,13 +19,14 @@ export function PasswordInput({ className, ...props }: PasswordInputProps) {
 
   return (
     <div className="relative">
-      <Input type={visible ? "text" : "password"} className={cn("pr-9", className)} {...props} />
+      <Input type={visible ? "text" : "password"} className={cn("pr-10", className)} {...props} />
       <button
         type="button"
         onClick={() => setVisible((prev) => !prev)}
-        tabIndex={-1}
-        aria-label={visible ? t("hide") : t("show")}
-        className="text-muted-foreground ease-fluid hover:text-foreground absolute top-1/2 right-2.5 -translate-y-1/2 transition-colors">
+        // A toggle button keeps one name and says its state with `aria-pressed`; a label that flips as well reads "Hide password, pressed".
+        aria-label={t("show")}
+        aria-pressed={visible}
+        className="text-muted-foreground ease-fluid hover:text-foreground focus-visible:ring-ring/50 absolute top-1/2 right-1 -translate-y-1/2 rounded-md p-2 transition-colors outline-none focus-visible:ring-[3px]">
         <Icon className="size-4" />
       </button>
     </div>

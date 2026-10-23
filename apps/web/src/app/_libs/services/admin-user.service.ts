@@ -24,8 +24,12 @@ export class AdminUserService {
     return unwrap<{ users: AdminUser[]; meta: PaginationMeta }>(response.data);
   }
 
-  static async toggleActive(id: string): Promise<AdminUser> {
-    const response = await adminUsersApi.adminUsersControllerToggleActiveV1({ userId: id });
+  /**
+   * `active` is the state to end up in, not a flip: a stale list or a double click then cannot re-enable someone who was just
+   * deactivated (the server leaves a user already there as it is).
+   */
+  static async toggleActive(id: string, active: boolean): Promise<AdminUser> {
+    const response = await adminUsersApi.adminUsersControllerToggleActiveV1({ userId: id, active });
     return unwrap<AdminUser>(response.data);
   }
 }

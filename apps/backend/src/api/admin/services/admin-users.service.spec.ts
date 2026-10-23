@@ -1,7 +1,9 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
+import { TokenService } from '@auth/services/token.service';
 import type { PlatformAdminAuthUser } from '@auth/types/auth.type';
+import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { AdminUsersDbService } from '@db/repositories/admin-users/admin-users.db-service';
@@ -14,6 +16,7 @@ import { AdminUsersService } from './admin-users.service';
 describe('AdminUsersService', () => {
   let target: AdminUsersService;
   let adminUsersDbService: { findPage: jest.Mock; toggleActive: jest.Mock };
+  let tokenService: { revokeAll: jest.Mock };
   let adminOverviewDbService: { recordActivityBestEffort: jest.Mock };
 
   const admin: PlatformAdminAuthUser = {
@@ -37,12 +40,14 @@ describe('AdminUsersService', () => {
   beforeEach(async () => {
     adminUsersDbService = { findPage: jest.fn(), toggleActive: jest.fn() };
     adminOverviewDbService = { recordActivityBestEffort: jest.fn() };
+    tokenService = { revokeAll: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AdminUsersService,
         { provide: AdminUsersDbService, useValue: adminUsersDbService },
         { provide: AdminOverviewDbService, useValue: adminOverviewDbService },
+        { provide: TokenService, useValue: tokenService },
       ],
     }).compile();
 
@@ -101,8 +106,68 @@ describe('AdminUsersService', () => {
 
       const result = await target.toggleActive(admin, 'user-1');
 
-      expect(adminUsersDbService.toggleActive).toHaveBeenCalledWith('user-1');
+      expect(adminUsersDbService.toggleActive).toHaveBeenCalledWith('user-1', undefined);
       expect(result.isActive).toBe(false);
+    });
+
+    it('passes the state the admin asked for down, so the write can be idempotent', async () => {
+      adminUsersDbService.toggleActive.mockResolvedValue({
+        outcome: 'toggled',
+        row: { ...row, status: UserStatus.DISABLED },
+      });
+
+      await target.toggleActive(admin, 'user-1', false);
+
+      expect(adminUsersDbService.toggleActive).toHaveBeenCalledWith('user-1', false);
+    });
+
+    // A stale list or a double click: the user is already where the admin wanted them, so nothing happens.
+    it('returns the user untouched, ending no sessions and logging nothing, when they were already in that state', async () => {
+      adminUsersDbService.toggleActive.mockResolvedValue({
+        outcome: 'unchanged',
+        row: { ...row, status: UserStatus.DISABLED },
+      });
+
+      const result = await target.toggleActive(admin, 'user-1', false);
+
+      expect(result.isActive).toBe(false);
+      expect(tokenService.revokeAll).not.toHaveBeenCalled();
+      expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
+    });
+
+    it('refuses a member who has not accepted their invite, without logging anything', async () => {
+      adminUsersDbService.toggleActive.mockResolvedValue({ outcome: 'invited' });
+
+      await expect(target.toggleActive(admin, 'user-1')).rejects.toThrow(
+        MESSAGES.ADMIN.USER_INVITE_PENDING
+      );
+      expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
+    });
+
+    // A deactivated user must lose access now, not when their access token happens to lapse.
+    it("ends the user's access tokens when they are deactivated, and not when they are activated", async () => {
+      adminUsersDbService.toggleActive.mockResolvedValueOnce({
+        outcome: 'toggled',
+        row: { ...row, status: UserStatus.DISABLED },
+      });
+      await target.toggleActive(admin, 'user-1');
+      expect(tokenService.revokeAll).toHaveBeenCalledWith('user-1');
+
+      tokenService.revokeAll.mockClear();
+      adminUsersDbService.toggleActive.mockResolvedValueOnce({
+        outcome: 'toggled',
+        row: { ...row, status: UserStatus.ACTIVE },
+      });
+      await target.toggleActive(admin, 'user-1');
+      expect(tokenService.revokeAll).not.toHaveBeenCalled();
+    });
+
+    it('ends no sessions when nothing changed', async () => {
+      adminUsersDbService.toggleActive.mockResolvedValue({ outcome: 'not_found' });
+
+      await expect(target.toggleActive(admin, 'missing')).rejects.toThrow(NotFoundException);
+
+      expect(tokenService.revokeAll).not.toHaveBeenCalled();
     });
 
     it('throws 404 when no such user exists, without logging any activity', async () => {

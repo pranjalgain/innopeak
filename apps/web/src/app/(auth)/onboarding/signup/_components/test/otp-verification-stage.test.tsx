@@ -63,4 +63,34 @@ describe("OtpVerificationStage", () => {
 
     expect(select).toHaveBeenCalled();
   });
+
+  // An OS or password-manager autofill drops the whole code into whichever box has focus; a one-character cap used to keep only its first digit.
+  test("spreads an autofilled full code across the boxes", () => {
+    const boxes = setup(vi.fn());
+
+    fireEvent.change(boxes[0]!, { target: { value: "482915" } });
+
+    expect(boxes.map((box) => box.value)).toEqual(["4", "8", "2", "9", "1", "5"]);
+  });
+
+  test("still keeps only the newest digit when typing over a filled box", () => {
+    const boxes = setup(vi.fn());
+    typeCode(boxes, "1");
+
+    fireEvent.change(boxes[0]!, { target: { value: "17" } });
+
+    expect(boxes[0]!.value).toBe("7");
+  });
+
+  test("names each box and announces a wrong-length code", () => {
+    const boxes = setup(vi.fn());
+
+    expect(boxes[2]).toHaveAccessibleName(`${messages.onboardingSignup.otp.codeLabel} 3 / 6`);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: messages.onboardingSignup.otp.verifyButton }),
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(messages.onboardingSignup.otp.incompleteCode);
+  });
 });

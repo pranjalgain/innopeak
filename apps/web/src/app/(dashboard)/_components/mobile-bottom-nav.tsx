@@ -17,10 +17,14 @@ interface MobileBottomNavProps {
 
 export function MobileBottomNav({ navItems, navNamespace, homeHref }: MobileBottomNavProps) {
   const t = useTranslations(navNamespace);
+  const tApp = useTranslations("appShell");
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-10 flex h-16 items-stretch border-t border-border bg-card">
+    <nav
+      aria-label={tApp("mainNavigation")}
+      className="fixed inset-x-0 bottom-0 z-10 flex h-16 items-stretch border-t border-border bg-card"
+    >
       {navItems.map((item) => {
         const isActive = isNavItemActive(pathname, item.href, homeHref);
         const Icon = item.icon;
@@ -28,6 +32,7 @@ export function MobileBottomNav({ navItems, navNamespace, homeHref }: MobileBott
           <Link
             key={item.href}
             href={item.href as Route}
+            aria-current={isActive ? "page" : undefined}
             className={cn(
               // Five tabs leave ~75px each on a 375px phone; long German labels ("Einstellungen") otherwise overflow into neighbours.
               "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-0.5 text-[10px] font-medium transition-colors duration-150 ease-fluid min-[420px]:text-xs",

@@ -1,4 +1,5 @@
 import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
+import { GENERATION_MAX_ATTEMPTS } from '@common/constants/generation.constants';
 import { InAppNotificationType } from '@common/enums/in-app-notification-type.enum';
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
@@ -33,6 +34,7 @@ import {
   AiGenerationFailedException,
   AiPromptNotConfiguredException,
   AiProviderNotConfiguredException,
+  AiReplyUnusableException,
 } from './exceptions/ai.exceptions';
 import { AiProvider } from './providers/ai.provider';
 import type {
@@ -47,6 +49,7 @@ import {
   fillPromptTemplate,
   parseMultiSnippetReplies,
 } from './utils/prompt-template.util';
+import { fenceReviewText, findAutoPostBlocker } from './utils/reply-safety.util';
 
 import { InAppNotificationsService } from '../notifications/services/in-app-notifications.service';
 import type { InAppNotificationEvent } from '../notifications/types/in-app-notification-event.type';
@@ -79,6 +82,15 @@ interface GeneratedForCandidate {
  * `generateForClassifiedReviews` persists `pending_approval` rows right after classification. Each persisted snippet, not each review, spends one unit of `maxAiDraftsPerMonth`.
  * Few-shot examples from posted replies are deliberately not implemented: nothing reads historical replies yet.
  */
+/** A failure that says nothing about the review being drafted: the provider is down, unconfigured, or has no prompt to use. */
+function isNotAboutThisReview(error: unknown): boolean {
+  return (
+    error instanceof AiProviderNotConfiguredException ||
+    error instanceof AiPromptNotConfiguredException ||
+    (error instanceof AiGenerationFailedException && !(error instanceof AiReplyUnusableException))
+  );
+}
+
 @Injectable()
 export class AiReplyGenerationService {
   private readonly logger = new Logger(AiReplyGenerationService.name);
@@ -247,7 +259,17 @@ export class AiReplyGenerationService {
           // Must not escape: a rejection here (likely when the DB is degraded) would abandon the remaining
           // candidates. A stale claim is swept by `reclaimStaleGenerationClaims`.
           try {
-            await this.reviewSyncDbService.releaseGenerationClaim(candidate.id);
+            // Only a failure about this review counts toward giving up on it: an outage, a missing key or a missing prompt would
+            // otherwise use up a review's attempts in a couple of hours and strand it for good.
+            const attempts = await this.reviewSyncDbService.releaseGenerationClaimAfterFailure(
+              candidate.id,
+              !isNotAboutThisReview(error)
+            );
+            if (attempts !== null && attempts >= GENERATION_MAX_ATTEMPTS) {
+              this.logger.error(
+                `Giving up on drafting a reply for review ${candidate.id} after ${attempts} failed attempts; it stays open for the owner to answer by hand (new review text from Google resets the count).`
+              );
+            }
           } catch (releaseError) {
             this.logger.error(
               `Could not release the generation claim on review ${candidate.id}; it will be swept as a stale claim in ${'~30 minutes'}: ${
@@ -319,7 +341,8 @@ export class AiReplyGenerationService {
       business_name: business.name,
       reviewer_name: ANONYMOUS_REVIEWER,
       rating: String(candidate.rating),
-      review_text: candidate.reviewText ?? NO_WRITTEN_COMMENT,
+      review_text:
+        candidate.reviewText === null ? NO_WRITTEN_COMMENT : fenceReviewText(candidate.reviewText),
     });
 
     const isEscalated = candidate.classification === ReviewClassification.ESCALATED;
@@ -388,7 +411,16 @@ export class AiReplyGenerationService {
         });
         persisted += 1;
 
-        if (autoPosts && completedNormally) {
+        // Auto-posting publishes the model's words under the business's name, and they derive from text anyone can write: a reply that
+        // carries a link, a stray phone number or email, a placeholder or is over Google's length is saved as a draft for a person.
+        const blocker =
+          autoPosts && completedNormally ? findAutoPostBlocker(content, business.contact) : null;
+        if (blocker !== null) {
+          this.logger.warn(
+            `Review ${candidate.id}: the reply was saved as a draft instead of being auto-posted (${blocker}).`
+          );
+        }
+        if (autoPosts && completedNormally && blocker === null) {
           const outcome = await this.maybeAutoApproveAndPost(
             tenantId,
             candidate.id,

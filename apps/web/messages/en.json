@@ -117,6 +117,26 @@
       "copyright": "© {year} InnoPeak. All rights reserved."
     }
   },
+  "pageTitles": {
+    "acceptInvite": "Accept Invite",
+    "adminLogin": "Admin sign in",
+    "login": "Sign in",
+    "businessName": "Your business name",
+    "connect": "Connect Google Business Profile",
+    "plan": "Choose your plan",
+    "signup": "Create your account",
+    "dashboard": "Dashboard",
+    "reviewDetail": "Review Detail",
+    "reviewQueue": "Review Queue",
+    "settings": "Settings",
+    "prompts": "AI Prompts",
+    "adminActivity": "Activity — InnoPeak Admin",
+    "adminBilling": "Billing — InnoPeak Admin",
+    "adminBusinesses": "Businesses — InnoPeak Admin",
+    "adminOverview": "Overview — InnoPeak Admin",
+    "adminSettings": "Platform settings — InnoPeak Admin",
+    "adminUsers": "Users — InnoPeak Admin"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "reviewQueue": "Review Queue",
@@ -131,12 +151,17 @@
     "settings": "Settings"
   },
   "appShell": {
+    "skipToContent": "Skip to content",
+    "mainNavigation": "Main navigation",
+    "accountMenu": "Account menu",
     "notifications": "Notifications",
     "accountOwnerRole": "Owner",
     "accountMemberRole": "Member",
     "superAdminRole": "Super Admin",
     "signOut": "Sign out",
     "notificationPanel": {
+      "unread": "Unread",
+      "bellUnread": "Notifications ({count} unread)",
       "title": "Notifications",
       "markAllRead": "Mark all as read",
       "empty": "You're all caught up.",
@@ -192,10 +217,10 @@
       }
     },
     "adminLogin": {
+      "continueWithMicrosoft": "Continue with Microsoft",
       "title": "Admin sign in",
       "orDivider": "or",
       "continueWithGoogle": "Continue with Google",
-      "continueWithMicrosoft": "Continue with Microsoft",
       "google": "Google",
       "microsoft": "Microsoft",
       "notAdmin": "Not a platform admin?",
@@ -217,7 +242,7 @@
       "passwordMismatch": "Passwords don't match.",
       "errors": {
         "passwordTooShort": "Password must be at least 8 characters.",
-        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordTooLong": "Password is too long: 72 characters at most (accented characters count double).",
         "passwordUppercase": "Password must contain an uppercase letter.",
         "passwordLowercase": "Password must contain a lowercase letter.",
         "passwordNumber": "Password must contain a number.",
@@ -246,7 +271,7 @@
       "errors": {
         "nameRequired": "Enter your name.",
         "passwordTooShort": "Password must be at least 8 characters.",
-        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordTooLong": "Password is too long: 72 characters at most (accented characters count double).",
         "passwordUppercase": "Password must contain an uppercase letter.",
         "passwordLowercase": "Password must contain a lowercase letter.",
         "passwordNumber": "Password must contain a number.",
@@ -397,11 +422,12 @@
       "submit": "Create account",
       "submitting": "Creating account…",
       "errors": {
+        "nameTooLong": "Use 255 characters or fewer.",
         "nameRequired": "Enter your full name.",
         "businessNameRequired": "Enter your company name.",
         "emailInvalid": "Enter a valid email address.",
         "passwordTooShort": "Password must be at least 8 characters.",
-        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordTooLong": "Password is too long: 72 characters at most (accented characters count double).",
         "passwordUppercase": "Password must contain an uppercase letter.",
         "passwordLowercase": "Password must contain a lowercase letter.",
         "passwordNumber": "Password must contain a number.",
@@ -548,6 +574,7 @@
       "postFailedWithReason": "Google didn't accept the reply: {message}"
     },
     "replies": {
+      "draftLabel": "Reply draft",
       "title": "Suggested replies",
       "descriptionOne": "An AI-drafted response was generated for this review. Approve it as written, edit it first, or reject it.",
       "descriptionMany": "{count} AI-drafted responses were generated for this review. Approving one automatically supersedes the others — only one reply can ever be posted per review.",
@@ -615,7 +642,8 @@
       },
       "retention": {
         "label": "Review data retention",
-        "suffix": "months, then reviewer PII is anonymized",
+        "suffixOne": "month, then reviewer PII is anonymized",
+      "suffixOther": "months, then reviewer PII is anonymized",
         "notSet": "Not set — reviewer PII is kept indefinitely.",
         "add": "Add retention period",
         "remove": "Remove",
@@ -673,6 +701,8 @@
       "empty": "No blocked terms yet."
     },
     "notifications": {
+      "channelLabel": "Notification channel for {name}",
+      "activeLabel": "Notifications on for {name}",
       "title": "Notifications",
       "description": "Who gets notified when a review is escalated, and how.",
       "empty": "No recipients configured yet.",
@@ -752,7 +782,7 @@
       "errors": {
         "currentPasswordRequired": "Enter your current password.",
         "passwordTooShort": "Password must be at least 8 characters.",
-        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordTooLong": "Password is too long: 72 characters at most (accented characters count double).",
         "passwordUppercase": "Password must contain an uppercase letter.",
         "passwordLowercase": "Password must contain a lowercase letter.",
         "passwordNumber": "Password must contain a number.",
@@ -948,6 +978,7 @@
     "versionBadge": "v{version}",
     "updatedAt": "Updated {date} by {author}",
     "editor": {
+      "templateLabel": "Prompt template",
       "description": "Editing here saves a new version (v{version}) — it doesn't overwrite the current one. Placeholders in double curly braces are filled in automatically.",
       "insertPlaceholder": "Insert:",
       "missingPlaceholders": "Missing: {list}",
@@ -1166,7 +1197,13 @@
       "detail": "Invoice {invoice} · {amount} · paid {date}",
       "noInvoiceNumber": "(no number)",
       "resolve": "Mark handled",
-      "resolving": "Saving…"
+      "resolving": "Saving…",
+      "confirm": {
+        "title": "Mark this charge as handled?",
+        "description": "Only do this once the invoice for {business} is refunded in Stripe. It leaves this list and does not come back; nothing is changed in Stripe.",
+        "confirm": "Mark handled",
+        "cancel": "Cancel"
+      }
     }
   },
   "adminBusinesses": {
@@ -1288,6 +1325,7 @@
       "confirmPasswordLabel": "Confirm new password",
       "updatePassword": "Update password",
       "passwordMismatch": "New password and confirmation don't match.",
+      "passwordTooLong": "Password is too long: 72 characters at most (accented characters count double).",
       "cancel": "Cancel",
       "addPasswordTitle": "Add a password",
       "addPasswordDescription": "You accepted your invite with Google. Add a password to also be able to sign in with your email and password.",
@@ -1314,7 +1352,7 @@
       "errors": {
         "currentPasswordRequired": "Enter your current password.",
         "passwordTooShort": "Password must be at least 8 characters.",
-        "passwordTooLong": "Password must be 128 characters or fewer.",
+        "passwordTooLong": "Password is too long: 72 characters at most (accented characters count double).",
         "passwordUppercase": "Password must contain an uppercase letter.",
         "passwordLowercase": "Password must contain a lowercase letter.",
         "passwordNumber": "Password must contain a number.",
@@ -1398,6 +1436,15 @@
     }
   },
   "common": {
+    "toast": {
+      "close": "Close",
+      "region": "Notifications"
+    },
+    "routeError": {
+      "reference": "Reference: {digest}"
+    },
+    "close": "Close",
+    "anonymousReviewer": "Anonymous",
     "escalationReason": {
       "low_rating": "Escalated · Low rating",
       "blocklist_match": "Escalated · Blocklist match"

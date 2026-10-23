@@ -8,6 +8,7 @@ import type { ConnectionsDbService } from '@db/repositories/connections/connecti
 import { Logger } from '@nestjs/common';
 
 import type { BillingEntitlementsService } from './billing-entitlements.service';
+import type { BillingReconciliationService } from './billing-reconciliation.service';
 import { BillingWebhooksService } from './billing-webhooks.service';
 
 import { StripeWebhookTenantNotFoundException } from '../exceptions/billing.exceptions';
@@ -56,6 +57,9 @@ describe('BillingWebhooksService', () => {
     >
   >;
   let billingReceiptsDbService: jest.Mocked<Pick<BillingReceiptsDbService, 'recordIfNew'>>;
+  let billingReconciliationService: jest.Mocked<
+    Pick<BillingReconciliationService, 'reconcileTenantSubscription'>
+  >;
 
   beforeEach(() => {
     dbService = {
@@ -81,13 +85,18 @@ describe('BillingWebhooksService', () => {
       recordIfNew: jest.fn().mockResolvedValue({ inserted: true, paidAfterErasureRequest: false }),
     };
 
+    billingReconciliationService = {
+      reconcileTenantSubscription: jest.fn().mockResolvedValue(undefined),
+    };
+
     target = new BillingWebhooksService(
       dbService as unknown as DBService,
       stripeWebhookEventsDbService as unknown as StripeWebhookEventsDbService,
       tenantSubscriptionsDbService as unknown as TenantSubscriptionsDbService,
       connectionsDbService as unknown as ConnectionsDbService,
       billingEntitlementsService as unknown as BillingEntitlementsService,
-      billingReceiptsDbService as unknown as BillingReceiptsDbService
+      billingReceiptsDbService as unknown as BillingReceiptsDbService,
+      billingReconciliationService as unknown as BillingReconciliationService
     );
   });
 
@@ -149,11 +158,10 @@ describe('BillingWebhooksService', () => {
 
       expect(tenantSubscriptionsDbService.setToPaidFromCheckout).toHaveBeenCalledWith(
         'tenant-1',
+        // No period keys: the payload carries none, and a null written here erased the one an earlier subscription.updated stored.
         {
           stripeSubscriptionId: 'sub_1',
           status: SubscriptionStatus.ACTIVE,
-          currentPeriodStart: '2026-08-01T00:00:00.000Z',
-          currentPeriodEnd: '2026-09-01T00:00:00.000Z',
           cancelAtPeriodEnd: false,
         },
         fakeTx
@@ -243,6 +251,63 @@ describe('BillingWebhooksService', () => {
         expect.objectContaining({ status: SubscriptionStatus.PAST_DUE }),
         fakeTx
       );
+    });
+  });
+
+  // Stripe sends no `.deleted` for `unpaid` or `incomplete_expired`; the provider maps them to canceled and the update has to end the plan.
+  describe('customer.subscription.updated to a canceled status', () => {
+    const canceledUpdate: PaymentWebhookEvent = {
+      id: 'evt_u',
+      type: 'customer.subscription.updated',
+      customerId: 'cus_1',
+      subscriptionId: 'sub_1',
+      status: SubscriptionStatus.CANCELED,
+      currentPeriodStart: '2026-08-01T00:00:00.000Z',
+      currentPeriodEnd: '2026-09-01T00:00:00.000Z',
+      cancelAtPeriodEnd: false,
+    };
+
+    it('downgrades to Free and enforces the location limit, as a deletion does', async () => {
+      tenantSubscriptionsDbService.findByStripeSubscriptionId.mockResolvedValue(subscriptionRow);
+
+      await target.handleEvent(canceledUpdate);
+
+      expect(tenantSubscriptionsDbService.setToFreeFromSubscriptionDeleted).toHaveBeenCalledWith(
+        'tenant-1',
+        fakeTx
+      );
+      expect(billingEntitlementsService.enforceLocationLimitOnDowngrade).toHaveBeenCalledWith(
+        'tenant-1',
+        fakeTx
+      );
+      expect(tenantSubscriptionsDbService.syncSubscriptionFields).not.toHaveBeenCalled();
+    });
+
+    it('emails the owners about paused locations once the transaction commits', async () => {
+      tenantSubscriptionsDbService.findByStripeSubscriptionId.mockResolvedValue(subscriptionRow);
+      const notice = {
+        tenantId: 'tenant-1',
+        maxLocations: 1,
+        keptLocationNames: ['Harbor St'],
+        pausedLocationNames: ['Old Town'],
+      };
+      billingEntitlementsService.enforceLocationLimitOnDowngrade.mockResolvedValue(notice);
+
+      await target.handleEvent(canceledUpdate);
+
+      expect(billingEntitlementsService.notifyOwnersOfPausedLocations).toHaveBeenCalledWith(notice);
+    });
+
+    it('does not downgrade for an update that is merely cancel-at-period-end', async () => {
+      tenantSubscriptionsDbService.findByStripeSubscriptionId.mockResolvedValue(subscriptionRow);
+
+      await target.handleEvent({
+        ...canceledUpdate,
+        status: SubscriptionStatus.ACTIVE,
+        cancelAtPeriodEnd: true,
+      });
+
+      expect(tenantSubscriptionsDbService.setToFreeFromSubscriptionDeleted).not.toHaveBeenCalled();
     });
   });
 
@@ -595,6 +660,62 @@ describe('BillingWebhooksService', () => {
       });
 
       expect(tenantSubscriptionsDbService.setToPaidFromCheckout).not.toHaveBeenCalled();
+    });
+
+    // The Checkout is the only event that binds the customer to its subscription; dropping it left a paying tenant on Free.
+    it('asks Stripe about the tenant, after the transaction, when a checkout completion was dropped as stale', async () => {
+      tenantSubscriptionsDbService.advanceEventClock.mockResolvedValue(false);
+      const order: string[] = [];
+      dbService.db.transaction.mockImplementation(
+        async (fn: (tx: DrizzleTransaction) => unknown) => {
+          const result = await fn(fakeTx);
+          order.push('committed');
+          return result;
+        }
+      );
+      billingReconciliationService.reconcileTenantSubscription.mockImplementation(() => {
+        order.push('reconciled');
+        return Promise.resolve();
+      });
+
+      await target.handleEvent({
+        id: 'evt_c',
+        type: 'checkout.session.completed',
+        customerId: 'cus_1',
+        subscriptionId: 'sub_1',
+        paymentSettled: true,
+        status: SubscriptionStatus.ACTIVE,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        createdAt,
+      });
+
+      expect(billingReconciliationService.reconcileTenantSubscription).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        stripeCustomerId: 'cus_1',
+      });
+      expect(order).toEqual(['committed', 'reconciled']);
+    });
+
+    it('still acknowledges the event when that follow-up reconcile fails', async () => {
+      tenantSubscriptionsDbService.advanceEventClock.mockResolvedValue(false);
+      billingReconciliationService.reconcileTenantSubscription.mockRejectedValue(
+        new Error('stripe down')
+      );
+
+      await expect(
+        target.handleEvent({
+          id: 'evt_c',
+          type: 'checkout.session.completed',
+          customerId: 'cus_1',
+          subscriptionId: 'sub_1',
+          paymentSettled: true,
+          status: SubscriptionStatus.ACTIVE,
+          currentPeriodStart: null,
+          currentPeriodEnd: null,
+          createdAt,
+        })
+      ).resolves.toBeUndefined();
     });
 
     it('leaves the status alone for a late payment_succeeded but still records the receipt', async () => {

@@ -48,7 +48,7 @@ export function LoginView() {
   const landingPath = (hasConnectedBusiness: boolean): Route =>
     hasConnectedBusiness
       ? ((readReturnPath("tenant") ?? ROUTES.DASHBOARD) as Route)
-      : (ROUTES.ONBOARDING_CONNECT as Route);
+      : (ROUTES.ONBOARDING_CONNECT);
   const {
     loginWithPassword,
     restoreAccount,
@@ -202,14 +202,14 @@ export function LoginView() {
 
             <div className="text-muted-foreground mt-6 text-center text-sm">
               {t("noAccount")}{" "}
-              <Link href={ROUTES.ONBOARDING_SIGNUP as Route} className="font-medium">
+              <Link href={ROUTES.ONBOARDING_SIGNUP} className="font-medium text-primary underline underline-offset-4">
                 {t("signUp")}
               </Link>
             </div>
 
             <div className="text-muted-foreground mt-2 text-center text-xs">
               {t("platformAdmin")}{" "}
-              <Link href={ROUTES.ADMIN_LOGIN as Route} className="font-medium">
+              <Link href={ROUTES.ADMIN_LOGIN} className="font-medium text-primary underline underline-offset-4">
                 {t("adminSignIn")}
               </Link>
             </div>

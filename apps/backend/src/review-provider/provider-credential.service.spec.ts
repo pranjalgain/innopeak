@@ -208,3 +208,68 @@ describe('ProviderCredentialService.revokeOrThrow', () => {
     expect(revoke).not.toHaveBeenCalled();
   });
 });
+
+// Deleting the credential when Google refused to confirm the revocation left a live grant at Google with no handle left to revoke it by.
+describe('ProviderCredentialService.revokeAndDelete', () => {
+  let service: ProviderCredentialService;
+  const get = jest.fn();
+  const del = jest.fn();
+  const revoke = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    del.mockResolvedValue(undefined);
+    get.mockResolvedValue({ refreshToken: 'rt' });
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ProviderCredentialService,
+        { provide: ReviewProvider, useValue: { revoke } },
+        {
+          provide: CredentialStoreProvider,
+          useValue: { get, update: jest.fn(), put: jest.fn(), delete: del },
+        },
+        { provide: REDIS_CLIENT, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ProviderCredentialService);
+  });
+
+  it('revokes and deletes when Google confirms', async () => {
+    revoke.mockResolvedValue(true);
+
+    await expect(service.revokeAndDelete('ref', { keepIfNotRevoked: true })).resolves.toBe(true);
+
+    expect(del).toHaveBeenCalledWith('ref');
+  });
+
+  it('keeps the credential, and says so, when Google does not confirm and the caller asked to keep it', async () => {
+    revoke.mockResolvedValue(false);
+
+    await expect(service.revokeAndDelete('ref', { keepIfNotRevoked: true })).resolves.toBe(false);
+
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('still deletes when Google does not confirm and the caller did not ask to keep it', async () => {
+    revoke.mockResolvedValue(false);
+
+    await expect(service.revokeAndDelete('ref')).resolves.toBe(false);
+
+    expect(del).toHaveBeenCalledWith('ref');
+  });
+
+  it('deletes a credential that holds no refresh token, whatever the option', async () => {
+    get.mockResolvedValue({});
+
+    await service.revokeAndDelete('ref', { keepIfNotRevoked: true });
+
+    expect(revoke).not.toHaveBeenCalled();
+    expect(del).toHaveBeenCalledWith('ref');
+  });
+
+  it('never throws, even when the store does', async () => {
+    get.mockRejectedValue(new Error('store down'));
+
+    await expect(service.revokeAndDelete('ref', { keepIfNotRevoked: true })).resolves.toBe(false);
+  });
+});

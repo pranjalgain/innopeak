@@ -75,6 +75,15 @@ export interface SyncSubscriptionFieldsInput {
   cancelAtPeriodEnd: boolean;
 }
 
-export interface SetToPaidInput extends SyncSubscriptionFieldsInput {
+/**
+ * `currentPeriodStart`/`currentPeriodEnd` may be left out: a checkout webhook carries no period, and an absent value keeps what the
+ * row already has (from an earlier `subscription.updated`) instead of overwriting it with NULL. `null` still clears it.
+ */
+export interface SetToPaidInput extends Omit<
+  SyncSubscriptionFieldsInput,
+  'currentPeriodEnd' | 'currentPeriodStart'
+> {
   stripeSubscriptionId: string;
+  currentPeriodStart?: string | null;
+  currentPeriodEnd?: string | null;
 }

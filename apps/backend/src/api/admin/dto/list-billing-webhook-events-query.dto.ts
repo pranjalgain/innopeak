@@ -7,6 +7,7 @@ import {
   WEBHOOK_EVENTS_PAGE_SIZE_DEFAULT,
   WEBHOOK_EVENTS_PAGE_SIZE_MAX,
 } from '../constants/admin-billing.constants';
+import { ADMIN_LIST_PAGE_MAX } from '../constants/admin-overview.constants';
 
 const STRIPE_WEBHOOK_EVENT_TYPE_KEYS = Object.keys(StripeWebhookEventType);
 const STRIPE_WEBHOOK_EVENT_TYPE_VALUES: string[] = Object.values(StripeWebhookEventType);
@@ -17,6 +18,7 @@ export class ListBillingWebhookEventsQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(ADMIN_LIST_PAGE_MAX)
   page?: number;
 
   @ApiPropertyOptional({

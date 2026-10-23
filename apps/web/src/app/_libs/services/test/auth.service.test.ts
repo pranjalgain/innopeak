@@ -2,10 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { adminAuthApi } from "@/app/_libs/api-sdk/admin-auth-api";
 import { authApi } from "@/app/_libs/api-sdk/auth-api";
+import { endLapsedSession } from "@/app/_libs/api-sdk/config";
 import { ApiError } from "@/app/_libs/services/api-error";
 import { AuthService } from "@/app/_libs/services/auth.service";
 import { PendingSignupService } from "@/app/_libs/services/pending-signup.service";
 import { TokenService } from "@/app/_libs/services/token.service";
+
+// Leaving the page is the interceptor's job in the browser; here only whether it was asked for matters.
+vi.mock("@/app/_libs/api-sdk/config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/app/_libs/api-sdk/config")>()),
+  endLapsedSession: vi.fn(),
+}));
 
 function envelope<T>(data: T) {
   return { data: { status: "Success", data } };
@@ -47,6 +54,25 @@ describe("AuthService.loginWithPassword", () => {
 
     expect(result).toEqual({ kind: "success", hasConnectedBusiness: true });
     expect(TokenService.getName()).toBe("Jane Doe");
+  });
+
+  // The connect stepper is owner-only (a member's calls to it answer 403), so a member lands on the dashboard even when nothing is connected.
+  it.each([
+    ["member", false, true],
+    ["owner", false, false],
+  ] as const)("routes a %s of a business with nothing connected", async (role, connected, expected) => {
+    vi.spyOn(authApi, "authControllerLoginV1").mockResolvedValue(
+      envelope({
+        accessToken: "tenant-access-token",
+        expiresIn: 900,
+        user: { id: "user-1", name: "Jane Doe", role },
+        hasConnectedBusiness: connected,
+      }) as never,
+    );
+
+    const result = await AuthService.loginWithPassword("jane@thecoffeehouse.com", "StrongP@ss1");
+
+    expect(result).toEqual({ kind: "success", hasConnectedBusiness: expected });
   });
 
   it("recognizes a pending_verification response without touching the cached name", async () => {
@@ -109,7 +135,7 @@ describe("AuthService — owner self-service deletion", () => {
 
   it("clears the cached identity once deletion is scheduled", async () => {
     TokenService.setName("Jane Doe");
-    vi.spyOn(AuthService, "refreshAccessToken").mockResolvedValue(true);
+    vi.spyOn(AuthService, "refreshAccessTokenOutcome").mockResolvedValue({ ok: true });
     const del = vi.spyOn(authApi, "authControllerDeleteAccountV1").mockResolvedValue(
       envelope({
         scheduledFor: "2026-10-27T00:00:00.000Z",
@@ -238,6 +264,18 @@ describe("AuthService.logout", () => {
     expect(assign).toHaveBeenCalledWith("/login");
   });
 
+  // The server's answer is what ends the session; leaving on a failed call would show the sign-in page of someone still signed in.
+  it("stays put and rethrows when the sign-out request fails", async () => {
+    setSessionCookie("tenant");
+    TokenService.setName("Jane Doe");
+    vi.spyOn(authApi, "authControllerLogoutV1").mockRejectedValue(new ApiError(503, "down"));
+
+    await expect(AuthService.logout()).rejects.toThrow(ApiError);
+
+    expect(assign).not.toHaveBeenCalled();
+    expect(TokenService.getName()).toBe("Jane Doe");
+  });
+
   it("falls back to the tenant login page when there is no session at all", async () => {
     await AuthService.logout();
 
@@ -292,5 +330,45 @@ describe("AuthService — SSO navigation", () => {
       { completeSsoSignupDto: { businessName: "The Coastal Table" } },
       { authOptional: true },
     );
+  });
+});
+
+// A failed refresh used to be rethrown as a 401, which the password forms read as "current password incorrect", and nothing left the page.
+describe("AuthService — a change that first has to refresh the session", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(endLapsedSession).mockClear();
+  });
+
+  it("goes to sign-in, without calling it a wrong password, when the session is really over", async () => {
+    vi.spyOn(AuthService, "refreshAccessTokenOutcome").mockResolvedValue({ ok: false, status: 401 });
+    const change = vi.spyOn(authApi, "authControllerChangePasswordV1");
+
+    const error = await AuthService.changePassword("Old@Pass1", "New@Str0ngPass").catch((e: unknown) => e);
+
+    expect(endLapsedSession).toHaveBeenCalledTimes(1);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).statusCode).not.toBe(401);
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it.each([429, 500, 503])("keeps the session and reports the real status when the refresh answers %i", async (status) => {
+    vi.spyOn(AuthService, "refreshAccessTokenOutcome").mockResolvedValue({ ok: false, status });
+    const change = vi.spyOn(authApi, "authControllerChangePasswordV1");
+
+    const error = await AuthService.changePassword("Old@Pass1", "New@Str0ngPass").catch((e: unknown) => e);
+
+    expect(endLapsedSession).not.toHaveBeenCalled();
+    expect((error as ApiError).statusCode).toBe(status);
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it("reports a refresh that never reached the server as unavailable, not as a dead session", async () => {
+    vi.spyOn(AuthService, "refreshAccessTokenOutcome").mockResolvedValue({ ok: false, status: 0 });
+
+    const error = await AuthService.changePassword("Old@Pass1", "New@Str0ngPass").catch((e: unknown) => e);
+
+    expect(endLapsedSession).not.toHaveBeenCalled();
+    expect((error as ApiError).statusCode).toBe(503);
   });
 });

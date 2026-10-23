@@ -63,7 +63,13 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
     }
 
     setIsSaving(true);
-    const succeeded = await onSave(finalDraft);
+    // Only the fields this tab edits: its draft was taken when it mounted and now outlives visits to the other tabs, so sending the whole
+    // object would write back an old AI reply count over one saved on the AI tab since.
+    const succeeded = await onSave({
+      escalationRatingThreshold: finalDraft.escalationRatingThreshold,
+      autoPostApprovedReplies: finalDraft.autoPostApprovedReplies,
+      reviewDataRetentionMonths: finalDraft.reviewDataRetentionMonths,
+    });
     setIsSaving(false);
     if (succeeded) toast.success(tToasts("generalSaved"));
   };
@@ -92,6 +98,7 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
             </span>
           </div>
           <Slider
+            aria-label={t("escalationThreshold.label")}
             min={1}
             max={5}
             step={1}
@@ -116,6 +123,7 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
             <p className="text-muted-foreground mt-0.5 text-[13px]">{t("autoPost.helper")}</p>
           </div>
           <Switch
+            aria-label={t("autoPost.label")}
             checked={draft.autoPostApprovedReplies}
             onCheckedChange={(checked) =>
               setDraft((d) => ({ ...d, autoPostApprovedReplies: checked }))
@@ -140,7 +148,14 @@ export function GeneralSettingsSection({ general, onSave }: GeneralSettingsSecti
                   aria-invalid={retentionError !== null}
                   className="w-20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 />
-                <span className="text-muted-foreground text-[13px]">{t("retention.suffix")}</span>
+                {/* Two keys, not an ICU plural: the unit is the only word that changes. */}
+                <span className="text-muted-foreground text-[13px]">
+                  {t(
+                    Number.parseInt(retentionText, 10) === 1
+                      ? "retention.suffixOne"
+                      : "retention.suffixOther",
+                  )}
+                </span>
                 <Button
                   type="button"
                   variant="ghost"

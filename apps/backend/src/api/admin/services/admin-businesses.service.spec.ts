@@ -2,6 +2,7 @@ import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { ErasureNoticeService } from '@auth/services/erasure-notice.service';
+import { SessionRevocationService } from '@auth/services/session-revocation.service';
 import type { PlatformAdminAuthUser, TenantAuthUser } from '@auth/types/auth.type';
 import { BillingReconciliationService } from '@billing/services/billing-reconciliation.service';
 import { BusinessConnectionStatus } from '@common/enums/business-connection-status.enum';
@@ -30,6 +31,7 @@ describe('AdminBusinessesService', () => {
     resumeAfterErasureCancelled: jest.Mock;
   };
   let erasureNoticeService: { notifyScheduled: jest.Mock; notifyCancelled: jest.Mock };
+  let sessionRevocationService: { revokeTenant: jest.Mock };
   let configService: { get: jest.Mock };
 
   const admin: PlatformAdminAuthUser = {
@@ -76,6 +78,7 @@ describe('AdminBusinessesService', () => {
       notifyScheduled: jest.fn().mockResolvedValue(undefined),
       notifyCancelled: jest.fn().mockResolvedValue(undefined),
     };
+    sessionRevocationService = { revokeTenant: jest.fn().mockResolvedValue(undefined) };
     configService = { get: jest.fn().mockReturnValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -85,6 +88,7 @@ describe('AdminBusinessesService', () => {
         { provide: AdminOverviewDbService, useValue: adminOverviewDbService },
         { provide: BillingReconciliationService, useValue: billingReconciliationService },
         { provide: ErasureNoticeService, useValue: erasureNoticeService },
+        { provide: SessionRevocationService, useValue: sessionRevocationService },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -179,6 +183,34 @@ describe('AdminBusinessesService', () => {
         tenantId: 'tenant-1',
         businessName: 'The Coastal Table',
       });
+    });
+
+    // A suspended business's users must lose access now, not when their access tokens happen to lapse.
+    it("ends every user's access tokens when the business is suspended, but not when it is reactivated or already was", async () => {
+      adminBusinessesDbService.setStatus.mockResolvedValue({
+        outcome: 'updated',
+        changed: true,
+        summary: { ...summary, status: BusinessStatus.SUSPENDED },
+      });
+      await target.setStatus(admin, { tenantId: 'tenant-1', status: BusinessStatus.SUSPENDED });
+      expect(sessionRevocationService.revokeTenant).toHaveBeenCalledWith('tenant-1');
+
+      sessionRevocationService.revokeTenant.mockClear();
+      adminBusinessesDbService.setStatus.mockResolvedValue({
+        outcome: 'updated',
+        changed: false,
+        summary: { ...summary, status: BusinessStatus.SUSPENDED },
+      });
+      await target.setStatus(admin, { tenantId: 'tenant-1', status: BusinessStatus.SUSPENDED });
+      expect(sessionRevocationService.revokeTenant).not.toHaveBeenCalled();
+
+      adminBusinessesDbService.setStatus.mockResolvedValue({
+        outcome: 'updated',
+        changed: true,
+        summary: { ...summary, status: BusinessStatus.ACTIVE },
+      });
+      await target.setStatus(admin, { tenantId: 'tenant-1', status: BusinessStatus.ACTIVE });
+      expect(sessionRevocationService.revokeTenant).not.toHaveBeenCalled();
     });
 
     it('answers like the first call but logs nothing when the business already had that status', async () => {
@@ -305,6 +337,22 @@ describe('AdminBusinessesService', () => {
       expect(result.gracePeriodDays).toBe(21);
     });
 
+    // The request suspends the business, so its users' access tokens end now.
+    it("ends every user's access tokens in the business when erasure is requested", async () => {
+      adminBusinessesDbService.requestErasure.mockResolvedValue({
+        outcome: 'requested',
+        summary: {
+          ...summary,
+          status: BusinessStatus.SUSPENDED,
+          erasureRequestedAt: '2026-03-05T09:12:00.000Z',
+        },
+      });
+
+      await target.requestErasure(admin, 'tenant-1');
+
+      expect(sessionRevocationService.revokeTenant).toHaveBeenCalledWith('tenant-1');
+    });
+
     it('does nothing more for a repeat request: no subscription change, activity entry or owner email', async () => {
       adminBusinessesDbService.requestErasure.mockResolvedValue({
         outcome: 'already_requested',
@@ -323,6 +371,7 @@ describe('AdminBusinessesService', () => {
       expect(billingReconciliationService.scheduleCancellationForErasure).not.toHaveBeenCalled();
       expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
       expect(erasureNoticeService.notifyScheduled).not.toHaveBeenCalled();
+      expect(sessionRevocationService.revokeTenant).not.toHaveBeenCalled();
     });
 
     it('throws 404 when no such tenant exists (or it is already erased), without logging any activity', async () => {

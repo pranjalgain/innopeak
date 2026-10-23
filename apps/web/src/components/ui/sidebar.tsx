@@ -279,9 +279,10 @@ function SidebarRail({ className, ...props }: ComponentProps<"button">) {
   );
 }
 
-function SidebarInset({ className, ...props }: ComponentProps<"main">) {
+/** A `div`, not shadcn's `<main>`: the page's one `main` landmark is the content area inside it (see `AppShell`), not the header too. */
+function SidebarInset({ className, ...props }: ComponentProps<"div">) {
   return (
-    <main
+    <div
       data-slot="sidebar-inset"
       className={cn(
         "bg-background relative flex w-full min-w-0 flex-1 flex-col",

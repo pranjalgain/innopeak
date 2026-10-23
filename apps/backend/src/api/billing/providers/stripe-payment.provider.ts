@@ -30,13 +30,20 @@ import type {
 import { isResourceMissing } from '../utils/stripe-error.util';
 
 /**
- * `trialing`/`incomplete_expired`/`unpaid` are deliberately omitted: nothing produces them (no
- * trial). Unmapped statuses fall back to `INCOMPLETE` with a warning rather than dropping the webhook.
+ * Every status Stripe can send, read by what it means for access:
+ * - `trialing` entitles like `active` (no trial is offered, but one configured in the dashboard must not read as unpaid);
+ * - `unpaid` (retries exhausted, the subscription left in place but never charged again) and `incomplete_expired` (the first payment never
+ *   happened) are over: `canceled`. Stripe sends no `customer.subscription.deleted` for them, so without this a tenant stayed on the Paid
+ *   plan forever, unpaid. `BillingWebhooksService` downgrades on a `canceled` update.
+ * A status Stripe adds later falls back to `INCOMPLETE` with a warning rather than dropping the webhook.
  */
 const STRIPE_STATUS_MAP: Partial<Record<Stripe.Subscription.Status, SubscriptionStatus>> = {
   active: SubscriptionStatus.ACTIVE,
+  trialing: SubscriptionStatus.ACTIVE,
   past_due: SubscriptionStatus.PAST_DUE,
   canceled: SubscriptionStatus.CANCELED,
+  unpaid: SubscriptionStatus.CANCELED,
+  incomplete_expired: SubscriptionStatus.CANCELED,
   incomplete: SubscriptionStatus.INCOMPLETE,
 };
 
@@ -44,8 +51,26 @@ const LIVE_SUBSCRIPTION_STATUSES: ReadonlySet<Stripe.Subscription.Status> = new 
   'active',
   'trialing',
   'past_due',
+]);
+
+/**
+ * Subscriptions that exist in Stripe but are not paid for and never entitled the tenant to anything: `unpaid` (the plan already ended
+ * locally) and `incomplete` (a payment, say a 3-D Secure step, nobody finished). They would otherwise block a new Checkout for hours
+ * (an incomplete one only expires after 23) with "already subscribed" on a Free tenant, so they are cancelled instead.
+ */
+const STALE_SUBSCRIPTION_STATUSES: ReadonlySet<Stripe.Subscription.Status> = new Set([
   'unpaid',
   'incomplete',
+]);
+
+/**
+ * Statuses a tenant is still entitled to (and billed under): what a reconcile may adopt. `unpaid` is deliberately absent, matching
+ * `STRIPE_STATUS_MAP`, which ends the plan for it.
+ */
+const ENTITLED_SUBSCRIPTION_STATUSES: ReadonlySet<Stripe.Subscription.Status> = new Set([
+  'active',
+  'trialing',
+  'past_due',
 ]);
 
 @Injectable()
@@ -281,7 +306,7 @@ export class StripePaymentProvider extends PaymentProvider {
 
   // `limit: 1`: only one live subscription is stored per tenant.
   async prepareNewCheckout(customerId: string): Promise<NewCheckoutPreparation> {
-    // Wider than `active`: a past-due or incomplete (e.g. awaiting 3-D Secure) subscription is still one a second Checkout would duplicate.
+    // Wider than `active`: a trialing or past-due subscription is still one a second Checkout would duplicate.
     const subscriptions = await this.stripe.subscriptions.list({
       customer: customerId,
       status: 'all',
@@ -290,7 +315,7 @@ export class StripePaymentProvider extends PaymentProvider {
     if (
       subscriptions.data.some(subscription => LIVE_SUBSCRIPTION_STATUSES.has(subscription.status))
     ) {
-      return { hasLiveSubscription: true };
+      return { hasLiveSubscription: true, staleSubscriptionIds: [] };
     }
 
     const open = await this.stripe.checkout.sessions.list({
@@ -299,7 +324,27 @@ export class StripePaymentProvider extends PaymentProvider {
       limit: 100,
     });
     await Promise.all(open.data.map(session => this.stripe.checkout.sessions.expire(session.id)));
-    return { hasLiveSubscription: false };
+    return {
+      hasLiveSubscription: false,
+      // See `STALE_SUBSCRIPTION_STATUSES`; cancelled by the caller outside its lock (`cancelStaleSubscriptions`).
+      staleSubscriptionIds: subscriptions.data
+        .filter(subscription => STALE_SUBSCRIPTION_STATUSES.has(subscription.status))
+        .map(subscription => subscription.id),
+    };
+  }
+
+  async cancelStaleSubscriptions(subscriptionIds: string[]): Promise<void> {
+    await Promise.all(
+      subscriptionIds.map(async subscriptionId => {
+        try {
+          await this.stripe.subscriptions.cancel(subscriptionId);
+        } catch (error) {
+          if (!isResourceMissing(error)) {
+            throw error;
+          }
+        }
+      })
+    );
   }
 
   async retrieveActiveSubscriptionForCustomer(
@@ -309,8 +354,9 @@ export class StripePaymentProvider extends PaymentProvider {
     try {
       subscriptions = await this.stripe.subscriptions.list({
         customer: customerId,
-        status: 'active',
-        limit: 1,
+        // Not just `active`: a trialing or past-due subscription is one the tenant is entitled to as well, and the status map says so.
+        status: 'all',
+        limit: 10,
       });
     } catch (error) {
       // A customer Stripe doesn't know has no subscription; answering null lets the sweep stamp it verified instead of failing it every night.
@@ -320,7 +366,9 @@ export class StripePaymentProvider extends PaymentProvider {
       throw error;
     }
 
-    const subscription = subscriptions.data[0];
+    const subscription = subscriptions.data.find(candidate =>
+      ENTITLED_SUBSCRIPTION_STATUSES.has(candidate.status)
+    );
     return subscription ? this.toSubscriptionSnapshot(subscription) : null;
   }
 

@@ -9,12 +9,22 @@ import {
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_SECONDS,
 } from '../constants/auth.constants';
+import { OtpScope } from '../enums/otp-scope.enum';
+
+/** Which flow, and whose: an email for the public flow, the signed-in principal's id for the rest. */
+export interface OtpBudgetKey {
+  scope: OtpScope;
+  identity: string;
+}
 
 /**
  * Per-account ceiling on top of the per-IP throttle, which is bypassed by spreading guesses across
- * IPs; a 6-digit code that mints a session is within reach that way. Keyed on the submitted email
- * so unknown emails count like known ones (no existence oracle). Redis-backed so a failed guess
+ * IPs; a 6-digit code that mints a session is within reach that way. Redis-backed so a failed guess
  * costs no DB write and expires on its own.
+ *
+ * Each budget is scoped to a flow (`OtpScope`) and an identity: the public sign-up code is keyed on
+ * the submitted email, so unknown emails count like known ones (no existence oracle), while the
+ * signed-in flows are keyed on the principal's id, so nobody can spend them from outside.
  */
 @Injectable()
 export class OtpAttemptService {
@@ -24,12 +34,12 @@ export class OtpAttemptService {
    * SHA-256 of the address, as in `LoginAttemptService`, so Redis read access never reveals
    * registered emails.
    */
-  private hashedKey(prefix: string, email: string): string {
-    return `${prefix}:${createHash('sha256').update(email).digest('hex')}`;
+  private hashedKey(prefix: string, { scope, identity }: OtpBudgetKey): string {
+    return `${prefix}:${scope}:${createHash('sha256').update(identity).digest('hex')}`;
   }
 
-  private key(email: string): string {
-    return this.hashedKey('auth:otp-attempts', email);
+  private key(budget: OtpBudgetKey): string {
+    return this.hashedKey('auth:otp-attempts', budget);
   }
 
   /**
@@ -38,8 +48,8 @@ export class OtpAttemptService {
    * a victim locked out; `ttl < 0` repairs a counter left without an expiry (crash between INCR and
    * EXPIRE).
    */
-  async consumeAttempt(email: string): Promise<boolean> {
-    const key = this.key(email);
+  async consumeAttempt(budget: OtpBudgetKey): Promise<boolean> {
+    const key = this.key(budget);
     const attempts = await this.redis.incr(key);
 
     if (attempts === 1 || (await this.redis.ttl(key)) < 0) {
@@ -49,12 +59,20 @@ export class OtpAttemptService {
     return attempts <= OTP_MAX_ATTEMPTS;
   }
 
-  async reset(email: string): Promise<void> {
-    await this.redis.del(this.key(email));
+  async reset(budget: OtpBudgetKey): Promise<void> {
+    await this.redis.del(this.key(budget));
   }
 
-  private cooldownKey(email: string): string {
-    return this.hashedKey('auth:otp-resend', email);
+  private cooldownKey(budget: OtpBudgetKey): string {
+    return this.hashedKey('auth:otp-resend', budget);
+  }
+
+  /**
+   * Gives back a cooldown claimed for a code that was never sent (the email queue refused it), so the person's next click is not
+   * answered with "wait a minute" for a mail that does not exist.
+   */
+  async releaseResend(budget: OtpBudgetKey): Promise<void> {
+    await this.redis.del(this.cooldownKey(budget));
   }
 
   /**
@@ -63,9 +81,9 @@ export class OtpAttemptService {
    * the claim atomic; keyed on the submitted address so it reveals nothing about which accounts
    * exist.
    */
-  async claimResend(email: string): Promise<boolean> {
+  async claimResend(budget: OtpBudgetKey): Promise<boolean> {
     const claimed = await this.redis.set(
-      this.cooldownKey(email),
+      this.cooldownKey(budget),
       '1',
       'EX',
       OTP_RESEND_COOLDOWN_SECONDS,

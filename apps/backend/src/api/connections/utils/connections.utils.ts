@@ -1,5 +1,5 @@
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
-import { isProduction } from '@config/deployment-target.util';
+import { shouldUseSecureCookies } from '@config/deployment-target.util';
 import type { LocationRow } from '@db/repositories/connections/types/connections.type';
 import type { SyncRunRow } from '@db/repositories/review-sync/types/review-sync.type';
 import { GOOGLE_OAUTH } from '@review-provider/constants/review-provider.constants';
@@ -19,7 +19,7 @@ import type { LocationDto } from '../dto/connection-response.dto';
 export function buildOauthSidCookieOptions(): CookieOptions {
   return {
     httpOnly: true,
-    secure: isProduction(),
+    secure: shouldUseSecureCookies(),
     sameSite: 'lax',
     path: OAUTH_SID_COOKIE_PATH,
     maxAge: OAUTH_STATE_TTL_SECONDS * 1000,

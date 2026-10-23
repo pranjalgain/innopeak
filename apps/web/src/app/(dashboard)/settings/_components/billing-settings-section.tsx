@@ -39,7 +39,7 @@ function UsageRow({ label, used, max }: UsageRowProps) {
         <span className="text-muted-foreground">{label}</span>
         <span className="font-medium">{max === null ? used : `${used} / ${max}`}</span>
       </div>
-      {max !== null ? <Progress value={percent} /> : null}
+      {max !== null ? <Progress value={percent} aria-label={label} /> : null}
     </div>
   );
 }
@@ -138,8 +138,7 @@ export function BillingSettingsSection() {
                     trigger={
                       <Button
                         type="button"
-                        variant="outline"
-                        className="border-destructive text-destructive hover:bg-destructive/10"
+                        variant="destructive-outline"
                         disabled={cancelMutation.isPending}>
                         {t("cancelSubscription")}
                       </Button>

@@ -1,14 +1,16 @@
 "use client";
 
 import type { Route } from "next";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useFormatter, useTranslations } from "next-intl";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ClassificationBadge } from "@/components/common/classification-badge";
+import { EscalationBadge } from "@/components/common/escalation-badge";
 import { ReviewStatusBadge } from "@/components/common/review-status-badge";
 import { StarRating } from "@/components/common/star-rating";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useReviewerName } from "@/hooks/common/use-reviewer-name";
 import type { Review } from "@/types/domain";
 
 interface ReviewTableProps {
@@ -21,8 +23,7 @@ const DATE_FORMAT = { month: "short", day: "numeric" } as const;
 export function ReviewTable({ reviews }: ReviewTableProps) {
   const t = useTranslations("reviewQueue");
   const format = useFormatter();
-  const tEscalation = useTranslations("common.escalationReason");
-  const router = useRouter();
+  const reviewerName = useReviewerName();
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card shadow-elevated">
@@ -41,11 +42,19 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
           {reviews.map((review, index) => (
             <TableRow
               key={review.id}
-              onClick={() => router.push(ROUTES.REVIEW_DETAIL(review.id) as Route)}
-              className="animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards cursor-pointer duration-300 ease-fluid"
+              className="animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards relative cursor-pointer duration-300 ease-fluid"
               style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
             >
-              <TableCell className="w-40 truncate font-medium">{review.reviewerName}</TableCell>
+              <TableCell className="w-40 truncate font-medium">
+                {/* A real link, stretched over the whole row by the pseudo-element: focusable, announced, and open-in-new-tab work, which a
+                    click handler on the `<tr>` gave none of. */}
+                <Link
+                  href={ROUTES.REVIEW_DETAIL(review.id) as Route}
+                  className="after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+                >
+                  {reviewerName(review.reviewerName)}
+                </Link>
+              </TableCell>
               <TableCell className="w-28">
                 <StarRating rating={review.rating} />
               </TableCell>
@@ -61,11 +70,11 @@ export function ReviewTable({ reviews }: ReviewTableProps) {
                     className="max-w-full whitespace-normal break-words text-center"
                   />
                   {review.escalationReason ? (
-                    <span
-                      className="inline-flex max-w-full items-center gap-1 rounded-md border border-warning px-2.5 py-0.5 text-xs font-medium break-words whitespace-normal text-center text-warning"
-                    >
-                      {tEscalation(review.escalationReason)}
-                    </span>
+                    <EscalationBadge
+                      reason={review.escalationReason}
+                      wrap
+                      className="max-w-full text-center"
+                    />
                   ) : null}
                 </div>
               </TableCell>

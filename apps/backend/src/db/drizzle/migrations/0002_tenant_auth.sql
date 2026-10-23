@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS tenants (
     -- Set once the 'N days left' reminder is claimed; cleared when an erasure is requested or
     -- cancelled.
     erasure_reminder_sent_at TIMESTAMPTZ,
+    -- What the tenant was before an erasure request suspended it, so cancelling restores that instead of assuming 'active'
+    -- (an admin's own suspension, or a tenant still 'pending_activation', must survive the round trip). NULL = none pending.
+    status_before_erasure tenant_status,
     -- The most recent erasure that was cancelled, kept so a payment whose webhook arrives after the
     -- cancel can still be recognised as taken during it.
     last_erasure_requested_at TIMESTAMPTZ,
@@ -58,6 +61,9 @@ CREATE TABLE IF NOT EXISTS users (
     -- Set when removal of this member is requested; access ends now, anonymization after the grace
     -- period.
     erasure_requested_at TIMESTAMPTZ,
+    -- What the user was before the removal request disabled them, so cancelling restores it: an admin's own deactivation must not be
+    -- undone by an owner requesting and then cancelling a removal. NULL = none pending.
+    status_before_removal user_status,
     -- NULL means the user never chose a language; Accept-Language decides.
     locale user_locale,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

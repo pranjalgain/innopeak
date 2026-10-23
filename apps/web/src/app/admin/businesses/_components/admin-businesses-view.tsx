@@ -187,6 +187,7 @@ export function AdminBusinessesView() {
             <Input
               type="text"
               placeholder={t("searchPlaceholder")}
+              aria-label={t("searchPlaceholder")}
               maxLength={MAX_SEARCH_LENGTH}
               value={search}
               onChange={(event) => setSearch(event.target.value)}

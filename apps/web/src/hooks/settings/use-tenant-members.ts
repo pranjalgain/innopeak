@@ -13,6 +13,8 @@ export const tenantMembersQueryKey = ["tenant-members"] as const;
 interface UseTenantMembersResult {
   members: TenantMember[];
   isLoading: boolean;
+  isError: boolean;
+  refetch: () => void;
   inviteMember: (email: string) => Promise<boolean>;
   revokeInvite: (id: string) => Promise<void>;
   requestRemoval: (id: string) => Promise<void>;
@@ -125,6 +127,9 @@ export function useTenantMembers(): UseTenantMembersResult {
   return {
     members: membersQuery.data ?? [],
     isLoading: membersQuery.isLoading,
+    // A failed *refresh* keeps the list (and a half-typed invite) on screen; only a load that left nothing is an error screen.
+    isError: membersQuery.isError && membersQuery.data === undefined,
+    refetch: () => void membersQuery.refetch(),
     inviteMember,
     revokeInvite,
     requestRemoval,

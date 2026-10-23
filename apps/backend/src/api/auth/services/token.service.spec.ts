@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
+import { SessionRevocationService } from './session-revocation.service';
 import { TokenService } from './token.service';
 
 import { ACCESS_TOKEN_TTL_SECONDS } from '../constants/auth.constants';
@@ -13,11 +14,13 @@ import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
 import { RefreshTokenSupersededException } from '../errors/refresh-token.error';
+import { InvalidRefreshTokenException } from '../exceptions/auth.exceptions';
 
 describe('TokenService', () => {
   let target: TokenService;
   let jwtService: jest.Mocked<JwtService>;
   let authDbService: jest.Mocked<AuthDbService>;
+  let sessionRevocationService: { revokeUser: jest.Mock; isRevoked: jest.Mock };
 
   const user = {
     id: 'user-1',
@@ -30,7 +33,12 @@ describe('TokenService', () => {
     locale: null,
   };
 
-  const validRefreshClaims = { sub: user.id, jti: 'jti-1', type: JwtTokenType.REFRESH };
+  const validRefreshClaims = {
+    sub: user.id,
+    jti: 'jti-1',
+    type: JwtTokenType.REFRESH,
+    iat: 1_760_000_000,
+  };
 
   beforeEach(async () => {
     jwtService = {
@@ -48,6 +56,11 @@ describe('TokenService', () => {
       revokeAllRefreshTokensForUser: jest.fn(),
     } as unknown as jest.Mocked<AuthDbService>;
 
+    sessionRevocationService = {
+      revokeUser: jest.fn().mockResolvedValue(undefined),
+      isRevoked: jest.fn().mockResolvedValue(false),
+    };
+
     const configService = { get: jest.fn(() => 'refresh-secret') } as unknown as ConfigService;
 
     const module: TestingModule = await Test.createTestingModule({
@@ -56,6 +69,7 @@ describe('TokenService', () => {
         { provide: JwtService, useValue: jwtService },
         { provide: AuthDbService, useValue: authDbService },
         { provide: ConfigService, useValue: configService },
+        { provide: SessionRevocationService, useValue: sessionRevocationService },
       ],
     }).compile();
 
@@ -171,6 +185,35 @@ describe('TokenService', () => {
     });
   });
 
+  describe('reissueAccessToken', () => {
+    const subject = {
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      email: 'jane@thecoffeehouse.com',
+      role: UserRole.OWNER,
+      locale: 'de' as const,
+    };
+
+    // Regression: a fresh TTL on every call made the update-locale route a way to renew a stolen access token indefinitely,
+    // through a logout and a password change (neither can reach an access token).
+    it("signs to the presenting token's remaining lifetime, not a fresh TTL", () => {
+      jwtService.sign.mockReturnValueOnce('reissued');
+
+      expect(target.reissueAccessToken(subject, 42)).toEqual({
+        accessToken: 'reissued',
+        expiresIn: 42,
+      });
+      expect(jwtService.sign).toHaveBeenCalledWith(expect.anything(), { expiresIn: 42 });
+    });
+
+    it('mints no refresh token and writes no session row', () => {
+      target.reissueAccessToken(subject, 42);
+
+      expect(jwtService.sign).toHaveBeenCalledTimes(1);
+      expect(authDbService.insertRefreshToken).not.toHaveBeenCalled();
+    });
+  });
+
   describe('rotate', () => {
     it('rejects a token that fails JWT verification', async () => {
       jwtService.verify.mockImplementation(() => {
@@ -255,6 +298,7 @@ describe('TokenService', () => {
       );
       // Load-bearing: revoking here would sign the winner out of every tab.
       expect(authDbService.revokeAllRefreshTokensForUser).not.toHaveBeenCalled();
+      expect(sessionRevocationService.revokeUser).not.toHaveBeenCalled();
     });
 
     // Regression: a password change revokes the user's other sessions, and the next refresh from one of them was read as theft,
@@ -272,6 +316,7 @@ describe('TokenService', () => {
       await expect(rejection).rejects.toBeInstanceOf(UnauthorizedException);
       await expect(rejection).rejects.not.toBeInstanceOf(RefreshTokenSupersededException);
       expect(authDbService.revokeAllRefreshTokensForUser).not.toHaveBeenCalled();
+      expect(sessionRevocationService.revokeUser).not.toHaveBeenCalled();
     });
 
     it('treats a token spent long ago as reuse, revoking every session for that user', async () => {
@@ -288,6 +333,8 @@ describe('TokenService', () => {
       await expect(rejection).rejects.toBeInstanceOf(UnauthorizedException);
       await expect(rejection).rejects.not.toBeInstanceOf(RefreshTokenSupersededException);
       expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
+      // The access tokens already issued end with the refresh tokens (a JWT cannot otherwise be taken back).
+      expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith(user.id);
       // The thief gets nothing: no replacement is minted on the way out.
       expect(authDbService.rotateRefreshToken).not.toHaveBeenCalled();
     });
@@ -339,6 +386,8 @@ describe('TokenService', () => {
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
       expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
+      // The access tokens already issued end with the refresh tokens (a JWT cannot otherwise be taken back).
+      expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith(user.id);
       expect(authDbService.rotateRefreshToken).not.toHaveBeenCalled();
     });
 
@@ -358,6 +407,8 @@ describe('TokenService', () => {
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
       expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
+      // The access tokens already issued end with the refresh tokens (a JWT cannot otherwise be taken back).
+      expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith(user.id);
     });
 
     /**
@@ -380,6 +431,8 @@ describe('TokenService', () => {
 
       await expect(target.rotate('some-token')).rejects.toThrow(UnauthorizedException);
       expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
+      // The access tokens already issued end with the refresh tokens (a JWT cannot otherwise be taken back).
+      expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith(user.id);
     });
 
     it('revokes the used token and persists the replacement in one step, then returns the fresh pair', async () => {
@@ -448,5 +501,118 @@ describe('TokenService', () => {
     await target.revokeAll(user.id);
 
     expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
+    // The access tokens already issued end with the refresh tokens (a JWT cannot otherwise be taken back).
+    expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith(user.id);
+  });
+
+  describe('rotate racing a logout', () => {
+    it('revokes the successor and refuses when the session was ended while rotating', async () => {
+      jwtService.verify.mockReturnValue(validRefreshClaims);
+      authDbService.findRefreshTokenByHash.mockResolvedValue({
+        id: 'rt-1',
+        userId: user.id,
+        revokedAt: null,
+        rotated: false,
+      });
+      authDbService.findUserById.mockResolvedValue(user);
+      authDbService.findTenantStatus.mockResolvedValue(null);
+      sessionRevocationService.isRevoked.mockResolvedValue(true);
+
+      await expect(target.rotate('some-token')).rejects.toThrow(InvalidRefreshTokenException);
+
+      expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
+      // The wiring the race fix depends on: this user and business, and the `iat` of the refresh token being rotated, not the time of
+      // the rotation (a fresh pair from a password change, refreshed a moment later, must not read as having raced it).
+      expect(sessionRevocationService.isRevoked).toHaveBeenCalledWith({
+        userId: user.id,
+        tenantId: user.tenantId,
+        issuedAt: validRefreshClaims.iat,
+      });
+    });
+  });
+
+  describe('revokeAll', () => {
+    // A logout, a password change or a disabled user used to leave every access token already issued working until it expired.
+    it('ends the access tokens as well as the refresh tokens, the mark first', async () => {
+      const order: string[] = [];
+      authDbService.revokeAllRefreshTokensForUser.mockImplementation(() => {
+        order.push('refresh');
+        return Promise.resolve();
+      });
+      sessionRevocationService.revokeUser.mockImplementation(() => {
+        order.push('access');
+        return Promise.resolve();
+      });
+
+      await target.revokeAll(user.id);
+
+      // Mark first, so a refresh rotating at this moment sees it once its successor is committed (see `rotate`).
+      expect(order).toEqual(['access', 'refresh']);
+      expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith(user.id);
+    });
+  });
+
+  describe('revokeByAccessToken', () => {
+    it("ends a platform admin's access tokens only, since they hold no refresh tokens", async () => {
+      jwtService.verify.mockReturnValue({ sub: 'admin-1', type: JwtTokenType.PLATFORM_ADMIN });
+
+      await target.revokeByAccessToken('admin-token');
+
+      expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith('admin-1', {});
+      expect(authDbService.revokeAllRefreshTokensForUser).not.toHaveBeenCalled();
+    });
+
+    it("ends a tenant user's refresh tokens as well as the access tokens", async () => {
+      jwtService.verify.mockReturnValue({ sub: user.id, type: JwtTokenType.TENANT_USER });
+
+      await target.revokeByAccessToken('tenant-token');
+
+      expect(authDbService.revokeAllRefreshTokensForUser).toHaveBeenCalledWith(user.id);
+      expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith(user.id);
+    });
+
+    // Not an oracle for valid tokens, and nothing a refresh token can be passed off as.
+    it.each([
+      [
+        'a token that fails verification',
+        () =>
+          jwtService.verify.mockImplementation(() => {
+            throw new Error('invalid signature');
+          }),
+      ],
+      [
+        'a refresh token',
+        () => jwtService.verify.mockReturnValue({ sub: user.id, type: JwtTokenType.REFRESH }),
+      ],
+      [
+        'a token with no subject',
+        () => jwtService.verify.mockReturnValue({ type: JwtTokenType.TENANT_USER }),
+      ],
+    ])('ignores %s silently', async (_name, arrange) => {
+      arrange();
+
+      await expect(target.revokeByAccessToken('whatever')).resolves.toBeUndefined();
+
+      expect(sessionRevocationService.revokeUser).not.toHaveBeenCalled();
+      expect(authDbService.revokeAllRefreshTokensForUser).not.toHaveBeenCalled();
+    });
+
+    it('verifies against the access-token secret with the algorithm pinned', async () => {
+      jwtService.verify.mockReturnValue({ sub: 'admin-1', type: JwtTokenType.PLATFORM_ADMIN });
+
+      await target.revokeByAccessToken('admin-token');
+
+      expect(jwtService.verify).toHaveBeenCalledWith('admin-token', { algorithms: ['HS256'] });
+    });
+  });
+
+  describe('revokePlatformAdminSessions', () => {
+    it('passes the same-second allowance through for a password change', async () => {
+      await target.revokePlatformAdminSessions('admin-1', { exceptCurrentSecond: true });
+
+      expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith('admin-1', {
+        exceptCurrentSecond: true,
+      });
+    });
   });
 });

@@ -20,12 +20,12 @@ export class AdminUsersDbService {
   }
 
   // Two round trips (toggle, then re-read for the joined columns); a rare admin action, not worth one query.
-  async toggleActive(userId: string): Promise<ToggleActiveResult> {
-    const outcome = await this.adminUsersRepository.toggleActive(userId);
-    if (outcome.outcome !== 'toggled') {
+  async toggleActive(userId: string, target?: boolean): Promise<ToggleActiveResult> {
+    const outcome = await this.adminUsersRepository.toggleActive(userId, target);
+    if (outcome.outcome !== 'toggled' && outcome.outcome !== 'unchanged') {
       return outcome;
     }
     const row = await this.adminUsersRepository.findById(userId);
-    return row ? { outcome: 'toggled', row } : { outcome: 'not_found' };
+    return row ? { outcome: outcome.outcome, row } : { outcome: 'not_found' };
   }
 }

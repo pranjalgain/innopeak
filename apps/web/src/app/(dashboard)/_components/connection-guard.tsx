@@ -1,21 +1,24 @@
 "use client";
 
 
+import { useQueryClient } from "@tanstack/react-query";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 
-import { useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useEffect, useRef } from "react";
 import { LuTriangleAlert } from "react-icons/lu";
 
 
+import { LanguageSwitcher } from "@/app/_components/language-switcher";
 import { ShellSkeleton } from "@/app/_components/shell-skeleton";
+import { ThemeToggle } from "@/app/_components/theme-toggle";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError } from "@/app/_libs/services/api-error";
 import { BillingService } from "@/app/_libs/services/billing.service";
 import { OnboardingContextService } from "@/app/_libs/services/onboarding-context.service";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/auth/use-auth";
 import { subscriptionQueryKey } from "@/hooks/billing/use-subscription";
 import { useConnection } from "@/hooks/connections/use-connection";
 import { useConnectionAuthorize } from "@/hooks/connections/use-connection-authorize";
@@ -119,11 +122,21 @@ export function ConnectionGuard({ children }: ConnectionGuardProps) {
 
 function WaitingOnOwnerScreen() {
   const t = useTranslations("appShell.waitingOnOwner");
+  const tShell = useTranslations("appShell");
+  const { logout } = useAuth();
 
+  // No shell here, so the way out (and the language and theme controls the shell would offer) lives on the screen itself.
   return (
     <div className="flex min-h-svh flex-col items-center justify-center gap-2 px-6 text-center">
       <h1 className="text-lg font-semibold">{t("title")}</h1>
       <p className="text-muted-foreground max-w-sm text-sm">{t("description")}</p>
+      <div className="mt-4 flex items-center gap-2">
+        <LanguageSwitcher />
+        <ThemeToggle />
+        <Button type="button" variant="outline" onClick={logout}>
+          {tShell("signOut")}
+        </Button>
+      </div>
     </div>
   );
 }

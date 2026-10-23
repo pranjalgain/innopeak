@@ -24,6 +24,8 @@ interface UseDashboardStatsResult {
   attentionReviews: AttentionReview[];
   isLoading: boolean;
   error: string | null;
+  /** Fetches both queries again after a failed load. */
+  retry: () => void;
 }
 
 /**
@@ -70,5 +72,9 @@ export function useDashboardStats(range: DateRange): UseDashboardStatsResult {
       metricsQuery.isLoadingError || attentionQuery.isLoadingError
         ? "Could not load dashboard data."
         : null,
+    retry: () => {
+      void metricsQuery.refetch();
+      void attentionQuery.refetch();
+    },
   };
 }

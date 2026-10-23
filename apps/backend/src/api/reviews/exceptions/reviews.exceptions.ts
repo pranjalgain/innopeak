@@ -62,6 +62,13 @@ export class ReviewRemovedUpstreamException extends ConflictException {
   }
 }
 
+/** Approving, posting or replying to a review whose location is billing-paused or disconnected. */
+export class ReviewLocationPausedException extends ConflictException {
+  constructor(message: string = MESSAGES.REVIEWS.REVIEW_LOCATION_PAUSED) {
+    super({ message, code: 'REVIEW_LOCATION_PAUSED' });
+  }
+}
+
 /** The review-post queue rejected the job, nothing was posted. A manual post leaves the response `approved`; a failed retry puts it back at `post_failed`. */
 export class PostQueueUnavailableException extends ServiceUnavailableException {
   constructor(message: string = MESSAGES.REVIEWS.POST_QUEUE_UNAVAILABLE) {

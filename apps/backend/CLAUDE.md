@@ -283,6 +283,9 @@ contract: `apps/documentation/docs/backend/auth/`.
   tables are gone)
 - Tenant user roles are exactly `owner` and `member` — a column on `users`, not an RBAC table
 - `@Public()` — skips the JWT guard
+- A route that is neither `@Public()` nor lists a role is a **tenant route**: `RolesGuard` lets only a tenant user through (it used to let
+  any authenticated principal through). Every platform-admin route must list `@Roles(JwtTokenType.PLATFORM_ADMIN)` and live under
+  `admin/`; `route-guards.spec.ts` reads the decorators off every controller and fails naming the route if one is missing
 - `@Roles(UserRole.OWNER, UserRole.MEMBER)` — OR logic (any listed role matches). Takes `UserRole`
   members, not string literals: the parameter is typed `UserRole[]` so a raw literal is a compile
   error rather than a value that silently never matches. A platform-admin token has no `role` at

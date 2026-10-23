@@ -927,6 +927,33 @@ own independent database transaction — not one transaction for the whole job. 
 release the instant the first user's transaction committed, letting a second concurrent replica
 start double-processing every user and tenant after that.
 
+**A photo that cannot be deleted stops the erasure.** `MediaService.deleteAvatarIfPresent` rethrows a storage failure (Cloudinary down,
+or `CLOUDINARY_*` unset) and leaves the `media` row, so `anonymizeUser` does not run: an account marked anonymized is never selected
+again, which used to leave its photo on a public URL with nothing to retry it. For a whole business the job deletes *every* member's photo
+first and only then anonymizes, so a failure leaves the business untouched with its members' addresses still there for the "erased"
+notice (read before anonymizing, unrecoverable after). The standalone-member loop is isolated per member like the tenant loop, and its
+failures join the same "skipped" alert, so one bad photo no longer aborts the rest of the purge or silences the alert.
+
+**What "erased" leaves behind.** `AuthRepository.markTenantErased` flips the status and, in the same transaction, replaces the free text the
+business's data carries (`scrubErasedTenantContent`, `ERASED_PLACEHOLDER = '[erased]'` where a column cannot be NULL): the tenant name; review
+text, reviewer name and id; the business's own replies and their error text; location names, addresses, phones and websites; prompt names,
+descriptions and templates. In-app notifications (their titles quote reviewers) and blocklist terms are deleted. In `platform_activity_log`
+the business name and any user address become `[erased]` (the CHECK needs a value), so the entry still says *that* something happened, when,
+and to which tenant id, but not whose. `AuthRepository.anonymizeUser` does the same for the address in that user's own `user_activated` /
+`user_deactivated` entries (scoped to their tenant: an admin invited under the same address has `admin_invite_*` entries that are not
+theirs). Ratings, dates, statuses and classifications stay so platform totals do not move; billing records stay for tax reasons. The
+former business name is returned only to the one "erased" notice. A review sync cannot bring a removed reviewer name back: `upsertReview`
+keeps it NULL once `anonymized_at` is set.
+
+**The retention purge runs in batches.** `purgeExpiredReviewerPii` was one cross-tenant UPDATE under a 30 s statement timeout, which a large backlog (a retention period newly
+set on a tenant with years of reviews) could exceed, rolling back and failing every night. It now anonymizes `REVIEWER_PII_PURGE_BATCH` (5,000) rows per transaction until none
+are due, and `idx_reviews_retention_due` (`(tenant_id, COALESCE(reviewed_at, created_at)) WHERE anonymized_at IS NULL`) lets it find them without scanning every review.
+Spent `delete_account` codes are swept with the other OTP purposes.
+
+**Notices that cannot be resent.** The erased notice's recipients are read before anonymizing and unrecoverable afterwards, so a notice that
+reaches nobody (no owners found, or every enqueue failed) is logged as an error. A 3-day reminder claims its row before queueing so two runs
+cannot both send; if nothing could be queued the claim is released and the next nightly pass retries it.
+
 Due tenants come from `AuthRepository.findTenantsDueForErasurePurge(gracePeriodDays)` — still
 `status = 'suspended'` with `erasure_requested_at` set and past the grace-period cutoff (not yet
 flipped to the terminal `erased`). For each one, the job takes a *second*, per-tenant session-level

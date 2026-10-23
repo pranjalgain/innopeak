@@ -111,14 +111,29 @@ export class ProviderCredentialService {
     await this.credentialStore.delete(reference);
   }
 
-  /** Best-effort revoke + delete. Never throws: a tenant must always be able to disconnect. */
-  async revokeAndDelete(reference: string): Promise<boolean> {
+  /**
+   * Best-effort revoke + delete. Never throws: a tenant must always be able to disconnect.
+   *
+   * `keepIfNotRevoked`: when Google did not confirm the revocation, leave the stored credential in place instead of deleting it. Deleting it
+   * left a live grant at Google that nothing could ever revoke (the token was the only handle); kept, the erasure purge revokes it
+   * (`revokeOrThrow`), and a reconnect to the same account reuses the slot. The caller reports `false` so the owner knows.
+   */
+  async revokeAndDelete(
+    reference: string,
+    options: { keepIfNotRevoked?: boolean } = {}
+  ): Promise<boolean> {
     let revoked = false;
 
     try {
       const stored = await this.credentialStore.get(reference);
       if (stored?.refreshToken) {
         revoked = await this.provider.revoke(stored.refreshToken);
+        if (!revoked && options.keepIfNotRevoked === true) {
+          this.logger.warn(
+            `Google did not confirm the revocation of credential ${reference}; keeping it so the grant can still be revoked later.`
+          );
+          return false;
+        }
       }
       await this.credentialStore.delete(reference);
     } catch (error) {

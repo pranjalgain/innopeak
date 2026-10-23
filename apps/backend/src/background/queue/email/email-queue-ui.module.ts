@@ -1,8 +1,8 @@
-import { QueueName } from '@bg/constants/job.constant';
+import { QUEUE_JOB_OPTIONS, QueueName } from '@bg/constants/job.constant';
 import { QueueTransportModule } from '@bg/providers/queue-transport.module';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { BullBoardModule } from '@bull-board/nestjs';
-import { isAwsDeploymentTarget, isProduction } from '@config/deployment-target.util';
+import { isAwsDeploymentTarget, isLocalDevelopment } from '@config/deployment-target.util';
 import { EmailQueueEvents } from '@email-queue/email-queue.events';
 import { EmailQueue } from '@email-queue/email.queue';
 import { BullModule } from '@nestjs/bullmq';
@@ -20,12 +20,7 @@ export class EmailQueueConfig {
           maxLen: 1000,
         },
       },
-      defaultJobOptions: {
-        removeOnFail: true,
-        removeOnComplete: {
-          age: 1 * 24 * 3600,
-        },
-      },
+      defaultJobOptions: QUEUE_JOB_OPTIONS[QueueName.EMAIL],
     });
   }
 
@@ -34,7 +29,7 @@ export class EmailQueueConfig {
       name: QueueName.EMAIL,
       adapter: BullMQAdapter,
       options: {
-        readOnlyMode: isProduction(),
+        readOnlyMode: !isLocalDevelopment(),
         displayName: 'Email Queue',
         description: 'Queue for sending emails',
       },

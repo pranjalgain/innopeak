@@ -93,11 +93,7 @@ Errors: `400` validation (`search` over 200 chars, `page` below 1, `pageSize` ou
 
 ### `POST /v1/admin/businesses/:tenantId/status`
 
-Suspends or reactivates a tenant. Suspension is enforced at **login and token refresh**, not on
-every request: a user already signed in keeps working until their current access token expires
-(`ACCESS_TOKEN_TTL_SECONDS`, 15 minutes by default), after which the refresh is refused and every
-refresh token they hold is revoked. There is deliberately no per-request database read to make it
-instantaneous. Reactivating always lands the real `tenant_status` on `active`,
+Suspends or reactivates a tenant. Suspension takes effect **immediately**: login and refresh are refused, and the business is marked in Redis (`SessionRevocationService.revokeTenant`), so every access token issued before the suspension stops working on its next request, without a per-request database read. (The mark is best-effort: if Redis cannot be reached within 500 ms the write is logged and skipped, and an already-issued token then lasts at most `ACCESS_TOKEN_TTL_SECONDS`, 15 minutes by default.) Reactivating always lands the real `tenant_status` on `active`,
 never back on `pending_activation` — proceeding to normal operation, not un-suspending into an
 onboarding state the tenant may have left long ago. Records a `business_suspended` /
 `business_reactivated` entry to `platform_activity_log` on success (best-effort — see [Admin
@@ -235,24 +231,34 @@ Errors: `400` validation (`search` over 200 chars, `page` below 1, `pageSize` ou
 
 ### `POST /v1/admin/users/:userId/toggle-active`
 
-A single toggle, not separate activate/deactivate calls: any status other than `disabled` flips to
-`disabled`, and `disabled` flips back to whatever it must have been — `active` if the user's email
-was ever verified, otherwise `pending_verification`, so disabling an unverified signup never
-doubles as verifying them. Records a `user_deactivated` / `user_activated` entry to
+One route for both directions. With `?active=true|false` it puts the user in *that* state: a user
+already there is returned unchanged, with no session revoked and nothing logged, so a stale list or a
+double click cannot re-enable someone another action just deactivated (the console always sends it).
+Without `active` it flips: any status other than `disabled` becomes `disabled`, and `disabled` becomes
+whatever it must have been — `active` if the user's email was ever verified, otherwise
+`pending_verification`, so disabling an unverified signup never doubles as verifying them. A member who
+never accepted their invite (`invited`) is refused: toggling would strand the invite, which only
+redeems an `invited` row, so revoke the invite instead. Records a `user_deactivated` / `user_activated` entry to
 `platform_activity_log` on success, naming both the person and their business (an email alone is
 ambiguous on a feed spanning every tenant).
 
 | Field | Type | Rules |
 |---|---|---|
 | `userId` | string (path, uuid) | required |
+| `active` | boolean (query) | optional; the state to end up in (`true` active, `false` deactivated). Omitted = flip. |
 
 Success `200`: the same `AdminUserResponseDto` shape as the list above, reflecting the new status.
 
-Errors: `401`, `403`, `404` `ADMIN_USER_NOT_FOUND`, `409` `USER_REMOVAL_PENDING` (this user has a
+Errors: `401`, `403`, `404` `ADMIN_USER_NOT_FOUND`, `409` `USER_INVITE_PENDING`, `409` `USER_REMOVAL_PENDING` (this user has a
 pending team-member-removal request in progress — see [Overview § Admin user toggle-active vs. a
 pending team-member
 removal](./overview.md#admin-user-toggle-active-vs-a-pending-team-member-removal); cancel it
 first via the settings module's own removal flow), `429`.
+
+## Paging bounds
+
+Every admin list (users, businesses, activity, billing webhook events) takes `page` from 1 to **100,000** and a per-list `pageSize` cap. A larger page
+is a `400` (it used to become an OFFSET Postgres refused, a `500`).
 
 ## Error reference
 
@@ -264,6 +270,7 @@ first via the settings module's own removal flow), `429`.
 | `404` | `BUSINESS_NOT_FOUND` | `POST /businesses/:tenantId/status`, `.../request-erasure`, `.../cancel-erasure` | No `tenants` row with that id (or, for the two erasure routes, no row matching the extra state the operation requires — see each route's own entry above). |
 | `404` | `ADMIN_USER_NOT_FOUND` | `POST /users/:userId/toggle-active` | No `users` row with that id. |
 | `409` | `BUSINESS_ERASURE_PENDING` | `POST /businesses/:tenantId/status` | This tenant has a pending erasure request; plain suspend/reactivate is blocked until it's cancelled. |
+| `409` | `USER_INVITE_PENDING` | `POST /users/:userId/toggle-active` | The member has not accepted their invite yet; there is nothing to deactivate (revoke the invite). |
 | `409` | `USER_REMOVAL_PENDING` | `POST /users/:userId/toggle-active` | This user has a pending team-member-removal request; the toggle is blocked until it's cancelled. |
 | `429` | `Too Many Requests` | Any route | The route's own throttle tier exceeded. |
 | `500` | `Internal Server Error` | Any route | Unhandled exception. Only `traceId` is safe to surface. |

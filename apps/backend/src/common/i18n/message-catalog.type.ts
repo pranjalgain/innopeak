@@ -105,6 +105,7 @@ export interface MessageCatalog {
     DISCONNECTED: string;
     LOCATION_CONFIRMED: string;
     LOCATION_INACTIVE: string;
+    LOCATION_BILLING_PAUSED: string;
     ACTIVE_LOCATION_UPDATED: string;
     FAILED_TO_UPSERT_CONNECTION: string;
     FAILED_TO_UPSERT_LOCATION: string;
@@ -118,6 +119,12 @@ export interface MessageCatalog {
     FAILED_TO_ACQUIRE_SYNC_RUN: string;
     /** Shown on a sync run that is waiting out Google's rate limit before retrying (replaced when the run ends). */
     SYNC_WAITING_FOR_RATE_LIMIT: (seconds: number, attempt: number, maxAttempts: number) => string;
+    /** What a failed sync stores for the owner to read: our own wording, never the provider's raw error text. */
+    SYNC_FAILED_AUTH: string;
+    SYNC_FAILED_RATE_LIMITED: string;
+    SYNC_FAILED_UNAVAILABLE: string;
+    SYNC_FAILED_CLASSIFICATION: string;
+    SYNC_FAILED_UNKNOWN: string;
     FAILED_TO_UPSERT_REVIEW: string;
     /** Interpolating so the review id survives into the English server log while the client copy stays generic in production (`ErrorHandlerService`). */
     GENERATED_RESPONSE_INSERT_FAILED: (reviewId: string) => string;
@@ -137,11 +144,14 @@ export interface MessageCatalog {
     REVIEW_ALREADY_DISMISSED: string;
     /** `removed_upstream_at` is set: the reviewer deleted it on Google. */
     REVIEW_REMOVED_UPSTREAM: string;
+    /** The review's location is paused by the plan or disconnected: nothing can be approved or posted for it. */
+    REVIEW_LOCATION_PAUSED: string;
     POST_QUEUE_UNAVAILABLE: string;
     /** Recorded as `error_message`; nothing was sent to Google. */
     POST_FAILED_REVIEW_REMOVED: string;
     /** Google can't find the review's location (moved out of the connected account, or deleted). */
     POST_FAILED_LOCATION_UNAVAILABLE: string;
+    POST_FAILED_LOCATION_PAUSED: string;
     /** Google refused the credential; the owner has to reconnect. */
     POST_FAILED_RECONNECT: string;
     /** Google refused the reply itself (a 4xx other than auth/404, e.g. text it won't accept). */
@@ -226,6 +236,8 @@ export interface MessageCatalog {
     BLOCKLIST_LIMIT_REACHED: string;
     BLOCKLIST_TERM_NOT_FOUND: string;
     TENANT_ONLY: string;
+    /** Display name for a notification recipient whose user was anonymized (GDPR erasure keeps the row). */
+    REMOVED_TEAM_MEMBER: string;
     RETRIEVED: string;
     UPDATED: string;
     TENANT_SETTINGS_MISSING: string;
@@ -280,6 +292,8 @@ export interface MessageCatalog {
     /** `AdminUsersRepository.toggleActive` refused — this user has a pending team-member removal
      *  request; cancel it first before changing their status directly. */
     USER_REMOVAL_PENDING: string;
+    /** The user never accepted their invite: nothing to (de)activate; the invite is revoked instead. */
+    USER_INVITE_PENDING: string;
     AVATAR_UPDATED: string;
     PASSWORD_CHANGED: string;
     INVITE_SENT: string;
@@ -292,9 +306,6 @@ export interface MessageCatalog {
     PLATFORM_SETTINGS_NO_METHOD_ENABLED: string;
     /** `notificationSettingsEnabled: true` is refused until email/Teams delivery exists. */
     NOTIFICATION_CHANNELS_NOT_IMPLEMENTED: string;
-    /** Turning off Google sign-in would strand admins who have no password — same
-     *  lockout-prevention family as `CANNOT_DISABLE_LAST_ADMIN`. */
-    CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN: (count: number) => string;
     /** Turning Microsoft or Google off while tenant users have no other way in (no password, no other provider). */
     CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS: (provider: string, count: number) => string;
     /** The patch would leave no method that can actually be used: Microsoft and Google also need to be configured on this server. */
@@ -347,5 +358,28 @@ export interface MessageCatalog {
      *  wording) so it's never echoed to a real client. The full raw message is still logged
      *  server-side, in both environments. */
     INTERNAL_ERROR: string;
+    /** The email queue refused the job, so the code or invite it carries was not sent. */
+    EMAIL_QUEUE_UNAVAILABLE: string;
+    /** `ErrorHandlerService`'s PostgreSQL SQLSTATE labels (`DB_*`), the SMS trial restriction and the unknown-error fallback. */
+    DB_UNIQUE_VIOLATION: string;
+    DB_FOREIGN_KEY_VIOLATION: string;
+    DB_NOT_NULL_VIOLATION: string;
+    DB_CHECK_VIOLATION: string;
+    DB_EXCLUSION_VIOLATION: string;
+    DB_VALUE_TOO_LONG: string;
+    DB_NUMERIC_OUT_OF_RANGE: string;
+    DB_INVALID_DATETIME: string;
+    DB_INVALID_TEXT: string;
+    DB_INVALID_CHARACTER_SEQUENCE: string;
+    DB_TABLE_NOT_FOUND: string;
+    DB_COLUMN_NOT_FOUND: string;
+    DB_SYNTAX_ERROR: string;
+    DB_SERIALIZATION_FAILURE: string;
+    DB_DEADLOCK: string;
+    DB_CONNECTION_FAILURE: string;
+    DB_CONNECTION_UNAVAILABLE: string;
+    DB_QUERY_TIMEOUT: string;
+    SMS_TRIAL_RESTRICTED: string;
+    UNKNOWN_ERROR: string;
   };
 }

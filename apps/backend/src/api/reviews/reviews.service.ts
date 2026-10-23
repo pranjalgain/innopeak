@@ -2,12 +2,14 @@ import type { AuthUser } from '@auth/types/auth.type';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { InAppNotificationType } from '@common/enums/in-app-notification-type.enum';
+import { LocationStatus } from '@common/enums/location-status.enum';
 import { ResponseSource } from '@common/enums/response-source.enum';
 import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { ReviewStatus } from '@common/enums/review-status.enum';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
+import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import type {
   ReviewResponseRow,
@@ -40,6 +42,7 @@ import {
   ResponseNotRetryableException,
   ReviewAlreadyDismissedException,
   ReviewAlreadyHasLiveReplyException,
+  ReviewLocationPausedException,
   ReviewNotFoundException,
   ReviewRemovedUpstreamException,
   ReviewResponseAlreadyLiveException,
@@ -78,6 +81,7 @@ export class ReviewsService {
 
   constructor(
     private readonly reviewSyncDbService: ReviewSyncDbService,
+    private readonly connectionsDbService: ConnectionsDbService,
     private readonly settingsDbService: SettingsDbService,
     private readonly reviewPostQueue: ReviewPostQueue,
     private readonly inAppNotificationsService: InAppNotificationsService
@@ -263,6 +267,18 @@ export class ReviewsService {
       throw new ReviewResponseNotFoundException();
     }
 
+    // Same gates as every other way of answering a review: a dismissed or removed review, or a paused location, takes no reply.
+    const review = await this.reviewSyncDbService.findReviewForTenant({
+      reviewId: input.reviewId,
+      tenantId: tenantUser.tenantId,
+      includePaused: true,
+    });
+    if (!review) {
+      throw new ReviewNotFoundException();
+    }
+    this.assertReviewAcceptsReply(review);
+    await this.assertLocationAcceptsReplies(tenantUser.tenantId, review.locationId);
+
     const finalContent = input.content ?? existing.content;
     // `originalContent` is null for human_manual/imported rows (no AI draft), so "edited" is unreachable for them.
     const baseline = existing.originalContent ?? existing.content;
@@ -292,7 +308,12 @@ export class ReviewsService {
     await this.postIfAutoPostEnabled(tenantUser.tenantId, input.reviewId, approved.id);
     // Not awaited: the lookup, the recipients query, the insert and the Redis publish are all for the team's benefit, and the person who
     // clicked Approve should not wait on them (with Redis degraded that is half a second on every approval). It never rejects.
-    void this.announceApproval(tenantUser.tenantId, input.reviewId, tenantUser.id);
+    void this.announceApproval({
+      tenantId: tenantUser.tenantId,
+      reviewId: input.reviewId,
+      rating: review.rating,
+      approvedByUserId: tenantUser.id,
+    });
 
     return this.toResponseItem(approved);
   }
@@ -301,27 +322,24 @@ export class ReviewsService {
    * Tells the rest of the team a reply was approved (not the person who did it). Best-effort, like the post step: a notice must never
    * undo or fail an approval that already committed. Never rejects, so the caller can leave it running.
    */
-  private async announceApproval(
-    tenantId: string,
-    reviewId: string,
-    approvedByUserId: string
-  ): Promise<void> {
+  private async announceApproval(input: {
+    tenantId: string;
+    reviewId: string;
+    rating: number;
+    approvedByUserId: string;
+  }): Promise<void> {
     try {
-      const review = await this.reviewSyncDbService.findReviewForTenant({ reviewId, tenantId });
-      if (!review) {
-        return;
-      }
-      await this.inAppNotificationsService.publish(tenantId, [
+      await this.inAppNotificationsService.publish(input.tenantId, [
         {
           type: InAppNotificationType.REPLY_APPROVED,
-          reviewId,
-          rating: review.rating,
-          actorUserId: approvedByUserId,
+          reviewId: input.reviewId,
+          rating: input.rating,
+          actorUserId: input.approvedByUserId,
         },
       ]);
     } catch (error) {
       this.logger.error(
-        `Could not announce the approval on review ${reviewId}: ${
+        `Could not announce the approval on review ${input.reviewId}: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
@@ -369,6 +387,17 @@ export class ReviewsService {
       },
       job
     );
+  }
+
+  /**
+   * A location the plan has paused (or the owner disconnected) takes no replies: its polling is off and the post worker refuses it, so
+   * approving here would only leave a reply stuck at `approved`. Refused up front with a reason the owner can act on.
+   */
+  private async assertLocationAcceptsReplies(tenantId: string, locationId: string): Promise<void> {
+    const location = await this.connectionsDbService.findLocationForTenant(locationId, tenantId);
+    if (location?.status !== LocationStatus.ACTIVE || location.billingPausedAt !== null) {
+      throw new ReviewLocationPausedException();
+    }
   }
 
   /** Dismissed and removed-on-Google reviews cannot take a reply; fail up front rather than queue a post Google will reject. */
@@ -427,11 +456,13 @@ export class ReviewsService {
     const review = await this.reviewSyncDbService.findReviewForTenant({
       reviewId: input.reviewId,
       tenantId: tenantUser.tenantId,
+      includePaused: true,
     });
     if (!review) {
       throw new ReviewNotFoundException();
     }
     this.assertReviewAcceptsReply(review);
+    await this.assertLocationAcceptsReplies(tenantUser.tenantId, review.locationId);
 
     const existing = await this.reviewSyncDbService.findResponseForTenant({
       responseId: input.responseId,
@@ -493,11 +524,13 @@ export class ReviewsService {
     const review = await this.reviewSyncDbService.findReviewForTenant({
       reviewId: input.reviewId,
       tenantId: tenantUser.tenantId,
+      includePaused: true,
     });
     if (!review) {
       throw new ReviewNotFoundException();
     }
     this.assertReviewAcceptsReply(review);
+    await this.assertLocationAcceptsReplies(tenantUser.tenantId, review.locationId);
 
     const existing = await this.reviewSyncDbService.findResponseForTenant({
       responseId: input.responseId,
@@ -545,6 +578,8 @@ export class ReviewsService {
     const review = await this.reviewSyncDbService.findReviewForTenant({
       reviewId: input.reviewId,
       tenantId: tenantUser.tenantId,
+      // A post already queued still finishes after the location is paused; the client polling it must see how it ended, not a 404.
+      includePaused: true,
     });
     if (!review) {
       throw new ReviewNotFoundException();
@@ -583,11 +618,13 @@ export class ReviewsService {
     const review = await this.reviewSyncDbService.findReviewForTenant({
       reviewId: input.reviewId,
       tenantId: tenantUser.tenantId,
+      includePaused: true,
     });
     if (!review) {
       throw new ReviewNotFoundException();
     }
     this.assertReviewAcceptsReply(review);
+    await this.assertLocationAcceptsReplies(tenantUser.tenantId, review.locationId);
 
     const responseType =
       review.classification === ReviewClassification.ESCALATED

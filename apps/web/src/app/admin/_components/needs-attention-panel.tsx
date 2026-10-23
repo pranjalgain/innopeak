@@ -1,4 +1,3 @@
-import type { Route } from "next";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
@@ -51,7 +50,7 @@ export function NeedsAttentionPanel({ businesses }: NeedsAttentionPanelProps) {
         ))}
 
         <Link
-          href={ROUTES.ADMIN_BUSINESSES as Route}
+          href={ROUTES.ADMIN_BUSINESSES}
           className="text-primary hover:text-primary/80 mt-auto pt-3 text-sm font-medium no-underline transition-colors"
         >
           {t("viewAll")}

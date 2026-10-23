@@ -58,6 +58,18 @@ interface AppShellProps {
   showBusinessSwitcher?: boolean;
 }
 
+/** First focusable thing on the page: lets a keyboard user jump past the navigation to the content. */
+function SkipLink({ label }: { label: string }) {
+  return (
+    <a
+      href="#main-content"
+      className="bg-background text-foreground focus-visible:ring-ring sr-only z-50 rounded-md px-4 py-2 text-sm font-medium focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus-visible:ring-2"
+    >
+      {label}
+    </a>
+  );
+}
+
 export function AppShell({
   children,
   navItems,
@@ -79,6 +91,7 @@ export function AppShell({
   if (breakpoint === "mobile") {
     return (
       <div className="flex min-h-dvh flex-col">
+        <SkipLink label={tAppShell("skipToContent")} />
         <AppHeader
           title={title}
           identity={identity}
@@ -86,7 +99,9 @@ export function AppShell({
           showNotifications={showNotifications}
           showBusinessSwitcher={showBusinessSwitcher}
         />
-        <main className="min-w-0 flex-1 overflow-y-auto pb-16">{children}</main>
+        <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 overflow-y-auto pb-16 outline-none">
+          {children}
+        </main>
         <MobileBottomNav navItems={navItems} navNamespace={navNamespace} homeHref={homeHref} />
       </div>
     );
@@ -94,6 +109,7 @@ export function AppShell({
 
   return (
     <SidebarProvider open={breakpoint === "desktop"}>
+      <SkipLink label={tAppShell("skipToContent")} />
       <Sidebar variant="floating" collapsible="icon">
         <SidebarHeader className="px-3 pt-4 group-data-[collapsible=icon]:px-2">
           <Logo homeHref={homeHref} />
@@ -127,7 +143,11 @@ export function AppShell({
                   // Icon size stays here because a class on `<item.icon>` loses to the variant's parent-scoped `[&>svg]:size-4`.
                   className="group/navitem relative z-10 h-10 rounded-full px-3 text-sm hover:bg-sidebar-accent/60 data-[active=true]:bg-transparent [&>svg]:size-4.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:data-[active=true]:bg-sidebar-accent group-data-[collapsible=icon]:[&>svg]:size-5"
                 >
-                  <Link href={item.href as Route}>
+                  <Link
+                    href={item.href as Route}
+                    aria-label={t(item.labelKey)}
+                    aria-current={isActive ? "page" : undefined}
+                  >
                     {/* `scale-*`, not a bigger size: a transform never affects the layout box, so siblings can't shift.
                         `backface-hidden` + `will-change` force layer promotion; otherwise the icon is rasterized per
                         frame during the transition and looks hazy until it settles. */}
@@ -205,7 +225,9 @@ export function AppShell({
           showBusinessSwitcher={showBusinessSwitcher}
           showAccountMenu={false}
         />
-        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 overflow-y-auto outline-none">
+          {children}
+        </main>
       </SidebarInset>
     </SidebarProvider>
   );

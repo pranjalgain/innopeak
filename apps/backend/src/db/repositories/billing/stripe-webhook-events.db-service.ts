@@ -17,4 +17,8 @@ export class StripeWebhookEventsDbService {
   ): Promise<boolean> {
     return this.stripeWebhookEventsRepository.insertIfNew(id, type, customerId, tx);
   }
+
+  purgeProcessedBefore(cutoff: Date): Promise<number> {
+    return this.stripeWebhookEventsRepository.deleteProcessedBefore(cutoff);
+  }
 }

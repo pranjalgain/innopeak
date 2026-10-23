@@ -3,6 +3,7 @@
 
 import { QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import { MotionConfig } from "motion/react";
 import { type ReactNode, useMemo } from "react";
 
 import { isDevelopmentEnvironment } from "@/app/_libs/utils/is-development-environment";
@@ -19,7 +20,8 @@ export function TanstackProvider({ children }: TanstackProviderProps) {
   return (
     <QueryClientProvider client={queryClient}>
       {isDevelopmentEnvironment() && <ReactQueryDevtools initialIsOpen={false} />}
-      {children}
+      {/* Every `motion` animation in the app honours the visitor's reduced-motion setting (transforms and layout animations are dropped). */}
+      <MotionConfig reducedMotion="user">{children}</MotionConfig>
     </QueryClientProvider>
   );
 }

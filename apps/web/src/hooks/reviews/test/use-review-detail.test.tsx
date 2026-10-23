@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from "next-intl";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import { ApiError } from "@/app/_libs/services/api-error";
 import { ReviewService } from "@/app/_libs/services/review.service";
 import { createQueryClient } from "@/app/_libs/utils/query-client";
 import type { Review, ReviewReplyDraft } from "@/types/domain";
@@ -63,6 +64,20 @@ describe("useReviewDetail", () => {
     vi.restoreAllMocks();
     toast.error.mockClear();
     toast.success.mockClear();
+  });
+
+  // "Not found" is its own screen: a "could not load" toast on top of it was wrong. Any other failure is worth the toast.
+  test.each([
+    [404, 0, false],
+    [500, 1, true],
+  ])("a %i load failure shows %i error toast(s) and reports loadFailed=%s", async (status, toasts, loadFailed) => {
+    vi.spyOn(ReviewService, "getReviewById").mockRejectedValue(new ApiError(status, "nope"));
+
+    const { result } = renderHook(() => useReviewDetail("review-1"), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(toasts));
+    expect(result.current.loadFailed).toBe(loadFailed);
   });
 
   /**

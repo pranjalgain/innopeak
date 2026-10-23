@@ -1,4 +1,5 @@
 import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
+import type { SessionRevocationService } from '@auth/services/session-revocation.service';
 import type { AuthUser } from '@auth/types/auth.type';
 import { ServiceUnavailableException } from '@nestjs/common';
 import type { MessageEvent } from '@nestjs/common';
@@ -23,10 +24,14 @@ describe('NotificationStreamService', () => {
   let subscribe: jest.Mock;
   let disconnect: jest.Mock;
   let subscriptions: Subscription[];
+  let isRevoked: jest.Mock;
+  const revocation = (): SessionRevocationService =>
+    ({ isRevoked }) as unknown as SessionRevocationService;
 
   beforeEach(() => {
     jest.useFakeTimers();
     subscriptions = [];
+    isRevoked = jest.fn().mockResolvedValue(false);
     subscribe = jest.fn().mockResolvedValue(1);
     disconnect = jest.fn();
     const subscriber = {
@@ -36,7 +41,10 @@ describe('NotificationStreamService', () => {
       subscribe,
       disconnect,
     };
-    target = new NotificationStreamService({ duplicate: () => subscriber } as unknown as Redis);
+    target = new NotificationStreamService(
+      { duplicate: () => subscriber } as unknown as Redis,
+      revocation()
+    );
     target.onModuleInit();
   });
 
@@ -168,9 +176,10 @@ describe('NotificationStreamService', () => {
   // Regression: with Redis down the subscribe command waits forever, and awaiting it in onModuleInit held up app.listen().
   it('does not wait for the subscription, so a Redis outage cannot hold up API startup', () => {
     subscribe.mockReturnValue(new Promise(() => undefined));
-    const slow = new NotificationStreamService({
-      duplicate: () => ({ on: jest.fn(), subscribe, disconnect }),
-    } as unknown as Redis);
+    const slow = new NotificationStreamService(
+      { duplicate: () => ({ on: jest.fn(), subscribe, disconnect }) } as unknown as Redis,
+      revocation()
+    );
 
     expect(() => {
       slow.onModuleInit();
@@ -179,9 +188,10 @@ describe('NotificationStreamService', () => {
 
   it('logs and carries on when the subscription is rejected', async () => {
     subscribe.mockRejectedValue(new Error('NOAUTH'));
-    const failing = new NotificationStreamService({
-      duplicate: () => ({ on: jest.fn(), subscribe, disconnect }),
-    } as unknown as Redis);
+    const failing = new NotificationStreamService(
+      { duplicate: () => ({ on: jest.fn(), subscribe, disconnect }) } as unknown as Redis,
+      revocation()
+    );
 
     expect(() => {
       failing.onModuleInit();
@@ -244,6 +254,44 @@ describe('NotificationStreamService', () => {
     expect(completed).toBe(true);
     expect(received).toEqual([]);
     expect(target.openStreams).toBe(0);
+  });
+
+  describe('when the session ends while the stream is open', () => {
+    const session = { tenantId: 'tenant-1', issuedAt: 1_700_000_000 };
+    const open = () => {
+      const state = { completed: false };
+      subscriptions.push(
+        target.open('user-1', ONE_HOUR, session).subscribe({
+          complete: () => {
+            state.completed = true;
+          },
+        })
+      );
+      return state;
+    };
+
+    it('ends at the first heartbeat after the session is revoked, and frees the slot', async () => {
+      const state = open();
+
+      await jest.advanceTimersByTimeAsync(NOTIFICATION_STREAM_HEARTBEAT_MS);
+      expect(state.completed).toBe(false);
+      expect(isRevoked).toHaveBeenCalledWith({ userId: 'user-1', ...session });
+
+      isRevoked.mockResolvedValue(true);
+      await jest.advanceTimersByTimeAsync(NOTIFICATION_STREAM_HEARTBEAT_MS);
+
+      expect(state.completed).toBe(true);
+      expect(target.openStreams).toBe(0);
+    });
+
+    it('stops checking once the client has left', async () => {
+      open();
+      subscriptions[0]?.unsubscribe();
+
+      await jest.advanceTimersByTimeAsync(NOTIFICATION_STREAM_HEARTBEAT_MS * 2);
+
+      expect(isRevoked).not.toHaveBeenCalled();
+    });
   });
 
   describe('connect', () => {

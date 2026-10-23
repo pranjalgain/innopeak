@@ -60,7 +60,11 @@ describe('PlatformAdminAuthService', () => {
     } as unknown as jest.Mocked<LoginAttemptService>;
 
     oauthStateService = {
-      mint: jest.fn().mockResolvedValue({ state: 'signed-state', sid: 'raw-sid' }),
+      mint: jest.fn().mockResolvedValue({
+        state: 'signed-state',
+        sid: 'raw-sid',
+        codeChallenge: 'google-challenge',
+      }),
     } as unknown as jest.Mocked<OAuthStateService>;
 
     googleIdentityProvider = {
@@ -277,6 +281,11 @@ describe('PlatformAdminAuthService', () => {
         provider: SsoProvider.GOOGLE,
         intent: OAuthIntent.ADMIN_INVITE,
         inviteToken: 'raw-token-1',
+        pkce: true,
+      });
+      expect(googleIdentityProvider.buildAuthorizationUrl).toHaveBeenCalledWith({
+        state: 'signed-state',
+        codeChallenge: 'google-challenge',
       });
     });
   });
@@ -289,6 +298,11 @@ describe('PlatformAdminAuthService', () => {
       expect(oauthStateService.mint).toHaveBeenCalledWith({
         provider: SsoProvider.GOOGLE,
         intent: OAuthIntent.ADMIN_LOGIN,
+        pkce: true,
+      });
+      expect(googleIdentityProvider.buildAuthorizationUrl).toHaveBeenCalledWith({
+        state: 'signed-state',
+        codeChallenge: 'google-challenge',
       });
       expect(redirect).toMatchObject({ ok: true });
     });

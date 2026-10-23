@@ -32,7 +32,7 @@ describe('ReviewPostQueueService', () => {
   let provider: { getReviewReply: jest.Mock; replyToReview: jest.Mock; listReviews: jest.Mock };
   let credentialService: { resolveAccessToken: jest.Mock };
   let connectionsDbService: {
-    findConnectionByTenant: jest.Mock;
+    findConnectionById: jest.Mock;
     findLocationForTenant: jest.Mock;
     updateTokenExpiry: jest.Mock;
     markNeedsReauth: jest.Mock;
@@ -64,13 +64,20 @@ describe('ReviewPostQueueService', () => {
         .mockResolvedValue({ accessToken: 'token', refreshedExpiresAt: null }),
     };
     connectionsDbService = {
-      findConnectionByTenant: jest.fn().mockResolvedValue({
+      findConnectionById: jest.fn().mockResolvedValue({
         id: 'conn-1',
+        disconnectedAt: null,
         providerAccountId: 'accounts/1',
         credentialReference: 'cred',
         tokenExpiresAt: null,
       }),
-      findLocationForTenant: jest.fn().mockResolvedValue({ externalLocationId: 'locations/1' }),
+      findLocationForTenant: jest.fn().mockResolvedValue({
+        id: 'location-1',
+        status: 'active',
+        billingPausedAt: null,
+        externalLocationId: 'locations/1',
+        providerConnectionId: 'conn-1',
+      }),
       updateTokenExpiry: jest.fn().mockResolvedValue(undefined),
       markNeedsReauth: jest.fn().mockResolvedValue(true),
     };
@@ -256,6 +263,84 @@ describe('ReviewPostQueueService', () => {
       expect(reviewSyncDbService.importLiveReply).toHaveBeenCalledWith(
         expect.objectContaining({ content: 'Replied on Google.' })
       );
+    });
+  });
+
+  // The location was paused by the plan, or disconnected, after the reply was approved: nothing is sent to Google.
+  describe('a paused or disconnected location', () => {
+    it.each([
+      ['billing-paused', { status: 'active', billingPausedAt: '2026-10-01T00:00:00Z' }],
+      ['inactive', { status: 'inactive', billingPausedAt: null }],
+    ])(
+      'fails the reply with the clear reason, without calling Google or retrying (%s)',
+      async (_name, state) => {
+        connectionsDbService.findLocationForTenant.mockResolvedValue({
+          id: 'location-1',
+          externalLocationId: 'locations/1',
+          providerConnectionId: 'conn-1',
+          ...state,
+        });
+
+        await target.postResponse(job);
+
+        expect(provider.getReviewReply).not.toHaveBeenCalled();
+        expect(provider.replyToReview).not.toHaveBeenCalled();
+        expect(reviewSyncDbService.markResponsePostFailed).toHaveBeenCalledWith(
+          expect.objectContaining({ errorMessage: MESSAGES.REVIEWS.POST_FAILED_LOCATION_PAUSED })
+        );
+        expect(reviewPostQueue.addPostJob).not.toHaveBeenCalled();
+      }
+    );
+  });
+
+  describe("the location's own connection", () => {
+    it('posts as the connection that owns the location, whichever the tenant has now', async () => {
+      connectionsDbService.findLocationForTenant.mockResolvedValue({
+        id: 'location-1',
+        status: 'active',
+        billingPausedAt: null,
+        externalLocationId: 'locations/1',
+        providerConnectionId: 'conn-old',
+      });
+
+      await target.postResponse(job);
+
+      expect(connectionsDbService.findConnectionById).toHaveBeenCalledWith('conn-old', 'tenant-1');
+    });
+
+    it('refuses a disconnected connection without calling Google, and does not flag it', async () => {
+      connectionsDbService.findConnectionById.mockResolvedValue({
+        id: 'conn-1',
+        disconnectedAt: '2026-10-01T00:00:00.000Z',
+        credentialReference: 'cred',
+        tokenExpiresAt: null,
+      });
+
+      await expect(target.postResponse(job)).rejects.toBeInstanceOf(ProviderAuthError);
+
+      expect(provider.replyToReview).not.toHaveBeenCalled();
+      expect(credentialService.resolveAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('flags the location’s own connection, not the tenant’s current one, when its grant is dead', async () => {
+      connectionsDbService.findLocationForTenant.mockResolvedValue({
+        id: 'location-1',
+        status: 'active',
+        billingPausedAt: null,
+        externalLocationId: 'locations/1',
+        providerConnectionId: 'conn-old',
+      });
+      connectionsDbService.findConnectionById.mockResolvedValue({
+        id: 'conn-old',
+        disconnectedAt: null,
+        credentialReference: 'cred',
+        tokenExpiresAt: null,
+      });
+      provider.getReviewReply.mockRejectedValue(new ProviderAuthError('revoked'));
+
+      await expect(target.postResponse(job)).rejects.toBeInstanceOf(ProviderAuthError);
+
+      expect(connectionsDbService.markNeedsReauth).toHaveBeenCalledWith('conn-old');
     });
   });
 

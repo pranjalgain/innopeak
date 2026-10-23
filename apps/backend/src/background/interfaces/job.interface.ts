@@ -25,7 +25,9 @@ export interface IMemberInviteEmailJob extends IEmailJob {
   expiresIn?: string;
   /** Without it the email reads "a team": recipients invited by two businesses cannot tell the
    *  emails apart, and unattributed invites score worse with spam filters. */
-  businessName: string;
+  businessName?: string;
+  /** The inviting owner's `users.locale`: the invitee has no preference yet, so the email speaks the inviter's language. `en` when unset. */
+  locale?: 'de' | 'en';
 }
 
 export type ErasureNoticeKind = 'cancelled' | 'erased' | 'reminder' | 'scheduled';

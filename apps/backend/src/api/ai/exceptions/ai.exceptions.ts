@@ -27,3 +27,9 @@ export class AiGenerationFailedException extends BadGatewayException {
     super({ message, code: AI_ERROR_CODES.GENERATION_FAILED });
   }
 }
+
+/**
+ * The provider answered, but with nothing usable (empty content, a content-filter stop). Unlike an outage this is about *this* review's
+ * text, so it is the one provider failure that counts toward giving up on the review (`GENERATION_MAX_ATTEMPTS`).
+ */
+export class AiReplyUnusableException extends AiGenerationFailedException {}

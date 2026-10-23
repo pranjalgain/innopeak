@@ -32,7 +32,7 @@ export function BusinessSwitcher() {
           size="sm"
           disabled={isSwitching}
           aria-label={t("label")}
-          className="max-w-40 justify-start gap-1.5 sm:max-w-56"
+          className="max-w-28 min-w-0 justify-start gap-1.5 min-[420px]:max-w-40 sm:max-w-56"
         >
           <LuStore aria-hidden="true" className="shrink-0" />
           <span className="truncate">{active?.businessName ?? t("label")}</span>

@@ -113,6 +113,88 @@ describe("useSettings", () => {
   });
 });
 
+describe("useSettings — overlapping saves", () => {
+  beforeEach(() => {
+    vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
+      microsoftLoginEnabled: true,
+      passwordLoginEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true,
+      notificationSettingsEnabled: false,
+    });
+    vi.spyOn(ConnectionService, "getState").mockResolvedValue({
+      status: "connected",
+      connectionId: "conn-1",
+      providerAccountId: "acct-1",
+      connectedAt: "2026-01-01T00:00:00Z",
+      location: null,
+    });
+  });
+
+  // The endpoint replaces all four fields. Two saves of different fields must run one after the other, the second starting from what the
+  // first left behind, or whichever finishes last writes the other's field back to its old value.
+  test("sends the second save on top of the first when two saves of different fields overlap", async () => {
+    vi.spyOn(SettingsService, "getSettings").mockResolvedValue(settings());
+    const update = vi.spyOn(SettingsService, "updateGeneralSettings").mockResolvedValue(undefined as never);
+
+    const client = createQueryClient();
+    const sharedWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <NextIntlClientProvider locale="en" messages={messages}>
+          {children}
+        </NextIntlClientProvider>
+      </QueryClientProvider>
+    );
+    const { result } = renderHook(() => useSettings(), { wrapper: sharedWrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    act(() => {
+      first = result.current.saveGeneral({ escalationRatingThreshold: 2 });
+      second = result.current.saveGeneral({ aiReplyCount: 1 });
+    });
+    await act(async () => {
+      await Promise.all([first, second]);
+    });
+
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update.mock.calls[1]?.[0]).toMatchObject({ escalationRatingThreshold: 2, aiReplyCount: 1 });
+    await waitFor(() =>
+      expect(result.current.settings?.general).toMatchObject({
+        escalationRatingThreshold: 2,
+        aiReplyCount: 1,
+      }),
+    );
+  });
+
+  // The General tab's draft is taken at mount and now outlives visits to the AI tab.
+  test("a General-tab save does not send back an AI reply count it never edited", async () => {
+    vi.spyOn(SettingsService, "getSettings").mockResolvedValue(settings());
+    const update = vi.spyOn(SettingsService, "updateGeneralSettings").mockResolvedValue(undefined as never);
+    const client = createQueryClient();
+    const sharedWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <NextIntlClientProvider locale="en" messages={messages}>
+          {children}
+        </NextIntlClientProvider>
+      </QueryClientProvider>
+    );
+    const { result } = renderHook(() => useSettings(), { wrapper: sharedWrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.saveGeneral({ aiReplyCount: 1 });
+    });
+    await act(async () => {
+      // What `GeneralSettingsSection` sends: its own three fields only.
+      await result.current.saveGeneral({ escalationRatingThreshold: 2 });
+    });
+
+    expect(update.mock.calls[1]?.[0]).toMatchObject({ aiReplyCount: 1, escalationRatingThreshold: 2 });
+  });
+});
+
 describe("useSettings — notification recipients follow the platform setting", () => {
   beforeEach(() => {
     vi.spyOn(ConnectionService, "getState").mockResolvedValue({

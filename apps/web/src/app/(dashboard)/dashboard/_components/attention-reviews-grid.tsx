@@ -5,11 +5,13 @@ import { LuArrowRight } from "react-icons/lu";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { cn } from "@/app/_libs/utils/cn";
+import { getInitials } from "@/app/_libs/utils/initials";
 import { EscalationBadge } from "@/components/common/escalation-badge";
 import { StarRating } from "@/components/common/star-rating";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useReviewerName } from "@/hooks/common/use-reviewer-name";
 import type { AttentionReview } from "@/types/domain";
 
 interface AttentionReviewsGridProps {
@@ -18,6 +20,7 @@ interface AttentionReviewsGridProps {
 
 export function AttentionReviewsGrid({ reviews }: AttentionReviewsGridProps) {
   const t = useTranslations("dashboard.attention");
+  const reviewerName = useReviewerName();
 
   // Nothing needs attention: collapse the section rather than show a heading over a blank grid.
   if (reviews.length === 0) return null;
@@ -42,11 +45,11 @@ export function AttentionReviewsGrid({ reviews }: AttentionReviewsGridProps) {
               <div className="flex items-center gap-2">
                 <Avatar className="size-8">
                   <AvatarFallback className="bg-accent text-xs font-medium text-accent-foreground">
-                    {review.initials}
+                    {review.initials || getInitials(reviewerName(review.reviewerName))}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="text-sm font-medium">{review.reviewerName}</p>
+                  <p className="text-sm font-medium">{reviewerName(review.reviewerName)}</p>
                   <StarRating rating={review.rating} />
                 </div>
               </div>

@@ -82,9 +82,11 @@ export class AdminSettingsController {
   @ApiChangeAdminPassword()
   async changePassword(
     @CurrentUser() user: AuthUser,
-    @Body() dto: ChangeAdminPasswordDto
+    @Body() dto: ChangeAdminPasswordDto,
+    @Res({ passthrough: true }) res: Response
   ): Promise<ApiResponseDto<{ message: string }>> {
-    await this.adminSettingsService.changePassword(user, dto);
+    const { accessToken } = await this.adminSettingsService.changePassword(user, dto);
+    setAdminSessionCookies(res, accessToken);
     return ResponseUtil.success(
       { message: MESSAGES.ADMIN.PASSWORD_CHANGED },
       MESSAGES.ADMIN.PASSWORD_CHANGED,
@@ -110,10 +112,12 @@ export class AdminSettingsController {
   @ApiSetAdminPassword()
   async setPassword(
     @CurrentUser() user: AuthUser,
-    @Body() dto: SetAdminPasswordDto
+    @Body() dto: SetAdminPasswordDto,
+    @Res({ passthrough: true }) res: Response
   ): Promise<ApiResponseDto<{ message: string }>> {
-    const result = await this.adminSettingsService.setPassword(user, dto);
-    return ResponseUtil.success(result, result.message, HttpStatus.OK);
+    const { accessToken, message } = await this.adminSettingsService.setPassword(user, dto);
+    setAdminSessionCookies(res, accessToken);
+    return ResponseUtil.success({ message }, message, HttpStatus.OK);
   }
 
   @Get(RouteNames.ADMIN_SETTINGS_INVITES)

@@ -23,6 +23,7 @@ export function ReviewFiltersBar({
   onSearchChange,
 }: ReviewFiltersBarProps) {
   const t = useTranslations("reviewQueue.filters");
+  const tColumns = useTranslations("reviewQueue.columns");
   const tStatus = useTranslations("common.reviewStatus");
   const tClassification = useTranslations("common.classification");
 
@@ -34,6 +35,7 @@ export function ReviewFiltersBar({
         <Input
           type="text"
           placeholder={t("searchPlaceholder")}
+          aria-label={t("searchPlaceholder")}
           maxLength={MAX_SEARCH_LENGTH}
           value={filters.search}
           onChange={(event) => onSearchChange(event.target.value)}
@@ -46,7 +48,7 @@ export function ReviewFiltersBar({
           value={filters.status}
           onValueChange={(value) => onStatusChange(value as ReviewQueueFilters["status"])}
         >
-          <SelectTrigger size="sm" className="flex-1 md:w-fit md:flex-none">
+          <SelectTrigger size="sm" className="flex-1 md:w-fit md:flex-none" aria-label={tColumns("status")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -63,7 +65,7 @@ export function ReviewFiltersBar({
           value={filters.classification}
           onValueChange={(value) => onClassificationChange(value as ReviewQueueFilters["classification"])}
         >
-          <SelectTrigger size="sm" className="flex-1 md:w-fit md:flex-none">
+          <SelectTrigger size="sm" className="flex-1 md:w-fit md:flex-none" aria-label={tColumns("classification")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

@@ -1,7 +1,9 @@
+import { SessionRevocationService } from '@auth/services/session-revocation.service';
 import { HttpExceptionFilter } from '@common/filters/http-exception.filter';
 import { copyStaticAssets } from '@common/helpers/copy-static-assets';
 import { RouteNames } from '@common/route-names';
 import { ErrorHandlerService } from '@common/services/error-handler.service';
+import { isLocalDevelopment } from '@config/deployment-target.util';
 import type { EnvConfig } from '@config/env.config';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import { LoggerService } from '@logger/logger.service';
@@ -85,7 +87,8 @@ export async function bootstrap(): Promise<void> {
   const opsToolsGuard = createOpsToolsGuard(
     app.get(JwtService),
     configService,
-    app.get(PlatformAdminDbService, { strict: false })
+    app.get(PlatformAdminDbService, { strict: false }),
+    app.get(SessionRevocationService, { strict: false })
   );
   app.use((req: Request, res: Response, next: NextFunction) => {
     opsToolsGuard(req, res, next).catch(next);
@@ -110,14 +113,19 @@ export async function bootstrap(): Promise<void> {
     `/v1/${RouteNames.BILLING}/${RouteNames.BILLING_WEBHOOKS_STRIPE}`,
     bodyParser.raw({
       type: 'application/json',
+      // Stated, not left to body-parser's 100 kb default: a handled event (checkout, subscription, invoice) is a few kilobytes, so this is
+      // a bound on what an unauthenticated caller can make this route buffer before the signature is checked.
+      limit: '256kb',
       verify: (req: Request & { rawBody?: Buffer }, _res, buf) => {
         req.rawBody = buf;
       },
     })
   );
 
+  // JSON only, deliberately: no inbound route takes a form body. A `urlencoded` parser would let any other site auto-submit a
+  // `<form method="post">` to a public route such as `/v1/auth/login` (no preflight, no Origin check) and have the response's
+  // Set-Cookie replace the victim's session. JSON needs a CORS preflight, which a foreign origin fails.
   app.use(bodyParser.json({ limit: '1mb' }));
-  app.use(bodyParser.urlencoded({ limit: '1mb', extended: true }));
 
   app.enableVersioning({
     type: VersioningType.URI,
@@ -141,7 +149,8 @@ export async function bootstrap(): Promise<void> {
     SettingsModule,
   ];
 
-  if (!isProd) {
+  // Not `!isProd`: a staging box also runs as `development`, and the API docs and raw DB errors belong on a developer's machine only.
+  if (isLocalDevelopment()) {
     const v1Config = new DocumentBuilder()
       .setTitle('InnoPeak APIs — v1')
       .setDescription('API v1 documentation for the InnoPeak backend services')

@@ -39,8 +39,11 @@ interface NotificationRowProps {
 }
 
 function NotificationRow({ notification, onRead }: NotificationRowProps) {
-  const Icon = TYPE_ICON[notification.type];
+  // A type this build does not know (the backend ships a new one first) falls back to the bell instead of rendering `undefined`, which
+  // threw inside the header and replaced the whole app with the global error screen.
+  const Icon = TYPE_ICON[notification.type] ?? LuBell;
   const locale = useLocale();
+  const tPanel = useTranslations("appShell.notificationPanel");
 
   const content = (
     <div
@@ -51,7 +54,7 @@ function NotificationRow({ notification, onRead }: NotificationRowProps) {
       <div
         className={cn(
           "flex size-8 shrink-0 items-center justify-center rounded-full",
-          TYPE_ICON_CLASSNAME[notification.type],
+          TYPE_ICON_CLASSNAME[notification.type] ?? "bg-accent text-primary",
         )}>
         <Icon className="size-4" />
       </div>
@@ -59,7 +62,10 @@ function NotificationRow({ notification, onRead }: NotificationRowProps) {
         <div className="flex items-center gap-1.5">
           <p className="truncate text-sm font-medium">{notification.title}</p>
           {!notification.isRead ? (
-            <span className="bg-primary size-1.5 shrink-0 rounded-full" />
+            <span className="bg-primary size-1.5 shrink-0 rounded-full">
+              {/* The dot and the tint say "unread" to sighted users only. */}
+              <span className="sr-only">{tPanel("unread")}</span>
+            </span>
           ) : null}
         </div>
         <p className="text-muted-foreground line-clamp-2 text-xs">{notification.description}</p>
@@ -147,7 +153,8 @@ export function NotificationPanel() {
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label={t("notifications")} className="relative">
+          <Button variant="ghost" size="icon" aria-label={unreadCount > 0 ? tPanel("bellUnread", { count: unreadCount }) : t("notifications")}
+            className="relative">
             {/* `key` restarts the swing when another notice arrives while the last one is still ringing. The two keys must differ: siblings
                 sharing one key make React keep the previous bell on screen instead of replacing it. */}
             <LuBell key={`bell-${ringKey}`} className={cn("size-4.5", isRinging && "animate-bell-ring")} />

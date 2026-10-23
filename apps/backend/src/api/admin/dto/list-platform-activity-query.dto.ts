@@ -6,6 +6,7 @@ import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
 import {
   ACTIVITY_LOG_PAGE_SIZE_DEFAULT,
   ACTIVITY_LOG_PAGE_SIZE_MAX,
+  ADMIN_LIST_PAGE_MAX,
 } from '../constants/admin-overview.constants';
 
 export class ListPlatformActivityQueryDto {
@@ -14,6 +15,7 @@ export class ListPlatformActivityQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(ADMIN_LIST_PAGE_MAX)
   page?: number;
 
   @ApiPropertyOptional({

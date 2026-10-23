@@ -1,6 +1,7 @@
 import { IReviewPostJob } from '@bg/interfaces/job.interface';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { POST_CLAIM_STALE_MINUTES } from '@common/constants/review-post.constants';
+import { LocationStatus } from '@common/enums/location-status.enum';
 import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
@@ -48,6 +49,14 @@ type PostOutcome =
  * limit, 5xx, network) releases the claim and re-enqueues with `attempt + 1` and a delay; anything
  * else is terminal for the attempt, left to the user's `retry-post`.
  */
+/** The review's location is billing-paused or disconnected; the post is refused without calling Google. */
+class LocationPausedError extends Error {
+  constructor(locationId: string) {
+    super(`Location ${locationId} is paused or disconnected`);
+    this.name = 'LocationPausedError';
+  }
+}
+
 @Injectable()
 export class ReviewPostQueueService {
   private readonly logger = new Logger(ReviewPostQueueService.name);
@@ -77,6 +86,8 @@ export class ReviewPostQueueService {
     const review = await this.reviewSyncDbService.findReviewForTenant({
       reviewId: job.reviewId,
       tenantId: job.tenantId,
+      // A location paused after the reply was approved is a reason of its own (below), not a missing review.
+      includePaused: true,
     });
 
     if (!review) {
@@ -100,7 +111,7 @@ export class ReviewPostQueueService {
     try {
       outcome = await this.postOrResolve(job, review, claimed.content);
     } catch (error) {
-      await this.handleProviderFailure(job, attempt, error);
+      await this.handleProviderFailure(job, attempt, error, review.locationId);
       return;
     }
 
@@ -120,17 +131,28 @@ export class ReviewPostQueueService {
     review: ReviewRow,
     content: string
   ): Promise<PostOutcome> {
-    const connection = await this.connectionsDbService.findConnectionByTenant(job.tenantId);
-    if (!connection) {
-      throw new ProviderAuthError(`No provider connection for tenant ${job.tenantId}`);
-    }
-
     const location = await this.connectionsDbService.findLocationForTenant(
       review.locationId,
       job.tenantId
     );
     if (!location) {
       throw new Error(`Location ${review.locationId} not found for tenant ${job.tenantId}`);
+    }
+
+    // Paused by the plan, or disconnected, since the reply was approved: not posted (checked before anything is sent to Google).
+    if (location.status !== LocationStatus.ACTIVE || location.billingPausedAt !== null) {
+      throw new LocationPausedError(location.id);
+    }
+
+    // The location's own connection, live: the reply goes out as the account that owns the location, never whichever the tenant has now.
+    const connection = await this.connectionsDbService.findConnectionById(
+      location.providerConnectionId,
+      job.tenantId
+    );
+    if (connection?.disconnectedAt !== null) {
+      throw new ProviderAuthError(
+        `Connection ${location.providerConnectionId} is missing or disconnected for tenant ${job.tenantId}`
+      );
     }
 
     const { accessToken, refreshedExpiresAt } = await this.credentialService.resolveAccessToken({
@@ -297,10 +319,18 @@ export class ReviewPostQueueService {
   private async handleProviderFailure(
     job: IReviewPostJob,
     attempt: number,
-    error: unknown
+    error: unknown,
+    locationId: string
   ): Promise<void> {
     if (error instanceof ReviewRemovedUpstreamError) {
       await this.handleReviewRemovedUpstream(job);
+      return;
+    }
+
+    if (error instanceof LocationPausedError) {
+      // Not retried: nothing changes until the owner reactivates the location, and then they retry from the review page.
+      await this.markFailedSafely(job.responseId, MESSAGES.REVIEWS.POST_FAILED_LOCATION_PAUSED);
+      this.logger.warn(`Not posting response ${job.responseId}: ${error.message}`);
       return;
     }
 
@@ -318,8 +348,15 @@ export class ReviewPostQueueService {
       // Record a dead grant on the connection, not just report it (as
       // `ReviewSyncQueueService.handleSyncFailure` does for reads).
       try {
-        const connection = await this.connectionsDbService.findConnectionByTenant(job.tenantId);
-        if (connection && (await this.connectionsDbService.markNeedsReauth(connection.id))) {
+        // The location's own connection: after a reconnect with another account the tenant's current one is a different, healthy grant.
+        const location = await this.connectionsDbService.findLocationForTenant(
+          locationId,
+          job.tenantId
+        );
+        if (
+          location &&
+          (await this.connectionsDbService.markNeedsReauth(location.providerConnectionId))
+        ) {
           await this.inAppNotificationsService.notifyConnectionIssue(job.tenantId);
         }
       } catch (reauthError) {

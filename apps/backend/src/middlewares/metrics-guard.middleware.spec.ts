@@ -3,6 +3,11 @@ import type { Request, Response } from 'express';
 
 import { createMetricsGuard } from './metrics-guard.middleware';
 
+const isLocal = jest.fn(() => true);
+jest.mock('@config/deployment-target.util', () => ({
+  isLocalDevelopment: (): boolean => isLocal(),
+}));
+
 describe('createMetricsGuard', () => {
   const build = (token: string | undefined) =>
     createMetricsGuard({ get: jest.fn(() => token) } as unknown as ConfigService<never>);
@@ -64,5 +69,27 @@ describe('createMetricsGuard', () => {
     const { next } = run(build(undefined), '/metrics');
 
     expect(next).toHaveBeenCalled();
+  });
+
+  // A staging box runs as `development` with a real frontend URL: no token there must not mean an open endpoint.
+  describe('with no token configured', () => {
+    afterEach(() => isLocal.mockReturnValue(true));
+
+    it('serves /metrics on a local machine', () => {
+      const { next } = run(build(undefined), '/metrics');
+
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('refuses /metrics anywhere else, and leaves other paths alone', () => {
+      isLocal.mockReturnValue(false);
+
+      const metrics = run(build(undefined), '/metrics');
+      const other = run(build(undefined), '/v1/auth/login');
+
+      expect(metrics.res.status).toHaveBeenCalledWith(503);
+      expect(metrics.next).not.toHaveBeenCalled();
+      expect(other.next).toHaveBeenCalled();
+    });
   });
 });

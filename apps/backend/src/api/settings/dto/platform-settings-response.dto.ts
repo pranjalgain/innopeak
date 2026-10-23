@@ -6,6 +6,7 @@ export interface PlatformDeploySettings {
   paymentFeatureEnabled: boolean;
   erasureGracePeriodDays: number;
   adminMicrosoftLoginAvailable: boolean;
+  adminGoogleLoginAvailable: boolean;
 }
 
 export class PlatformSettingsResponseDto {
@@ -72,6 +73,15 @@ export class PlatformSettingsResponseDto {
   })
   adminMicrosoftLoginAvailable!: boolean;
 
+  @ApiProperty({
+    example: true,
+    description:
+      'Whether the admin sign-in page offers "Continue with Google": the Google OAuth client is configured on this deploy. ' +
+      'Independent of `googleLoginEnabled`, which governs tenant sign-in only (an admin who accepted an invite with Google has ' +
+      'no password, so the switch must not take their way in away); a pure reflection of the environment, not writable.',
+  })
+  adminGoogleLoginAvailable!: boolean;
+
   static from(
     row: PlatformSettingsRow,
     deploy: PlatformDeploySettings
@@ -85,6 +95,7 @@ export class PlatformSettingsResponseDto {
     dto.paymentFeatureEnabled = deploy.paymentFeatureEnabled;
     dto.erasureGracePeriodDays = deploy.erasureGracePeriodDays;
     dto.adminMicrosoftLoginAvailable = deploy.adminMicrosoftLoginAvailable;
+    dto.adminGoogleLoginAvailable = deploy.adminGoogleLoginAvailable;
     return dto;
   }
 }

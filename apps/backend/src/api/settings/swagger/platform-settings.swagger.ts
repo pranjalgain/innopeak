@@ -27,6 +27,7 @@ export function ApiGetPlatformSettings(): ReturnType<typeof applyDecorators> {
             paymentFeatureEnabled: false,
             erasureGracePeriodDays: 21,
             adminMicrosoftLoginAvailable: false,
+            adminGoogleLoginAvailable: true,
           },
         },
       },

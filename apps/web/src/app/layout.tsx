@@ -1,6 +1,7 @@
 import "./globals.css";
 
 
+import { headers } from "next/headers";
 import Script from "next/script";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
@@ -22,7 +23,9 @@ export default async function RootLayout({
 }: Readonly<{
   children: ReactNode;
 }>) {
-  const [locale, messages] = await Promise.all([getLocale(), getMessages()]);
+  const [locale, messages, requestHeaders] = await Promise.all([getLocale(), getMessages(), headers()]);
+  // Set by `proxy.ts` for this request; the theme bootstrap is the one inline script the layout emits itself.
+  const nonce = requestHeaders.get("x-nonce") ?? undefined;
 
   return (
     <html lang={locale} suppressHydrationWarning>
@@ -38,7 +41,7 @@ export default async function RootLayout({
               tables) animate a lot of nodes at once on toggle. If that ever reads as jank on a
               low-end device, the fix is to narrow the `*` rule's property list, not to switch
               suppression on — that would take the deliberate fade with it. */}
-          <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+          <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} nonce={nonce}>
             <ThemeTransition />
             <TanstackProvider>
               {children}

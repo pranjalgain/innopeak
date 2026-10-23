@@ -24,16 +24,29 @@ export function AdminBillingView() {
   const router = useRouter();
   // The nav hides this page when payment is off and nothing is on Paid, but the URL still resolves;
   // bounce direct visits to Overview. `billingAvailable` mirrors the nav filter: the flag only gates
-  // new checkouts, so the page stays reachable while any Paid tenant exists. Never redirects while a query is loading.
-  const { data: platformSettings, isLoading: platformSettingsLoading } = usePlatformSettings();
-  const { data: hasPaidTenants, isLoading: hasPaidTenantsLoading } = useAdminHasPaidTenants();
-  const settingsResolved = !platformSettingsLoading && !hasPaidTenantsLoading;
+  // new checkouts, so the page stays reachable while any Paid tenant exists. Never redirects while a query is loading, and not on a
+  // failed one either: a blip in either read says nothing about availability, so it offers a retry instead of bouncing the admin away.
+  const {
+    data: platformSettings,
+    isLoading: platformSettingsLoading,
+    isError: platformSettingsError,
+    refetch: refetchPlatformSettings,
+  } = usePlatformSettings();
+  const {
+    data: hasPaidTenants,
+    isLoading: hasPaidTenantsLoading,
+    isError: hasPaidTenantsError,
+    refetch: refetchHasPaidTenants,
+  } = useAdminHasPaidTenants();
   const billingAvailable = platformSettings?.paymentFeatureEnabled === true || hasPaidTenants === true;
+  const availabilityUnknown =
+    !billingAvailable && (platformSettingsError || hasPaidTenantsError);
+  const settingsResolved = !platformSettingsLoading && !hasPaidTenantsLoading;
   useEffect(() => {
-    if (settingsResolved && !billingAvailable) {
+    if (settingsResolved && !billingAvailable && !availabilityUnknown) {
       router.replace(ROUTES.ADMIN);
     }
-  }, [settingsResolved, billingAvailable, router]);
+  }, [settingsResolved, billingAvailable, availabilityUnknown, router]);
 
   const {
     freeCount,
@@ -63,6 +76,19 @@ export function AdminBillingView() {
   ] as const;
 
   const showAtRisk = atRisk.length > 0;
+
+  if (availabilityUnknown) {
+    return (
+      <div className="p-fluid-page">
+        <LoadErrorState
+          onRetry={() => {
+            void refetchPlatformSettings();
+            void refetchHasPaidTenants();
+          }}
+        />
+      </div>
+    );
+  }
 
   // Avoids a flash of the dashboard while the redirect effect decides.
   if (!settingsResolved || !billingAvailable) {

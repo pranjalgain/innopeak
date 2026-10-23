@@ -184,8 +184,8 @@ export class ReviewService {
   private static toReview(item: ApiReviewListItem): Review {
     return {
       id: item.id,
-      // null for an anonymous/anonymized reviewer; the placeholder is applied here, not in every component.
-      reviewerName: item.reviewerName ?? "Anonymous",
+      // Null stays null: the "anonymous" label is language-dependent, so it is applied where the name renders (`useReviewerName`).
+      reviewerName: item.reviewerName,
       rating: this.toRating(item.rating),
       reviewText: item.reviewText ?? "",
       reviewedAt: item.reviewedAt ?? "",

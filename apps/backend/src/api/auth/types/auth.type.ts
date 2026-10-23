@@ -1,7 +1,9 @@
 import type { Locale } from '@common/i18n/locale';
 
 import type { SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
+import type { LoginPendingVerificationDto } from '../dto/login-response.dto';
 import type { PlatformAdminTokenResponseDto } from '../dto/platform-admin-token-response.dto';
+import type { SignupResponseDto } from '../dto/signup-response.dto';
 import type { TokenResponseDto } from '../dto/token-response.dto';
 import type { JwtTokenType } from '../enums/jwt-token-type.enum';
 import type { OAuthIntent } from '../enums/oauth-intent.enum';
@@ -15,6 +17,12 @@ export interface TenantAuthUser {
   role: UserRole;
   /** From the access token's `locale` claim; null = never chose one. Stale until the token is refreshed. */
   locale: Locale | null;
+  /**
+   * The presenting token's `exp` (epoch seconds). A token re-signed mid-session (`updateLocale`) must expire at the same instant:
+   * otherwise a stolen access token could renew itself indefinitely, outliving a logout or a password change, neither of which
+   * can reach an access token. A token lacking `exp` falls back to the full TTL.
+   */
+  sessionExpiresAt?: number;
 }
 
 export interface PlatformAdminAuthUser {
@@ -106,6 +114,22 @@ export interface SignedTokenPair {
   tokens: TokenResponse;
   refreshTokenHash: string;
   refreshExpiresAt: string;
+}
+
+/**
+ * A password sign-up that now waits for its emailed code. `signupBinding` goes in an httpOnly cookie, never the body: it is what lets this
+ * browser (and only it) finish the verification (see `SIGNUP_BINDING_COOKIE_NAME`).
+ */
+export interface SignupIssuanceResult {
+  body: SignupResponseDto;
+  signupBinding: string;
+}
+
+/** A correct password for an account that never finished verification: a fresh code was sent, and this browser may now finish it. */
+export interface PendingVerificationLoginResult {
+  pendingVerification: true;
+  body: LoginPendingVerificationDto;
+  signupBinding: string;
 }
 
 /** The refresh token is kept out of the body so the controller can set it as an httpOnly cookie, unreadable by page scripts. */

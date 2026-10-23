@@ -68,6 +68,23 @@ describe("NotificationPanel", () => {
     expect(screen.queryByText(messages.appShell.notificationPanel.loadingMore)).not.toBeInTheDocument();
   });
 
+  // The backend can ship a new notification type before this build knows it; that used to throw inside the header.
+  test("renders a notification of a type it does not know instead of crashing the shell", async () => {
+    const [first, ...rest] = structuredClone(NOTIFICATIONS_FIXTURE);
+    const unknown = { ...first!, id: "n-unknown", title: "Something new", type: "a_future_type" } as never;
+    vi.spyOn(NotificationService, "list").mockResolvedValue({
+      items: [unknown, ...rest],
+      hasMore: false,
+      unreadTotal: 1,
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: /^Notifications/ }));
+
+    expect(await screen.findByText("Something new")).toBeInTheDocument();
+  });
+
   describe("when a new notification arrives", () => {
     afterEach(() => {
       vi.useRealTimers();
@@ -126,7 +143,7 @@ describe("NotificationPanel", () => {
         for (let attempt = 0; attempt < 20; attempt += 1) await flush();
       }
 
-      const trigger = screen.getByRole("button", { name: messages.appShell.notifications });
+      const trigger = screen.getByRole("button", { name: /^Notifications/ });
       expect(trigger.querySelectorAll("svg")).toHaveLength(1);
       expect(container.querySelectorAll("span.bg-destructive")).toHaveLength(1);
     });

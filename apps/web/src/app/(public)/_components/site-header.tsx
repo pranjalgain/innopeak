@@ -31,7 +31,7 @@ export async function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/70 bg-background/80 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
       <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between">
-        <Link href={ROUTES.HOME as Route} className="flex items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Link href={ROUTES.HOME} className="flex items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <InnoPeakLogo className="h-8 w-auto" />
         </Link>
 
@@ -50,12 +50,12 @@ export async function SiteHeader() {
           <LanguageSwitcher compact />
           <ThemeToggle compact />
           <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link href={ROUTES.LOGIN as Route}>
+            <Link href={ROUTES.LOGIN}>
               <StableWidthLabel labels={actionLabels.signIn} activeLocale={activeLocale} />
             </Link>
           </Button>
           <Button asChild size="sm">
-            <Link href={ROUTES.ONBOARDING_SIGNUP as Route}>
+            <Link href={ROUTES.ONBOARDING_SIGNUP}>
               <StableWidthLabel labels={actionLabels.getStarted} activeLocale={activeLocale} />
             </Link>
           </Button>

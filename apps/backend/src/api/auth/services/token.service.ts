@@ -7,6 +7,8 @@ import { JwtService } from '@nestjs/jwt';
 
 import { randomBytes } from 'crypto';
 
+import { SessionRevocationService } from './session-revocation.service';
+
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   JWT_SIGNING_ALGORITHM,
@@ -44,7 +46,8 @@ export class TokenService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly authDbService: AuthDbService,
-    private readonly configService: ConfigService<EnvConfig>
+    private readonly configService: ConfigService<EnvConfig>,
+    private readonly sessionRevocationService: SessionRevocationService
   ) {}
 
   async issueTokenPair(user: TokenSubject): Promise<TokenResponse> {
@@ -125,6 +128,22 @@ export class TokenService {
       throw new RefreshTokenSupersededException();
     }
 
+    // A logout or password change racing this rotation revokes the old row only: its UPDATE does not see the successor this
+    // transaction has just inserted. Every such event writes its mark before that UPDATE, so the mark exists by now, and the question is
+    // the one an access token is asked: was the token being rotated minted before the session was ended? Judged on *that* token's `iat`,
+    // not on the time of this rotation: a password change marks its own second and then hands the caller a fresh pair in that second, and
+    // a refresh of that fresh pair (another tab, a moment later) must not be read as having raced the change.
+    if (
+      await this.sessionRevocationService.isRevoked({
+        userId: user.id,
+        tenantId: user.tenantId,
+        issuedAt: payload.iat,
+      })
+    ) {
+      await this.authDbService.revokeAllRefreshTokensForUser(user.id);
+      throw new InvalidRefreshTokenException();
+    }
+
     return {
       tokens: signed.tokens,
       user: { ...subject, name: user.name, passwordHash: user.passwordHash },
@@ -156,7 +175,13 @@ export class TokenService {
     throw new InvalidRefreshTokenException();
   }
 
+  /**
+   * Ends every session: the refresh tokens in the database, and the access tokens already issued, which a JWT cannot otherwise take
+   * back (see `SessionRevocationService`). Used by logout, refresh-token reuse and a refresh by a disabled user or suspended business.
+   */
   async revokeAll(userId: string): Promise<void> {
+    // The mark goes first: a refresh rotating at this moment re-checks it once its successor is committed (see `rotate`).
+    await this.sessionRevocationService.revokeUser(userId);
     await this.authDbService.revokeAllRefreshTokensForUser(userId);
   }
 
@@ -178,7 +203,43 @@ export class TokenService {
     await this.revokeAll(payload.sub);
   }
 
-  private signAccessToken(user: TokenSubject): string {
+  /**
+   * Logout for a session that has no usable refresh token: a platform admin never has one, and a tenant's refresh cookie may have
+   * gone. The access token's signature proves who it was minted for; an expired one is already dead, and one we did not sign is
+   * ignored silently (as in `revokeBySessionToken`) so logout is not an oracle for valid tokens.
+   */
+  async revokeByAccessToken(rawAccessToken: string): Promise<void> {
+    let payload: { sub?: unknown; type?: unknown };
+    try {
+      payload = this.jwtService.verify<{ sub?: unknown; type?: unknown }>(rawAccessToken, {
+        algorithms: [JWT_SIGNING_ALGORITHM],
+      });
+    } catch {
+      return;
+    }
+    if (typeof payload.sub !== 'string') {
+      return;
+    }
+
+    if (payload.type === JwtTokenType.PLATFORM_ADMIN) {
+      await this.revokePlatformAdminSessions(payload.sub);
+    } else if (payload.type === JwtTokenType.TENANT_USER) {
+      await this.revokeAll(payload.sub);
+    }
+  }
+
+  /**
+   * Ends a platform admin's access tokens (they have no refresh tokens). A password change passes `exceptCurrentSecond` because its
+   * caller is handed a fresh token straight afterwards.
+   */
+  async revokePlatformAdminSessions(
+    adminId: string,
+    options: { exceptCurrentSecond?: boolean } = {}
+  ): Promise<void> {
+    await this.sessionRevocationService.revokeUser(adminId, options);
+  }
+
+  private signAccessToken(user: TokenSubject, expiresInSeconds?: number): string {
     const accessPayload: TenantJwtPayload = {
       sub: user.id,
       tenantId: user.tenantId,
@@ -187,16 +248,26 @@ export class TokenService {
       locale: user.locale,
       type: JwtTokenType.TENANT_USER,
     };
-    return this.jwtService.sign(accessPayload);
+    return expiresInSeconds === undefined
+      ? this.jwtService.sign(accessPayload)
+      : this.jwtService.sign(accessPayload, { expiresIn: expiresInSeconds });
   }
 
   /**
    * Re-signs the access token alone for a mid-session claim update (e.g. `locale`). Must not use
    * `issueTokenPair`: anyone holding only a leaked access token (it travels in the JSON body for
-   * Bearer clients) could mint an indefinitely-rotatable 7-day refresh token.
+   * Bearer clients) could mint an indefinitely-rotatable 7-day refresh token. `expiresInSeconds` must be the remaining lifetime of the
+   * presenting token, for the same reason as `signPlatformAdminAccessToken`: with a fresh TTL on every call this route would be a
+   * session-extension primitive that outlives logout and a password change, which cannot reach an access token.
    */
-  reissueAccessToken(user: TokenSubject): { accessToken: string; expiresIn: number } {
-    return { accessToken: this.signAccessToken(user), expiresIn: ACCESS_TOKEN_TTL_SECONDS };
+  reissueAccessToken(
+    user: TokenSubject,
+    expiresInSeconds: number = ACCESS_TOKEN_TTL_SECONDS
+  ): { accessToken: string; expiresIn: number } {
+    return {
+      accessToken: this.signAccessToken(user, expiresInSeconds),
+      expiresIn: expiresInSeconds,
+    };
   }
 
   /**

@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import type { AttentionReview } from "@/types/domain";
 
+import messagesDe from "../../../../../../messages/de.json";
 import messages from "../../../../../../messages/en.json";
 import { AttentionReviewsGrid } from "../attention-reviews-grid";
 
@@ -17,9 +18,9 @@ const review = (overrides: Partial<AttentionReview>): AttentionReview => ({
   ...overrides,
 });
 
-function renderGrid(reviews: AttentionReview[]) {
+function renderGrid(reviews: AttentionReview[], locale: "de" | "en" = "en") {
   return render(
-    <NextIntlClientProvider locale="en" messages={messages}>
+    <NextIntlClientProvider locale={locale} messages={locale === "de" ? messagesDe : messages}>
       <AttentionReviewsGrid reviews={reviews} />
     </NextIntlClientProvider>,
   );
@@ -40,6 +41,16 @@ describe("AttentionReviewsGrid", () => {
       expect(footer).toHaveClass("mt-auto");
       expect(content).toHaveClass("flex-1", "flex-col");
     }
+  });
+
+  // The services pass null for an anonymized reviewer; the label belongs to the viewer's language.
+  test.each([
+    ["en", "Anonymous"],
+    ["de", "Anonym"],
+  ] as const)("labels an anonymous reviewer in %s", (locale, label) => {
+    renderGrid([review({ reviewerName: null, initials: "" })], locale);
+
+    expect(screen.getByText(label)).toBeInTheDocument();
   });
 
   test("renders nothing when no review needs attention", () => {

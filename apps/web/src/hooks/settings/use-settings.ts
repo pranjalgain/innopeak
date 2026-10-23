@@ -1,7 +1,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import { ConnectionService } from "@/app/_libs/services/connection.service";
@@ -21,12 +21,16 @@ export const settingsQueryKey = ["settings"] as const;
 interface UseSettingsResult {
   settings: SettingsData | null;
   isLoading: boolean;
+  /** The load failed (queries run with `retry: false`): the screen shows a retry, not a skeleton that never ends. */
+  isError: boolean;
+  refetch: () => void;
   saveGeneral: (patch: Partial<GeneralSettings>) => Promise<boolean>;
   addBlocklistTerm: (term: string) => Promise<boolean>;
   removeBlocklistTerm: (id: string) => Promise<void>;
   updateRecipientChannel: (id: string, channel: NotificationChannel) => void;
   toggleRecipientActive: (id: string) => void;
-  disconnect: () => void;
+  /** Resolves true once the disconnect has gone through; the caller leaves the screen only then. */
+  disconnect: () => Promise<boolean>;
 }
 
 /**
@@ -72,6 +76,19 @@ export function useSettings(enabled = true): UseSettingsResult {
 
   const setSettings = useCallback(
     (next: SettingsData) => queryClient.setQueryData(queryKey, next),
+    [queryClient, queryKey],
+  );
+
+  /**
+   * Applies a change to whatever the cache holds *now*. An `await`ed save writes back after the render that started it, so building the
+   * next object from that render's `settings` would overwrite anything saved in between (two quick saves, a recipient toggle landing
+   * mid-save): the write is always expressed as a change to the current value.
+   */
+  const updateSettings = useCallback(
+    (change: (current: SettingsData) => SettingsData) =>
+      queryClient.setQueryData<SettingsData>(queryKey, (current) =>
+        current ? change(current) : current,
+      ),
     [queryClient, queryKey],
   );
 
@@ -145,13 +162,18 @@ export function useSettings(enabled = true): UseSettingsResult {
       }),
   });
 
-  const saveGeneral = useCallback(
+  // The endpoint replaces all four fields, so each save has to start from what the previous one left in the cache, not from the render it
+  // was triggered in: saves run one after another, and each one reads the cache when its turn comes.
+  const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+
+  const saveGeneralNow = useCallback(
     async (patch: Partial<GeneralSettings>): Promise<boolean> => {
-      if (!settings) return false;
-      const nextGeneral = { ...settings.general, ...patch };
+      const base = queryClient.getQueryData<SettingsData>(queryKey)?.general ?? settings?.general;
+      if (!base) return false;
+      const nextGeneral = { ...base, ...patch };
       try {
         await saveGeneralMutation.mutateAsync(nextGeneral);
-        setSettings({ ...settings, general: nextGeneral });
+        updateSettings((current) => ({ ...current, general: { ...current.general, ...patch } }));
         return true;
       } catch (error) {
         if (error instanceof SettingsApiError && error.statusCode === 403) {
@@ -162,7 +184,16 @@ export function useSettings(enabled = true): UseSettingsResult {
         return false;
       }
     },
-    [settings, t, saveGeneralMutation, setSettings],
+    [settings, t, saveGeneralMutation, updateSettings, queryClient, queryKey],
+  );
+
+  const saveGeneral = useCallback(
+    (patch: Partial<GeneralSettings>): Promise<boolean> => {
+      const result = saveQueueRef.current.then(() => saveGeneralNow(patch));
+      saveQueueRef.current = result.catch(() => undefined);
+      return result;
+    },
+    [saveGeneralNow],
   );
 
   const addBlocklistTermMutation = useMutation({
@@ -177,7 +208,10 @@ export function useSettings(enabled = true): UseSettingsResult {
 
       try {
         const created = await addBlocklistTermMutation.mutateAsync(trimmed);
-        setSettings({ ...settings, blocklistTerms: [...settings.blocklistTerms, created] });
+        updateSettings((current) => ({
+          ...current,
+          blocklistTerms: [...current.blocklistTerms, created],
+        }));
         toast.success(t("blocklistTermAdded"));
         return true;
       } catch (error) {
@@ -189,7 +223,7 @@ export function useSettings(enabled = true): UseSettingsResult {
         return false;
       }
     },
-    [settings, t, addBlocklistTermMutation, setSettings],
+    [settings, t, addBlocklistTermMutation, updateSettings],
   );
 
   const removeBlocklistTermMutation = useMutation({
@@ -202,10 +236,10 @@ export function useSettings(enabled = true): UseSettingsResult {
 
       try {
         await removeBlocklistTermMutation.mutateAsync(id);
-        setSettings({
-          ...settings,
-          blocklistTerms: settings.blocklistTerms.filter((item) => item.id !== id),
-        });
+        updateSettings((current) => ({
+          ...current,
+          blocklistTerms: current.blocklistTerms.filter((item) => item.id !== id),
+        }));
         toast.success(t("blocklistTermRemoved"));
       } catch (error) {
         if (error instanceof SettingsApiError && error.statusCode === 403) {
@@ -215,7 +249,7 @@ export function useSettings(enabled = true): UseSettingsResult {
         }
       }
     },
-    [settings, t, removeBlocklistTermMutation, setSettings],
+    [settings, t, removeBlocklistTermMutation, updateSettings],
   );
 
   const updateRecipientChannel = useCallback(
@@ -249,8 +283,10 @@ export function useSettings(enabled = true): UseSettingsResult {
   const disconnectMutation = useMutation({
     mutationFn: () => ConnectionService.disconnect(),
     onSuccess: async () => {
-      if (!settings) return;
-      setSettings({ ...settings, connection: { ...settings.connection, status: "disconnected" } });
+      updateSettings((current) => ({
+        ...current,
+        connection: { ...current.connection, status: "disconnected" },
+      }));
       toast.success(t("disconnected"));
       // Otherwise `["connection"]` keeps reporting "connected" until its next refetch, so the guard
       // and reconnect banner would lag.
@@ -264,17 +300,24 @@ export function useSettings(enabled = true): UseSettingsResult {
     onError: () => toast.error(t("disconnectFailed")),
   });
 
-  const disconnect = useCallback(() => {
-    if (!settings) return;
-    // The backend deactivates the tenant's locations and revokes the stored Google credential. The
-    // optimistic local update shows the change immediately, but the API's state is authoritative.
-    disconnectMutation.mutate();
+  const disconnect = useCallback(async (): Promise<boolean> => {
+    if (!settings) return false;
+    // The backend deactivates the tenant's locations and revokes the stored Google credential. Awaited, so a failed request (already
+    // reported by the mutation's `onError` toast) leaves the person on this screen, still connected, instead of sending them away.
+    try {
+      await disconnectMutation.mutateAsync();
+      return true;
+    } catch {
+      return false;
+    }
   }, [settings, disconnectMutation]);
 
   return {
     settings,
     // Includes the wait for the platform settings, which the query depends on: a disabled query is otherwise reported as not loading.
     isLoading: settingsQuery.isLoading || (enabled && platformSettingsLoading),
+    isError: settingsQuery.isError,
+    refetch: () => void settingsQuery.refetch(),
     saveGeneral,
     addBlocklistTerm,
     removeBlocklistTerm,

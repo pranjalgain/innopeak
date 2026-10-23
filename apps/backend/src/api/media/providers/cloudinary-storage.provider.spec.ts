@@ -97,6 +97,54 @@ describe('CloudinaryStorageProvider', () => {
       expect(result).toEqual({ ok: false, reason: 'unsupportedFormat' });
     });
 
+    // The upload is in the owner's folder but will never become an avatar, so it must not accumulate there.
+    it.each([
+      ['svg', 1024, 'unsupportedFormat'],
+      ['png', 11 * 1024 * 1024, 'tooLarge'],
+    ])('deletes a rejected %s upload of %i bytes (%s)', async (format, bytes, reason) => {
+      mockResource.mockResolvedValue({
+        secure_url: 'https://res.cloudinary.com/demo/avatars/asset-1',
+        format,
+        bytes,
+        asset_folder: 'avatars',
+      });
+      (cloudinary.uploader.destroy as jest.Mock).mockResolvedValue({ result: 'ok' });
+
+      const result = await target.verifyUpload('avatars/asset-1', 'avatars');
+
+      expect(result).toEqual({ ok: false, reason });
+      expect(cloudinary.uploader.destroy).toHaveBeenCalledWith('avatars/asset-1');
+    });
+
+    it('still answers the rejection when the cleanup itself fails', async () => {
+      mockResource.mockResolvedValue({
+        secure_url: 'https://res.cloudinary.com/demo/avatars/asset-1',
+        format: 'png',
+        bytes: 11 * 1024 * 1024,
+        asset_folder: 'avatars',
+      });
+      (cloudinary.uploader.destroy as jest.Mock).mockRejectedValue(new Error('network'));
+
+      await expect(target.verifyUpload('avatars/asset-1', 'avatars')).resolves.toEqual({
+        ok: false,
+        reason: 'tooLarge',
+      });
+    });
+
+    // Another owner's asset (wrong folder) is never touched: only an upload verified to be in the caller's own folder is discarded.
+    it('leaves an asset in another folder alone', async () => {
+      mockResource.mockResolvedValue({
+        secure_url: 'https://res.cloudinary.com/demo/other/asset-1.svg',
+        format: 'svg',
+        bytes: 1024,
+        asset_folder: 'other',
+      });
+
+      await target.verifyUpload('other/asset-1', 'avatars');
+
+      expect(cloudinary.uploader.destroy).not.toHaveBeenCalled();
+    });
+
     it('rejects an asset that landed in a different folder than expected with reason "notFound"', async () => {
       mockResource.mockResolvedValue({
         secure_url: 'https://res.cloudinary.com/demo/other/asset-1.png',

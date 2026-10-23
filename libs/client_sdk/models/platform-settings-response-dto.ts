@@ -35,4 +35,8 @@ export interface PlatformSettingsResponseDto {
    * Whether the admin sign-in page offers \"Continue with Microsoft\": the Microsoft client is configured and `ADMIN_MICROSOFT_TENANT_ID` pins the directory admins sign in from. A pure reflection of the deploy environment, not stored on `platform_settings` and not writable through this API; independent of `microsoftLoginEnabled`, which governs tenant sign-in only.
    */
   adminMicrosoftLoginAvailable: boolean;
+  /**
+   * Whether the admin sign-in page offers \"Continue with Google\": the Google OAuth client is configured on this deploy. Independent of `googleLoginEnabled`, which governs tenant sign-in only (an admin who accepted an invite with Google has no password, so the switch must not take their way in away); a pure reflection of the environment, not writable.
+   */
+  adminGoogleLoginAvailable: boolean;
 }

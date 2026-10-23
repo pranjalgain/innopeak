@@ -37,7 +37,9 @@ describe('BillingReconciliationService', () => {
   let tenantSubscriptionsDbService: jest.Mocked<
     Pick<
       TenantSubscriptionsDbService,
+      | 'advanceEventClock'
       | 'clearCancellationScheduled'
+      | 'detachStripeCustomer'
       | 'findByTenantId'
       | 'markCancellationScheduled'
       | 'setToFreeFromSubscriptionDeleted'
@@ -57,11 +59,13 @@ describe('BillingReconciliationService', () => {
       voidOpenInvoices: jest.fn().mockResolvedValue(0),
     };
     tenantSubscriptionsDbService = {
+      advanceEventClock: jest.fn().mockResolvedValue(true),
       setToPaidFromCheckout: jest.fn().mockResolvedValue(null),
       touchStripeVerifiedAt: jest.fn().mockResolvedValue(undefined),
       findByTenantId: jest.fn(),
       markCancellationScheduled: jest.fn().mockResolvedValue(null),
       clearCancellationScheduled: jest.fn().mockResolvedValue(null),
+      detachStripeCustomer: jest.fn().mockResolvedValue(null),
       setToFreeFromSubscriptionDeleted: jest.fn().mockResolvedValue(null),
     };
     connectionsDbService = { clearBillingPauseForTenant: jest.fn().mockResolvedValue(undefined) };
@@ -135,6 +139,51 @@ describe('BillingReconciliationService', () => {
         'tenant-1',
         fakeTx
       );
+    });
+  });
+
+  // A snapshot read before a newer webhook (a `subscription.deleted`) was applied would resurrect Paid for a tenant who just cancelled.
+  describe('against a webhook that landed while Stripe was being asked', () => {
+    it('does not write a snapshot older than the newest event already applied, but still stamps the verification', async () => {
+      paymentProvider.retrieveActiveSubscriptionForCustomer.mockResolvedValue(snapshot);
+      tenantSubscriptionsDbService.advanceEventClock.mockResolvedValue(false);
+
+      await target.reconcileTenantSubscription({ tenantId: 'tenant-1', stripeCustomerId: 'cus_1' });
+
+      expect(tenantSubscriptionsDbService.setToPaidFromCheckout).not.toHaveBeenCalled();
+      expect(connectionsDbService.clearBillingPauseForTenant).not.toHaveBeenCalled();
+      expect(tenantSubscriptionsDbService.touchStripeVerifiedAt).toHaveBeenCalledWith(
+        'tenant-1',
+        fakeTx
+      );
+    });
+
+    it('stamps the clock with the moment before Stripe was asked, not after', async () => {
+      const before = Date.now();
+      paymentProvider.retrieveActiveSubscriptionForCustomer.mockImplementation(async () => {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        return snapshot;
+      });
+
+      await target.reconcileTenantSubscription({ tenantId: 'tenant-1', stripeCustomerId: 'cus_1' });
+
+      const [, readAt] = tenantSubscriptionsDbService.advanceEventClock.mock.calls[0] as [
+        string,
+        string,
+      ];
+      expect(new Date(readAt).getTime()).toBeGreaterThanOrEqual(before);
+      expect(new Date(readAt).getTime()).toBeLessThan(Date.now() - 10);
+    });
+
+    it('does not touch the clock for a subscription that is not live', async () => {
+      paymentProvider.retrieveActiveSubscriptionForCustomer.mockResolvedValue({
+        ...snapshot,
+        status: SubscriptionStatus.CANCELED,
+      });
+
+      await target.reconcileTenantSubscription({ tenantId: 'tenant-1', stripeCustomerId: 'cus_1' });
+
+      expect(tenantSubscriptionsDbService.advanceEventClock).not.toHaveBeenCalled();
     });
   });
 
@@ -297,6 +346,45 @@ describe('BillingReconciliationService', () => {
       expect(tenantSubscriptionsDbService.markCancellationScheduled).not.toHaveBeenCalled();
     });
 
+    // A tenant whose checkout webhook has not landed has a customer but no recorded subscription, and was billed through the grace period.
+    it('finds the live subscription through the Stripe customer when none is recorded', async () => {
+      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(
+        row({ stripeSubscriptionId: null, status: null, stripeCustomerId: 'cus_1' })
+      );
+      paymentProvider.retrieveActiveSubscriptionForCustomer.mockResolvedValue({
+        ...snapshot,
+        stripeSubscriptionId: 'sub_live',
+        status: SubscriptionStatus.ACTIVE,
+        cancelAtPeriodEnd: false,
+      });
+
+      await target.scheduleCancellationForErasure('tenant-1');
+
+      expect(paymentProvider.retrieveActiveSubscriptionForCustomer).toHaveBeenCalledWith('cus_1');
+      expect(paymentProvider.cancelSubscription).toHaveBeenCalledWith('sub_live', true);
+    });
+
+    it('does nothing when the customer has no live subscription either', async () => {
+      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(
+        row({ stripeSubscriptionId: null, status: null, stripeCustomerId: 'cus_1' })
+      );
+      paymentProvider.retrieveActiveSubscriptionForCustomer.mockResolvedValue(null);
+
+      await target.scheduleCancellationForErasure('tenant-1');
+
+      expect(paymentProvider.cancelSubscription).not.toHaveBeenCalled();
+    });
+
+    it('does not ask Stripe about a subscription it already has recorded', async () => {
+      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue(
+        row({ stripeCustomerId: 'cus_1' })
+      );
+
+      await target.scheduleCancellationForErasure('tenant-1');
+
+      expect(paymentProvider.retrieveActiveSubscriptionForCustomer).not.toHaveBeenCalled();
+    });
+
     it('leaves a free tenant, a cancelled subscription and one the owner already ended alone', async () => {
       for (const value of [
         row({ stripeSubscriptionId: null, status: null }),
@@ -373,6 +461,20 @@ describe('BillingReconciliationService', () => {
       await target.releaseBillingForErasure('tenant-1');
 
       expect(paymentProvider.deleteCustomer).toHaveBeenCalledWith('cus_1');
+    });
+
+    // The customer is gone from Stripe; its id must not stay in our row, pointing at a name and email that no longer exist.
+    it('forgets the customer id once Stripe has deleted the customer, and not before', async () => {
+      tenantSubscriptionsDbService.findByTenantId.mockResolvedValue({
+        stripeCustomerId: 'cus_1',
+      } as Awaited<ReturnType<TenantSubscriptionsDbService['findByTenantId']>>);
+      paymentProvider.deleteCustomer.mockRejectedValueOnce(new Error('connection error'));
+
+      await expect(target.releaseBillingForErasure('tenant-1')).rejects.toThrow();
+      expect(tenantSubscriptionsDbService.detachStripeCustomer).not.toHaveBeenCalled();
+
+      await target.releaseBillingForErasure('tenant-1');
+      expect(tenantSubscriptionsDbService.detachStripeCustomer).toHaveBeenCalledWith('tenant-1');
     });
 
     it('does nothing for a tenant that never had a Stripe customer', async () => {

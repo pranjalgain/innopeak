@@ -3,26 +3,36 @@ import type { Request } from 'express';
 import { fromAccessTokenCookie } from '../../auth/utils/jwt-cookie-extractor.util';
 
 /**
- * Milliseconds until the caller's access token expires, read off the token the guard has already verified (so no signature check
- * here). Falls back to `fallbackMs` when the token cannot be read, e.g. a Bearer caller with no cookie or an unexpected shape.
+ * Claims of the access token on the request, read off the token the guard has already verified (so no signature check here).
+ * Null when it cannot be read, e.g. a Bearer caller with no cookie or an unexpected shape.
  */
-export function msUntilAccessTokenExpiry(req: Request, fallbackMs: number): number {
+function readClaims(req: Request): { exp?: unknown; iat?: unknown } | null {
   const token = fromAccessTokenCookie(req) ?? bearerToken(req);
   const payload = token?.split('.')[1];
   if (payload === undefined) {
-    return fallbackMs;
+    return null;
   }
 
   try {
-    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
+    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
       exp?: unknown;
+      iat?: unknown;
     };
-    return typeof claims.exp === 'number'
-      ? Math.max(0, claims.exp * 1000 - Date.now())
-      : fallbackMs;
   } catch {
-    return fallbackMs;
+    return null;
   }
+}
+
+/** Milliseconds until the caller's access token expires; `fallbackMs` when it cannot be read. */
+export function msUntilAccessTokenExpiry(req: Request, fallbackMs: number): number {
+  const exp = readClaims(req)?.exp;
+  return typeof exp === 'number' ? Math.max(0, exp * 1000 - Date.now()) : fallbackMs;
+}
+
+/** When the caller's access token was issued (epoch seconds), for a revocation check; undefined when it cannot be read. */
+export function accessTokenIssuedAt(req: Request): number | undefined {
+  const iat = readClaims(req)?.iat;
+  return typeof iat === 'number' ? iat : undefined;
 }
 
 function bearerToken(req: Request): string | null {

@@ -14,8 +14,18 @@ export class AccountAnonymizationService {
     private readonly authDbService: AuthDbService
   ) {}
 
-  async anonymizeUser(userId: string): Promise<void> {
+  /**
+   * The only step that can fail for an outside reason (Cloudinary down, unconfigured). A caller erasing a whole business runs it for every
+   * user *before* anonymizing any, so a failure leaves the business exactly as it was: its members' addresses are still there for the
+   * "erased" notice, which is read before anonymizing and could not be rebuilt afterwards.
+   */
+  async deleteAvatar(userId: string): Promise<void> {
     await this.mediaService.deleteAvatarIfPresent({ userId });
+  }
+
+  /** Rethrows a failed avatar delete without anonymizing: an account marked erased is never revisited, so its photo would stay public. */
+  async anonymizeUser(userId: string): Promise<void> {
+    await this.deleteAvatar(userId);
     await this.authDbService.anonymizeUser(userId);
   }
 }

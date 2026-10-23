@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS review_provider_connections (
 CREATE INDEX idx_review_provider_connections_tenant_id ON review_provider_connections(tenant_id);
 CREATE INDEX idx_review_provider_connections_connected_by_user_id ON review_provider_connections(connected_by_user_id);
 CREATE UNIQUE INDEX idx_review_provider_connections_tenant_provider_account ON review_provider_connections(tenant_id, provider, provider_account_id);
+-- At most one live connection per tenant and provider. A reconnect with another account leaves the old row behind, disconnected, so the
+-- rule is on the live ones: without it two concurrent consent flows each passed the read-then-write check and left two.
+CREATE UNIQUE INDEX idx_review_provider_connections_tenant_provider_live ON review_provider_connections(tenant_id, provider) WHERE disconnected_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS notification_recipients (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -30,6 +33,9 @@ CREATE TABLE IF NOT EXISTS notification_recipients (
 
 CREATE INDEX idx_notification_recipients_tenant_id ON notification_recipients(tenant_id);
 CREATE INDEX idx_notification_recipients_user_id ON notification_recipients(user_id);
+-- One preference row per person and type: provisioning a member twice must not list them twice.
+CREATE UNIQUE INDEX idx_notification_recipients_tenant_user_type
+    ON notification_recipients(tenant_id, user_id, notification_type);
 
 CREATE TABLE IF NOT EXISTS locations (
     id UUID PRIMARY KEY DEFAULT uuidv7(),

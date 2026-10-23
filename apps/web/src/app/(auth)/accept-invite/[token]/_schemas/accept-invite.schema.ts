@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 import {
+  fitsPasswordLimit,
   PASSWORD_LOWERCASE_REGEX,
-  PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   PASSWORD_NUMBER_REGEX,
   PASSWORD_SPECIAL_REGEX,
@@ -19,7 +19,7 @@ export function acceptMemberInviteSchema(t: Translate) {
       password: z
         .string()
         .min(PASSWORD_MIN_LENGTH, t("errors.passwordTooShort"))
-        .max(PASSWORD_MAX_LENGTH, t("errors.passwordTooLong"))
+        .refine(fitsPasswordLimit, t("errors.passwordTooLong"))
         .regex(PASSWORD_UPPERCASE_REGEX, t("errors.passwordUppercase"))
         .regex(PASSWORD_LOWERCASE_REGEX, t("errors.passwordLowercase"))
         .regex(PASSWORD_NUMBER_REGEX, t("errors.passwordNumber"))

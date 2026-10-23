@@ -10,5 +10,11 @@ export function getErasureGracePeriodDays(configService: ConfigService<EnvConfig
   );
 }
 
+/**
+ * What an erased record's free text is replaced with, where a column cannot be NULL (a business or location name, a reply body, a
+ * `platform_activity_log` address a CHECK requires). Recognisable as deliberate, never mistaken for real data.
+ */
+export const ERASED_PLACEHOLDER = '[erased]';
+
 /** Reminder lead time; skipped when the grace period is not longer than this. */
 export const ERASURE_REMINDER_DAYS_BEFORE = 3;

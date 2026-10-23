@@ -1,4 +1,5 @@
 import { AiReplyGenerationService } from '@ai/ai-reply-generation.service';
+import { describeSyncFailure } from '@bg/helpers/describe-sync-failure.util';
 import { IReviewBackfillJob, IReviewSyncJob } from '@bg/interfaces/job.interface';
 import type {
   ClassifyAndGenerateOutcome,
@@ -139,7 +140,7 @@ export class ReviewSyncQueueService {
         status: SyncRunStatus.ERROR,
         // Not `reviewsFetched`: it is stale after a mid-import failure and would overwrite the larger
         // count `recordProgress` already committed.
-        errorMessage: message,
+        errorMessage: describeSyncFailure(error),
         markBackfillComplete: false,
         lastReviewSyncedAt: null,
       });
@@ -159,6 +160,15 @@ export class ReviewSyncQueueService {
    * superseding `review_responses` rows.
    */
   async runPoll(job: IReviewSyncJob): Promise<void> {
+    // The enqueue-time filter can be stale by now: a location paused by a downgrade, a suspended or erased business, or a disconnected
+    // connection must not keep polling Google and spending model calls on drafts. Not an error: nothing to retry.
+    if (!(await this.connectionsDbService.isLocationPollable(job.locationId, job.tenantId))) {
+      this.logger.debug(
+        `Skipping poll for location ${job.locationId}: it can no longer be polled.`
+      );
+      return;
+    }
+
     const run = await this.reviewSyncDbService.acquireSyncRun({
       tenantId: job.tenantId,
       locationId: job.locationId,
@@ -239,7 +249,7 @@ export class ReviewSyncQueueService {
         locationId: job.locationId,
         status: SyncRunStatus.ERROR,
         // Stale on a mid-import failure; see runBackfill's catch block.
-        errorMessage: message,
+        errorMessage: describeSyncFailure(error),
         markBackfillComplete: false,
         lastReviewSyncedAt: null,
       });
@@ -276,13 +286,17 @@ export class ReviewSyncQueueService {
         locationId: job.locationId,
       });
     } catch (error) {
+      this.logger.error(
+        `Classification failed for location ${job.locationId}: ${(error as Error).message}`
+      );
       return {
         classified: 0,
         skipped: 0,
         generated: 0,
         generationFailed: 0,
         quotaReached: false,
-        error: `classification failed: ${(error as Error).message}`,
+        // Our own wording on the run the owner reads; the raw text (which can carry SQL or a provider's words) stays in the log above.
+        error: MESSAGES.REVIEWS.SYNC_FAILED_CLASSIFICATION,
       };
     }
 
@@ -494,10 +508,17 @@ export class ReviewSyncQueueService {
   }
 
   private async resolveAccessToken(job: IReviewSyncJob): Promise<string> {
-    const connection = await this.connectionsDbService.findConnectionByTenant(job.tenantId);
+    // The job's own connection, not "the tenant's current one": after a reconnect with another account they differ, and a job queued for
+    // the old one must not run on (or flag as broken) the new grant. A disconnected one is refused rather than used with a revoked token.
+    const connection = await this.connectionsDbService.findConnectionById(
+      job.connectionId,
+      job.tenantId
+    );
 
-    if (!connection) {
-      throw new ProviderAuthError(`No provider connection for tenant ${job.tenantId}`);
+    if (connection?.disconnectedAt !== null) {
+      throw new ProviderAuthError(
+        `Connection ${job.connectionId} is missing or disconnected for tenant ${job.tenantId}`
+      );
     }
 
     const { accessToken, refreshedExpiresAt } = await this.credentialService.resolveAccessToken({

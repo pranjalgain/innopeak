@@ -1,3 +1,4 @@
+import { AuthModule } from '@auth/auth.module';
 import { QueueUIModule } from '@bg/queue-ui.module';
 import { BillingModule } from '@billing/billing.module';
 import { Module } from '@nestjs/common';
@@ -17,8 +18,9 @@ import { TenantSettingsService } from './services/tenant-settings.service';
 
 @Module({
   // QueueUIModule for AddingJobsToQueueManager, BillingModule for BillingEntitlementsService —
-  // both consumed by TenantMembersService.sendInvite.
-  imports: [QueueUIModule, BillingModule],
+  // both consumed by TenantMembersService.sendInvite. AuthModule for SessionRevocationService, which
+  // TenantMembersService.requestRemoval uses to end the removed member's access tokens.
+  imports: [QueueUIModule, BillingModule, AuthModule],
   controllers: [
     BlocklistTermsController,
     TenantSettingsController,

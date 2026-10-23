@@ -40,6 +40,7 @@ export function ManualReplyForm({ onSubmit, isSubmitting }: ManualReplyFormProps
           value={text}
           onChange={(event) => setText(event.target.value)}
           placeholder={t("placeholder")}
+          aria-label={t("title")}
           maxLength={MAX_REPLY_LENGTH}
           rows={4}
         />

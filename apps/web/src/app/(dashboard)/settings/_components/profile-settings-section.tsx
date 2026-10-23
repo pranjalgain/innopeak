@@ -7,6 +7,7 @@ import { AddPasswordForm } from "@/app/(dashboard)/settings/_components/add-pass
 import { ChangePasswordForm } from "@/app/(dashboard)/settings/_components/change-password-form";
 import { getInitials } from "@/app/_libs/utils/initials";
 import { AvatarUpload } from "@/components/common/avatar-upload";
+import { LoadErrorState } from "@/components/common/load-error-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +19,8 @@ export function ProfileSettingsSection() {
   const {
     profile,
     isLoading,
+    isError,
+    refetch,
     updateAvatar,
     isUploadingAvatar,
     changePassword,
@@ -25,6 +28,7 @@ export function ProfileSettingsSection() {
     setPassword,
   } = useTenantOwnerProfile();
 
+  if (isError && !profile) return <LoadErrorState onRetry={refetch} />;
   if (isLoading || !profile) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
 
   return (

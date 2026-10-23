@@ -20,6 +20,8 @@ import { OAuthStateService } from './oauth-state.service';
 import { OtpAttemptService } from './otp-attempt.service';
 import { PendingSsoSignupService } from './pending-sso-signup.service';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
+import { SessionRevocationService } from './session-revocation.service';
+import { SignupBindingService } from './signup-binding.service';
 import { TokenService } from './token.service';
 
 import { SSO_REDIRECT, SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
@@ -38,6 +40,7 @@ import { UpdateLocaleResponseDto } from '../dto/update-locale-response.dto';
 import { UpdateLocaleDto } from '../dto/update-locale.dto';
 import { VerifyEmailDto } from '../dto/verify-email.dto';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
+import { OtpScope } from '../enums/otp-scope.enum';
 import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
@@ -45,6 +48,7 @@ import {
   AccountDisabledException,
   AccountScheduledForDeletionException,
   EmailAlreadyRegisteredException,
+  EmailQueueUnavailableException,
   InvalidAccessTokenException,
   InvalidCredentialsException,
   InvalidCurrentPasswordException,
@@ -65,7 +69,9 @@ import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provid
 import type {
   AuthUser,
   IssueOtpInput,
+  PendingVerificationLoginResult,
   SendOtpEmailInput,
+  SignupIssuanceResult,
   SsoAuthorizeInput,
   SsoAuthorizeRedirect,
   SsoCallbackInput,
@@ -75,6 +81,7 @@ import type {
 } from '../types/auth.type';
 import { normalizeEmail } from '../utils/email.utils';
 import { buildMemberInviteLink } from '../utils/member-invite-link.util';
+import { remainingSessionSeconds } from '../utils/remaining-session-seconds.util';
 import { requireTenantUser } from '../utils/require-tenant-user.util';
 import { isTenantLoginBlocked } from '../utils/tenant-status.util';
 import { hashToken } from '../utils/token.utils';
@@ -117,7 +124,9 @@ export class AuthService {
     private readonly pendingSsoSignupService: PendingSsoSignupService,
     private readonly platformAdminAuthService: PlatformAdminAuthService,
     private readonly mediaService: MediaService,
-    private readonly platformSettingsDbService: PlatformSettingsDbService
+    private readonly platformSettingsDbService: PlatformSettingsDbService,
+    private readonly sessionRevocationService: SessionRevocationService,
+    private readonly signupBindingService: SignupBindingService
   ) {}
 
   /**
@@ -136,7 +145,7 @@ export class AuthService {
    * may be both a platform admin and, separately, a tenant owner (two unrelated accounts).
    * `AdminSettingsService.sendInvite` has no mirror guard either.
    */
-  async signup(dto: SignupDto): Promise<SignupResponseDto> {
+  async signup(dto: SignupDto): Promise<SignupIssuanceResult> {
     // The platform's password switch, enforced here and not only by hiding the form. It covers new sign-ups only: someone who already
     // has a password still signs in, changes it and accepts invites, so switching it off never locks anyone out.
     if (!(await this.isPasswordSignupEnabled())) {
@@ -161,9 +170,14 @@ export class AuthService {
       throw new EmailAlreadyRegisteredException();
     }
 
-    this.sendOtpEmail({ email, customerName: result.ownerName, rawOtp });
+    // Not awaited for its result: the account is saved and the person can ask for another code at once (no cooldown was claimed).
+    await this.sendOtpEmail({ email, customerName: result.ownerName, rawOtp });
 
-    return SignupResponseDto.from(result, MESSAGES.AUTH.SIGNUP_OTP_SENT(email));
+    return {
+      body: SignupResponseDto.from(result, MESSAGES.AUTH.SIGNUP_OTP_SENT(email)),
+      // Only this browser may finish the verification: whoever signs up for an address does not necessarily own its mailbox.
+      signupBinding: this.signupBindingService.issue({ id: result.userId, passwordHash }),
+    };
   }
 
   /**
@@ -171,12 +185,34 @@ export class AuthService {
    * password in this flow (signup or login), and a code, unlike a link, cannot be prefetched by an
    * email scanner.
    */
-  async verifyEmail(dto: VerifyEmailDto): Promise<TokenIssuanceResult> {
+  async verifyEmail(
+    dto: VerifyEmailDto,
+    signupBinding: string | undefined
+  ): Promise<TokenIssuanceResult> {
     const email = normalizeEmail(dto.email);
+
+    // Before the budget is touched: a stranger without this browser's binding gets the wrong-code answer without spending the address's
+    // attempts, so nobody can lock a pending sign-up's owner out of verifying by hammering the endpoint. (They cannot guess the code
+    // either way: the comparison below is never reached without the binding.)
+    // The code proves the mailbox, not who chose the password: a stranger can start a sign-up for someone else's address, and its owner
+    // then receives the code. So this browser must also hold the binding issued to whoever proved the password (sign-up, or a login
+    // with it). Answered exactly like a wrong code, so nothing says whether the address has a pending sign-up.
+    const pending = await this.authDbService.findUserForLogin(email);
+    if (
+      pending?.status === UserStatus.PENDING_VERIFICATION &&
+      !this.signupBindingService.matches(pending, signupBinding)
+    ) {
+      throw new InvalidOtpException();
+    }
 
     // Budget is spent before the code is compared, so an exhausted account can't be probed at all;
     // the per-IP throttle alone doesn't cover this.
-    if (!(await this.otpAttemptService.consumeAttempt(email))) {
+    if (
+      !(await this.otpAttemptService.consumeAttempt({
+        scope: OtpScope.VERIFY_EMAIL,
+        identity: email,
+      }))
+    ) {
       throw new HttpException(MESSAGES.AUTH.TOO_MANY_OTP_ATTEMPTS, HttpStatus.TOO_MANY_REQUESTS);
     }
 
@@ -186,7 +222,7 @@ export class AuthService {
       throw new InvalidOtpException();
     }
 
-    await this.otpAttemptService.reset(email);
+    await this.otpAttemptService.reset({ scope: OtpScope.VERIFY_EMAIL, identity: email });
 
     return this.buildTokenIssuanceResult(user);
   }
@@ -196,7 +232,7 @@ export class AuthService {
    * to someone who proved the password. Tenant users only; platform admins use `POST
    * /v1/admin/auth/login`.
    */
-  async login(dto: LoginDto): Promise<LoginPendingVerificationDto | TokenIssuanceResult> {
+  async login(dto: LoginDto): Promise<PendingVerificationLoginResult | TokenIssuanceResult> {
     const email = normalizeEmail(dto.email);
 
     // Per-account ceiling, checked before any DB work: the per-IP throttle doesn't stop credential
@@ -242,7 +278,15 @@ export class AuthService {
       response.status = UserStatus.PENDING_VERIFICATION;
       response.email = email;
       response.message = MESSAGES.AUTH.LOGIN_OTP_SENT(email);
-      return response;
+      // The password was just proven, so this browser may finish the verification (and one that cannot prove it cannot).
+      return {
+        pendingVerification: true,
+        body: response,
+        signupBinding: this.signupBindingService.issue({
+          id: user.id,
+          passwordHash: user.passwordHash,
+        }),
+      };
     }
 
     return this.buildTokenIssuanceResult(user, tenant);
@@ -298,9 +342,19 @@ export class AuthService {
    * idle past the 15-minute access TTL, which an access-guarded route would 401 on. Idempotent; a
    * missing or unverifiable cookie still succeeds, revealing nothing.
    */
-  async logout(rawRefreshToken: string | undefined): Promise<{ message: string }> {
-    if (rawRefreshToken) {
-      await this.tokenService.revokeBySessionToken(rawRefreshToken);
+  /**
+   * Ends the refresh token's sessions and any access token presented with it. The access tokens matter most for a platform admin,
+   * who has no refresh token, so without them a logout would only clear cookies and leave a copied token valid until it expires.
+   */
+  async logout(input: {
+    refreshToken: string | undefined;
+    accessTokens: string[];
+  }): Promise<{ message: string }> {
+    if (input.refreshToken) {
+      await this.tokenService.revokeBySessionToken(input.refreshToken);
+    }
+    for (const accessToken of new Set(input.accessTokens)) {
+      await this.tokenService.revokeByAccessToken(accessToken);
     }
     return { message: MESSAGES.AUTH.LOGGED_OUT };
   }
@@ -321,13 +375,21 @@ export class AuthService {
       throw new NoPasswordSetException();
     }
 
+    // The same per-account budget as sign-in. A session (or a stolen access token) could otherwise guess the current password through this
+    // route at its per-IP rate, with no per-account ceiling at all; the answer when locked is the same as for a wrong password.
+    const budgetKey = normalizeEmail(user.email);
+    if (await this.loginAttemptService.isLockedOut(budgetKey, LoginAttemptScope.TENANT)) {
+      throw new InvalidCurrentPasswordException();
+    }
     const currentMatches = await this.hashingService.compare(
       dto.currentPassword,
       user.passwordHash
     );
     if (!currentMatches) {
+      await this.loginAttemptService.recordFailure(budgetKey, LoginAttemptScope.TENANT);
       throw new InvalidCurrentPasswordException();
     }
+    await this.loginAttemptService.reset(budgetKey, LoginAttemptScope.TENANT);
     // After the current password is proven, so this cannot be used to probe it. Changing to the same password would
     // still sign every other device out.
     if (dto.newPassword === dto.currentPassword) {
@@ -335,10 +397,17 @@ export class AuthService {
     }
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
+    // The mark goes first, as in `TokenService.revokeAll`: a refresh rotating at this moment re-checks it once its successor is stored, so
+    // it must already exist by the time the revoking UPDATE (which cannot see that successor) has run. It ends the access tokens already
+    // issued; the caller's fresh pair follows at once, so tokens issued in this very second are spared.
+    await this.sessionRevocationService.revokeUser(user.id, { exceptCurrentSecond: true });
     await this.authDbService.updatePasswordAndRevokeSessions({
       userId: user.id,
       passwordHash: newPasswordHash,
     });
+    // Again after the UPDATE: if the clock crossed into the next second between the two, a rotation that started in that second compares
+    // against this fresher mark, and the first write alone would not have covered it.
+    await this.sessionRevocationService.revokeUser(user.id, { exceptCurrentSecond: true });
 
     return this.buildTokenIssuanceResult({ ...user, passwordHash: newPasswordHash });
   }
@@ -379,7 +448,12 @@ export class AuthService {
     }
 
     // Budget spent before comparison, same as `verifyEmail`.
-    if (!(await this.otpAttemptService.consumeAttempt(user.email))) {
+    if (
+      !(await this.otpAttemptService.consumeAttempt({
+        scope: OtpScope.SET_PASSWORD,
+        identity: user.id,
+      }))
+    ) {
       throw new HttpException(MESSAGES.AUTH.TOO_MANY_OTP_ATTEMPTS, HttpStatus.TOO_MANY_REQUESTS);
     }
 
@@ -390,13 +464,20 @@ export class AuthService {
     if (!otpValid) {
       throw new InvalidOtpException();
     }
-    await this.otpAttemptService.reset(user.email);
+    await this.otpAttemptService.reset({ scope: OtpScope.SET_PASSWORD, identity: user.id });
 
     const newPasswordHash = await this.hashingService.hash(dto.newPassword);
+    // The mark goes first, as in `TokenService.revokeAll`: a refresh rotating at this moment re-checks it once its successor is stored, so
+    // it must already exist by the time the revoking UPDATE (which cannot see that successor) has run. It ends the access tokens already
+    // issued; the caller's fresh pair follows at once, so tokens issued in this very second are spared.
+    await this.sessionRevocationService.revokeUser(user.id, { exceptCurrentSecond: true });
     await this.authDbService.updatePasswordAndRevokeSessions({
       userId: user.id,
       passwordHash: newPasswordHash,
     });
+    // Again after the UPDATE: if the clock crossed into the next second between the two, a rotation that started in that second compares
+    // against this fresher mark, and the first write alone would not have covered it.
+    await this.sessionRevocationService.revokeUser(user.id, { exceptCurrentSecond: true });
 
     return this.buildTokenIssuanceResult({ ...user, passwordHash: newPasswordHash });
   }
@@ -417,23 +498,32 @@ export class AuthService {
       throw new PasswordAlreadySetException();
     }
 
-    if (await this.otpAttemptService.claimResend(user.email)) {
+    if (
+      await this.otpAttemptService.claimResend({ scope: OtpScope.SET_PASSWORD, identity: user.id })
+    ) {
       const rawOtp = this.verifyEmailTokenProvider.generate();
       await this.authDbService.putSetPasswordOtp({
         userId: user.id,
         tokenHash: hashToken(rawOtp),
         expiresAt: this.otpExpiresAt().toISOString(),
       });
-      this.sendOtpEmail({ email: user.email, customerName: user.name, rawOtp });
+      if (!(await this.sendOtpEmail({ email: user.email, customerName: user.name, rawOtp }))) {
+        // Signed in, so no enumeration to protect: say so, and take the cooldown back so the next click works at once.
+        await this.otpAttemptService.releaseResend({
+          scope: OtpScope.SET_PASSWORD,
+          identity: user.id,
+        });
+        throw new EmailQueueUnavailableException();
+      }
     }
 
     return { message: MESSAGES.AUTH.SET_PASSWORD_OTP_ACK };
   }
 
   /**
-   * Re-signs only the access token so the new `locale` claim applies immediately. Deliberately not
-   * `issueTokenPair`: minting a refresh token on nothing more than an access token would be a
-   * security boundary crossing (see `TokenService.reissueAccessToken`). Does not revoke other
+   * Re-signs only the access token so the new `locale` claim applies immediately, expiring when the presented token does (a
+   * locale change is not a way to renew a session). Deliberately not `issueTokenPair`: minting a refresh token on nothing more
+   * than an access token would be a security boundary crossing (see `TokenService.reissueAccessToken`). Does not revoke other
    * sessions; a locale is not a security boundary.
    */
   async updateLocale(actor: AuthUser, dto: UpdateLocaleDto): Promise<UpdateLocaleResponseDto> {
@@ -450,7 +540,11 @@ export class AuthService {
     await this.authDbService.updateLocale({ userId: user.id, locale: dto.locale });
 
     const updatedUser = { ...user, locale: dto.locale };
-    const { accessToken, expiresIn } = this.tokenService.reissueAccessToken(updatedUser);
+    // The presenting token's remaining lifetime, never a fresh TTL: see `TokenService.reissueAccessToken`.
+    const { accessToken, expiresIn } = this.tokenService.reissueAccessToken(
+      updatedUser,
+      remainingSessionSeconds(tenantUser.sessionExpiresAt)
+    );
     const avatarUrl = await this.mediaService.getUserAvatarUrl(user.id);
 
     const response = new UpdateLocaleResponseDto();
@@ -467,7 +561,9 @@ export class AuthService {
    */
   private async issueOtp(input: IssueOtpInput): Promise<void> {
     const { userId, email, name } = input;
-    if (!(await this.otpAttemptService.claimResend(email))) {
+    if (
+      !(await this.otpAttemptService.claimResend({ scope: OtpScope.VERIFY_EMAIL, identity: email }))
+    ) {
       return;
     }
 
@@ -477,7 +573,10 @@ export class AuthService {
       tokenHash: hashToken(rawOtp),
       expiresAt: this.otpExpiresAt().toISOString(),
     });
-    this.sendOtpEmail({ email, customerName: name, rawOtp });
+    // The reply is identical either way (no enumeration), but a code that was never sent must not hold the resend cooldown.
+    if (!(await this.sendOtpEmail({ email, customerName: name, rawOtp }))) {
+      await this.otpAttemptService.releaseResend({ scope: OtpScope.VERIFY_EMAIL, identity: email });
+    }
   }
 
   /** Same generic 404 for a token that never existed, was used, or expired. */
@@ -546,16 +645,20 @@ export class AuthService {
       };
     }
 
-    const { state, sid } = await this.oauthStateService.mint({
+    const minted = await this.oauthStateService.mint({
       provider: SsoProvider.GOOGLE,
       intent: OAuthIntent.INVITE,
       inviteToken,
+      pkce: true,
     });
 
     return {
       ok: true,
-      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl(state),
-      sid,
+      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl({
+        state: minted.state,
+        ...(minted.codeChallenge === undefined ? {} : { codeChallenge: minted.codeChallenge }),
+      }),
+      sid: minted.sid,
     };
   }
 
@@ -696,15 +799,19 @@ export class AuthService {
       };
     }
 
-    const { state, sid } = await this.oauthStateService.mint({
+    const minted = await this.oauthStateService.mint({
       provider: SsoProvider.GOOGLE,
       intent: input.intent,
+      pkce: true,
     });
 
     return {
       ok: true,
-      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl(state),
-      sid,
+      authorizationUrl: this.googleIdentityProvider.buildAuthorizationUrl({
+        state: minted.state,
+        ...(minted.codeChallenge === undefined ? {} : { codeChallenge: minted.codeChallenge }),
+      }),
+      sid: minted.sid,
     };
   }
 
@@ -756,7 +863,13 @@ export class AuthService {
 
     let identity;
     try {
-      identity = await this.googleIdentityProvider.fetchIdentity(input.code);
+      identity = await this.googleIdentityProvider.fetchIdentity(
+        input.code,
+        // A state minted before PKCE shipped carries no verifier (and no challenge went out for it), so it is exchanged without one.
+        consumed.record.codeVerifier === undefined
+          ? {}
+          : { codeVerifier: consumed.record.codeVerifier }
+      );
     } catch (error) {
       this.logger.warn(`Google identity exchange failed: ${(error as Error).message}`);
       return this.ssoFailureRedirect(
@@ -1231,10 +1344,10 @@ export class AuthService {
   }
 
   /**
-   * Fire-and-forget: the issuing transaction already committed, and resend is the recovery path for
-   * a mail that never arrives.
+   * The issuing transaction already committed, so a refused job does not undo it; the caller learns whether the mail was queued
+   * (`false`: the queue manager already logged why) and decides what a person should see. Never throws.
    */
-  private sendOtpEmail(input: SendOtpEmailInput): void {
+  private async sendOtpEmail(input: SendOtpEmailInput): Promise<boolean> {
     const ttlMinutes = this.configService.get<number>('VERIFY_EMAIL_OTP_TTL_MINUTES') ?? 10;
     const job: IOtpEmailJob = {
       email: input.email,
@@ -1242,8 +1355,11 @@ export class AuthService {
       otp: input.rawOtp,
       expiresIn: `${ttlMinutes} minutes`,
     };
-    void this.queueManager
-      .addRegisterationOtpEmailJob(JobName.OTP_EMAIL_VERIFICATION, job)
-      .catch(() => undefined);
+    try {
+      await this.queueManager.addRegisterationOtpEmailJob(JobName.OTP_EMAIL_VERIFICATION, job);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

@@ -1,8 +1,13 @@
+import { MaxByteLength } from '@common/validators/max-byte-length.validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEmail, IsString, Length, Matches } from 'class-validator';
 
-import { PASSWORD_PATTERN } from '../constants/auth.constants';
+import {
+  PASSWORD_MAX_BYTES,
+  PASSWORD_PATTERN,
+  PASSWORD_TOO_LONG_MESSAGE,
+} from '../constants/auth.constants';
 import { normalizeEmailInput } from '../utils/email.utils';
 import { trimStringInput } from '../utils/string.utils';
 
@@ -42,13 +47,14 @@ export class SignupDto {
   @ApiProperty({
     example: 'StrongP@ss1',
     minLength: 8,
-    maxLength: 128,
+    maxLength: PASSWORD_MAX_BYTES,
     description:
       'At least one uppercase letter, one lowercase letter, one digit, and one special ' +
       'character (any non-alphanumeric, non-whitespace character — `#`, `-`, `_`, `~`, … all count).',
   })
   @IsString({ message: 'Enter your password.' })
   @Length(8, 128, { message: 'Password must be between 8 and 128 characters.' })
+  @MaxByteLength(PASSWORD_MAX_BYTES, { message: PASSWORD_TOO_LONG_MESSAGE })
   @Matches(PASSWORD_PATTERN, {
     message:
       'Password must contain an uppercase letter, a lowercase letter, a digit, and a special character.',

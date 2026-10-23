@@ -174,6 +174,8 @@ export interface ListReviewsFilter {
 export interface FindReviewByIdForTenantInput {
   reviewId: string;
   tenantId: string;
+  /** Also find a review whose location is billing-paused: for the reply actions, which then refuse it with a reason instead of "not found". */
+  includePaused?: boolean;
 }
 
 export interface ClaimResponseForPostingInput {

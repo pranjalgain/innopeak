@@ -24,6 +24,7 @@ import { SubscriptionResponseDto } from '../dto/subscription-response.dto';
 import {
   AlreadySubscribedException,
   BillingNotEnabledException,
+  PaymentNotConfiguredException,
   PlanNotFoundException,
   ReceiptNotFoundException,
   SubscriptionNotFoundException,
@@ -150,6 +151,15 @@ export class BillingService {
     if (!paidPlan) {
       throw new PlanNotFoundException();
     }
+    // Not `??`: an env var set but empty (`STRIPE_PRICE_ID_PAID=`) is "not configured", and `??` let it shadow the plan's own price id and
+    // reach Stripe as an empty price. Checked before a Stripe customer is minted for a checkout that cannot work.
+    const priceId =
+      [this.stripePriceIdPaid, paidPlan.stripePriceId].find(
+        (value): value is string => value !== undefined && value !== null && value.trim() !== ''
+      ) ?? '';
+    if (priceId === '') {
+      throw new PaymentNotConfiguredException();
+    }
 
     const checkout = await this.tenantSubscriptionsDbService.withCheckoutLock(
       tenantUser.tenantId,
@@ -169,6 +179,7 @@ export class BillingService {
           return {
             customerId: subscription.stripeCustomerId,
             hasLiveSubscription: preparation.hasLiveSubscription,
+            staleSubscriptionIds: preparation.staleSubscriptionIds,
           };
         }
 
@@ -185,7 +196,11 @@ export class BillingService {
         // `null` means another write attached a customer id meanwhile (shouldn't happen under the
         // lock); reuse that id rather than proceed on our now-orphaned one.
         if (attached) {
-          return { customerId: created.customerId, hasLiveSubscription: false };
+          return {
+            customerId: created.customerId,
+            hasLiveSubscription: false,
+            staleSubscriptionIds: [],
+          };
         }
         const refreshed = await this.tenantSubscriptionsDbService.findByTenantId(
           tenantUser.tenantId,
@@ -194,6 +209,7 @@ export class BillingService {
         return {
           customerId: refreshed?.stripeCustomerId ?? created.customerId,
           hasLiveSubscription: false,
+          staleSubscriptionIds: [] as string[],
         };
       }
     );
@@ -216,13 +232,18 @@ export class BillingService {
     }
     const { customerId } = checkout;
 
+    // After the lock, not inside it: cancelling is a Stripe round trip per subscription, and the lock holds a DB transaction.
+    if (checkout.staleSubscriptionIds.length > 0) {
+      await this.paymentProvider.cancelStaleSubscriptions(checkout.staleSubscriptionIds);
+    }
+
     // Stamped before the session exists: if this write failed afterwards, a payment could land on a session the nightly sweep can't see.
     await this.tenantSubscriptionsDbService.touchCheckoutStartedAt(tenantUser.tenantId);
 
     const session = await this.paymentProvider.createCheckoutSession({
       tenantId: tenantUser.tenantId,
       customerId,
-      priceId: this.stripePriceIdPaid ?? paidPlan.stripePriceId ?? '',
+      priceId,
       successUrl: `${this.frontendUrl}${BILLING_REDIRECT_PATHS.CHECKOUT_SUCCESS}`,
       cancelUrl: `${this.frontendUrl}${BILLING_REDIRECT_PATHS.CHECKOUT_CANCEL}`,
     });
@@ -270,6 +291,12 @@ export class BillingService {
     }
 
     // Recorded before the provider call (reverted on failure) so cancelling a later erasure can't resume, and charge, an owner's own cancellation.
+    // What it replaces is kept: a subscription an erasure request already set to end carries source `erasure`, and clearing that on a failed
+    // owner cancel would let cancelling the erasure later resume (and bill) a subscription that was meant to end.
+    const previous = {
+      cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+      cancellationSource: subscription.cancellationSource,
+    };
     await this.tenantSubscriptionsDbService.markCancellationScheduled(
       tenantUser.tenantId,
       SubscriptionCancellationSource.OWNER
@@ -277,7 +304,10 @@ export class BillingService {
     try {
       await this.paymentProvider.cancelSubscription(subscription.stripeSubscriptionId, true);
     } catch (error) {
-      await this.tenantSubscriptionsDbService.clearCancellationScheduled(tenantUser.tenantId);
+      await this.tenantSubscriptionsDbService.restoreCancellationState(
+        tenantUser.tenantId,
+        previous
+      );
       throw error;
     }
   }

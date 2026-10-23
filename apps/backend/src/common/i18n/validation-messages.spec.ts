@@ -22,6 +22,28 @@ async function messagesFor<T extends object>(
   return errors.flatMap(error => Object.values(error.constraints ?? {}));
 }
 
+describe('translateValidationMessage — the password byte limit', () => {
+  it('is translated, with the field name kept', () => {
+    expect(
+      translateValidationMessage(
+        'password must be at most 72 bytes (an accented character counts as two)',
+        'de'
+      )
+    ).toBe(
+      'password darf höchstens 72 Bytes lang sein (ein Zeichen mit Akzent oder Umlaut zählt als zwei)'
+    );
+  });
+
+  it('is left as written in English', () => {
+    expect(
+      translateValidationMessage(
+        'password must be at most 72 bytes (an accented character counts as two)',
+        'en'
+      )
+    ).toBe('password must be at most 72 bytes (an accented character counts as two)');
+  });
+});
+
 describe('translateValidationMessage', () => {
   it('leaves English alone', () => {
     expect(translateValidationMessage('Enter a valid email address.', 'en')).toBe(

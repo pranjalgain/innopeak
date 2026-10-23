@@ -281,7 +281,11 @@ export class AdminBusinessesRepository {
    * signing in, so it is a real change.
    */
   async requestErasure(tenantId: string): Promise<RequestErasureOutcome> {
-    const result = await this.dbService.db.execute(sql`
+    // The same per-tenant lock the nightly purge and `cancelErasure` take: without it a request could land between the purge reading its due
+    // list and anonymizing, restarting a grace period the purge was about to finish.
+    const result = await this.dbService.db.transaction(async tx => {
+      await acquireResourceXactLock(tx, 'gdpr:tenant-erasure', tenantId);
+      return tx.execute(sql`
       WITH target AS (
         SELECT id, status,
                (erasure_requested_at IS NOT NULL AND erasure_requested_by_user_id IS NULL) AS admin_pending
@@ -289,7 +293,8 @@ export class AdminBusinessesRepository {
       ),
       updated AS (
         UPDATE tenants
-        SET status = ${TenantStatus.SUSPENDED}::tenant_status,
+        SET status_before_erasure = COALESCE(status_before_erasure, status),
+            status = ${TenantStatus.SUSPENDED}::tenant_status,
             erasure_requested_at = now(),
             erasure_requested_by_user_id = NULL,
             erasure_reminder_sent_at = NULL,
@@ -303,6 +308,7 @@ export class AdminBusinessesRepository {
       FROM target
       LEFT JOIN updated ON true
     `);
+    });
 
     const row = result.rows[0] as
       { status: TenantStatus; admin_pending: boolean; was_updated: boolean } | undefined;
@@ -328,7 +334,9 @@ export class AdminBusinessesRepository {
       const rows = await tx
         .update(schema.tenants)
         .set({
-          status: TenantStatus.ACTIVE,
+          // What it was before the request, so cancelling an erasure never silently lifts an admin's suspension.
+          status: sql`COALESCE(${schema.tenants.statusBeforeErasure}, ${TenantStatus.ACTIVE}::tenant_status)`,
+          statusBeforeErasure: null,
           erasureRequestedAt: null,
           erasureRequestedByUserId: null,
           erasureReminderSentAt: null,

@@ -3,11 +3,13 @@ import { Injectable, Scope } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createLogger, format, transports, Logger as WinstonLogger } from 'winston';
 
-const logFormat = format.printf(({ timestamp, level, message, context }) => {
+const logFormat = format.printf(({ timestamp, level, message, context, trace }) => {
   const ts = typeof timestamp === 'string' ? timestamp : JSON.stringify(timestamp);
   const ctx = typeof context === 'string' ? context : 'App';
   const msg = typeof message === 'string' ? message : JSON.stringify(message);
-  return `${ts} [${level}] [${ctx}]: ${msg}`;
+  // `error(message, trace)` accepted a stack and the format dropped it, so a logged failure had no call site.
+  const stack = typeof trace === 'string' && trace !== '' ? `\n${trace}` : '';
+  return `${ts} [${level}] [${ctx}]: ${msg}${stack}`;
 });
 
 /**

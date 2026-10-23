@@ -36,7 +36,12 @@ function PlatformToggleRow({
         <p className="text-[13px] font-medium">{label}</p>
         <p className="text-muted-foreground mt-0.5 text-[13px]">{helper}</p>
       </div>
-      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+        aria-label={label}
+      />
     </div>
   );
 }

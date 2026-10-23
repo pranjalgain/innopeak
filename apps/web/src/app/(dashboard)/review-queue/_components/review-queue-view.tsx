@@ -11,7 +11,7 @@ import { useReviewQueue } from "@/hooks/reviews/use-review-queue";
 function ReviewQueueSkeleton() {
   return (
     <>
-      <div className="hidden flex-col gap-2 overflow-hidden rounded-xl border border-border md:flex">
+      <div className="hidden flex-col gap-2 overflow-hidden rounded-xl border border-border xl:flex">
         <Skeleton className="h-10 w-full rounded-none" />
         <div className="flex flex-col gap-3 p-3">
           <Skeleton className="h-11 w-full" />
@@ -20,7 +20,7 @@ function ReviewQueueSkeleton() {
           <Skeleton className="h-11 w-full" />
         </div>
       </div>
-      <div className="flex flex-col gap-3 md:hidden">
+      <div className="flex flex-col gap-3 xl:hidden">
         <Skeleton className="h-[140px] w-full rounded-xl" />
         <Skeleton className="h-[140px] w-full rounded-xl" />
         <Skeleton className="h-[140px] w-full rounded-xl" />

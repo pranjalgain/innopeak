@@ -43,7 +43,11 @@ export function BackfillingStage({
       </div>
       <h1 className="text-gradient text-lg font-semibold">{t("title")}</h1>
       <p className="text-sm text-muted-foreground">{statusText}</p>
-      <Progress value={progress ?? undefined} indeterminate={progress === null} />
+      <Progress
+        value={progress ?? undefined}
+        indeterminate={progress === null}
+        aria-label={t("title")}
+      />
       <span className="text-[13px] text-muted-foreground">
         {/* `reviewsFetched` is always real, so "112 reviews imported" works even when "112 of 187" doesn't. */}
         {totalToImport === null

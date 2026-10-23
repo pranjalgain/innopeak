@@ -29,21 +29,38 @@ import type {
  * Shared by every SSO provider: the record, the Redis key and the signature all carry the provider,
  * so a state minted for Google is rejected at the Microsoft callback and the reverse.
  */
+/** Domain-separates the key derived from `JWT_SECRET` from every other use of that secret. */
+const OAUTH_STATE_KEY_LABEL = 'innopeak:oauth-state-signing-key:v1';
+
 @Injectable()
 export class OAuthStateService {
   private readonly logger = new Logger(OAuthStateService.name);
-  private readonly secret: string;
+  private readonly secret: Buffer | string;
 
   constructor(
     configService: ConfigService<EnvConfig>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis
   ) {
-    // A fixed local fallback rather than a random per-process one, so a state minted before a hot
-    // reload still verifies after it.
-    this.secret =
-      configService.get<string>('GOOGLE_AUTH_STATE_SECRET') ??
-      configService.get<string>('JWT_SECRET') ??
-      'insecure-local-oauth-state-secret';
+    this.secret = OAuthStateService.resolveSecret(configService);
+  }
+
+  /**
+   * `GOOGLE_AUTH_STATE_SECRET` (required in production), else a key *derived* from `JWT_SECRET` for local development: HMAC-ing a
+   * fixed label under it gives the state signature a key of its own, so it never signs with the same bytes as the access tokens.
+   * Deterministic, so a state minted before a hot reload still verifies after it. With neither set this refuses to start rather than
+   * signing under a constant anyone can read in the source (the env schema makes `JWT_SECRET` mandatory, so this is a backstop).
+   */
+  private static resolveSecret(configService: ConfigService<EnvConfig>): Buffer | string {
+    const dedicated = configService.get<string>('GOOGLE_AUTH_STATE_SECRET');
+    if (dedicated !== undefined && dedicated !== '') {
+      return dedicated;
+    }
+
+    const jwtSecret = configService.get<string>('JWT_SECRET');
+    if (jwtSecret === undefined || jwtSecret === '') {
+      throw new Error('OAuth state needs GOOGLE_AUTH_STATE_SECRET or JWT_SECRET to sign with.');
+    }
+    return createHmac('sha256', jwtSecret).update(OAUTH_STATE_KEY_LABEL).digest();
   }
 
   /**
@@ -141,6 +158,10 @@ export class OAuthStateService {
 
   /** Returns the nonce, or null if the blob is forged, malformed, or past its TTL. */
   private verify(provider: SsoProvider, state: string): string | null {
+    // Express hands a repeated query key (`?state=a&state=b`) over as an array, whatever the type says; `.split` on it threw a 500.
+    if (typeof state !== 'string') {
+      return null;
+    }
     const parts = state.split('.');
     if (parts.length !== 3) {
       return null;
