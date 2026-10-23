@@ -45,10 +45,14 @@ export type RevokeInviteOutcome =
   | { outcome: 'not_found' }
   | { outcome: 'not_invited' };
 
-/** Same reasoning as `RevokeInviteOutcome` above. */
+/**
+ * Same reasoning as `RevokeInviteOutcome` above. `unchanged`: already in the requested status, so nothing was written and the
+ * caller must not log or announce a change.
+ */
 export type SetAdminStatusOutcome =
   | { outcome: 'last_active' }
   | { outcome: 'not_found' }
+  | { outcome: 'unchanged'; id: string; email: string; status: PlatformAdminStatus }
   | { outcome: 'updated'; id: string; email: string; status: PlatformAdminStatus };
 
 /**
@@ -84,4 +88,15 @@ export interface SetAdminStatusGuardInput {
 /** `PlatformAdminProfileRow` plus the avatar `MediaDbService` composes in. */
 export interface PlatformAdminProfileWithAvatar extends PlatformAdminProfileRow {
   avatarUrl: string | null;
+}
+
+/** A `platform_admins` row with its own invite (none for the seeded root), as the roster reads it. */
+export interface PlatformAdminWithInviteRow {
+  id: string;
+  email: string;
+  status: PlatformAdminStatus;
+  createdAt: string;
+  inviteCreatedAt: string | null;
+  inviteExpiresAt: string | null;
+  invitedByPlatformAdminId: string | null;
 }

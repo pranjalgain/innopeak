@@ -5,6 +5,7 @@ import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 
 import { AdminUserService } from "@/app/_libs/services/admin-user.service";
+import { ApiError } from "@/app/_libs/services/api-error";
 import {
   adminOverviewActivityLogQueryKey,
   adminOverviewActivityQueryKey,
@@ -30,7 +31,8 @@ interface UseAdminUsersResult {
   isError: boolean;
   /** Re-runs the failed query — queries here use `retry: false`, so nothing recovers on its own. */
   refetch: () => void;
-  toggleActive: (id: string) => Promise<void>;
+  /** `active` is the state to put the user in, not a flip. */
+  toggleActive: (id: string, active: boolean) => Promise<void>;
 }
 
 /** Typing pause before a search reaches the API — same as `useReviewQueue`'s own constant. */
@@ -77,21 +79,25 @@ export function useAdminUsers(): UseAdminUsersResult {
   }, [usersQuery.isError]);
 
   const toggleActiveMutation = useMutation({
-    mutationFn: (id: string) => AdminUserService.toggleActive(id),
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      AdminUserService.toggleActive(id, active),
   });
 
   const toggleActive = useCallback(
-    async (id: string) => {
+    async (id: string, active: boolean) => {
       try {
-        await toggleActiveMutation.mutateAsync(id);
+        await toggleActiveMutation.mutateAsync({ id, active });
         // The search term is part of the query key, so `setQueryData` can't reach every cached page:
         // invalidate the whole prefix instead.
         void queryClient.invalidateQueries({ queryKey: adminUsersQueryKey });
         // The activity feed (Overview and Activity page) is derived server-side from this write, so both keys go stale.
         void queryClient.invalidateQueries({ queryKey: adminOverviewActivityQueryKey });
         void queryClient.invalidateQueries({ queryKey: adminOverviewActivityLogQueryKey });
-      } catch {
-        toast.error(t("updateFailed"));
+      } catch (error) {
+        // A 409 carries the backend's own, already localized, reason (a pending removal, an invite not yet accepted).
+        toast.error(
+          error instanceof ApiError && error.statusCode === 409 ? error.message : t("updateFailed"),
+        );
       }
     },
     [t, toggleActiveMutation, queryClient],

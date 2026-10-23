@@ -32,17 +32,18 @@ export class TenantErasureCleanupService {
    * throws so the tenant is retried rather than erased with a live grant.
    */
   private async disconnectGoogle(tenantId: string): Promise<void> {
-    const connection = await this.connectionsDbService.findConnectionByTenant(tenantId);
-    if (!connection) {
-      return;
-    }
+    // Every connection, not just the one `findConnectionByTenant` picks: a reconnect with another account leaves the old (disconnected)
+    // row behind, and an owner's earlier grant must be revoked too, not left to outlive the business.
+    const connections = await this.connectionsDbService.findConnectionsByTenant(tenantId);
 
-    if (connection.disconnectedAt === null) {
-      await this.connectionsDbService.disconnect(connection.id);
-      await this.authDbService.setActiveLocationId({ tenantId, locationId: null });
-    }
+    for (const connection of connections) {
+      if (connection.disconnectedAt === null) {
+        await this.connectionsDbService.disconnect(connection.id);
+        await this.authDbService.setActiveLocationId({ tenantId, locationId: null });
+      }
 
-    await this.credentialService.invalidateAccessToken(connection.id);
-    await this.credentialService.revokeOrThrow(connection.credentialReference);
+      await this.credentialService.invalidateAccessToken(connection.id);
+      await this.credentialService.revokeOrThrow(connection.credentialReference);
+    }
   }
 }

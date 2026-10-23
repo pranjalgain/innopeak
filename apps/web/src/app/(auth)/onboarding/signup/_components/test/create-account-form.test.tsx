@@ -111,4 +111,30 @@ describe("CreateAccountForm", () => {
       password: "Password1!",
     });
   });
+
+  // The checklist is all green for a 74-byte password, so without this the form stayed invalid with no reason shown.
+  test("says why when a password meets every rule but is over the 72-byte limit", async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    await user.type(screen.getByLabelText("Password"), `Aa1!${"a".repeat(70)}`);
+    await user.tab();
+
+    const message = await screen.findByText(messages.onboardingSignup.createAccount.errors.passwordTooLong);
+    expect(message).toHaveAttribute("role", "alert");
+    expect(screen.getByLabelText("Password")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Password")).toHaveAttribute("aria-describedby", message.id);
+  });
+
+  // The API takes 1-255 characters for both; a longer value used to pass the form and fail at the server.
+  test("refuses a name or company name over 255 characters", async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    await user.click(screen.getByLabelText("Full name"));
+    await user.paste("a".repeat(256));
+    await user.tab();
+
+    expect(await screen.findByText(messages.onboardingSignup.createAccount.errors.nameTooLong)).toBeInTheDocument();
+  });
 });

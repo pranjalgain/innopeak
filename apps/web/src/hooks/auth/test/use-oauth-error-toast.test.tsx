@@ -1,7 +1,7 @@
-import { StrictMode } from "react";
 
 import { render } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import messages from "@/../messages/en.json";
@@ -37,6 +37,22 @@ describe("useOAuthErrorToast", () => {
     error.mockClear();
     window.history.replaceState(null, "", "/login?error=x");
   });
+
+  it("strips only the error and provider params, keeping a `next` return path", () => {
+    renderWith("error=NO_ACCOUNT&provider=google&next=%2Freview-queue");
+
+    expect(window.location.pathname + window.location.search).toBe("/login?next=%2Freview-queue");
+  });
+
+  // `t.has("google")` is true (a namespace), as is `t.has("constructor")`: both used to toast a raw key path.
+  it.each(["google", "microsoft", "admin", "fallback", "constructor"])(
+    "answers the generic message, not a key path, for ?error=%s",
+    (value) => {
+      renderWith(`error=${value}`);
+
+      expect(error).toHaveBeenCalledWith(messages.auth.ssoErrors.fallback);
+    },
+  );
 
   it("shows the specific message for a known failure code", () => {
     renderWith("error=NO_ACCOUNT");

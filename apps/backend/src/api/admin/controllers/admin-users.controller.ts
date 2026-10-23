@@ -21,6 +21,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { AuthUser } from '../../auth/types/auth.type';
 import { AdminUserListResponseDto, AdminUserResponseDto } from '../dto/admin-user-response.dto';
 import { ListAdminUsersQueryDto } from '../dto/list-admin-users-query.dto';
+import { ToggleAdminUserActiveQueryDto } from '../dto/toggle-admin-user-active-query.dto';
 import { AdminUsersService } from '../services/admin-users.service';
 import { ApiListAdminUsers, ApiToggleAdminUserActive } from '../swagger/admin-users.swagger';
 
@@ -46,9 +47,10 @@ export class AdminUsersController {
   @ApiToggleAdminUserActive()
   async toggleActive(
     @CurrentUser() actor: AuthUser,
-    @Param('userId', ParseUUIDPipe) userId: string
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Query() query: ToggleAdminUserActiveQueryDto
   ): Promise<ApiResponseDto<AdminUserResponseDto>> {
-    const result = await this.adminUsersService.toggleActive(actor, userId);
+    const result = await this.adminUsersService.toggleActive(actor, userId, query.active);
     return ResponseUtil.success(result, MESSAGES.ADMIN.USER_STATUS_UPDATED, HttpStatus.OK);
   }
 }

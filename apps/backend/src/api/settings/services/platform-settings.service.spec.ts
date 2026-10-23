@@ -1,3 +1,4 @@
+import { GoogleIdentityProvider } from '@auth/providers/google-identity.provider';
 import { DEFAULT_ERASURE_GRACE_PERIOD_DAYS } from '@common/constants/erasure.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
@@ -18,6 +19,7 @@ describe('PlatformSettingsService', () => {
   let target: PlatformSettingsService;
   let platformSettingsDbService: { get: jest.Mock };
   let configService: { get: jest.Mock };
+  const googleIdentityProvider = { isConfigured: jest.fn().mockReturnValue(false) };
 
   const row = {
     microsoftLoginEnabled: true,
@@ -39,6 +41,7 @@ describe('PlatformSettingsService', () => {
         PlatformSettingsService,
         { provide: PlatformSettingsDbService, useValue: platformSettingsDbService },
         { provide: ConfigService, useValue: configService },
+        { provide: GoogleIdentityProvider, useValue: googleIdentityProvider },
       ],
     }).compile();
 
@@ -64,12 +67,13 @@ describe('PlatformSettingsService', () => {
   // The route is `@Public()` and the DTO is shared with the admin-only PATCH, so the DTO is all that
   // keeps `updated_by_platform_admin_id` off an unauthenticated response. Exact key set (not a
   // `not.toHaveProperty`) so any column newly mapped in `from()` fails here.
-  it('exposes only the eight public settings — never the internal actor id', async () => {
+  it('exposes only the nine public settings — never the internal actor id', async () => {
     platformSettingsDbService.get.mockResolvedValue(row);
 
     const result = await target.get();
 
     expect(Object.keys(result).sort()).toEqual([
+      'adminGoogleLoginAvailable',
       'adminMicrosoftLoginAvailable',
       'erasureGracePeriodDays',
       'googleLoginEnabled',
@@ -125,5 +129,16 @@ describe('PlatformSettingsService', () => {
 
     configService.get.mockImplementation(configWith({ ...full, MICROSOFT_CLIENT_SECRET: '' }));
     expect((await target.get()).adminMicrosoftLoginAvailable).toBe(false);
+  });
+
+  // The admin Google button used to follow the tenant switch; it now follows whether Google is set up on this deploy at all.
+  it('offers admin Google sign-in exactly when the Google client is configured', async () => {
+    platformSettingsDbService.get.mockResolvedValue(row);
+
+    googleIdentityProvider.isConfigured.mockReturnValue(true);
+    expect((await target.get()).adminGoogleLoginAvailable).toBe(true);
+
+    googleIdentityProvider.isConfigured.mockReturnValue(false);
+    expect((await target.get()).adminGoogleLoginAvailable).toBe(false);
   });
 });

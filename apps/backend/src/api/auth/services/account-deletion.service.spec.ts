@@ -12,6 +12,7 @@ import { AccountDeletionService, SELF_SERVICE_ACTOR_LABEL } from './account-dele
 import { ErasureNoticeService } from './erasure-notice.service';
 import { LoginAttemptService } from './login-attempt.service';
 import { OtpAttemptService } from './otp-attempt.service';
+import { SessionRevocationService } from './session-revocation.service';
 
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { TenantStatus } from '../enums/tenant-status.enum';
@@ -30,6 +31,7 @@ describe('AccountDeletionService', () => {
   let billing: Record<string, jest.Mock>;
   let activity: { recordActivityBestEffort: jest.Mock };
   let notices: { notifyScheduled: jest.Mock; notifyCancelled: jest.Mock };
+  let sessions: { revokeTenant: jest.Mock };
 
   const owner = {
     id: 'user-1',
@@ -74,6 +76,7 @@ describe('AccountDeletionService', () => {
     };
     otpAttempts = {
       claimResend: jest.fn().mockResolvedValue(true),
+      releaseResend: jest.fn().mockResolvedValue(undefined),
       consumeAttempt: jest.fn().mockResolvedValue(true),
       reset: jest.fn(),
     };
@@ -93,6 +96,8 @@ describe('AccountDeletionService', () => {
       notifyCancelled: jest.fn().mockResolvedValue(undefined),
     };
 
+    sessions = { revokeTenant: jest.fn().mockResolvedValue(undefined) };
+
     const moduleRef = await Test.createTestingModule({
       providers: [
         AccountDeletionService,
@@ -106,6 +111,7 @@ describe('AccountDeletionService', () => {
         { provide: BillingReconciliationService, useValue: billing },
         { provide: AdminOverviewDbService, useValue: activity },
         { provide: ErasureNoticeService, useValue: notices },
+        { provide: SessionRevocationService, useValue: sessions },
       ],
     }).compile();
     target = moduleRef.get(AccountDeletionService);
@@ -119,6 +125,17 @@ describe('AccountDeletionService', () => {
 
       expect(authDb['putDeleteAccountOtp']).toHaveBeenCalledTimes(1);
       expect(queue.addRegisterationOtpEmailJob).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers 503 and gives the cooldown back when the email queue refuses the code', async () => {
+      authDb['findUserById']!.mockResolvedValue(ssoOwner);
+      queue.addRegisterationOtpEmailJob.mockRejectedValue(new Error('redis down'));
+
+      await expect(target.requestOtp(actor)).rejects.toMatchObject({
+        response: { code: 'EMAIL_QUEUE_UNAVAILABLE' },
+      });
+
+      expect(otpAttempts['releaseResend']).toHaveBeenCalled();
     });
 
     it('refuses an owner who has a password — they confirm with it', async () => {
@@ -166,6 +183,21 @@ describe('AccountDeletionService', () => {
       );
       expect(authDb['revokeAllRefreshTokensForUser']).toHaveBeenCalledWith('user-1');
       expect(result).toMatchObject({ gracePeriodDays: 21, canRestore: true });
+    });
+
+    // The business is suspended by the request, so every access token its users hold ends, not only the owner's.
+    it("ends every user's access tokens in the business, not just the owner's", async () => {
+      await target.deleteAccount(actor, { businessName: 'Acme Dental', password: 'pw' });
+
+      expect(sessions.revokeTenant).toHaveBeenCalledWith('tenant-1');
+    });
+
+    it('ends no sessions when the request was refused', async () => {
+      await expect(
+        target.deleteAccount(actor, { businessName: 'Wrong', password: 'pw' })
+      ).rejects.toBeDefined();
+
+      expect(sessions.revokeTenant).not.toHaveBeenCalled();
     });
 
     it('tells the owners, attributing the request to an owner', async () => {

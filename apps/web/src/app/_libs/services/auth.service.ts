@@ -9,12 +9,13 @@ import type { CreateAccountFormValues } from "@/app/(auth)/onboarding/signup/_co
 import { adminAuthApi } from "@/app/_libs/api-sdk/admin-auth-api";
 import { adminSettingsApi } from "@/app/_libs/api-sdk/admin-settings-api";
 import { authApi } from "@/app/_libs/api-sdk/auth-api";
-import { refreshSession } from "@/app/_libs/api-sdk/config";
+import { endLapsedSession, refreshSession, refreshSessionOutcome } from "@/app/_libs/api-sdk/config";
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { ApiError, unwrap } from "@/app/_libs/services/api-error";
 import { PendingSignupService } from "@/app/_libs/services/pending-signup.service";
 import { TokenService } from "@/app/_libs/services/token.service";
 import { setLocaleCookie } from "@/app/_libs/utils/locale";
+import { sessionMessage } from "@/app/_libs/utils/session-messages";
 import type { AppLocale } from "@/i18n/locales";
 
 /**
@@ -49,6 +50,15 @@ interface TokenResponse {
   expiresIn: number;
   user: AuthenticatedUser;
   hasConnectedBusiness: boolean;
+}
+
+/**
+ * Whether the account can go straight to the dashboard. The connect stepper is owner-only (a member's calls to it answer 403), so a
+ * member of a business with nothing connected yet lands on the dashboard's empty state instead of a flow they cannot finish.
+ * The result field keeps its `hasConnectedBusiness` name: every caller already reads it as "skip the connect stepper".
+ */
+function skipsConnectStepper(data: TokenResponse): boolean {
+  return data.hasConnectedBusiness || data.user.role === "member";
 }
 
 /** `POST /v1/admin/auth/login`'s response — see `PlatformAdminTokenResponseDto` on the backend. */
@@ -147,7 +157,7 @@ export class AuthService {
     restoreStoredLocale(data.user.locale);
     // A password sign-in supersedes a half-done signup on the code step; otherwise /onboarding/signup resumed a verification that cannot succeed.
     PendingSignupService.clear();
-    return { kind: "success", hasConnectedBusiness: data.hasConnectedBusiness };
+    return { kind: "success", hasConnectedBusiness: skipsConnectStepper(data) };
   }
 
   /** No `pending_verification`/business-name branching: admins never self-register. */
@@ -231,7 +241,7 @@ export class AuthService {
     );
     const data = unwrap<TokenResponse>(response.data);
     TokenService.setName(data.user.name);
-    return { hasConnectedBusiness: data.hasConnectedBusiness };
+    return { hasConnectedBusiness: skipsConnectStepper(data) };
   }
 
   static async verifySignupOtp(email: string, code: string): Promise<VerifyOtpResult> {
@@ -243,7 +253,7 @@ export class AuthService {
       const data = unwrap<TokenResponse>(response.data);
       TokenService.setName(data.user.name);
       PendingSignupService.clear();
-      return { verified: true, hasConnectedBusiness: data.hasConnectedBusiness };
+      return { verified: true, hasConnectedBusiness: skipsConnectStepper(data) };
     } catch (error) {
       // Only a 400 means a wrong code (not-found/used/expired alike); 429, 5xx or network failures report their real reason.
       const isWrongCode = error instanceof ApiError && error.statusCode === 400;
@@ -269,16 +279,26 @@ export class AuthService {
     return refreshed;
   }
 
+  /**
+   * `refreshAccessToken` that says why it failed: `{ ok: false, status }`, where only a 401 means the session is gone (a 429, a 5xx or no
+   * network is a reason to try again, not to sign the person out).
+   */
+  static async refreshAccessTokenOutcome(): Promise<{ ok: true } | { ok: false; status: number }> {
+    const outcome = await refreshSessionOutcome();
+    if (!outcome.ok && outcome.status === 401) TokenService.clear();
+    return outcome;
+  }
+
   /** Reads the token's `type` claim before it is cleared so a platform admin lands on `/admin-login` (the tenant `/login` has no admin path); falls back to the tenant page. */
   static async logout(): Promise<void> {
     const destination =
       TokenService.getTokenType() === "platform_admin" ? ROUTES.ADMIN_LOGIN : ROUTES.LOGIN;
-    try {
-      await authApi.authControllerLogoutV1();
-    } finally {
-      TokenService.clear();
-      window.location.assign(destination);
-    }
+    // Only a logout the server answered ends the session: the `session` and refresh cookies are cleared by that response (httpOnly, so not by
+    // client JS), and leaving anyway would show the sign-in page of a person who is still signed in. A failure throws instead, so the caller
+    // can say so (`signOutFailed`) while the person is still on a page where the toast is seen and Sign out can be tried again.
+    await authApi.authControllerLogoutV1();
+    TokenService.clear();
+    window.location.assign(destination);
   }
 
   /**
@@ -286,10 +306,17 @@ export class AuthService {
    * Change/set-password need it because a wrong current password is also a 401 that must not be read as an expired token.
    */
   private static async ensureFreshSession(): Promise<void> {
-    const revived = await this.refreshAccessToken();
-    if (!revived) {
-      throw new ApiError(401, "Invalid or expired access token.");
+    const outcome = await this.refreshAccessTokenOutcome();
+    if (outcome.ok) {
+      return;
     }
+    if (outcome.status === 401) {
+      // Really over: go to sign-in. The thrown error is not a 401 so the form, on its way out, does not call it "current password incorrect".
+      endLapsedSession();
+      throw new ApiError(440, sessionMessage("expired"));
+    }
+    // A throttled or failed refresh says nothing about the session; the real status lets the form show "too many attempts" or a retry message.
+    throw new ApiError(outcome.status === 0 ? 503 : outcome.status, sessionMessage("refreshFailed"));
   }
 
   /** `skipRefresh`: a wrong current password is also a 401 and must reach the form instead of rotating the session (see `ensureFreshSession`). */
@@ -415,7 +442,7 @@ export class AuthService {
     );
     const data = unwrap<TokenResponse>(response.data);
     TokenService.setName(data.user.name);
-    return { hasConnectedBusiness: data.hasConnectedBusiness };
+    return { hasConnectedBusiness: skipsConnectStepper(data) };
   }
 
   /** Full-page navigation, like `startAdminInviteGoogle`. Never resolves. */

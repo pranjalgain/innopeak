@@ -1,4 +1,4 @@
-import type { Metadata, Route } from "next";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import {
@@ -69,7 +69,7 @@ export default function LandingPage() {
                 {t("hero.eyebrow")}
               </Badge>
 
-              <h1 className="max-w-3xl text-5xl leading-[1.05] font-semibold tracking-tight text-balance sm:text-6xl lg:text-[3.4rem]">
+              <h1 className="max-w-3xl text-3xl leading-[1.1] font-semibold tracking-tight text-balance hyphens-auto break-words min-[420px]:text-4xl sm:text-6xl lg:text-[3.4rem]">
                 <span className="text-gradient">{t("hero.headline")}</span>
               </h1>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground text-balance sm:text-xl">
@@ -78,7 +78,7 @@ export default function LandingPage() {
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                 <Button asChild size="lg" className="group">
-                  <Link href={ROUTES.ONBOARDING_SIGNUP as Route}>
+                  <Link href={ROUTES.ONBOARDING_SIGNUP}>
                     {t("hero.primaryCta")}
                     <LuArrowRight
                       className="transition-transform group-hover:translate-x-0.5"
@@ -210,7 +210,7 @@ export default function LandingPage() {
               <p className="mt-4 max-w-xl text-base leading-7 opacity-70">{t("cta.description")}</p>
             </div>
             <Button asChild size="lg" variant="secondary" className="shrink-0">
-              <Link href={ROUTES.ONBOARDING_SIGNUP as Route}>
+              <Link href={ROUTES.ONBOARDING_SIGNUP}>
                 {t("cta.button")}
                 <LuArrowRight aria-hidden="true" />
               </Link>

@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 import {
+  ADMIN_LIST_PAGE_MAX,
   ADMIN_LIST_PAGE_SIZE_DEFAULT,
   ADMIN_LIST_PAGE_SIZE_MAX,
 } from '../constants/admin-overview.constants';
@@ -23,6 +24,7 @@ export class ListAdminBusinessesQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(ADMIN_LIST_PAGE_MAX)
   page?: number;
 
   @ApiPropertyOptional({

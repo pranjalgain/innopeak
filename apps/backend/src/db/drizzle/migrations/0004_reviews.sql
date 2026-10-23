@@ -16,6 +16,11 @@ CREATE TABLE IF NOT EXISTS reviews (
     status review_status NOT NULL DEFAULT 'new',
     anonymized_at TIMESTAMPTZ,
     removed_upstream_at TIMESTAMPTZ,
+    -- How many times drafting a reply failed for this review, and when it last did. A review the model cannot answer used to be retried on
+    -- every tick, newest first, so a few of them at the head of the queue starved every review behind them; they are now retried after a
+    -- growing pause and given up on after a few tries (the owner can still answer by hand). Reset when Google reports new review text.
+    generation_attempts SMALLINT NOT NULL DEFAULT 0,
+    generation_failed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT reviews_rating_check CHECK (rating BETWEEN 1 AND 5)
@@ -34,6 +39,8 @@ CREATE INDEX idx_reviews_tenant_id_reviewed_at ON reviews(tenant_id, reviewed_at
 -- The open-backlog counts (`status IN ('new','in_review')`, escalated or not) per tenant.
 CREATE INDEX idx_reviews_tenant_id_status_classification ON reviews(tenant_id, status, classification);
 CREATE INDEX idx_reviews_external_reviewer_id ON reviews(external_reviewer_id);
+-- The retention purge finds un-anonymized reviews by age, per tenant: without this it scanned every review each night.
+CREATE INDEX idx_reviews_retention_due ON reviews(tenant_id, (COALESCE(reviewed_at, created_at))) WHERE anonymized_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS sync_runs (
     id UUID PRIMARY KEY DEFAULT uuidv7(),

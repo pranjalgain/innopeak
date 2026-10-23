@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { useTranslations } from "next-intl";
 
+
 import { AuthDivider } from "@/app/(auth)/_components/auth-divider";
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
 import { PasswordAuthForm } from "@/app/(auth)/_components/password-auth-form";
@@ -21,8 +22,9 @@ import { usePlatformSettings } from "@/hooks/common/use-platform-settings";
 /**
  * Platform-admin sign-in (`POST /v1/admin/auth/login`), separate from the tenant `LoginView`: no signup link or OTP,
  * admins are invited. The link back to the tenant login gives a stray tenant user a way off this screen.
- * The Google button is required: an admin who accepted via Google has no `password_hash`, so it is their only way in
- * (hence `AdminSettingsService.updatePlatformSettings` refuses to disable `googleLoginEnabled` while one exists).
+ * The Google button follows `adminGoogleLoginAvailable` (the Google client is configured on this deploy), never the tenant-facing
+ * `googleLoginEnabled` switch: an admin who accepted via Google has no `password_hash`, so it is their only way in, and the server's
+ * admin Google sign-in does not consult that switch either.
  * It points at `/v1/admin/auth/google`, not the tenant route, which falls through to tenant tables and sends failures to `/login`.
  * The Microsoft button is sign-in only (admins are invite-only, so there is no sign-up) and follows `adminMicrosoftLoginAvailable`, a
  * deploy-level fact (Microsoft client + the pinned Entra directory), not the tenant-facing `microsoftLoginEnabled` switch.
@@ -36,8 +38,8 @@ export function AdminLoginView() {
   const { data: platformSettings } = usePlatformSettings();
 
   // Hidden while the setting loads; the password form is always there, so a late button is fine.
-  const googleEnabled = platformSettings?.googleLoginEnabled ?? false;
   const microsoftEnabled = platformSettings?.adminMicrosoftLoginAvailable ?? false;
+  const googleEnabled = platformSettings?.adminGoogleLoginAvailable ?? false;
   const bothEnabled = googleEnabled && microsoftEnabled;
 
   const handleSubmit = async (email: string, password: string) => {
@@ -90,7 +92,7 @@ export function AdminLoginView() {
 
         <div className="text-muted-foreground mt-6 text-center text-xs">
           {t("notAdmin")}{" "}
-          <Link href={ROUTES.LOGIN as Route} className="font-medium">
+          <Link href={ROUTES.LOGIN} className="font-medium text-primary underline underline-offset-4">
             {t("tenantSignIn")}
           </Link>
         </div>

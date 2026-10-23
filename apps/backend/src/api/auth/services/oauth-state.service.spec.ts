@@ -3,7 +3,7 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { REDIS_CLIENT } from '@redis/redis.provider';
 
-import { createHash } from 'crypto';
+import { createHash, createHmac } from 'crypto';
 
 import { OAuthStateService } from './oauth-state.service';
 
@@ -171,6 +171,13 @@ describe('OAuthStateService', () => {
     });
   });
 
+  // `?state=a&state=b` reaches the service as an array whatever the type says; `.split` on it was a 500 on a public callback.
+  it('rejects a repeated state parameter instead of throwing', async () => {
+    await expect(
+      target.consume(SsoProvider.GOOGLE, ['a.1.b', 'c.2.d'] as unknown as string, 'sid')
+    ).resolves.toEqual({ ok: false });
+  });
+
   it('does not consume the nonce when the browser check fails, so a replay stays blocked', async () => {
     const { state, sid } = await target.mint({
       provider: SsoProvider.GOOGLE,
@@ -183,5 +190,62 @@ describe('OAuthStateService', () => {
       ok: false,
     });
     await expect(target.consume(SsoProvider.GOOGLE, state, sid)).resolves.toEqual({ ok: false });
+  });
+  // The signing key: a dedicated secret in production, else a key derived from JWT_SECRET, else no start at all.
+  describe('the signing secret', () => {
+    const config = (values: Record<string, string | undefined>): ConfigService =>
+      ({ get: (key: string): string | undefined => values[key] }) as unknown as ConfigService;
+    const build = (values: Record<string, string | undefined>): OAuthStateService =>
+      new OAuthStateService(config(values) as never, redis as never);
+
+    it('refuses to start with neither secret, instead of signing under a constant in the source', () => {
+      expect(() => build({})).toThrow('GOOGLE_AUTH_STATE_SECRET or JWT_SECRET');
+      expect(() => build({ GOOGLE_AUTH_STATE_SECRET: '', JWT_SECRET: '' })).toThrow();
+    });
+
+    it('treats the dedicated secret and a JWT-derived key as different keys', async () => {
+      const dedicated = build({
+        GOOGLE_AUTH_STATE_SECRET: 'a'.repeat(40),
+        JWT_SECRET: 'j'.repeat(40),
+      });
+      const derived = build({ JWT_SECRET: 'j'.repeat(40) });
+      const minted = await dedicated.mint({
+        provider: SsoProvider.GOOGLE,
+        intent: OAuthIntent.LOGIN,
+      });
+
+      await expect(derived.consume(SsoProvider.GOOGLE, minted.state, minted.sid)).resolves.toEqual({
+        ok: false,
+      });
+    });
+
+    it('never signs with the raw JWT secret, so an access-token key cannot forge a state', async () => {
+      const jwtSecret = 'j'.repeat(40);
+      const service = build({ JWT_SECRET: jwtSecret });
+      const minted = await service.mint({
+        provider: SsoProvider.GOOGLE,
+        intent: OAuthIntent.LOGIN,
+      });
+      const [nonce, issuedAt] = minted.state.split('.') as [string, string];
+      const forged = `${nonce}.${issuedAt}.${createHmac('sha256', jwtSecret)
+        .update(`${SsoProvider.GOOGLE}:${nonce}.${issuedAt}`)
+        .digest('base64url')}`;
+
+      await expect(service.consume(SsoProvider.GOOGLE, forged, minted.sid)).resolves.toEqual({
+        ok: false,
+      });
+    });
+
+    it('is deterministic, so a state minted before a hot reload still verifies after it', async () => {
+      const before = build({ JWT_SECRET: 'j'.repeat(40) });
+      const after = build({ JWT_SECRET: 'j'.repeat(40) });
+      const minted = await before.mint({ provider: SsoProvider.GOOGLE, intent: OAuthIntent.LOGIN });
+
+      await expect(
+        after.consume(SsoProvider.GOOGLE, minted.state, minted.sid)
+      ).resolves.toMatchObject({
+        ok: true,
+      });
+    });
   });
 });

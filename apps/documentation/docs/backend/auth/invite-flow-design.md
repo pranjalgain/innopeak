@@ -275,29 +275,20 @@ removed when the admin sign-in page got its own Google and Microsoft entries.)
    platform where Google sign-in is switched off — an account whose one credential is a button
    `/login` never renders. The accept screen now reads the same setting.
 
-3. *Disabling Google afterwards stranded them.* The two fixes above stop a Google-only admin being
-   *created* while Google sign-in is off, but an admin who accepted earlier was still locked out
-   the moment a Super Admin switched it off later — no password to fall back on, and no admin
-   equivalent of the tenant `set-password` flow to add one with.
-   `AdminSettingsService.updatePlatformSettings` now refuses that change while any active admin has
-   Google as their only credential (`countActiveGoogleOnlyAdmins`), naming how many would be
-   stranded. That is the third member of a family this service already had — the "at least one
-   sign-in method" check beside it, and `setAdminStatus`'s last-active-admin and
-   cannot-disable-self guards — all of which exist to stop a settings change locking the platform
-   out of its own console.
-
-   Scoped to the *transition*, so re-asserting `false` when Google is already off stays a no-op:
-   an admin stranded by that pre-existing state is recovered by turning it back on, and answering
-   400 to a no-op would make that state look like the guard's doing. Read-then-write, like the
-   check beside it — an invite accepted through Google in the window between the count and the
-   UPDATE would slip past. Documented rather than locked down: the invariant spans two tables so
-   no single-table CHECK can back it up, and the consequence is one admin re-enabling a setting.
+3. *Disabling Google afterwards stranded them (guard since removed).* The admin sign-in page used to hide its Google button
+   while `googleLoginEnabled` was off, so an admin who accepted earlier lost their only way in the moment a Super Admin
+   switched it off, and `updatePlatformSettings` refused the change while any active admin had Google as their only credential
+   (`countActiveGoogleOnlyAdmins`). That was the wrong end to fix: the server's admin Google intents never consult the switch,
+   so the page offers the Google button regardless of the switch and the guard (with its exception, messages and count query) is
+   gone. Turning Google off only affects tenant sign-in, sign-up and invites. What the page *does* follow is the deploy:
+   `adminGoogleLoginAvailable` on `GET /v1/settings/platform-config` is `GoogleIdentityProvider.isConfigured()`, so a deployment
+   without Google OAuth credentials never shows a button that could only end in `NOT_CONFIGURED`.
 
 Worth knowing: `googleLoginEnabled` was originally enforced only in the UI. It is now also enforced
 on the server for the tenant-facing intents (`LOGIN`, `SIGNUP`, `INVITE`: authorize and callback answer
 `NOT_CONFIGURED`), but never for `ADMIN_LOGIN` or `ADMIN_INVITE`, since an admin who accepted through
-Google has no other way in. That is exactly why the guard above exists: it is what makes it safe for the
-admin intents to ignore the switch.
+Google has no other way in; the admin sign-in page likewise shows its Google button whenever the deployment has Google
+configured (`adminGoogleLoginAvailable`), whatever the switch says.
 
 This mirrors the single-callback-per-provider dispatch `handleGoogleCallback` already uses for
 `OAuthIntent.LOGIN`/`SIGNUP` — a third intent, not a new callback route:

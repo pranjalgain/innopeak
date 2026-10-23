@@ -3,6 +3,7 @@ import type { IErasureNoticeEmailJob } from '@bg/interfaces/job.interface';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 
@@ -35,6 +36,7 @@ describe('ErasureNoticeService', () => {
       findTenantOwnerRecipients: jest.fn().mockResolvedValue([owner, neverChose]),
       findTenantsDueForErasureReminder: jest.fn().mockResolvedValue([]),
       claimErasureReminder: jest.fn(),
+      releaseErasureReminderClaim: jest.fn().mockResolvedValue(undefined),
       findTenantErasureState: jest.fn(),
     };
     queue = {
@@ -106,6 +108,26 @@ describe('ErasureNoticeService', () => {
     expect(queue.addErasureNoticeEmailJob.mock.calls[0]?.[1]).toMatchObject({ kind: 'erased' });
   });
 
+  // The addresses are gone once the users are anonymized, so a notice that reached nobody cannot be resent.
+  it('logs an error when the erased notice reached nobody', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    await target.notifyErased({ recipients: [], businessName: 'Acme' });
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('reached nobody'));
+    errorSpy.mockRestore();
+  });
+
+  it('logs an error when every erased-notice enqueue failed', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    queue.addErasureNoticeEmailJob.mockRejectedValue(new Error('redis down'));
+
+    await target.notifyErased({ recipients: [owner], businessName: 'Acme' });
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('reached nobody'));
+    errorSpy.mockRestore();
+  });
+
   describe('notifyPurgeSkipped', () => {
     const skipped = [{ name: 'Acme', daysOverdue: 2, reason: 'stripe unreachable' }];
 
@@ -154,6 +176,34 @@ describe('ErasureNoticeService', () => {
       const job = queue.addErasureNoticeEmailJob.mock.calls[0]?.[1] as IErasureNoticeEmailJob;
       expect(job).toMatchObject({ kind: 'reminder', requestedBy: 'owner' });
       expect(job.scheduledFor).toBe('2026-10-22T00:00:00.000Z');
+    });
+
+    // The claim only exists so two runs cannot both send; burning it on a failed enqueue lost the reminder for good.
+    it('hands the claim back when no reminder could be queued, so the next pass retries', async () => {
+      authDb['findTenantsDueForErasureReminder']!.mockResolvedValue([{ id: 't1' }]);
+      authDb['claimErasureReminder']!.mockResolvedValue({
+        name: 'Acme',
+        erasureRequestedAt: requestedAt,
+      });
+      authDb['findTenantErasureState']!.mockResolvedValue({ erasureRequestedByUserId: null });
+      queue.addErasureNoticeEmailJob.mockRejectedValue(new Error('redis down'));
+
+      await expect(target.sendDueReminders()).resolves.toBe(0);
+
+      expect(authDb['releaseErasureReminderClaim']).toHaveBeenCalledWith('t1');
+    });
+
+    it('keeps the claim when the reminder was queued', async () => {
+      authDb['findTenantsDueForErasureReminder']!.mockResolvedValue([{ id: 't1' }]);
+      authDb['claimErasureReminder']!.mockResolvedValue({
+        name: 'Acme',
+        erasureRequestedAt: requestedAt,
+      });
+      authDb['findTenantErasureState']!.mockResolvedValue({ erasureRequestedByUserId: null });
+
+      await expect(target.sendDueReminders()).resolves.toBe(1);
+
+      expect(authDb['releaseErasureReminderClaim']).not.toHaveBeenCalled();
     });
 
     it('skips a tenant whose reminder another run already claimed', async () => {

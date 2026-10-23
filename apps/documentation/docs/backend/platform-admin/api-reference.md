@@ -199,18 +199,11 @@ returns `403 TENANT_SUSPENDED` (see auth's [error
 reference](../auth/api-reference.md#error-reference)), so new logins and refreshes stop
 immediately.
 
-**Suspension is not instant for tokens already issued, and this endpoint says so in its
-response.** `PLAN.md` §8.20 accepts and does not fix this: access tokens are stateless JWTs
-validated by signature, not by a database lookup, so a user holding one issued a minute ago keeps
-working for the remainder of its lifetime — 15 minutes by default. `accessRevokedAfter` in the
-response is that deadline, computed as now plus the configured access-token TTL. It is not a
-promise the platform enforces; it is the point after which no token minted before the suspension
-can still validate. For a support workflow that means suspension is a *policy* action, not a kill
-switch: if a tenant must be cut off *now* — active abuse, a legal hold — the operator has to either
-wait out the window before confirming containment, or escalate to something outside this API
-(rotating credentials at the provider, an infrastructure block). §8.20 lists the two designs that
-would close the gap, a per-request tenant-status check or a `tenant_id` deny-list, and explains why
-neither is built by default.
+**Suspension is immediate for tokens already issued (this section's original design said otherwise).** The shipped admin API
+(`POST /v1/admin/businesses/:tenantId/status`) marks the tenant in Redis when it suspends, and `JwtStrategy` refuses any access token
+issued before that mark, so a user holding a token minted a minute ago is cut off on their next request. The `accessRevokedAfter`
+deadline described below is therefore not returned. The mark is best-effort: if Redis cannot answer within 500 ms the write is
+logged and skipped, and a token then lasts at most its 15-minute lifetime.
 
 A second gap, stated at the point of action rather than buried: suspension stops *people*, not
 *polling*. Nothing in the schema gates the review pipeline on `tenants.status`, and the pipeline

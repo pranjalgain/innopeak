@@ -1,3 +1,5 @@
+import type { JobsOptions } from 'bullmq';
+
 export enum QueueName {
   EMAIL = 'email',
   DEAD_LETTER = 'dead-letter',
@@ -35,6 +37,40 @@ export enum QueuePrefix {
   SYSTEM = 'system',
   ADMIN = 'admin',
 }
+
+/**
+ * Per-queue job defaults, the single source for both registrations of a queue: the one that backs its worker and Bull Board, and the one
+ * `QueueTransportModule` hands to `QueuePublisherProvider`. They used to be written only on the first, so every job published through the
+ * second got the project defaults instead (three attempts, a week of failed jobs): review-post jobs were retried blindly (the comment on
+ * the queue says why not), the cron queue retried, and failed email jobs kept their OTP payload for seven days.
+ *
+ * A queue not listed (review-sync) keeps the project defaults: its producer is injected from its own module.
+ */
+export const QUEUE_JOB_OPTIONS: Record<Exclude<QueueName, QueueName.REVIEW_SYNC>, JobsOptions> = {
+  [QueueName.CRON]: {
+    attempts: 1,
+    removeOnFail: true,
+    removeOnComplete: { age: 1 * 24 * 3600 },
+  },
+  [QueueName.DEAD_LETTER]: {
+    attempts: 1,
+    // Completed dead-letter jobs for a week, failed ones for 60 days.
+    removeOnComplete: { age: 7 * 24 * 3600 },
+    removeOnFail: { age: 60 * 24 * 3600 },
+  },
+  [QueueName.EMAIL]: {
+    // Each email job sets its own attempts and backoff (`AddingJobsToQueueManager`); a spent one is not kept: its payload held a code.
+    removeOnFail: true,
+    removeOnComplete: { age: 1 * 24 * 3600 },
+  },
+  [QueueName.REVIEW_POST]: {
+    // Deliberately 1, not the project default of 3: a blind BullMQ retry would replay a stale decision instead of re-running the
+    // freshness check. Recovery is the user-triggered `retry-post` route.
+    attempts: 1,
+    removeOnFail: { age: 7 * 24 * 3600 },
+    removeOnComplete: { age: 7 * 24 * 3600 },
+  },
+};
 
 export enum JobName {
   OTP_EMAIL_VERIFICATION = 'email-otp-verification',

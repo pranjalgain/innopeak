@@ -1,10 +1,12 @@
+import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { BillingPlanCode } from '@common/enums/billing-plan-code.enum';
 import { LocationStatus } from '@common/enums/location-status.enum';
+import { SubscriptionStatus } from '@common/enums/subscription-status.enum';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, eq, gt, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm';
 
 import type {
   InsertSubscriptionInput,
@@ -199,6 +201,37 @@ export class TenantSubscriptionsRepository {
       )
       .groupBy(schema.tenantSubscriptions.tenantId, schema.billingPlans.maxLocations)
       .having(sql`count(${schema.locations.id}) > ${schema.billingPlans.maxLocations}`);
+
+    return rows.map(row => row.tenantId);
+  }
+
+  /**
+   * Businesses waiting out an erasure grace period whose subscription may still be billing: a Stripe customer exists and either no
+   * subscription is recorded (a checkout whose webhook has not landed) or a live one is not set to end. The request-time cancellation is
+   * best-effort and logs a failure, so this is what retries it; it leaves out anything already ending, which resuming would undo.
+   */
+  async findPendingErasureWithBillableSubscription(): Promise<string[]> {
+    const rows = await this.dbService.db
+      .select({ tenantId: schema.tenantSubscriptions.tenantId })
+      .from(schema.tenantSubscriptions)
+      .innerJoin(schema.tenants, eq(schema.tenants.id, schema.tenantSubscriptions.tenantId))
+      .where(
+        and(
+          eq(schema.tenants.status, TenantStatus.SUSPENDED),
+          isNotNull(schema.tenants.erasureRequestedAt),
+          isNotNull(schema.tenantSubscriptions.stripeCustomerId),
+          or(
+            isNull(schema.tenantSubscriptions.stripeSubscriptionId),
+            and(
+              inArray(schema.tenantSubscriptions.status, [
+                SubscriptionStatus.ACTIVE,
+                SubscriptionStatus.PAST_DUE,
+              ]),
+              eq(schema.tenantSubscriptions.cancelAtPeriodEnd, false)
+            )
+          )
+        )
+      );
 
     return rows.map(row => row.tenantId);
   }

@@ -114,6 +114,7 @@ export class CloudinaryStorageProvider extends StorageProvider {
       this.logger.warn(
         `Cloudinary asset "${providerAssetId}" has an unexpected format "${resource.format}".`
       );
+      await this.discardRejectedUpload(providerAssetId);
       return { ok: false, reason: 'unsupportedFormat' };
     }
 
@@ -122,10 +123,25 @@ export class CloudinaryStorageProvider extends StorageProvider {
       this.logger.warn(
         `Cloudinary asset "${providerAssetId}" is ${String(resource.bytes)} bytes, over the ${String(MAX_UPLOAD_BYTES)}-byte limit.`
       );
+      await this.discardRejectedUpload(providerAssetId);
       return { ok: false, reason: 'tooLarge' };
     }
 
     return { ok: true, upload: { url: resource.secure_url, mimeType, sizeBytes: resource.bytes } };
+  }
+
+  /**
+   * A rejected upload is already in the owner's folder (the folder check comes first) and will never be referenced by a `media` row,
+   * so it is removed rather than left to accumulate there. Best-effort: the rejection answer does not depend on it.
+   */
+  private async discardRejectedUpload(providerAssetId: string): Promise<void> {
+    try {
+      await this.delete(providerAssetId);
+    } catch (error) {
+      this.logger.warn(
+        `Could not remove rejected upload "${providerAssetId}": ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /** `uploader.destroy` *resolves* for failures too, so anything but 'ok' must throw or the caller's best-effort `.catch()` never fires and orphaned assets go unnoticed. */

@@ -29,11 +29,11 @@ export function OnboardingStepper({ steps, currentStep, completedSteps = [] }: O
 
         return (
           <Fragment key={step}>
-            <li className="flex shrink-0 flex-col items-center gap-1">
+            <li aria-current={isActive ? "step" : undefined} className="flex shrink-0 flex-col items-center gap-1">
               <div
                 className={cn(
                   "flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
-                  isComplete && "bg-primary/80 text-primary-foreground",
+                  isComplete && "bg-primary text-primary-foreground",
                   isActive && "border-2 border-primary text-primary",
                   !isComplete && !isActive && "border border-border text-muted-foreground",
                 )}
@@ -51,7 +51,7 @@ export function OnboardingStepper({ steps, currentStep, completedSteps = [] }: O
             </li>
 
             {index < steps.length - 1 ? (
-              <div className={cn("mx-2 h-px flex-1", isComplete ? "bg-primary/60" : "bg-border")} />
+              <div aria-hidden="true" className={cn("mx-2 h-px flex-1", isComplete ? "bg-primary/60" : "bg-border")} />
             ) : null}
           </Fragment>
         );

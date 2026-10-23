@@ -166,4 +166,28 @@ describe("useTenantMembers", () => {
     await waitFor(() => expect(result.current.members[0]?.erasureRequestedAt).toBeNull());
     expect(getMembers).toHaveBeenCalled();
   });
+
+  // A failed refresh used to replace the roster (and a half-typed invite) with the error screen.
+  test("keeps the roster, and reports no error, when a background refresh fails", async () => {
+    const client = createQueryClient();
+    const shared = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <NextIntlClientProvider locale="en" messages={messages}>
+          {children}
+        </NextIntlClientProvider>
+      </QueryClientProvider>
+    );
+    const getMembers = vi.spyOn(TenantMemberService, "getMembers").mockResolvedValueOnce([member()]);
+    const { result } = renderHook(() => useTenantMembers(), { wrapper: shared });
+    await waitFor(() => expect(result.current.members).toHaveLength(1));
+
+    getMembers.mockRejectedValue(new Error("offline"));
+    await act(async () => {
+      result.current.refetch();
+    });
+
+    await waitFor(() => expect(getMembers.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(result.current.members).toHaveLength(1);
+    expect(result.current.isError).toBe(false);
+  });
 });

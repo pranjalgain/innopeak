@@ -46,3 +46,22 @@ describe('blocklist term must contain visible text', () => {
     expect(errors.map(e => e.property)).toContain('term');
   });
 });
+
+// Google's reply limit is 4096; a longer text used to pass approval and fail only when it was posted.
+describe('reply length matches Google’s limit', () => {
+  const lengthErrors = async (
+    Dto: typeof ApproveReplyDto | typeof CreateManualReplyDto,
+    length: number
+  ): Promise<string[]> =>
+    (await validate(plainToInstance(Dto, { content: 'a'.repeat(length) }), OPTIONS)).map(
+      e => e.property
+    );
+
+  it.each([ApproveReplyDto, CreateManualReplyDto])(
+    '%p accepts 4096 characters and refuses 4097',
+    async Dto => {
+      expect(await lengthErrors(Dto, 4096)).toEqual([]);
+      expect(await lengthErrors(Dto, 4097)).toContain('content');
+    }
+  );
+});

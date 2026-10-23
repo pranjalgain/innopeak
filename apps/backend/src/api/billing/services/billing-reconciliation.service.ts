@@ -41,12 +41,13 @@ export class BillingReconciliationService {
    * not an error.
    */
   async reconcileFromCheckoutSession(input: ReconcileFromCheckoutSessionInput): Promise<void> {
+    const readAt = new Date().toISOString();
     const session = await this.paymentProvider.retrieveCheckoutSession(input.checkoutSessionId);
     if (session.tenantId !== input.tenantId) {
       throw new CheckoutSessionTenantMismatchException();
     }
 
-    await this.applySnapshotOrTouch(input.tenantId, session.subscription);
+    await this.applySnapshotOrTouch(input.tenantId, session.subscription, readAt);
   }
 
   /**
@@ -61,19 +62,41 @@ export class BillingReconciliationService {
    */
   async scheduleCancellationForErasure(tenantId: string): Promise<void> {
     const row = await this.tenantSubscriptionsDbService.findByTenantId(tenantId);
-    const subscriptionId = row?.stripeSubscriptionId;
-    const isLive =
-      row?.status === SubscriptionStatus.ACTIVE || row?.status === SubscriptionStatus.PAST_DUE;
-    if (!row || !subscriptionId || !isLive) {
+    if (!row) {
       return;
     }
 
-    if (row.status === SubscriptionStatus.PAST_DUE) {
+    // A tenant who is mid-checkout, or whose checkout webhook has not landed, has a Stripe customer but no recorded subscription,
+    // and would otherwise be billed through the whole grace period. Ask Stripe for the live one instead of trusting our copy.
+    let live: Pick<
+      SubscriptionSnapshot,
+      'cancelAtPeriodEnd' | 'status' | 'stripeSubscriptionId'
+    > | null = row.stripeSubscriptionId
+      ? {
+          stripeSubscriptionId: row.stripeSubscriptionId,
+          status: row.status ?? SubscriptionStatus.INCOMPLETE,
+          cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+        }
+      : null;
+    if (!live && row.stripeCustomerId) {
+      live = await this.paymentProvider.retrieveActiveSubscriptionForCustomer(row.stripeCustomerId);
+    }
+    if (!live) {
+      return;
+    }
+    const subscriptionId = live.stripeSubscriptionId;
+    const isLive =
+      live.status === SubscriptionStatus.ACTIVE || live.status === SubscriptionStatus.PAST_DUE;
+    if (!isLive) {
+      return;
+    }
+
+    if (live.status === SubscriptionStatus.PAST_DUE) {
       await this.endSubscriptionNow(subscriptionId);
       return;
     }
 
-    if (row.cancelAtPeriodEnd) {
+    if (live.cancelAtPeriodEnd) {
       return;
     }
 
@@ -153,14 +176,16 @@ export class BillingReconciliationService {
       return;
     }
     await this.paymentProvider.deleteCustomer(row.stripeCustomerId);
+    await this.tenantSubscriptionsDbService.detachStripeCustomer(tenantId);
   }
 
   /** Takes the row shape `findStaleFreeWithStripeCustomer` returns, so the cron can pass a candidate straight through. */
   async reconcileTenantSubscription(input: ReconcileTenantSubscriptionInput): Promise<void> {
+    const readAt = new Date().toISOString();
     const subscription = await this.paymentProvider.retrieveActiveSubscriptionForCustomer(
       input.stripeCustomerId
     );
-    await this.applySnapshotOrTouch(input.tenantId, subscription);
+    await this.applySnapshotOrTouch(input.tenantId, subscription, readAt);
   }
 
   /**
@@ -170,10 +195,16 @@ export class BillingReconciliationService {
    *
    * One transaction for all writes: a failure after `setToPaidFromCheckout` would leave a Paid
    * tenant with billing-paused locations that the nightly sweep never revisits.
+   *
+   * Written through the same event clock the webhooks use, stamped with the moment *before* Stripe was asked (`readAt`):
+   * a snapshot read before a newer webhook (a `subscription.deleted`) was applied is stale by the time it arrives, and
+   * writing it would resurrect Paid for a tenant who just cancelled. The clock update also serializes it with webhooks.
+   * The clocks are Stripe's `created` and ours, so a few seconds of skew can refuse a snapshot; the next sweep retakes it.
    */
   private async applySnapshotOrTouch(
     tenantId: string,
-    subscription: SubscriptionSnapshot | null
+    subscription: SubscriptionSnapshot | null,
+    readAt: string
   ): Promise<void> {
     const isLive =
       subscription !== null &&
@@ -181,7 +212,10 @@ export class BillingReconciliationService {
         subscription.status === SubscriptionStatus.PAST_DUE);
 
     await this.dbService.db.transaction(async tx => {
-      if (isLive) {
+      if (
+        isLive &&
+        (await this.tenantSubscriptionsDbService.advanceEventClock(tenantId, readAt, tx))
+      ) {
         await this.tenantSubscriptionsDbService.setToPaidFromCheckout(tenantId, subscription, tx);
         // Paid has no location cap.
         await this.connectionsDbService.clearBillingPauseForTenant(tenantId, tx);

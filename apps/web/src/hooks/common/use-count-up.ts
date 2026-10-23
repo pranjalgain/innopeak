@@ -19,7 +19,9 @@ export function useCountUp(target: number, isLoading: boolean, duration = 900): 
 
     if (target === from) return;
 
-    if (target <= 0) {
+    // No count-up for a visitor who asked for less motion: the figure appears at once.
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    if (target <= 0 || reducedMotion) {
       setValue(target);
       return;
     }

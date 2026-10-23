@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import { useRouter } from "next/navigation";
 
 import { useFormatter, useTranslations } from "next-intl";
@@ -18,7 +17,7 @@ import type { ConnectionInfo } from "@/types/domain";
 
 interface ConnectionSettingsSectionProps {
   connection: ConnectionInfo;
-  onDisconnect: () => void;
+  onDisconnect: () => Promise<boolean>;
 }
 
 const DATE_FORMAT = {
@@ -128,8 +127,7 @@ export function ConnectionSettingsSection({
           <div>
             <Button
               type="button"
-              variant="outline"
-              className="border-destructive text-destructive hover:bg-destructive/10"
+              variant="destructive-outline"
               onClick={() => setIsConfirming(true)}>
               {t("disconnectButton")}
             </Button>
@@ -151,11 +149,13 @@ export function ConnectionSettingsSection({
               variant="destructive"
               size="sm"
               onClick={() => {
-                onDisconnect();
-                setIsConfirming(false);
-                // The (dashboard) layout's access guard won't re-check on its own; leave immediately rather than sit on a
-                // connected-only screen while disconnected.
-                router.push(ROUTES.ONBOARDING_CONNECT as Route);
+                void (async () => {
+                  const disconnected = await onDisconnect();
+                  setIsConfirming(false);
+                  // The (dashboard) layout's access guard won't re-check on its own; leave once the disconnect really happened rather than
+                  // sit on a connected-only screen while disconnected. A failure stays here, still connected, with the error toast.
+                  if (disconnected) router.push(ROUTES.ONBOARDING_CONNECT);
+                })();
               }}>
               {t("disconnectButton")}
             </Button>

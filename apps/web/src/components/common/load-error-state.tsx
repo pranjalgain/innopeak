@@ -17,7 +17,7 @@ export function LoadErrorState({ onRetry }: LoadErrorStateProps) {
   const t = useTranslations("common.loadError");
 
   return (
-    <div className="border-border bg-card shadow-elevated flex flex-col items-center justify-center gap-2 rounded-xl border px-6 py-12 text-center">
+    <div role="alert" className="border-border bg-card shadow-elevated flex flex-col items-center justify-center gap-2 rounded-xl border px-6 py-12 text-center">
       <LuTriangleAlert className="text-destructive size-7" />
       <p className="text-sm font-medium">{t("title")}</p>
       <p className="text-muted-foreground text-[13px]">{t("description")}</p>

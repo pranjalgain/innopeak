@@ -227,6 +227,22 @@ A generated reply is driven by two separate pieces of text, composed in
 since the required-placeholder set (`business_name`/`reviewer_name`/`rating`/`review_text`) has no
 tone slot and was never meant to.
 
+## A review the model cannot answer, and what auto-post may publish (audit follow-ups)
+
+- **Failures are counted and backed off.** A failed draft used to be released straight back to `new`, retried every tick, newest first, so a few
+  reviews the model could not answer sat at the head of every batch and starved the rest. `reviews.generation_attempts` /
+  `generation_failed_at` now record each failure (`releaseGenerationClaimAfterFailure`); a review is skipped for `attempts × 15 minutes`
+  (`GENERATION_RETRY_BACKOFF_MINUTES`) and given up on after `GENERATION_MAX_ATTEMPTS` (5), with one error log line, leaving it open for the owner to
+  answer by hand. New review text from Google resets the count (the upsert), since new words may be what makes it answerable. The provider-outage
+  breaker (3 failures in a row ends the batch) is unchanged.
+- **Auto-post only publishes a clean reply.** The reply derives from text anyone can write, so with `auto_post_enabled` a reply is auto-approved
+  only if `findAutoPostBlocker` finds nothing: no link other than the business's own website, no email address, no phone number other than the
+  business's own (any spelling; dates are not mistaken for numbers), no bracketed or braced placeholder, nothing over Google's 4096 characters,
+  and a normal finish (as before). Otherwise it is saved as an ordinary draft for a person to approve or discard, with a warn log naming the reason.
+- **The reviewer's words are fenced.** `{{review_text}}` is substituted inside `<review>…</review>` tags (any such tag inside the review is
+  removed first, so a reviewer cannot close the fence), and the system prompt tells the model to treat that text only as feedback and ignore any
+  instruction in it. A star-only review (no text) is not fenced. This lowers the chance of steering, it is not a guarantee: the check above is.
+
 ## Testing prompts and the provider
 
 `pnpm ai:dry-run` runs the provider against **mock** reviews with the category's *default* prompt

@@ -96,8 +96,12 @@ export class TenantSubscriptionsDbService {
         planId: paidPlan.id,
         stripeSubscriptionId: input.stripeSubscriptionId,
         status: input.status,
-        currentPeriodStart: input.currentPeriodStart,
-        currentPeriodEnd: input.currentPeriodEnd,
+        ...(input.currentPeriodStart === undefined
+          ? {}
+          : { currentPeriodStart: input.currentPeriodStart }),
+        ...(input.currentPeriodEnd === undefined
+          ? {}
+          : { currentPeriodEnd: input.currentPeriodEnd }),
         cancelAtPeriodEnd: input.cancelAtPeriodEnd,
         cancellationSource: null,
       },
@@ -138,6 +142,24 @@ export class TenantSubscriptionsDbService {
       cancelAtPeriodEnd: true,
       cancellationSource: source,
     });
+  }
+
+  /** The Stripe customer was deleted (erasure): the id must not outlive it, it points at a person's name and email that no longer exist anywhere. */
+  detachStripeCustomer(tenantId: string): Promise<TenantSubscriptionRow | null> {
+    return this.tenantSubscriptionsRepository.updateByTenantId(tenantId, {
+      stripeCustomerId: null,
+    });
+  }
+
+  /** Puts back exactly what `markCancellationScheduled` replaced, for a provider call that then failed. */
+  restoreCancellationState(
+    tenantId: string,
+    previous: {
+      cancelAtPeriodEnd: boolean;
+      cancellationSource: SubscriptionCancellationSource | null;
+    }
+  ): Promise<TenantSubscriptionRow | null> {
+    return this.tenantSubscriptionsRepository.updateByTenantId(tenantId, previous);
   }
 
   clearCancellationScheduled(tenantId: string): Promise<TenantSubscriptionRow | null> {
@@ -194,6 +216,10 @@ export class TenantSubscriptionsDbService {
 
   touchCheckoutStartedAt(tenantId: string, tx?: DrizzleTransaction): Promise<void> {
     return this.tenantSubscriptionsRepository.touchCheckoutStartedAt(tenantId, tx);
+  }
+
+  findPendingErasureWithBillableSubscription(): Promise<string[]> {
+    return this.tenantSubscriptionsRepository.findPendingErasureWithBillableSubscription();
   }
 
   findFreeTenantIdsOverLocationCap(): Promise<string[]> {

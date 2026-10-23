@@ -285,6 +285,7 @@ export const tenants = pgTable(
       withTimezone: true,
       mode: 'string',
     }),
+    statusBeforeErasure: tenantStatus('status_before_erasure'),
     lastErasureRequestedAt: timestamp('last_erasure_requested_at', {
       withTimezone: true,
       mode: 'string',
@@ -307,6 +308,11 @@ export const tenants = pgTable(
       table.createdByPlatformAdminId.asc().nullsLast().op('uuid_ops')
     ),
     index('idx_tenants_status').using('btree', table.status.asc().nullsLast().op('enum_ops')),
+    index('idx_tenants_created_at').using(
+      'btree',
+      table.createdAt.desc().nullsFirst().op('timestamptz_ops')
+    ),
+    index('idx_tenants_name_trgm').using('gin', table.name.asc().nullsLast().op('gin_trgm_ops')),
     index('idx_tenants_erasure_requested_at')
       .using('btree', table.erasureRequestedAt.asc().nullsLast().op('timestamptz_ops'))
       .where(sql`(erasure_requested_at IS NOT NULL)`),
@@ -372,6 +378,7 @@ export const users = pgTable(
     status: userStatus().notNull(),
     anonymizedAt: timestamp('anonymized_at', { withTimezone: true, mode: 'string' }),
     erasureRequestedAt: timestamp('erasure_requested_at', { withTimezone: true, mode: 'string' }),
+    statusBeforeRemoval: userStatus('status_before_removal'),
     locale: userLocale(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
@@ -390,6 +397,11 @@ export const users = pgTable(
     ),
     index('idx_users_role').using('btree', table.role.asc().nullsLast().op('enum_ops')),
     index('idx_users_status').using('btree', table.status.asc().nullsLast().op('enum_ops')),
+    index('idx_users_created_at').using(
+      'btree',
+      table.createdAt.desc().nullsFirst().op('timestamptz_ops')
+    ),
+    index('idx_users_name_trgm').using('gin', table.name.asc().nullsLast().op('gin_trgm_ops')),
     index('idx_users_erasure_requested_at')
       .using('btree', table.erasureRequestedAt.asc().nullsLast().op('timestamptz_ops'))
       .where(sql`(erasure_requested_at IS NOT NULL)`),
@@ -600,6 +612,13 @@ export const reviewProviderConnections = pgTable(
       table.provider.asc().nullsLast().op('uuid_ops'),
       table.providerAccountId.asc().nullsLast().op('enum_ops')
     ),
+    uniqueIndex('idx_review_provider_connections_tenant_provider_live')
+      .using(
+        'btree',
+        table.tenantId.asc().nullsLast().op('uuid_ops'),
+        table.provider.asc().nullsLast().op('enum_ops')
+      )
+      .where(sql`(disconnected_at IS NULL)`),
     foreignKey({
       columns: [table.tenantId],
       foreignColumns: [tenants.id],
@@ -640,6 +659,12 @@ export const notificationRecipients = pgTable(
     index('idx_notification_recipients_user_id').using(
       'btree',
       table.userId.asc().nullsLast().op('uuid_ops')
+    ),
+    uniqueIndex('idx_notification_recipients_tenant_user_type').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops'),
+      table.userId.asc().nullsLast().op('uuid_ops'),
+      table.notificationType.asc().nullsLast().op('enum_ops')
     ),
     foreignKey({
       columns: [table.tenantId],
@@ -787,6 +812,8 @@ export const reviews = pgTable(
     status: reviewStatus().default('new').notNull(),
     anonymizedAt: timestamp('anonymized_at', { withTimezone: true, mode: 'string' }),
     removedUpstreamAt: timestamp('removed_upstream_at', { withTimezone: true, mode: 'string' }),
+    generationAttempts: smallint('generation_attempts').default(0).notNull(),
+    generationFailedAt: timestamp('generation_failed_at', { withTimezone: true, mode: 'string' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .defaultNow()
       .notNull(),
@@ -807,6 +834,13 @@ export const reviews = pgTable(
       'btree',
       table.locationId.asc().nullsLast().op('uuid_ops')
     ),
+    index('idx_reviews_retention_due')
+      .using(
+        'btree',
+        table.tenantId.asc().nullsLast().op('uuid_ops'),
+        sql`(COALESCE(reviewed_at, created_at))`
+      )
+      .where(sql`(anonymized_at IS NULL)`),
     uniqueIndex('idx_reviews_location_id_external_review_id').using(
       'btree',
       table.locationId.asc().nullsLast().op('text_ops'),
@@ -818,6 +852,18 @@ export const reviews = pgTable(
     ),
     index('idx_reviews_status').using('btree', table.status.asc().nullsLast().op('enum_ops')),
     index('idx_reviews_tenant_id').using('btree', table.tenantId.asc().nullsLast().op('uuid_ops')),
+    index('idx_reviews_tenant_id_reviewed_at').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops'),
+      table.reviewedAt.desc().nullsFirst().op('timestamptz_ops'),
+      table.id.desc().nullsFirst().op('uuid_ops')
+    ),
+    index('idx_reviews_tenant_id_status_classification').using(
+      'btree',
+      table.tenantId.asc().nullsLast().op('uuid_ops'),
+      table.status.asc().nullsLast().op('enum_ops'),
+      table.classification.asc().nullsLast().op('enum_ops')
+    ),
     foreignKey({
       columns: [table.tenantId],
       foreignColumns: [tenants.id],

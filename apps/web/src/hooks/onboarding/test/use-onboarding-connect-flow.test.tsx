@@ -384,6 +384,51 @@ describe("useOnboardingConnectFlow", () => {
     expect(result.current.error?.code).toBe("UNKNOWN");
   });
 
+  // An inherited key (`constructor`, `toString`) is not a code we know: it must read as UNKNOWN, not crash or pick up a function.
+  test("treats an inherited property name in ?error= as an unrecognized code", async () => {
+    searchParams = new URLSearchParams({ error: "constructor" });
+
+    const { result } = renderHook(() => useOnboardingConnectFlow());
+
+    await waitFor(() => expect(result.current.stage).toBe("error"));
+    expect(result.current.error).toEqual({ code: "UNKNOWN", recovery: "retry" });
+  });
+
+  test("stops polling at once when the session is refused", async () => {
+    mockSingleLocationResume();
+    const poll = vi
+      .spyOn(ConnectionService, "getBackfillProgress")
+      .mockRejectedValue(new ApiError(403, "forbidden"));
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { result } = renderHook(() => useOnboardingConnectFlow());
+
+    await waitFor(() => expect(result.current.stage).toBe("error"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(poll).toHaveBeenCalledTimes(1);
+    expect(result.current.error?.code).toBe("backfillFailed");
+  });
+
+  test("gives up after repeated failures instead of polling for as long as the tab is open", async () => {
+    mockSingleLocationResume();
+    const poll = vi
+      .spyOn(ConnectionService, "getBackfillProgress")
+      .mockRejectedValue(new ApiError(500, "boom"));
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { result } = renderHook(() => useOnboardingConnectFlow());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    });
+
+    await waitFor(() => expect(result.current.stage).toBe("error"));
+    expect(poll.mock.calls.length).toBe(6);
+  });
+
   test("keeps polling when a run reports itself stale, rather than failing", async () => {
     mockSingleLocationResume();
     vi.spyOn(ConnectionService, "getBackfillProgress").mockResolvedValue(

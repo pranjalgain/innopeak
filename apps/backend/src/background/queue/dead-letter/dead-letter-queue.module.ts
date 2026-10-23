@@ -1,4 +1,4 @@
-import { QueueName } from '@bg/constants/job.constant';
+import { QUEUE_JOB_OPTIONS, QueueName } from '@bg/constants/job.constant';
 import { QueueTransportModule } from '@bg/providers/queue-transport.module';
 import { isAwsDeploymentTarget } from '@config/deployment-target.util';
 import { DeadLetterQueueEvents } from '@dead-letter-queue/dead-letter-queue.events';
@@ -20,15 +20,7 @@ const bullMqImports: DynamicModule[] = isAws
             maxLen: 1000,
           },
         },
-        defaultJobOptions: {
-          attempts: 1,
-          removeOnComplete: {
-            age: 7 * 24 * 3600, // Keep completed DLQ jobs for 7 days
-          },
-          removeOnFail: {
-            age: 60 * 24 * 3600, // Keep failed DLQ jobs for 60 days
-          },
-        },
+        defaultJobOptions: QUEUE_JOB_OPTIONS[QueueName.DEAD_LETTER],
       }),
     ];
 const consumerProvider: Provider = isAws ? DeadLetterSqsConsumer : DeadLetterProcessor;

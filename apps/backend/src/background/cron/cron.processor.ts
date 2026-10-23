@@ -99,15 +99,22 @@ export class CronProcessor extends WorkerHost {
     this.logger.error(job.stacktrace);
     if (typeof job.log === 'function') void job.log(logMessage);
 
-    await this.dlqService.addFailedJobToDLQ({
-      originalQueueName: QueueName.CRON,
-      originalJobId: job.id ?? '',
-      originalJobName: job.name,
-      originalJobData: job.data,
-      failedReason: job.failedReason,
-      stacktrace: job.stacktrace,
-      timestamp: Date.now(),
-    });
+    try {
+      await this.dlqService.addFailedJobToDLQ({
+        originalQueueName: QueueName.CRON,
+        originalJobId: job.id ?? '',
+        originalJobName: job.name,
+        originalJobData: job.data,
+        failedReason: job.failedReason,
+        stacktrace: job.stacktrace,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      // A rejection from an event handler has no caller: unhandled, it ended the worker process over a failure to file a failure.
+      this.logger.error(
+        `Could not file failed job ${job.id} in the dead-letter queue: ${(error as Error).message}`
+      );
+    }
   }
 
   /**

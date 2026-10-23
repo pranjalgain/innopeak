@@ -8,6 +8,7 @@ import { ConnectionsDbService } from '@db/repositories/connections/connections.d
 import { Injectable, Logger } from '@nestjs/common';
 
 import { BillingEntitlementsService } from './billing-entitlements.service';
+import { BillingReconciliationService } from './billing-reconciliation.service';
 
 import { UNKNOWN_CUSTOMER_RETRY_GRACE_MS } from '../constants/billing.constants';
 import { StripeWebhookTenantNotFoundException } from '../exceptions/billing.exceptions';
@@ -48,7 +49,8 @@ export class BillingWebhooksService {
     private readonly tenantSubscriptionsDbService: TenantSubscriptionsDbService,
     private readonly connectionsDbService: ConnectionsDbService,
     private readonly billingEntitlementsService: BillingEntitlementsService,
-    private readonly billingReceiptsDbService: BillingReceiptsDbService
+    private readonly billingReceiptsDbService: BillingReceiptsDbService,
+    private readonly billingReconciliationService: BillingReconciliationService
   ) {}
 
   async handleEvent(event: PaymentWebhookEvent): Promise<void> {
@@ -57,6 +59,8 @@ export class BillingWebhooksService {
 
     // Owner emails for locations a downgrade paused, sent once the transaction has committed.
     const pausedNotices: PausedLocationsNotice[] = [];
+    // Tenants whose completed Checkout was dropped as stale: asked of Stripe itself once the transaction has committed.
+    const staleCheckouts: Array<{ tenantId: string; stripeCustomerId: string }> = [];
 
     try {
       await this.dbService.db.transaction(async tx => {
@@ -72,7 +76,7 @@ export class BillingWebhooksService {
           return;
         }
 
-        const tenantId = await this.dispatchEvent(tx, event, pausedNotices);
+        const tenantId = await this.dispatchEvent(tx, event, pausedNotices, staleCheckouts);
         if (tenantId !== null) {
           await this.tenantSubscriptionsDbService.touchStripeVerifiedAt(tenantId, tx);
         }
@@ -93,6 +97,20 @@ export class BillingWebhooksService {
     for (const notice of pausedNotices) {
       await this.billingEntitlementsService.notifyOwnersOfPausedLocations(notice);
     }
+
+    // A checkout that carries the only link between the customer and its subscription must not stay lost: Stripe knows the truth, so
+    // ask it rather than guess from an event we know is out of order. Best effort; the nightly sweep covers a failure here.
+    for (const stale of staleCheckouts) {
+      await this.billingReconciliationService
+        .reconcileTenantSubscription(stale)
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Could not reconcile tenant ${stale.tenantId} after a stale checkout event; the nightly sweep will: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        });
+    }
   }
 
   private isPastRetryGrace(event: PaymentWebhookEvent): boolean {
@@ -106,13 +124,14 @@ export class BillingWebhooksService {
   private async dispatchEvent(
     tx: DrizzleTransaction,
     event: PaymentWebhookEvent,
-    pausedNotices: PausedLocationsNotice[]
+    pausedNotices: PausedLocationsNotice[],
+    staleCheckouts: Array<{ tenantId: string; stripeCustomerId: string }>
   ): Promise<string | null> {
     switch (event.type) {
       case 'checkout.session.completed':
-        return this.handleCheckoutCompleted(tx, event);
+        return this.handleCheckoutCompleted(tx, event, staleCheckouts);
       case 'customer.subscription.updated':
-        return this.handleSubscriptionUpdated(tx, event);
+        return this.handleSubscriptionUpdated(tx, event, pausedNotices);
       case 'customer.subscription.deleted':
         return this.handleSubscriptionDeleted(tx, event, pausedNotices);
       case 'invoice.payment_failed':
@@ -153,7 +172,8 @@ export class BillingWebhooksService {
 
   private async handleCheckoutCompleted(
     tx: DrizzleTransaction,
-    event: Extract<PaymentWebhookEvent, { type: 'checkout.session.completed' }>
+    event: Extract<PaymentWebhookEvent, { type: 'checkout.session.completed' }>,
+    staleCheckouts: Array<{ tenantId: string; stripeCustomerId: string }>
   ): Promise<string | null> {
     const subscription = await this.requireSubscriptionByCustomerId(tx, event.customerId);
 
@@ -165,16 +185,23 @@ export class BillingWebhooksService {
       return null;
     }
     if (!(await this.isCurrent(tx, subscription.tenantId, event))) {
+      // A newer, unrelated event (an invoice, a subscription update) got here first, and this Checkout is the only event that
+      // binds the customer to its subscription and the Paid plan. Dropping it for good would leave a tenant who paid on Free, and
+      // applying it blindly could undo a newer cancellation, so it is not written: Stripe is asked once this commits.
+      staleCheckouts.push({
+        tenantId: subscription.tenantId,
+        stripeCustomerId: event.customerId,
+      });
       return null;
     }
 
+    // No period here: this payload carries none, and writing its nulls over the row would erase the one an earlier
+    // `customer.subscription.updated` had already stored (a later erasure resume reads it).
     await this.tenantSubscriptionsDbService.setToPaidFromCheckout(
       subscription.tenantId,
       {
         stripeSubscriptionId: event.subscriptionId,
         status: event.status,
-        currentPeriodStart: event.currentPeriodStart,
-        currentPeriodEnd: event.currentPeriodEnd,
         cancelAtPeriodEnd: false,
       },
       tx
@@ -188,11 +215,18 @@ export class BillingWebhooksService {
 
   private async handleSubscriptionUpdated(
     tx: DrizzleTransaction,
-    event: Extract<PaymentWebhookEvent, { type: 'customer.subscription.updated' }>
+    event: Extract<PaymentWebhookEvent, { type: 'customer.subscription.updated' }>,
+    pausedNotices: PausedLocationsNotice[]
   ): Promise<string | null> {
     const subscription = await this.resolveSubscription(tx, event.customerId, event.subscriptionId);
     if (!subscription || !(await this.isCurrent(tx, subscription.tenantId, event))) {
       return null;
+    }
+
+    // A subscription that is over (`unpaid`, `incomplete_expired`, `canceled`) is not a "canceled but still paid up" tenant: Stripe sends no
+    // `.deleted` for the first two, so the update is the only signal and it ends the plan just as `.deleted` does.
+    if (event.status === SubscriptionStatus.CANCELED) {
+      return this.downgradeToFree(tx, subscription.tenantId, pausedNotices);
     }
 
     // `plan_id` is deliberately untouched here: a canceled-but-paid tenant stays paid.
@@ -220,19 +254,24 @@ export class BillingWebhooksService {
       return null;
     }
 
-    await this.tenantSubscriptionsDbService.setToFreeFromSubscriptionDeleted(
-      subscription.tenantId,
-      tx
-    );
+    return this.downgradeToFree(tx, subscription.tenantId, pausedNotices);
+  }
+
+  private async downgradeToFree(
+    tx: DrizzleTransaction,
+    tenantId: string,
+    pausedNotices: PausedLocationsNotice[]
+  ): Promise<string> {
+    await this.tenantSubscriptionsDbService.setToFreeFromSubscriptionDeleted(tenantId, tx);
     const notice = await this.billingEntitlementsService.enforceLocationLimitOnDowngrade(
-      subscription.tenantId,
+      tenantId,
       tx
     );
     if (notice) {
       pausedNotices.push(notice);
     }
 
-    return subscription.tenantId;
+    return tenantId;
   }
 
   /** Also records a `billing_receipts` row (idempotent on `stripe_invoice_id`) for the PDF receipt. */

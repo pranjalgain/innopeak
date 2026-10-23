@@ -43,6 +43,22 @@ describe('AccountAnonymizationService', () => {
     expect(order).toEqual(['avatar', 'user']);
   });
 
+  // The account is never revisited once anonymized, so a photo that could not be deleted must stop it here.
+  it('does not anonymize the user when the avatar cannot be deleted', async () => {
+    mediaService.deleteAvatarIfPresent.mockRejectedValue(new Error('Cloudinary is down'));
+
+    await expect(target.anonymizeUser('user-1')).rejects.toThrow('Cloudinary is down');
+
+    expect(authDbService.anonymizeUser).not.toHaveBeenCalled();
+  });
+
+  it('can delete an avatar without anonymizing, for a caller that wants every photo gone first', async () => {
+    await target.deleteAvatar('user-1');
+
+    expect(mediaService.deleteAvatarIfPresent).toHaveBeenCalledWith({ userId: 'user-1' });
+    expect(authDbService.anonymizeUser).not.toHaveBeenCalled();
+  });
+
   it('is idempotent — a second call on an already-anonymized user is harmless', async () => {
     authDbService.anonymizeUser.mockResolvedValue({ outcome: 'already_anonymized' });
 

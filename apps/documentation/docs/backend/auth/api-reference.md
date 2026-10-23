@@ -330,7 +330,7 @@ Request:
 | `businessName` | string | **required**, 1–255 chars **after trimming** (whitespace-only is rejected) → `tenants.name`. This is the tenant/company identity — a genuinely different thing from `locations.name` (the per-location name synced later from a connected Google Business Profile). One tenant can have several `locations` rows (a business with multiple branches), so the tenant name can't be *derived from* a location connection; it's collected directly from the owner here. |
 | `ownerName` | string | required, 1–255 chars after trimming → `users.name`. |
 | `email` | string | required, valid email format |
-| `password` | string | required, 8–128 chars, at least one upper, one lower, one digit, and one special character — where "special" is **any non-alphanumeric, non-whitespace character** (`#`, `-`, `_`, `~`, … all count; the pattern is not an allowlist). Spaces are allowed inside a passphrase; line breaks are not. `PASSWORD_PATTERN` in `auth.constants.ts`; the frontend's live checklist (`checkPasswordRequirements`) mirrors it rule-for-rule. |
+| `password` | string | required, 8–128 chars and at most 72 UTF-8 bytes (bcrypt ignores everything past byte 72, so a longer new password is refused rather than silently truncated), at least one upper, one lower, one digit, and one special character — where "special" is **any non-alphanumeric, non-whitespace character** (`#`, `-`, `_`, `~`, … all count; the pattern is not an allowlist). Spaces are allowed inside a passphrase; line breaks are not. `PASSWORD_PATTERN` in `auth.constants.ts`; the frontend's live checklist (`checkPasswordRequirements`) mirrors it rule-for-rule. |
 
 Success `201`:
 
@@ -343,7 +343,11 @@ Success `201`:
 }
 ```
 
-Errors: `400` validation, `409 EMAIL_ALREADY_REGISTERED` (an account already exists at this email, under any status or tenant).
+The response also sets an httpOnly `signup_binding` cookie (path `/v1/auth`, 24 h; `Secure` over https). It ties the unverified account to the
+browser that proved the password, and [`POST /v1/auth/verify-email`](#post-v1authverify-email) refuses an unverified account without it (the
+same error as a wrong code). `POST /v1/auth/login` on a still-unverified account sets it too, which is how a second device finishes a sign-up.
+
+Errors: `400` validation, `409 EMAIL_ALREADY_REGISTERED` (an account already exists at this email, under any status or tenant). An *unverified* sign-up older than 24 hours does not count: it is replaced by the new one.
 
 #### `GET /v1/auth/microsoft/signup`
 
@@ -562,7 +566,9 @@ session most in need of revoking is one whose access token already expired, and 
 logout would `401` before revoking anything, leaving a live 7-day refresh token behind a UI that
 says "signed out". Signature and the `type` claim are still required; expiry is deliberately
 ignored, since an expired token still proves which user it was minted for. No request body.
-Revokes every refresh token belonging to that user (all sessions/devices) — a single-session logout is intentionally not offered as a separate endpoint
+Any access token presented with it (the `access_token` or `admin_access_token` cookie, or a Bearer header) is verified and ended as well,
+which is the only server-side effect a platform admin's logout can have (they hold no refresh token): a tenant token also revokes that user's
+refresh tokens, an admin token writes the Redis "not before" mark, and one that does not verify is ignored. Revokes every refresh token belonging to that user (all sessions/devices) — a single-session logout is intentionally not offered as a separate endpoint
 to keep the revocation model simple; see [Security considerations](#security-considerations) if
 that changes. Also clears the `refresh_token` cookie for the caller.
 
@@ -673,7 +679,7 @@ Request (`ChangePasswordDto`):
 | Field | Type | Rules |
 |---|---|---|
 | `currentPassword` | string | required, 1–128 chars. Complexity is **not** re-checked — an older password that would fail today's policy must still be accepted as proof of identity. |
-| `newPassword` | string | required, same rules as [`POST /v1/auth/signup`](#post-v1authsignup)'s `password` (8–128 chars, `PASSWORD_PATTERN`), and different from `currentPassword`: `400 NEW_PASSWORD_SAME_AS_CURRENT` otherwise (checked only after the current password is proven, so it cannot be used to probe it). A no-change "change" would still sign every other device out. |
+| `newPassword` | string | required, same rules as [`POST /v1/auth/signup`](#post-v1authsignup)'s `password` (8–128 chars, at most 72 bytes, `PASSWORD_PATTERN`), and different from `currentPassword`: `400 NEW_PASSWORD_SAME_AS_CURRENT` otherwise (checked only after the current password is proven, so it cannot be used to probe it). A no-change "change" would still sign every other device out. |
 
 On success, in one transaction: updates `users.password_hash`, then **revokes every refresh
 token for that user** — same as [`POST /v1/auth/reset-password`](#post-v1authreset-password).
@@ -756,7 +762,7 @@ Request (`SetPasswordDto`):
 
 | Field | Type | Rules |
 |---|---|---|
-| `newPassword` | string | required, same rules as [`POST /v1/auth/signup`](#post-v1authsignup)'s `password` (8–128 chars, `PASSWORD_PATTERN`). |
+| `newPassword` | string | required, same rules as [`POST /v1/auth/signup`](#post-v1authsignup)'s `password` (8–128 chars, at most 72 bytes, `PASSWORD_PATTERN`). |
 | `otp` | string | required, exactly 6 digits — from [`set-password/request-otp`](#post-v1authset-passwordrequest-otp). |
 
 The per-account OTP attempt budget is spent **before** the code is compared (same shape as
@@ -800,7 +806,7 @@ disabled gets `403 ACCOUNT_DISABLED` even with a still-live access token.
    never satisfy the other. A wrong password is `401 INVALID_CURRENT_PASSWORD`, counts against the
    per-account login lockout, and a wrong code spends the per-account OTP budget.
 3. Effects, in order: the tenant is suspended and `erasure_requested_at` / `erasure_requested_by_user_id`
-   are set (every user's refresh is refused from now on, and an already-issued access token lapses within its 15 minutes — tenant tokens are deliberately not re-checked against the database per request); a live subscription is cancelled at period end (or
+   are set (every user's refresh is refused from now on, and an already-issued access token stops working at once: the tenant is marked in Redis and `JwtStrategy` refuses any token issued before the mark, see [`SessionRevocationService`](./overview.md)); a live subscription is cancelled at period end (or
    immediately when `past_due`); polling stops; the activity log records the request with the
    owner's email as actor; every active owner is emailed (scheduled → reminder → cancelled/erased; see
    [Admin Management § Erasure emails](../admin-management/overview.md)); the caller's session cookies are cleared.
@@ -1126,7 +1132,7 @@ see [Conventions](#conventions)):
   one message, for the same reason.
 - **Password complexity** — enforced by `class-validator` at the DTO layer (`SignupDto`,
   `ChangePasswordDto.newPassword`; the still-unwired `ResetPasswordDto` / `InviteAcceptDto`
-  reuse the same regex, `PASSWORD_PATTERN` in `auth.constants.ts`): 8–128 chars, at least one
+  reuse the same regex, `PASSWORD_PATTERN` in `auth.constants.ts`): 8–128 chars and at most 72 UTF-8 bytes, at least one
   upper, one lower, one digit, one special character — "special" being any non-alphanumeric,
   non-whitespace character rather than a fixed allowlist, so `#`/`-`/`_` passphrases aren't
   rejected. Hashing algorithm/cost factor is out of this document's scope — see

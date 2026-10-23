@@ -13,6 +13,8 @@ describe('token purposes', () => {
   it('purges every purpose the app actually mints', () => {
     expect(PURGEABLE_OTP_PURPOSES).toContain(TokenPurpose.VERIFY_EMAIL);
     expect(PURGEABLE_OTP_PURPOSES).toContain(TokenPurpose.SET_PASSWORD);
+    // Spent delete-account codes were never swept.
+    expect(PURGEABLE_OTP_PURPOSES).toContain(TokenPurpose.DELETE_ACCOUNT);
     expect(PURGEABLE_OTP_PURPOSES).toContain(TokenPurpose.INVITE);
   });
 });

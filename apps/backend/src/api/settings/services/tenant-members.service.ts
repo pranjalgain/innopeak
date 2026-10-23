@@ -1,5 +1,9 @@
 import { UserStatus } from '@auth/enums/user-status.enum';
-import { EmailAlreadyRegisteredException } from '@auth/exceptions/auth.exceptions';
+import {
+  EmailAlreadyRegisteredException,
+  EmailQueueUnavailableException,
+} from '@auth/exceptions/auth.exceptions';
+import { TokenService } from '@auth/services/token.service';
 import { buildMemberInviteLink } from '@auth/utils/member-invite-link.util';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { hashToken } from '@auth/utils/token.utils';
@@ -10,7 +14,7 @@ import { TeamMemberLimitReachedException } from '@billing/exceptions/billing.exc
 import { BillingEntitlementsService } from '@billing/services/billing-entitlements.service';
 import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
-import { isProduction } from '@config/deployment-target.util';
+import { isLocalDevelopment } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
@@ -50,7 +54,8 @@ export class TenantMembersService {
     private readonly platformSettingsDbService: PlatformSettingsDbService,
     private readonly billingEntitlementsService: BillingEntitlementsService,
     private readonly queueManager: AddingJobsToQueueManager,
-    private readonly configService: ConfigService<EnvConfig>
+    private readonly configService: ConfigService<EnvConfig>,
+    private readonly tokenService: TokenService
   ) {}
 
   async listMembers(actor: AuthUser): Promise<TenantMemberResponseDto[]> {
@@ -119,12 +124,24 @@ export class TenantMembersService {
 
     // Fetched only for `name`; suspension is not checked here because `assertGoodStanding` blocks sign-in.
     const tenant = await this.authDbService.findTenantStatus(owner.tenantId);
-    this.sendInviteEmail({
+    const queued = await this.sendInviteEmail({
       email: dto.email,
       rawToken,
-      // Fallback rather than a throw: a generic invite email beats failing the invite over a cosmetic detail.
-      businessName: tenant?.name ?? 'your team',
+      // No name is not a failure: the email then reads "a team" (in the inviter's language) rather than failing the invite over a cosmetic detail.
+      ...(tenant?.name ? { businessName: tenant.name } : {}),
+      locale: owner.locale ?? 'en',
     });
+    if (!queued) {
+      // Taken back, or the address would read "already invited" for an invite nobody received.
+      await this.authDbService
+        .revokeMemberInvite(owner.tenantId, member.id)
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `Could not take back invite ${member.id} after its email failed: ${(error as Error).message}`
+          );
+        });
+      throw new EmailQueueUnavailableException();
+    }
 
     return TenantMemberResponseDto.from(member);
   }
@@ -159,6 +176,10 @@ export class TenantMembersService {
       throw new CannotRemoveLastOwnerException();
     }
 
+    // Access is disabled by this request: the member's access tokens end now, not when they lapse, and so do their refresh tokens, so
+    // cancelling the removal later does not revive a session from before it.
+    await this.tokenService.revokeAll(memberId);
+
     return { gracePeriodDays: this.gracePeriodDays() };
   }
 
@@ -178,25 +199,34 @@ export class TenantMembersService {
     return getErasureGracePeriodDays(this.configService);
   }
 
-  /** Fire-and-forget: the transaction that created the invite already committed. */
-  private sendInviteEmail(input: { email: string; rawToken: string; businessName: string }): void {
+  /** `false` when the queue refused the job (already logged); the caller takes the invite back and answers 503. */
+  private async sendInviteEmail(input: {
+    email: string;
+    rawToken: string;
+    businessName?: string;
+    locale: 'de' | 'en';
+  }): Promise<boolean> {
     const inviteLink = buildMemberInviteLink(
       this.configService.get<string>('FRONTEND_URL'),
       input.rawToken
     );
 
-    if (!isProduction()) {
+    if (isLocalDevelopment()) {
       this.logger.log(`[dev] Member invite for ${input.email}: ${inviteLink}`);
     }
 
     const job: IMemberInviteEmailJob = {
       email: input.email,
       inviteLink,
-      expiresIn: `${INVITE_TTL_DAYS} days`,
-      businessName: input.businessName,
+      expiresIn: `${INVITE_TTL_DAYS} ${input.locale === 'de' ? 'Tagen' : 'days'}`,
+      ...(input.businessName ? { businessName: input.businessName } : {}),
+      locale: input.locale,
     };
-    void this.queueManager
-      .addMemberInviteEmailJob(JobName.MEMBER_INVITE_EMAIL, job)
-      .catch(() => undefined);
+    try {
+      await this.queueManager.addMemberInviteEmailJob(JobName.MEMBER_INVITE_EMAIL, job);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

@@ -12,7 +12,7 @@ export function StarRating({ rating, className }: StarRatingProps) {
   const t = useTranslations("common");
 
   return (
-    <div className={cn("flex items-center gap-0.5", className)} aria-label={t("starRatingAriaLabel", { rating })}>
+    <div className={cn("flex items-center gap-0.5", className)} role="img" aria-label={t("starRatingAriaLabel", { rating })}>
       {[1, 2, 3, 4, 5].map((star) => (
         <LuStar
           key={star}

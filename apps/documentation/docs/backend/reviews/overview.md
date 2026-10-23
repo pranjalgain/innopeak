@@ -529,6 +529,35 @@ Settings → Prompts surface — is documented separately in
 [../prompts/overview.md](../prompts/overview.md); this module documents only the
 `review_responses` end of the join and does not restate the prompt tables' own design.
 
+## When a review or its location cannot take a reply (audit follow-ups)
+
+Every way of answering a review goes through the same two gates before anything is written or queued:
+
+- **The review**: `assertReviewAcceptsReply` refuses a dismissed review (`REVIEW_ALREADY_DISMISSED`) or one removed on Google
+  (`REVIEW_REMOVED_UPSTREAM`). `approveReply` used to skip it, so a draft on such a review could be approved and left stuck at `approved`.
+  Approving now reads the review once and reuses it for the "reply approved" announcement (one lookup, not two).
+- **The location**: `assertLocationAcceptsReplies` refuses a review whose location is billing-paused (`billing_paused_at` set, over the plan's
+  `max_locations`), disconnected (`status <> 'active'`) or gone, with `409 REVIEW_LOCATION_PAUSED` (en/de). It applies to approve, retry, manual
+  post and manual reply. **Rejecting a draft stays possible**: it changes nothing on Google.
+
+The post worker repeats the location check at post time, because a reply can be approved and *then* the location paused: it marks the response
+`post_failed` with `POST_FAILED_LOCATION_PAUSED`, does not retry, and never calls Google. The owner reactivates the location and retries from the
+review page. `POST /v1/connections/active-location` also refuses a billing-paused location (`409 LOCATION_BILLING_PAUSED`), since every member's
+dashboard reads that pointer and the location's polling is off.
+
+## A reply made on Google after the review was imported (audit follow-up)
+
+A review first seen unreplied and then answered on Google by the owner used to stay `new`/`in_review` with its drafts waiting in the queue, offering
+to answer something already answered (and the AI quota had already been spent on them). When a poll or backfill sees a reply on a review, in the
+same transaction as the imported-reply insert, `ReviewSyncRepository.markRespondedByExternalReply` sets the review `responded` and supersedes its
+`draft`, `pending_approval` and `post_failed` responses; it runs whether the reply was just stored or already was, so a review stuck from before
+heals on the next poll. A response that is `approved` is left to the post worker (its freshness check supersedes it under its own claim), and a
+conflict with our own live reply (23505) skips it. Rejected rows stay rejected.
+
+**Reply length is Google's.** Approving with edited content and creating a manual reply both cap the text at **4096 characters**, Google's limit for a review
+reply (approve used to allow 5000, which then failed only when posted). Update a recipient's `isActive` as the JSON boolean or the strings `true`/`false`: the
+global pipe's implicit conversion used to turn the string `"false"` into `true` (`parseBooleanInput`).
+
 ## API surface
 
 All routes are versioned under `/v1/reviews`. Every route below is **implemented** in

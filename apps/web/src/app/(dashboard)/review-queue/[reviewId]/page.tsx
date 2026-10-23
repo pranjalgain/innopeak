@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 
 import { ReviewDetailView } from "@/app/(dashboard)/review-queue/[reviewId]/_components/review-detail-view";
 
-export const metadata: Metadata = {
-  title: "Review Detail",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("pageTitles");
+  return { title: t("reviewDetail") };
+}
 
 interface ReviewDetailPageProps {
   params: Promise<{ reviewId: string }>;

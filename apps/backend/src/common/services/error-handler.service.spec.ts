@@ -148,6 +148,45 @@ describe('ErrorHandlerService', () => {
       expect(result.message).toBe('pg failure');
     });
 
+    // A staging box runs as `development` too; what it answers a stranger must not depend on NODE_ENV alone.
+    describe('on a publicly reachable deployment that is not NODE_ENV=production', () => {
+      const original = {
+        nodeEnv: process.env['NODE_ENV'],
+        frontendUrl: process.env['FRONTEND_URL'],
+      };
+
+      beforeEach(() => {
+        process.env['NODE_ENV'] = 'development';
+        process.env['FRONTEND_URL'] = 'https://staging.innopeak.example';
+      });
+
+      afterEach(() => {
+        process.env['NODE_ENV'] = original.nodeEnv ?? 'test';
+        if (original.frontendUrl === undefined) delete process.env['FRONTEND_URL'];
+        else process.env['FRONTEND_URL'] = original.frontendUrl;
+      });
+
+      it('hides the table, column and row detail of a database error', () => {
+        const error = makePgError({
+          code: '23505',
+          table: 'users',
+          column: 'email',
+          detail: 'Key (email)=(jane@example.com) already exists.',
+        });
+
+        const result = target.handleError(error, 'ctx');
+
+        expect(result.message).toBe(MESSAGES.COMMON.DB_UNIQUE_VIOLATION);
+        expect(result.message).not.toContain('jane@example.com');
+      });
+
+      it('answers an unexpected error with the generic message, not its own', () => {
+        const result = target.handleError(new Error('internal invariant broke'), 'ctx');
+
+        expect(result.message).toBe(MESSAGES.COMMON.INTERNAL_ERROR);
+      });
+    });
+
     describe('in production', () => {
       const originalNodeEnv = process.env['NODE_ENV'];
 
@@ -174,7 +213,7 @@ describe('ErrorHandlerService', () => {
         const result = target.handleError(error, 'ctx');
 
         expect(result.statusCode).toBe(HttpStatus.CONFLICT);
-        expect(result.message).toBe('Unique constraint violation');
+        expect(result.message).toBe(MESSAGES.COMMON.DB_UNIQUE_VIOLATION);
         expect(result.message).not.toContain('users');
         expect(result.message).not.toContain('email');
         expect(result.message).not.toContain('jane@example.com');
@@ -250,14 +289,14 @@ describe('ErrorHandlerService', () => {
       const result = target.handleError(error, 'SmsService.send');
 
       expect(result.statusCode).toBe(HttpStatus.FORBIDDEN);
-      expect(result.message).toContain('SMS service is restricted for trial accounts');
+      expect(result.message).toBe(MESSAGES.COMMON.SMS_TRIAL_RESTRICTED);
     });
 
     it('handles non-Error unknown values with a generic message', () => {
       const result = target.handleError({ some: 'object' }, 'ctx');
 
       expect(result.statusCode).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(result.message).toBe('An unknown error occurred. Please try again later.');
+      expect(result.message).toBe(MESSAGES.COMMON.UNKNOWN_ERROR);
     });
 
     it('handles thrown string values', () => {
@@ -325,7 +364,7 @@ describe('ErrorHandlerService', () => {
         const result = target.handleError(error, 'SmsService.send');
 
         expect(result.statusCode).toBe(HttpStatus.FORBIDDEN);
-        expect(result.message).toContain('SMS service is restricted for trial accounts');
+        expect(result.message).toBe(MESSAGES.COMMON.SMS_TRIAL_RESTRICTED);
       });
     });
   });

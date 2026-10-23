@@ -107,11 +107,13 @@ export const AdminUsersApiAxiosParamCreator = function (
      * A single toggle, not separate activate/deactivate calls: any status other than \'disabled\' flips to \'disabled\'. Re-enabling restores the status the user must have had before — \'active\' if their email was ever verified, otherwise \'pending_verification\', so disabling an unverified signup never doubles as verifying them.
      * @summary Toggle a user\'s active status
      * @param {string} userId
+     * @param {boolean} [active] The state to put the user in: &#x60;true&#x60; active, &#x60;false&#x60; deactivated. Already there, nothing changes (and nothing is logged), so a stale list or a double click cannot undo an earlier action. Omitted, the user is flipped from whatever they are now.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     adminUsersControllerToggleActiveV1: async (
       userId: string,
+      active?: boolean,
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
       // verify required parameter 'userId' is not null or undefined
@@ -138,6 +140,10 @@ export const AdminUsersApiAxiosParamCreator = function (
       // authentication bearer required
       // http bearer authentication required
       await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      if (active !== undefined) {
+        localVarQueryParameter['active'] = active;
+      }
 
       localVarHeaderParameter['Accept'] = 'application/json';
 
@@ -209,11 +215,13 @@ export const AdminUsersApiFp = function (configuration?: Configuration) {
      * A single toggle, not separate activate/deactivate calls: any status other than \'disabled\' flips to \'disabled\'. Re-enabling restores the status the user must have had before — \'active\' if their email was ever verified, otherwise \'pending_verification\', so disabling an unverified signup never doubles as verifying them.
      * @summary Toggle a user\'s active status
      * @param {string} userId
+     * @param {boolean} [active] The state to put the user in: &#x60;true&#x60; active, &#x60;false&#x60; deactivated. Already there, nothing changes (and nothing is logged), so a stale list or a double click cannot undo an earlier action. Omitted, the user is flipped from whatever they are now.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     async adminUsersControllerToggleActiveV1(
       userId: string,
+      active?: boolean,
       options?: RawAxiosRequestConfig,
     ): Promise<
       (
@@ -224,6 +232,7 @@ export const AdminUsersApiFp = function (configuration?: Configuration) {
       const localVarAxiosArgs =
         await localVarAxiosParamCreator.adminUsersControllerToggleActiveV1(
           userId,
+          active,
           options,
         );
       const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
@@ -284,7 +293,11 @@ export const AdminUsersApiFactory = function (
       options?: RawAxiosRequestConfig,
     ): AxiosPromise<AdminUserResponseDto> {
       return localVarFp
-        .adminUsersControllerToggleActiveV1(requestParameters.userId, options)
+        .adminUsersControllerToggleActiveV1(
+          requestParameters.userId,
+          requestParameters.active,
+          options,
+        )
         .then((request) => request(axios, basePath));
     },
   };
@@ -341,6 +354,11 @@ export interface AdminUsersApiAdminUsersControllerListV1Request {
  */
 export interface AdminUsersApiAdminUsersControllerToggleActiveV1Request {
   readonly userId: string;
+
+  /**
+   * The state to put the user in: &#x60;true&#x60; active, &#x60;false&#x60; deactivated. Already there, nothing changes (and nothing is logged), so a stale list or a double click cannot undo an earlier action. Omitted, the user is flipped from whatever they are now.
+   */
+  readonly active?: boolean;
 }
 
 /**
@@ -380,7 +398,11 @@ export class AdminUsersApi extends BaseAPI implements AdminUsersApiInterface {
     options?: RawAxiosRequestConfig,
   ) {
     return AdminUsersApiFp(this.configuration)
-      .adminUsersControllerToggleActiveV1(requestParameters.userId, options)
+      .adminUsersControllerToggleActiveV1(
+        requestParameters.userId,
+        requestParameters.active,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 }

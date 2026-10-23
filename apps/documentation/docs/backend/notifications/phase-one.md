@@ -241,7 +241,7 @@ of the API. What changes is the kind of load: a held connection per user instead
 | Connection exhaustion | Many open streams use up sockets and memory, or someone opens thousands on purpose | At most three streams per user, authentication before anything is held open, a per-IP limit on opening streams, a connection ceiling per replica, and more replicas as it nears the ceiling |
 | Leaks | A closed tab never frees its entry and memory grows | Remove the entry on the response `close` event, and treat a failed heartbeat write as a dead connection |
 | Idle timeouts | Proxies and load balancers close quiet connections | Heartbeat every 25 seconds, `X-Accel-Buffering: no`, and an ingress idle timeout above the heartbeat |
-| Expired access | A stream stays open on a session that has ended | Close the stream when the access token expires; a disabled user fails the next check as for normal requests |
+| Expired access | A stream stays open on a session that has ended | Close the stream when the access token expires, and at the first heartbeat after the session is revoked (logout, password change, disabled user, suspended business: the same Redis marks the guard reads) |
 | Data between users | One user receives another's event | Key events by the user id from the verified token, never the URL; events carry ids only and content is fetched through the tenant-checked API |
 | Deploys | Restarting drops every stream | Close streams on shutdown; clients reconnect after random delays |
 | Rate limiting | The global limiter counts a long request wrongly | Opening the stream counts once; heartbeats and events are not requests |

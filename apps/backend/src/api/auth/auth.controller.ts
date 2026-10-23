@@ -27,9 +27,13 @@ import {
   REFRESH_TOKEN_COOKIE_NAME,
   REFRESH_TOKEN_COOKIE_PATH,
   REFRESH_TOKEN_TTL_SECONDS,
+  SESSION_HINT_ADMIN_VALUE,
   SESSION_HINT_COOKIE_NAME,
   SESSION_HINT_COOKIE_PATH,
   SESSION_HINT_TENANT_VALUE,
+  SIGNUP_BINDING_COOKIE_NAME,
+  SIGNUP_BINDING_COOKIE_PATH,
+  SIGNUP_BINDING_TTL_SECONDS,
 } from './constants/auth.constants';
 import {
   GOOGLE_AUTH_SID_COOKIE_NAME,
@@ -115,9 +119,13 @@ export class AuthController {
   @Throttle({ short: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.CREATED)
   @ApiSignup()
-  async signup(@Body() dto: SignupDto): Promise<ApiResponse<SignupResponseDto>> {
-    const response = await this.authService.signup(dto);
-    return ResponseUtil.success(response, response.message, HttpStatus.CREATED);
+  async signup(
+    @Body() dto: SignupDto,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<ApiResponse<SignupResponseDto>> {
+    const { body, signupBinding } = await this.authService.signup(dto);
+    this.setSignupBindingCookie(res, signupBinding);
+    return ResponseUtil.success(body, body.message, HttpStatus.CREATED);
   }
 
   @Post(RouteNames.VERIFY_EMAIL)
@@ -127,9 +135,13 @@ export class AuthController {
   @ApiVerifyEmail()
   async verifyEmail(
     @Body() dto: VerifyEmailDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response
   ): Promise<ApiResponse<TokenResponseDto>> {
-    const result = await this.authService.verifyEmail(dto);
+    const cookies = req.cookies as Record<string, string | undefined> | undefined;
+    const result = await this.authService.verifyEmail(dto, cookies?.[SIGNUP_BINDING_COOKIE_NAME]);
+    // Spent: the account is verified, and the binding only ever meant "may finish this sign-up".
+    res.clearCookie(SIGNUP_BINDING_COOKIE_NAME, buildCookieOptions(SIGNUP_BINDING_COOKIE_PATH));
     this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
     return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
   }
@@ -156,8 +168,9 @@ export class AuthController {
   ): Promise<ApiResponse<LoginPendingVerificationDto | TokenResponseDto>> {
     const result = await this.authService.login(dto);
 
-    if (!('refreshToken' in result)) {
-      return ResponseUtil.success(result, result.message, HttpStatus.OK);
+    if ('pendingVerification' in result) {
+      this.setSignupBindingCookie(res, result.signupBinding);
+      return ResponseUtil.success(result.body, result.body.message, HttpStatus.OK);
     }
 
     this.setSessionCookies(res, result.refreshToken, result.body.accessToken);
@@ -216,7 +229,10 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response
   ): Promise<ApiResponse<{ message: string }>> {
-    const response = await this.authService.logout(this.readRefreshTokenCookie(req));
+    const response = await this.authService.logout({
+      refreshToken: this.readRefreshTokenCookie(req),
+      accessTokens: this.readAccessTokens(req),
+    });
     this.clearSessionCookies(res);
     return ResponseUtil.success(response, response.message, HttpStatus.OK);
   }
@@ -539,10 +555,42 @@ export class AuthController {
     return ResponseUtil.success(result.body, undefined, HttpStatus.OK);
   }
 
+  /** httpOnly and scoped to `/v1/auth`: only the sign-up, login and verify routes ever receive it. */
+  private setSignupBindingCookie(res: Response, signupBinding: string): void {
+    res.cookie(
+      SIGNUP_BINDING_COOKIE_NAME,
+      signupBinding,
+      buildCookieOptions(SIGNUP_BINDING_COOKIE_PATH, SIGNUP_BINDING_TTL_SECONDS)
+    );
+  }
+
   private readRefreshTokenCookie(req: Request): string | undefined {
     return (req.cookies as Record<string, string | undefined> | undefined)?.[
       REFRESH_TOKEN_COOKIE_NAME
     ];
+  }
+
+  /**
+   * The access tokens of the principal signing out, plus any Bearer token. Revoking ends a principal's tokens *everywhere* (a Redis
+   * mark), so the cookie of the other principal a browser may also hold must not be revoked: a tenant signing out in a browser that also
+   * has an admin session would otherwise sign that admin out on every device. The `session` hint says which one is signing out; with no
+   * hint (an old browser) both are taken, as before.
+   */
+  private readAccessTokens(req: Request): string[] {
+    const cookies = req.cookies as Record<string, string | undefined> | undefined;
+    const sessionKind = cookies?.[SESSION_HINT_COOKIE_NAME];
+    const bearer = /^Bearer (.+)$/i.exec(req.headers.authorization ?? '')?.[1];
+    const tenantCookie = cookies?.[ACCESS_TOKEN_COOKIE_NAME];
+    const adminCookie = cookies?.[ADMIN_ACCESS_TOKEN_COOKIE_NAME];
+    const fromCookies =
+      sessionKind === SESSION_HINT_ADMIN_VALUE
+        ? [adminCookie]
+        : sessionKind === SESSION_HINT_TENANT_VALUE
+          ? [tenantCookie]
+          : [tenantCookie, adminCookie];
+    return [...fromCookies, bearer].filter(
+      (token): token is string => typeof token === 'string' && token.length > 0
+    );
   }
 
   /**

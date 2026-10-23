@@ -35,11 +35,10 @@ const nextConfig: NextConfig = {
     },
   },
   // Security headers for the HTML tier. The backend's helmet only covers the JSON API; the Next
-  // app that actually renders pages shipped none. These are the subset that is safe to add without
-  // a nonce-based setup — they harden clickjacking, MIME-sniffing, referrer leakage, and feature
-  // access without touching how scripts/styles/connections load (so HMR, RSC hydration, and the
-  // proxied analytics all keep working). A script-src/connect-src CSP that would also blunt token
-  // exfil needs per-request nonces + an analytics allowlist and is a separate, larger change.
+  // app that actually renders pages needs its own. These are the static ones: they harden clickjacking,
+  // MIME-sniffing, referrer leakage and feature access for every response. The script policy is not here:
+  // it needs a fresh nonce per request, so `proxy.ts` builds it (`content-security-policy.ts`), repeats the
+  // directives below, and its header is the one a page response carries; anything the proxy skips keeps this one.
   async headers() {
     const securityHeaders = [
       // Clickjacking: this app must never be framed by another origin. `frame-ancestors` is the
@@ -73,11 +72,14 @@ const nextConfig: NextConfig = {
       // Without it the middleware only works when both happen to share a hostname, i.e. localhost.
       {
         source: "/v1/:path*",
-        destination: `${env.NEXT_PUBLIC_API_URL}/v1/:path*`,
+        destination: `${env.API_URL}/v1/:path*`,
       },
     ];
   },
   experimental: {
+    // The notification stream (SSE) goes through the `/v1` rewrite and idles up to 25 s between heartbeats; the 30 s default left too little
+    // room for a slow one, and a dropped stream falls back to polling.
+    proxyTimeout: 120_000,
     authInterrupts: true,
     inlineCss: true,
     optimizePackageImports: ["react-hook-form", "lodash-es", "react-icons", "tailwind-merge", "zod"],

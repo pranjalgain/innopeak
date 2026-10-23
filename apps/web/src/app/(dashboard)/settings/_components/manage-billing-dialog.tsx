@@ -1,7 +1,7 @@
 "use client";
 
 import { Elements } from "@stripe/react-stripe-js";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { LuCreditCard } from "react-icons/lu";
 
@@ -25,6 +25,8 @@ interface ManageBillingDialogProps {
 /** In-app billing dialog. The card uses Elements + a SetupIntent so the raw number never reaches our backend (PCI SAQ A). */
 export function ManageBillingDialog({ open, onOpenChange }: ManageBillingDialogProps) {
   const t = useTranslations("settings.billing.manageDialog");
+  // Stripe renders its own field labels and validation errors; without this they follow the browser, not the language chosen in the app.
+  const locale = useLocale();
   const stripePromise = useMemo(() => getStripe(), []);
 
   return (
@@ -42,7 +44,7 @@ export function ManageBillingDialog({ open, onOpenChange }: ManageBillingDialogP
           <BillingProfileForm />
 
           {isStripeConfigured() ? (
-            <Elements stripe={stripePromise}>
+            <Elements stripe={stripePromise} options={{ locale: locale === "de" ? "de" : "en" }}>
               <UpdateCardForm />
             </Elements>
           ) : (

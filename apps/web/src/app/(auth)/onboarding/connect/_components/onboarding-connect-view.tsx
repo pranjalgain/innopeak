@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
@@ -99,6 +99,23 @@ function OnboardingConnectFlow({ context }: { context: OnboardingContext | null 
           ? "confirm_location"
           : flow.stage;
 
+  // A stage change swaps the whole card; without moving focus a keyboard or screen-reader user is left on a control that no longer exists.
+  // `AnimatePresence mode="wait"` mounts the new card only after the old one has left, so the focus is claimed by the new element's ref
+  // callback rather than by the effect that notices the change.
+  const focusPending = useRef(false);
+  const previousStageGroup = useRef(stageGroup);
+  useEffect(() => {
+    if (previousStageGroup.current === stageGroup) return;
+    previousStageGroup.current = stageGroup;
+    focusPending.current = true;
+  }, [stageGroup]);
+  const claimFocus = (element: HTMLDivElement | null) => {
+    if (element && focusPending.current) {
+      focusPending.current = false;
+      element.focus({ preventScroll: true });
+    }
+  };
+
   return (
     <>
       <AuthLogo />
@@ -115,6 +132,9 @@ function OnboardingConnectFlow({ context }: { context: OnboardingContext | null 
         <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards p-fluid-page border-border bg-card shadow-elevated ease-fluid w-full overflow-hidden rounded-xl border duration-500">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
+              ref={claimFocus}
+              tabIndex={-1}
+              className="outline-none"
               key={stageGroup}
               initial={{ opacity: 0, x: 24 }}
               animate={{ opacity: 1, x: 0 }}

@@ -201,6 +201,13 @@ describe('CronProcessor', () => {
       });
     });
 
+    // An event handler has no caller: its rejection was unhandled and, by Node's default, ended the worker.
+    it('does not reject when the dead-letter write fails', async () => {
+      dlqService.addFailedJobToDLQ.mockRejectedValue(new Error('redis down'));
+
+      await expect(processor.onFailed(buildJob())).resolves.toBeUndefined();
+    });
+
     it('defaults originalJobId to an empty string when job.id is missing', async () => {
       const job = buildJob({ id: undefined });
 

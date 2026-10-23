@@ -47,6 +47,17 @@ export class ConnectionsDbService {
     return this.connectionsRepository.findConnectionByTenant(tenantId);
   }
 
+  findConnectionsByTenant(tenantId: string): Promise<ProviderConnectionRow[]> {
+    return this.connectionsRepository.findConnectionsByTenant(tenantId);
+  }
+
+  findConnectionById(
+    connectionId: string,
+    tenantId: string
+  ): Promise<ProviderConnectionRow | null> {
+    return this.connectionsRepository.findConnectionById(connectionId, tenantId);
+  }
+
   async upsertConnection(input: UpsertConnectionInput): Promise<ProviderConnectionRow> {
     return this.connectionsRepository.transaction(tx =>
       this.connectionsRepository.upsertConnection(tx, input)
@@ -83,6 +94,17 @@ export class ConnectionsDbService {
 
   updateTokenExpiry(connectionId: string, tokenExpiresAt: Date): Promise<void> {
     return this.connectionsRepository.updateTokenExpiry(connectionId, tokenExpiresAt);
+  }
+
+  isLocationPollable(locationId: string, tenantId: string): Promise<boolean> {
+    return this.connectionsRepository.isLocationPollable(locationId, tenantId);
+  }
+
+  findConnectionByTenantAndAccount(
+    tenantId: string,
+    providerAccountId: string
+  ): Promise<ProviderConnectionRow | null> {
+    return this.connectionsRepository.findConnectionByTenantAndAccount(tenantId, providerAccountId);
   }
 
   findLocationsForUser(userId: string, status?: LocationStatus): Promise<LocationRow[]> {
@@ -215,6 +237,13 @@ export class ConnectionsDbService {
         if (!isAlreadyActive) {
           activeExternalIds.add(match.externalLocationId);
           activeCount += 1;
+        }
+
+        // Onboarding's backfill walks up to 20 pages of Google and holds the location's polls while it runs; a location that already
+        // finished it (an owner confirming again, or adding one more location to the set) has nothing to backfill.
+        if (location.onboardingBackfillCompletedAt !== null) {
+          results.push({ location, backfill: null, backfillAlreadyRunning: false });
+          continue;
         }
 
         results.push(await this.acquireBackfillRun(tx, input.tenantId, location));

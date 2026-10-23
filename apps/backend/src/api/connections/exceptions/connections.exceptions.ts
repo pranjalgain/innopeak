@@ -40,6 +40,13 @@ export class LocationInactiveException extends ConflictException {
   }
 }
 
+/** A location the plan has paused (over `max_locations`) cannot be the one the whole team is viewing. */
+export class LocationBillingPausedException extends ConflictException {
+  constructor(message: string = MESSAGES.CONNECTIONS.LOCATION_BILLING_PAUSED) {
+    super({ message, code: CONNECTION_ERROR_CODES.LOCATION_BILLING_PAUSED });
+  }
+}
+
 export class ConnectionNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.CONNECTIONS.CONNECTION_NOT_FOUND) {
     super({ message, code: CONNECTION_ERROR_CODES.CONNECTION_NOT_FOUND });

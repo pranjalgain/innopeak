@@ -58,6 +58,45 @@ in the schema — three `SMALLINT` columns that mean "how many" and one `BOOLEAN
 (`count < max` for the caps, a plain field read for the lock) instead of each needing its own
 bespoke comparison logic.
 
+**What counts as an AI draft.** The monthly counter is `countAiGeneratedResponsesThisMonth`: every `review_responses` row created this UTC
+month whose `source` is `ai_generated` **or** `human_edited`. An owner who edits a draft before approving it turns it into `human_edited`;
+it still cost an LLM call, so it keeps its slot (counting `ai_generated` alone let editing hand the slot back and left the Free cap of 20
+unenforced). A reply written by hand (`human_manual`) or imported from Google is never counted. None of this matters while payments are off:
+the counter is only ever compared against `maxAiDraftsPerMonth`, and `BillingEntitlementsService` returns `null` (unlimited) for every
+limit when `PAYMENT_FEATURE_ENABLED` is not `'true'`, so with the feature off there is no cap on drafts, locations, team members or prompts.
+
+## Stripe event ordering, reconcile writes and erasure cancellation (audit follow-ups)
+
+- **A checkout never erases the billing period.** A `checkout.session.completed` payload carries no period, so `setToPaidFromCheckout` takes the
+  period fields as optional and the webhook leaves them out: a missing value keeps what an earlier `customer.subscription.updated` stored
+  (an explicit `null` still clears it). Overwriting them with NULL used to hand the erasure resume path an "unknown" period end.
+- **A dropped checkout is asked of Stripe, not lost.** If a newer, unrelated event already moved the tenant's event clock, the completed Checkout
+  is still not written (a newer cancellation must not be undone by an older event), but it is the only event that binds the customer to its
+  subscription and the Paid plan, so once the webhook's transaction commits `BillingWebhooksService` runs `reconcileTenantSubscription` for
+  that tenant and Stripe's current state decides. A failure there is logged and the nightly sweep covers it.
+- **Reconcile writes go through the same event clock.** The checkout-redirect reconcile and the nightly sweep stamp the clock with the moment
+  *before* Stripe was asked (`readAt`) and write only if that is still the newest. A snapshot read before a `subscription.deleted` was applied
+  would otherwise resurrect Paid for a tenant who just cancelled. The clock update also serializes it with webhook writes. The two clocks are
+  Stripe's `created` and ours, so a few seconds of skew can make a snapshot be refused; the next sweep retakes it.
+- **Erasure stops billing even without a recorded subscription.** `scheduleCancellationForErasure` used to return when no subscription id was
+  stored (a checkout whose webhook had not landed), leaving the tenant billed through the grace period (up to 21 days). It now asks Stripe for the
+  customer's live subscription. The request-time call is still best-effort and only logs, so the nightly `BILLING_RECONCILIATION_SWEEP` also
+  retries it for every business pending erasure whose subscription is not yet set to end
+  (`findPendingErasureWithBillableSubscription`).
+
+## More audit follow-ups: statuses, price id, owner cancel and ledger retention
+
+- **`unpaid` and `incomplete_expired` end the plan.** Stripe sends no `customer.subscription.deleted` for them, and both used to be read as `INCOMPLETE`,
+  so a tenant whose card kept failing stayed on the Paid plan forever. `STRIPE_STATUS_MAP` now reads them as `canceled` (and `trialing` as `active`), and
+  `handleSubscriptionUpdated` treats an update to `canceled` exactly like a deletion: back to Free, location cap re-applied, owners told about paused locations.
+  (`prepareNewCheckout` no longer counts `unpaid` or `incomplete` as live: a tenant on Free would otherwise be told "already subscribed" while the plan had already ended, so they are cancelled in Stripe and the Checkout carries on. The cancels run after the tenant's checkout lock is released (`cancelStaleSubscriptions`): inside it, each Stripe round trip held a database connection and the advisory lock. Only `active`, `trialing` and `past_due` block a new Checkout, which is what stops Back from Checkout buying a second one.)
+- **An empty `STRIPE_PRICE_ID_PAID` is "not configured".** `??` let `STRIPE_PRICE_ID_PAID=` shadow the plan's own price id, reaching Stripe as an empty price after
+  a customer had already been created. It is now `||`, and with no price anywhere checkout answers `503 PAYMENT_NOT_CONFIGURED` before any Stripe call.
+- **A failed owner cancel puts back what it replaced.** The owner's cancellation overwrote an erasure-scheduled one (source `erasure`) and a failed Stripe call
+  then cleared it outright, so cancelling the erasure later would resume, and bill, a subscription meant to end. It now restores the previous flag and source.
+- **Ledger retention.** `stripe_webhook_events` rows older than 90 days are deleted by the nightly billing sweep (Stripe redelivers for three days), and the Stripe
+  customer id is removed from `tenant_subscriptions` once the customer has been deleted at erasure.
+
 ## The payment switch is a deploy-level env var, not per-business, and never retroactive
 
 Whether billing exists at all is one environment variable, `PAYMENT_FEATURE_ENABLED`, not a table column or a runtime toggle: wiring

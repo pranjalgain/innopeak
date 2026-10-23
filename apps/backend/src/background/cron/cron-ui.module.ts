@@ -1,8 +1,8 @@
-import { QueueName } from '@bg/constants/job.constant';
+import { QUEUE_JOB_OPTIONS, QueueName } from '@bg/constants/job.constant';
 import { QueueTransportModule } from '@bg/providers/queue-transport.module';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { BullBoardModule } from '@bull-board/nestjs';
-import { isAwsDeploymentTarget, isProduction } from '@config/deployment-target.util';
+import { isAwsDeploymentTarget, isLocalDevelopment } from '@config/deployment-target.util';
 import { CronQueueEvents } from '@cron/cron.events';
 import { CronQueue } from '@cron/cron.queue';
 import { CronScheduler } from '@cron/cron.scheduler';
@@ -21,13 +21,7 @@ export class CronQueueConfig {
           maxLen: 1000,
         },
       },
-      defaultJobOptions: {
-        attempts: 1,
-        removeOnFail: true,
-        removeOnComplete: {
-          age: 1 * 24 * 3600, // Keep for 1 day
-        },
-      },
+      defaultJobOptions: QUEUE_JOB_OPTIONS[QueueName.CRON],
     });
   }
 
@@ -36,7 +30,7 @@ export class CronQueueConfig {
       name: QueueName.CRON,
       adapter: BullMQAdapter,
       options: {
-        readOnlyMode: isProduction(),
+        readOnlyMode: !isLocalDevelopment(),
         displayName: 'CRON Queue',
         description: 'Queue for CRON jobs',
       },

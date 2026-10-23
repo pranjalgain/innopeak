@@ -3,6 +3,7 @@ import { ALLOWED_AZURE_OPENAI_REGIONS } from '@common/constants/azure-openai.con
 import { DEFAULT_ERASURE_GRACE_PERIOD_DAYS } from '@common/constants/erasure.constants';
 import * as Joi from 'joi';
 
+import { isLocalUrl } from './local-environment.util';
 import { microsoftAuthoritySchema } from './microsoft-authority.schema';
 
 /**
@@ -35,10 +36,25 @@ export const validationSchema = Joi.object({
   // would fail boot everywhere it is unset.
   FRONTEND_URL: Joi.string().uri().allow(null, '').optional(),
   VERIFY_EMAIL_OTP_TTL_MINUTES: Joi.number().integer().positive().default(10),
+  // A fixed sign-up code lets anyone verify any address, so beyond production it is also refused for anything but a local setup: a
+  // staging box runs as `development` too, and its frontend URL is the tell.
   DEV_VERIFY_EMAIL_TOKEN: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.forbidden(),
-    otherwise: Joi.string().allow(null, ''),
+    otherwise: Joi.string()
+      .allow(null, '')
+      .custom((value: string, helpers) => {
+        const frontendUrl = (helpers.state.ancestors[0] as { FRONTEND_URL?: string } | undefined)
+          ?.FRONTEND_URL;
+        // A blank frontend URL reads as "local" elsewhere (a laptop with nothing set); with a fixed sign-up code that is the one case
+        // that must not pass: an unset URL on a reachable box would leave every address verifiable.
+        return value !== '' && ((frontendUrl ?? '').trim() === '' || !isLocalUrl(frontendUrl))
+          ? helpers.message({
+              custom:
+                'DEV_VERIFY_EMAIL_TOKEN is only allowed when FRONTEND_URL is set to a local address (localhost): it lets anyone verify any email.',
+            })
+          : value;
+      }),
   }),
   // HS256's strength is bounded by the secret's entropy: a short one is brute-forceable offline
   // from any single captured token, after which anyone can mint tokens for any account.
@@ -64,7 +80,7 @@ export const validationSchema = Joi.object({
   DB_SSL: Joi.string().valid('true', 'false').optional(),
   DB_SSL_REJECT_UNAUTHORIZED: Joi.string().valid('true', 'false').optional(),
   // Optional like FRONTEND_URL: developers not working on connections have none set; the routes that need them answer 503 (see GoogleBusinessProfileProvider).
-  GOOGLE_AUTH_STATE_SECRET: Joi.string().allow(null, ''),
+  GOOGLE_AUTH_STATE_SECRET: Joi.string().min(JWT_SECRET_MIN_LENGTH).allow(null, ''),
   MICROSOFT_CLIENT_ID: Joi.string().allow(null, ''),
   MICROSOFT_CLIENT_SECRET: Joi.string().allow(null, ''),
   MICROSOFT_CALLBACK_URL: Joi.string().uri().allow(null, ''),
@@ -76,7 +92,8 @@ export const validationSchema = Joi.object({
   GBP_CLIENT_SECRET: Joi.string().allow(null, ''),
   GBP_CALLBACK_URL: Joi.string().uri().allow(null, ''),
   // "Must be set in production" is the manual check above, keeping both halves of the secret rules in one place.
-  GBP_STATE_SECRET: Joi.string().allow(null, ''),
+  // At least as long as the JWT secret: it is the key the pending-account blob is encrypted with when no credential key is set.
+  GBP_STATE_SECRET: Joi.string().min(32).allow(null, ''),
   CREDENTIAL_ENCRYPTION_KEY: Joi.string().base64().allow(null, ''),
   PAYMENT_FEATURE_ENABLED: Joi.string().valid('true', 'false').allow(null, ''),
   // Required in production, and in any environment that turns payments on: without the webhook secret `StripePaymentProvider`

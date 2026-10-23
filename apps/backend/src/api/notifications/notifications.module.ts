@@ -1,3 +1,4 @@
+import { SessionRevocationService } from '@auth/services/session-revocation.service';
 import { Module } from '@nestjs/common';
 import { RedisModule } from '@redis/redis.module';
 
@@ -9,6 +10,7 @@ import { NotificationsService } from './services/notifications.service';
 @Module({
   imports: [RedisModule],
   controllers: [NotificationsController],
-  providers: [NotificationsService, NotificationStreamService],
+  // `SessionRevocationService` is stateless beyond the Redis client, so it is provided here rather than importing the whole auth module.
+  providers: [NotificationsService, NotificationStreamService, SessionRevocationService],
 })
 export class NotificationsModule {}

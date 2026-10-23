@@ -4,15 +4,17 @@ import { TokenPurpose } from '@auth/enums/token-purpose.enum';
 import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
+import { ERASED_PLACEHOLDER } from '@common/constants/erasure.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { LocationStatus } from '@common/enums/location-status.enum';
+import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import type { Locale } from '@common/i18n/locale';
 import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { acquireResourceXactLock } from '@db/helpers/advisory-lock.util';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
@@ -52,6 +54,7 @@ export const PURGEABLE_OTP_PURPOSES = [
   TokenPurpose.VERIFY_EMAIL,
   TokenPurpose.SET_PASSWORD,
   TokenPurpose.INVITE,
+  TokenPurpose.DELETE_ACCOUNT,
 ] as const;
 
 /**
@@ -61,6 +64,8 @@ export const PURGEABLE_OTP_PURPOSES = [
  */
 @Injectable()
 export class AuthRepository {
+  private readonly logger = new Logger(AuthRepository.name);
+
   constructor(private readonly dbService: DBService) {}
 
   /**
@@ -237,10 +242,14 @@ export class AuthRepository {
     tx: DrizzleTransaction,
     input: InsertNotificationRecipientInput
   ): Promise<void> {
-    await tx.insert(schema.notificationRecipients).values({
-      tenantId: input.tenantId,
-      userId: input.userId,
-    });
+    await tx
+      .insert(schema.notificationRecipients)
+      .values({
+        tenantId: input.tenantId,
+        userId: input.userId,
+      })
+      // One row per person and type (a unique index): seeding twice is the same preference, not a second entry.
+      .onConflictDoNothing();
   }
 
   /**
@@ -534,6 +543,50 @@ export class AuthRepository {
       .returning({ id: schema.refreshTokens.id });
 
     return rows.length > 0;
+  }
+
+  /**
+   * A sign-up whose owner never verified the address: a `pending_activation` tenant holding nothing but a `pending_verification`
+   * user, older than `olderThanHours`. Deleting the tenant takes the owner and everything hung off it (settings, subscription row,
+   * notification recipient, codes). Every condition is in the `WHERE`, so a sign-up verified a moment ago, or a tenant that
+   * gained any other user, matches nothing: this can never remove a real business. Returns whether it removed this one.
+   */
+  async deleteStalePendingSignup(
+    tx: DrizzleTransaction,
+    input: { userId: string; tenantId: string; olderThanHours: number }
+  ): Promise<boolean> {
+    const rows = await tx
+      .delete(schema.tenants)
+      .where(
+        and(
+          eq(schema.tenants.id, input.tenantId),
+          this.isUnverifiedSignup(input.olderThanHours),
+          sql`EXISTS (SELECT 1 FROM ${schema.users} WHERE ${schema.users.id} = ${input.userId} AND ${schema.users.tenantId} = ${schema.tenants.id})`
+        )
+      )
+      .returning({ id: schema.tenants.id });
+
+    return rows.length > 0;
+  }
+
+  /** The nightly sweep of the above, for every address nobody tried to sign up with again. Returns the number of sign-ups removed. */
+  async deleteStalePendingSignups(tx: DrizzleTransaction, olderThanHours: number): Promise<number> {
+    const rows = await tx
+      .delete(schema.tenants)
+      .where(this.isUnverifiedSignup(olderThanHours))
+      .returning({ id: schema.tenants.id });
+
+    return rows.length;
+  }
+
+  /** Never verified, and nothing but its unverified owner in it. */
+  private isUnverifiedSignup(olderThanHours: number): SQL {
+    return and(
+      eq(schema.tenants.status, TenantStatus.PENDING_ACTIVATION),
+      lt(schema.tenants.createdAt, sql`now() - interval '1 hour' * ${olderThanHours}`),
+      sql`EXISTS (SELECT 1 FROM ${schema.users} WHERE ${schema.users.tenantId} = ${schema.tenants.id} AND ${schema.users.status} = ${UserStatus.PENDING_VERIFICATION})`,
+      sql`NOT EXISTS (SELECT 1 FROM ${schema.users} WHERE ${schema.users.tenantId} = ${schema.tenants.id} AND ${schema.users.status} <> ${UserStatus.PENDING_VERIFICATION})`
+    ) as SQL;
   }
 
   /** Returns the number of rows removed. */
@@ -1048,6 +1101,8 @@ export class AuthRepository {
               eq(schema.users.tenantId, tenantId),
               eq(schema.users.role, UserRole.OWNER),
               isNull(schema.users.anonymizedAt),
+              // Another owner who can actually sign in: a disabled one, or one already queued for removal, is no owner to leave behind.
+              eq(schema.users.status, UserStatus.ACTIVE),
               ne(schema.users.id, memberId)
             )
           );
@@ -1058,7 +1113,13 @@ export class AuthRepository {
 
       const rows = await tx
         .update(schema.users)
-        .set({ status: UserStatus.DISABLED, erasureRequestedAt: sql`now()`, updatedAt: sql`now()` })
+        .set({
+          // COALESCE: asking twice must not replace the real prior status with the `disabled` the first request wrote.
+          statusBeforeRemoval: sql`COALESCE(${schema.users.statusBeforeRemoval}, ${schema.users.status})`,
+          status: UserStatus.DISABLED,
+          erasureRequestedAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
         .where(
           and(
             eq(schema.users.id, memberId),
@@ -1086,6 +1147,14 @@ export class AuthRepository {
    */
   async anonymizeUser(userId: string): Promise<{ outcome: 'already_anonymized' | 'anonymized' }> {
     return this.dbService.db.transaction(async tx => {
+      // Read first: the address is gone after the update, and the activity log still holds it.
+      const before = (
+        await tx
+          .select({ email: schema.users.email, tenantId: schema.users.tenantId })
+          .from(schema.users)
+          .where(and(eq(schema.users.id, userId), isNull(schema.users.anonymizedAt)))
+      )[0];
+
       const rows = await tx
         .update(schema.users)
         .set({
@@ -1095,6 +1164,7 @@ export class AuthRepository {
           status: UserStatus.DISABLED,
           anonymizedAt: sql`now()`,
           erasureRequestedAt: null,
+          statusBeforeRemoval: null,
           updatedAt: sql`now()`,
         })
         .where(and(eq(schema.users.id, userId), isNull(schema.users.anonymizedAt)))
@@ -1102,6 +1172,24 @@ export class AuthRepository {
 
       if (!rows[0]) {
         return { outcome: 'already_anonymized' };
+      }
+
+      // The admin console's activity log names the user an admin (de)activated, by address. Only this tenant's user events: an admin
+      // invited under the same address has entries of their own (`admin_invite_*`) that are not this user's data.
+      if (before?.email) {
+        await tx
+          .update(schema.platformActivityLog)
+          .set({ targetEmail: ERASED_PLACEHOLDER })
+          .where(
+            and(
+              eq(schema.platformActivityLog.targetEmail, before.email),
+              eq(schema.platformActivityLog.tenantId, before.tenantId),
+              inArray(schema.platformActivityLog.type, [
+                PlatformActivityType.USER_ACTIVATED,
+                PlatformActivityType.USER_DEACTIVATED,
+              ])
+            )
+          );
       }
 
       await tx.delete(schema.userIdentities).where(eq(schema.userIdentities.userId, userId));
@@ -1135,10 +1223,12 @@ export class AuthRepository {
       const rows = await tx
         .update(schema.users)
         .set({
-          // Restores the pre-removal status: accepting an invite always stamps `email_verified_at`,
-          // so null means never accepted; hard-coding `active` would promote an unaccepted invitee
-          // to a member that could no longer be revoked.
-          status: sql`CASE WHEN ${schema.users.emailVerifiedAt} IS NULL THEN ${UserStatus.INVITED} ELSE ${UserStatus.ACTIVE} END::user_status`,
+          // Restores exactly what the member was before the request, including an admin's own deactivation (`disabled`).
+          // Without a recorded status (a request made before it was kept) it falls back to deriving one: accepting an invite
+          // always stamps `email_verified_at`, so null means never accepted; hard-coding `active` would promote an unaccepted
+          // invitee to a member that could no longer be revoked.
+          status: sql`COALESCE(${schema.users.statusBeforeRemoval}, CASE WHEN ${schema.users.emailVerifiedAt} IS NULL THEN ${UserStatus.INVITED}::user_status ELSE ${UserStatus.ACTIVE}::user_status END)`,
+          statusBeforeRemoval: null,
           erasureRequestedAt: null,
           updatedAt: sql`now()`,
         })
@@ -1349,6 +1439,8 @@ export class AuthRepository {
       const rows = await tx
         .update(schema.tenants)
         .set({
+          // Evaluated against the old row, so it is the status the owner's request is about to replace.
+          statusBeforeErasure: sql`COALESCE(${schema.tenants.statusBeforeErasure}, ${schema.tenants.status})`,
           status: TenantStatus.SUSPENDED,
           erasureRequestedAt: sql`now()`,
           erasureRequestedByUserId: input.requestedByUserId,
@@ -1384,7 +1476,9 @@ export class AuthRepository {
       const rows = await tx
         .update(schema.tenants)
         .set({
-          status: TenantStatus.ACTIVE,
+          // Back to what it was (an owner can only ask from `active` or `pending_activation`), not assumed `active`.
+          status: sql`COALESCE(${schema.tenants.statusBeforeErasure}, ${TenantStatus.ACTIVE}::tenant_status)`,
+          statusBeforeErasure: null,
           erasureRequestedAt: null,
           erasureRequestedByUserId: null,
           erasureReminderSentAt: null,
@@ -1437,19 +1531,93 @@ export class AuthRepository {
   /**
    * Terminal step of tenant erasure, only valid once every user in the tenant is anonymized (the
    * cron's ordering guarantees it, not a DB constraint). Guarded on still being `suspended`, so a
-   * retried purge is a no-op. Returns the tenant's name for the activity log, or `null` if nothing
-   * matched.
+   * retried purge is a no-op. Returns the tenant's *former* name (for the one "erased" notice, the only
+   * place it is still wanted) or `null` if nothing matched.
+   *
+   * "Erased" means the business can no longer be identified, not just that nobody can sign in: the same transaction
+   * replaces the free text its data carries (see `scrubErasedTenantContent`). Ratings, dates and classifications stay,
+   * so the totals the platform reports do not move.
    */
   async markTenantErased(tenantId: string): Promise<{ name: string } | null> {
-    const rows = await this.dbService.db
-      .update(schema.tenants)
-      .set({ status: TenantStatus.ERASED, updatedAt: sql`now()` })
-      .where(
-        and(eq(schema.tenants.id, tenantId), eq(schema.tenants.status, TenantStatus.SUSPENDED))
-      )
-      .returning({ name: schema.tenants.name });
+    return this.dbService.db.transaction(async tx => {
+      const before = (
+        await tx
+          .select({ name: schema.tenants.name })
+          .from(schema.tenants)
+          .where(
+            and(eq(schema.tenants.id, tenantId), eq(schema.tenants.status, TenantStatus.SUSPENDED))
+          )
+      )[0];
+      if (!before) {
+        return null;
+      }
 
-    return rows[0] ?? null;
+      await tx
+        .update(schema.tenants)
+        .set({
+          status: TenantStatus.ERASED,
+          statusBeforeErasure: null,
+          name: ERASED_PLACEHOLDER,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(schema.tenants.id, tenantId));
+      await this.scrubErasedTenantContent(tx, tenantId);
+
+      return { name: before.name };
+    });
+  }
+
+  /**
+   * The free text an erased business leaves behind: reviewers' words and names, the business's own replies, its locations'
+   * names and contact details, its prompts and blocklist, in-app notifications (titles quote reviewers), and the admin
+   * activity log's name and address snapshots. Billing records stay (tax law), as do ratings, dates and statuses.
+   * Idempotent. Never touches a verified account or another tenant: every statement is scoped by `tenant_id`.
+   */
+  private async scrubErasedTenantContent(tx: DrizzleTransaction, tenantId: string): Promise<void> {
+    await tx.execute(sql`
+      UPDATE reviews
+      SET review_text = NULL, reviewer_name = NULL, external_reviewer_id = NULL,
+          matched_keywords = NULL,
+          anonymized_at = COALESCE(anonymized_at, now()), updated_at = now()
+      WHERE tenant_id = ${tenantId}::uuid`);
+    await tx.execute(sql`
+      UPDATE review_responses
+      SET content = ${ERASED_PLACEHOLDER}, original_content = NULL, error_message = NULL
+      WHERE tenant_id = ${tenantId}::uuid`);
+    await tx.execute(sql`
+      UPDATE locations
+      SET name = ${ERASED_PLACEHOLDER}, address = NULL, phone = NULL, website_uri = NULL, last_sync_error = NULL
+      WHERE tenant_id = ${tenantId}::uuid`);
+    await tx.execute(sql`DELETE FROM in_app_notifications WHERE tenant_id = ${tenantId}::uuid`);
+    await tx.execute(sql`DELETE FROM blocklist_terms WHERE tenant_id = ${tenantId}::uuid`);
+    await tx.execute(sql`
+      UPDATE prompt_versions SET template = ${ERASED_PLACEHOLDER}
+      WHERE prompt_id IN (SELECT id FROM prompts WHERE tenant_id = ${tenantId}::uuid)`);
+    await tx.execute(sql`
+      UPDATE prompts SET name = ${ERASED_PLACEHOLDER}, description = NULL
+      WHERE tenant_id = ${tenantId}::uuid`);
+    // The CHECK requires both columns for these event types, so a placeholder rather than NULL; the entry itself (type, time,
+    // tenant id) stays as the accountability record that an erasure happened.
+    await tx.execute(sql`
+      UPDATE platform_activity_log
+      SET business_name = CASE WHEN business_name IS NOT NULL THEN ${ERASED_PLACEHOLDER} END,
+          target_email = CASE WHEN target_email IS NOT NULL
+            AND type IN ('user_activated', 'user_deactivated') THEN ${ERASED_PLACEHOLDER} ELSE target_email END
+      WHERE tenant_id = ${tenantId}::uuid`);
+  }
+
+  /** Undoes `claimErasureReminder` when the reminder could not be queued, so the next nightly pass tries it again. */
+  async releaseErasureReminderClaim(tenantId: string): Promise<void> {
+    await this.dbService.db
+      .update(schema.tenants)
+      .set({ erasureReminderSentAt: null })
+      .where(
+        and(
+          eq(schema.tenants.id, tenantId),
+          eq(schema.tenants.status, TenantStatus.SUSPENDED),
+          isNotNull(schema.tenants.erasureReminderSentAt)
+        )
+      );
   }
 
   /**
@@ -1487,6 +1655,19 @@ export class AuthRepository {
     fn: (acquireLock: AcquireErasureLock) => Promise<T>
   ): Promise<T> {
     const client = await this.dbService.pool.connect();
+    // A session lock belongs to the connection, so a connection that could not release one must not go back to the pool still holding it (the next
+    // borrower would run with a lock nobody can release, and the purge would block on it for ever). Destroying the connection frees every lock it held.
+    let destroyClient = false;
+    const unlock = async (sql: string, params: unknown[]): Promise<void> => {
+      try {
+        await client.query(sql, params);
+      } catch (error) {
+        destroyClient = true;
+        this.logger.error(
+          `Could not release an advisory lock; discarding its connection: ${(error as Error).message}`
+        );
+      }
+    };
     try {
       await client.query(`SELECT pg_advisory_lock(hashtext('gdpr:erasure-purge'), 0)`);
       try {
@@ -1498,7 +1679,7 @@ export class AuthRepository {
           try {
             return await innerFn();
           } finally {
-            await client.query(`SELECT pg_advisory_unlock(hashtext($1), hashtext($2))`, [
+            await unlock(`SELECT pg_advisory_unlock(hashtext($1), hashtext($2))`, [
               lockKey,
               resourceId,
             ]);
@@ -1506,10 +1687,10 @@ export class AuthRepository {
         };
         return await fn(acquireLock);
       } finally {
-        await client.query(`SELECT pg_advisory_unlock(hashtext('gdpr:erasure-purge'), 0)`);
+        await unlock(`SELECT pg_advisory_unlock(hashtext('gdpr:erasure-purge'), 0)`, []);
       }
     } finally {
-      client.release();
+      client.release(destroyClient);
     }
   }
 

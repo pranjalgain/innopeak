@@ -68,6 +68,26 @@ describe('NotificationRecipientsService', () => {
     expect(result.items[0]).toMatchObject({ name: 'Maria Delgado', initials: 'MD' });
   });
 
+  // `users.name` is NULL once the user was anonymized in place; the label is the caller's language, picked here because only `message` is rendered at the edge.
+  it.each([
+    [null, 'Removed team member'],
+    ['de' as const, 'Entferntes Teammitglied'],
+  ])('labels an anonymized recipient in the caller language (%s)', async (locale, label) => {
+    settingsDbService.listNotificationRecipients.mockResolvedValue([
+      {
+        id: 'r1',
+        userId: 'user-2',
+        name: null,
+        channel: NotificationChannelPref.EMAIL,
+        isActive: true,
+      },
+    ]);
+
+    const result = await target.list({ ...tenantUser, locale });
+
+    expect(result.items[0]).toMatchObject({ name: label });
+  });
+
   it('rejects an update with neither field set', async () => {
     await expect(target.update(tenantUser, 'r1', {})).rejects.toThrow(BadRequestException);
     await expect(target.update(tenantUser, 'r1', {})).rejects.toThrow(

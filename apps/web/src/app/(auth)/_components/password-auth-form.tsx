@@ -10,6 +10,7 @@ import {
   type PasswordAuthFields,
   passwordAuthSchema,
 } from "@/app/(auth)/_schemas/password-auth.schema";
+import { FieldError } from "@/components/common/field-error";
 import { PasswordInput } from "@/components/common/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,8 +23,6 @@ interface PasswordAuthFormProps {
   submitLabel?: string;
   submittingLabel?: string;
 }
-
-const FIELD_ERROR_CLASS = "text-[12.5px] text-destructive";
 
 /**
  * Never gated behind `passwordLoginEnabled`; shared by `LoginView` and `AdminLoginView`.
@@ -59,9 +58,11 @@ export function PasswordAuthForm({
           type="email"
           placeholder={t("emailPlaceholder")}
           autoComplete="username"
+          aria-invalid={errors.email ? true : undefined}
+          aria-describedby={errors.email ? "password-auth-email-error" : undefined}
           {...register("email")}
         />
-        {errors.email ? <p className={FIELD_ERROR_CLASS}>{errors.email.message}</p> : null}
+        {errors.email ? <FieldError id="password-auth-email-error">{errors.email.message}</FieldError> : null}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -70,9 +71,11 @@ export function PasswordAuthForm({
           id="password-auth-password"
           placeholder="••••••••"
           autoComplete="current-password"
+          aria-invalid={errors.password ? true : undefined}
+          aria-describedby={errors.password ? "password-auth-password-error" : undefined}
           {...register("password")}
         />
-        {errors.password ? <p className={FIELD_ERROR_CLASS}>{errors.password.message}</p> : null}
+        {errors.password ? <FieldError id="password-auth-password-error">{errors.password.message}</FieldError> : null}
       </div>
 
       <Button type="submit" size="block" disabled={!isValid || isLoading}>

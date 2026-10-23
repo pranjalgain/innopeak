@@ -211,7 +211,7 @@ for what needs to change before it matches the InnoPeak tenant model.
 | `POST` | `/v1/auth/refresh` | `@Public()` | Rotates the pair, authority from the `refresh_token` cookie. |
 | `POST` | `/v1/auth/logout` | `@Public()` | Authority from the `refresh_token` cookie, **not** a bearer token — see the API reference for why. Revokes all refresh tokens for that user. |
 | `GET` | `/v1/auth/me` | Bearer | The authoritative "who is signed in", read from the DB. |
-| `POST` | `/v1/auth/change-password` | Bearer | Requires the current password. Issues a fresh token pair and revokes every other session. |
+| `POST` | `/v1/auth/change-password` | Bearer | Requires the current password; a wrong one counts against the same per-account sign-in budget as `login` (a locked account is answered like a wrong password), and the budget clears on success. Issues a fresh token pair and revokes every other session. |
 | `POST` | `/v1/auth/set-password/request-otp` | Bearer | Mails the step-up code `set-password` requires. Uniform acknowledgement whether or not a fresh code went out (per-email cooldown). |
 | `POST` | `/v1/auth/set-password` | Bearer | For an account that has never had one (Google-only). Takes `otp` from the route above — an access token alone is not proof enough to grant a permanent credential. |
 | `GET` | `/v1/auth/google` | `@Public()` | Redirects into Google's consent screen. Bare OIDC over `fetch`, not a passport strategy. |
@@ -359,6 +359,125 @@ Mapped to the schema tables above, independent of which login method is used:
   to become `sub`, `tenant_id`, `email`, `role` (singular, matching the `user_role` enum, and with
   no `permissions` claim at all — see the guard-pipeline note above) for the tenant-user path, plus
   an equivalent shape for the platform-admin path that has no `tenant_id` at all.
+
+## Session hardening (security audit)
+
+Fixes from the auth and session audit, each described where it applies.
+
+- **Re-signing an access token never extends it.** `POST /v1/auth/update-locale` re-signs the access token so the new `locale`
+  claim applies at once. It signs to the *presenting token's remaining lifetime* (`sessionExpiresAt`, from its `exp`; capped at the
+  full TTL and floored at one second), exactly as the platform-admin version always did. A fresh TTL on every call would let anyone
+  holding a stolen access token renew it indefinitely (10 calls a minute) through a logout and a password change, neither of which can
+  reach an access token. The refresh token is still never minted from an access token.
+- **Bull Board (`/admin/queues`) reads the admin cookie.** The ops-tools guard (raw Express middleware in `bootstrap.ts`) takes
+  the platform admin's `admin_access_token` cookie, then a Bearer header. It used to read the tenant `access_token` cookie, which
+  a platform admin's browser does not carry, so admins were told to authenticate. A tenant session is never a credential here.
+- **Passwords: a 72-byte cap on new ones, a 128-character cap on checked ones.** bcrypt reads only the first 72 *bytes* and ignores the
+  rest, so two different long passwords sharing their first 72 bytes would verify against each other. New passwords (sign-up, change,
+  set, both invite accepts, both admin password routes) are refused beyond 72 UTF-8 bytes (`MaxByteLength`; an accented character is two),
+  and the web schemas count bytes the same way. A password being *checked* (login, restore account, delete account) allows up to 128
+  characters, so an older password longer than 72 bytes still signs in (it was truncated the same way when it was set), and a request
+  can no longer carry a megabyte-long one into bcrypt.
+- **The OAuth `state` is signed with its own key.** `GOOGLE_AUTH_STATE_SECRET` (required in production, at least 32 characters when set), else a
+  key *derived* from `JWT_SECRET` by HMAC-ing a fixed label, so the state signature never uses the same bytes as the access tokens. With
+  neither set the service refuses to start; it no longer falls back to a constant readable in the source. A state minted before a deploy
+  of this change stops verifying (the 10-minute window), so someone mid-sign-in has to click the button again.
+- **Google sign-in uses PKCE, like Microsoft.** Every Google sign-in start (tenant login and sign-up, member invite, admin invite, admin login)
+  mints its state with a verifier held only in the Redis record; only the S256 challenge goes to Google, and the code is redeemed with the
+  verifier, so a code injected into another browser's callback cannot be exchanged. A state minted before this shipped carries no
+  verifier and no challenge went out for it, so it is redeemed without one (it expires within 10 minutes). There is no OIDC `nonce` to
+  add: the identity is read from the userinfo endpoint with the access token from the server-side code exchange, not from an ID token.
+  The separate Google *Business Profile connect* flow (review data, its own client) is not covered here.
+- **An access token can be ended early.** A JWT cannot be taken back, so a logout, a password change, a disabled user or a suspended
+  business used to leave every access token already issued working until it expired (up to 15 minutes). `SessionRevocationService`
+  writes a "not before" mark to Redis (`auth:sessions-revoked-after:user:<id>` or `…:tenant:<id>`, a second-resolution epoch, expiring after
+  the longest an access token can live) and `JwtStrategy` refuses a tenant token issued before it: one `MGET` per tenant request.
+  Marks are written by `TokenService.revokeAll` (logout, refresh-token reuse, a disabled user or suspended business seen at refresh), a password
+  change or set (sparing tokens issued in that very second, since the caller's fresh pair follows), a self-service or admin erasure request and an
+  admin suspension (the whole business), an admin deactivating a user, and an owner removing a member. It is best-effort and **fails open**: Redis is
+  already a hard dependency, the refresh path enforces the same standing within one access-token lifetime, and an outage must not fail every request.
+  A mark covers the current second too, so signing in again within the same second as a logout hands back a token that is refused once; the
+  client's normal refresh recovers. Platform-admin tokens are re-checked against the database on every request (a disabled admin loses access at once) and
+  now against the user mark as well, so the next item applies to them too.
+- **A platform admin's logout and password change end their access tokens.** An admin has no refresh token, so a logout only cleared the
+  browser's cookies and a copied `admin_access_token` kept working until it expired, and so did every older token after a password change or a
+  first password being set. `POST /v1/auth/logout` (public, authority from the cookies) now also verifies any access token it is given (the
+  tenant or admin cookie, or a Bearer header): an admin token writes the user mark, a tenant token also revokes that user's refresh tokens, and a
+  token that does not verify is ignored silently. `POST /v1/admin/settings/profile/change-password` and `…/set-password` write the mark
+  (sparing the current second), then sign a fresh access token to the presenting token's remaining lifetime (so neither route extends a session)
+  and set it as the `admin_access_token` cookie; the JSON body is unchanged. `JwtStrategy` checks only the user mark for an admin
+  (`isRevoked` takes no tenant).
+- **A sent email no longer leaves its credential in Redis.** A job's payload carries the raw OTP or invite link (an invite link is valid for days),
+  and the email queue keeps completed jobs for a day for Bull Board. Logs and the dead-letter copy were already redacted
+  (`redactJobSecrets`); now `EmailProcessor` also redacts the *stored* payload (`otp`, `inviteLink`, `passwordResetLink`, `passwordSetLink`
+  become `[redacted]`) once the job completes, and once its last attempt has failed (after the dead-letter copy is taken). Earlier attempts
+  leave it intact, since a retry must send the real code. A failed scrub is logged and ignored. A job BullMQ fails for stalling past `maxStalledCount` emits only `stalled`, never `failed`, so `onStalled` looks the job up and retires it the same way when it really is failed (a merely re-queued one is left alone). A job whose payload was redacted cannot be
+  replayed from Bull Board; request a new code or invite instead. The SQS transport keeps nothing after the message is deleted.
+- **No form bodies, so no login CSRF.** The API parses JSON only (the global `urlencoded` parser is gone; nothing inbound takes a form: OAuth
+  callbacks are GETs). A form can be auto-submitted from any site with no preflight and no `Origin` check, and the `Set-Cookie` on a
+  public route such as `/v1/auth/login` would replace the victim's session with the attacker's. A JSON request needs a CORS preflight, which a
+  foreign origin fails. The cookies are `SameSite=Lax`, which already stopped *authenticated* CSRF but not this.
+- **Bull Board honours revocation too.** The ops-tools guard (`createOpsToolsGuard`, raw Express middleware) now calls
+  `SessionRevocationService.isRevoked` after the admin-status check, so an admin who logged out or changed their password no longer keeps
+  `/admin/queues` (whose job payloads carry OTPs and invite links) open for the rest of the token's 15 minutes. It fails open on a Redis
+  outage, like `JwtStrategy`.
+- **A failed database statement is logged without its SQL.** `DrizzleQueryError.message` is `Failed query: <sql>\nparams: <every bound value>`, and its
+  stack starts with it, so the exception filter and the unhandled-error path were writing password and token hashes, emails and review text
+  into the logs (and Loki). `toLoggableError` reduces it to the SQLSTATE, constraint, table and column (never the driver's `detail`, which quotes
+  the row) and keeps the stack frames.
+- **Developer conveniences are tied to a local setup, not `NODE_ENV` alone.** Swagger, the database detail and raw error messages in API
+  responses, and Bull Board's write actions are on only when `isLocalDevelopment()` (not production *and* a local `FRONTEND_URL`). A staging box
+  also runs as `development`; it now answers like production.
+- **OTP budgets are scoped by flow, and by principal where there is one.** The attempt budget (10 per 10 minutes) and the resend cooldown were keyed
+  on one hash per address, shared by every flow. An anonymous caller guessing at the *public* sign-up code could therefore spend the owner's
+  budget and lock them out of their own set-password and delete-account codes, and an admin's. They are now
+  `auth:otp-attempts|otp-resend:<scope>:<sha256(identity)>` (`OtpScope`): the public verify-email flow is keyed on the submitted email (so an
+  unknown address still counts, no existence oracle) and the signed-in flows (`set-password`, `delete-account`, `admin-set-password`) on the user
+  or admin id, which nobody outside can spend. Redis keys written before this change simply expire.
+- **A code or invite the queue refused is no longer reported as sent.** Every email send was fire-and-forget with a silent `catch`, so the
+  API answered success, the resend cooldown (claimed *before* sending) stayed spent, and an invite row existed for an address nobody had mailed.
+  Now the enqueue is awaited and its result acted on. A *signed-in* code request (tenant set-password, delete-account, admin set-password)
+  releases the cooldown (`OtpAttemptService.releaseResend`) and answers `503 EMAIL_QUEUE_UNAVAILABLE` (en/de): nothing was changed, retry now. A
+  *public* resend (`issueOtp`) releases the cooldown but keeps its identical answer, so it still reveals nothing about which addresses exist.
+  Signup is unchanged (no cooldown is claimed, so another code can be requested at once). An admin or member **invite** that cannot be queued is
+  taken back (`revokeInvite` / `revokeMemberInvite`) before answering 503, and the admin activity entry is written only after the mail is queued, so
+  the address is not left reading "already invited".
+- **A route with no `@Roles()` is a tenant route.** `RolesGuard` used to let *any* authenticated principal through when no role was listed, so a
+  tenant route that forgot its `requireTenantUser` check was reachable by a platform-admin token, and an admin route that forgot its
+  `@Roles(PLATFORM_ADMIN)` by any tenant user. A `@Public()` route is let through unchecked; a route with no role now admits tenant users only.
+  The other half (an admin route missing its role) cannot be seen by the guard, so `route-guards.spec.ts` reads the real decorators off every
+  controller and requires `PLATFORM_ADMIN` on every non-public route under `admin/`, and that every `PLATFORM_ADMIN` route lives there (the
+  access-token cookie is chosen by URL). Adding a route with a missing role fails that spec, naming the route.
+- **A password sign-up can only be finished by the browser that made it.** Verification used to need only the email and the 6-digit code, and
+  the password was already set, so someone who signed up with *another person's* email first held that address, and (if the code later reached
+  the real owner and was passed on) the account kept the squatter's password. Now `POST /v1/auth/signup`, and `POST /v1/auth/login` for a
+  still-unverified account, set an httpOnly `signup_binding` cookie (path `/v1/auth`, 24 h): an HMAC, under a key derived from `JWT_SECRET`, of the
+  user id and the stored password hash. `POST /v1/auth/verify-email` for an unverified account refuses anyone who does not present a matching cookie,
+  with the same `InvalidOtpException` as a wrong code (so it is not an oracle), and clears the cookie on success. Nothing is stored for it; changing
+  the password hash voids it. The cookie is same-origin and httpOnly, so the web app needs no change. Someone who signs up on one device and
+  opens the code on another logs in on the second device with the password (that sets a cookie there) and then enters the code.
+- **A squatted sign-up is replaced, then purged.** An unverified sign-up (a `pending_activation` business whose only user is its
+  `pending_verification` owner) older than 24 hours no longer blocks the email: the next password sign-up for it removes that business and
+  creates the new one in the same transaction, so a squatter cannot hold an address for good. Anything younger, any verified account, and any
+  business with another user in it is never touched. The nightly purge also deletes such sign-ups after 7 days, and logs the count.
+
+  `revokeAll` writes the mark *before* revoking the refresh rows, and `TokenService.rotate` re-checks the mark once its successor is committed: a refresh that races a logout (its rotation commits where the logout's `UPDATE` cannot see it) revokes the successor and answers 401 instead of leaving a live session behind. A password change (and set-password) writes its mark before the revoking `UPDATE` too, and the rotation's re-check judges the mark against the `iat` of the refresh token being rotated (not the time of the rotation), exactly as an access token is judged, so the fresh pair a password change hands its caller can be refreshed a moment later without being mistaken for one that raced the change. The Redis calls behind the mark are bounded (500 ms), so an outage fails open instead of holding every request.
+
+## Development conveniences are tied to where the app is reachable
+
+`NODE_ENV` has two values, so a publicly reachable staging box running as `development` used to get every development convenience:
+the fixed sign-up code `DEV_VERIFY_EMAIL_TOKEN` (anyone could verify any email), invite links written to the log, and session
+cookies without `Secure`. They now also depend on `FRONTEND_URL`:
+
+- `DEV_VERIFY_EMAIL_TOKEN` is refused at boot in production **and** whenever `FRONTEND_URL` is not a local address (`localhost`,
+  `*.localhost`, loopback), and `AuthModule` only swaps in the fixed provider for a local setup (`isLocalDevelopment()`). An unset
+  `FRONTEND_URL` counts as local (a bare dev machine).
+- The `[dev]` invite-link log lines (admin and member invites) appear only for a local setup.
+- Session and OAuth-binding cookies are `Secure` in production **and** wherever `FRONTEND_URL` is https (`shouldUseSecureCookies()`),
+  and stay off for plain-http local development, where a `Secure` cookie would never be sent.
+
+The shipped `.env.example` placeholders (`…-change-in-production`) are already refused at boot in production (`env-config.module.ts`).
+A staging box that needs real email must run with `NODE_ENV=production` anyway: any other value uses the no-op email provider.
 
 ## Gap between current code and target design
 

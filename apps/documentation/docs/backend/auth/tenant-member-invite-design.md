@@ -249,7 +249,7 @@ its own hook mirroring `useAcceptAdminInvite`, with the added name field per Dec
    against the invited address (`INVITE_EMAIL_MISMATCH` on mismatch, token left unconsumed), links
    a `user_identities` row, and signs the member in. `GET /v1/auth/invite/:token/google` is the new
    route (`RouteNames.INVITE_GOOGLE`, reused). Unlike the admin case, no
-   `countActiveGoogleOnlyAdmins`-style lockout guard is needed on `updatePlatformSettings`— a
+   lockout guard is needed on `updatePlatformSettings` (admins no longer have one either) — a
    Google-accepted tenant member still has `set-password/request-otp` + `set-password` available
    to add a password afterward (the tenant flow, unlike the admin one, already has this), so
    turning `googleLoginEnabled` off later never permanently strands them the way it would an

@@ -1,4 +1,5 @@
 import { RouteNames } from '@common/route-names';
+import { isLocalDevelopment } from '@config/deployment-target.util';
 import type { EnvConfig } from '@config/env.config';
 import type { ConfigService } from '@nestjs/config';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
@@ -18,15 +19,28 @@ function tokensMatch(presented: string, expected: string): boolean {
  * user-agent and referer the API has served, which is reconnaissance material for anyone who can reach the port. Registered as
  * raw Express middleware (like the ops-tools guard) so it applies before routing, whichever handler serves the path.
  *
- * No token configured means no check, which is the local-development default; production refuses to boot without one.
+ * No token configured means no check only on a local machine. Anywhere else (production refuses to boot without one, but a staging box runs
+ * as `development`) `/metrics` is refused rather than served to whoever can reach the port.
  */
 export function createMetricsGuard(configService: ConfigService<EnvConfig>): RequestHandler {
   const expected = configService.get<string>('METRICS_TOKEN') ?? '';
+  const openForLocalUse = isLocalDevelopment();
 
   return (req: Request, res: Response, next: NextFunction): void => {
     // Express routes case-insensitively and ignores a trailing slash, so `/Metrics/` still reaches the handler.
-    if (expected === '' || req.path.toLowerCase().replace(/\/+$/, '') !== METRICS_PATH) {
+    if (req.path.toLowerCase().replace(/\/+$/, '') !== METRICS_PATH) {
       next();
+      return;
+    }
+
+    if (expected === '') {
+      if (openForLocalUse) {
+        next();
+        return;
+      }
+      res
+        .status(503)
+        .json({ statusCode: 503, status: 'Failure', message: 'Metrics are not configured.' });
       return;
     }
 

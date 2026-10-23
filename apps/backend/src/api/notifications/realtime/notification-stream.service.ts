@@ -1,3 +1,4 @@
+import { SessionRevocationService } from '@auth/services/session-revocation.service';
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import {
   Inject,
@@ -24,7 +25,14 @@ import {
 } from './notification-stream.constants';
 
 import type { AuthUser } from '../../auth/types/auth.type';
-import { msUntilAccessTokenExpiry } from '../utils/token-expiry.util';
+import { accessTokenIssuedAt, msUntilAccessTokenExpiry } from '../utils/token-expiry.util';
+
+/** What the stream needs to notice its session ending: the same marks the guard checks on every request. */
+interface StreamSession {
+  tenantId: string;
+  /** The access token's `iat`; a token without one is refused by any mark. */
+  issuedAt: number | undefined;
+}
 
 interface OpenStream {
   events: Subject<MessageEvent>;
@@ -46,7 +54,10 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
   private readonly streams = new Map<string, Set<OpenStream>>();
   private openCount = 0;
 
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly sessionRevocationService: SessionRevocationService
+  ) {}
 
   onModuleInit(): void {
     // A dedicated connection: a client in subscriber mode cannot run other commands.
@@ -90,15 +101,19 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
     const tenantUser = requireTenantUser(user);
     return this.open(
       tenantUser.id,
-      msUntilAccessTokenExpiry(req, NOTIFICATION_STREAM_MAX_LIFETIME_MS)
+      msUntilAccessTokenExpiry(req, NOTIFICATION_STREAM_MAX_LIFETIME_MS),
+      { tenantId: tenantUser.tenantId, issuedAt: accessTokenIssuedAt(req) }
     );
   }
 
   /**
    * Opens a stream for `userId`. Ends after `maxLifetimeMs` (never longer than the hard cap) or when the client leaves. Over the per-user
    * cap the oldest stream is closed; over the replica cap this refuses with 503 so the client falls back to polling.
+   * With a `session`, the stream also ends at the first heartbeat after that session is revoked (logout, password change, a disabled
+   * user, a suspended business): the guard only checks the token when the stream opens, and an open stream would otherwise keep
+   * telling a signed-out browser that something new arrived until the token expired.
    */
-  open(userId: string, maxLifetimeMs: number): Observable<MessageEvent> {
+  open(userId: string, maxLifetimeMs: number, session?: StreamSession): Observable<MessageEvent> {
     const userStreams = this.streams.get(userId) ?? new Set<OpenStream>();
     // A user at their own cap frees one slot by being evicted below, so that must count before refusing: otherwise a replica at its
     // ceiling answers 503 to a reconnecting user whose old stream is about to close (and a 503 ends an EventSource for good).
@@ -152,9 +167,23 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
       const lifetime = setTimeout(() => {
         subscriber.complete();
       }, lifetimeMs);
+      const revocationCheck =
+        session === undefined
+          ? undefined
+          : setInterval(() => {
+              // Fails open (and never rejects) when Redis is down, like the guard: the stream then runs to its normal end.
+              void this.sessionRevocationService
+                .isRevoked({ userId, tenantId: session.tenantId, issuedAt: session.issuedAt })
+                .then(revoked => {
+                  if (revoked) {
+                    subscriber.complete();
+                  }
+                });
+            }, NOTIFICATION_STREAM_HEARTBEAT_MS);
 
       return () => {
         clearTimeout(lifetime);
+        clearInterval(revocationCheck);
         subscription.unsubscribe();
         this.release(userId, stream);
       };

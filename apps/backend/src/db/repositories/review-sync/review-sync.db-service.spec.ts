@@ -21,6 +21,7 @@ describe('ReviewSyncDbService.importPage', () => {
   let service: ReviewSyncDbService;
   const upsertReview = jest.fn();
   const insertImportedReply = jest.fn();
+  const markRespondedByExternalReply = jest.fn();
   // `tx.transaction` is the savepoint the reply insert runs in.
   const fakeTx: { transaction: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown> } = {
     transaction: fn => fn(fakeTx),
@@ -31,13 +32,19 @@ describe('ReviewSyncDbService.importPage', () => {
     jest.clearAllMocks();
     upsertReview.mockResolvedValue({ id: 'review-1', inserted: true });
     insertImportedReply.mockResolvedValue(true);
+    markRespondedByExternalReply.mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         ReviewSyncDbService,
         {
           provide: ReviewSyncRepository,
-          useValue: { transaction, upsertReview, insertImportedReply },
+          useValue: {
+            transaction,
+            upsertReview,
+            insertImportedReply,
+            markRespondedByExternalReply,
+          },
         },
         { provide: ReviewsReadRepository, useValue: {} },
         { provide: ConnectionsRepository, useValue: {} },
@@ -140,6 +147,7 @@ describe('ReviewSyncDbService.importPollPage', () => {
   let service: ReviewSyncDbService;
   const upsertReview = jest.fn();
   const insertImportedReply = jest.fn();
+  const markRespondedByExternalReply = jest.fn();
   // `tx.transaction` is the savepoint the reply insert runs in.
   const fakeTx: { transaction: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown> } = {
     transaction: fn => fn(fakeTx),
@@ -150,13 +158,19 @@ describe('ReviewSyncDbService.importPollPage', () => {
     jest.clearAllMocks();
     upsertReview.mockResolvedValue({ id: 'review-1', inserted: true });
     insertImportedReply.mockResolvedValue(true);
+    markRespondedByExternalReply.mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         ReviewSyncDbService,
         {
           provide: ReviewSyncRepository,
-          useValue: { transaction, upsertReview, insertImportedReply },
+          useValue: {
+            transaction,
+            upsertReview,
+            insertImportedReply,
+            markRespondedByExternalReply,
+          },
         },
         { provide: ReviewsReadRepository, useValue: {} },
         { provide: ConnectionsRepository, useValue: {} },
@@ -206,6 +220,62 @@ describe('ReviewSyncDbService.importPollPage', () => {
     expect((upsertReview.mock.calls[0]?.[1] as { status: string }).status).toBe(
       ReviewStatus.RESPONDED
     );
+  });
+
+  // A review first sighted unreplied, answered on Google afterwards: the next poll sees the reply, and the review must close.
+  describe('an owner reply made on Google after the review was imported', () => {
+    const replied = (): ReturnType<typeof pollReview> =>
+      pollReview('ext-1', { reply: { comment: 'Thanks!', updatedAt: new Date().toISOString() } });
+
+    it('closes the review and supersedes its open drafts, once the reply is stored', async () => {
+      await service.importPollPage({
+        tenantId: 'tenant-1',
+        locationId: 'location-1',
+        reviews: [replied()],
+      });
+
+      expect(markRespondedByExternalReply).toHaveBeenCalledWith(fakeTx, 'review-1');
+    });
+
+    it('does so on a later poll too, when the reply was already imported', async () => {
+      insertImportedReply.mockResolvedValue(false);
+
+      await service.importPollPage({
+        tenantId: 'tenant-1',
+        locationId: 'location-1',
+        reviews: [replied()],
+      });
+
+      expect(markRespondedByExternalReply).toHaveBeenCalledWith(fakeTx, 'review-1');
+    });
+
+    it('leaves a review alone when Google has no reply for it', async () => {
+      await service.importPollPage({
+        tenantId: 'tenant-1',
+        locationId: 'location-1',
+        reviews: [pollReview('ext-1')],
+      });
+
+      expect(markRespondedByExternalReply).not.toHaveBeenCalled();
+    });
+
+    // An approved or posted reply of ours is already in flight: the post worker's own freshness check settles it.
+    it('does not close the review when our own live reply conflicts with the imported one', async () => {
+      insertImportedReply.mockRejectedValue(
+        Object.assign(new Error('duplicate key'), {
+          code: '23505',
+          constraint: 'idx_review_responses_review_id_live_reply',
+        })
+      );
+
+      await service.importPollPage({
+        tenantId: 'tenant-1',
+        locationId: 'location-1',
+        reviews: [replied()],
+      });
+
+      expect(markRespondedByExternalReply).not.toHaveBeenCalled();
+    });
   });
 
   it('mixes the two within one page rather than forcing one outcome for the batch', async () => {

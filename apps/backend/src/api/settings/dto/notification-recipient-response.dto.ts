@@ -23,12 +23,13 @@ export class NotificationRecipientDto {
   @ApiProperty({ example: true })
   isActive!: boolean;
 
-  static from(row: NotificationRecipientRecord): NotificationRecipientDto {
+  /** `fallbackName` stands in for an anonymized user (`users.name` is NULL), in the caller's language: the frontend assumes a display name. */
+  static from(row: NotificationRecipientRecord, fallbackName: string): NotificationRecipientDto {
     const dto = new NotificationRecipientDto();
     dto.id = row.id;
     dto.userId = row.userId;
-    dto.name = row.name;
-    dto.initials = getInitials(row.name);
+    dto.name = row.name ?? fallbackName;
+    dto.initials = getInitials(dto.name);
     dto.channel = row.channel;
     dto.isActive = row.isActive;
     return dto;
@@ -51,9 +52,12 @@ export class NotificationRecipientListResponseDto {
   })
   items!: NotificationRecipientDto[];
 
-  static from(rows: NotificationRecipientRecord[]): NotificationRecipientListResponseDto {
+  static from(
+    rows: NotificationRecipientRecord[],
+    fallbackName: string
+  ): NotificationRecipientListResponseDto {
     const dto = new NotificationRecipientListResponseDto();
-    dto.items = rows.map(row => NotificationRecipientDto.from(row));
+    dto.items = rows.map(row => NotificationRecipientDto.from(row, fallbackName));
     return dto;
   }
 }

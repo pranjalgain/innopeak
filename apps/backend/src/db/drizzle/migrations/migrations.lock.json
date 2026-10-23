@@ -17,9 +17,9 @@
   "files": {
     "0000_foundation.sql": "27a959ae856023c390b24bc690bf67c1dd37a112b9e8151ad9b968b8d5d19c58",
     "0001_platform_admin.sql": "f0f8ef4c10d36d1ad108d027cb7d57b450428dbe52d94996b0b69cf8df6b2901",
-    "0002_tenant_auth.sql": "984cad016d80b731cfa28fc617de5262393cfd531eefe1f05bb6a197744b3379",
-    "0003_review_provider_locations.sql": "404f9b074374d94d7b46bc0702a93fd73048af046b1d83bc07f601664c609abb",
-    "0004_reviews.sql": "7adce175c4c001dc75c65b769dfee698fff64782f939e2016bb7cfbdffef17de",
+    "0002_tenant_auth.sql": "760abbe3b379393f781a97eac35cc14e4b0f36c14a7f0402b1063ec721f00108",
+    "0003_review_provider_locations.sql": "1d8eeda9c99185c31cbd9aa93d55dad58cf01d55a24d5c048675c93ff111432d",
+    "0004_reviews.sql": "bfcc37dc31271230c7925f9b0a5a7756331612c626b7fa657f51d478482c6d53",
     "0005_notifications.sql": "6bf44324ce5b2937ff0511c7b402ae75759924e41ab522f0fc58b4f0f1ad5d01",
     "0006_prompts.sql": "644b777aa44e652b3660778e6b61b25165bdf290dbb2263c7e3878ae9052dd76",
     "0007_auth_hardening.sql": "b040668edc681c2128dc21b9a062408e10d62e9c981c78f2f6724b0d865dc608",

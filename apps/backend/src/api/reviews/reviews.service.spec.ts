@@ -8,6 +8,7 @@ import { ResponseStatus } from '@common/enums/response-status.enum';
 import { ResponseType } from '@common/enums/response-type.enum';
 import { ReviewClassification } from '@common/enums/review-classification.enum';
 import { ReviewStatus } from '@common/enums/review-status.enum';
+import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { ReviewSyncDbService } from '@db/repositories/review-sync/review-sync.db-service';
 import type {
   ReviewResponseRow,
@@ -24,6 +25,8 @@ import {
   ResponseNotRetryableException,
   ReviewAlreadyDismissedException,
   ReviewAlreadyHasLiveReplyException,
+  ReviewLocationPausedException,
+  ReviewNotFoundException,
   ReviewRemovedUpstreamException,
   ReviewResponseAlreadyLiveException,
   ReviewResponseNotApprovableException,
@@ -91,6 +94,7 @@ describe('ReviewsService', () => {
   const retryPostableResponse = jest.fn();
   const insertManualReply = jest.fn();
   const findAutoPostEnabled = jest.fn();
+  const findLocationForTenant = jest.fn();
   const addPostJob = jest.fn();
   const markResponsePostFailed = jest.fn();
   const publish = jest.fn();
@@ -98,6 +102,12 @@ describe('ReviewsService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     findResponsesForReviews.mockResolvedValue([]);
+    findReviewForTenant.mockResolvedValue(review);
+    findLocationForTenant.mockResolvedValue({
+      id: 'location-1',
+      status: 'active',
+      billingPausedAt: null,
+    });
     findAutoPostEnabled.mockResolvedValue(false);
     addPostJob.mockResolvedValue(undefined);
     markResponsePostFailed.mockResolvedValue(null);
@@ -106,6 +116,7 @@ describe('ReviewsService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         ReviewsService,
+        { provide: ConnectionsDbService, useValue: { findLocationForTenant } },
         {
           provide: ReviewSyncDbService,
           useValue: {
@@ -201,6 +212,94 @@ describe('ReviewsService', () => {
     });
   });
 
+  describe('replies on a review that cannot take one', () => {
+    const pausedLocations: Array<[string, Record<string, unknown>]> = [
+      [
+        'billing-paused',
+        { id: 'location-1', status: 'active', billingPausedAt: '2026-10-01T00:00:00Z' },
+      ],
+      ['disconnected', { id: 'location-1', status: 'inactive', billingPausedAt: null }],
+    ];
+
+    // Approving used to skip the checks every other way of answering a review makes.
+    it.each([
+      ['dismissed', { ...review, status: ReviewStatus.DISMISSED }, ReviewAlreadyDismissedException],
+      [
+        'removed on Google',
+        { ...review, removedUpstreamAt: '2026-10-01T00:00:00Z' },
+        ReviewRemovedUpstreamException,
+      ],
+    ])('refuses to approve a reply on a review that is %s', async (_name, row, expected) => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      findReviewForTenant.mockResolvedValue(row);
+
+      await expect(
+        service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).rejects.toBeInstanceOf(expected);
+      expect(approveResponse).not.toHaveBeenCalled();
+    });
+
+    it('refuses to approve a reply on a review that no longer exists', async () => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      findReviewForTenant.mockResolvedValue(null);
+
+      await expect(
+        service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).rejects.toBeInstanceOf(ReviewNotFoundException);
+    });
+
+    it.each(pausedLocations)(
+      'refuses to approve when the location is %s',
+      async (_name, location) => {
+        findResponseForTenant.mockResolvedValue(pendingResponse);
+        findLocationForTenant.mockResolvedValue(location);
+
+        await expect(
+          service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' })
+        ).rejects.toBeInstanceOf(ReviewLocationPausedException);
+        expect(approveResponse).not.toHaveBeenCalled();
+      }
+    );
+
+    it('refuses to approve when the location is gone', async () => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      findLocationForTenant.mockResolvedValue(null);
+
+      await expect(
+        service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).rejects.toBeInstanceOf(ReviewLocationPausedException);
+    });
+
+    it.each(pausedLocations)(
+      'also refuses a manual reply and a retry when the location is %s',
+      async (_name, location) => {
+        findLocationForTenant.mockResolvedValue(location);
+
+        await expect(
+          service.createManualReply({ user, reviewId: 'review-1', content: 'Thanks!' })
+        ).rejects.toBeInstanceOf(ReviewLocationPausedException);
+        await expect(
+          service.retryPost({ user, reviewId: 'review-1', responseId: 'response-1' })
+        ).rejects.toBeInstanceOf(ReviewLocationPausedException);
+        await expect(
+          service.postResponse({ user, reviewId: 'review-1', responseId: 'response-1' })
+        ).rejects.toBeInstanceOf(ReviewLocationPausedException);
+        expect(insertManualReply).not.toHaveBeenCalled();
+      }
+    );
+
+    // Declining a draft changes nothing about Google, so it stays possible whatever the review or location is doing.
+    it('still lets a draft be rejected', async () => {
+      findResponseForTenant.mockResolvedValue(pendingResponse);
+      findLocationForTenant.mockResolvedValue(pausedLocations[0]?.[1]);
+      rejectResponse.mockResolvedValue({ ...pendingResponse, status: ResponseStatus.REJECTED });
+
+      await expect(
+        service.rejectReply({ user, reviewId: 'review-1', responseId: 'response-1' })
+      ).resolves.toMatchObject({ status: 'rejected' });
+    });
+  });
+
   describe('approveReply', () => {
     it('approves as-is when no content is submitted, keeping the original source', async () => {
       findResponseForTenant.mockResolvedValue(pendingResponse);
@@ -250,7 +349,7 @@ describe('ReviewsService', () => {
     it('does not fail the approval when announcing it fails', async () => {
       findResponseForTenant.mockResolvedValue(pendingResponse);
       approveResponse.mockResolvedValue({ ...pendingResponse, status: ResponseStatus.APPROVED });
-      findReviewForTenant.mockRejectedValue(new Error('db blip'));
+      publish.mockRejectedValue(new Error('redis blip'));
 
       await expect(
         service.approveReply({ user, reviewId: 'review-1', responseId: 'response-1' })
@@ -599,6 +698,18 @@ describe('ReviewsService', () => {
         errorMessage: 'Google API returned 429',
         reviewStatus: ReviewStatus.IN_REVIEW,
       });
+    });
+
+    // Regression: pausing a location mid-post turned the client's delivery poll into a 404 instead of the post's outcome.
+    it("still answers for a paused location's review", async () => {
+      findReviewForTenant.mockResolvedValue(review);
+      findResponseForTenant.mockResolvedValue(postFailedResponse);
+
+      await service.getPostStatus({ user, reviewId: 'review-1', responseId: 'response-1' });
+
+      expect(findReviewForTenant).toHaveBeenCalledWith(
+        expect.objectContaining({ reviewId: 'review-1', includePaused: true })
+      );
     });
 
     it('throws ReviewNotFoundException when the review does not resolve for this tenant', async () => {

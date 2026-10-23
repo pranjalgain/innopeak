@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { add, formatCurrency, multiply } from "../math";
+import { add, multiply } from "../math";
 
 describe("Math utilities", () => {
   describe("add", () => {
@@ -24,20 +24,6 @@ describe("Math utilities", () => {
 
     test("should handle zero", () => {
       expect(multiply(5, 0)).toBe(0);
-    });
-  });
-
-  describe("formatCurrency", () => {
-    test("should format USD currency by default", () => {
-      expect(formatCurrency(1234.56)).toBe("$1,234.56");
-    });
-
-    test("should format different currencies", () => {
-      expect(formatCurrency(1234.56, "EUR")).toBe("€1,234.56");
-    });
-
-    test("should handle zero amount", () => {
-      expect(formatCurrency(0)).toBe("$0.00");
     });
   });
 });

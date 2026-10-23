@@ -1,3 +1,4 @@
+import { GoogleIdentityProvider } from '@auth/providers/google-identity.provider';
 import { isAdminMicrosoftLoginAvailable } from '@auth/utils/admin-microsoft.util';
 import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import type { EnvConfig } from '@config/env.config';
@@ -12,7 +13,8 @@ import { PlatformConfigMissingException } from '../exceptions/settings.exception
 export class PlatformSettingsService {
   constructor(
     private readonly platformSettingsDbService: PlatformSettingsDbService,
-    private readonly configService: ConfigService<EnvConfig>
+    private readonly configService: ConfigService<EnvConfig>,
+    private readonly googleIdentityProvider: GoogleIdentityProvider
   ) {}
 
   /** Public: the sign-in/sign-up screens call this before a session exists. */
@@ -28,6 +30,7 @@ export class PlatformSettingsService {
       paymentFeatureEnabled,
       erasureGracePeriodDays: getErasureGracePeriodDays(this.configService),
       adminMicrosoftLoginAvailable: isAdminMicrosoftLoginAvailable(this.configService),
+      adminGoogleLoginAvailable: this.googleIdentityProvider.isConfigured(),
     });
   }
 }

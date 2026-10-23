@@ -29,8 +29,6 @@ export class NotificationRecipientsRepository {
 
     return rows.map(row => ({
       ...row,
-      // `users.name` is nullable (GDPR anonymize-in-place keeps the recipient row), but the DTO and frontend assume a display name, so fall back to a label here.
-      name: row.name ?? 'Removed team member',
       channel: row.channel as NotificationChannelPref,
     }));
   }
@@ -69,8 +67,6 @@ export class NotificationRecipientsRepository {
       ? null
       : {
           ...updated,
-          // Same fallback as `listByTenant` — see its own comment.
-          name: updated.name ?? 'Removed team member',
           channel: updated.channel as NotificationChannelPref,
         };
   }

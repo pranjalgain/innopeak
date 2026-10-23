@@ -213,6 +213,40 @@ two places: a `sync_runs` row for the run itself (`started_at` → `completed_at
 current value the UI renders without a subquery. This module only ever **reads** both; the writes
 belong to the pipeline.
 
+## One live connection, and workers use the location's own (audit follow-ups)
+
+- **The database enforces "one live connection per tenant and provider".** `idx_review_provider_connections_tenant_provider_live` is a partial
+  unique index on `(tenant_id, provider) WHERE disconnected_at IS NULL`. The mismatch rule in `connectAccount` is a read followed by a write, so
+  two concurrent consent flows for different accounts both passed it and left two live rows (`findConnectionByTenant` then picked one, and
+  erasure revoked only that one). The loser's insert now fails with `23505` on that index; `connectAccount` maps it to the same
+  `AccountMismatchException` (409) and discards the credential it had just stored. A same-account reconnect still updates its own row (the
+  account-level unique index is the `ON CONFLICT` target). Migration `0003` was edited in place and the lock re-baselined.
+- **`findConnectionByTenant` orders live first, then the most recently disconnected** (it used the oldest).
+- **Erasure revokes every grant the tenant ever made** (`findConnectionsByTenant`), not just the connection that happens to be returned: a
+  reconnect with another account leaves the old, disconnected row and its credential behind.
+- **Workers run on the location's own connection, and only a live one.** The sync worker used `job.tenantId`'s current connection and the post
+  worker the same; after a reconnect with another account a job queued for the old account ran on (and could flag as broken, and notify the
+  team about) the new, healthy one. They now load `findConnectionById(job.connectionId | location.providerConnectionId, tenantId)`, refuse a
+  missing or disconnected one with `ProviderAuthError` (no provider call), and `markNeedsReauth` skips a disconnected connection, so a stale
+  job's failure neither flips nor announces anything. The post worker's dead-grant handling flags the location's own connection too.
+
+**Confirming a location again no longer re-runs its backfill.** `confirmLocations` used to acquire a backfill run for every confirmed location, so an owner
+confirming again (or adding one more location to the set) re-walked up to 20 pages of Google for locations that had finished onboarding, and the
+location's polls were skipped while it ran. A location with `onboarding_backfill_completed_at` set is still upserted and attached to the user, but
+gets no run (`backfill: null`, which callers already treat as "nothing to enqueue"). A reconnect with the same account still restarts the incomplete
+ones (`restartIncompleteBackfills`), and an explicit re-sync is a separate route.
+
+**More follow-ups.**
+
+- **Disconnect keeps a credential Google did not confirm revoking.** `revokeAndDelete(reference, { keepIfNotRevoked: true })` leaves the stored credential in place when the
+  revocation failed (`credentialRevoked: false` in the response). Deleting it left a live grant at Google with nothing to revoke it by; kept, the erasure purge revokes it
+  (`revokeOrThrow`) and a reconnect to the same account reuses the slot.
+- **The claimed account choice is checked, not the peeked one.** `selectAccount` peeks, then claims; another consent can replace the waiting choice between the two.
+  It now re-checks the claimed record (same user, still offers the chosen account), puts a record that is not theirs back, and connects the claimed account.
+- **A failed sync records our own words.** The run the owner reads as the location's "last sync error" used to hold the provider's raw English (up to 500 characters of
+  Google's response) or, for a database failure, SQL. `describeSyncFailure` stores a translated message by kind (`SYNC_FAILED_AUTH`, `_RATE_LIMITED`, `_UNAVAILABLE`,
+  `_CLASSIFICATION`, `_UNKNOWN`, en/de); the raw message is logged where it is caught.
+
 ## API surface
 
 All routes are versioned under `/v1/connections` (`RouteNames.CONNECTIONS`, `version: '1'`).
@@ -265,11 +299,7 @@ with a transaction-scoped Postgres advisory lock (`ConnectionsRepository
 second transaction blocks until the first commits, so its own recheck runs against the first
 one's already-committed row rather than a stale, pre-commit view.
 
-`user_locations` therefore gets written even though nothing reads it discriminatingly yet: when a
-location is confirmed, the confirming user gets a row. At MVP every user in the tenant trivially
-sees the only location, so a query that joins through `user_locations` and one that filters on
-`locations.tenant_id` return the same rows — the point is that the join is already in place when
-that stops being true.
+`user_locations` still gets written (the confirming user gets a row) but nothing reads it: the locations list is scoped by the caller's tenant, because an accepted invite attaches nobody and a join through the table gave members an empty list. The table is where a per-store member scope would live.
 
 **What the frontend exposes today vs. the backend target.** Mirroring how auth handles this: the
 restriction is the frontend's, and the backend does not encode it.

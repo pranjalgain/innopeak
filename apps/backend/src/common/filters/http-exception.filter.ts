@@ -1,6 +1,8 @@
 import { ApiResponse } from '@common/dto/api-response';
 import { CustomUnauthorizedException } from '@common/filters/exception/custom-unauthorized-exception';
 import { mapProviderFailure } from '@common/filters/exception/provider-failure.mapper';
+import { toLoggableError } from '@common/helpers/loggable-error.util';
+import { safeUrl } from '@common/helpers/safe-url.util';
 import { resolveRequestLocale } from '@common/i18n/locale';
 import { renderMessage, renderNestedMessage } from '@common/i18n/message-registry';
 import { ErrorHandlerService } from '@common/services/error-handler.service';
@@ -17,6 +19,19 @@ import {
 import { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * The status of something that is not a Nest `HttpException`: a body-parser or `http-errors` rejection (malformed JSON, a body over the limit)
+ * carries its own 4xx status and is marked `expose`. It is the caller's mistake and answers 4xx (`ErrorHandlerService` does), so it is logged as
+ * the warning it is, not as a 500 with a stack. Anything else is a server fault.
+ */
+function clientErrorStatus(error: unknown): number {
+  const candidate = error as { statusCode?: unknown; status?: unknown; expose?: unknown } | null;
+  const status = candidate?.statusCode ?? candidate?.status;
+  return candidate?.expose === true && typeof status === 'number' && status >= 400 && status < 500
+    ? status
+    : 500;
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   constructor(private readonly errorHandlerService: ErrorHandlerService) {}
@@ -25,7 +40,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
-    const context = `${request.method} ${request.url}`;
+    // The path only: the raw URL carries invite tokens and OAuth `code`/`state`, which must not reach the error log either.
+    const context = `${request.method} ${safeUrl(request.url)}`;
     const errorId = uuidv4();
     // Resolved once for the log line (always English, what ops reads) and the response (caller's
     // locale). With no stored-user locale (thrown before `JwtAuthGuard`, or a `@Public()` route) it
@@ -40,11 +56,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     // The stack only helps with a server fault; a 4xx is the caller's request being refused (often an expected
     // answer, like an expired choice or a lapsed token), so it is one warning line.
-    const logLine = `[ErrorID: ${errorId}] Message: ${renderMessage(thrown.message, 'en')}`;
+    // A failed database statement is logged without its SQL and bound values (password hashes, emails, review text).
+    const loggable = toLoggableError(thrown);
+    const logLine = `[ErrorID: ${errorId}] Message: ${renderMessage(loggable.message, 'en')}`;
     // `@Catch()` receives anything thrown, not only HttpExceptions: a plain Error has no `getStatus`, and is a server fault.
-    const status = exception instanceof HttpException ? exception.getStatus() : 500;
+    const status =
+      exception instanceof HttpException ? exception.getStatus() : clientErrorStatus(thrown);
     if (status >= 500) {
-      Logger.error(`${logLine}\nStack Trace: ${thrown.stack}`, 'ErrorContext');
+      Logger.error(`${logLine}\nStack Trace: ${loggable.stack}`, 'ErrorContext');
     } else {
       Logger.warn(logLine, 'ErrorContext');
     }

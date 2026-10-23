@@ -138,7 +138,7 @@ export class ReviewsReadRepository {
     return { reviews: reviews as ReviewRow[], total: totals[0]?.value ?? 0 };
   }
 
-  /** Same `billing_paused_at` exclusion as `listReviews`; a paused location's review resolves like "doesn't exist" so it doesn't leak. */
+  /** Same `billing_paused_at` exclusion as `listReviews` unless `includePaused`: a paused location's review resolves like "doesn't exist" so it doesn't leak. */
   async findReviewByIdForTenant(input: FindReviewByIdForTenantInput): Promise<ReviewRow | null> {
     const rows = await this.dbService.db
       .select(REVIEW_COLUMNS)
@@ -148,7 +148,9 @@ export class ReviewsReadRepository {
         and(
           eq(schema.reviews.id, input.reviewId),
           eq(schema.reviews.tenantId, input.tenantId),
-          isNull(schema.locations.billingPausedAt)
+          // Hidden by default (it is a read: a paused location's reviews are not shown). The reply actions pass `includePaused` so they
+          // reach `assertLocationAcceptsReplies` and answer "location paused" rather than "not found".
+          input.includePaused === true ? undefined : isNull(schema.locations.billingPausedAt)
         )
       )
       .limit(1);
@@ -366,7 +368,12 @@ export class ReviewsReadRepository {
     }));
   }
 
-  /** Usage counter for the plan's monthly AI-draft limit: AI-generated responses since the start of the current UTC month. */
+  /**
+   * Usage counter for the plan's monthly AI-draft limit: AI drafts created since the start of the current UTC month. A draft the owner
+   * edited before approving becomes `human_edited` (a human-written reply is `human_manual` and never counted), but it still cost an
+   * LLM call, so both sources count; counting `ai_generated` alone let editing hand the slot back and left the cap unenforced.
+   * Whether the cap applies at all is `BillingEntitlementsService`'s call (it is lifted while payments are off).
+   */
   async countAiGeneratedResponsesThisMonth(tenantId: string, monthStart: string): Promise<number> {
     const rows = await this.dbService.db
       .select({ value: count() })
@@ -374,7 +381,10 @@ export class ReviewsReadRepository {
       .where(
         and(
           eq(schema.reviewResponses.tenantId, tenantId),
-          eq(schema.reviewResponses.source, ResponseSource.AI_GENERATED),
+          inArray(schema.reviewResponses.source, [
+            ResponseSource.AI_GENERATED,
+            ResponseSource.HUMAN_EDITED,
+          ]),
           gte(schema.reviewResponses.createdAt, monthStart)
         )
       );

@@ -1,5 +1,7 @@
 import { requireTenantUser } from '@auth/utils/require-tenant-user.util';
 import { MESSAGES } from '@common/constants/messages.constants';
+import type { Locale } from '@common/i18n/locale';
+import { renderMessage } from '@common/i18n/message-registry';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
 import { SettingsDbService } from '@db/repositories/settings/settings.db-service';
 import { Injectable } from '@nestjs/common';
@@ -15,6 +17,11 @@ import {
   NotificationRecipientNotFoundException,
   NotificationSettingsDisabledException,
 } from '../exceptions/settings.exceptions';
+
+/** Data fields are not rendered at the response edge (only `message` is), so the label is picked here, in the caller's language. */
+function removedMemberName(locale: Locale | null): string {
+  return renderMessage(MESSAGES.SETTINGS.REMOVED_TEAM_MEMBER, locale ?? 'en');
+}
 
 @Injectable()
 export class NotificationRecipientsService {
@@ -35,7 +42,7 @@ export class NotificationRecipientsService {
     const tenantUser = requireTenantUser(user, MESSAGES.SETTINGS.TENANT_ONLY);
     await this.assertSettingsEnabled();
     const rows = await this.settingsDbService.listNotificationRecipients(tenantUser.tenantId);
-    return NotificationRecipientListResponseDto.from(rows);
+    return NotificationRecipientListResponseDto.from(rows, removedMemberName(tenantUser.locale));
   }
 
   async update(
@@ -63,6 +70,6 @@ export class NotificationRecipientsService {
       throw new NotificationRecipientNotFoundException();
     }
 
-    return NotificationRecipientDto.from(row);
+    return NotificationRecipientDto.from(row, removedMemberName(tenantUser.locale));
   }
 }

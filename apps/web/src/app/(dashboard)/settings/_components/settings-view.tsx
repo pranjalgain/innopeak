@@ -29,6 +29,7 @@ import { GeneralSettingsSection } from "@/app/(dashboard)/settings/_components/g
 import { MembersSettingsSection } from "@/app/(dashboard)/settings/_components/members-settings-section";
 import { NotificationsSettingsSection } from "@/app/(dashboard)/settings/_components/notifications-settings-section";
 import { ProfileSettingsSection } from "@/app/(dashboard)/settings/_components/profile-settings-section";
+import { LoadErrorState } from "@/components/common/load-error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCheckoutReconciliation } from "@/hooks/billing/use-checkout-reconciliation";
@@ -72,6 +73,8 @@ export function SettingsView() {
   const {
     settings,
     isLoading,
+    isError,
+    refetch,
     saveGeneral,
     addBlocklistTerm,
     removeBlocklistTerm,
@@ -115,7 +118,8 @@ export function SettingsView() {
   const handleTabChange = useCallback(
     (value: string) => {
       // `typedRoutes` can't see that this only produces `/settings?tab=` plus a `TABS` literal.
-      router.push(`${pathname}?tab=${value}` as Route, { scroll: false });
+      // `replace`: a tab is a view of one page, and an arrow-key walk along the strip would otherwise push a history entry per key.
+      router.replace(`${pathname}?tab=${value}` as Route, { scroll: false });
     },
     [router, pathname],
   );
@@ -137,6 +141,15 @@ export function SettingsView() {
             <ProfileSettingsSection />
           </TabsContent>
         </Tabs>
+      </div>
+    );
+  }
+
+  // A failed load ends with no data and `isLoading` false: a skeleton there would never resolve, so offer a retry.
+  if (isError && !settings) {
+    return (
+      <div className="p-fluid-page">
+        <LoadErrorState onRetry={refetch} />
       </div>
     );
   }
@@ -189,7 +202,9 @@ export function SettingsView() {
           ) : null}
         </TabsList>
 
-        <TabsContent value="general">
+        {/* Kept mounted (hidden) while another tab is open: the General tab stages edits in local state until Save, which unmounting it
+            silently discarded. */}
+        <TabsContent value="general" forceMount className="data-[state=inactive]:hidden">
           <div className="flex flex-col gap-5">
             <GeneralSettingsSection general={settings.general} onSave={saveGeneral} />
             <ExportDataSection />

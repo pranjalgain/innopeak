@@ -81,7 +81,7 @@ export function BusinessNameView() {
 
           <div className="text-muted-foreground mt-6 text-center text-sm">
             {t("startOver")}{" "}
-            <Link href={ROUTES.ONBOARDING_SIGNUP} className="font-medium">
+            <Link href={ROUTES.ONBOARDING_SIGNUP} className="font-medium text-primary underline underline-offset-4">
               {t("startOverLink")}
             </Link>
           </div>

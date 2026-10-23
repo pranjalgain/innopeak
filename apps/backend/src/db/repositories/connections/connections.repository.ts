@@ -95,8 +95,63 @@ export class ConnectionsRepository {
       .from(schema.reviewProviderConnections)
       .where(eq(schema.reviewProviderConnections.tenantId, tenantId))
       .orderBy(
-        sql`${schema.reviewProviderConnections.disconnectedAt} ASC NULLS FIRST`,
+        // Live first; among the dead, the most recently disconnected (ASC picked the oldest, so a later "which was it" read was wrong).
+        sql`${schema.reviewProviderConnections.disconnectedAt} DESC NULLS FIRST`,
         desc(schema.reviewProviderConnections.createdAt)
+      )
+      .limit(1);
+
+    return (rows[0] as ProviderConnectionRow | undefined) ?? null;
+  }
+
+  /**
+   * This tenant's row for one Google account, live or not. `findConnectionByTenant` returns only the latest row, so after a switch
+   * A -> B the row for A is invisible to it, and reconnecting A looked like a brand-new account.
+   */
+  async findConnectionByTenantAndAccount(
+    tenantId: string,
+    providerAccountId: string
+  ): Promise<ProviderConnectionRow | null> {
+    const rows = await this.dbService.db
+      .select(CONNECTION_COLUMNS)
+      .from(schema.reviewProviderConnections)
+      .where(
+        and(
+          eq(schema.reviewProviderConnections.tenantId, tenantId),
+          eq(schema.reviewProviderConnections.providerAccountId, providerAccountId)
+        )
+      )
+      .limit(1);
+
+    return (rows[0] as ProviderConnectionRow | undefined) ?? null;
+  }
+
+  /** Every connection the tenant has ever had, live or not: erasure must revoke each grant, not just the one `findConnectionByTenant` picks. */
+  async findConnectionsByTenant(tenantId: string): Promise<ProviderConnectionRow[]> {
+    const rows = await this.dbService.db
+      .select(CONNECTION_COLUMNS)
+      .from(schema.reviewProviderConnections)
+      .where(eq(schema.reviewProviderConnections.tenantId, tenantId));
+
+    return rows as ProviderConnectionRow[];
+  }
+
+  /**
+   * A location's own connection (`locations.provider_connection_id`), scoped to the tenant. Workers use this rather than "the tenant's
+   * current connection": after a reconnect with another account the two differ, and a stale job must not run on the wrong grant.
+   */
+  async findConnectionById(
+    connectionId: string,
+    tenantId: string
+  ): Promise<ProviderConnectionRow | null> {
+    const rows = await this.dbService.db
+      .select(CONNECTION_COLUMNS)
+      .from(schema.reviewProviderConnections)
+      .where(
+        and(
+          eq(schema.reviewProviderConnections.id, connectionId),
+          eq(schema.reviewProviderConnections.tenantId, tenantId)
+        )
       )
       .limit(1);
 
@@ -158,6 +213,8 @@ export class ConnectionsRepository {
       .where(
         and(
           eq(schema.reviewProviderConnections.id, connectionId),
+          // A connection the owner disconnected is not "in trouble": a stale job failing on its dead grant must not flip it or notify the team.
+          isNull(schema.reviewProviderConnections.disconnectedAt),
           ne(schema.reviewProviderConnections.status, ReviewProviderConnectionStatus.NEEDS_REAUTH)
         )
       )
@@ -254,11 +311,12 @@ export class ConnectionsRepository {
   }
 
   /**
-   * Joined through `user_locations` rather than filtered on `locations.tenant_id`: identical today,
-   * and already correct once a member is scoped to one store of several.
+   * Every location of the user's business. It used to join `user_locations`, which assumed every user is attached, but only the owner
+   * who confirms a location ever is (an accepted invite attaches nobody), so an invited member saw an empty list while the dashboard
+   * showed the business. Scoped through the user's own `tenant_id`; a per-store member scope would filter on `user_locations` again.
    */
   async findLocationsForUser(userId: string, status?: LocationStatus): Promise<LocationRow[]> {
-    const conditions = [eq(schema.userLocations.userId, userId)];
+    const conditions = [eq(schema.users.id, userId)];
     if (status) {
       conditions.push(eq(schema.locations.status, status));
     }
@@ -266,7 +324,7 @@ export class ConnectionsRepository {
     return this.dbService.db
       .select(LOCATION_COLUMNS)
       .from(schema.locations)
-      .innerJoin(schema.userLocations, eq(schema.userLocations.locationId, schema.locations.id))
+      .innerJoin(schema.users, eq(schema.users.tenantId, schema.locations.tenantId))
       .where(and(...conditions))
       .orderBy(schema.locations.createdAt, schema.locations.id) as Promise<LocationRow[]>;
   }
@@ -484,6 +542,36 @@ export class ConnectionsRepository {
       );
 
     return rows;
+  }
+
+  /**
+   * `findLocationsDueForPoll`'s conditions for one location, asked again when a queued poll actually runs: the enqueue-time check can be
+   * minutes old by then (a retry backoff adds more), and a downgrade pause, a suspension or an erasure in between must stop the poll,
+   * not just the next tick's fan-out.
+   */
+  async isLocationPollable(locationId: string, tenantId: string): Promise<boolean> {
+    const rows = await this.dbService.db
+      .select({ id: schema.locations.id })
+      .from(schema.locations)
+      .innerJoin(
+        schema.reviewProviderConnections,
+        eq(schema.reviewProviderConnections.id, schema.locations.providerConnectionId)
+      )
+      .innerJoin(schema.tenants, eq(schema.tenants.id, schema.locations.tenantId))
+      .where(
+        and(
+          eq(schema.locations.id, locationId),
+          eq(schema.locations.tenantId, tenantId),
+          eq(schema.locations.status, LocationStatus.ACTIVE),
+          isNotNull(schema.locations.onboardingBackfillCompletedAt),
+          eq(schema.reviewProviderConnections.status, ReviewProviderConnectionStatus.ACTIVE),
+          notInArray(schema.tenants.status, [TenantStatus.SUSPENDED, TenantStatus.ERASED]),
+          isNull(schema.locations.billingPausedAt)
+        )
+      )
+      .limit(1);
+
+    return rows.length > 0;
   }
 
   /**

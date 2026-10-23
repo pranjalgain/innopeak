@@ -2,6 +2,7 @@ import { JwtTokenType } from '@auth/enums/jwt-token-type.enum';
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
+import { TokenService } from '@auth/services/token.service';
 import type { TenantAuthUser } from '@auth/types/auth.type';
 import { JobName } from '@bg/constants/job.constant';
 import { AddingJobsToQueueManager } from '@bg/queue-add-manager';
@@ -46,6 +47,7 @@ describe('TenantMembersService', () => {
   let platformSettingsDbService: { get: jest.Mock };
   let billingEntitlementsService: { canInviteTeamMember: jest.Mock };
   let queueManager: { addMemberInviteEmailJob: jest.Mock };
+  let tokenService: { revokeAll: jest.Mock };
   let configService: { get: jest.Mock };
 
   beforeEach(async () => {
@@ -64,6 +66,7 @@ describe('TenantMembersService', () => {
     platformSettingsDbService = { get: jest.fn() };
     billingEntitlementsService = { canInviteTeamMember: jest.fn().mockResolvedValue(true) };
     queueManager = { addMemberInviteEmailJob: jest.fn().mockResolvedValue(undefined) };
+    tokenService = { revokeAll: jest.fn().mockResolvedValue(undefined) };
     configService = {
       get: jest.fn((key: string) => {
         return key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : undefined;
@@ -77,6 +80,7 @@ describe('TenantMembersService', () => {
         { provide: PlatformSettingsDbService, useValue: platformSettingsDbService },
         { provide: BillingEntitlementsService, useValue: billingEntitlementsService },
         { provide: AddingJobsToQueueManager, useValue: queueManager },
+        { provide: TokenService, useValue: tokenService },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -252,8 +256,28 @@ describe('TenantMembersService', () => {
       );
     });
 
-    // A missing tenant row falls back to a generic name rather than failing the invite over a cosmetic detail.
-    it('falls back to a generic business name if the tenant lookup somehow comes back empty', async () => {
+    it('takes the invite back and answers 503 when the email queue refuses it', async () => {
+      authDbService.findMemberInviteStatusByEmail.mockResolvedValue(null);
+      authDbService.createMemberInvite.mockResolvedValue({
+        id: 'user-4',
+        name: 'sam.rivera@thecoffeehouse.com',
+        email: 'sam.rivera@thecoffeehouse.com',
+        role: UserRole.MEMBER,
+        status: UserStatus.INVITED,
+        invitedAt: '2026-03-01T00:00:00Z',
+      });
+      authDbService.revokeMemberInvite.mockResolvedValue({ outcome: 'revoked' });
+      queueManager.addMemberInviteEmailJob.mockRejectedValue(new Error('redis down'));
+
+      await expect(
+        target.sendInvite(owner, { email: 'sam.rivera@thecoffeehouse.com' })
+      ).rejects.toMatchObject({ response: { code: 'EMAIL_QUEUE_UNAVAILABLE' } });
+
+      expect(authDbService.revokeMemberInvite).toHaveBeenCalledWith('tenant-1', 'user-4');
+    });
+
+    // A missing tenant row sends the invite unnamed (the email then says "a team", in the inviter's language) rather than failing it.
+    it('sends the invite without a business name if the tenant lookup somehow comes back empty', async () => {
       authDbService.findMemberInviteStatusByEmail.mockResolvedValue(null);
       authDbService.findTenantStatus.mockResolvedValue(null);
       authDbService.createMemberInvite.mockResolvedValue({
@@ -267,10 +291,9 @@ describe('TenantMembersService', () => {
 
       await target.sendInvite(owner, { email: 'sam.rivera@thecoffeehouse.com' });
 
-      expect(queueManager.addMemberInviteEmailJob).toHaveBeenCalledWith(
-        JobName.MEMBER_INVITE_EMAIL,
-        expect.objectContaining({ businessName: 'your team' })
-      );
+      const [, job] = queueManager.addMemberInviteEmailJob.mock.calls.at(-1) ?? [];
+      expect(job).not.toHaveProperty('businessName');
+      expect(job).toMatchObject({ locale: 'en' });
     });
 
     // The pre-check is read-then-write: a concurrent duplicate hits the unique-email index and must still be a 409, not a 500.
@@ -351,6 +374,32 @@ describe('TenantMembersService', () => {
 
       expect(authDbService.requestMemberRemoval).toHaveBeenCalledWith('tenant-1', 'user-2');
       expect(result).toEqual({ gracePeriodDays: 30 });
+    });
+
+    // Access is disabled by the request, so the member's access tokens end now rather than when they lapse.
+    it("ends the removed member's access tokens, and nobody else's, when removal is requested", async () => {
+      authDbService.requestMemberRemoval.mockResolvedValue({
+        outcome: 'requested',
+        id: 'user-2',
+        email: 'sam.rivera@thecoffeehouse.com',
+      });
+
+      await target.requestRemoval(owner, 'user-2');
+
+      expect(tokenService.revokeAll).toHaveBeenCalledTimes(1);
+      expect(tokenService.revokeAll).toHaveBeenCalledWith('user-2');
+    });
+
+    it('ends no sessions when the removal was refused', async () => {
+      authDbService.requestMemberRemoval.mockResolvedValueOnce({ outcome: 'not_found' });
+      await expect(target.requestRemoval(owner, 'user-2')).rejects.toThrow(NotFoundException);
+
+      authDbService.requestMemberRemoval.mockResolvedValueOnce({ outcome: 'last_owner' });
+      await expect(target.requestRemoval(owner, 'owner-2')).rejects.toThrow(BadRequestException);
+
+      await expect(target.requestRemoval(owner, owner.id)).rejects.toThrow(BadRequestException);
+
+      expect(tokenService.revokeAll).not.toHaveBeenCalled();
     });
 
     it('defaults the grace period to 21 days when unset', async () => {

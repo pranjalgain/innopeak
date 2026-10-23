@@ -239,6 +239,25 @@ has them queued for anonymization once the *original* removal's grace period ela
 must cancel the pending removal first (via the settings module's own flow), the same way a pending
 tenant erasure must be cancelled before `setStatus` will touch that tenant again.
 
+## Cancelling a request restores what it replaced
+
+Requesting a team member's removal disables them (`erasure_requested_at` set), and requesting a business's erasure suspends it. Cancelling
+either used to *assume* the prior state: `cancelMemberRemoval` restored `active` (or `invited`) and `cancelErasure` / the owner's cancel
+restored `active`. So an owner could undo an admin's deactivation by requesting and then cancelling a removal, and cancelling an erasure
+silently lifted an admin's suspension (or skipped a tenant's pending activation). Now the request records what it replaced
+(`users.status_before_removal`, `tenants.status_before_erasure`, written with `COALESCE` so asking twice, or an admin taking over an
+owner's pending erasure, keeps the *original* status) and cancelling restores exactly that, clearing the column; a request made before
+the column existed falls back to the old derivation. Anonymization and erasure clear it.
+
+## Ending a user's sessions, the last owner, and the erasure lock (audit follow-ups)
+
+- **Deactivating a user, or requesting a member's removal, ends their refresh tokens too** (`TokenService.revokeAll`, not only the access-token mark). Re-enabling or
+  cancelling the removal used to revive a session from before it; the person now signs in again.
+- **The last-owner guard counts only owners who can sign in.** `requestMemberRemoval` refused to remove an owner only if no *other* non-anonymized owner existed, so a
+  disabled owner (or one queued for removal) counted as a remaining owner and the business could be left with nobody able to sign in. Now the other owner must be `active`.
+- **`requestErasure` takes the per-tenant `gdpr:tenant-erasure` lock** that `cancelErasure` and the nightly purge already take, so a request cannot land in the gap
+  between the purge reading its due list and anonymizing.
+
 ## Consumers
 
 `useAdminBusinesses` / `useAdminUsers` (`apps/web/src/hooks/admin/`) debounce the search box

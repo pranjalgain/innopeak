@@ -51,11 +51,14 @@ export function ApiToggleAdminUserActive(): ReturnType<typeof applyDecorators> {
     ApiOperation({
       summary: "Toggle a user's active status",
       description:
-        'A single toggle, not separate activate/deactivate calls: any status other than ' +
-        "'disabled' flips to 'disabled'. Re-enabling restores the status the user must have had " +
-        "before — 'active' if their email was ever verified, otherwise 'pending_verification', so " +
-        'disabling an unverified signup never doubles as verifying them.',
+        'One route for both directions. Send `active` to say which state the user should end up in: already there, nothing ' +
+        'changes and nothing is logged, so a stale list or a double click cannot undo an earlier action. Omitted, any status ' +
+        "other than 'disabled' flips to 'disabled' and a disabled user is re-enabled. Re-enabling restores the status the user " +
+        "must have had before — 'active' if their email was ever verified, otherwise 'pending_verification', so disabling an " +
+        'unverified signup never doubles as verifying them. A member who has not accepted their invite is refused (409 ' +
+        '`USER_INVITE_PENDING`): revoke the invite instead.',
     }),
+    ApiQuery({ name: 'active', required: false, type: Boolean }),
     ApiResponse({
       status: HttpStatus.OK,
       type: AdminUserResponseDto,

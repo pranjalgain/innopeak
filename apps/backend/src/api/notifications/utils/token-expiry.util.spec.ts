@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 
-import { msUntilAccessTokenExpiry } from './token-expiry.util';
+import { accessTokenIssuedAt, msUntilAccessTokenExpiry } from './token-expiry.util';
 
 const FALLBACK = 123_456;
 
@@ -49,5 +49,16 @@ describe('msUntilAccessTokenExpiry', () => {
     ['a token whose payload is not JSON', requestWith('a.b.c')],
   ])('uses the fallback for %s', (_label, request) => {
     expect(msUntilAccessTokenExpiry(request, FALLBACK)).toBe(FALLBACK);
+  });
+});
+
+describe('accessTokenIssuedAt', () => {
+  it('reads the issue time from the cookie token', () => {
+    expect(accessTokenIssuedAt(requestWith(jwtWith({ iat: 1_700_000_000 })))).toBe(1_700_000_000);
+  });
+
+  it('is undefined when the token has none or cannot be read', () => {
+    expect(accessTokenIssuedAt(requestWith(jwtWith({ exp: 1 })))).toBeUndefined();
+    expect(accessTokenIssuedAt(requestWith())).toBeUndefined();
   });
 });

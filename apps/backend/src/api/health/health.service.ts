@@ -1,3 +1,4 @@
+import { TtlCache } from '@common/helpers/ttl-cache';
 import { withTimeout } from '@common/helpers/with-timeout';
 import { Injectable, Logger } from '@nestjs/common';
 import { HealthIndicatorResult, MemoryHealthIndicator } from '@nestjs/terminus';
@@ -20,6 +21,13 @@ const HEAP_DOWN_FRACTION = 0.9;
 export const HEALTH_CHECK_TIMEOUT_MS = 3_000;
 
 /**
+ * How long a readiness answer is reused. The probe is public and unthrottled, and each real check queries the database and Redis, so
+ * anyone hitting it in a loop cost two round trips per request. A load balancer polls every few seconds: two seconds of staleness is
+ * invisible to it, and concurrent probes share one check.
+ */
+export const READINESS_CACHE_MS = 2_000;
+
+/**
  * `getStatus` always populates `result[key]`, but the index signature cannot express that under
  * `noUncheckedIndexedAccess`; the "down" fallback should be unreachable.
  */
@@ -37,6 +45,9 @@ function publicEntry(entry: HealthEntryDto): HealthEntryDto {
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
+  private readonly readiness = new TtlCache<HealthCheckResponseDto>(READINESS_CACHE_MS, 1, () =>
+    Date.now()
+  );
 
   constructor(
     private readonly database: CustomDatabaseHealthIndicator,
@@ -53,7 +64,11 @@ export class HealthService {
    * Readiness: can this instance serve traffic. Database and Redis are required; memory only fails near the heap limit.
    * Third parties (Google, Stripe, the LLM) are deliberately not probed: their outages must not take this instance out of rotation.
    */
-  async checkHealth(): Promise<HealthCheckResponseDto> {
+  checkHealth(): Promise<HealthCheckResponseDto> {
+    return this.readiness.getOrLoad('readiness', () => this.runReadinessChecks());
+  }
+
+  private async runReadinessChecks(): Promise<HealthCheckResponseDto> {
     const results = {} as HealthCheckResultsDto;
     const failed: string[] = [];
 

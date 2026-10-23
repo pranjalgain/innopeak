@@ -17,6 +17,8 @@ export const tenantOwnerProfileQueryKey = ["tenant-owner-profile"] as const;
 interface UseTenantOwnerProfileResult {
   profile: TenantOwnerProfile | null;
   isLoading: boolean;
+  isError: boolean;
+  refetch: () => void;
   updateAvatar: (file: File) => Promise<void>;
   isUploadingAvatar: boolean;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
@@ -186,6 +188,8 @@ export function useTenantOwnerProfile(): UseTenantOwnerProfileResult {
   return {
     profile: profileQuery.data ?? null,
     isLoading: isInitialLoad(profileQuery),
+    isError: profileQuery.isError,
+    refetch: () => void profileQuery.refetch(),
     updateAvatar,
     isUploadingAvatar: updateAvatarMutation.isPending,
     changePassword,

@@ -14,6 +14,7 @@ import {
 import { cn } from "@/app/_libs/utils/cn";
 import { getInitials } from "@/app/_libs/utils/initials";
 import { ConfirmActionButton } from "@/components/common/confirm-action-dialog";
+import { LoadErrorState } from "@/components/common/load-error-state";
 import { Pagination } from "@/components/common/pagination";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +44,7 @@ export function MembersSettingsSection() {
   const tStatus = useTranslations("settings.members.status");
   const format = useFormatter();
   const graceDays = useErasureGracePeriodDays();
-  const { members, isLoading, inviteMember, revokeInvite, requestRemoval, cancelRemoval } =
+  const { members, isLoading, isError, refetch, inviteMember, revokeInvite, requestRemoval, cancelRemoval } =
     useTenantMembers();
   const { page, totalPages, pageItems, goToPreviousPage, goToNextPage } = usePagination(members, 10);
   const schema = useMemo(() => inviteMemberSchema(t), [t]);
@@ -79,6 +80,7 @@ export function MembersSettingsSection() {
     }
   });
 
+  if (isError) return <LoadErrorState onRetry={refetch} />;
   if (isLoading) return <Skeleton className="h-56 w-full max-w-3xl rounded-xl" />;
 
   return (
@@ -96,6 +98,7 @@ export function MembersSettingsSection() {
             <Input
               type="email"
               placeholder={t("emailPlaceholder")}
+              aria-label={t("emailPlaceholder")}
               className="flex-1"
               {...register("email", {
                 onChange: (event) => setEmailValue(event.target.value),
@@ -147,9 +150,8 @@ export function MembersSettingsSection() {
                       trigger={
                         <Button
                           type="button"
-                          variant="outline"
-                          size="sm"
-                          className="border-destructive text-destructive hover:bg-destructive/10">
+                          variant="destructive-outline"
+                          size="sm">
                           {t("revoke")}
                         </Button>
                       }
@@ -193,9 +195,8 @@ export function MembersSettingsSection() {
                       trigger={
                         <Button
                           type="button"
-                          variant="outline"
-                          size="sm"
-                          className="border-destructive text-destructive hover:bg-destructive/10">
+                          variant="destructive-outline"
+                          size="sm">
                           {t("remove")}
                         </Button>
                       }

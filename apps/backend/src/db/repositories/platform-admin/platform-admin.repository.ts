@@ -7,6 +7,7 @@ import { DBService, DrizzleTransaction } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { Injectable } from '@nestjs/common';
+import type { SQL } from 'drizzle-orm';
 import { and, desc, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 
 import type {
@@ -16,6 +17,7 @@ import type {
   PlatformAdminAlertRecipient,
   PlatformAdminLoginRow,
   PlatformAdminProfileRow,
+  PlatformAdminWithInviteRow,
   RevokeInviteOutcome,
   SetAdminStatusGuardInput,
   SetAdminStatusOutcome,
@@ -120,13 +122,16 @@ export class PlatformAdminRepository {
       );
 
       const current = await tx
-        .select({ status: schema.platformAdmins.status })
+        .select({ email: schema.platformAdmins.email, status: schema.platformAdmins.status })
         .from(schema.platformAdmins)
         .where(eq(schema.platformAdmins.id, id))
         .limit(1);
-      const currentRow = current[0] as { status: PlatformAdminStatus } | undefined;
+      const currentRow = current[0] as { email: string; status: PlatformAdminStatus } | undefined;
       if (!currentRow) {
         return { outcome: 'not_found' };
+      }
+      if (currentRow.status === status) {
+        return { outcome: 'unchanged', id, email: currentRow.email, status };
       }
 
       if (
@@ -220,17 +225,16 @@ export class PlatformAdminRepository {
    * Every admin including the seeded root, left-joined to its `invite`-purpose row; the root has
    * none, so `invitedAt`/`expiresAt` come back null (the DB service falls back to `createdAt`).
    */
-  async findAllWithInvites(): Promise<
-    {
-      id: string;
-      email: string;
-      status: PlatformAdminStatus;
-      createdAt: string;
-      inviteCreatedAt: string | null;
-      inviteExpiresAt: string | null;
-      invitedByPlatformAdminId: string | null;
-    }[]
-  > {
+  async findAllWithInvites(): Promise<PlatformAdminWithInviteRow[]> {
+    return this.selectWithInvites(undefined);
+  }
+
+  /** One roster row, for a response that only changed that admin: reading the whole roster to find it grew with the team. */
+  async findWithInviteById(id: string): Promise<PlatformAdminWithInviteRow | null> {
+    return (await this.selectWithInvites(eq(schema.platformAdmins.id, id)))[0] ?? null;
+  }
+
+  private async selectWithInvites(where: SQL | undefined): Promise<PlatformAdminWithInviteRow[]> {
     const rows = await this.dbService.db
       .select({
         id: schema.platformAdmins.id,
@@ -251,17 +255,10 @@ export class PlatformAdminRepository {
           eq(schema.platformAdminInvites.purpose, PlatformAdminInvitePurpose.INVITE)
         )
       )
+      .where(where)
       .orderBy(desc(schema.platformAdmins.createdAt));
 
-    return rows as {
-      id: string;
-      email: string;
-      status: PlatformAdminStatus;
-      createdAt: string;
-      inviteCreatedAt: string | null;
-      inviteExpiresAt: string | null;
-      invitedByPlatformAdminId: string | null;
-    }[];
+    return rows as PlatformAdminWithInviteRow[];
   }
 
   async insertInvitedAdmin(
@@ -349,32 +346,6 @@ export class PlatformAdminRepository {
       .returning({ id: schema.platformAdminInvites.id });
 
     return rows.length > 0;
-  }
-
-  /**
-   * Active admins with no `password_hash`, i.e. Google is their only way in. Backs
-   * `updatePlatformSettings`' lockout guard: switching off `googleLoginEnabled` would strand them.
-   * `invited` (no identity yet) and `disabled` (cannot sign in anyway) are excluded.
-   */
-  async countActiveGoogleOnlyAdmins(): Promise<number> {
-    const rows = await this.dbService.db
-      .select({ value: sql<number>`count(distinct ${schema.platformAdmins.id})::int` })
-      .from(schema.platformAdmins)
-      .innerJoin(
-        schema.platformAdminIdentities,
-        and(
-          eq(schema.platformAdminIdentities.platformAdminId, schema.platformAdmins.id),
-          eq(schema.platformAdminIdentities.provider, UserIdentityProvider.GOOGLE)
-        )
-      )
-      .where(
-        and(
-          eq(schema.platformAdmins.status, PlatformAdminStatus.ACTIVE),
-          isNull(schema.platformAdmins.passwordHash)
-        )
-      );
-
-    return rows[0]?.value ?? 0;
   }
 
   /**

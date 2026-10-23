@@ -141,6 +141,9 @@ export class ReviewSyncDbService {
             })
           );
 
+          // Whether Google's reply was just stored or was already, the review is answered; open drafts for it are obsolete.
+          await this.reviewSyncRepository.markRespondedByExternalReply(tx, id);
+
           return { inserted, replyImported, replyConflict: false };
         } catch (error) {
           // `review_responses` has two partial unique indexes on `review_id` (imported, and
@@ -341,8 +344,11 @@ export class ReviewSyncDbService {
     return this.reviewSyncRepository.claimForGeneration(reviewId);
   }
 
-  releaseGenerationClaim(reviewId: string): Promise<void> {
-    return this.reviewSyncRepository.releaseGenerationClaim(reviewId);
+  releaseGenerationClaimAfterFailure(
+    reviewId: string,
+    countAttempt = true
+  ): Promise<number | null> {
+    return this.reviewSyncRepository.releaseGenerationClaimAfterFailure(reviewId, countAttempt);
   }
 
   reclaimStaleGenerationClaims(locationId: string): Promise<number> {

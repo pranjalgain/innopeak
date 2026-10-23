@@ -16,9 +16,9 @@ export default function AuthLayout({ children }: AuthLayoutProps) {
         <LanguageSwitcher />
         <ThemeToggle />
       </div>
-      <div className="relative z-10 flex w-full flex-col items-center gap-6 sm:gap-7">
+      <main className="relative z-10 flex w-full flex-col items-center gap-6 sm:gap-7">
         {children}
-      </div>
+      </main>
     </div>
   );
 }

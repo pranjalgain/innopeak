@@ -13,6 +13,7 @@ import type {
   PlatformAdminInviteRow,
   PlatformAdminLoginRow,
   PlatformAdminProfileWithAvatar,
+  PlatformAdminWithInviteRow,
   RevokeInviteOutcome,
   SetAdminStatusGuardInput,
   SetAdminStatusOutcome,
@@ -109,14 +110,13 @@ export class PlatformAdminDbService {
    */
   async listInvites(): Promise<PlatformAdminInviteRow[]> {
     const rows = await this.platformAdminRepository.findAllWithInvites();
-    return rows.map(row => ({
-      id: row.id,
-      email: row.email,
-      status: row.status,
-      invitedAt: row.inviteCreatedAt ?? row.createdAt,
-      expiresAt: row.inviteExpiresAt,
-      isRoot: row.invitedByPlatformAdminId === null,
-    }));
+    return rows.map(toInviteRow);
+  }
+
+  /** One admin's roster row, as `listInvites` would list it. */
+  async findInviteRowById(id: string): Promise<PlatformAdminInviteRow | null> {
+    const row = await this.platformAdminRepository.findWithInviteById(id);
+    return row ? toInviteRow(row) : null;
   }
 
   /**
@@ -159,11 +159,6 @@ export class PlatformAdminDbService {
    */
   async revokeInvite(id: string): Promise<RevokeInviteOutcome> {
     return this.platformAdminRepository.deleteInvitedAdmin(id);
-  }
-
-  /** Backs the social-login lockout guard. */
-  async countActiveGoogleOnlyAdmins(): Promise<number> {
-    return this.platformAdminRepository.countActiveGoogleOnlyAdmins();
   }
 
   /** The login-side read of a linked admin identity. */
@@ -211,4 +206,15 @@ export class PlatformAdminDbService {
   }): Promise<AcceptInviteOutcome> {
     return this.platformAdminRepository.acceptInviteWithGoogleIdentity(input);
   }
+}
+
+function toInviteRow(row: PlatformAdminWithInviteRow): PlatformAdminInviteRow {
+  return {
+    id: row.id,
+    email: row.email,
+    status: row.status,
+    invitedAt: row.inviteCreatedAt ?? row.createdAt,
+    expiresAt: row.inviteExpiresAt,
+    isRoot: row.invitedByPlatformAdminId === null,
+  };
 }

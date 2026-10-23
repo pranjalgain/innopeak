@@ -126,6 +126,8 @@ export const messagesDe: MessageCatalog = {
     DISCONNECTED: 'Google Business-Profil getrennt.',
     LOCATION_CONFIRMED: 'Standort verbunden. Ihr Rezensionsverlauf wird importiert.',
     LOCATION_INACTIVE: 'Dieser Standort ist getrennt und kann nicht ausgewählt werden.',
+    LOCATION_BILLING_PAUSED:
+      'Dieser Standort ist in Ihrem aktuellen Tarif pausiert und kann nicht ausgewählt werden. Wählen Sie einen aktiven Standort oder wechseln Sie den Tarif.',
     ACTIVE_LOCATION_UPDATED: 'Aktiver Standort aktualisiert.',
     FAILED_TO_UPSERT_CONNECTION:
       'Verbindung zum Rezensionsanbieter konnte nicht gespeichert werden',
@@ -140,6 +142,16 @@ export const messagesDe: MessageCatalog = {
     FAILED_TO_ACQUIRE_SYNC_RUN: 'Synchronisierungslauf konnte nicht gestartet werden',
     SYNC_WAITING_FOR_RATE_LIMIT: (seconds, attempt, maxAttempts) =>
       `Google begrenzt die Anfragen; Wartezeit ${seconds} s vor dem nächsten Versuch (Versuch ${attempt} von ${maxAttempts}).`,
+    SYNC_FAILED_AUTH:
+      'Google akzeptiert die Verbindung nicht mehr. Verbinden Sie Ihr Google-Unternehmensprofil erneut.',
+    SYNC_FAILED_RATE_LIMITED:
+      'Google begrenzt gerade die Anfragen. Die Synchronisierung versucht es in Kürze erneut.',
+    SYNC_FAILED_UNAVAILABLE:
+      'Google war nicht erreichbar. Die Synchronisierung versucht es in Kürze erneut.',
+    SYNC_FAILED_CLASSIFICATION:
+      'Neue Rezensionen wurden importiert, aber das Sortieren ist fehlgeschlagen. Beim nächsten Abgleich wird es erneut versucht.',
+    SYNC_FAILED_UNKNOWN:
+      'Die Synchronisierung wurde wegen eines unerwarteten Problems nicht abgeschlossen. Sie wird erneut versucht.',
     FAILED_TO_UPSERT_REVIEW: 'Rezension konnte nicht gespeichert werden',
     GENERATED_RESPONSE_INSERT_FAILED: (reviewId: string): string =>
       `Generierte Antwort für Rezension ${reviewId} konnte nicht gespeichert werden`,
@@ -159,6 +171,8 @@ export const messagesDe: MessageCatalog = {
     REVIEW_ALREADY_DISMISSED: 'Diese Rezension wurde verworfen und kann nicht beantwortet werden.',
     REVIEW_REMOVED_UPSTREAM:
       'Diese Rezension wurde bei Google entfernt und kann nicht beantwortet werden.',
+    REVIEW_LOCATION_PAUSED:
+      'Dieser Unternehmensstandort ist pausiert oder getrennt, daher können Antworten dafür weder freigegeben noch veröffentlicht werden. Aktivieren Sie ihn zuerst wieder.',
     POST_QUEUE_UNAVAILABLE:
       'Die Antwort konnte gerade nicht zur Veröffentlichung eingereiht werden. Bitte erneut versuchen.',
     POST_FAILED_REVIEW_REMOVED:
@@ -171,6 +185,8 @@ export const messagesDe: MessageCatalog = {
       'Google antwortet derzeit nicht, daher konnte die Antwort nicht veröffentlicht werden. Bitte versuchen Sie es in einigen Minuten erneut.',
     POST_FAILED_UNKNOWN:
       'Die Antwort konnte nicht veröffentlicht werden. Bitte versuchen Sie es erneut; falls das Problem bestehen bleibt, wenden Sie sich an den Support.',
+    POST_FAILED_LOCATION_PAUSED:
+      'Dieser Unternehmensstandort ist pausiert oder getrennt, daher wurde die Antwort nicht veröffentlicht. Aktivieren Sie den Standort wieder und versuchen Sie es erneut.',
     POST_FAILED_LOCATION_UNAVAILABLE:
       'Google konnte diesen Unternehmensstandort nicht finden, daher konnte die Antwort nicht veröffentlicht werden. Prüfen Sie, ob er noch zum verbundenen Google-Konto gehört.',
     MANUAL_REPLY_INSERT_FAILED: (reviewId: string): string =>
@@ -257,6 +273,7 @@ export const messagesDe: MessageCatalog = {
       'Sie haben das Limit von 100 Sperrlisten-Begriffen erreicht. Entfernen Sie einen, um einen weiteren hinzuzufügen.',
     BLOCKLIST_TERM_NOT_FOUND: 'Sperrlisteneintrag nicht gefunden',
     TENANT_ONLY: 'Einstellungen stehen nur Mandantenbenutzern zur Verfügung.',
+    REMOVED_TEAM_MEMBER: 'Entferntes Teammitglied',
     RETRIEVED: 'Einstellungen erfolgreich abgerufen',
     UPDATED: 'Einstellungen aktualisiert',
     TENANT_SETTINGS_MISSING: 'Für dieses Konto wurden keine Mandanteneinstellungen eingerichtet',
@@ -303,6 +320,8 @@ export const messagesDe: MessageCatalog = {
       'Für dieses Unternehmen liegt keine ausstehende Löschanfrage vor, die abgebrochen werden könnte.',
     USER_REMOVAL_PENDING:
       'Für diesen Benutzer liegt eine ausstehende Entfernungsanfrage vor. Brechen Sie diese ab, bevor Sie den Status direkt ändern.',
+    USER_INVITE_PENDING:
+      'Dieser Benutzer hat seine Einladung noch nicht angenommen, daher gibt es nichts zu deaktivieren. Widerrufen Sie stattdessen die Einladung.',
     AVATAR_UPDATED: 'Avatar aktualisiert.',
     PASSWORD_CHANGED: 'Passwort geändert.',
     INVITE_SENT: 'Einladung gesendet.',
@@ -317,12 +336,6 @@ export const messagesDe: MessageCatalog = {
       'Mindestens eine Anmeldemethode (Microsoft, E-Mail/Passwort oder Google) muss aktiviert bleiben.',
     NOTIFICATION_CHANNELS_NOT_IMPLEMENTED:
       'E-Mail- und Teams-Benachrichtigungen sind noch nicht umgesetzt, daher können die Benachrichtigungseinstellungen nicht aktiviert werden.',
-    CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN: (count: number): string => {
-      if (count === 1) {
-        return 'Google ist die einzige Anmeldemöglichkeit für einen Ihrer Plattform-Administratoren. Ein Deaktivieren würde ihn aussperren. Deaktivieren Sie zuerst dieses Administratorkonto, falls dies beabsichtigt ist.';
-      }
-      return `Google ist die einzige Anmeldemöglichkeit für ${count} Ihrer Plattform-Administratoren. Ein Deaktivieren würde sie aussperren. Deaktivieren Sie zuerst diese Administratorkonten, falls dies beabsichtigt ist.`;
-    },
     CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS: (provider: string, count: number): string => {
       if (count === 1) {
         return `${provider} ist die einzige Anmeldemöglichkeit für einen Benutzer. Wird es deaktiviert, ist er ausgesperrt, bis es wieder aktiviert wird. Bestätigen Sie, um es trotzdem zu deaktivieren.`;
@@ -365,5 +378,28 @@ export const messagesDe: MessageCatalog = {
     SUCCESS: 'Erfolgreich',
     REQUEST_SUCCESSFUL: 'Anfrage erfolgreich',
     INTERNAL_ERROR: 'Etwas ist schiefgelaufen. Bitte versuchen Sie es später erneut.',
+    EMAIL_QUEUE_UNAVAILABLE:
+      'Die E-Mail konnte gerade nicht gesendet werden. Es wurde nichts geändert; bitte versuchen Sie es gleich noch einmal.',
+    DB_UNIQUE_VIOLATION: 'Eindeutigkeitsbedingung verletzt',
+    DB_FOREIGN_KEY_VIOLATION: 'Fremdschlüsselbedingung verletzt',
+    DB_NOT_NULL_VIOLATION: 'Ein Pflichtwert fehlt',
+    DB_CHECK_VIOLATION: 'Prüfbedingung verletzt',
+    DB_EXCLUSION_VIOLATION: 'Ausschlussbedingung verletzt',
+    DB_VALUE_TOO_LONG: 'Der Wert ist für dieses Feld zu lang',
+    DB_NUMERIC_OUT_OF_RANGE: 'Der Zahlenwert liegt außerhalb des zulässigen Bereichs',
+    DB_INVALID_DATETIME: 'Ungültiges Datums- oder Zeitformat',
+    DB_INVALID_TEXT: 'Ungültige Textdarstellung',
+    DB_INVALID_CHARACTER_SEQUENCE: 'Ungültige Zeichenfolge',
+    DB_TABLE_NOT_FOUND: 'Tabelle oder Ansicht nicht gefunden',
+    DB_COLUMN_NOT_FOUND: 'Spalte nicht gefunden',
+    DB_SYNTAX_ERROR: 'Syntaxfehler in der Abfrage',
+    DB_SERIALIZATION_FAILURE: 'Serialisierungsfehler — bitte versuchen Sie es erneut',
+    DB_DEADLOCK: 'Deadlock erkannt — bitte versuchen Sie es erneut',
+    DB_CONNECTION_FAILURE: 'Datenbankverbindung fehlgeschlagen',
+    DB_CONNECTION_UNAVAILABLE: 'Datenbankverbindung konnte nicht hergestellt werden',
+    DB_QUERY_TIMEOUT: 'Zeitüberschreitung bei der Abfrage — Anweisung abgebrochen',
+    SMS_TRIAL_RESTRICTED:
+      'Der SMS-Dienst ist für Testkonten eingeschränkt. Bitte überprüfen Sie die Empfängernummer oder aktualisieren Sie Ihr Twilio-Konto.',
+    UNKNOWN_ERROR: 'Ein unbekannter Fehler ist aufgetreten. Bitte versuchen Sie es später erneut.',
   },
 };

@@ -37,7 +37,7 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe("usePrompts", () => {
-  test("saveNewVersion resolves rather than rejecting when the save fails", async () => {
+  test("saveNewVersion resolves false rather than rejecting when the save fails, so the editor stays open", async () => {
     // Regression: `mutateAsync` rejects even after `onError` fires; uncaught,
     // `PromptEditorDialog`'s `await onSaveVersion(...); onClose()` would throw as an unhandled
     // rejection.
@@ -48,7 +48,7 @@ describe("usePrompts", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => {
-      await expect(result.current.saveNewVersion("prompt-1", "New template")).resolves.toBeUndefined();
+      await expect(result.current.saveNewVersion("prompt-1", "New template")).resolves.toBe(false);
     });
   });
 
@@ -82,9 +82,42 @@ describe("usePrompts", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => {
-      await result.current.saveNewVersion("prompt-1", "New template");
+      await expect(result.current.saveNewVersion("prompt-1", "New template")).resolves.toBe(true);
     });
 
     await waitFor(() => expect(result.current.prompts[0]?.versions).toHaveLength(2));
+  });
+
+  // A failed refresh used to flip the whole view to the error screen over a prompt being edited.
+  test("keeps the prompts, and reports no error, when a background refresh fails", async () => {
+    const client = createQueryClient();
+    const shared = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <NextIntlClientProvider locale="en" messages={messages}>
+          {children}
+        </NextIntlClientProvider>
+      </QueryClientProvider>
+    );
+    const getPrompts = vi.spyOn(PromptService, "getPrompts").mockResolvedValueOnce([prompt()]);
+    const { result } = renderHook(() => usePrompts(), { wrapper: shared });
+    await waitFor(() => expect(result.current.prompts).toHaveLength(1));
+
+    getPrompts.mockRejectedValue(new Error("offline"));
+    await act(async () => {
+      result.current.refetch();
+    });
+
+    await waitFor(() => expect(getPrompts.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(result.current.prompts).toHaveLength(1);
+    expect(result.current.isError).toBe(false);
+  });
+
+  test("reports an error when the first load leaves nothing to show", async () => {
+    vi.spyOn(PromptService, "getPrompts").mockRejectedValue(new Error("down"));
+
+    const { result } = renderHook(() => usePrompts(), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.prompts).toEqual([]);
   });
 });

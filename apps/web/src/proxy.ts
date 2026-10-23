@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 import { ROUTES } from "@/app/_libs/constants/routes";
+import { buildContentSecurityPolicy, generateNonce } from "@/app/_libs/utils/content-security-policy";
 import {
   POST_LOGIN_REDIRECT_PARAM,
   returnPathFor,
@@ -75,7 +76,8 @@ export function proxy(request: NextRequest): NextResponse {
   const isTenantSession =
     sessionKind === SESSION_HINT_TENANT_VALUE || sessionKind === SESSION_HINT_LEGACY_TENANT_VALUE;
   const isAdminSession = sessionKind === SESSION_HINT_ADMIN_VALUE;
-  const { pathname } = request.nextUrl;
+  // `skipTrailingSlashRedirect` keeps `/dashboard/` as it was typed, and every comparison below is against the bare path.
+  const pathname = request.nextUrl.pathname.replace(/\/+$/, "") || "/";
 
   if (
     (isTenantSession || isAdminSession) &&
@@ -125,24 +127,49 @@ export function proxy(request: NextRequest): NextResponse {
     }
   }
 
-  return NextResponse.next();
+  return nextWithContentSecurityPolicy(request);
 }
 
+/**
+ * Every page response carries a Content-Security-Policy with a fresh nonce. The policy goes on the *request* too: that is how Next reads
+ * the nonce and stamps it on the scripts it emits (and why every page renders per request). `x-nonce` hands the same value to the
+ * root layout for the one inline script it adds itself (the theme bootstrap).
+ */
+function nextWithContentSecurityPolicy(request: NextRequest): NextResponse {
+  const nonce = generateNonce();
+  const policy = buildContentSecurityPolicy({
+    nonce,
+    isDevelopment: process.env.NODE_ENV !== "production",
+    sentryDsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  });
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("content-security-policy", policy);
+
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("content-security-policy", policy);
+  return response;
+}
+
+/**
+ * Every page, so the policy covers the 404 and error screens too; the routing rules above still act only on the paths they name. Left
+ * out: the API proxy (`/v1`), the Sentry tunnel, framework assets and files, none of which render a document, and prefetches, which
+ * fetch data and never execute a page's scripts.
+ *
+ * Those two headers are the caller's to set, so a navigation sent with `Purpose: prefetch` skips this file: no redirect and no nonce CSP.
+ * That is the caller's own request only, and not a bypass of anything that matters: this file is a convenience redirect, the client's
+ * `RequireAuth` guards every screen, and the backend authorizes every call. It also means a signed-in visitor's real prefetch of
+ * `/login` is not redirected here, which `RedirectIfAuthenticated` does on arrival instead.
+ */
 export const config = {
   matcher: [
-    "/",
-    "/login",
-    "/admin-login",
-    "/onboarding/signup",
-    "/onboarding/business-name",
-    "/onboarding/plan",
-    "/onboarding/connect",
-    "/dashboard",
-    "/review-queue",
-    "/review-queue/:path*",
-    "/settings",
-    "/settings/prompts",
-    "/admin",
-    "/admin/:path*",
+    {
+      source: "/((?!v1/|monitoring|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest).*)",
+      missing: [
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
+    },
   ],
 };

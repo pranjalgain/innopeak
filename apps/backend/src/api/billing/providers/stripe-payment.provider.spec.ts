@@ -262,6 +262,43 @@ describe('StripePaymentProvider', () => {
     });
   });
 
+  // `unpaid` and `incomplete_expired` send no `customer.subscription.deleted`; unmapped they read INCOMPLETE and the tenant stayed on Paid forever.
+  describe('constructWebhookEvent — subscription status', () => {
+    const updated = (status: string) => ({
+      id: 'evt_s',
+      type: 'customer.subscription.updated',
+      created: 1_790_000_000,
+      data: {
+        object: {
+          id: 'sub_1',
+          customer: 'cus_1',
+          status,
+          cancel_at_period_end: false,
+          items: {
+            data: [{ current_period_start: 1_790_000_000, current_period_end: 1_792_600_000 }],
+          },
+        },
+      },
+    });
+
+    it.each([
+      ['active', 'active'],
+      ['trialing', 'active'],
+      ['past_due', 'past_due'],
+      ['canceled', 'canceled'],
+      ['unpaid', 'canceled'],
+      ['incomplete_expired', 'canceled'],
+      ['incomplete', 'incomplete'],
+    ])('reads Stripe status %s as %s', (stripeStatus, expected) => {
+      mockStripeInstance.webhooks.constructEvent.mockReturnValue(updated(stripeStatus));
+
+      expect(target.constructWebhookEvent(Buffer.from('{}'), 'sig')).toMatchObject({
+        type: 'customer.subscription.updated',
+        status: expected,
+      });
+    });
+  });
+
   describe('getPaymentMethodSummary', () => {
     const CARD = { brand: 'visa', last4: '4242', exp_month: 12, exp_year: 2030 };
 
@@ -440,6 +477,17 @@ describe('StripePaymentProvider', () => {
       await expect(target.retrieveActiveSubscriptionForCustomer('cus_unknown')).resolves.toBeNull();
     });
 
+    it('asks Stripe about every status and ignores one that is not entitled', async () => {
+      mockStripeInstance.subscriptions.list.mockResolvedValue({
+        data: [{ id: 'sub_old', status: 'canceled' }],
+      });
+
+      await expect(target.retrieveActiveSubscriptionForCustomer('cus_1')).resolves.toBeNull();
+      expect(mockStripeInstance.subscriptions.list).toHaveBeenCalledWith(
+        expect.objectContaining({ customer: 'cus_1', status: 'all' })
+      );
+    });
+
     it('still surfaces any other Stripe failure', async () => {
       mockStripeInstance.subscriptions.list.mockRejectedValue(new Error('Stripe is down'));
 
@@ -536,13 +584,14 @@ describe('StripePaymentProvider', () => {
   describe('prepareNewCheckout', () => {
     // Regression: a Checkout completed before its webhook landed left the local row without a subscription id, so a Back
     // press from Stripe could open, and pay for, a second one.
-    it.each(['active', 'past_due', 'incomplete', 'trialing', 'unpaid'])(
+    it.each(['active', 'past_due', 'trialing'])(
       'reports a %s subscription as live and leaves open Checkouts alone',
       async status => {
         mockStripeInstance.subscriptions.list.mockResolvedValue({ data: [{ status }] });
 
         await expect(target.prepareNewCheckout('cus_1')).resolves.toEqual({
           hasLiveSubscription: true,
+          staleSubscriptionIds: [],
         });
         expect(mockStripeInstance.subscriptions.list).toHaveBeenCalledWith(
           expect.objectContaining({ customer: 'cus_1', status: 'all' })
@@ -550,6 +599,26 @@ describe('StripePaymentProvider', () => {
         expect(mockStripeInstance.checkout.sessions.expire).not.toHaveBeenCalled();
       }
     );
+
+    // `unpaid` already ended the plan locally (it maps to canceled) and `incomplete` is an abandoned payment: neither may block a new
+    // Checkout. They are reported for the caller to cancel once its checkout lock is released.
+    it('reports unpaid and incomplete subscriptions as stale, not live', async () => {
+      mockStripeInstance.subscriptions.list.mockResolvedValue({
+        data: [
+          { id: 'sub_old', status: 'unpaid' },
+          { id: 'sub_3ds', status: 'incomplete' },
+          { id: 'sub_done', status: 'canceled' },
+        ],
+      });
+      mockStripeInstance.subscriptions.cancel = jest.fn();
+      mockStripeInstance.checkout.sessions.list.mockResolvedValue({ data: [] });
+
+      await expect(target.prepareNewCheckout('cus_1')).resolves.toEqual({
+        hasLiveSubscription: false,
+        staleSubscriptionIds: ['sub_old', 'sub_3ds'],
+      });
+      expect(mockStripeInstance.subscriptions.cancel).not.toHaveBeenCalled();
+    });
 
     it('expires every still-open Checkout when there is no live subscription, so only the new one can be paid', async () => {
       mockStripeInstance.subscriptions.list.mockResolvedValue({
@@ -562,12 +631,38 @@ describe('StripePaymentProvider', () => {
 
       await expect(target.prepareNewCheckout('cus_1')).resolves.toEqual({
         hasLiveSubscription: false,
+        staleSubscriptionIds: [],
       });
       expect(mockStripeInstance.checkout.sessions.list).toHaveBeenCalledWith(
         expect.objectContaining({ customer: 'cus_1', status: 'open' })
       );
       expect(mockStripeInstance.checkout.sessions.expire).toHaveBeenCalledWith('cs_old_tab');
       expect(mockStripeInstance.checkout.sessions.expire).toHaveBeenCalledWith('cs_back_button');
+    });
+  });
+
+  describe('cancelStaleSubscriptions', () => {
+    it('cancels each one', async () => {
+      mockStripeInstance.subscriptions.cancel = jest.fn().mockResolvedValue({});
+
+      await target.cancelStaleSubscriptions(['sub_old', 'sub_3ds']);
+
+      expect(mockStripeInstance.subscriptions.cancel).toHaveBeenCalledWith('sub_old');
+      expect(mockStripeInstance.subscriptions.cancel).toHaveBeenCalledWith('sub_3ds');
+    });
+
+    it('carries on when one is already gone from Stripe, and surfaces anything else', async () => {
+      mockStripeInstance.subscriptions.cancel = jest
+        .fn()
+        .mockRejectedValueOnce(
+          Object.assign(new Error('No such subscription'), { code: 'resource_missing' })
+        );
+      await expect(target.cancelStaleSubscriptions(['sub_gone'])).resolves.toBeUndefined();
+
+      mockStripeInstance.subscriptions.cancel = jest
+        .fn()
+        .mockRejectedValue(new Error('Stripe down'));
+      await expect(target.cancelStaleSubscriptions(['sub_x'])).rejects.toThrow('Stripe down');
     });
   });
 });

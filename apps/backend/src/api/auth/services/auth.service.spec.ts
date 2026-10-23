@@ -16,16 +16,19 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 
 import { AuthService } from './auth.service';
-import { LoginAttemptService } from './login-attempt.service';
+import { LoginAttemptScope, LoginAttemptService } from './login-attempt.service';
 import { OAuthStateService } from './oauth-state.service';
 import { OtpAttemptService } from './otp-attempt.service';
 import { PendingSsoSignupService } from './pending-sso-signup.service';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
+import { SessionRevocationService } from './session-revocation.service';
+import { SignupBindingService } from './signup-binding.service';
 import { TokenService } from './token.service';
 
 import { SSO_REDIRECT, SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
 import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
+import { OtpScope } from '../enums/otp-scope.enum';
 import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
@@ -50,6 +53,8 @@ describe('AuthService', () => {
   let loginAttemptService: jest.Mocked<LoginAttemptService>;
   let queueManager: jest.Mocked<AddingJobsToQueueManager>;
   let platformAdminAuthService: jest.Mocked<PlatformAdminAuthService>;
+  let sessionRevocationService: { revokeUser: jest.Mock };
+  let signupBindingService: { issue: jest.Mock; matches: jest.Mock };
   let mediaService: jest.Mocked<MediaService>;
   let platformSettingsDbService: { get: jest.Mock };
 
@@ -98,12 +103,14 @@ describe('AuthService', () => {
       rotate: jest.fn(),
       revokeAll: jest.fn(),
       revokeBySessionToken: jest.fn(),
+      revokeByAccessToken: jest.fn(),
     } as unknown as jest.Mocked<TokenService>;
 
     otpAttemptService = {
       consumeAttempt: jest.fn().mockResolvedValue(true),
       reset: jest.fn(),
       claimResend: jest.fn().mockResolvedValue(true),
+      releaseResend: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<OtpAttemptService>;
 
     loginAttemptService = {
@@ -115,6 +122,12 @@ describe('AuthService', () => {
     queueManager = {
       addRegisterationOtpEmailJob: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<AddingJobsToQueueManager>;
+
+    sessionRevocationService = { revokeUser: jest.fn().mockResolvedValue(undefined) };
+    signupBindingService = {
+      issue: jest.fn().mockReturnValue('binding-token'),
+      matches: jest.fn().mockReturnValue(true),
+    };
 
     platformAdminAuthService = {
       findLinkedAdmin: jest.fn().mockResolvedValue({ linked: false }),
@@ -151,7 +164,11 @@ describe('AuthService', () => {
     };
 
     oauthStateService = {
-      mint: jest.fn().mockResolvedValue({ state: 'signed-state', sid: 'raw-sid' }),
+      mint: jest.fn().mockResolvedValue({
+        state: 'signed-state',
+        sid: 'raw-sid',
+        codeChallenge: 'google-challenge',
+      }),
       consume: jest.fn(),
     } as unknown as jest.Mocked<OAuthStateService>;
 
@@ -186,6 +203,8 @@ describe('AuthService', () => {
         { provide: PlatformAdminAuthService, useValue: platformAdminAuthService },
         { provide: MediaService, useValue: mediaService },
         { provide: PlatformSettingsDbService, useValue: platformSettingsDbService },
+        { provide: SessionRevocationService, useValue: sessionRevocationService },
+        { provide: SignupBindingService, useValue: signupBindingService },
       ],
     }).compile();
 
@@ -253,8 +272,27 @@ describe('AuthService', () => {
         expect.anything(),
         expect.objectContaining({ email: 'jane@thecoffeehouse.com', otp: '482913' })
       );
-      expect(result.tenantId).toBe('tenant-1');
-      expect(result.status).toBe(UserStatus.PENDING_VERIFICATION);
+      expect(result.body.tenantId).toBe('tenant-1');
+      expect(result.body.status).toBe(UserStatus.PENDING_VERIFICATION);
+    });
+
+    // Anyone can start a sign-up for an address they do not own; only this browser may finish it (see SignupBindingService).
+    it('binds finishing the sign-up to this browser, from the password it just proved', async () => {
+      authDbService.signup.mockResolvedValue({
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+        status: UserStatus.PENDING_VERIFICATION,
+        ownerName: 'Jane Doe',
+      });
+
+      const result = await target.signup(dto);
+
+      expect(signupBindingService.issue).toHaveBeenCalledWith({
+        id: 'user-1',
+        passwordHash: 'hashed-password',
+      });
+      expect(result.signupBinding).toBe('binding-token');
+      expect(result.body).not.toHaveProperty('signupBinding');
     });
 
     /**
@@ -269,7 +307,9 @@ describe('AuthService', () => {
         ownerName: 'Jane Doe',
       });
 
-      await expect(target.signup(dto)).resolves.toMatchObject({ tenantId: 'tenant-1' });
+      await expect(target.signup(dto)).resolves.toMatchObject({
+        body: { tenantId: 'tenant-1' },
+      });
       expect(authDbService.signup).toHaveBeenCalled();
     });
   });
@@ -279,7 +319,7 @@ describe('AuthService', () => {
       otpAttemptService.consumeAttempt.mockResolvedValue(false);
 
       await expect(
-        target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '000000' })
+        target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '000000' }, 'binding-token')
       ).rejects.toMatchObject({ status: 429 });
       // never reaches the DB — a locked-out account is not probeable at all
       expect(authDbService.verifyEmail).not.toHaveBeenCalled();
@@ -289,9 +329,81 @@ describe('AuthService', () => {
       authDbService.verifyEmail.mockResolvedValue(null);
 
       await expect(
-        target.verifyEmail({ email: '  JANE@thecoffeehouse.com ', otp: '000000' })
+        target.verifyEmail({ email: '  JANE@thecoffeehouse.com ', otp: '000000' }, 'binding-token')
       ).rejects.toThrow();
-      expect(otpAttemptService.consumeAttempt).toHaveBeenCalledWith('jane@thecoffeehouse.com');
+      expect(otpAttemptService.consumeAttempt).toHaveBeenCalledWith({
+        scope: OtpScope.VERIFY_EMAIL,
+        identity: 'jane@thecoffeehouse.com',
+      });
+    });
+
+    // The code proves the mailbox, not who chose the password: a stranger can start a sign-up for someone else's address and the
+    // mailbox's owner then receives the code. Entering it must not activate an account whose password the stranger chose.
+    describe('the browser binding of a pending sign-up', () => {
+      const pendingUser = {
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        email: 'jane@thecoffeehouse.com',
+        name: 'Jane Doe',
+        role: UserRole.OWNER,
+        passwordHash: 'stranger-chosen-hash',
+        status: UserStatus.PENDING_VERIFICATION,
+        locale: null,
+      };
+
+      it('refuses the code, like a wrong one, from a browser that does not hold the binding', async () => {
+        authDbService.findUserForLogin.mockResolvedValue(pendingUser);
+        signupBindingService.matches.mockReturnValue(false);
+
+        await expect(
+          target.verifyEmail({ email: pendingUser.email, otp: '482913' }, undefined)
+        ).rejects.toThrow(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
+
+        expect(signupBindingService.matches).toHaveBeenCalledWith(pendingUser, undefined);
+        // Never even tries the code, so the mailbox owner's code cannot be used from here.
+        expect(authDbService.verifyEmail).not.toHaveBeenCalled();
+        expect(otpAttemptService.reset).not.toHaveBeenCalled();
+      });
+
+      // The binding is checked first, so a stranger hammering the endpoint cannot use up the pending owner's attempts and lock them out.
+      // Nothing is learned by it: the code is never compared without the binding, and the answer is the wrong-code one either way.
+      it("does not spend the address's attempts, so a stranger cannot lock its owner out", async () => {
+        authDbService.findUserForLogin.mockResolvedValue(pendingUser);
+        signupBindingService.matches.mockReturnValue(false);
+
+        await expect(
+          target.verifyEmail({ email: pendingUser.email, otp: '482913' }, 'forged')
+        ).rejects.toThrow();
+
+        expect(otpAttemptService.consumeAttempt).not.toHaveBeenCalled();
+        expect(authDbService.verifyEmail).not.toHaveBeenCalled();
+      });
+
+      it('finishes the verification for the browser that holds it', async () => {
+        authDbService.findUserForLogin.mockResolvedValue(pendingUser);
+        signupBindingService.matches.mockReturnValue(true);
+        authDbService.verifyEmail.mockResolvedValue({ ...pendingUser, status: UserStatus.ACTIVE });
+
+        const result = await target.verifyEmail(
+          { email: pendingUser.email, otp: '482913' },
+          'binding-token'
+        );
+
+        expect(signupBindingService.matches).toHaveBeenCalledWith(pendingUser, 'binding-token');
+        expect(result.body.accessToken).toBe('access');
+      });
+
+      // An address with no pending sign-up falls through to the ordinary wrong-code answer: the binding never reveals whether one exists.
+      it('does not consult the binding for an address with no pending sign-up', async () => {
+        authDbService.findUserForLogin.mockResolvedValue(null);
+        authDbService.verifyEmail.mockResolvedValue(null);
+
+        await expect(
+          target.verifyEmail({ email: 'nobody@thecoffeehouse.com', otp: '482913' }, undefined)
+        ).rejects.toThrow(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
+
+        expect(signupBindingService.matches).not.toHaveBeenCalled();
+      });
     });
 
     it('clears the attempt budget after a correct code', async () => {
@@ -306,16 +418,22 @@ describe('AuthService', () => {
         locale: null,
       });
 
-      await target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' });
+      await target.verifyEmail(
+        { email: 'jane@thecoffeehouse.com', otp: '482913' },
+        'binding-token'
+      );
 
-      expect(otpAttemptService.reset).toHaveBeenCalledWith('jane@thecoffeehouse.com');
+      expect(otpAttemptService.reset).toHaveBeenCalledWith({
+        scope: OtpScope.VERIFY_EMAIL,
+        identity: 'jane@thecoffeehouse.com',
+      });
     });
 
     it('leaves the budget spent after a wrong code', async () => {
       authDbService.verifyEmail.mockResolvedValue(null);
 
       await expect(
-        target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '000000' })
+        target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '000000' }, 'binding-token')
       ).rejects.toThrow();
       expect(otpAttemptService.reset).not.toHaveBeenCalled();
     });
@@ -324,7 +442,7 @@ describe('AuthService', () => {
       authDbService.verifyEmail.mockResolvedValue(null);
 
       await expect(
-        target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '000000' })
+        target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '000000' }, 'binding-token')
       ).rejects.toThrow(MESSAGES.AUTH.INVALID_OR_EXPIRED_OTP);
     });
 
@@ -340,7 +458,10 @@ describe('AuthService', () => {
         locale: null,
       });
 
-      const result = await target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '482913' });
+      const result = await target.verifyEmail(
+        { email: 'jane@thecoffeehouse.com', otp: '482913' },
+        'binding-token'
+      );
 
       expect(tokenService.issueTokenPair).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'user-1', tenantId: 'tenant-1' })
@@ -438,6 +559,8 @@ describe('AuthService', () => {
     });
 
     it('names an erasure this very user requested, with the deadline, after the password is proven', async () => {
+      // A fixed clock: the deadline is 2026-10-16, so against the real date this test started failing the day after it.
+      const now = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-08T00:00:00.000Z'));
       authDbService.findUserForLogin.mockResolvedValue(activeUser);
       hashingService.compare.mockResolvedValue(true);
       authDbService.findTenantStatus.mockResolvedValue({
@@ -460,6 +583,7 @@ describe('AuthService', () => {
           message: expect.stringContaining('2026-10-16'),
         },
       });
+      now.mockRestore();
     });
 
     it('offers no restore once the deadline has passed — the purge may already have released resources', async () => {
@@ -532,8 +656,14 @@ describe('AuthService', () => {
       const result = await target.login({ email: activeUser.email, password: 'StrongP@ss1' });
 
       expect(result).toMatchObject({
-        status: UserStatus.PENDING_VERIFICATION,
-        email: activeUser.email,
+        pendingVerification: true,
+        body: { status: UserStatus.PENDING_VERIFICATION, email: activeUser.email },
+        // The password was just proven, so this browser may finish the verification.
+        signupBinding: 'binding-token',
+      });
+      expect(signupBindingService.issue).toHaveBeenCalledWith({
+        id: activeUser.id,
+        passwordHash: activeUser.passwordHash,
       });
       expect(authDbService.putVerifyEmailToken).toHaveBeenCalledWith({
         userId: activeUser.id,
@@ -607,6 +737,29 @@ describe('AuthService', () => {
       expect(result.message).toBeTruthy();
     });
 
+    // The cooldown exists to stop overwriting a pending code; a code that never left must not hold it, or the next click is "wait".
+    it('gives the resend cooldown back when the email queue refuses the code, and still answers generically', async () => {
+      authDbService.findUserForLogin.mockResolvedValue({
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        name: 'Jane Doe',
+        email: 'jane@thecoffeehouse.com',
+        passwordHash: 'hashed-password',
+        role: UserRole.OWNER,
+        status: UserStatus.PENDING_VERIFICATION,
+        locale: null,
+      });
+      queueManager.addRegisterationOtpEmailJob.mockRejectedValue(new Error('redis down'));
+
+      const result = await target.resendOtp({ email: 'jane@thecoffeehouse.com' });
+
+      expect(otpAttemptService.releaseResend).toHaveBeenCalledWith({
+        scope: OtpScope.VERIFY_EMAIL,
+        identity: 'jane@thecoffeehouse.com',
+      });
+      expect(result.message).toBeTruthy();
+    });
+
     it('returns the same generic acknowledgement without issuing anything for an unknown or already-active email', async () => {
       authDbService.findUserForLogin.mockResolvedValue(null);
 
@@ -620,18 +773,31 @@ describe('AuthService', () => {
 
   describe('logout', () => {
     it('revokes every session belonging to the presented refresh token', async () => {
-      const result = await target.logout('raw-refresh-token');
+      const result = await target.logout({ refreshToken: 'raw-refresh-token', accessTokens: [] });
 
       expect(tokenService.revokeBySessionToken).toHaveBeenCalledWith('raw-refresh-token');
       expect(result.message).toBeTruthy();
     });
 
+    // A platform admin has no refresh token, so the access token is the only thing a logout can end for them.
+    it('ends each distinct access token presented, once', async () => {
+      await target.logout({
+        refreshToken: undefined,
+        accessTokens: ['admin-access', 'tenant-access', 'admin-access'],
+      });
+
+      expect(tokenService.revokeByAccessToken).toHaveBeenCalledTimes(2);
+      expect(tokenService.revokeByAccessToken).toHaveBeenCalledWith('admin-access');
+      expect(tokenService.revokeByAccessToken).toHaveBeenCalledWith('tenant-access');
+    });
+
     // The whole point of driving logout off the refresh cookie: it must still succeed when the
     // access token has expired, and when the cookie is already gone.
     it('succeeds without revoking anything when no refresh cookie was sent', async () => {
-      const result = await target.logout(undefined);
+      const result = await target.logout({ refreshToken: undefined, accessTokens: [] });
 
       expect(tokenService.revokeBySessionToken).not.toHaveBeenCalled();
+      expect(tokenService.revokeByAccessToken).not.toHaveBeenCalled();
       expect(result.message).toBeTruthy();
     });
   });
@@ -682,6 +848,41 @@ describe('AuthService', () => {
       expect(authDbService.updatePasswordAndRevokeSessions).not.toHaveBeenCalled();
     });
 
+    it('counts a wrong current password against the sign-in budget', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      hashingService.compare.mockResolvedValue(false);
+
+      await expect(target.changePassword(tenantUser, dto)).rejects.toThrow(UnauthorizedException);
+
+      expect(loginAttemptService.recordFailure).toHaveBeenCalledWith(
+        'jane@thecoffeehouse.com',
+        LoginAttemptScope.TENANT
+      );
+    });
+
+    it('answers a locked-out account as a wrong password, without comparing', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      loginAttemptService.isLockedOut.mockResolvedValue(true);
+
+      await expect(target.changePassword(tenantUser, dto)).rejects.toThrow(UnauthorizedException);
+
+      expect(hashingService.compare).not.toHaveBeenCalled();
+      expect(authDbService.updatePasswordAndRevokeSessions).not.toHaveBeenCalled();
+    });
+
+    it('clears the budget once the current password is proven', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      hashingService.compare.mockResolvedValue(true);
+      hashingService.hash.mockResolvedValue('new-hash');
+
+      await target.changePassword(tenantUser, dto);
+
+      expect(loginAttemptService.reset).toHaveBeenCalledWith(
+        'jane@thecoffeehouse.com',
+        LoginAttemptScope.TENANT
+      );
+    });
+
     it('rejects a new password identical to the current one, without signing anyone out', async () => {
       authDbService.findUserById.mockResolvedValue(storedUser);
       hashingService.compare.mockResolvedValue(true);
@@ -723,6 +924,44 @@ describe('AuthService', () => {
       );
       expect(result.body.accessToken).toBe('access');
       expect(result.refreshToken).toBe('refresh');
+    });
+
+    // The refresh tokens die in the database; a JWT cannot be taken back, so the access tokens already issued are ended with a mark.
+    // The caller's fresh pair follows at once, in the same second, so the mark must spare tokens issued now.
+    it('ends the access tokens already issued, sparing the fresh pair issued right after', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      hashingService.compare.mockResolvedValue(true);
+      hashingService.hash.mockResolvedValue('new-hash');
+
+      await target.changePassword(tenantUser, dto);
+
+      expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith('user-1', {
+        exceptCurrentSecond: true,
+      });
+      const [update] = authDbService.updatePasswordAndRevokeSessions.mock.invocationCallOrder;
+      const [revoke] = sessionRevocationService.revokeUser.mock.invocationCallOrder;
+      const [issue] = tokenService.issueTokenPair.mock.invocationCallOrder;
+      // The mark first (a refresh rotating at that moment re-checks it), then the UPDATE, then the caller's fresh pair.
+      expect(revoke).toBeLessThan(update as number);
+      expect(update).toBeLessThan(issue as number);
+      // And once more after the UPDATE, for a rotation that started in the next second.
+      const [, revokeAgain] = sessionRevocationService.revokeUser.mock.invocationCallOrder;
+      expect(revokeAgain).toBeGreaterThan(update as number);
+      expect(revokeAgain).toBeLessThan(issue as number);
+    });
+
+    it('revokes nothing when the current password is wrong', async () => {
+      authDbService.findUserById.mockResolvedValue(storedUser);
+      hashingService.compare.mockResolvedValue(false);
+
+      await expect(
+        target.changePassword(tenantUser, {
+          currentPassword: 'Wrong@Pass1',
+          newPassword: 'N3w@Pass12',
+        })
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(sessionRevocationService.revokeUser).not.toHaveBeenCalled();
     });
   });
 
@@ -791,7 +1030,13 @@ describe('AuthService', () => {
         userId: 'user-1',
         passwordHash: 'hashed-password',
       });
-      expect(otpAttemptService.reset).toHaveBeenCalledWith('jane@thecoffeehouse.com');
+      expect(otpAttemptService.reset).toHaveBeenCalledWith({
+        scope: OtpScope.SET_PASSWORD,
+        identity: 'user-1',
+      });
+      expect(sessionRevocationService.revokeUser).toHaveBeenCalledWith('user-1', {
+        exceptCurrentSecond: true,
+      });
 
       authDbService.findUserById.mockResolvedValue({
         ...passwordlessUser,
@@ -823,6 +1068,20 @@ describe('AuthService', () => {
       status: UserStatus.ACTIVE as const,
       locale: null,
     };
+
+    it('answers 503 and gives the cooldown back when the email queue refuses the code', async () => {
+      authDbService.findUserById.mockResolvedValue(passwordlessUser);
+      queueManager.addRegisterationOtpEmailJob.mockRejectedValue(new Error('redis down'));
+
+      await expect(target.requestSetPasswordOtp(tenantUser)).rejects.toMatchObject({
+        response: { code: 'EMAIL_QUEUE_UNAVAILABLE' },
+      });
+
+      expect(otpAttemptService.releaseResend).toHaveBeenCalledWith({
+        scope: OtpScope.SET_PASSWORD,
+        identity: 'user-1',
+      });
+    });
 
     it('mails a fresh OTP for a passwordless account', async () => {
       authDbService.findUserById.mockResolvedValue(passwordlessUser);
@@ -905,7 +1164,9 @@ describe('AuthService', () => {
 
       expect(authDbService.updateLocale).toHaveBeenCalledWith({ userId: 'user-1', locale: 'de' });
       expect(tokenService.reissueAccessToken).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'user-1', locale: 'de' })
+        expect.objectContaining({ id: 'user-1', locale: 'de' }),
+        // No `exp` on this token: falls back to the full TTL.
+        900
       );
       expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
       expect(authDbService.insertRefreshToken).not.toHaveBeenCalled();
@@ -913,6 +1174,55 @@ describe('AuthService', () => {
       expect(result.expiresIn).toBe(900);
       expect(result).not.toHaveProperty('refreshToken');
       expect(result.user.locale).toBe('de');
+    });
+
+    // Regression: a fresh TTL on every call let a stolen access token renew itself indefinitely, outliving a logout and a password
+    // change. The new token must die when the presented one does.
+    describe('the lifetime of the re-signed token', () => {
+      beforeEach(() => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-10-15T10:00:00Z'));
+        authDbService.findUserById.mockResolvedValue(storedUser);
+        authDbService.findTenantStatus.mockResolvedValue({
+          status: TenantStatus.ACTIVE,
+          name: 'The Coffee House',
+        });
+      });
+      afterEach(() => jest.useRealTimers());
+
+      it("is the presented token's remaining lifetime", async () => {
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        tokenService.reissueAccessToken.mockReturnValueOnce({ accessToken: 'n', expiresIn: 120 });
+
+        const result = await target.updateLocale(
+          { ...tenantUser, sessionExpiresAt: nowSeconds + 120 },
+          { locale: 'de' }
+        );
+
+        expect(tokenService.reissueAccessToken).toHaveBeenCalledWith(expect.anything(), 120);
+        expect(result.expiresIn).toBe(120);
+      });
+
+      it('never exceeds the full access-token TTL, whatever the token claims', async () => {
+        const nowSeconds = Math.floor(Date.now() / 1000);
+
+        await target.updateLocale(
+          { ...tenantUser, sessionExpiresAt: nowSeconds + 10_000 },
+          { locale: 'de' }
+        );
+
+        expect(tokenService.reissueAccessToken).toHaveBeenCalledWith(expect.anything(), 900);
+      });
+
+      it('is at least a second for a token about to expire, never a born-expired one', async () => {
+        const nowSeconds = Math.floor(Date.now() / 1000);
+
+        await target.updateLocale(
+          { ...tenantUser, sessionExpiresAt: nowSeconds },
+          { locale: 'de' }
+        );
+
+        expect(tokenService.reissueAccessToken).toHaveBeenCalledWith(expect.anything(), 1);
+      });
     });
 
     /**
@@ -989,6 +1299,17 @@ describe('AuthService', () => {
         expect(oauthStateService.mint).toHaveBeenCalledWith({
           provider: SsoProvider.GOOGLE,
           intent: OAuthIntent.SIGNUP,
+          pkce: true,
+        });
+      });
+
+      // PKCE binds the code to this server's request; the verifier stays in the Redis record and only its challenge leaves.
+      it('sends only the PKCE challenge to Google', async () => {
+        await target.buildGoogleAuthorizeRedirect({ intent: OAuthIntent.LOGIN });
+
+        expect(googleIdentityProvider.buildAuthorizationUrl).toHaveBeenCalledWith({
+          state: 'signed-state',
+          codeChallenge: 'google-challenge',
         });
       });
 
@@ -1126,9 +1447,36 @@ describe('AuthService', () => {
 
             await target.handleGoogleCallback(callbackInput);
 
-            expect(googleIdentityProvider.fetchIdentity).toHaveBeenCalledWith('c');
+            // A state minted before PKCE shipped carries no verifier, and no challenge went out for it.
+            expect(googleIdentityProvider.fetchIdentity).toHaveBeenCalledWith('c', {});
           }
         );
+      });
+
+      it('redeems the code with the verifier stored for this round trip', async () => {
+        oauthStateService.consume.mockResolvedValue({
+          ok: true as const,
+          record: {
+            provider: SsoProvider.GOOGLE,
+            nonce: 'n',
+            intent: OAuthIntent.LOGIN,
+            sidHash: 'h',
+            codeVerifier: 'stored-verifier',
+          },
+        });
+        googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.findSsoIdentityBySub.mockResolvedValue({ kind: 'unknown' });
+
+        await target.handleGoogleCallback({
+          code: 'c',
+          state: 's',
+          error: undefined,
+          sid: 'sid',
+        });
+
+        expect(googleIdentityProvider.fetchIdentity).toHaveBeenCalledWith('c', {
+          codeVerifier: 'stored-verifier',
+        });
       });
 
       it('consumes the state before exchanging the code, so a replay costs no round trip', async () => {
@@ -1969,6 +2317,7 @@ describe('AuthService', () => {
         provider: SsoProvider.GOOGLE,
         intent: OAuthIntent.INVITE,
         inviteToken: 'raw-token-1',
+        pkce: true,
       });
     });
   });

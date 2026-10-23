@@ -1064,7 +1064,7 @@ below; `error` is the category string the frontend branches on.
 | `400` | `NO_FIELDS_TO_UPDATE` | `PATCH /v1/settings/blocklist-terms/:id`, `PATCH /v1/settings/notification-recipients/:id` | An empty `PATCH` body. Deliberately not a no-op `200` — a client that sent nothing meant to send something. |
 | `401` | `Unauthorized` | Every route | Missing, malformed, or expired access token. Nothing in this module is `@Public()`. |
 | `403` | `Forbidden` | Every route under `/v1/settings`, plus `PATCH /v1/tenant` | Authenticated as `member`, not `owner` (`PLAN.md` §2 — see [Role requirements](#role-requirements)). |
-| `403` | `TENANT_SUSPENDED` | Every route | `tenants.status = 'suspended'`. Note `PLAN.md` §8.20: a token issued before suspension keeps working until it expires. |
+| `403` | `TENANT_SUSPENDED` | Every route | `tenants.status = 'suspended'`. A token issued before the suspension is refused too: suspending a business marks it in Redis and every older access token stops working at once (see auth's `SessionRevocationService`). |
 | `404` | `TENANT_SETTINGS_MISSING` | `GET /v1/settings`, `PUT /v1/settings` | No `tenant_settings` row for this tenant — a tenant provisioned outside `PLAN.md` §8.10's signup transaction. Neither route creates it; see [`GET /v1/settings`](#get-v1settings). |
 | `404` | `BLOCKLIST_TERM_NOT_FOUND` | `PATCH`/`DELETE /v1/settings/blocklist-terms/:id` | No such term **for this tenant**. Also returned for a term that exists under a different tenant — `403` there would confirm the id exists. |
 | `404` | `RECIPIENT_NOT_FOUND` | `PATCH`/`DELETE /v1/settings/notification-recipients/:id` | Same rule, for `notification_recipients.id`. |

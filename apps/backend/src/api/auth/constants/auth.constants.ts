@@ -11,6 +11,34 @@ export const REFRESH_TOKEN_BYTES = 32;
 /** "Special" is any non-alphanumeric, non-whitespace character, not an allowlist. Spaces are allowed (passphrases); only line breaks are refused. */
 export const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d\s])[^\r\n]+$/;
 
+/**
+ * bcrypt reads only the first 72 *bytes* of a password and ignores the rest, so a longer one is silently truncated (two different long
+ * passwords sharing their first 72 bytes would verify against each other). New passwords are capped at this; an older password
+ * longer than it still signs in, because it was truncated the same way when it was set.
+ */
+export const PASSWORD_MAX_BYTES = 72;
+export const PASSWORD_TOO_LONG_MESSAGE =
+  'password must be at most 72 bytes (an accented character counts as two)';
+
+/**
+ * Binds finishing a password sign-up to the browser that proved the password. Anyone can start a sign-up for an address they do not
+ * control, and the owner of that mailbox is then the one who receives the code: without this, entering it would activate an account
+ * whose password the stranger chose. The cookie is issued only on sign-up and on a correct-password login, and verification
+ * needs it as well as the code, so neither party alone can finish it.
+ */
+export const SIGNUP_BINDING_COOKIE_NAME = 'signup_binding';
+export const SIGNUP_BINDING_COOKIE_PATH = '/v1/auth';
+export const SIGNUP_BINDING_TTL_SECONDS = 60 * 60 * 24;
+
+/**
+ * An unverified sign-up older than this no longer holds its address: a new sign-up for the same email replaces it, so a stranger
+ * cannot park an address (with the OTP going to its real owner) forever.
+ */
+export const PENDING_SIGNUP_REPLACEABLE_AFTER_HOURS = 24;
+
+/** The nightly purge deletes an unverified sign-up after this long. */
+export const PENDING_SIGNUP_PURGE_AFTER_HOURS = 24 * 7;
+
 export const OTP_LENGTH = 6;
 export const OTP_PATTERN = /^\d{6}$/;
 

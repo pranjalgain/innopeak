@@ -6,6 +6,7 @@ import { LocationStatus } from '@common/enums/location-status.enum';
 import { ReviewProviderConnectionStatus } from '@common/enums/review-provider-connection-status.enum';
 import { SyncRunStatus } from '@common/enums/sync-run-status.enum';
 import { EnvConfig } from '@config/env.config';
+import { isUniqueViolation } from '@db/helpers/pg-error.util';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import {
   ConnectionsDbService,
@@ -63,6 +64,7 @@ import {
   ConnectionNeedsReauthException,
   ConnectionNotFoundException,
   ExternalLocationNotFoundException,
+  LocationBillingPausedException,
   LocationInactiveException,
   LocationLimitReachedException,
   LocationNotFoundException,
@@ -77,6 +79,9 @@ import type {
   PendingAccountChoice,
 } from '../types/connections.type';
 import { hasRequiredOAuthScope, toLocationDto } from '../utils/connections.utils';
+
+/** Partial unique index: one live (not disconnected) connection per tenant and provider. */
+const LIVE_CONNECTION_INDEX = 'idx_review_provider_connections_tenant_provider_live';
 
 @Injectable()
 export class ConnectionsService {
@@ -320,6 +325,22 @@ export class ConnectionsService {
     if (choice === null) {
       throw new AccountChoiceExpiredException();
     }
+    // The peek above and this claim are two steps: a fresh consent (or another owner's) can replace the waiting choice between them. What was
+    // claimed is what is connected, so it is checked again, against the claimed record and not the peeked one; a record that is not ours goes back.
+    const claimedAccount =
+      choice.userId === tenantUser.id
+        ? choice.accounts.find(candidate => candidate.externalAccountId === input.accountId)
+        : undefined;
+    if (claimedAccount === undefined) {
+      await this.pendingAccountChoiceService
+        .save(tenantUser.tenantId, choice)
+        .catch((saveError: unknown) => {
+          this.logger.error(
+            `Could not put back a pending account choice for tenant ${tenantUser.tenantId}: ${(saveError as Error).message}`
+          );
+        });
+      throw new AccountChoiceExpiredException();
+    }
 
     let outcome: ConnectAccountOutcome;
     try {
@@ -327,7 +348,7 @@ export class ConnectionsService {
       outcome = await this.connectAccount({
         tenantId: tenantUser.tenantId,
         userId: tenantUser.id,
-        account,
+        account: claimedAccount,
         tokens: choice.tokens,
         existing,
       });
@@ -341,7 +362,7 @@ export class ConnectionsService {
 
     return {
       connectionId: outcome.connection.id,
-      accountId: account.externalAccountId,
+      accountId: claimedAccount.externalAccountId,
       returnTo: choice.returnTo,
     };
   }
@@ -496,6 +517,10 @@ export class ConnectionsService {
     if (location.status !== LocationStatus.ACTIVE) {
       throw new LocationInactiveException();
     }
+    // Paused by the plan: polling and replies are off for it, so it cannot be what the whole team's dashboard shows.
+    if (location.billingPausedAt !== null) {
+      throw new LocationBillingPausedException();
+    }
 
     await this.authDbService.setActiveLocationId({ tenantId, locationId: location.id });
 
@@ -522,7 +547,8 @@ export class ConnectionsService {
 
     await this.credentialService.invalidateAccessToken(connection.id);
     const credentialRevoked = await this.credentialService.revokeAndDelete(
-      connection.credentialReference
+      connection.credentialReference,
+      { keepIfNotRevoked: true }
     );
 
     return {
@@ -787,27 +813,56 @@ export class ConnectionsService {
       return { kind: 'mismatch' };
     }
 
-    // Same account reuses its secret slot; a new account gets its own, since the old credential is
-    // revoked on disconnect.
-    const credentialReference =
+    // The tenant's own row for this very account. `existing` is only the latest row, so after a switch A -> B (A kept as an inactive
+    // record) reconnecting A would otherwise look like a new account: the upsert would hit A's row anyway, overwrite its credential
+    // reference (orphaning a grant that was kept because Google had not confirmed its revocation), and skip reactivating A's locations.
+    const previous =
       existing && sameAccount
-        ? await this.replaceExistingCredential(existing.credentialReference, tokens)
-        : await this.credentialService.storeNewCredential(tokens);
+        ? existing
+        : existing
+          ? await this.connectionsDbService.findConnectionByTenantAndAccount(
+              tenantId,
+              account.externalAccountId
+            )
+          : null;
 
-    const connection = await this.connectionsDbService.upsertConnection({
-      tenantId,
-      connectedByUserId: input.userId,
-      providerAccountId: account.externalAccountId,
-      credentialReference,
-      tokenExpiresAt: tokens.expiresAt,
-    });
+    // The same account reuses its secret slot; a new account gets its own, since the old credential is
+    // revoked on disconnect.
+    const credentialReference = previous
+      ? await this.replaceExistingCredential(previous.credentialReference, tokens)
+      : await this.credentialService.storeNewCredential(tokens);
+
+    let connection: ProviderConnectionRow;
+    try {
+      connection = await this.connectionsDbService.upsertConnection({
+        tenantId,
+        connectedByUserId: input.userId,
+        providerAccountId: account.externalAccountId,
+        credentialReference,
+        tokenExpiresAt: tokens.expiresAt,
+      });
+    } catch (error) {
+      // The read-then-write check above is not atomic: a second consent flow for another account can commit its live connection in
+      // between, and the database refuses a second live one. That is the mismatch rule losing a race, not a server fault.
+      if (isUniqueViolation(error, LIVE_CONNECTION_INDEX)) {
+        this.logger.warn(
+          `Tenant ${tenantId} connected another account while ${account.externalAccountId} was being connected; refusing the second.`
+        );
+        // Only a credential this call minted is ours to discard; a same-account reconnect reused its slot.
+        if (!previous) {
+          await this.credentialService.revokeAndDelete(credentialReference);
+        }
+        return { kind: 'mismatch' };
+      }
+      throw error;
+    }
 
     // The cached token belongs to the grant being replaced; a revoked one would 401 and flip this straight back to `needs_reauth`.
     await this.credentialService.invalidateAccessToken(connection.id);
 
     // Same-account reconnect only (`connection.id` is `existing.id`). Locations that finished their
     // backfill are left alone; the rest get a fresh backfill restarted.
-    if (existing && sameAccount) {
+    if (previous) {
       const reactivated = await this.connectionsDbService.reactivateLocationsForConnection(
         connection.id
       );

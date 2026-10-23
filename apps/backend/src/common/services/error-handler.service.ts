@@ -1,39 +1,52 @@
 import { MESSAGES } from '@common/constants/messages.constants';
 import { ApiResponse } from '@common/dto/api-response';
+import { toLoggableError } from '@common/helpers/loggable-error.util';
 import type { Locale } from '@common/i18n/locale';
 import { renderMessage } from '@common/i18n/message-registry';
 import { translateValidationMessage } from '@common/i18n/validation-messages';
-import { isProduction } from '@config/deployment-target.util';
+import { isLocalDevelopment } from '@config/deployment-target.util';
 import { LoggerService } from '@logger/logger.service';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 
 // PostgreSQL error codes: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const PG_ERROR_MAP: Record<string, { status: HttpStatus; message: string }> = {
-  '23505': { status: HttpStatus.CONFLICT, message: 'Unique constraint violation' },
-  '23503': { status: HttpStatus.BAD_REQUEST, message: 'Foreign key constraint failed' },
-  '23502': { status: HttpStatus.BAD_REQUEST, message: 'Not null constraint violation' },
-  '23514': { status: HttpStatus.BAD_REQUEST, message: 'Check constraint violation' },
-  '23P01': { status: HttpStatus.BAD_REQUEST, message: 'Exclusion constraint violation' },
-  '22001': { status: HttpStatus.BAD_REQUEST, message: 'Value too long for column type' },
-  '22003': { status: HttpStatus.BAD_REQUEST, message: 'Numeric value out of range' },
-  '22007': { status: HttpStatus.BAD_REQUEST, message: 'Invalid datetime format' },
-  '22P02': { status: HttpStatus.BAD_REQUEST, message: 'Invalid text representation' },
+  '23505': { status: HttpStatus.CONFLICT, message: MESSAGES.COMMON.DB_UNIQUE_VIOLATION },
+  '23503': { status: HttpStatus.BAD_REQUEST, message: MESSAGES.COMMON.DB_FOREIGN_KEY_VIOLATION },
+  '23502': { status: HttpStatus.BAD_REQUEST, message: MESSAGES.COMMON.DB_NOT_NULL_VIOLATION },
+  '23514': { status: HttpStatus.BAD_REQUEST, message: MESSAGES.COMMON.DB_CHECK_VIOLATION },
+  '23P01': { status: HttpStatus.BAD_REQUEST, message: MESSAGES.COMMON.DB_EXCLUSION_VIOLATION },
+  '22001': { status: HttpStatus.BAD_REQUEST, message: MESSAGES.COMMON.DB_VALUE_TOO_LONG },
+  '22003': { status: HttpStatus.BAD_REQUEST, message: MESSAGES.COMMON.DB_NUMERIC_OUT_OF_RANGE },
+  '22007': { status: HttpStatus.BAD_REQUEST, message: MESSAGES.COMMON.DB_INVALID_DATETIME },
+  '22P02': { status: HttpStatus.BAD_REQUEST, message: MESSAGES.COMMON.DB_INVALID_TEXT },
   // A NUL byte in a text value — the one UTF-8 sequence Postgres refuses outright.
-  '22021': { status: HttpStatus.BAD_REQUEST, message: 'Invalid character sequence' },
-  '42P01': { status: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Table or view not found' },
-  '42703': { status: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Column not found' },
-  '42601': { status: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Syntax error in query' },
+  '22021': {
+    status: HttpStatus.BAD_REQUEST,
+    message: MESSAGES.COMMON.DB_INVALID_CHARACTER_SEQUENCE,
+  },
+  '42P01': {
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    message: MESSAGES.COMMON.DB_TABLE_NOT_FOUND,
+  },
+  '42703': {
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    message: MESSAGES.COMMON.DB_COLUMN_NOT_FOUND,
+  },
+  '42601': { status: HttpStatus.INTERNAL_SERVER_ERROR, message: MESSAGES.COMMON.DB_SYNTAX_ERROR },
   '40001': {
     status: HttpStatus.CONFLICT,
-    message: 'Serialization failure — retry the transaction',
+    message: MESSAGES.COMMON.DB_SERIALIZATION_FAILURE,
   },
-  '40P01': { status: HttpStatus.CONFLICT, message: 'Deadlock detected — retry the transaction' },
-  '08006': { status: HttpStatus.SERVICE_UNAVAILABLE, message: 'Database connection failure' },
+  '40P01': { status: HttpStatus.CONFLICT, message: MESSAGES.COMMON.DB_DEADLOCK },
+  '08006': {
+    status: HttpStatus.SERVICE_UNAVAILABLE,
+    message: MESSAGES.COMMON.DB_CONNECTION_FAILURE,
+  },
   '08001': {
     status: HttpStatus.SERVICE_UNAVAILABLE,
-    message: 'Unable to establish database connection',
+    message: MESSAGES.COMMON.DB_CONNECTION_UNAVAILABLE,
   },
-  '57014': { status: HttpStatus.REQUEST_TIMEOUT, message: 'Query timeout — statement cancelled' },
+  '57014': { status: HttpStatus.REQUEST_TIMEOUT, message: MESSAGES.COMMON.DB_QUERY_TIMEOUT },
 };
 
 /** Duck-typed: `pg` doesn't export a typed error class. */
@@ -138,26 +151,23 @@ export class ErrorHandlerService {
     return typeof error === 'string' ? error : undefined;
   }
 
-  private extractStack(error: unknown): string | undefined {
-    return error instanceof Error ? error.stack : undefined;
-  }
-
   private handlePgError(error: PostgresError, context: string): ApiResponse<null> {
     const mapped = PG_ERROR_MAP[error.code];
 
     // `detail`/`table`/`column` can expose schema internals and literal row values, so never sent to clients in production; `HttpExceptionFilter.catch` already logs the full detail.
     if (mapped) {
-      if (isProduction()) {
+      if (!isLocalDevelopment()) {
         return this.createErrorResponse(mapped.status, mapped.message, context, error);
       }
       const detail = error.detail ? ` ${error.detail}` : '';
       const table = error.table ? ` (table: ${error.table})` : '';
       const column = error.column ? ` (column: ${error.column})` : '';
-      const message = `${mapped.message}${table}${column}.${detail}`;
+      // Local development only: the detail below is English, so the label joins it in English rather than as a tag the edge cannot split.
+      const message = `${renderMessage(mapped.message, 'en')}${table}${column}.${detail}`;
       return this.createErrorResponse(mapped.status, message, context, error);
     }
 
-    if (isProduction()) {
+    if (!isLocalDevelopment()) {
       return this.createErrorResponse(
         HttpStatus.INTERNAL_SERVER_ERROR,
         MESSAGES.COMMON.INTERNAL_ERROR,
@@ -203,7 +213,7 @@ export class ErrorHandlerService {
       );
       return this.createErrorResponse(
         HttpStatus.BAD_REQUEST,
-        isProduction() ? MESSAGES.COMMON.INTERNAL_ERROR : error.message,
+        !isLocalDevelopment() ? MESSAGES.COMMON.INTERNAL_ERROR : error.message,
         context,
         error
       );
@@ -211,7 +221,7 @@ export class ErrorHandlerService {
     this.logger.error(`Unhandled social auth error in ${context}: ${error.message}`, error.stack);
     return this.createErrorResponse(
       HttpStatus.INTERNAL_SERVER_ERROR,
-      isProduction() ? MESSAGES.COMMON.INTERNAL_ERROR : error.message,
+      !isLocalDevelopment() ? MESSAGES.COMMON.INTERNAL_ERROR : error.message,
       context,
       error
     );
@@ -220,19 +230,21 @@ export class ErrorHandlerService {
   private handleUnhandledError(error: unknown, context: string): ApiResponse<null> {
     const message = this.extractMessage(error);
     // Logged in English regardless of locale, as in `handleHttpException`: `message` may be a tagged `MESSAGES.*` key, useless to on-call unrendered.
+    // A failed database statement is logged without its SQL and bound values (see `toLoggableError`).
+    const loggable = toLoggableError(error);
     this.logger.error(
-      `Unhandled error in ${context}: ${message ? renderMessage(message, 'en') : 'Unknown error'}`,
-      this.extractStack(error)
+      `Unhandled error in ${context}: ${message ? renderMessage(loggable.message, 'en') : 'Unknown error'}`,
+      loggable.stack
     );
     if (message?.includes('Failed to send SMS')) {
       return this.createErrorResponse(
         HttpStatus.FORBIDDEN,
-        'SMS service is restricted for trial accounts. Please verify the recipient number or upgrade your Twilio account.',
+        MESSAGES.COMMON.SMS_TRIAL_RESTRICTED,
         context,
         error
       );
     }
-    if (isProduction()) {
+    if (!isLocalDevelopment()) {
       // A raw Error's message is internal detail (DB invariant, stack fragment, library wording), never vetted as client-safe; already logged above.
       return this.createErrorResponse(
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -243,7 +255,7 @@ export class ErrorHandlerService {
     }
     return this.createErrorResponse(
       HttpStatus.INTERNAL_SERVER_ERROR,
-      message ?? 'An unknown error occurred. Please try again later.',
+      message ?? MESSAGES.COMMON.UNKNOWN_ERROR,
       context,
       error
     );

@@ -2,7 +2,7 @@ import type { EnvConfig } from '@config/env.config';
 import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 
-import { AiProvider } from './ai.provider';
+import type { AiProvider } from './ai.provider';
 import { AzureOpenAiProvider } from './azure-openai.provider';
 import { OpenRouterAiProvider } from './openrouter-ai.provider';
 

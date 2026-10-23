@@ -1,7 +1,7 @@
 import { JobName, QueueName } from '@bg/constants/job.constant';
 import type { IEmailJob, IOtpEmailJob } from '@bg/interfaces/job.interface';
 import type { DeadLetterQueueService } from '@dead-letter-queue/dead-letter-queue.service';
-import type { Job } from 'bullmq';
+import { Job } from 'bullmq';
 
 import type { EmailQueueService } from './email-queue.service';
 import { EmailProcessor } from './email.processor';
@@ -30,6 +30,7 @@ describe('EmailProcessor', () => {
       attemptsMade: 1,
       opts: { attempts: 1 },
       log: jest.fn().mockResolvedValue(1),
+      updateData: jest.fn().mockResolvedValue(undefined),
       ...overrides,
     }) as unknown as EmailJobHandle;
 
@@ -41,10 +42,13 @@ describe('EmailProcessor', () => {
       addFailedJobToDLQ: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<DeadLetterQueueService>;
     processor = new EmailProcessor(emailQueueService, dlqService);
+    // `WorkerHost.worker` throws until Nest attaches one; the stalled lookup only passes it to `Job.fromId`, which tests stub.
+    Object.defineProperty(processor, 'worker', { value: {} });
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+    jest.restoreAllMocks();
   });
 
   describe('process', () => {
@@ -105,12 +109,38 @@ describe('EmailProcessor', () => {
   });
 
   describe('onCompleted', () => {
-    it('logs that the job has completed', () => {
+    it('logs that the job has completed', async () => {
       const job = buildJob();
 
-      processor.onCompleted(job);
+      await processor.onCompleted(job);
 
       expect(job.log).toHaveBeenCalledWith(expect.stringContaining('has been completed'));
+    });
+
+    // The job outlives the send (a day in Redis and Bull Board) and an invite link is valid for days.
+    it.each([
+      ['an OTP', otpData, { email: 'user@example.com', customerName: 'Jane', otp: '[redacted]' }],
+      [
+        'an invite link',
+        {
+          email: 'invitee@example.com',
+          inviteLink: 'https://app.example.com/invite/abc',
+          businessName: 'Cafe',
+        },
+        { email: 'invitee@example.com', inviteLink: '[redacted]', businessName: 'Cafe' },
+      ],
+    ])('redacts %s in the stored payload once the email is sent', async (_name, data, expected) => {
+      const job = buildJob({ data });
+
+      await processor.onCompleted(job);
+
+      expect(job.updateData).toHaveBeenCalledWith(expected);
+    });
+
+    it('does not fail a sent email when the redaction cannot be written', async () => {
+      const job = buildJob({ updateData: jest.fn().mockRejectedValue(new Error('redis down')) });
+
+      await expect(processor.onCompleted(job)).resolves.toBeUndefined();
     });
   });
 
@@ -129,6 +159,13 @@ describe('EmailProcessor', () => {
         stacktrace: job.stacktrace,
         timestamp: expect.any(Number),
       });
+    });
+
+    it('does not reject when the dead-letter write fails', async () => {
+      dlqService.addFailedJobToDLQ.mockRejectedValue(new Error('redis down'));
+      const job = buildJob({ attemptsMade: 3, opts: { attempts: 3 } });
+
+      await expect(processor.onFailed(job)).resolves.toBeUndefined();
     });
 
     it('defaults originalJobId to an empty string when job.id is missing', async () => {
@@ -151,6 +188,8 @@ describe('EmailProcessor', () => {
       await processor.onFailed(job);
 
       expect(dlqService.addFailedJobToDLQ).not.toHaveBeenCalled();
+      // The retry still has to send the real code, so the payload must stay intact until the last attempt.
+      expect(job.updateData).not.toHaveBeenCalled();
     });
 
     it('pushes to the DLQ once the final retry attempt is exhausted', async () => {
@@ -159,6 +198,21 @@ describe('EmailProcessor', () => {
       await processor.onFailed(job);
 
       expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledTimes(1);
+    });
+
+    it('redacts the stored payload once no attempts remain, after the dead-letter copy is taken', async () => {
+      const job = buildJob({ attemptsMade: 3, opts: { attempts: 3 } });
+
+      await processor.onFailed(job);
+
+      expect(job.updateData).toHaveBeenCalledWith({
+        email: 'user@example.com',
+        customerName: 'Jane',
+        otp: '[redacted]',
+      });
+      expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledWith(
+        expect.objectContaining({ originalJobData: otpData })
+      );
     });
 
     it('treats a missing opts.attempts as a single-attempt job (terminal on first failure)', async () => {
@@ -171,11 +225,44 @@ describe('EmailProcessor', () => {
   });
 
   describe('onStalled', () => {
-    // BullMQ emits `(jobId, previousState)`; a stalled job is re-queued, or failed and then forwarded by `onFailed`.
-    it('logs the stall from the job id alone and does not write to the DLQ', () => {
-      expect(() => {
-        processor.onStalled('job-123');
-      }).not.toThrow();
+    // BullMQ emits `(jobId, previousState)`. A job failed past `maxStalledCount` gets no `failed` event at all.
+    const withWorkerHolding = (job: unknown): jest.SpyInstance =>
+      jest.spyOn(Job, 'fromId').mockResolvedValue(job as never);
+
+    it('leaves a stalled job that was re-queued alone: it is about to be retried', async () => {
+      const job = buildJob({ isFailed: jest.fn().mockResolvedValue(false) });
+      withWorkerHolding(job);
+
+      await processor.onStalled('job-123');
+
+      expect(dlqService.addFailedJobToDLQ).not.toHaveBeenCalled();
+      expect(job.updateData).not.toHaveBeenCalled();
+    });
+
+    it('files a job the stall detector failed in the dead-letter queue and redacts its stored payload', async () => {
+      const job = buildJob({
+        failedReason: 'job stalled more than allowable limit',
+        isFailed: jest.fn().mockResolvedValue(true),
+      });
+      withWorkerHolding(job);
+
+      await processor.onStalled('job-123');
+
+      expect(dlqService.addFailedJobToDLQ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          originalJobId: 'job-1',
+          failedReason: 'job stalled more than allowable limit',
+        })
+      );
+      expect(job.updateData).toHaveBeenCalledWith(expect.objectContaining({ otp: '[redacted]' }));
+    });
+
+    it('does nothing for a job that is already gone, and never throws', async () => {
+      withWorkerHolding(undefined);
+      await expect(processor.onStalled('job-123')).resolves.toBeUndefined();
+
+      jest.spyOn(Job, 'fromId').mockRejectedValue(new Error('redis down'));
+      await expect(processor.onStalled('job-123')).resolves.toBeUndefined();
       expect(dlqService.addFailedJobToDLQ).not.toHaveBeenCalled();
     });
   });

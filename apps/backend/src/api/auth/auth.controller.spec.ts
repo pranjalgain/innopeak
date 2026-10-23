@@ -245,17 +245,118 @@ describe('AuthController.login', () => {
     );
   });
 
-  it('sets no cookies at all for a pending_verification result', async () => {
+  // No session yet, so no session cookies; but the browser that just proved the password gets the binding that lets it finish verification.
+  it('sets only the signup binding for a pending_verification result', async () => {
     login.mockResolvedValue({
-      status: 'pending_verification',
-      email: 'jane@thecoffeehouse.com',
-      message: 'Verification code sent',
+      pendingVerification: true,
+      body: {
+        status: 'pending_verification',
+        email: 'jane@thecoffeehouse.com',
+        message: 'Verification code sent',
+      },
+      signupBinding: 'binding-token',
     });
     const res = mockResponse();
 
-    await controller.login({ email: 'jane@thecoffeehouse.com', password: 'x' }, res);
+    const response = await controller.login(
+      { email: 'jane@thecoffeehouse.com', password: 'x' },
+      res
+    );
 
-    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.cookie).toHaveBeenCalledTimes(1);
+    expect(res.cookie).toHaveBeenCalledWith(
+      'signup_binding',
+      'binding-token',
+      expect.objectContaining({ httpOnly: true, path: '/v1/auth' })
+    );
+    // Never in the body: only the cookie carries it.
+    expect(JSON.stringify(response)).not.toContain('binding-token');
+  });
+});
+
+describe('AuthController — password sign-up binding', () => {
+  let controller: AuthController;
+  const signup = jest.fn();
+  const verifyEmail = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [
+        { provide: AuthService, useValue: { signup, verifyEmail } },
+        { provide: AccountDeletionService, useValue: {} },
+      ],
+    }).compile();
+
+    controller = moduleRef.get(AuthController);
+  });
+
+  const dto = {
+    businessName: 'Coffee House',
+    ownerName: 'Jane',
+    email: 'jane@thecoffeehouse.com',
+    password: 'StrongP@ss1',
+  };
+
+  describe('signup', () => {
+    it('gives the browser that signed up the binding that lets it finish, in a cookie and never the body', async () => {
+      signup.mockResolvedValue({
+        body: { tenantId: 't', userId: 'u', status: 'pending_verification', message: 'sent' },
+        signupBinding: 'binding-token',
+      });
+      const res = mockResponse();
+
+      const response = await controller.signup(dto, res);
+
+      expect(res.cookie).toHaveBeenCalledTimes(1);
+      expect(res.cookie).toHaveBeenCalledWith(
+        'signup_binding',
+        'binding-token',
+        expect.objectContaining({ httpOnly: true, sameSite: 'lax', path: '/v1/auth' })
+      );
+      expect(JSON.stringify(response)).not.toContain('binding-token');
+    });
+  });
+
+  describe('verifyEmail', () => {
+    const verifyRequest = (cookies: Record<string, string>): Request =>
+      ({ cookies }) as unknown as Request;
+    const issued = {
+      refreshToken: 'refresh',
+      body: { accessToken: 'access', expiresIn: 900, user: {}, hasConnectedBusiness: false },
+    };
+
+    it("hands the service the browser's binding cookie, and spends it on success", async () => {
+      verifyEmail.mockResolvedValue(issued);
+      const res = mockResponse();
+
+      await controller.verifyEmail(
+        { email: dto.email, otp: '123456' },
+        verifyRequest({ signup_binding: 'binding-token' }),
+        res
+      );
+
+      expect(verifyEmail).toHaveBeenCalledWith(
+        { email: dto.email, otp: '123456' },
+        'binding-token'
+      );
+      expect(res.clearCookie).toHaveBeenCalledWith('signup_binding', expect.anything());
+      expect(res.cookie).toHaveBeenCalledWith('refresh_token', 'refresh', expect.anything());
+    });
+
+    it('passes undefined when the browser has no binding, which the service refuses', async () => {
+      verifyEmail.mockRejectedValue(new UnauthorizedException());
+      const res = mockResponse();
+
+      await expect(
+        controller.verifyEmail({ email: dto.email, otp: '123456' }, verifyRequest({}), res)
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+
+      expect(verifyEmail).toHaveBeenCalledWith({ email: dto.email, otp: '123456' }, undefined);
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -545,5 +646,87 @@ describe('AuthController — Microsoft sign-in', () => {
       expect(res.clearCookie).toHaveBeenCalledWith('sso_pending_signup', expect.anything());
       expect(res.clearCookie).toHaveBeenCalledWith('google_pending_signup', expect.anything());
     });
+  });
+});
+
+describe('AuthController.logout', () => {
+  let controller: AuthController;
+  const logout = jest.fn();
+
+  const requestWith = (input: {
+    cookies?: Record<string, string>;
+    authorization?: string;
+  }): Request =>
+    ({
+      cookies: input.cookies ?? {},
+      headers: input.authorization === undefined ? {} : { authorization: input.authorization },
+    }) as unknown as Request;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    logout.mockResolvedValue({ message: 'Logged out' });
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [
+        { provide: AuthService, useValue: { logout } },
+        { provide: AccountDeletionService, useValue: {} },
+      ],
+    }).compile();
+
+    controller = moduleRef.get(AuthController);
+  });
+
+  // A platform admin has no refresh token: the access cookie is the only thing a logout can end for them.
+  it('hands the service the refresh cookie and every access token the caller holds when no session hint says whose', async () => {
+    await controller.logout(
+      requestWith({
+        cookies: {
+          refresh_token: 'refresh',
+          access_token: 'tenant-access',
+          admin_access_token: 'admin-access',
+        },
+        authorization: 'Bearer bearer-access',
+      }),
+      mockResponse()
+    );
+
+    expect(logout).toHaveBeenCalledWith({
+      refreshToken: 'refresh',
+      accessTokens: ['tenant-access', 'admin-access', 'bearer-access'],
+    });
+  });
+
+  // Revoking ends a principal's tokens on every device, so only the one signing out (the `session` hint) is revoked: a tenant signing
+  // out in a browser that also holds an admin session must not sign that admin out everywhere.
+  it.each([
+    ['tenant', ['tenant-access', 'bearer-access']],
+    ['admin', ['admin-access', 'bearer-access']],
+  ])(
+    'revokes only the %s session the hint names, plus the Bearer token',
+    async (session, expected) => {
+      await controller.logout(
+        requestWith({
+          cookies: {
+            session,
+            access_token: 'tenant-access',
+            admin_access_token: 'admin-access',
+          },
+          authorization: 'Bearer bearer-access',
+        }),
+        mockResponse()
+      );
+
+      expect(logout).toHaveBeenCalledWith({ refreshToken: undefined, accessTokens: expected });
+    }
+  );
+
+  it('still succeeds, and clears the cookies, with nothing presented at all', async () => {
+    const res = mockResponse();
+
+    await controller.logout(requestWith({}), res);
+
+    expect(logout).toHaveBeenCalledWith({ refreshToken: undefined, accessTokens: [] });
+    expect(res.clearCookie).toHaveBeenCalledWith(ADMIN_ACCESS_TOKEN_COOKIE_NAME, expect.anything());
   });
 });

@@ -394,6 +394,50 @@ When a request must survive a Strict Mode remount (a redirect after a mutation, 
 outcome from the promise `mutateAsync` returns — a per-call `onSuccess` and the mutation's
 `isSuccess` are both lost when the observer detaches mid-flight.
 
+## Content-Security-Policy (script nonce)
+
+Every page response carries a policy built per request by `src/proxy.ts` (`src/app/_libs/utils/content-security-policy.ts`). Its point
+is `script-src 'self' 'nonce-…' 'strict-dynamic'`: only the scripts the server rendered into that response, stamped with that response's
+nonce, run, plus whatever those load. An injected `<script>`, an `onerror=` or `onclick=` attribute, or a script from another host runs
+nothing, and `connect-src` limits where a script that did run could send data (own origin, Cloudinary uploads, Stripe, and Sentry's
+ingest host when `NEXT_PUBLIC_SENTRY_DSN` points at it directly). `strict-dynamic` trusts scripts that trusted code creates, so this stops
+injected *markup*, not a sink in the app's own code that builds a script from input.
+
+How it fits together:
+
+- **The nonce.** `proxy.ts` draws one per request (`generateNonce`), puts the policy on the *request* (that is how Next learns it and
+  stamps its own scripts) and on the response, and passes the nonce as `x-nonce`. The root layout reads it with `headers()` and gives it
+  to `ThemeProvider`, the one inline script the app adds itself. A script you add yourself needs the same nonce; read it the same way.
+- **Everything renders per request.** Reading `headers()` in the root layout makes every page dynamic (a prerendered page has no per-request
+  nonce, and its scripts would be refused). `next build` should list every page as `ƒ`; only `robots.txt`, `sitemap.xml` and the manifest
+  are static. Do not add `generateStaticParams` or `export const dynamic = "force-static"` to a page.
+- **Which responses.** The matcher covers every page (so 404 and error screens too) and leaves out `/v1` (the API proxy), `/monitoring`
+  (the Sentry tunnel), `/_next/*`, and prefetches. The routing rules in `proxy.ts` are unchanged and still act only on the paths they name.
+  The static headers in `next.config.ts` (`frame-ancestors`, `object-src`, `X-Frame-Options`, HSTS…) stay for everything the proxy skips; the
+  proxy's policy repeats those directives, so on a page it is the complete one.
+- **Adding a third party.** A new image host, API, iframe or script origin must be added to `buildContentSecurityPolicy` (and its test), or
+  the browser refuses it and the console shows a `securitypolicyviolation`. Today: Cloudinary (avatars shown and uploaded), Stripe
+  (card form: script, frames, API) and Sentry.
+- **Styles keep `'unsafe-inline'`.** UI libraries set `style` attributes at runtime, which a nonce cannot cover, and a style cannot run code.
+- **Development** adds `'unsafe-eval'` (React's dev build) and the hot-reload socket, and omits `upgrade-insecure-requests`.
+
+Checked against a production build: all 30 scripts on `/login` carry the nonce, the page hydrates with no violations, the theme toggle
+works, and in the browser a nonce-less inline script, an external script and an `onerror=` handler (injected markup) did not run, and an
+inline `onclick` and a `fetch` to another origin were refused. The Stripe card form and avatar upload need a signed-in session and were
+not exercised, so check them in a deployed environment after this ships.
+
+## Sentry reports carry no tokens, and a failed refresh is not a wrong password (audit follow-ups)
+
+- **`scrubEvent` cleans URLs too.** Beyond cookies, headers and the query string it already removed, the event's `request.url`, its transaction name and
+  the `url` / `from` / `to` of every breadcrumb go through `scrubUrl`: no query string or fragment (`?session_id=…`, a `?next=` return path) and any
+  opaque path segment (an invite token under `/accept-invite/`, a Stripe session id, a uuid) becomes `[redacted]`. Ordinary pages, and long plain
+  words such as `notification-preferences`, are left alone (an opaque segment must contain a digit).
+- **Password and OTP forms that first refresh the session** (`AuthService.ensureFreshSession`, for change/set password, delete account) used to turn *any*
+  failed refresh into a 401, which the forms print as "current password incorrect", and never left the page. `refreshSessionOutcome` now carries the
+  status: only a real **401** ends the session (`endLapsedSession`: forget the cached identity, go to sign-in with a way back; the thrown error is a 440,
+  so the form does not call it a wrong password); a **429** or **5xx** is rethrown with its own status (the form's existing "too many attempts" or
+  "could not save" message), and a refresh that never reached the server is a 503. The session is kept in those cases.
+
 ## Local dev stack
 
 `apps/web/docker-compose.yml`'s Postgres/MySQL/Redis containers are generic boilerplate scaffolding

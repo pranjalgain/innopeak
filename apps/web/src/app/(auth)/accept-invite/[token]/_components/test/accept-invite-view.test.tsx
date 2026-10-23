@@ -156,18 +156,18 @@ describe("AcceptInviteView (tenant member)", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith(ROUTES.ONBOARDING_CONNECT));
   });
 
-  // Regression: the checklist does not track max length, so a >128-char password left it all-green while the form was invalid.
+  // Regression: the checklist does not track max length, so a too-long password left it all-green while the form was invalid.
   test("shows the max-length error when the checklist has nothing left to flag", async () => {
     const user = userEvent.setup();
     renderView();
 
     await user.type(await screen.findByLabelText("Your name"), NAME);
-    await user.type(screen.getByLabelText("Password"), `${"Aa1!".repeat(32)}Aa1!`);
+    await user.type(screen.getByLabelText("Password"), "Aa1!".repeat(19));
     // `mode: "onTouched"` only populates `errors.password` after blur, so tab away like a real user.
     await user.tab();
 
     expect(
-      await screen.findByText("Password must be 128 characters or fewer."),
+      await screen.findByText("Password is too long: 72 characters at most (accented characters count double)."),
     ).toBeInTheDocument();
   });
 

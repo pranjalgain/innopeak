@@ -1,5 +1,7 @@
 import { NotificationChannelPref } from '@common/enums/notification-channel-pref.enum';
+import { parseBooleanInput } from '@common/helpers/boolean.utils';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsOptional } from 'class-validator';
 
 /**
@@ -23,6 +25,8 @@ export class UpdateNotificationRecipientDto {
 
   @ApiPropertyOptional({ example: false })
   @IsOptional()
+  // The global pipe's implicit conversion turns the string "false" into `true` before `@IsBoolean()` looks; see `parseBooleanInput`.
+  @Transform(parseBooleanInput)
   @IsBoolean()
   isActive?: boolean;
 }

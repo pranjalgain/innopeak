@@ -14,6 +14,7 @@ import {
   InvalidAccessTokenException,
   PlatformAdminAccountDisabledException,
 } from '../exceptions/auth.exceptions';
+import { SessionRevocationService } from '../services/session-revocation.service';
 import { AuthUser } from '../types/auth.type';
 import { fromAccessTokenCookie } from '../utils/jwt-cookie-extractor.util';
 
@@ -25,6 +26,7 @@ interface UnverifiedClaims {
   role?: unknown;
   locale?: unknown;
   type?: unknown;
+  iat?: unknown;
   exp?: unknown;
 }
 
@@ -32,7 +34,8 @@ interface UnverifiedClaims {
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     configService: ConfigService<EnvConfig>,
-    private readonly platformAdminDbService: PlatformAdminDbService
+    private readonly platformAdminDbService: PlatformAdminDbService,
+    private readonly sessionRevocationService: SessionRevocationService
   ) {
     super({
       // Cookie first (what same-origin browser requests carry); Bearer header is the fallback for
@@ -52,8 +55,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   /**
    * Fails closed: only the two principal types become a request user, and only with all their
    * identifying claims. Platform-admin tokens are re-checked against the DB on every request (the
-   * JWT carries no status) so a disabled admin loses access at once; tenant users are not, since
-   * their suspension is enforced at refresh and a per-request read would be a hot-path cost.
+   * JWT carries no status) so a disabled admin loses access at once, and against the "not before" mark so a logout or password change
+   * ends them too; tenant users are not re-read from the DB, since
+   * their standing is enforced at refresh, and a per-request DB read would be a hot-path cost. What ends a tenant user's access token
+   * early (logout, a password change, a disabled user, a suspended business) is a "not before" mark in Redis, one cheap read here.
    */
   async validate(payload: UnverifiedClaims): Promise<AuthUser> {
     if (typeof payload.sub !== 'string' || typeof payload.email !== 'string') {
@@ -65,6 +70,15 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       // null = the admin row was deleted; disabled/invited must not hold a live session.
       if (status !== PlatformAdminStatus.ACTIVE) {
         throw new PlatformAdminAccountDisabledException();
+      }
+      // A logout or a password change ends the admin's older tokens too; the status check above cannot, since the row did not change.
+      if (
+        await this.sessionRevocationService.isRevoked({
+          userId: payload.sub,
+          issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        })
+      ) {
+        throw new InvalidAccessTokenException();
       }
       // Same legacy-token fallback as the tenant branch below.
       const locale: Locale | null = isSupportedLocale(payload.locale) ? payload.locale : null;
@@ -87,6 +101,16 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       // so resolution falls through to `Accept-Language`.
       const locale: Locale | null = isSupportedLocale(payload.locale) ? payload.locale : null;
 
+      if (
+        await this.sessionRevocationService.isRevoked({
+          userId: payload.sub,
+          tenantId: payload.tenantId,
+          issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        })
+      ) {
+        throw new InvalidAccessTokenException();
+      }
+
       return {
         type: JwtTokenType.TENANT_USER,
         id: payload.sub,
@@ -94,6 +118,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         email: payload.email,
         role: payload.role,
         locale,
+        // Lets a mid-session claim refresh re-sign to the same deadline instead of granting a fresh TTL.
+        ...(typeof payload.exp === 'number' ? { sessionExpiresAt: payload.exp } : {}),
       };
     }
 

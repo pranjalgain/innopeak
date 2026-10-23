@@ -2,7 +2,11 @@ import type { EnvConfig } from '@config/env.config';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { GoogleIdentityProvider } from './google-identity.provider';
+import {
+  type GoogleAuthorizeParams,
+  GoogleIdentityProvider,
+  type GoogleTokenContext,
+} from './google-identity.provider';
 
 import { GOOGLE_AUTH } from '../constants/google-auth.constants';
 import type { SsoIdentity } from '../types/auth.type';
@@ -38,22 +42,28 @@ export class GoogleOidcProvider extends GoogleIdentityProvider {
     return this.clientId !== '' && this.clientSecret !== '' && this.callbackUrl !== '';
   }
 
-  buildAuthorizationUrl(state: string): string {
+  buildAuthorizationUrl(authorize: GoogleAuthorizeParams): string {
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: this.callbackUrl,
       response_type: 'code',
       scope: GOOGLE_AUTH.SCOPES.join(' '),
-      state,
+      state: authorize.state,
       // Online: no Google token is stored, so an offline refresh token would be one we'd have to protect for nothing.
       access_type: 'online',
       prompt: 'select_account',
     });
+    // PKCE binds the code to this server's request: a code injected into another browser's callback cannot be redeemed without the
+    // verifier, which never leaves the Redis record.
+    if (authorize.codeChallenge !== undefined) {
+      params.set('code_challenge', authorize.codeChallenge);
+      params.set('code_challenge_method', 'S256');
+    }
 
     return `${GOOGLE_AUTH.AUTH_URL}?${params.toString()}`;
   }
 
-  async fetchIdentity(code: string): Promise<SsoIdentity> {
+  async fetchIdentity(code: string, context: GoogleTokenContext = {}): Promise<SsoIdentity> {
     const tokenResponse = await fetch(GOOGLE_AUTH.TOKEN_URL, {
       method: 'POST',
       signal: AbortSignal.timeout(GOOGLE_AUTH.HTTP_TIMEOUT_MS),
@@ -64,6 +74,7 @@ export class GoogleOidcProvider extends GoogleIdentityProvider {
         client_secret: this.clientSecret,
         redirect_uri: this.callbackUrl,
         grant_type: 'authorization_code',
+        ...(context.codeVerifier === undefined ? {} : { code_verifier: context.codeVerifier }),
       }).toString(),
     });
 

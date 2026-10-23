@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ApiError } from "@/app/_libs/services/api-error";
 import { ReviewService } from "@/app/_libs/services/review.service";
 import { invalidateReviewLists } from "@/hooks/reviews/invalidate-review-lists";
 import type { Review } from "@/types/domain";
@@ -13,6 +14,9 @@ export const reviewQueryKey = (reviewId: string) => ["review", reviewId] as cons
 interface UseReviewDetailResult {
   review: Review | null;
   isLoading: boolean;
+  /** The load failed for a reason other than "no such review" (network, 5xx): worth a retry, unlike a 404. */
+  loadFailed: boolean;
+  refetch: () => void;
   approveDraft: (draftId: string, content: string) => void;
   rejectDraft: (draftId: string) => void;
   postDraft: (draftId: string) => void;
@@ -48,10 +52,15 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
     queryFn: () => ReviewService.getReviewById(reviewId),
   });
 
+  // Not for a 404: the screen already says "not found", and "could not load" on top of it is wrong.
+  const loadFailed =
+    reviewQuery.isError &&
+    !(reviewQuery.error instanceof ApiError && reviewQuery.error.statusCode === 404);
+
   useEffect(() => {
-    if (reviewQuery.isError) toast.error(t("loadFailed"));
+    if (loadFailed) toast.error(t("loadFailed"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewQuery.isError]);
+  }, [loadFailed]);
 
   // Leaving this screen: whatever happened here (approved, posted, deleted on Google, a reply that failed) may have changed the queue row
   // and the dashboard counts, which are cached for a minute. Marked stale so the list opened next fetches fresh data instead of showing
@@ -307,6 +316,8 @@ export function useReviewDetail(reviewId: string): UseReviewDetailResult {
   return {
     review,
     isLoading: reviewQuery.isLoading,
+    loadFailed,
+    refetch: () => void reviewQuery.refetch(),
     approveDraft,
     rejectDraft,
     postDraft,

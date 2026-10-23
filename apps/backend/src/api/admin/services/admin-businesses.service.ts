@@ -1,5 +1,6 @@
 import { TenantStatus } from '@auth/enums/tenant-status.enum';
 import { ErasureNoticeService } from '@auth/services/erasure-notice.service';
+import { SessionRevocationService } from '@auth/services/session-revocation.service';
 import { requirePlatformAdmin } from '@auth/utils/require-platform-admin.util';
 import { BillingReconciliationService } from '@billing/services/billing-reconciliation.service';
 import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
@@ -35,7 +36,8 @@ export class AdminBusinessesService {
     private readonly adminOverviewDbService: AdminOverviewDbService,
     private readonly billingReconciliationService: BillingReconciliationService,
     private readonly configService: ConfigService<EnvConfig>,
-    private readonly erasureNoticeService: ErasureNoticeService
+    private readonly erasureNoticeService: ErasureNoticeService,
+    private readonly sessionRevocationService: SessionRevocationService
   ) {}
 
   async list(
@@ -83,6 +85,11 @@ export class AdminBusinessesService {
     }
     const { summary } = result;
 
+    // A suspended business's users must lose access now, not when their access tokens happen to lapse.
+    if (result.changed && tenantStatus === TenantStatus.SUSPENDED) {
+      await this.sessionRevocationService.revokeTenant(tenantId);
+    }
+
     if (result.changed) {
       await this.adminOverviewDbService.recordActivityBestEffort({
         type:
@@ -122,6 +129,9 @@ export class AdminBusinessesService {
         gracePeriodDays: this.gracePeriodDays(),
       };
     }
+
+    // The business is suspended by this request: end its users' sessions now.
+    await this.sessionRevocationService.revokeTenant(tenantId);
 
     // Best-effort: the request already took effect and the purge deletes the Stripe customer anyway,
     // so a Stripe hiccup must not fail it.

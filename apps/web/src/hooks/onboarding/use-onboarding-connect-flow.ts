@@ -74,6 +74,10 @@ interface UseOnboardingConnectFlowResult {
 
 const POLL_INTERVAL_MS = 2500;
 
+/** Consecutive failed polls of one location before giving up (a flaky network recovers well inside this; a dead backend does not). */
+const MAX_CONSECUTIVE_POLL_FAILURES = 6;
+const MAX_POLL_BACKOFF_MS = 30_000;
+
 const SLOW_BACKFILL_GIVE_UP_MS = 10 * 60 * 1000;
 
 /** Key for the resume chain's controller in `abortControllersRef`, alongside location-id keys. */
@@ -139,6 +143,8 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
   // Outside React state: only the aggregate needs to render.
   const locationStateRef = useRef<Record<string, LocationBackfillState>>({});
   const resolvedRef = useRef<Set<string>>(new Set());
+  // Consecutive failed polls per location; a successful poll clears its entry.
+  const pollFailuresRef = useRef<Map<string, number>>(new Map());
   // Synchronous mirror of `confirmedLocationIds`: the first polls start in the same tick as
   // `setConfirmedLocationIds`, so reading state would see a stale length and never detect "all done".
   const confirmedLocationIdsRef = useRef<string[]>([]);
@@ -250,6 +256,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
         const snapshot = await ConnectionService.getBackfillProgress(locationId, controller.signal);
         if (!mountedRef.current || controller.signal.aborted) return;
 
+        pollFailuresRef.current.delete(locationId);
         if (applyLocationProgress(locationId, snapshot)) {
           // setTimeout after the response, not setInterval: a slow backend would otherwise stack overlapping requests.
           timersRef.current.set(
@@ -260,13 +267,26 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
       } catch (caught) {
         if (!mountedRef.current || controller.signal.aborted) return;
         // A failed poll isn't a failed import, but a 404 means the location is gone.
-        if (caught instanceof ApiError && caught.statusCode === 404) {
+        // A refused session (401/403) will not recover by retrying, and a backend that keeps failing is not coming back soon: both end the
+        // wait instead of polling for as long as the tab stays open.
+        const failures = (pollFailuresRef.current.get(locationId) ?? 0) + 1;
+        pollFailuresRef.current.set(locationId, failures);
+        const refused =
+          caught instanceof ApiError && (caught.statusCode === 401 || caught.statusCode === 403);
+        if (
+          (caught instanceof ApiError && caught.statusCode === 404) ||
+          refused ||
+          failures >= MAX_CONSECUTIVE_POLL_FAILURES
+        ) {
           fail("backfillFailed", "restart");
           return;
         }
         timersRef.current.set(
           locationId,
-          setTimeout(() => void pollOneRef.current(locationId), POLL_INTERVAL_MS),
+          setTimeout(
+            () => void pollOneRef.current(locationId),
+            Math.min(POLL_INTERVAL_MS * 2 ** (failures - 1), MAX_POLL_BACKOFF_MS),
+          ),
         );
       }
     },
@@ -284,6 +304,7 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
       stopAllPolling();
       locationStateRef.current = {};
       resolvedRef.current = new Set();
+      pollFailuresRef.current = new Map();
       confirmedLocationIdsRef.current = ids;
       slowSinceRef.current = null;
 
@@ -480,9 +501,11 @@ export function useOnboardingConnectFlow(): UseOnboardingConnectFlowResult {
     }
 
     if (oauthError) {
+      // Own keys only: `?error=constructor` would otherwise find `Object.prototype.constructor` and read a function as the recovery.
+      const known = Object.hasOwn(OAUTH_ERROR_RECOVERY, oauthError);
       fail(
-        oauthError in OAUTH_ERROR_RECOVERY ? oauthError : "UNKNOWN",
-        OAUTH_ERROR_RECOVERY[oauthError] ?? "retry",
+        known ? oauthError : "UNKNOWN",
+        known ? (OAUTH_ERROR_RECOVERY[oauthError] ?? "retry") : "retry",
       );
       return;
     }

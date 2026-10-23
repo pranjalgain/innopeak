@@ -1,3 +1,4 @@
+import { safeReferrer, safeUrl } from '@common/helpers/safe-url.util';
 import { LoggerService } from '@logger/logger.service';
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Request, Response } from 'express';
@@ -48,31 +49,6 @@ function safeStringify(value: unknown): string {
   }
 }
 
-/** Path segments whose next segment is a secret (an invite token at `invite/:token`), except `accept`, whose token travels in the body. */
-const REDACTS_NEXT_PATH_SEGMENT = new Set(['invite']);
-
-const NON_SECRET_NEXT_PATH_SEGMENT = 'accept';
-
-/**
- * Drops the query string (logged redacted via `Query`) and redacts invite-token path segments, so
- * secrets in the raw URL (invite token, Google OAuth `code`/`state`) never reach the log.
- */
-function safeUrl(url: string): string {
-  const [pathname = url] = url.split('?', 1);
-  const segments = pathname.split('/');
-
-  for (let i = 1; i < segments.length; i++) {
-    if (
-      REDACTS_NEXT_PATH_SEGMENT.has(segments[i - 1] ?? '') &&
-      segments[i] !== NON_SECRET_NEXT_PATH_SEGMENT
-    ) {
-      segments[i] = REDACTED;
-    }
-  }
-
-  return segments.join('/');
-}
-
 @Injectable()
 export class HttpLoggingInterceptor implements NestInterceptor {
   constructor(private readonly logger: LoggerService) {}
@@ -87,7 +63,9 @@ export class HttpLoggingInterceptor implements NestInterceptor {
     const remoteAddr = request.ip ?? request.socket.remoteAddress;
     const userAgent = headers['user-agent'] ?? 'unknown';
     const refererValue = headers['referer'] ?? headers['referrer'] ?? 'No Referer';
-    const referrer = Array.isArray(refererValue) ? refererValue.join(', ') : refererValue;
+    const referrer = safeReferrer(
+      Array.isArray(refererValue) ? refererValue.join(', ') : refererValue
+    );
     const startTime = new Date().toISOString();
     const startTimestamp = Date.now();
 

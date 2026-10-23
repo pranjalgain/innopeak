@@ -13,10 +13,20 @@ export interface AdminUserRow {
   lastLoginAt: string | null;
 }
 
-/** `removal_pending`: the row exists but has an active team-member removal request (`erasure_requested_at` set). */
+/**
+ * - `removal_pending`: the row exists but has an active team-member removal request (`erasure_requested_at` set).
+ * - `invited`: never accepted its invite; there is nothing to (de)activate, the invite is revoked instead.
+ * - `unchanged`: the caller named a target state and the user was already in it (a stale list, or a double click).
+ */
 export type ToggleActiveOutcome =
-  { outcome: 'not_found' } | { outcome: 'removal_pending' } | { outcome: 'toggled' };
+  | { outcome: 'invited' }
+  | { outcome: 'not_found' }
+  | { outcome: 'removal_pending' }
+  | { outcome: 'toggled' }
+  | { outcome: 'unchanged' };
 
 /** Derived from `ToggleActiveOutcome` so a new failure branch there can't be forgotten here. */
 export type ToggleActiveResult =
-  Exclude<ToggleActiveOutcome, { outcome: 'toggled' }> | { outcome: 'toggled'; row: AdminUserRow };
+  | Exclude<ToggleActiveOutcome, { outcome: 'toggled' } | { outcome: 'unchanged' }>
+  | { outcome: 'toggled'; row: AdminUserRow }
+  | { outcome: 'unchanged'; row: AdminUserRow };

@@ -4,6 +4,7 @@ import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { ApiError } from "@/app/_libs/services/api-error";
 import { TokenService } from "@/app/_libs/services/token.service";
 import { signInPathFor } from "@/app/_libs/utils/post-login-redirect";
+import { sessionMessage } from "@/app/_libs/utils/session-messages";
 
 // Generated `*Api` classes fall back to the global `axios` default export when their `Configuration` has no
 // instance, so one pair of interceptors installed here covers every SDK call.
@@ -95,6 +96,14 @@ export async function refreshSession(): Promise<boolean> {
   return (await doRefresh()).ok;
 }
 
+/**
+ * `refreshSession` with the reason it failed. A caller that must tell "the session is over" (401) from "try again" (429, a 5xx, no
+ * network) needs the status: only the first is a reason to leave the page.
+ */
+export async function refreshSessionOutcome(): Promise<RefreshAttempt> {
+  return doRefresh();
+}
+
 /** Set once a lapsed session has started the sign-in redirect, so the page's other in-flight 401s don't each navigate. */
 let leavingLapsedSession = false;
 
@@ -108,6 +117,18 @@ function leaveLapsedSession(kind: "tenant" | "admin"): void {
   if (!target) return;
   leavingLapsedSession = true;
   window.location.assign(target);
+}
+
+/**
+ * The refresh answered 401: the session is really over. Forgets the cached identity and goes to sign-in, back to this page afterwards. The
+ * interceptor does the same for a request that 401s and cannot be revived.
+ */
+export function endLapsedSession(): void {
+  const sessionKind = TokenService.getTokenType();
+  TokenService.clear();
+  if (sessionKind) {
+    leaveLapsedSession(sessionKind === "platform_admin" ? "admin" : "tenant");
+  }
 }
 
 let installed = false;
@@ -153,6 +174,14 @@ function installApiInterceptors(): void {
           if (sessionKind) {
             leaveLapsedSession(sessionKind === "platform_admin" ? "admin" : "tenant");
           }
+        } else {
+          // Answered as what happened, not as the original 401: callers treat a 401 as "the interceptor is already redirecting" and show
+          // nothing, which left a throttled or unreachable refresh looking like an empty, successful load.
+          throw new ApiError(
+            refresh.status === 0 ? 503 : refresh.status,
+            sessionMessage("refreshFailed"),
+            "SESSION_REFRESH_FAILED",
+          );
         }
       }
 

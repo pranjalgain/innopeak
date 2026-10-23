@@ -2,7 +2,7 @@ import { QueueUIModule } from '@bg/queue-ui.module';
 import { BillingReconciliationModule } from '@billing/billing-reconciliation.module';
 import { BcryptService } from '@common/hashing/bcrypt.service';
 import { HashingService } from '@common/hashing/hashing.service';
-import { isProduction } from '@config/deployment-target.util';
+import { isLocalDevelopment } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
 import { MediaModule } from '@media/media.module';
 import { Module } from '@nestjs/common';
@@ -30,17 +30,19 @@ import { OAuthStateService } from './services/oauth-state.service';
 import { OtpAttemptService } from './services/otp-attempt.service';
 import { PendingSsoSignupService } from './services/pending-sso-signup.service';
 import { PlatformAdminAuthService } from './services/platform-admin-auth.service';
+import { SessionRevocationService } from './services/session-revocation.service';
+import { SignupBindingService } from './services/signup-binding.service';
 import { TokenService } from './services/token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
-// Non-production swaps in the fixed dev bypass code when DEV_VERIFY_EMAIL_TOKEN is set, so AuthService
-// never branches on environment. Joi forbids it in production.
+// A local development setup swaps in the fixed dev bypass code when DEV_VERIFY_EMAIL_TOKEN is set, so AuthService
+// never branches on environment. Joi forbids it in production and with a non-local FRONTEND_URL.
 const verifyEmailTokenProviderFactory = {
   provide: VerifyEmailTokenProvider,
   useFactory: (configService: ConfigService<EnvConfig>): VerifyEmailTokenProvider => {
     const devToken = configService.get<string>('DEV_VERIFY_EMAIL_TOKEN');
 
-    if (devToken && !isProduction()) {
+    if (devToken && isLocalDevelopment()) {
       return new FixedVerifyEmailTokenProvider(devToken);
     }
 
@@ -81,6 +83,8 @@ const microsoftIdentityProvider = {
     AuthService,
     PlatformAdminAuthService,
     TokenService,
+    SessionRevocationService,
+    SignupBindingService,
     OtpAttemptService,
     LoginAttemptService,
     JwtStrategy,
@@ -100,8 +104,10 @@ const microsoftIdentityProvider = {
   // and AdminBusinessesService's request/cancel notices.
   exports: [
     TokenService,
+    SessionRevocationService, // AdminBusinessesService/AdminUsersService/TenantMembersService end sessions when they suspend or disable
     JwtModule,
     OtpAttemptService,
+    LoginAttemptService, // AdminSettingsService.changePassword counts wrong current passwords against the admin sign-in budget
     VerifyEmailTokenProvider,
     AccountAnonymizationService,
     ErasureNoticeService,

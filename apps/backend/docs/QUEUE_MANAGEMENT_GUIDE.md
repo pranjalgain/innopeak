@@ -90,6 +90,11 @@ When you need a brand-new queue (e.g., `report` queue):
    }
    ```
 
+   Every `addJob` is bounded at `QUEUE_PUBLISH_TIMEOUT_MS` (5 s) and rejects after that. The BullMQ producer's Redis
+   connection uses `maxRetriesPerRequest: null`, so without the bound a request that queues a job (an invite, a sign-up email)
+   hung for as long as Redis was down. An add that timed out may still land once Redis answers, so a caller that retries must
+   tolerate the job running twice.
+
 2. Define the job name in `JobName` enum (`job.constant.ts`).
 
 3. Implement processor logic in the Worker:

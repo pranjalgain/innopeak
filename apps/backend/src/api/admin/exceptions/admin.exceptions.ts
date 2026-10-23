@@ -96,13 +96,6 @@ export class NotificationChannelsNotImplementedException extends UnprocessableEn
   }
 }
 
-/** No default message: it always carries the affected admin count. */
-export class SocialLoginDisallowedGoogleOnlyAdminException extends BadRequestException {
-  constructor(message: string) {
-    super({ message, code: 'SOCIAL_LOGIN_DISALLOWED_GOOGLE_ONLY_ADMIN' });
-  }
-}
-
 export class BusinessNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.ADMIN.BUSINESS_NOT_FOUND) {
     super({ message, code: 'BUSINESS_NOT_FOUND' });
@@ -128,6 +121,13 @@ export class BusinessErasureNotPendingException extends ConflictException {
 export class UserRemovalPendingException extends ConflictException {
   constructor(message: string = MESSAGES.ADMIN.USER_REMOVAL_PENDING) {
     super({ message, code: 'USER_REMOVAL_PENDING' });
+  }
+}
+
+/** An invited member who never accepted: flipping them to `disabled` and back would strand the invite (it only redeems an `invited` row). */
+export class UserInvitePendingException extends ConflictException {
+  constructor(message: string = MESSAGES.ADMIN.USER_INVITE_PENDING) {
+    super({ message, code: 'USER_INVITE_PENDING' });
   }
 }
 

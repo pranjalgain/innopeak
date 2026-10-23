@@ -1,3 +1,4 @@
+import { isLocalDevelopment } from '@config/deployment-target.util';
 import { EnvConfig } from '@config/env.config';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -33,10 +34,13 @@ export class OAuthStateService {
     configService: ConfigService<EnvConfig>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis
   ) {
-    // Production already refuses to boot without this; the fixed dev string keeps a state minted
-    // before a hot reload verifiable.
-    this.secret =
-      configService.get<string>('GBP_STATE_SECRET') ?? 'insecure-local-gbp-state-secret';
+    // Production already refuses to boot without this; the fixed dev string keeps a state minted before a hot reload verifiable on a
+    // laptop. Not `isProduction()`: a staging box runs as `development`, and a signing key public in this repository must not sign there.
+    const configured = configService.get<string>('GBP_STATE_SECRET');
+    if (!configured && !isLocalDevelopment()) {
+      throw new Error('GBP_STATE_SECRET must be set unless the app runs only on a local machine.');
+    }
+    this.secret = configured ?? 'insecure-local-gbp-state-secret';
   }
 
   async mint(input: {
@@ -110,6 +114,10 @@ export class OAuthStateService {
         reason: OAuthStateFailureReason.EXPIRED | OAuthStateFailureReason.INVALID_SIGNATURE;
       }
     | { ok: true; nonce: string } {
+    // A repeated query key reaches here as an array whatever the type says; `.split` on it threw a 500.
+    if (typeof state !== 'string') {
+      return { ok: false, reason: OAuthStateFailureReason.INVALID_SIGNATURE };
+    }
     const parts = state.split('.');
     if (parts.length !== 3) {
       return { ok: false, reason: OAuthStateFailureReason.INVALID_SIGNATURE };

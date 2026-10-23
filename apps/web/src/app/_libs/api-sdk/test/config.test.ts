@@ -147,7 +147,11 @@ describe("a 401 that cannot be refreshed", () => {
     setSessionCookie("tenant");
     openPage("/dashboard");
 
-    expect(await failWith401(status)).toMatchObject({ statusCode: 401 });
+    // Answered as what happened (throttled, unavailable), not as the original 401: a 401 reads as "already redirecting" and is hidden.
+    expect(await failWith401(status)).toMatchObject({
+      statusCode: status === 0 ? 503 : status,
+      errorCode: "SESSION_REFRESH_FAILED",
+    });
     expect(assign).not.toHaveBeenCalled();
   });
 

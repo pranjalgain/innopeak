@@ -47,8 +47,9 @@ describe('ReviewSyncQueueService.runPoll', () => {
   const updateLocationRating = jest.fn();
   const markLocationDetailsAttempted = jest.fn();
   const resolveAccessToken = jest.fn();
-  const findConnectionByTenant = jest.fn();
+  const findConnectionById = jest.fn();
   const findLocationForTenant = jest.fn();
+  const isLocationPollable = jest.fn();
   const acquireSyncRun = jest.fn();
   const importPollPage = jest.fn();
   const completeRun = jest.fn();
@@ -77,8 +78,10 @@ describe('ReviewSyncQueueService.runPoll', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
 
-    findConnectionByTenant.mockResolvedValue({
+    isLocationPollable.mockResolvedValue(true);
+    findConnectionById.mockResolvedValue({
       id: 'connection-1',
+      disconnectedAt: null,
       credentialReference: 'ref-1',
       tokenExpiresAt: null,
     });
@@ -129,8 +132,9 @@ describe('ReviewSyncQueueService.runPoll', () => {
         {
           provide: ConnectionsDbService,
           useValue: {
-            findConnectionByTenant,
+            findConnectionById,
             findLocationForTenant,
+            isLocationPollable,
             updateLocationDetails,
             updateLocationRating,
             markLocationDetailsAttempted,
@@ -279,6 +283,18 @@ describe('ReviewSyncQueueService.runPoll', () => {
   });
 
   // Google's overall rating and review count ride on the first page of every reviews read, so the dashboard card stays current for free.
+  // A queued job can outlive the state it was queued under: a downgrade pause, a suspension or an erasure in between.
+  describe('a location that can no longer be polled', () => {
+    it('does nothing: no run is opened and Google is not called', async () => {
+      isLocationPollable.mockResolvedValue(false);
+
+      await service.runPoll(job);
+
+      expect(acquireSyncRun).not.toHaveBeenCalled();
+      expect(listReviews).not.toHaveBeenCalled();
+    });
+  });
+
   describe("Google's rating and review count", () => {
     beforeEach(() => {
       findLocationForTenant.mockResolvedValue({
@@ -407,6 +423,50 @@ describe('ReviewSyncQueueService.runPoll', () => {
     });
   });
 
+  // A job queued for an account the owner has since replaced must not run on, or flag as broken, whatever is connected now.
+  describe("the job's own connection", () => {
+    it('looks up the connection the job names, scoped to its tenant', async () => {
+      findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
+        lastReviewSyncedAt: null,
+      });
+      listReviews.mockResolvedValue(page({ reviews: [] }));
+
+      await service.runPoll(job);
+
+      expect(findConnectionById).toHaveBeenCalledWith('connection-1', 'tenant-1');
+    });
+
+    it('refuses a connection the owner disconnected, without calling the provider or flagging it', async () => {
+      findConnectionById.mockResolvedValue({
+        id: 'connection-1',
+        disconnectedAt: '2026-10-01T00:00:00.000Z',
+        credentialReference: 'ref-1',
+        tokenExpiresAt: null,
+      });
+      findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
+        lastReviewSyncedAt: null,
+      });
+
+      await expect(service.runPoll(job)).rejects.toBeInstanceOf(ProviderAuthError);
+
+      expect(listReviews).not.toHaveBeenCalled();
+      expect(resolveAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('refuses a connection that no longer exists', async () => {
+      findConnectionById.mockResolvedValue(null);
+      findLocationForTenant.mockResolvedValue({
+        reviewsReconciledAt: RECENT,
+        lastReviewSyncedAt: null,
+      });
+
+      await expect(service.runPoll(job)).rejects.toBeInstanceOf(ProviderAuthError);
+      expect(listReviews).not.toHaveBeenCalled();
+    });
+  });
+
   /** `page.totalCount` is the lifetime count; writing it made poll rows read "3 fetched / 2000 total". */
   it('never records reviewsTotal on a poll run, even when the provider reports one', async () => {
     findLocationForTenant.mockResolvedValue({
@@ -527,7 +587,9 @@ describe('ReviewSyncQueueService.runPoll', () => {
     };
     expect(completion.status).toBe(SyncRunStatus.ERROR);
     expect(completion.lastReviewSyncedAt).toBeNull();
-    expect(completion.errorMessage).toContain('classification failed');
+    // Our own wording on the run the owner reads, never the driver's text (which can carry SQL).
+    expect(completion.errorMessage).toBe(MESSAGES.REVIEWS.SYNC_FAILED_CLASSIFICATION);
+    expect(completion.errorMessage).not.toContain('connection terminated');
   });
 
   // The incremental poll never revisits old reviews, so a review its author deleted would sit in the queue forever.
@@ -798,7 +860,7 @@ describe('ReviewSyncQueueService.runBackfill — retry reopens the carried sync 
   let service: ReviewSyncQueueService;
   const listReviews = jest.fn();
   const resolveAccessToken = jest.fn();
-  const findConnectionByTenant = jest.fn();
+  const findConnectionById = jest.fn();
   const importPage = jest.fn();
   const reopenRunForRetry = jest.fn();
   const completeRun = jest.fn();
@@ -818,8 +880,9 @@ describe('ReviewSyncQueueService.runBackfill — retry reopens the carried sync 
   beforeEach(async () => {
     jest.clearAllMocks();
 
-    findConnectionByTenant.mockResolvedValue({
+    findConnectionById.mockResolvedValue({
       id: 'connection-1',
+      disconnectedAt: null,
       credentialReference: 'ref-1',
       tokenExpiresAt: null,
     });
@@ -854,7 +917,7 @@ describe('ReviewSyncQueueService.runBackfill — retry reopens the carried sync 
         { provide: ProviderCredentialService, useValue: { resolveAccessToken } },
         {
           provide: ConnectionsDbService,
-          useValue: { findConnectionByTenant, markNeedsReauth: jest.fn() },
+          useValue: { findConnectionById, markNeedsReauth: jest.fn() },
         },
         {
           provide: ReviewSyncDbService,
@@ -924,7 +987,7 @@ describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-
   let service: ReviewSyncQueueService;
   const listReviews = jest.fn();
   const resolveAccessToken = jest.fn();
-  const findConnectionByTenant = jest.fn();
+  const findConnectionById = jest.fn();
   const importPage = jest.fn();
   const completeRun = jest.fn();
   const recordProgress = jest.fn();
@@ -943,8 +1006,9 @@ describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-
   beforeEach(async () => {
     jest.clearAllMocks();
 
-    findConnectionByTenant.mockResolvedValue({
+    findConnectionById.mockResolvedValue({
       id: 'connection-1',
+      disconnectedAt: null,
       credentialReference: 'ref-1',
       tokenExpiresAt: null,
     });
@@ -975,7 +1039,7 @@ describe('ReviewSyncQueueService.runBackfill — reviews_fetched survives a mid-
         { provide: ProviderCredentialService, useValue: { resolveAccessToken } },
         {
           provide: ConnectionsDbService,
-          useValue: { findConnectionByTenant, markNeedsReauth: jest.fn() },
+          useValue: { findConnectionById, markNeedsReauth: jest.fn() },
         },
         {
           provide: ReviewSyncDbService,

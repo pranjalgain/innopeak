@@ -2,6 +2,7 @@ import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
 import { LuTriangleAlert } from "react-icons/lu";
 
+import { ConfirmActionButton } from "@/components/common/confirm-action-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { PostErasureCharge } from "@/types/domain";
@@ -54,14 +55,19 @@ export function PostErasureChargesPanel({ charges, onResolve }: PostErasureCharg
                 })}
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={resolving !== null}
-              onClick={() => void handle(charge.receiptId)}>
-              {resolving === charge.receiptId ? t("resolving") : t("resolve")}
-            </Button>
+            {/* Irreversible (the entry leaves the list for good), so it asks first. */}
+            <ConfirmActionButton
+              trigger={
+                <Button type="button" variant="outline" size="sm" disabled={resolving !== null}>
+                  {resolving === charge.receiptId ? t("resolving") : t("resolve")}
+                </Button>
+              }
+              title={t("confirm.title")}
+              description={t("confirm.description", { business: charge.businessName })}
+              confirmLabel={t("confirm.confirm")}
+              cancelLabel={t("confirm.cancel")}
+              onConfirm={() => void handle(charge.receiptId)}
+            />
           </div>
         ))}
       </CardContent>

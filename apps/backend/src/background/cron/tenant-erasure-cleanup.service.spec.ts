@@ -9,7 +9,7 @@ import { TenantErasureCleanupService } from './tenant-erasure-cleanup.service';
 describe('TenantErasureCleanupService', () => {
   let target: TenantErasureCleanupService;
   let billing: { releaseBillingForErasure: jest.Mock };
-  let connectionsDbService: { findConnectionByTenant: jest.Mock; disconnect: jest.Mock };
+  let connectionsDbService: { findConnectionsByTenant: jest.Mock; disconnect: jest.Mock };
   let authDbService: { setActiveLocationId: jest.Mock };
   let reviewSyncDbService: { anonymizeReviewerPiiForTenant: jest.Mock };
   let credentialService: { revokeOrThrow: jest.Mock; invalidateAccessToken: jest.Mock };
@@ -17,7 +17,7 @@ describe('TenantErasureCleanupService', () => {
   beforeEach(() => {
     billing = { releaseBillingForErasure: jest.fn().mockResolvedValue(undefined) };
     connectionsDbService = {
-      findConnectionByTenant: jest.fn(),
+      findConnectionsByTenant: jest.fn().mockResolvedValue([]),
       disconnect: jest.fn().mockResolvedValue({ deactivatedLocationIds: ['loc-1'] }),
     };
     authDbService = { setActiveLocationId: jest.fn().mockResolvedValue(undefined) };
@@ -37,11 +37,13 @@ describe('TenantErasureCleanupService', () => {
   });
 
   it('releases billing, disconnects Google (revoking the stored credential) and anonymizes reviewers', async () => {
-    connectionsDbService.findConnectionByTenant.mockResolvedValue({
-      id: 'conn-1',
-      disconnectedAt: null,
-      credentialReference: 'secret-ref',
-    });
+    connectionsDbService.findConnectionsByTenant.mockResolvedValue([
+      {
+        id: 'conn-1',
+        disconnectedAt: null,
+        credentialReference: 'secret-ref',
+      },
+    ]);
 
     await target.releaseExternalResources('tenant-1');
 
@@ -56,11 +58,13 @@ describe('TenantErasureCleanupService', () => {
   });
 
   it('still revokes the credential of a connection a previous night marked disconnected', async () => {
-    connectionsDbService.findConnectionByTenant.mockResolvedValue({
-      id: 'conn-1',
-      disconnectedAt: '2026-10-01T00:00:00.000Z',
-      credentialReference: 'secret-ref',
-    });
+    connectionsDbService.findConnectionsByTenant.mockResolvedValue([
+      {
+        id: 'conn-1',
+        disconnectedAt: '2026-10-01T00:00:00.000Z',
+        credentialReference: 'secret-ref',
+      },
+    ]);
 
     await target.releaseExternalResources('tenant-1');
 
@@ -68,8 +72,27 @@ describe('TenantErasureCleanupService', () => {
     expect(credentialService.revokeOrThrow).toHaveBeenCalledWith('secret-ref');
   });
 
+  // A reconnect with another account leaves the old row behind; its grant must not outlive the business either.
+  it('revokes every grant the tenant ever made, not only the newest connection', async () => {
+    connectionsDbService.findConnectionsByTenant.mockResolvedValue([
+      { id: 'conn-new', disconnectedAt: null, credentialReference: 'ref-new' },
+      {
+        id: 'conn-old',
+        disconnectedAt: '2026-08-01T00:00:00.000Z',
+        credentialReference: 'ref-old',
+      },
+    ]);
+
+    await target.releaseExternalResources('tenant-1');
+
+    expect(connectionsDbService.disconnect).toHaveBeenCalledTimes(1);
+    expect(connectionsDbService.disconnect).toHaveBeenCalledWith('conn-new');
+    expect(credentialService.revokeOrThrow).toHaveBeenCalledWith('ref-new');
+    expect(credentialService.revokeOrThrow).toHaveBeenCalledWith('ref-old');
+  });
+
   it('copes with a tenant that never connected Google', async () => {
-    connectionsDbService.findConnectionByTenant.mockResolvedValue(null);
+    connectionsDbService.findConnectionsByTenant.mockResolvedValue([]);
 
     await target.releaseExternalResources('tenant-1');
 
@@ -78,11 +101,13 @@ describe('TenantErasureCleanupService', () => {
   });
 
   it('skips the tenant, anonymizing nobody, when Google cannot confirm the revocation', async () => {
-    connectionsDbService.findConnectionByTenant.mockResolvedValue({
-      id: 'conn-1',
-      disconnectedAt: null,
-      credentialReference: 'secret-ref',
-    });
+    connectionsDbService.findConnectionsByTenant.mockResolvedValue([
+      {
+        id: 'conn-1',
+        disconnectedAt: null,
+        credentialReference: 'secret-ref',
+      },
+    ]);
     credentialService.revokeOrThrow.mockRejectedValue(new Error('Google did not confirm'));
 
     await expect(target.releaseExternalResources('tenant-1')).rejects.toThrow('Google did not');

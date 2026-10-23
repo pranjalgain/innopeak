@@ -99,9 +99,25 @@ export class EmailProcessor extends WorkerHost {
   }
 
   @OnWorkerEvent('completed')
-  onCompleted(job: Job<IEmailJob, void, JobName>): void {
+  async onCompleted(job: Job<IEmailJob, void, JobName>): Promise<void> {
     this.logger.debug(`Job ${job.id} has been completed`);
     if (typeof job.log === 'function') void job.log(`Job ${job.id} has been completed`);
+    await this.scrubSecrets(job);
+  }
+
+  /**
+   * The mail is sent, so the credential in the payload has done its job; the job itself stays in Redis (and in Bull Board) for a day,
+   * and an invite link is valid for days. Redacts what is stored rather than dropping the job so the history stays readable. Never
+   * throws: a scrub that fails must not turn a sent email into a failed job.
+   */
+  private async scrubSecrets(job: Job<IEmailJob, void, JobName>): Promise<void> {
+    try {
+      await job.updateData(redactJobSecrets(job.data) as IEmailJob);
+    } catch (error) {
+      this.logger.warn(
+        `Could not redact the stored payload of job ${job.id}: ${(error as Error).message}`
+      );
+    }
   }
 
   /**
@@ -119,6 +135,16 @@ export class EmailProcessor extends WorkerHost {
       return;
     }
 
+    try {
+      await this.retireFailedJob(job);
+    } catch (error) {
+      // A rejection from an event handler has no caller: unhandled, it ended the worker process over a failure to file a failure.
+      this.logger.error(`Could not retire failed job ${job.id}: ${(error as Error).message}`);
+    }
+  }
+
+  /** Out of attempts: keep a (redacted) dead-letter copy, then scrub the credential from the stored job. */
+  private async retireFailedJob(job: Job<IEmailJob, void, JobName>): Promise<void> {
     await this.dlqService.addFailedJobToDLQ({
       originalQueueName: QueueName.EMAIL,
       originalJobId: job.id ?? '',
@@ -128,16 +154,28 @@ export class EmailProcessor extends WorkerHost {
       stacktrace: job.stacktrace,
       timestamp: Date.now(),
     });
+    // Nothing will read the credential again; the dead-letter copy was already redacted on the way in.
+    await this.scrubSecrets(job);
   }
 
   /**
    * BullMQ emits `(jobId, previousState)` here, not the job. A stalled job is either re-queued (the worker that held its lock
-   * died) or, past `maxStalledCount`, failed, which the `failed` handler already forwards to the dead-letter queue, so this only
-   * logs: writing it to the DLQ as well filed a job that was about to be retried, with an empty id, name and payload.
+   * died), which needs nothing, or, past `maxStalledCount`, moved to `failed` *without* a `failed` event, so neither the
+   * dead-letter copy nor the scrub in `onFailed` would ever run and the raw OTP or invite link would sit in Redis. Looked up by id
+   * (the event carries no job) and retired only when it really is failed: filing a job that is about to be retried would put an
+   * unfinished one in the dead-letter queue.
    */
   @OnWorkerEvent('stalled')
-  onStalled(jobId: string): void {
+  async onStalled(jobId: string): Promise<void> {
     this.logger.error(`Job ${jobId} has been stalled`);
+    try {
+      const job = await Job.fromId<IEmailJob, void, JobName>(this.worker, jobId);
+      if (job && (await job.isFailed())) {
+        await this.retireFailedJob(job);
+      }
+    } catch (error) {
+      this.logger.error(`Could not retire stalled job ${jobId}: ${(error as Error).message}`);
+    }
   }
 
   /** Worker-level errors (a lost Redis connection) carry no job: BullMQ emits `(error)` only. */

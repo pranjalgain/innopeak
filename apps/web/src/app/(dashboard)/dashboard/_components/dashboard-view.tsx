@@ -1,7 +1,7 @@
 "use client";
 
 
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
 import { LuClock, LuList, LuStar, LuTriangleAlert } from "react-icons/lu";
 
@@ -10,6 +10,7 @@ import { AttentionReviewsGrid } from "@/app/(dashboard)/dashboard/_components/at
 import { BusinessProfileCard } from "@/app/(dashboard)/dashboard/_components/business-profile-card";
 import { RatingDistributionCard } from "@/app/(dashboard)/dashboard/_components/rating-distribution-card";
 import { StatCard } from "@/app/(dashboard)/dashboard/_components/stat-card";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCountUp } from "@/hooks/common/use-count-up";
 import { useDashboardStats } from "@/hooks/dashboard/use-dashboard-stats";
@@ -20,9 +21,11 @@ const DATE_RANGE_VALUES: DateRange[] = ["7d", "30d", "90d"];
 
 export function DashboardView() {
   const t = useTranslations("dashboard");
+  const format = useFormatter();
+  const tCommon = useTranslations("common");
   const [range, setRange] = useState<DateRange>("30d");
   const { data: tenant } = useTenant();
-  const { stats, ratingDistribution, attentionReviews, isLoading, error } =
+  const { stats, ratingDistribution, attentionReviews, isLoading, error, retry } =
     useDashboardStats(range);
 
   const statsLoading = isLoading || !stats;
@@ -36,25 +39,25 @@ export function DashboardView() {
     {
       id: "reviews",
       label: t("stats.reviews"),
-      value: statsLoading ? "—" : String(reviewCountAnimated),
+      value: statsLoading ? "—" : format.number(reviewCountAnimated),
       icon: LuList,
     },
     {
       id: "averageRating",
       label: t("stats.averageRating"),
-      value: statsLoading ? "—" : `${(averageRatingAnimated / 10).toFixed(1)} ★`,
+      value: statsLoading ? "—" : `${format.number(averageRatingAnimated / 10, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ★`,
       icon: LuStar,
     },
     {
       id: "pendingApproval",
       label: t("stats.pendingApproval"),
-      value: statsLoading ? "—" : String(pendingApprovalAnimated),
+      value: statsLoading ? "—" : format.number(pendingApprovalAnimated),
       icon: LuClock,
     },
     {
       id: "escalatedOpen",
       label: t("stats.escalatedOpen"),
-      value: statsLoading ? "—" : String(escalatedOpenAnimated),
+      value: statsLoading ? "—" : format.number(escalatedOpenAnimated),
       icon: LuTriangleAlert,
       warning: true,
     },
@@ -81,7 +84,10 @@ export function DashboardView() {
           role="alert"
           className="animate-in fade-in zoom-in-95 bg-destructive-soft text-destructive ease-fluid flex items-center gap-3 rounded-lg px-4 py-3 text-sm duration-300">
           <LuTriangleAlert className="shrink-0" />
-          {t("loadError")}
+          <span className="flex-1">{t("loadError")}</span>
+          <Button type="button" variant="outline" size="sm" onClick={retry}>
+            {tCommon("loadError.retry")}
+          </Button>
         </div>
       ) : null}
 

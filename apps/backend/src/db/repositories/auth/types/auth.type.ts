@@ -11,6 +11,8 @@ export interface PurgeStaleTokensResult {
    */
   otpTokens: number;
   refreshTokens: number;
+  /** Sign-ups nobody verified within `PENDING_SIGNUP_PURGE_AFTER_HOURS`, removed with their tenant. */
+  pendingSignups: number;
 }
 
 export interface SignupResult {

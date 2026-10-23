@@ -8,7 +8,14 @@ import {
   IOtpEmailJob,
 } from '@bg/interfaces/job.interface';
 import { QueuePublisherProvider } from '@bg/providers/queue-publisher.provider';
+import { withTimeout } from '@common/helpers/with-timeout';
 import { Injectable, Logger } from '@nestjs/common';
+
+/**
+ * The producer's Redis connection waits indefinitely for a dead server (BullMQ needs that), so an unbounded `add` turned a Redis outage into
+ * requests that never answered: a sign-up, a code resend or an invite now waits on its email job. Long enough for a slow but healthy queue.
+ */
+export const QUEUE_PUBLISH_TIMEOUT_MS = 5_000;
 
 @Injectable()
 export class AddingJobsToQueueManager {
@@ -21,10 +28,16 @@ export class AddingJobsToQueueManager {
     this.logger.debug(`Adding job ${jobName} to queue ${queueName}`, 'AddingJobsToQueueManager');
 
     try {
-      await this.queuePublisher.publish(queueName, jobName, data, {
-        attempts: DEFAULT_JOB_OPTIONS.attempts,
-        backoffDelayMs: DEFAULT_JOB_OPTIONS.backoff.delay,
-      });
+      // A timeout rejects like any other failure, so the callers' "not queued" handling (a 503, a released resend cooldown, a revoked
+      // invite) applies to an outage too. The add itself is not cancelled and may still land once Redis returns.
+      await withTimeout(
+        this.queuePublisher.publish(queueName, jobName, data, {
+          attempts: DEFAULT_JOB_OPTIONS.attempts,
+          backoffDelayMs: DEFAULT_JOB_OPTIONS.backoff.delay,
+        }),
+        QUEUE_PUBLISH_TIMEOUT_MS,
+        `queueing ${jobName}`
+      );
       this.logger.debug(`Job ${jobName} added successfully to queue ${queueName}`);
     } catch (error) {
       this.logger.error(

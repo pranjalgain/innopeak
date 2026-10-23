@@ -3,11 +3,12 @@ import { ErasureNoticeService } from '@auth/services/erasure-notice.service';
 import { ICronJob } from '@bg/interfaces/job.interface';
 import type { IPurgeSkippedBusiness } from '@bg/interfaces/job.interface';
 import { BillingReconciliationService } from '@billing/services/billing-reconciliation.service';
-import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
+import { ERASED_PLACEHOLDER, getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
 import { EnvConfig } from '@config/env.config';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
+import { StripeWebhookEventsDbService } from '@db/repositories/billing/stripe-webhook-events.db-service';
 import { TenantSubscriptionsDbService } from '@db/repositories/billing/tenant-subscriptions.db-service';
 import { ConnectionsDbService } from '@db/repositories/connections/connections.db-service';
 import { NotificationsDbService } from '@db/repositories/notifications/notifications.db-service';
@@ -26,6 +27,9 @@ import {
 /** `platform_activity_log.actor_email` for entries with no human admin behind them. */
 const SYSTEM_ACTOR_EMAIL = 'system@innopeak.internal';
 
+/** Far longer than Stripe's three days of redelivery, short enough that the ledger does not grow without bound. */
+const STRIPE_WEBHOOK_LEDGER_RETENTION_DAYS = 90;
+
 @Injectable()
 export class CronService {
   private readonly logger = new Logger(CronService.name);
@@ -39,6 +43,7 @@ export class CronService {
     private readonly adminOverviewDbService: AdminOverviewDbService,
     private readonly billingReconciliationService: BillingReconciliationService,
     private readonly tenantSubscriptionsDbService: TenantSubscriptionsDbService,
+    private readonly stripeWebhookEventsDbService: StripeWebhookEventsDbService,
     private readonly tenantErasureCleanupService: TenantErasureCleanupService,
     private readonly configService: ConfigService<EnvConfig>,
     private readonly erasureNoticeService: ErasureNoticeService,
@@ -53,7 +58,7 @@ export class CronService {
   async purgeStaleAuthTokens(): Promise<void> {
     const purged = await this.authDbService.purgeStaleTokens();
     this.logger.log(
-      `Purged ${purged.otpTokens} stale OTP token(s) and ${purged.refreshTokens} stale refresh token(s)`
+      `Purged ${purged.otpTokens} stale OTP token(s), ${purged.refreshTokens} stale refresh token(s) and ${purged.pendingSignups} unverified sign-up(s)`
     );
   }
 
@@ -140,6 +145,7 @@ export class CronService {
       let anonymizedUsers = 0;
       let erasedTenants = 0;
       const skippedTenants: string[] = [];
+      const skippedMembers: string[] = [];
       const skippedDetails: IPurgeSkippedBusiness[] = [];
 
       for (const tenant of dueTenants) {
@@ -179,6 +185,11 @@ export class CronService {
           let erased: { name: string } | null;
           try {
             const userIds = await this.authDbService.findNonAnonymizedUserIdsForTenant(tenant.id);
+            // Every photo first: if one cannot be deleted nobody is anonymized yet, so the next run still has the
+            // members' addresses for the "erased" notice (read above, unrecoverable once the users are anonymized).
+            for (const userId of userIds) {
+              await this.accountAnonymizationService.deleteAvatar(userId);
+            }
             for (const userId of userIds) {
               await this.accountAnonymizationService.anonymizeUser(userId);
               anonymizedUsers += 1;
@@ -206,7 +217,8 @@ export class CronService {
               actorPlatformAdminId: null,
               actorEmail: SYSTEM_ACTOR_EMAIL,
               tenantId: tenant.id,
-              businessName: erased.name,
+              // The log keeps that an erasure happened, not whose: `markTenantErased` already blanked the business name everywhere.
+              businessName: ERASED_PLACEHOLDER,
             });
             await this.erasureNoticeService.notifyErased({
               recipients: noticeRecipients,
@@ -229,15 +241,30 @@ export class CronService {
             return;
           }
 
-          await this.accountAnonymizationService.anonymizeUser(userId);
-          anonymizedUsers += 1;
+          // Per member, like the tenant loop: one failing photo delete must not stop the others or suppress the alert below.
+          try {
+            await this.accountAnonymizationService.anonymizeUser(userId);
+            anonymizedUsers += 1;
+          } catch (error) {
+            skippedMembers.push(userId);
+            skippedDetails.push({
+              name: `team member ${userId}`,
+              daysOverdue: 0,
+              reason: this.briefReason(error),
+            });
+            this.logger.error(
+              `Skipping erasure of member ${userId}: anonymizing failed (${
+                (error as Error).message
+              }); will retry at the next purge`
+            );
+          }
         });
       }
 
-      if (skippedTenants.length > 0) {
+      if (skippedTenants.length > 0 || skippedMembers.length > 0) {
         // One line a log alert can match: a repeatedly failing erasure is a compliance problem.
         this.logger.error(
-          `Erasure purge skipped ${skippedTenants.length} tenant(s) that could not be released: ${skippedTenants.join(', ')}`
+          `Erasure purge skipped ${skippedTenants.length} tenant(s) and ${skippedMembers.length} member(s) that could not be erased: ${[...skippedTenants, ...skippedMembers].join(', ')}`
         );
         // The log line is for alerting; this one is for a person. It swallows its own errors.
         await this.erasureNoticeService.notifyPurgeSkipped(skippedDetails);
@@ -265,11 +292,35 @@ export class CronService {
   }
 
   /**
+   * The nightly billing sweep: three independent steps, each run even when an earlier one failed (a failed query in one used to skip
+   * the rest). The first failure is rethrown once all three have run, so the job still reads as failed.
+   */
+  async reconcileStaleBillingSubscriptions(): Promise<void> {
+    const steps: Array<() => Promise<void>> = [
+      (): Promise<void> => this.reconcileStaleFreeSubscriptions(),
+      (): Promise<void> => this.retryErasureBillingCancellations(),
+      (): Promise<void> => this.purgeOldWebhookEvents(),
+    ];
+    let firstFailure: { error: unknown } | null = null;
+    for (const step of steps) {
+      try {
+        await step();
+      } catch (error) {
+        this.logger.error(`Billing sweep step failed: ${(error as Error).message}`);
+        firstFailure ??= { error };
+      }
+    }
+    if (firstFailure) {
+      throw firstFailure.error;
+    }
+  }
+
+  /**
    * Catches tenants who paid but never returned to the checkout success page, so the synchronous
    * reconcile never ran. Candidates have a Stripe customer but are still `free` and unverified for
    * over an hour. Isolated per tenant so one Stripe failure doesn't starve the rest.
    */
-  async reconcileStaleBillingSubscriptions(): Promise<void> {
+  private async reconcileStaleFreeSubscriptions(): Promise<void> {
     const candidates = await this.tenantSubscriptionsDbService.findStaleFreeWithStripeCustomer();
 
     let reconciled = 0;
@@ -292,9 +343,44 @@ export class CronService {
         `Reconciled ${reconciled}/${candidates.length} stale billing subscription(s); ` +
           `${failed.length} failed and will be retried at the next sweep: ${failed.join(', ')}`
       );
-      return;
+    } else {
+      this.logger.debug(`Reconciled ${reconciled} stale billing subscription(s)`);
     }
+  }
 
-    this.logger.debug(`Reconciled ${reconciled} stale billing subscription(s)`);
+  /** Stripe redelivers for three days at most, so a ledger row older than this has nothing left to deduplicate. */
+  private async purgeOldWebhookEvents(): Promise<void> {
+    try {
+      const purged = await this.stripeWebhookEventsDbService.purgeProcessedBefore(
+        new Date(Date.now() - STRIPE_WEBHOOK_LEDGER_RETENTION_DAYS * 86_400_000)
+      );
+      if (purged > 0) {
+        this.logger.log(`Purged ${purged} Stripe webhook ledger row(s) past their retention`);
+      }
+    } catch (error) {
+      this.logger.error(`Could not purge the Stripe webhook ledger: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Asking Stripe to stop billing when an erasure is requested is best-effort and only logs a failure, so a business waiting out
+   * its (up to 21-day) grace period could keep being charged. This retries it every night for any whose subscription is not yet
+   * set to end; a business with nothing to cancel costs one DB read. Isolated per tenant.
+   */
+  private async retryErasureBillingCancellations(): Promise<void> {
+    const tenantIds =
+      await this.tenantSubscriptionsDbService.findPendingErasureWithBillableSubscription();
+
+    for (const tenantId of tenantIds) {
+      try {
+        await this.billingReconciliationService.scheduleCancellationForErasure(tenantId);
+      } catch (error) {
+        this.logger.error(
+          `Could not stop billing for tenant ${tenantId} while its erasure is pending (${
+            (error as Error).message
+          }); will retry at the next sweep`
+        );
+      }
+    }
   }
 }

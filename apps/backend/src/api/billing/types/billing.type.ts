@@ -56,6 +56,11 @@ export interface CheckoutSessionSnapshot {
 export interface NewCheckoutPreparation {
   /** The customer already has a live subscription the local row may not know about yet (webhook not landed). */
   hasLiveSubscription: boolean;
+  /**
+   * Unpaid or abandoned (`incomplete`) subscriptions that would otherwise block the new Checkout; the caller cancels them
+   * (`cancelStaleSubscriptions`) after its checkout lock is released, so no DB transaction waits on those Stripe calls.
+   */
+  staleSubscriptionIds: string[];
 }
 
 /** Card metadata only, never the PAN, so showing it carries no PCI scope. */

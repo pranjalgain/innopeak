@@ -121,6 +121,14 @@ describe('OAuthStateService', () => {
     expect(redis.getdel).not.toHaveBeenCalled();
   });
 
+  // `?state=a&state=b` reaches the service as an array whatever the type says; `.split` on it was a 500 on a public callback.
+  it('rejects a repeated state parameter instead of throwing', async () => {
+    await expect(
+      service.consume(['a.1.b', 'c.2.d'] as unknown as string, 'sid')
+    ).resolves.toMatchObject({ ok: false });
+    expect(redis.getdel).not.toHaveBeenCalled();
+  });
+
   it('rejects a state past its TTL', async () => {
     // The clock is advanced past the window and the real minted `state` reused: rebuilding it with a
     // recomputed timestamp would be flaky and yield INVALID_SIGNATURE instead of EXPIRED.
@@ -154,5 +162,28 @@ describe('OAuthStateService', () => {
       600,
       'NX'
     );
+  });
+});
+
+// The fallback signing key is public in this repository: fine on a laptop, never on a staging box (which runs as `development`).
+describe('OAuthStateService signing key', () => {
+  const build = (secret: string | undefined): OAuthStateService =>
+    new OAuthStateService({ get: () => secret } as never, fakeRedis() as never);
+
+  afterEach(() => {
+    delete process.env['FRONTEND_URL'];
+  });
+
+  it('refuses to start without a secret when the app is not on a local machine', () => {
+    process.env['FRONTEND_URL'] = 'https://staging.example.com';
+
+    expect(() => build(undefined)).toThrow('GBP_STATE_SECRET must be set');
+    expect(() => build('x'.repeat(32))).not.toThrow();
+  });
+
+  it('keeps the fixed fallback on a local machine', () => {
+    process.env['FRONTEND_URL'] = 'http://localhost:3002';
+
+    expect(() => build(undefined)).not.toThrow();
   });
 });

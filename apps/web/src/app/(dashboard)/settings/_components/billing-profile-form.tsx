@@ -6,11 +6,11 @@ import { LuSave, LuUserRound } from "react-icons/lu";
 import { toast } from "sonner";
 
 import { PANEL_CLASS, PanelHeading } from "@/app/(dashboard)/settings/_components/billing-panel";
-import { FIELD_ERROR_CLASS } from "@/app/(dashboard)/settings/_components/field-error";
 import {
   type BillingProfileFields,
   billingProfileSchema,
 } from "@/app/(dashboard)/settings/_schemas/billing-profile.schema";
+import { FieldError } from "@/components/common/field-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,14 +58,20 @@ export function BillingProfileForm() {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="billing-profile-name">{t("nameLabel")}</Label>
-          <Input id="billing-profile-name" {...register("name")} />
-          {errors.name ? <p className={FIELD_ERROR_CLASS}>{errors.name.message}</p> : null}
+          <Input
+            id="billing-profile-name" aria-invalid={errors.name ? true : undefined}
+          aria-describedby={errors.name ? "billing-profile-name-error" : undefined}
+          {...register("name")} />
+          {errors.name ? <FieldError id="billing-profile-name-error">{errors.name.message}</FieldError> : null}
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="billing-profile-email">{t("emailLabel")}</Label>
-          <Input id="billing-profile-email" type="email" {...register("email")} />
-          {errors.email ? <p className={FIELD_ERROR_CLASS}>{errors.email.message}</p> : null}
+          <Input
+            id="billing-profile-email" type="email" aria-invalid={errors.email ? true : undefined}
+          aria-describedby={errors.email ? "billing-profile-email-error" : undefined}
+          {...register("email")} />
+          {errors.email ? <FieldError id="billing-profile-email-error">{errors.email.message}</FieldError> : null}
         </div>
       </div>
 

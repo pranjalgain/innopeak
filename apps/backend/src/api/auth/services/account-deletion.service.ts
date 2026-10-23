@@ -18,10 +18,12 @@ import { randomBytes } from 'crypto';
 import { ErasureNoticeService } from './erasure-notice.service';
 import { LoginAttemptScope, LoginAttemptService } from './login-attempt.service';
 import { OtpAttemptService } from './otp-attempt.service';
+import { SessionRevocationService } from './session-revocation.service';
 
 import { DeleteAccountResponseDto } from '../dto/delete-account-response.dto';
 import { DeleteAccountDto } from '../dto/delete-account.dto';
 import { RestoreAccountDto } from '../dto/restore-account.dto';
+import { OtpScope } from '../enums/otp-scope.enum';
 import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
@@ -29,6 +31,7 @@ import {
   AccountDeletionNotPossibleException,
   AccountDisabledException,
   BusinessNameMismatchException,
+  EmailQueueUnavailableException,
   InvalidAccessTokenException,
   InvalidCredentialsException,
   InvalidCurrentPasswordException,
@@ -65,7 +68,8 @@ export class AccountDeletionService {
     private readonly configService: ConfigService<EnvConfig>,
     private readonly billingReconciliationService: BillingReconciliationService,
     private readonly adminOverviewDbService: AdminOverviewDbService,
-    private readonly erasureNoticeService: ErasureNoticeService
+    private readonly erasureNoticeService: ErasureNoticeService,
+    private readonly sessionRevocationService: SessionRevocationService
   ) {}
 
   /** Mails the step-up code to an owner without a password; one with a password confirms with it. */
@@ -75,14 +79,25 @@ export class AccountDeletionService {
       throw new PasswordRequiredToDeleteException();
     }
 
-    if (await this.otpAttemptService.claimResend(user.email)) {
+    if (
+      await this.otpAttemptService.claimResend({
+        scope: OtpScope.DELETE_ACCOUNT,
+        identity: user.id,
+      })
+    ) {
       const rawOtp = this.verifyEmailTokenProvider.generate();
       await this.authDbService.putDeleteAccountOtp({
         userId: user.id,
         tokenHash: hashToken(rawOtp),
         expiresAt: this.otpExpiresAt().toISOString(),
       });
-      this.sendOtpEmail(user, rawOtp);
+      if (!(await this.sendOtpEmail(user, rawOtp))) {
+        await this.otpAttemptService.releaseResend({
+          scope: OtpScope.DELETE_ACCOUNT,
+          identity: user.id,
+        });
+        throw new EmailQueueUnavailableException();
+      }
     }
 
     return { message: MESSAGES.AUTH.DELETE_ACCOUNT_OTP_ACK };
@@ -149,6 +164,8 @@ export class AccountDeletionService {
         `Could not revoke refresh tokens for user ${user.id}: ${(error as Error).message}`
       );
     }
+    // The business is suspended now: end every access token its users hold, not just the owner's, rather than letting them lapse.
+    await this.sessionRevocationService.revokeTenant(user.tenantId);
 
     const gracePeriodDays = getErasureGracePeriodDays(this.configService);
     const response = new DeleteAccountResponseDto();
@@ -257,7 +274,12 @@ export class AccountDeletionService {
     if (!dto.otp) {
       throw new InvalidOtpException();
     }
-    if (!(await this.otpAttemptService.consumeAttempt(user.email))) {
+    if (
+      !(await this.otpAttemptService.consumeAttempt({
+        scope: OtpScope.DELETE_ACCOUNT,
+        identity: user.id,
+      }))
+    ) {
       throw new HttpException(MESSAGES.AUTH.TOO_MANY_OTP_ATTEMPTS, HttpStatus.TOO_MANY_REQUESTS);
     }
     const otpValid = await this.authDbService.consumeDeleteAccountOtp({
@@ -267,7 +289,7 @@ export class AccountDeletionService {
     if (!otpValid) {
       throw new InvalidOtpException();
     }
-    await this.otpAttemptService.reset(user.email);
+    await this.otpAttemptService.reset({ scope: OtpScope.DELETE_ACCOUNT, identity: user.id });
   }
 
   private decoyPasswordHash(): Promise<string> {
@@ -280,8 +302,8 @@ export class AccountDeletionService {
     return new Date(Date.now() + ttlMinutes * 60 * 1000);
   }
 
-  /** Fire-and-forget like every other OTP mail — the resend click is the recovery path. */
-  private sendOtpEmail(user: UserByEmail, rawOtp: string): void {
+  /** `false` when the queue refused the job (already logged); never throws. */
+  private async sendOtpEmail(user: UserByEmail, rawOtp: string): Promise<boolean> {
     const ttlMinutes = this.configService.get<number>('VERIFY_EMAIL_OTP_TTL_MINUTES') ?? 10;
     const job: IOtpEmailJob = {
       email: user.email,
@@ -289,8 +311,11 @@ export class AccountDeletionService {
       otp: rawOtp,
       expiresIn: `${ttlMinutes} minutes`,
     };
-    void this.queueManager
-      .addRegisterationOtpEmailJob(JobName.OTP_EMAIL_VERIFICATION, job)
-      .catch(() => undefined);
+    try {
+      await this.queueManager.addRegisterationOtpEmailJob(JobName.OTP_EMAIL_VERIFICATION, job);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

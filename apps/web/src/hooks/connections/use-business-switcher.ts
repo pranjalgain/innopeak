@@ -10,6 +10,7 @@ import {
   type ConnectionState,
 } from "@/app/_libs/services/connection.service";
 import { connectionQueryKey, useConnection } from "@/hooks/connections/use-connection";
+import { currentTenantQueryKey } from "@/hooks/tenant/use-tenant";
 
 export const connectionLocationsQueryKey = ["connections", "locations"] as const;
 
@@ -59,6 +60,9 @@ export function useBusinessSwitcher(): UseBusinessSwitcherResult {
         queryClient.setQueryData<ConnectionState>(connectionQueryKey, (current) =>
           current ? { ...current, location: updated } : current,
         );
+        // The dashboard's business card is built from the connection once and cached under its own key (5-minute staleTime): without this
+        // it kept the previous location's name, address and rating beside the new location's numbers.
+        void queryClient.invalidateQueries({ queryKey: currentTenantQueryKey });
       } catch (error) {
         if (requestId !== latestSwitchRef.current) return;
         // A member's attempt 403s (switching is tenant-wide and owner-only); a generic "please try again" would tell them to

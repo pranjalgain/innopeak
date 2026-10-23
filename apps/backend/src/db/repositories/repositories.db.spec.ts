@@ -18,6 +18,7 @@ import { AuthDbService } from './auth/auth.db-service';
 import { AuthRepository } from './auth/auth.repository';
 import { BillingPlansRepository } from './billing/billing-plans.repository';
 import { BillingReceiptsRepository } from './billing/billing-receipts.repository';
+import { StripeWebhookEventsRepository } from './billing/stripe-webhook-events.repository';
 import { TenantSubscriptionsDbService } from './billing/tenant-subscriptions.db-service';
 import { TenantSubscriptionsRepository } from './billing/tenant-subscriptions.repository';
 import { ConnectionsRepository } from './connections/connections.repository';
@@ -460,6 +461,123 @@ describeWithDb('repositories against a real database', () => {
     });
   });
 
+  describe('notification recipients', () => {
+    // A repeated provisioning used to add a second row, which the recipients list then showed twice.
+    it('seeds a person once, however many times it is asked', async () => {
+      const tenantId = await newTenant('active');
+      const userId = await newUser(tenantId);
+      const repo = new AuthRepository(dbService);
+
+      await dbService.db.transaction(async tx => {
+        await repo.insertNotificationRecipient(tx, { tenantId, userId });
+        await repo.insertNotificationRecipient(tx, { tenantId, userId });
+      });
+
+      const { rows } = await pool.query<{ n: string }>(
+        `SELECT count(*) n FROM notification_recipients WHERE user_id = $1`,
+        [userId]
+      );
+      expect(Number(rows[0]?.n)).toBe(1);
+    });
+  });
+
+  describe('ConnectionsRepository.findLocationsForUser', () => {
+    // Only the owner who confirms a location is attached in `user_locations`; an invited member never is.
+    it("lists the business's locations for a member who was never attached, and nobody else's", async () => {
+      const repo = new ConnectionsRepository(dbService);
+      const tenantId = await newTenant('active');
+      const other = await newTenant('active');
+      const member = await newUser(tenantId);
+      const mine = await newLocation(tenantId);
+      await newLocation(other);
+
+      const found = await repo.findLocationsForUser(member);
+
+      expect(found.map(row => row.id)).toEqual([mine]);
+    });
+  });
+
+  describe('a location that is billing-paused', () => {
+    async function seedReview(
+      tenantId: string,
+      locationId: string,
+      status = 'new'
+    ): Promise<string> {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO reviews (tenant_id, location_id, external_review_id, reviewer_name, review_text, rating, status)
+         VALUES ($1, $2, $3, 'Jane', 'Nice', 5, $4::review_status) RETURNING id`,
+        [tenantId, locationId, `r-${Math.random().toString(36).slice(2)}`, status]
+      );
+      return rows[0]?.id as string;
+    }
+
+    // Reads hide a paused location's reviews; the reply actions ask for them (`includePaused`) so they can say "location paused".
+    it('hides its review from a read, but a reply action can still reach it', async () => {
+      const tenantId = await newTenant('active');
+      const locationId = await newLocation(tenantId);
+      const reviewId = await seedReview(tenantId, locationId);
+      await pool.query(`UPDATE locations SET billing_paused_at = now() WHERE id = $1`, [
+        locationId,
+      ]);
+      const repo = new ReviewsReadRepository(dbService);
+
+      expect(await repo.findReviewByIdForTenant({ reviewId, tenantId })).toBeNull();
+      expect(
+        (await repo.findReviewByIdForTenant({ reviewId, tenantId, includePaused: true }))?.id
+      ).toBe(reviewId);
+    });
+
+    it('is no longer polled once paused, and is polled again when it is not', async () => {
+      const tenantId = await newTenant('active');
+      const locationId = await newLocation(tenantId);
+      const repo = new ConnectionsRepository(dbService);
+
+      expect(await repo.isLocationPollable(locationId, tenantId)).toBe(true);
+      await pool.query(`UPDATE locations SET billing_paused_at = now() WHERE id = $1`, [
+        locationId,
+      ]);
+      expect(await repo.isLocationPollable(locationId, tenantId)).toBe(false);
+      // Another tenant's id never matches.
+      expect(await repo.isLocationPollable(locationId, await newTenant('active'))).toBe(false);
+    });
+
+    it('is not polled for a suspended business either', async () => {
+      const tenantId = await newTenant('suspended');
+      const locationId = await newLocation(tenantId);
+
+      expect(
+        await new ConnectionsRepository(dbService).isLocationPollable(locationId, tenantId)
+      ).toBe(false);
+    });
+
+    // An outage of the AI provider says nothing about the review: it must not use up the review's attempts.
+    it('releases a claim without counting an attempt when asked not to', async () => {
+      const tenantId = await newTenant('active');
+      const locationId = await newLocation(tenantId);
+      const repo = new ReviewSyncRepository(dbService);
+      const counted = await seedReview(tenantId, locationId, 'in_review');
+      const uncounted = await seedReview(tenantId, locationId, 'in_review');
+      const read = async (id: string) =>
+        (
+          await pool.query(
+            `SELECT status, generation_attempts, generation_failed_at FROM reviews WHERE id = $1`,
+            [id]
+          )
+        ).rows[0];
+
+      await repo.releaseGenerationClaimAfterFailure(counted);
+      await repo.releaseGenerationClaimAfterFailure(uncounted, false);
+
+      expect(await read(counted)).toMatchObject({ status: 'new', generation_attempts: 1 });
+      expect((await read(counted)).generation_failed_at).not.toBeNull();
+      expect(await read(uncounted)).toMatchObject({
+        status: 'new',
+        generation_attempts: 0,
+        generation_failed_at: null,
+      });
+    });
+  });
+
   describe('ConnectionsRepository.findLocationsDueForPoll', () => {
     it('polls an active tenant but not a suspended or erased one', async () => {
       const repo = new ConnectionsRepository(dbService);
@@ -739,6 +857,482 @@ describeWithDb('repositories against a real database', () => {
       expect(page.total).toBe(3);
       expect(page.rows).toHaveLength(2);
       expect(rest.rows).toHaveLength(1);
+    });
+  });
+
+  describe('ReviewSyncRepository: a review the model cannot answer', () => {
+    async function candidate(
+      tenantId: string,
+      locationId: string,
+      externalId: string
+    ): Promise<string> {
+      return (
+        await pool.query<{ id: string }>(
+          `INSERT INTO reviews (tenant_id, location_id, external_review_id, rating, review_text, classification, status, reviewed_at)
+           VALUES ($1, $2, $3, 3, 'Hmm', 'auto_reply_candidate', 'new', now()) RETURNING id`,
+          [tenantId, locationId, externalId]
+        )
+      ).rows[0]?.id as string;
+    }
+
+    it('steps aside after a failure, comes back after its pause, and is given up on after the last attempt', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const poison = await candidate(tenantId, locationId, 'poison');
+      const fine = await candidate(tenantId, locationId, 'fine');
+      const idsFor = async (): Promise<string[]> =>
+        (await repo.findClassifiedNeedingGeneration(tenantId, locationId, 10)).map(row => row.id);
+
+      expect(await idsFor()).toEqual(expect.arrayContaining([poison, fine]));
+
+      // First failure: counted, and it no longer sits at the head of the batch.
+      await pool.query(`UPDATE reviews SET status = 'in_review' WHERE id = $1`, [poison]);
+      await expect(repo.releaseGenerationClaimAfterFailure(poison)).resolves.toBe(1);
+      expect(await idsFor()).toEqual([fine]);
+
+      // Its pause (attempts x 15 minutes) over: tried again.
+      await pool.query(
+        `UPDATE reviews SET generation_failed_at = now() - interval '16 minutes' WHERE id = $1`,
+        [poison]
+      );
+      expect(await idsFor()).toEqual(expect.arrayContaining([poison, fine]));
+
+      // After the last attempt it is left for the owner, however long ago it failed.
+      await pool.query(
+        `UPDATE reviews SET generation_attempts = 5, generation_failed_at = now() - interval '10 days' WHERE id = $1`,
+        [poison]
+      );
+      expect(await idsFor()).toEqual([fine]);
+    });
+
+    it('only counts a failure for a review that is still being drafted', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const id = await candidate(tenantId, locationId, 'moved-on');
+
+      await expect(repo.releaseGenerationClaimAfterFailure(id)).resolves.toBeNull();
+    });
+
+    it('gives it a fresh set of attempts when Google reports new text, and keeps the count otherwise', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const upsert = (text: string): Promise<{ id: string }> =>
+        dbService.db.transaction(tx =>
+          repo.upsertReview(tx, {
+            tenantId,
+            locationId,
+            externalReviewId: 'r-poison',
+            externalReviewerId: null,
+            rating: 3,
+            reviewText: text,
+            reviewerName: null,
+            reviewedAt: '2026-10-01T00:00:00Z',
+            externalUpdatedAt: '2026-10-02T00:00:00Z',
+            status: 'new' as never,
+          })
+        );
+      const { id } = await upsert('first words');
+      await pool.query(`UPDATE reviews SET generation_attempts = 4 WHERE id = $1`, [id]);
+
+      await upsert('first words');
+      expect(
+        (await pool.query(`SELECT generation_attempts FROM reviews WHERE id = $1`, [id])).rows[0]
+          ?.generation_attempts
+      ).toBe(4);
+
+      await upsert('edited words');
+      expect(
+        (await pool.query(`SELECT generation_attempts FROM reviews WHERE id = $1`, [id])).rows[0]
+          ?.generation_attempts
+      ).toBe(0);
+    });
+  });
+
+  describe('StripeWebhookEventsRepository.deleteProcessedBefore', () => {
+    it('removes only ledger rows older than the cutoff', async () => {
+      const repo = new StripeWebhookEventsRepository(dbService);
+      const tag = Math.random().toString(36).slice(2);
+      await pool.query(
+        `INSERT INTO stripe_webhook_events (id, type, processed_at) VALUES
+           ($1, 'invoice.paid', now() - interval '120 days'),
+           ($2, 'invoice.paid', now() - interval '2 days')`,
+        [`evt_old_${tag}`, `evt_new_${tag}`]
+      );
+
+      const removed = await repo.deleteProcessedBefore(new Date(Date.now() - 90 * 86_400_000));
+
+      expect(removed).toBeGreaterThanOrEqual(1);
+      const left = await pool.query<{ id: string }>(
+        `SELECT id FROM stripe_webhook_events WHERE id = ANY($1::text[])`,
+        [[`evt_old_${tag}`, `evt_new_${tag}`]]
+      );
+      expect(left.rows.map(row => row.id)).toEqual([`evt_new_${tag}`]);
+    });
+  });
+
+  describe('ReviewSyncRepository.purgeExpiredReviewerPii', () => {
+    it('anonymizes only reviews past their tenant’s retention, leaving other tenants and recent reviews alone', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const otherTenant = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const otherLocation = await newLocation(otherTenant);
+      await pool.query(
+        `INSERT INTO tenant_settings (tenant_id, review_data_retention_months) VALUES ($1, 6)
+         ON CONFLICT (tenant_id) DO UPDATE SET review_data_retention_months = 6`,
+        [tenantId]
+      );
+      const review = async (tenant: string, location: string, monthsOld: number): Promise<string> =>
+        (
+          await pool.query<{ id: string }>(
+            `INSERT INTO reviews (tenant_id, location_id, external_review_id, rating, reviewer_name, external_reviewer_id, reviewed_at)
+             VALUES ($1, $2, $3, 4, 'Jane', 'g-1', now() - ($4 || ' months')::interval) RETURNING id`,
+            [tenant, location, `r-${Math.random().toString(36).slice(2)}`, monthsOld]
+          )
+        ).rows[0]?.id as string;
+      const old = await review(tenantId, locationId, 12);
+      const recent = await review(tenantId, locationId, 1);
+      const noRetention = await review(otherTenant, otherLocation, 60);
+
+      await expect(repo.purgeExpiredReviewerPii()).resolves.toBeGreaterThanOrEqual(1);
+
+      const named = async (id: string): Promise<string | null> =>
+        (
+          await pool.query<{ reviewer_name: string | null }>(
+            `SELECT reviewer_name FROM reviews WHERE id = $1`,
+            [id]
+          )
+        ).rows[0]?.reviewer_name ?? null;
+      expect(await named(old)).toBeNull();
+      expect(await named(recent)).toBe('Jane');
+      expect(await named(noRetention)).toBe('Jane');
+
+      // Nothing left to do the second time.
+      const again = await repo.purgeExpiredReviewerPii();
+      expect(again).toBe(0);
+    });
+  });
+
+  describe('AuthRepository.requestMemberRemoval: the last owner', () => {
+    it('refuses the last ACTIVE owner even when a disabled or removal-pending one remains', async () => {
+      const repo = new AuthRepository(dbService);
+      const tenantId = await newTenant();
+      const owner = async (status: string): Promise<string> =>
+        (
+          await pool.query<{ id: string }>(
+            `INSERT INTO users (tenant_id, email, name, role, status) VALUES ($1, $2, 'Owner', 'owner', $3::user_status) RETURNING id`,
+            [tenantId, `o-${Math.random().toString(36).slice(2)}@example.test`, status]
+          )
+        ).rows[0]?.id as string;
+      const active = await owner('active');
+      await owner('disabled');
+
+      await expect(repo.requestMemberRemoval(tenantId, active)).resolves.toEqual({
+        outcome: 'last_owner',
+      });
+    });
+
+    it('allows removing an owner when another active one remains', async () => {
+      const repo = new AuthRepository(dbService);
+      const tenantId = await newTenant();
+      const first = await newUser(tenantId);
+      await newUser(tenantId);
+
+      await expect(repo.requestMemberRemoval(tenantId, first)).resolves.toMatchObject({
+        outcome: 'requested',
+      });
+    });
+  });
+
+  describe('ReviewSyncRepository.markRespondedByExternalReply', () => {
+    it('closes the review and supersedes the drafts nobody has decided, leaving a live reply for the worker', async () => {
+      const repo = new ReviewSyncRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const review = (
+        await pool.query<{ id: string }>(
+          `INSERT INTO reviews (tenant_id, location_id, external_review_id, rating, status)
+           VALUES ($1, $2, 'r-ext', 4, 'in_review') RETURNING id`,
+          [tenantId, locationId]
+        )
+      ).rows[0]?.id as string;
+      const addResponse = async (status: string): Promise<string> =>
+        (
+          await pool.query<{ id: string }>(
+            `INSERT INTO review_responses (tenant_id, review_id, response_type, content, source, status)
+             VALUES ($1, $2, 'auto_reply_suggestion', $3, 'ai_generated', $4::response_status) RETURNING id`,
+            [tenantId, review, `draft ${status}`, status]
+          )
+        ).rows[0]?.id as string;
+      const pending = await addResponse('pending_approval');
+      const draft = await addResponse('draft');
+      const failed = await addResponse('post_failed');
+      const rejected = await addResponse('rejected');
+      const approved = await addResponse('approved');
+
+      await dbService.db.transaction(tx => repo.markRespondedByExternalReply(tx, review));
+
+      const statuses = Object.fromEntries(
+        (
+          await pool.query<{ id: string; status: string }>(
+            `SELECT id, status FROM review_responses WHERE review_id = $1`,
+            [review]
+          )
+        ).rows.map(row => [row.id, row.status])
+      );
+      expect(statuses[pending]).toBe('superseded');
+      expect(statuses[draft]).toBe('superseded');
+      expect(statuses[failed]).toBe('superseded');
+      expect(statuses[rejected]).toBe('rejected');
+      expect(statuses[approved]).toBe('approved');
+      expect(
+        (await pool.query(`SELECT status FROM reviews WHERE id = $1`, [review])).rows[0]?.status
+      ).toBe('responded');
+
+      // Idempotent.
+      await dbService.db.transaction(tx => repo.markRespondedByExternalReply(tx, review));
+    });
+  });
+
+  describe('Review provider connections: one live per tenant', () => {
+    const connect = (
+      repo: ConnectionsRepository,
+      tenantId: string,
+      userId: string,
+      account: string
+    ): Promise<unknown> =>
+      dbService.db.transaction(tx =>
+        repo.upsertConnection(tx, {
+          tenantId,
+          connectedByUserId: userId,
+          providerAccountId: account,
+          credentialReference: `ref-${account}`,
+          tokenExpiresAt: null,
+        })
+      );
+
+    it('refuses a second live connection for another account, but allows one once the first is disconnected', async () => {
+      const repo = new ConnectionsRepository(dbService);
+      const tenantId = await newTenant();
+      const userId = await newUser(tenantId);
+
+      await connect(repo, tenantId, userId, 'accounts/1');
+      await expect(connect(repo, tenantId, userId, 'accounts/2')).rejects.toMatchObject({
+        cause: {
+          code: '23505',
+          constraint: 'idx_review_provider_connections_tenant_provider_live',
+        },
+      });
+
+      await pool.query(
+        `UPDATE review_provider_connections SET disconnected_at = now() WHERE tenant_id = $1`,
+        [tenantId]
+      );
+      await expect(connect(repo, tenantId, userId, 'accounts/2')).resolves.toBeDefined();
+    });
+
+    it('still lets a reconnect with the same account update its own row', async () => {
+      const repo = new ConnectionsRepository(dbService);
+      const tenantId = await newTenant();
+      const userId = await newUser(tenantId);
+
+      await connect(repo, tenantId, userId, 'accounts/1');
+      await expect(connect(repo, tenantId, userId, 'accounts/1')).resolves.toBeDefined();
+    });
+
+    it('reads the live connection first, then the most recently disconnected, and never flags a disconnected one', async () => {
+      const repo = new ConnectionsRepository(dbService);
+      const tenantId = await newTenant();
+      const userId = await newUser(tenantId);
+      const insert = async (account: string, disconnectedAt: string | null): Promise<string> =>
+        (
+          await pool.query<{ id: string }>(
+            `INSERT INTO review_provider_connections (tenant_id, connected_by_user_id, provider_account_id, credential_reference, disconnected_at)
+             VALUES ($1, $2, $3, 'ref', $4) RETURNING id`,
+            [tenantId, userId, account, disconnectedAt]
+          )
+        ).rows[0]?.id as string;
+      const older = await insert('accounts/1', '2026-08-01T00:00:00Z');
+      const newer = await insert('accounts/2', '2026-09-01T00:00:00Z');
+
+      // No live one: the most recently disconnected, not the oldest.
+      expect((await repo.findConnectionByTenant(tenantId))?.id).toBe(newer);
+      expect(await repo.markNeedsReauth(newer)).toBe(false);
+      expect(await repo.markNeedsReauth(older)).toBe(false);
+
+      const live = await insert('accounts/3', null);
+      expect((await repo.findConnectionByTenant(tenantId))?.id).toBe(live);
+      expect((await repo.findConnectionsByTenant(tenantId)).map(row => row.id).sort()).toEqual(
+        [older, newer, live].sort()
+      );
+      expect(await repo.markNeedsReauth(live)).toBe(true);
+    });
+
+    it('finds a connection by id only inside its own tenant', async () => {
+      const repo = new ConnectionsRepository(dbService);
+      const tenantId = await newTenant();
+      const otherTenant = await newTenant();
+      const userId = await newUser(tenantId);
+      await connect(repo, tenantId, userId, 'accounts/1');
+      const id = (await repo.findConnectionByTenant(tenantId))?.id as string;
+
+      expect((await repo.findConnectionById(id, tenantId))?.id).toBe(id);
+      expect(await repo.findConnectionById(id, otherTenant)).toBeNull();
+    });
+  });
+
+  describe('Cancelling a request restores the status it replaced', () => {
+    const statusOf = async (table: 'tenants' | 'users', id: string): Promise<string> =>
+      (await pool.query<{ status: string }>(`SELECT status FROM ${table} WHERE id = $1`, [id]))
+        .rows[0]?.status as string;
+    const member = async (tenantId: string, status: string, verified = true): Promise<string> =>
+      (
+        await pool.query<{ id: string }>(
+          `INSERT INTO users (tenant_id, email, name, role, status, email_verified_at, password_hash)
+           VALUES ($1, $2, 'Member', 'member', $3::user_status, ${verified ? 'now()' : 'NULL'}, ${verified ? `'hash'` : 'NULL'}) RETURNING id`,
+          [tenantId, `m-${Math.random().toString(36).slice(2)}@example.test`, status]
+        )
+      ).rows[0]?.id as string;
+
+    it("does not lift an admin's deactivation when an owner requests and then cancels a member's removal", async () => {
+      const repo = new AuthRepository(dbService);
+      const tenantId = await newTenant();
+      const deactivated = await member(tenantId, 'disabled');
+      const live = await member(tenantId, 'active');
+
+      for (const id of [deactivated, live]) {
+        await repo.requestMemberRemoval(tenantId, id);
+        await repo.cancelMemberRemoval(tenantId, id);
+      }
+
+      expect(await statusOf('users', deactivated)).toBe('disabled');
+      expect(await statusOf('users', live)).toBe('active');
+    });
+
+    it('restores an unaccepted invite as invited, and survives a request made twice', async () => {
+      const repo = new AuthRepository(dbService);
+      const tenantId = await newTenant();
+      const invited = await member(tenantId, 'invited', false);
+
+      await repo.requestMemberRemoval(tenantId, invited);
+      await repo.requestMemberRemoval(tenantId, invited); // the second must not record `disabled` as the prior status
+      await repo.cancelMemberRemoval(tenantId, invited);
+
+      expect(await statusOf('users', invited)).toBe('invited');
+    });
+
+    it("does not lift an admin's suspension when an erasure request is cancelled, whoever cancels it", async () => {
+      const businesses = new AdminBusinessesRepository(dbService);
+      const auth = new AuthRepository(dbService);
+      const adminSuspended = await newTenant('suspended');
+      const ownerAsked = await newTenant('active');
+      const owner = await newUser(ownerAsked);
+      const pendingActivation = await newTenant('pending_activation');
+      const pendingOwner = await newUser(pendingActivation);
+
+      await businesses.requestErasure(adminSuspended);
+      await businesses.cancelErasure(adminSuspended);
+      await auth.requestTenantErasureBySelf({ tenantId: ownerAsked, requestedByUserId: owner });
+      await auth.cancelSelfRequestedErasure({
+        tenantId: ownerAsked,
+        requestedByUserId: owner,
+        gracePeriodDays: 21,
+      });
+      await auth.requestTenantErasureBySelf({
+        tenantId: pendingActivation,
+        requestedByUserId: pendingOwner,
+      });
+      await auth.cancelSelfRequestedErasure({
+        tenantId: pendingActivation,
+        requestedByUserId: pendingOwner,
+        gracePeriodDays: 21,
+      });
+
+      expect(await statusOf('tenants', adminSuspended)).toBe('suspended');
+      expect(await statusOf('tenants', ownerAsked)).toBe('active');
+      // Used to come back `active`, skipping the activation the business still owed.
+      expect(await statusOf('tenants', pendingActivation)).toBe('pending_activation');
+    });
+
+    it("keeps the original status when an admin takes over an owner's pending request", async () => {
+      const businesses = new AdminBusinessesRepository(dbService);
+      const auth = new AuthRepository(dbService);
+      const tenantId = await newTenant('active');
+      const owner = await newUser(tenantId);
+
+      await auth.requestTenantErasureBySelf({ tenantId, requestedByUserId: owner });
+      await businesses.requestErasure(tenantId); // by now the tenant reads `suspended`: that must not become "what it was"
+      await businesses.cancelErasure(tenantId);
+
+      expect(await statusOf('tenants', tenantId)).toBe('active');
+    });
+  });
+
+  describe('AdminUsersRepository.toggleActive', () => {
+    const user = async (status: string, verified = true): Promise<string> => {
+      const tenantId = await newTenant();
+      return (
+        await pool.query<{ id: string }>(
+          `INSERT INTO users (tenant_id, email, name, role, status, email_verified_at, password_hash)
+           VALUES ($1, $2, 'Member', 'member', $3::user_status, ${verified ? 'now()' : 'NULL'}, ${verified ? `'hash'` : 'NULL'}) RETURNING id`,
+          [tenantId, `t-${Math.random().toString(36).slice(2)}@example.test`, status]
+        )
+      ).rows[0]?.id as string;
+    };
+    const statusOf = async (id: string): Promise<string> =>
+      (await pool.query<{ status: string }>(`SELECT status FROM users WHERE id = $1`, [id])).rows[0]
+        ?.status as string;
+
+    it('flips when no target is named, as before', async () => {
+      const repo = new AdminUsersRepository(dbService);
+      const id = await user('active');
+
+      await expect(repo.toggleActive(id)).resolves.toEqual({ outcome: 'toggled' });
+      expect(await statusOf(id)).toBe('disabled');
+      await expect(repo.toggleActive(id)).resolves.toEqual({ outcome: 'toggled' });
+      expect(await statusOf(id)).toBe('active');
+    });
+
+    // The bug: a stale list or a double click re-enabled someone an admin had just deactivated.
+    it('puts the user in the named state and leaves one already there alone, however often it is asked', async () => {
+      const repo = new AdminUsersRepository(dbService);
+      const id = await user('active');
+
+      await expect(repo.toggleActive(id, false)).resolves.toEqual({ outcome: 'toggled' });
+      await expect(repo.toggleActive(id, false)).resolves.toEqual({ outcome: 'unchanged' });
+      expect(await statusOf(id)).toBe('disabled');
+
+      await expect(repo.toggleActive(id, true)).resolves.toEqual({ outcome: 'toggled' });
+      await expect(repo.toggleActive(id, true)).resolves.toEqual({ outcome: 'unchanged' });
+      expect(await statusOf(id)).toBe('active');
+    });
+
+    it('never touches a member who has not accepted their invite', async () => {
+      const repo = new AdminUsersRepository(dbService);
+      const id = await user('invited', false);
+
+      await expect(repo.toggleActive(id)).resolves.toEqual({ outcome: 'invited' });
+      await expect(repo.toggleActive(id, false)).resolves.toEqual({ outcome: 'invited' });
+      expect(await statusOf(id)).toBe('invited');
+    });
+
+    it('re-enables a never-verified signup as pending_verification, not active', async () => {
+      const repo = new AdminUsersRepository(dbService);
+      const tenantId = await newTenant();
+      const id = (
+        await pool.query<{ id: string }>(
+          `INSERT INTO users (tenant_id, email, name, role, status, password_hash)
+           VALUES ($1, $2, 'Signup', 'owner', 'disabled', 'hash') RETURNING id`,
+          [tenantId, `s-${Math.random().toString(36).slice(2)}@example.test`]
+        )
+      ).rows[0]?.id as string;
+
+      await repo.toggleActive(id, true);
+
+      expect(await statusOf(id)).toBe('pending_verification');
     });
   });
 
@@ -1070,7 +1664,420 @@ describeWithDb('repositories against a real database', () => {
     });
   });
 
-  describe('PlatformAdminRepository — Microsoft identities', () => {
+  describe('ReviewsReadRepository.countAiGeneratedResponsesThisMonth', () => {
+    it('counts an AI draft the owner edited, but not a reply written by hand or imported', async () => {
+      const repo = new ReviewsReadRepository(dbService);
+      const tenantId = await newTenant();
+      const locationId = await newLocation(tenantId);
+      const monthStart = new Date(
+        Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)
+      ).toISOString();
+
+      const addResponse = async (source: string, createdAt = 'now()'): Promise<void> => {
+        const review = await pool.query<{ id: string }>(
+          `INSERT INTO reviews (tenant_id, location_id, external_review_id, rating)
+           VALUES ($1, $2, $3, 5) RETURNING id`,
+          [tenantId, locationId, `r-${Math.random().toString(36).slice(2)}`]
+        );
+        await pool.query(
+          `INSERT INTO review_responses (tenant_id, review_id, response_type, content, source, status, created_at)
+           VALUES ($1, $2, 'auto_reply_suggestion', 'x', $3::response_source, 'approved', ${createdAt})`,
+          [tenantId, review.rows[0]?.id, source]
+        );
+      };
+      await addResponse('ai_generated');
+      await addResponse('human_edited'); // an edited draft cost an LLM call and must not free its slot
+      await addResponse('human_manual');
+      await addResponse('imported');
+      await addResponse('ai_generated', `now() - interval '40 days'`); // last month's
+
+      await expect(repo.countAiGeneratedResponsesThisMonth(tenantId, monthStart)).resolves.toBe(2);
+    });
+  });
+
+  describe('Erasure — what an erased business and user leave behind', () => {
+    const count = async (sql: string, params: unknown[]): Promise<number> =>
+      Number((await pool.query<{ n: string }>(sql, params)).rows[0]?.n);
+
+    async function seedBusiness(): Promise<{ tenantId: string; userId: string; reviewId: string }> {
+      const tenantId = await newTenant('suspended');
+      const userId = await newUser(tenantId);
+      const locationId = await newLocation(tenantId);
+      await pool.query(
+        `UPDATE locations SET address = '1 High St', phone = '555-0100', website_uri = 'https://cafe.example' WHERE id = $1`,
+        [locationId]
+      );
+      const review = await pool.query<{ id: string }>(
+        `INSERT INTO reviews (tenant_id, location_id, external_review_id, external_reviewer_id, reviewer_name, review_text, rating, matched_keywords)
+         VALUES ($1, $2, 'r-1', 'g-123', 'Jane Reviewer', 'Lovely, ask for Bob', 5, '["rival cafe"]'::jsonb) RETURNING id`,
+        [tenantId, locationId]
+      );
+      const reviewId = review.rows[0]?.id as string;
+      await pool.query(
+        `INSERT INTO review_responses (tenant_id, review_id, response_type, content, original_content, source, status, error_message)
+         VALUES ($1, $2, 'auto_reply_suggestion', 'Thanks Jane!', 'Thank you, Jane, for visiting Acme Cafe!', 'ai_generated', 'post_failed', 'Google said no')`,
+        [tenantId, reviewId]
+      );
+      await pool.query(
+        `INSERT INTO in_app_notifications (tenant_id, user_id, type, title, review_id)
+         SELECT $1, $2, enumlabel::in_app_notification_type, 'Jane Reviewer left a review', $3
+         FROM pg_enum WHERE enumtypid = 'in_app_notification_type'::regtype LIMIT 1`,
+        [tenantId, userId, reviewId]
+      );
+      await pool.query(`INSERT INTO blocklist_terms (tenant_id, term) VALUES ($1, 'rival cafe')`, [
+        tenantId,
+      ]);
+      const prompt = await pool.query<{ id: string }>(
+        `INSERT INTO prompts (tenant_id, category, name, description) VALUES ($1, 'positive', 'Our voice', 'Say it like Bob') RETURNING id`,
+        [tenantId]
+      );
+      await pool.query(
+        `INSERT INTO prompt_versions (prompt_id, version, template) VALUES ($1, 1, 'Call the owner Bob')`,
+        [prompt.rows[0]?.id]
+      );
+      await pool.query(
+        `INSERT INTO platform_activity_log (type, actor_email, tenant_id, business_name)
+         VALUES ('business_suspended', 'admin@example.test', $1, 'The Coastal Table')`,
+        [tenantId]
+      );
+      await pool.query(
+        `INSERT INTO platform_activity_log (type, actor_email, tenant_id, business_name, target_email)
+         VALUES ('user_deactivated', 'admin@example.test', $1, 'The Coastal Table', 'bob@thecoastaltable.test')`,
+        [tenantId]
+      );
+      return { tenantId, userId, reviewId };
+    }
+
+    describe('AuthRepository.markTenantErased', () => {
+      it('replaces the free text the business left behind and keeps the numbers', async () => {
+        const repo = new AuthRepository(dbService);
+        const { tenantId, reviewId } = await seedBusiness();
+        const { tenantId: otherTenant } = await seedBusiness();
+
+        await expect(repo.markTenantErased(tenantId)).resolves.toEqual(
+          expect.objectContaining({ name: expect.stringContaining('db-spec') })
+        );
+
+        const tenant = await pool.query(`SELECT name, status FROM tenants WHERE id = $1`, [
+          tenantId,
+        ]);
+        expect(tenant.rows[0]).toEqual({ name: '[erased]', status: 'erased' });
+
+        const review = await pool.query(
+          `SELECT review_text, reviewer_name, external_reviewer_id, matched_keywords, rating, anonymized_at FROM reviews WHERE id = $1`,
+          [reviewId]
+        );
+        expect(review.rows[0]).toMatchObject({
+          review_text: null,
+          reviewer_name: null,
+          external_reviewer_id: null,
+          // The business's own blocklist terms: it deletes the list itself, so a copy on every matched review must go too.
+          matched_keywords: null,
+          rating: 5,
+        });
+        expect(review.rows[0].anonymized_at).not.toBeNull();
+
+        const response = await pool.query(
+          `SELECT content, original_content, error_message FROM review_responses WHERE tenant_id = $1`,
+          [tenantId]
+        );
+        // `original_content` is the stored copy of the AI draft, which can quote the reviewer's and the business's names.
+        expect(response.rows[0]).toEqual({
+          content: '[erased]',
+          original_content: null,
+          error_message: null,
+        });
+
+        const location = await pool.query(
+          `SELECT name, address, phone, website_uri FROM locations WHERE tenant_id = $1`,
+          [tenantId]
+        );
+        expect(location.rows[0]).toEqual({
+          name: '[erased]',
+          address: null,
+          phone: null,
+          website_uri: null,
+        });
+
+        expect(
+          await count(`SELECT count(*) n FROM in_app_notifications WHERE tenant_id = $1`, [
+            tenantId,
+          ])
+        ).toBe(0);
+        expect(
+          await count(`SELECT count(*) n FROM blocklist_terms WHERE tenant_id = $1`, [tenantId])
+        ).toBe(0);
+        const prompt = await pool.query(
+          `SELECT p.name, p.description, v.template FROM prompts p JOIN prompt_versions v ON v.prompt_id = p.id WHERE p.tenant_id = $1`,
+          [tenantId]
+        );
+        expect(prompt.rows[0]).toEqual({
+          name: '[erased]',
+          description: null,
+          template: '[erased]',
+        });
+
+        // The activity log keeps that things happened, not whose business or which person it was about.
+        const log = await pool.query(
+          `SELECT type, business_name, target_email FROM platform_activity_log WHERE tenant_id = $1 ORDER BY type`,
+          [tenantId]
+        );
+        expect(log.rows).toEqual([
+          { type: 'business_suspended', business_name: '[erased]', target_email: null },
+          { type: 'user_deactivated', business_name: '[erased]', target_email: '[erased]' },
+        ]);
+
+        // Another business is never touched.
+        const other = await pool.query(`SELECT name, status FROM tenants WHERE id = $1`, [
+          otherTenant,
+        ]);
+        expect(other.rows[0].name).toContain('db-spec');
+        expect(other.rows[0].status).toBe('suspended');
+        expect(
+          await count(
+            `SELECT count(*) n FROM reviews WHERE tenant_id = $1 AND review_text IS NOT NULL`,
+            [otherTenant]
+          )
+        ).toBe(1);
+        expect(
+          await count(
+            `SELECT count(*) n FROM platform_activity_log WHERE tenant_id = $1 AND business_name = 'The Coastal Table'`,
+            [otherTenant]
+          )
+        ).toBe(2);
+      });
+
+      it('does nothing to a business that is not suspended, and nothing the second time', async () => {
+        const repo = new AuthRepository(dbService);
+        const { tenantId, reviewId } = await seedBusiness();
+        await pool.query(`UPDATE tenants SET status = 'active' WHERE id = $1`, [tenantId]);
+
+        await expect(repo.markTenantErased(tenantId)).resolves.toBeNull();
+        expect(
+          await count(`SELECT count(*) n FROM reviews WHERE id = $1 AND review_text IS NOT NULL`, [
+            reviewId,
+          ])
+        ).toBe(1);
+
+        await pool.query(`UPDATE tenants SET status = 'suspended' WHERE id = $1`, [tenantId]);
+        await repo.markTenantErased(tenantId);
+        await expect(repo.markTenantErased(tenantId)).resolves.toBeNull();
+      });
+    });
+
+    describe('AuthRepository.anonymizeUser and the activity log', () => {
+      it("blanks only that tenant's user events about that address, not an admin invited under the same one", async () => {
+        const repo = new AuthRepository(dbService);
+        const tenantId = await newTenant();
+        const otherTenant = await newTenant();
+        const email = `shared-${Math.random().toString(36).slice(2)}@example.test`;
+        const user = await pool.query<{ id: string }>(
+          `INSERT INTO users (tenant_id, email, name, role, status) VALUES ($1, $2, 'Bob', 'member', 'active') RETURNING id`,
+          [tenantId, email]
+        );
+        const insertLog = (
+          type: string,
+          tenant: string | null,
+          business: string | null
+        ): Promise<unknown> =>
+          pool.query(
+            `INSERT INTO platform_activity_log (type, actor_email, tenant_id, business_name, target_email)
+             VALUES ($1::platform_activity_type, 'admin@example.test', $2, $3, $4)`,
+            [type, tenant, business, email]
+          );
+        await insertLog('user_deactivated', tenantId, 'Shop A');
+        await insertLog('user_deactivated', otherTenant, 'Shop B');
+        await insertLog('admin_invite_sent', null, null);
+
+        await repo.anonymizeUser(user.rows[0]?.id as string);
+
+        const rows = await pool.query(
+          `SELECT type, tenant_id, target_email FROM platform_activity_log WHERE tenant_id = ANY($1::uuid[]) OR (type = 'admin_invite_sent' AND target_email = $2) ORDER BY type, business_name`,
+          [[tenantId, otherTenant], email]
+        );
+        expect(rows.rows).toEqual([
+          { type: 'admin_invite_sent', tenant_id: null, target_email: email },
+          { type: 'user_deactivated', tenant_id: tenantId, target_email: '[erased]' },
+          { type: 'user_deactivated', tenant_id: otherTenant, target_email: email },
+        ]);
+      });
+    });
+
+    describe('ReviewSyncRepository.upsertReview', () => {
+      const upsert = (
+        repo: ReviewSyncRepository,
+        tenantId: string,
+        locationId: string,
+        reviewerName: string | null
+      ): Promise<{ id: string }> =>
+        dbService.db.transaction(tx =>
+          repo.upsertReview(tx, {
+            tenantId,
+            locationId,
+            externalReviewId: 'r-anon',
+            externalReviewerId: null,
+            rating: 4,
+            reviewText: 'Fine',
+            reviewerName,
+            reviewedAt: '2026-10-01T00:00:00Z',
+            externalUpdatedAt: '2026-10-02T00:00:00Z',
+            status: 'new' as never,
+          })
+        );
+      const nameOf = async (id: string): Promise<string | null> =>
+        (
+          await pool.query<{ reviewer_name: string | null }>(
+            `SELECT reviewer_name FROM reviews WHERE id = $1`,
+            [id]
+          )
+        ).rows[0]?.reviewer_name ?? null;
+
+      it('does not bring back a name the retention purge or an erasure removed', async () => {
+        const repo = new ReviewSyncRepository(dbService);
+        const tenantId = await newTenant();
+        const locationId = await newLocation(tenantId);
+        const { id } = await upsert(repo, tenantId, locationId, 'Jane');
+        expect(await nameOf(id)).toBe('Jane');
+
+        await pool.query(
+          `UPDATE reviews SET reviewer_name = NULL, anonymized_at = now() WHERE id = $1`,
+          [id]
+        );
+        await upsert(repo, tenantId, locationId, 'Jane');
+
+        expect(await nameOf(id)).toBeNull();
+      });
+
+      it('still refreshes the name on a review that was never anonymized', async () => {
+        const repo = new ReviewSyncRepository(dbService);
+        const tenantId = await newTenant();
+        const locationId = await newLocation(tenantId);
+        const { id } = await upsert(repo, tenantId, locationId, 'Jane');
+
+        await upsert(repo, tenantId, locationId, 'Jane Q.');
+
+        expect(await nameOf(id)).toBe('Jane Q.');
+      });
+    });
+  });
+
+  describe('AuthRepository — unverified sign-ups', () => {
+    const repository = (): AuthRepository => new AuthRepository(dbService);
+
+    /** A password sign-up nobody verified: a `pending_activation` tenant holding one `pending_verification` owner, `ageHours` old. */
+    async function newPendingSignup(
+      ageHours: number
+    ): Promise<{ tenantId: string; userId: string }> {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO tenants (name, status, created_at)
+         VALUES ($1, 'pending_activation', now() - interval '1 hour' * $2) RETURNING id`,
+        [`pending ${Math.random().toString(36).slice(2)}`, ageHours]
+      );
+      const tenantId = rows[0]?.id as string;
+      tenants.push(tenantId);
+      const user = await pool.query<{ id: string }>(
+        `INSERT INTO users (tenant_id, email, name, role, status, password_hash)
+         VALUES ($1, $2, 'Stranger', 'owner', 'pending_verification', 'hash') RETURNING id`,
+        [tenantId, `pending-${Math.random().toString(36).slice(2)}@example.test`]
+      );
+      return { tenantId, userId: user.rows[0]?.id as string };
+    }
+
+    const exists = async (table: 'tenants' | 'users', id: string): Promise<boolean> =>
+      (await pool.query(`SELECT 1 FROM ${table} WHERE id = $1`, [id])).rowCount === 1;
+
+    const removeOne = (
+      input: { userId: string; tenantId: string },
+      olderThanHours = 24
+    ): Promise<boolean> =>
+      repository().transaction(tx =>
+        repository().deleteStalePendingSignup(tx, { ...input, olderThanHours })
+      );
+
+    describe('deleteStalePendingSignup (replacing one on a new sign-up)', () => {
+      it('removes a day-old unverified sign-up, tenant and owner together', async () => {
+        const signup = await newPendingSignup(25);
+
+        await expect(removeOne(signup)).resolves.toBe(true);
+
+        expect(await exists('tenants', signup.tenantId)).toBe(false);
+        expect(await exists('users', signup.userId)).toBe(false);
+      });
+
+      it('keeps one younger than that, so a sign-up in progress is not displaced', async () => {
+        const signup = await newPendingSignup(2);
+
+        await expect(removeOne(signup)).resolves.toBe(false);
+
+        expect(await exists('tenants', signup.tenantId)).toBe(true);
+        expect(await exists('users', signup.userId)).toBe(true);
+      });
+
+      // Never a real business, however old: verified accounts and active tenants match none of the conditions.
+      it('never removes a verified account or an active business, however old', async () => {
+        const tenantId = await newTenant('active');
+        const userId = await newUser(tenantId);
+        await pool.query(
+          `UPDATE tenants SET created_at = now() - interval '400 days' WHERE id = $1`,
+          [tenantId]
+        );
+
+        await expect(removeOne({ tenantId, userId })).resolves.toBe(false);
+
+        expect(await exists('tenants', tenantId)).toBe(true);
+        expect(await exists('users', userId)).toBe(true);
+      });
+
+      it('never removes a tenant that has anyone else in it', async () => {
+        const signup = await newPendingSignup(48);
+        await pool.query(
+          `INSERT INTO users (tenant_id, email, name, role, status)
+           VALUES ($1, $2, 'Teammate', 'member', 'active')`,
+          [signup.tenantId, `mate-${Math.random().toString(36).slice(2)}@example.test`]
+        );
+
+        await expect(removeOne(signup)).resolves.toBe(false);
+
+        expect(await exists('tenants', signup.tenantId)).toBe(true);
+      });
+
+      it('does not trust a user id that belongs to another business', async () => {
+        const stale = await newPendingSignup(48);
+        const other = await newPendingSignup(48);
+
+        await expect(removeOne({ tenantId: stale.tenantId, userId: other.userId })).resolves.toBe(
+          false
+        );
+
+        expect(await exists('tenants', stale.tenantId)).toBe(true);
+        expect(await exists('tenants', other.tenantId)).toBe(true);
+      });
+    });
+
+    describe('deleteStalePendingSignups (the nightly sweep)', () => {
+      it('removes only week-old unverified sign-ups', async () => {
+        const old = await newPendingSignup(24 * 8);
+        const fresh = await newPendingSignup(24 * 2);
+        const activeTenant = await newTenant('active');
+        await pool.query(
+          `UPDATE tenants SET created_at = now() - interval '400 days' WHERE id = $1`,
+          [activeTenant]
+        );
+
+        const removed = await repository().transaction(tx =>
+          repository().deleteStalePendingSignups(tx, 24 * 7)
+        );
+
+        expect(removed).toBeGreaterThanOrEqual(1);
+        expect(await exists('tenants', old.tenantId)).toBe(false);
+        expect(await exists('users', old.userId)).toBe(false);
+        expect(await exists('tenants', fresh.tenantId)).toBe(true);
+        expect(await exists('tenants', activeTenant)).toBe(true);
+      });
+    });
+  });
+
+  describe('PlatformAdminRepository — Microsoft identities and the roster', () => {
     const repository = (): PlatformAdminRepository => new PlatformAdminRepository(dbService);
 
     /** Never the root: the single-root index allows only the seeded admin to have no inviter. */
@@ -1159,6 +2166,24 @@ describeWithDb('repositories against a real database', () => {
           email: second.email,
         })
       ).resolves.toEqual({ outcome: 'no_account' });
+    });
+
+    it('reads one roster row by id, with its invite dates, exactly as the full roster lists it', async () => {
+      const admin = await newAdmin('active');
+      await pool.query(
+        `INSERT INTO platform_admin_invites (platform_admin_id, token_hash, purpose, expires_at)
+         VALUES ($1, $2, 'invite', now() + interval '7 days')`,
+        [admin.id, `hash-${Math.random().toString(36).slice(2)}`]
+      );
+
+      const one = await repository().findWithInviteById(admin.id);
+      const fromRoster = (await repository().findAllWithInvites()).find(row => row.id === admin.id);
+
+      expect(one).toEqual(fromRoster);
+      expect(one?.inviteExpiresAt).not.toBeNull();
+      await expect(
+        repository().findWithInviteById('00000000-0000-0000-0000-000000000000')
+      ).resolves.toBeNull();
     });
   });
 
@@ -1488,6 +2513,104 @@ describeWithDb('repositories against a real database', () => {
         [tenantId]
       );
       expect(rows[0].erasure_reminder_sent_at).toBeNull();
+    });
+  });
+
+  describe('Stripe billing state around checkout and erasure', () => {
+    async function subscriptionFor(
+      tenantId: string,
+      fields: {
+        stripeSubscriptionId?: string | null;
+        status?: string | null;
+        cancelAtPeriodEnd?: boolean;
+      } = {}
+    ): Promise<void> {
+      await pool.query(
+        `INSERT INTO tenant_subscriptions (tenant_id, plan_id, stripe_customer_id, stripe_subscription_id, status, cancel_at_period_end,
+                                           current_period_start, current_period_end)
+         SELECT $1, id, $2, $3, $4::subscription_status, $5, '2026-10-01', '2026-11-01' FROM billing_plans WHERE code = 'paid'`,
+        [
+          tenantId,
+          `cus_${Math.random().toString(36).slice(2)}`,
+          fields.stripeSubscriptionId === undefined
+            ? `sub_${Math.random().toString(36).slice(2)}`
+            : fields.stripeSubscriptionId,
+          fields.status === undefined ? 'active' : fields.status,
+          fields.cancelAtPeriodEnd ?? false,
+        ]
+      );
+    }
+
+    it('keeps the stored billing period when a checkout completes without one', async () => {
+      const service = new TenantSubscriptionsDbService(
+        new TenantSubscriptionsRepository(dbService),
+        new BillingPlansRepository(dbService)
+      );
+      const tenantId = await newTenant();
+      await subscriptionFor(tenantId);
+
+      await service.setToPaidFromCheckout(tenantId, {
+        stripeSubscriptionId: 'sub_new',
+        status: 'active' as never,
+        cancelAtPeriodEnd: false,
+      });
+
+      const { rows } = await pool.query(
+        `SELECT stripe_subscription_id, current_period_start, current_period_end FROM tenant_subscriptions WHERE tenant_id = $1`,
+        [tenantId]
+      );
+      expect(rows[0].stripe_subscription_id).toBe('sub_new');
+      expect(new Date(rows[0].current_period_end as string).toISOString()).toBe(
+        '2026-11-01T00:00:00.000Z'
+      );
+      expect(new Date(rows[0].current_period_start as string).toISOString()).toBe(
+        '2026-10-01T00:00:00.000Z'
+      );
+    });
+
+    it('finds only businesses waiting out an erasure whose subscription may still bill', async () => {
+      const repo = new TenantSubscriptionsRepository(dbService);
+      const pending = async (fields: Parameters<typeof subscriptionFor>[1]): Promise<string> => {
+        const tenantId = await newTenant('suspended');
+        await pool.query(`UPDATE tenants SET erasure_requested_at = now() WHERE id = $1`, [
+          tenantId,
+        ]);
+        await subscriptionFor(tenantId, fields);
+        return tenantId;
+      };
+      const billing = await pending({});
+      const noSubscriptionYet = await pending({
+        stripeSubscriptionId: null,
+        status: null,
+      });
+      const alreadyEnding = await pending({ cancelAtPeriodEnd: true });
+      const cancelled = await pending({ status: 'canceled' });
+      const notPending = await newTenant('active');
+      await subscriptionFor(notPending);
+
+      const found = await repo.findPendingErasureWithBillableSubscription();
+
+      expect(found).toEqual(expect.arrayContaining([billing, noSubscriptionYet]));
+      expect(found).not.toContain(alreadyEnding);
+      expect(found).not.toContain(cancelled);
+      expect(found).not.toContain(notPending);
+    });
+  });
+
+  describe('AuthRepository.releaseErasureReminderClaim', () => {
+    it('makes the reminder claimable again, and only for a business still waiting out its grace period', async () => {
+      const repo = new AuthRepository(dbService);
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO tenants (name, status, erasure_requested_at, erasure_reminder_sent_at)
+         VALUES ('db-spec reminder', 'suspended', now() - interval '19 days', now()) RETURNING id`
+      );
+      const tenantId = rows[0]?.id as string;
+      tenants.push(tenantId);
+      expect(await repo.claimErasureReminder(tenantId)).toBeNull();
+
+      await repo.releaseErasureReminderClaim(tenantId);
+
+      expect(await repo.claimErasureReminder(tenantId)).not.toBeNull();
     });
   });
 

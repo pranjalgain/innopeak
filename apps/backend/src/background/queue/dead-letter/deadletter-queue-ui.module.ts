@@ -1,7 +1,7 @@
 import { QueueName } from '@bg/constants/job.constant';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { BullBoardModule } from '@bull-board/nestjs';
-import { isAwsDeploymentTarget, isProduction } from '@config/deployment-target.util';
+import { isAwsDeploymentTarget, isLocalDevelopment } from '@config/deployment-target.util';
 import { DynamicModule, Module } from '@nestjs/common';
 
 const isAws = isAwsDeploymentTarget();
@@ -15,7 +15,7 @@ const bullBoardImports: DynamicModule[] = isAws
         name: QueueName.DEAD_LETTER,
         adapter: BullMQAdapter,
         options: {
-          readOnlyMode: isProduction(),
+          readOnlyMode: !isLocalDevelopment(),
           displayName: 'Dead Letter Queue',
           description: 'Queue for failed jobs from other queues',
         },

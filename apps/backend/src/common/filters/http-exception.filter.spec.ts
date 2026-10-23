@@ -112,6 +112,24 @@ describe('HttpExceptionFilter — locale-aware message rendering', () => {
     expect(level === 'warn' ? error : warn).not.toHaveBeenCalled();
   });
 
+  // A body-parser rejection (malformed JSON, a body over the limit) is the caller's mistake and answers 4xx, but was logged as a 500 with a stack.
+  it.each([
+    [{ statusCode: 400, expose: true, message: 'Unexpected token' }, 'warn'],
+    [{ status: 413, expose: true, message: 'request entity too large' }, 'warn'],
+    [{ statusCode: 400, message: 'not marked safe to show' }, 'error'],
+    [{ statusCode: 502, expose: true, message: 'upstream' }, 'error'],
+  ] as const)('logs the non-Nest error %j at %s level', (thrown, level) => {
+    const { host } = buildHost();
+    jest.restoreAllMocks();
+    const warn = jest.spyOn(Logger, 'warn').mockImplementation();
+    const error = jest.spyOn(Logger, 'error').mockImplementation();
+
+    filter.catch(Object.assign(new Error(thrown.message), thrown) as never, host);
+
+    expect(level === 'warn' ? warn : error).toHaveBeenCalledTimes(1);
+    expect(level === 'warn' ? error : warn).not.toHaveBeenCalled();
+  });
+
   // The filter is `@Catch()`: it receives plain errors (a failed Stripe call, a driver error), not just HttpExceptions.
   it('answers a plain Error with a 500 envelope instead of throwing from the filter', () => {
     const { host, response } = buildHost();
@@ -136,5 +154,35 @@ describe('HttpExceptionFilter — locale-aware message rendering', () => {
     const body = response.json.mock.calls.at(-1)?.[0] as { error?: string; message: string };
     expect(JSON.stringify(body)).not.toContain('ETIMEDOUT');
     expect(String(logged.mock.calls.at(-1)?.[0])).toContain('ETIMEDOUT');
+  });
+
+  // `DrizzleQueryError.message` carries the SQL and every bound value: password hashes, emails, review text.
+  it('logs a failed database statement without its SQL or bound values', () => {
+    const errorSpy = jest.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    const failure = Object.assign(
+      new Error(
+        'Failed query: select "id" from "users" where "email" = $1\nparams: jane@example.com,$2b$12$secrethash'
+      ),
+      {
+        name: 'DrizzleQueryError',
+        query: 'select "id" from "users"',
+        cause: Object.assign(new Error('duplicate key'), {
+          code: '23505',
+          severity: 'ERROR',
+          constraint: 'idx_users_email_active',
+          detail: 'Key (email)=(jane@example.com) already exists.',
+        }),
+      }
+    );
+    const { host } = buildHost();
+
+    filter.catch(failure as never, host);
+
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    expect(logged).toContain('SQLSTATE 23505');
+    expect(logged).not.toContain('jane@example.com');
+    expect(logged).not.toContain('secrethash');
+    expect(logged).not.toContain('select');
+    errorSpy.mockRestore();
   });
 });

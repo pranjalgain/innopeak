@@ -10,6 +10,7 @@ import { ReviewSummaryCard } from "@/app/(dashboard)/review-queue/[reviewId]/_co
 import { ROUTES } from "@/app/_libs/constants/routes";
 import { getReplyDeliveryState } from "@/app/_libs/utils/reply-delivery";
 import { BackLink } from "@/components/common/back-link";
+import { LoadErrorState } from "@/components/common/load-error-state";
 import { ReviewStatusBadge } from "@/components/common/review-status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -38,6 +39,8 @@ export function ReviewDetailView({ reviewId }: ReviewDetailViewProps) {
   const {
     review,
     isLoading,
+    loadFailed,
+    refetch,
     approveDraft,
     rejectDraft,
     postDraft,
@@ -49,6 +52,15 @@ export function ReviewDetailView({ reviewId }: ReviewDetailViewProps) {
   } = useReviewDetail(reviewId);
 
   if (isLoading) return <ReviewDetailSkeleton />;
+
+  // A dropped connection or a 5xx is not "not found": say it failed and offer a retry.
+  if (loadFailed && !review) {
+    return (
+      <div className="p-fluid-page">
+        <LoadErrorState onRetry={refetch} />
+      </div>
+    );
+  }
 
   if (!review) {
     return (

@@ -29,7 +29,7 @@ export const messagesEn: MessageCatalog = {
     NO_PASSWORD_SET:
       'This account has no password. Sign in with the identity provider used to create it.',
     PASSWORD_ALREADY_SET: 'This account already has a password. Use change password instead.',
-    // "Signing out", not "signed out": already-issued access tokens stay valid up to 15 minutes.
+    // "Being signed out": the refresh tokens end in the database at once and older access tokens at their next request (a Redis mark), a beat apart.
     PASSWORD_CHANGED: 'Password changed. Other sessions are being signed out.',
     PASSWORD_SET: 'Password set. You can now sign in with a password too.',
     // Like RESEND_OTP_ACK: hides whether a code was re-sent or the previous one is still live in its cooldown.
@@ -118,6 +118,8 @@ export const messagesEn: MessageCatalog = {
     DISCONNECTED: 'Google Business Profile disconnected.',
     LOCATION_CONFIRMED: 'Location connected. Importing your review history.',
     LOCATION_INACTIVE: 'This location is disconnected and cannot be selected.',
+    LOCATION_BILLING_PAUSED:
+      'This location is paused on your current plan and cannot be selected. Choose an active location or upgrade your plan.',
     ACTIVE_LOCATION_UPDATED: 'Active location updated.',
     FAILED_TO_UPSERT_CONNECTION: 'Failed to upsert review provider connection',
     FAILED_TO_UPSERT_LOCATION: 'Failed to upsert location',
@@ -131,6 +133,15 @@ export const messagesEn: MessageCatalog = {
     FAILED_TO_ACQUIRE_SYNC_RUN: 'Failed to acquire sync run',
     SYNC_WAITING_FOR_RATE_LIMIT: (seconds, attempt, maxAttempts) =>
       `Google is rate limiting requests; waiting ${seconds}s before retrying (attempt ${attempt} of ${maxAttempts}).`,
+    SYNC_FAILED_AUTH:
+      'Google no longer accepts the connection. Reconnect your Google Business Profile.',
+    SYNC_FAILED_RATE_LIMITED:
+      'Google is limiting requests right now. The sync will try again shortly.',
+    SYNC_FAILED_UNAVAILABLE: 'Google could not be reached. The sync will try again shortly.',
+    SYNC_FAILED_CLASSIFICATION:
+      'New reviews were imported, but sorting them failed. It will be retried on the next sync.',
+    SYNC_FAILED_UNKNOWN:
+      'The sync did not finish because of an unexpected problem. It will be retried.',
     FAILED_TO_UPSERT_REVIEW: 'Failed to upsert review',
     GENERATED_RESPONSE_INSERT_FAILED: (reviewId: string): string =>
       `Failed to record the generated reply for review ${reviewId}`,
@@ -144,6 +155,8 @@ export const messagesEn: MessageCatalog = {
     REVIEW_ALREADY_HAS_LIVE_REPLY: 'This review already has an approved or posted reply.',
     REVIEW_ALREADY_DISMISSED: 'This review has been dismissed and cannot be replied to.',
     REVIEW_REMOVED_UPSTREAM: 'This review was removed on Google and cannot be replied to.',
+    REVIEW_LOCATION_PAUSED:
+      'This business location is paused or disconnected, so replies cannot be approved or posted for it. Reactivate it first.',
     POST_QUEUE_UNAVAILABLE: 'Could not queue the reply for posting right now. Please try again.',
     POST_FAILED_REVIEW_REMOVED:
       'This review was removed on Google, so the reply could not be posted.',
@@ -154,6 +167,8 @@ export const messagesEn: MessageCatalog = {
       'Google is not responding right now, so the reply could not be posted. Please retry in a few minutes.',
     POST_FAILED_UNKNOWN:
       'The reply could not be posted. Please retry; if it keeps failing, contact support.',
+    POST_FAILED_LOCATION_PAUSED:
+      'This business location is paused or disconnected, so the reply was not posted. Reactivate the location and retry.',
     POST_FAILED_LOCATION_UNAVAILABLE:
       'Google could not find this business location, so the reply could not be posted. Check that it is still part of the connected Google account.',
     MANUAL_REPLY_INSERT_FAILED: (reviewId: string): string =>
@@ -236,6 +251,7 @@ export const messagesEn: MessageCatalog = {
       "You've reached the limit of 100 blocklist terms. Remove one to add another.",
     BLOCKLIST_TERM_NOT_FOUND: 'Blocklist term not found',
     TENANT_ONLY: 'Settings are only available to tenant users.',
+    REMOVED_TEAM_MEMBER: 'Removed team member',
     RETRIEVED: 'Settings retrieved successfully',
     UPDATED: 'Settings updated',
     TENANT_SETTINGS_MISSING: 'Tenant settings were not provisioned for this account',
@@ -276,6 +292,8 @@ export const messagesEn: MessageCatalog = {
     BUSINESS_ERASURE_NOT_PENDING: 'This business has no pending erasure request to cancel.',
     USER_REMOVAL_PENDING:
       'This user has a pending removal request. Cancel it before changing their status directly.',
+    USER_INVITE_PENDING:
+      'This user has not accepted their invite yet, so there is nothing to deactivate. Revoke the invite instead.',
     AVATAR_UPDATED: 'Avatar updated.',
     PASSWORD_CHANGED: 'Password changed.',
     INVITE_SENT: 'Invite sent.',
@@ -288,11 +306,6 @@ export const messagesEn: MessageCatalog = {
       'At least one sign-in method (Microsoft, email/password, or Google) must stay enabled.',
     NOTIFICATION_CHANNELS_NOT_IMPLEMENTED:
       'Email and Teams notifications are not implemented yet, so notification settings cannot be turned on.',
-    CANNOT_DISABLE_SOCIAL_LOGIN_GOOGLE_ONLY_ADMIN: (count: number): string => {
-      const who = count === 1 ? 'one of your platform admins' : `${count} of your platform admins`;
-      const target = count === 1 ? 'that admin' : 'those admins';
-      return `Google is the only way ${who} can sign in, so turning it off would lock them out. Disable ${target} first if that is intended.`;
-    },
     CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS: (provider: string, count: number): string => {
       const who = count === 1 ? 'one user' : `${count} users`;
       return `${provider} is the only way ${who} can sign in. Turning it off locks them out until it is turned back on. Confirm to turn it off anyway.`;
@@ -331,5 +344,28 @@ export const messagesEn: MessageCatalog = {
     SUCCESS: 'Success',
     REQUEST_SUCCESSFUL: 'Request successful',
     INTERNAL_ERROR: 'Something went wrong. Please try again later.',
+    EMAIL_QUEUE_UNAVAILABLE:
+      'We could not send the email right now. Nothing was changed; please try again in a moment.',
+    DB_UNIQUE_VIOLATION: 'Unique constraint violation',
+    DB_FOREIGN_KEY_VIOLATION: 'Foreign key constraint failed',
+    DB_NOT_NULL_VIOLATION: 'Not null constraint violation',
+    DB_CHECK_VIOLATION: 'Check constraint violation',
+    DB_EXCLUSION_VIOLATION: 'Exclusion constraint violation',
+    DB_VALUE_TOO_LONG: 'Value too long for column type',
+    DB_NUMERIC_OUT_OF_RANGE: 'Numeric value out of range',
+    DB_INVALID_DATETIME: 'Invalid datetime format',
+    DB_INVALID_TEXT: 'Invalid text representation',
+    DB_INVALID_CHARACTER_SEQUENCE: 'Invalid character sequence',
+    DB_TABLE_NOT_FOUND: 'Table or view not found',
+    DB_COLUMN_NOT_FOUND: 'Column not found',
+    DB_SYNTAX_ERROR: 'Syntax error in query',
+    DB_SERIALIZATION_FAILURE: 'Serialization failure — retry the transaction',
+    DB_DEADLOCK: 'Deadlock detected — retry the transaction',
+    DB_CONNECTION_FAILURE: 'Database connection failure',
+    DB_CONNECTION_UNAVAILABLE: 'Unable to establish database connection',
+    DB_QUERY_TIMEOUT: 'Query timeout — statement cancelled',
+    SMS_TRIAL_RESTRICTED:
+      'SMS service is restricted for trial accounts. Please verify the recipient number or upgrade your Twilio account.',
+    UNKNOWN_ERROR: 'An unknown error occurred. Please try again later.',
   },
 };

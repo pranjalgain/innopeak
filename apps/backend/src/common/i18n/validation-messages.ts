@@ -21,6 +21,12 @@ const FIELD = '(\\S+)';
 const END = '\\.?$';
 const PATTERN_RULES: ReadonlyArray<readonly [RegExp, string]> = [
   [new RegExp(`^property ${FIELD} should not exist${END}`), 'Die Eigenschaft $1 ist nicht erlaubt'],
+  [
+    new RegExp(
+      `^${FIELD} must be at most 72 bytes \\(an accented character counts as two\\)${END}`
+    ),
+    '$1 darf höchstens 72 Bytes lang sein (ein Zeichen mit Akzent oder Umlaut zählt als zwei)',
+  ],
   [new RegExp(`^${FIELD} must be a string${END}`), '$1 muss eine Zeichenfolge sein'],
   [new RegExp(`^${FIELD} must be an integer number${END}`), '$1 muss eine ganze Zahl sein'],
   [

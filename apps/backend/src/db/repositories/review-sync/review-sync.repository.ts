@@ -1,3 +1,7 @@
+import {
+  GENERATION_MAX_ATTEMPTS,
+  GENERATION_RETRY_BACKOFF_MINUTES,
+} from '@common/constants/generation.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { POST_CLAIM_STALE_MINUTES } from '@common/constants/review-post.constants';
 import { ResponseSource } from '@common/enums/response-source.enum';
@@ -55,6 +59,9 @@ const STALE_RUN_MINUTES = 30;
  * else moves a row off `in_review`.
  */
 const STALE_GENERATION_CLAIM_MINUTES = 30;
+
+/** Rows anonymized per transaction by the retention purge; each batch commits, so a backlog finishes over several rounds instead of one statement. */
+const REVIEWER_PII_PURGE_BATCH = 5_000;
 
 /** Sole owner of `sync_runs`, `reviews` and `review_responses`; cross-domain work passes one `tx` to both repositories. */
 @Injectable()
@@ -301,7 +308,11 @@ export class ReviewSyncRepository {
         set: {
           rating: sql`excluded.rating`,
           reviewText: sql`excluded.review_text`,
-          reviewerName: sql`excluded.reviewer_name`,
+          // New words may be what makes a review answerable: a poison review gets a fresh set of attempts when its text changes.
+          generationAttempts: sql`CASE WHEN excluded.review_text IS DISTINCT FROM reviews.review_text THEN 0 ELSE reviews.generation_attempts END`,
+          // A sync must not bring back a name the retention purge or an erasure already removed; the purges skip rows that already
+          // carry `anonymized_at`, so it would never be scrubbed again.
+          reviewerName: sql`CASE WHEN reviews.anonymized_at IS NOT NULL THEN NULL ELSE excluded.reviewer_name END`,
           externalUpdatedAt: sql`excluded.external_updated_at`,
           // Google listing the review again proves it exists, so an earlier "removed on Google" (inferred from a
           // 404) is withdrawn: back to `in_review` when drafts exist, else `new` for generation to pick up.
@@ -447,6 +458,9 @@ export class ReviewSyncRepository {
             ReviewClassification.ESCALATED,
           ]),
           eq(schema.reviews.status, ReviewStatus.NEW),
+          // A review that keeps failing steps aside: retried after a pause that grows with each failure, and dropped after the last.
+          lt(schema.reviews.generationAttempts, GENERATION_MAX_ATTEMPTS),
+          sql`(${schema.reviews.generationFailedAt} IS NULL OR ${schema.reviews.generationFailedAt} < now() - (${schema.reviews.generationAttempts} * interval '${sql.raw(String(GENERATION_RETRY_BACKOFF_MINUTES))} minutes'))`,
           // Not redundant with `claimForGeneration`'s CAS, which only stops concurrent drafting: a
           // review already drafted and handed back to `new` (insert committed but the connection
           // dropped, or an eager stale reclaim) would be drafted twice, since nothing in the schema
@@ -481,17 +495,35 @@ export class ReviewSyncRepository {
   }
 
   /**
-   * Undoes `claimForGeneration` after an AI failure so the next tick can retry; otherwise the review
-   * sits `in_review` forever, invisible to `findClassifiedNeedingGeneration`. CAS'd on `in_review`
-   * so it never undoes a different transition (e.g. a human's manual reply).
+   * Undoes `claimForGeneration` after an AI failure so a later tick can retry; otherwise the review sits `in_review` forever, invisible
+   * to `findClassifiedNeedingGeneration`. With `countAttempt` the failure is counted (`generation_attempts`, `generation_failed_at`) so a
+   * review the model cannot answer backs off and is eventually given up on instead of being retried every tick. Without it (a provider
+   * outage, a missing key or prompt: nothing about this review) the claim is only released, so an outage of any length cannot use a
+   * review's attempts up. CAS'd on `in_review` so it never undoes a different transition (e.g. a human's manual reply). Returns the
+   * failure count now, or `null` when the review had moved on.
    */
-  async releaseGenerationClaim(reviewId: string): Promise<void> {
-    await this.dbService.db
+  async releaseGenerationClaimAfterFailure(
+    reviewId: string,
+    countAttempt = true
+  ): Promise<number | null> {
+    const rows = await this.dbService.db
       .update(schema.reviews)
-      .set({ status: ReviewStatus.NEW, updatedAt: sql`now()` })
+      .set({
+        status: ReviewStatus.NEW,
+        ...(countAttempt
+          ? {
+              generationAttempts: sql`${schema.reviews.generationAttempts} + 1`,
+              generationFailedAt: sql`now()`,
+            }
+          : {}),
+        updatedAt: sql`now()`,
+      })
       .where(
         and(eq(schema.reviews.id, reviewId), eq(schema.reviews.status, ReviewStatus.IN_REVIEW))
-      );
+      )
+      .returning({ attempts: schema.reviews.generationAttempts });
+
+    return rows[0]?.attempts ?? null;
   }
 
   /**
@@ -679,6 +711,19 @@ export class ReviewSyncRepository {
    * this job for one tick; the second then waits and finds nothing left to match.
    */
   async purgeExpiredReviewerPii(): Promise<number> {
+    let total = 0;
+    // One cross-tenant UPDATE over everything due could outlast the 30 s statement timeout once a large backlog builds up (a retention period
+    // newly set on a tenant with years of reviews), and a timeout rolls the whole thing back, every night, forever. Fixed-size batches each commit.
+    for (;;) {
+      const done = await this.purgeReviewerPiiBatch();
+      total += done;
+      if (done < REVIEWER_PII_PURGE_BATCH) {
+        return total;
+      }
+    }
+  }
+
+  private async purgeReviewerPiiBatch(): Promise<number> {
     return this.transaction(async tx => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('reviews:retention-purge'), 0)`);
 
@@ -687,17 +732,23 @@ export class ReviewSyncRepository {
       // would abort this cross-tenant UPDATE for every tenant. LEAST clamps only the interval
       // arithmetic, never the stored value; 10,000 months (~833 years) changes no real purge decision.
       const result = await tx.execute(sql`
+        WITH due AS (
+          SELECT r.id
+          FROM reviews r
+          JOIN tenant_settings ts ON ts.tenant_id = r.tenant_id
+          WHERE ts.review_data_retention_months IS NOT NULL
+            AND r.anonymized_at IS NULL
+            AND COALESCE(r.reviewed_at, r.created_at)
+              < now() - (LEAST(ts.review_data_retention_months, 10000) || ' months')::interval
+          LIMIT ${REVIEWER_PII_PURGE_BATCH}
+        )
         UPDATE reviews r
         SET reviewer_name = NULL,
             external_reviewer_id = NULL,
             anonymized_at = now(),
             updated_at = now()
-        FROM tenant_settings ts
-        WHERE r.tenant_id = ts.tenant_id
-          AND ts.review_data_retention_months IS NOT NULL
-          AND r.anonymized_at IS NULL
-          AND COALESCE(r.reviewed_at, r.created_at)
-            < now() - (LEAST(ts.review_data_retention_months, 10000) || ' months')::interval
+        FROM due
+        WHERE r.id = due.id
         RETURNING r.id
       `);
 
@@ -751,6 +802,38 @@ export class ReviewSyncRepository {
       .update(schema.reviews)
       .set({ status: ReviewStatus.RESPONDED, updatedAt: sql`now()` })
       .where(eq(schema.reviews.id, reviewId));
+  }
+
+  /**
+   * The business answered on Google itself (found while importing the review): the review is `responded` and any draft still waiting for
+   * a decision, or failed to post, is `superseded`, as `supersedeForExternalReply` does for an approved one. Without it the review kept
+   * its pending drafts in the owner's queue, offering to answer something already answered. A response that is `approved` is left to
+   * the post worker, whose freshness check supersedes it under its own claim. Idempotent.
+   */
+  async markRespondedByExternalReply(tx: DrizzleTransaction, reviewId: string): Promise<void> {
+    await tx
+      .update(schema.reviewResponses)
+      .set({
+        status: ResponseStatus.SUPERSEDED,
+        decidedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(schema.reviewResponses.reviewId, reviewId),
+          inArray(schema.reviewResponses.status, [
+            ResponseStatus.DRAFT,
+            ResponseStatus.PENDING_APPROVAL,
+            ResponseStatus.POST_FAILED,
+          ])
+        )
+      );
+    await tx
+      .update(schema.reviews)
+      .set({ status: ReviewStatus.RESPONDED, updatedAt: sql`now()` })
+      .where(
+        and(eq(schema.reviews.id, reviewId), ne(schema.reviews.status, ReviewStatus.RESPONDED))
+      );
   }
 
   /** CAS `approved -> posted` plus the parent review to `responded`, in one transaction. `postedAt` is Google's `reviewReply.updateTime`, not `now()`, matching backfill-imported rows. */

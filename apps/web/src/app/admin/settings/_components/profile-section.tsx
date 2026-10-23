@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { type FormEvent, useEffect, useState } from "react";
 import { LuUserRound } from "react-icons/lu";
 
+import { fitsPasswordLimit } from "@/app/_libs/constants/password-rules";
 import { platformAdminDisplayName } from "@/app/_libs/utils/admin-identity";
 import { getInitials } from "@/app/_libs/utils/initials";
 import { AvatarUpload } from "@/components/common/avatar-upload";
@@ -95,7 +96,9 @@ function ChangePasswordForm({ changePassword, isChangingPassword }: ChangePasswo
   const [expanded, setExpanded] = useState(false);
 
   const requirements = checkPasswordRequirements(newPassword);
-  const newPasswordValid = passwordMeetsRequirements(requirements);
+  // bcrypt only reads 72 bytes and the API refuses more: say so here instead of letting an all-green checklist end in an error.
+  const newPasswordTooLong = !fitsPasswordLimit(newPassword);
+  const newPasswordValid = passwordMeetsRequirements(requirements) && !newPasswordTooLong;
   const hasConfirmValue = confirmPassword.length > 0;
   const passwordsMatch = newPassword === confirmPassword;
 
@@ -166,7 +169,12 @@ function ChangePasswordForm({ changePassword, isChangingPassword }: ChangePasswo
           onBlur={() => setNewPasswordBlurred(true)}
           autoComplete="new-password"
         />
-        {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
+        {newPasswordTooLong ? (
+          <p className="text-destructive text-[12.5px]">{t("passwordTooLong")}</p>
+        ) : null}
+        {showRequirements && !newPasswordTooLong ? (
+          <PasswordRequirementsList requirements={requirements} />
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -222,7 +230,9 @@ function AddPasswordForm({
   const [cooldown, setCooldown] = useState(0);
 
   const requirements = checkPasswordRequirements(newPassword);
-  const newPasswordValid = passwordMeetsRequirements(requirements);
+  // bcrypt only reads 72 bytes and the API refuses more: say so here instead of letting an all-green checklist end in an error.
+  const newPasswordTooLong = !fitsPasswordLimit(newPassword);
+  const newPasswordValid = passwordMeetsRequirements(requirements) && !newPasswordTooLong;
   const hasConfirmValue = confirmPassword.length > 0;
   const passwordsMatch = newPassword === confirmPassword;
 
@@ -320,7 +330,12 @@ function AddPasswordForm({
           onBlur={() => setNewPasswordBlurred(true)}
           autoComplete="new-password"
         />
-        {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
+        {newPasswordTooLong ? (
+          <p className="text-destructive text-[12.5px]">{t("passwordTooLong")}</p>
+        ) : null}
+        {showRequirements && !newPasswordTooLong ? (
+          <PasswordRequirementsList requirements={requirements} />
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-1.5">

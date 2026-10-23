@@ -1,4 +1,3 @@
-import type { Route } from "next";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
@@ -17,11 +16,11 @@ export function SiteFooter() {
         </div>
 
         <nav className="flex flex-wrap items-start gap-x-6 gap-y-3 text-sm" aria-label={t("ariaLabel")}>
-          <Link href={ROUTES.LOGIN as Route} className="text-muted-foreground transition-colors hover:text-foreground">
+          <Link href={ROUTES.LOGIN} className="text-muted-foreground transition-colors hover:text-foreground">
             {t("signIn")}
           </Link>
           <Link
-            href={ROUTES.ONBOARDING_SIGNUP as Route}
+            href={ROUTES.ONBOARDING_SIGNUP}
             className="text-muted-foreground transition-colors hover:text-foreground"
           >
             {t("getStarted")}

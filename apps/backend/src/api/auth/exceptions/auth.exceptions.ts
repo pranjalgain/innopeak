@@ -4,6 +4,7 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 
@@ -156,5 +157,12 @@ export class AccountScheduledForDeletionException extends ForbiddenException {
       ),
       code: 'ACCOUNT_SCHEDULED_FOR_DELETION',
     });
+  }
+}
+
+/** The email queue refused the job: the code or invite was not sent, and whatever was recorded for it has been taken back so a retry starts clean. */
+export class EmailQueueUnavailableException extends ServiceUnavailableException {
+  constructor(message: string = MESSAGES.COMMON.EMAIL_QUEUE_UNAVAILABLE) {
+    super({ message, code: 'EMAIL_QUEUE_UNAVAILABLE' });
   }
 }

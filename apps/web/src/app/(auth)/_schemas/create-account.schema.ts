@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 import {
+  fitsPasswordLimit,
   PASSWORD_LOWERCASE_REGEX,
-  PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   PASSWORD_NUMBER_REGEX,
   PASSWORD_SPECIAL_REGEX,
@@ -20,13 +20,17 @@ type Translate = (key: string) => string;
 export function createAccountSchema(t: Translate) {
   return z
     .object({
-      name: z.string().trim().min(1, t("errors.nameRequired")),
-      businessName: z.string().trim().min(1, t("errors.businessNameRequired")),
+      name: z.string().trim().min(1, t("errors.nameRequired")).max(255, t("errors.nameTooLong")),
+      businessName: z
+        .string()
+        .trim()
+        .min(1, t("errors.businessNameRequired"))
+        .max(255, t("errors.nameTooLong")),
       email: z.string().trim().email(t("errors.emailInvalid")),
       password: z
         .string()
         .min(PASSWORD_MIN_LENGTH, t("errors.passwordTooShort"))
-        .max(PASSWORD_MAX_LENGTH, t("errors.passwordTooLong"))
+        .refine(fitsPasswordLimit, t("errors.passwordTooLong"))
         .regex(PASSWORD_UPPERCASE_REGEX, t("errors.passwordUppercase"))
         .regex(PASSWORD_LOWERCASE_REGEX, t("errors.passwordLowercase"))
         .regex(PASSWORD_NUMBER_REGEX, t("errors.passwordNumber"))

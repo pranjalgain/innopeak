@@ -71,7 +71,21 @@ describe('PendingAccountChoiceService', () => {
     it('refuses to start in production', async () => {
       process.env['NODE_ENV'] = 'production';
 
-      await expect(build({})).rejects.toThrow('GBP_STATE_SECRET must be set in production');
+      await expect(build({})).rejects.toThrow('GBP_STATE_SECRET must be set');
+    });
+
+    // A staging box runs as `development` too, and the fallback is a value public in this repository.
+    it('refuses to start on a reachable staging box that runs as development', async () => {
+      process.env['NODE_ENV'] = 'development';
+      const frontendUrl = process.env['FRONTEND_URL'];
+      process.env['FRONTEND_URL'] = 'https://staging.innopeak.example';
+
+      try {
+        await expect(build({})).rejects.toThrow('GBP_STATE_SECRET must be set');
+      } finally {
+        if (frontendUrl === undefined) delete process.env['FRONTEND_URL'];
+        else process.env['FRONTEND_URL'] = frontendUrl;
+      }
     });
 
     it('still works locally, where nothing is set', async () => {

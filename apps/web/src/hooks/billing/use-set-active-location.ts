@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { BillingService } from "@/app/_libs/services/billing.service";
 import { subscriptionQueryKey } from "@/hooks/billing/use-subscription";
 import { connectionLocationsQueryKey } from "@/hooks/connections/use-business-switcher";
+import { connectionQueryKey } from "@/hooks/connections/use-connection";
+import { currentTenantQueryKey } from "@/hooks/tenant/use-tenant";
 
 interface UseSetActiveLocationResult {
   setActiveLocation: (locationId: string) => Promise<boolean>;
@@ -32,6 +34,9 @@ export function useSetActiveLocation(): UseSetActiveLocationResult {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: subscriptionQueryKey }),
           queryClient.invalidateQueries({ queryKey: connectionLocationsQueryKey }),
+          // The active location changed under both: the connection state names it, and the dashboard's business card is built from that.
+          queryClient.invalidateQueries({ queryKey: connectionQueryKey }),
+          queryClient.invalidateQueries({ queryKey: currentTenantQueryKey }),
         ]);
         toast.success(t("updated"));
         return true;

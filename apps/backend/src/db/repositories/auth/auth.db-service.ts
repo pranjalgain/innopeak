@@ -1,3 +1,7 @@
+import {
+  PENDING_SIGNUP_PURGE_AFTER_HOURS,
+  PENDING_SIGNUP_REPLACEABLE_AFTER_HOURS,
+} from '@auth/constants/auth.constants';
 import { IDENTITY_PROVIDER_FOR, SsoProvider } from '@auth/constants/sso-auth.constants';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
@@ -88,13 +92,26 @@ export class AuthDbService {
    */
   async signup(input: SignupInput): Promise<SignupResult | null> {
     const existing = await this.authRepository.findUserByEmail(input.email);
-    if (existing) {
+    // An address with a verified account is taken. One with an unverified sign-up is only held for a day: whoever started it may not own
+    // the mailbox, so a newer sign-up for it replaces the stale one rather than being refused for good.
+    if (existing && existing.status !== UserStatus.PENDING_VERIFICATION) {
       return null;
     }
 
     const tokenExpiresAt = input.tokenExpiresAt.toISOString();
     try {
       return await this.authRepository.transaction(async tx => {
+        if (existing) {
+          const replaced = await this.authRepository.deleteStalePendingSignup(tx, {
+            userId: existing.id,
+            tenantId: existing.tenantId,
+            olderThanHours: PENDING_SIGNUP_REPLACEABLE_AFTER_HOURS,
+          });
+          if (!replaced) {
+            return null;
+          }
+        }
+
         const tenant = await this.authRepository.insertTenant(tx, { name: input.businessName });
         const user = await this.authRepository.insertOwnerUser(tx, {
           tenantId: tenant.id,
@@ -178,8 +195,9 @@ export class AuthDbService {
    *
    * This writes: it upserts a `user_identities` row and, for a `pending_verification` account,
    * activates the user and tenant, clears the password hash and provisions the workspace. It
-   * matches on email, which nothing proves before the OTP, so the caller must decide who may reach
-   * it; `AuthService.handleGoogleCallback` withholds it from platform-admin Google accounts.
+   * matches on email, which nothing proves before the OTP, so the caller must only reach it with an address the provider itself
+   * verified (`AuthService` refuses an unverified one before calling it). It never consults platform admins: an admin and a tenant user
+   * may share an address, and the admin console has its own sign-in entries.
    */
   async linkSsoIdentityByEmail(input: {
     provider: SsoProvider;
@@ -515,11 +533,15 @@ export class AuthDbService {
     );
   }
 
-  /** Daily housekeeping (CronJobName.AUTH_TOKEN_CLEANUP): drops used/expired OTP codes (verify_email and set_password) and revoked/expired refresh tokens. */
+  /** Daily housekeeping (CronJobName.AUTH_TOKEN_CLEANUP): drops used/expired OTP codes (verify_email and set_password), revoked/expired refresh tokens and sign-ups nobody verified within a week. */
   async purgeStaleTokens(): Promise<PurgeStaleTokensResult> {
     return this.authRepository.transaction(async tx => ({
       otpTokens: await this.authRepository.deleteStaleOtpTokens(tx),
       refreshTokens: await this.authRepository.deleteStaleRefreshTokens(tx),
+      pendingSignups: await this.authRepository.deleteStalePendingSignups(
+        tx,
+        PENDING_SIGNUP_PURGE_AFTER_HOURS
+      ),
     }));
   }
 
@@ -624,6 +646,10 @@ export class AuthDbService {
     tenantId: string
   ): Promise<{ name: string; erasureRequestedAt: string } | null> {
     return this.authRepository.claimErasureReminder(tenantId);
+  }
+
+  async releaseErasureReminderClaim(tenantId: string): Promise<void> {
+    await this.authRepository.releaseErasureReminderClaim(tenantId);
   }
 
   async markTenantErased(tenantId: string): Promise<{ name: string } | null> {

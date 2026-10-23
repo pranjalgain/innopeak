@@ -52,6 +52,7 @@ export function NotificationsSettingsSection({
               <div className="flex shrink-0 items-center gap-3">
                 <ToggleGroup
                   type="single"
+                  aria-label={t("channelLabel", { name: recipient.name })}
                   variant="outline"
                   size="sm"
                   value={recipient.channel}
@@ -73,6 +74,7 @@ export function NotificationsSettingsSection({
                 </ToggleGroup>
 
                 <Switch
+                  aria-label={t("activeLabel", { name: recipient.name })}
                   checked={recipient.isActive}
                   onCheckedChange={() => onToggleActive(recipient.id)}
                   className="hover:ring-[3px] hover:ring-ring/30 dark:hover:ring-ring/50"

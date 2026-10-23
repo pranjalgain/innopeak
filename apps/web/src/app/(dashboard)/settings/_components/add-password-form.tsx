@@ -3,11 +3,11 @@ import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
-import { FIELD_ERROR_CLASS } from "@/app/(dashboard)/settings/_components/field-error";
 import {
   type SetPasswordFields,
   setPasswordSchema,
 } from "@/app/(dashboard)/settings/_schemas/set-password.schema";
+import { FieldError } from "@/components/common/field-error";
 import { PasswordInput } from "@/components/common/password-input";
 import {
   checkPasswordRequirements,
@@ -117,9 +117,11 @@ export function AddPasswordForm({ requestSetPasswordOtp, setPassword }: AddPassw
           inputMode="numeric"
           autoComplete="one-time-code"
           maxLength={6}
+          aria-invalid={errors.otp ? true : undefined}
+          aria-describedby={errors.otp ? "owner-add-otp-error" : undefined}
           {...register("otp")}
         />
-        {errors.otp ? <p className={FIELD_ERROR_CLASS}>{errors.otp.message}</p> : null}
+        {errors.otp ? <FieldError id="owner-add-otp-error">{errors.otp.message}</FieldError> : null}
         <Button
           type="button"
           variant="link"
@@ -136,11 +138,17 @@ export function AddPasswordForm({ requestSetPasswordOtp, setPassword }: AddPassw
         <PasswordInput
           id="owner-add-password"
           autoComplete="new-password"
+          aria-invalid={errors.newPassword ? true : undefined}
+          aria-describedby={errors.newPassword ? "owner-add-password-error" : undefined}
           {...register("newPassword", {
             onChange: (event) => setNewPasswordValue(event.target.value),
           })}
         />
-        {showRequirements ? <PasswordRequirementsList requirements={requirements} /> : null}
+        {showRequirements ? (
+          <PasswordRequirementsList requirements={requirements} />
+        ) : errors.newPassword ? (
+          <FieldError id="owner-add-password-error">{errors.newPassword.message}</FieldError>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -148,10 +156,12 @@ export function AddPasswordForm({ requestSetPasswordOtp, setPassword }: AddPassw
         <PasswordInput
           id="owner-add-confirm-password"
           autoComplete="new-password"
+          aria-invalid={errors.confirmPassword ? true : undefined}
+          aria-describedby={errors.confirmPassword ? "owner-add-confirm-password-error" : undefined}
           {...register("confirmPassword")}
         />
         {errors.confirmPassword ? (
-          <p className={FIELD_ERROR_CLASS}>{errors.confirmPassword.message}</p>
+          <FieldError id="owner-add-confirm-password-error">{errors.confirmPassword.message}</FieldError>
         ) : null}
       </div>
 

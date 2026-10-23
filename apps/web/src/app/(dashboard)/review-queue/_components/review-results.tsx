@@ -13,7 +13,8 @@ interface ReviewResultsProps {
 
 /**
  * Renders both layouts and toggles them with responsive classes (not a JS breakpoint check) to avoid a
- * hydration mismatch and layout shift.
+ * hydration mismatch and layout shift. The table needs ~820px: the content area is narrower than that up to `xl` (the sidebar takes a
+ * rail or a column), so tablets and small laptops get cards rather than a table that scrolls sideways.
  */
 export function ReviewResults({ reviews, isError, onRetry, onClearFilters }: ReviewResultsProps) {
   // Checked before the empty state: a failed fetch also leaves `reviews` at `[]` (`keepPreviousData` only holds the
@@ -23,10 +24,10 @@ export function ReviewResults({ reviews, isError, onRetry, onClearFilters }: Rev
 
   return (
     <>
-      <div className="hidden md:block">
+      <div className="hidden xl:block">
         <ReviewTable reviews={reviews} />
       </div>
-      <div className="md:hidden">
+      <div className="xl:hidden">
         <ReviewCardList reviews={reviews} />
       </div>
     </>

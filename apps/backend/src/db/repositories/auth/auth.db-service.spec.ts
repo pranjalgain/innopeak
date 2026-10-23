@@ -41,6 +41,8 @@ describe('AuthDbService', () => {
       revokeAllRefreshTokensForUser: jest.fn(),
       deleteStaleOtpTokens: jest.fn(),
       deleteStaleRefreshTokens: jest.fn(),
+      deleteStalePendingSignups: jest.fn().mockResolvedValue(0),
+      deleteStalePendingSignup: jest.fn(),
       insertInvitedMember: jest.fn(),
       insertMemberInviteToken: jest.fn(),
       findMemberInviteStatusByEmail: jest.fn(),
@@ -109,6 +111,72 @@ describe('AuthDbService', () => {
       expect(authRepository.insertTenant).not.toHaveBeenCalled();
       expect(authRepository.transaction).not.toHaveBeenCalled();
     });
+
+    // An unverified sign-up only holds an address for a day: whoever started it may not own the mailbox, so a newer sign-up replaces it.
+    describe('an address that has an unverified sign-up', () => {
+      const pending = {
+        id: 'stale-user',
+        tenantId: 'stale-tenant',
+        name: 'Someone',
+        email: input.email,
+        passwordHash: 'strangers-hash',
+        role: UserRole.OWNER,
+        status: UserStatus.PENDING_VERIFICATION,
+        locale: null,
+      };
+
+      beforeEach(() => {
+        authRepository.findUserByEmail.mockResolvedValue(pending);
+        authRepository.insertTenant.mockResolvedValue({ id: 'tenant-1' });
+        authRepository.insertOwnerUser.mockResolvedValue({ id: 'user-1' });
+      });
+
+      it('replaces it, in the same transaction as the new sign-up, once it is a day old', async () => {
+        authRepository.deleteStalePendingSignup.mockResolvedValue(true);
+
+        const result = await target.signup(input);
+
+        expect(authRepository.deleteStalePendingSignup).toHaveBeenCalledWith(tx, {
+          userId: 'stale-user',
+          tenantId: 'stale-tenant',
+          olderThanHours: 24,
+        });
+        expect(result).toMatchObject({ userId: 'user-1', tenantId: 'tenant-1' });
+        const [removed] = authRepository.deleteStalePendingSignup.mock.invocationCallOrder;
+        const [inserted] = authRepository.insertTenant.mock.invocationCallOrder;
+        expect(removed).toBeLessThan(inserted as number);
+      });
+
+      it('is still held when younger than that: answers as already registered and creates nothing', async () => {
+        authRepository.deleteStalePendingSignup.mockResolvedValue(false);
+
+        await expect(target.signup(input)).resolves.toBeNull();
+
+        expect(authRepository.insertTenant).not.toHaveBeenCalled();
+        expect(authRepository.insertOwnerUser).not.toHaveBeenCalled();
+      });
+    });
+
+    it.each([UserStatus.ACTIVE, UserStatus.DISABLED, UserStatus.INVITED])(
+      'never replaces an address held by a %s account',
+      async status => {
+        authRepository.findUserByEmail.mockResolvedValue({
+          id: 'existing-user',
+          tenantId: 'existing-tenant',
+          name: 'Jane Doe',
+          email: input.email,
+          passwordHash: 'hashed',
+          role: UserRole.OWNER,
+          status,
+          locale: null,
+        });
+
+        await expect(target.signup(input)).resolves.toBeNull();
+
+        expect(authRepository.deleteStalePendingSignup).not.toHaveBeenCalled();
+        expect(authRepository.transaction).not.toHaveBeenCalled();
+      }
+    );
 
     it('creates a tenant, owner, settings, and the verify_email token for a genuinely new email', async () => {
       authRepository.findUserByEmail.mockResolvedValue(null);
@@ -237,17 +305,21 @@ describe('AuthDbService', () => {
     });
   });
 
-  it('purgeStaleTokens deletes both stale sets in one transaction and reports the counts', async () => {
+  it('purgeStaleTokens deletes the stale sets in one transaction and reports the counts', async () => {
     authRepository.deleteStaleOtpTokens.mockResolvedValue(3);
     authRepository.deleteStaleRefreshTokens.mockResolvedValue(12);
+    authRepository.deleteStalePendingSignups.mockResolvedValue(2);
 
     await expect(target.purgeStaleTokens()).resolves.toEqual({
       otpTokens: 3,
       refreshTokens: 12,
+      pendingSignups: 2,
     });
     expect(authRepository.transaction).toHaveBeenCalledTimes(1);
     expect(authRepository.deleteStaleOtpTokens).toHaveBeenCalledWith(tx);
     expect(authRepository.deleteStaleRefreshTokens).toHaveBeenCalledWith(tx);
+    // A sign-up nobody verified within a week.
+    expect(authRepository.deleteStalePendingSignups).toHaveBeenCalledWith(tx, 24 * 7);
   });
 
   describe('verifyEmail', () => {

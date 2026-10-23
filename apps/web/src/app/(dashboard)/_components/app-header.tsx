@@ -45,9 +45,9 @@ export function AppHeader({
     <header className="flex h-15 shrink-0 items-center justify-between gap-2 border-b border-border px-4 sm:px-6">
       {/* `min-w-0` + `truncate`: a flex item won't shrink below its text, so a long title (German "Bewertungswarteschlange")
           pushed the controls off the edge of a phone. */}
-      <h2 className="min-w-0 truncate text-base font-semibold" title={title}>
+      <h1 className="min-w-0 truncate text-base font-semibold" title={title}>
         {title}
-      </h2>
+      </h1>
 
       <div className="flex shrink-0 items-center gap-2">
         {showBusinessSwitcher ? <BusinessSwitcher /> : null}
@@ -58,7 +58,7 @@ export function AppHeader({
         {showAccountMenu ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-full">
+              <Button variant="ghost" size="icon" className="rounded-full" aria-label={t("accountMenu")}>
                 <Avatar className="size-8">
                   {identity.avatarUrl ? <AvatarImage src={identity.avatarUrl} alt="" /> : null}
                   <AvatarFallback className="bg-accent text-xs font-medium text-accent-foreground">

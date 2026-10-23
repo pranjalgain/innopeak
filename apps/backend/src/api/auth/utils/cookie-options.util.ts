@@ -1,11 +1,11 @@
-import { isProduction } from '@config/deployment-target.util';
+import { shouldUseSecureCookies } from '@config/deployment-target.util';
 import type { CookieOptions } from 'express';
 
 /** Only `path` and `maxAge` differ between tenant and admin session cookies. */
 export function buildCookieOptions(path: string, maxAgeSeconds?: number): CookieOptions {
   return {
     httpOnly: true,
-    secure: isProduction(),
+    secure: shouldUseSecureCookies(),
     sameSite: 'lax',
     path,
     ...(maxAgeSeconds === undefined ? {} : { maxAge: maxAgeSeconds * 1000 }),

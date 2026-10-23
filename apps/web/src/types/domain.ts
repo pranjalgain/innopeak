@@ -42,7 +42,9 @@ export type EscalationReason = "low_rating" | "blocklist_match";
 
 export interface AttentionReview {
   id: string;
-  reviewerName: string;
+  /** Null for an anonymous or anonymized reviewer; the label is applied where it renders (`useReviewerName`). */
+  reviewerName: string | null;
+  /** Empty when `reviewerName` is null. */
   initials: string;
   rating: number;
   snippet: string;
@@ -91,7 +93,8 @@ export type ReplyDeliveryState = "not_posted" | "posted" | "failed";
 
 export interface Review {
   id: string;
-  reviewerName: string;
+  /** Null for an anonymous or anonymized reviewer; the label is applied where it renders (`useReviewerName`). */
+  reviewerName: string | null;
   rating: 1 | 2 | 3 | 4 | 5;
   reviewText: string;
   reviewedAt: string;
@@ -444,6 +447,8 @@ export interface PlatformSettings {
   erasureGracePeriodDays?: number;
   /** Whether the admin sign-in page offers "Continue with Microsoft": the backend's Microsoft client plus `ADMIN_MICROSOFT_TENANT_ID`. Deploy-level like `paymentFeatureEnabled`; independent of `microsoftLoginEnabled`, which is the tenant switch. */
   adminMicrosoftLoginAvailable?: boolean;
+  /** Whether the admin sign-in page offers "Continue with Google": the backend's Google client is configured. Deploy-level; independent of `googleLoginEnabled`, the tenant switch. */
+  adminGoogleLoginAvailable?: boolean;
 }
 
 /** A change to the platform settings. `confirmLockout` is not a setting: it acknowledges, for this request only, that switching Microsoft or Google off locks out the users who can only sign in with it. */

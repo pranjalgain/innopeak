@@ -12,7 +12,7 @@ export function ReviewErrorState({ onRetry }: ReviewErrorStateProps) {
   const t = useTranslations("reviewQueue.errorState");
 
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-12 text-center shadow-elevated">
+    <div role="alert" className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-12 text-center shadow-elevated">
       <LuTriangleAlert className="text-warning size-7" />
       <p className="text-sm font-medium">{t("title")}</p>
       <p className="text-[13px] text-muted-foreground">{t("description")}</p>

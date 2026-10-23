@@ -86,17 +86,25 @@ export class ErasureNoticeService {
     });
   }
 
-  /** `recipients` must be read before the purge anonymizes the users. */
+  /**
+   * `recipients` must be read before the purge anonymizes the users. This is the only chance to say it: the addresses are gone once
+   * the users are anonymized, so a notice that reaches nobody is logged as an error rather than lost quietly.
+   */
   async notifyErased(input: {
     recipients: ErasureNoticeRecipient[];
     businessName: string;
   }): Promise<void> {
-    await this.send({
+    const { queued } = await this.send({
       kind: 'erased',
       recipients: input.recipients,
       businessName: input.businessName,
       requestedBy: 'owner',
     });
+    if (queued === 0) {
+      this.logger.error(
+        `The "erased" notice reached nobody (${input.recipients.length} recipient(s) read before the purge, 0 queued); it cannot be sent later.`
+      );
+    }
   }
 
   /** A missed erasure deadline is a compliance problem and an error log line is easy to miss; sent every night it persists. */
@@ -152,9 +160,10 @@ export class ErasureNoticeService {
           const requestedBy: ErasureRequestedBy = state?.erasureRequestedByUserId
             ? 'owner'
             : 'admin';
-          await this.send({
+          const recipients = await this.findRecipients(id);
+          const { queued } = await this.send({
             kind: 'reminder',
-            recipients: await this.findRecipients(id),
+            recipients,
             businessName: claimed.name,
             requestedBy,
             requesterUserId: state?.erasureRequestedByUserId ?? null,
@@ -162,6 +171,12 @@ export class ErasureNoticeService {
               new Date(claimed.erasureRequestedAt).getTime() + gracePeriodDays * 86_400_000
             ).toISOString(),
           });
+          if (queued === 0 && recipients.length > 0) {
+            // The claim only stops two runs both sending; nothing was sent, so hand it back for the next pass.
+            await this.authDbService.releaseErasureReminderClaim(id);
+            this.logger.warn(`Erasure reminder for tenant ${id} could not be queued; will retry.`);
+            continue;
+          }
           reminded += 1;
         } catch (error) {
           this.logger.warn(`Erasure reminder for tenant ${id} failed: ${(error as Error).message}`);
@@ -187,7 +202,9 @@ export class ErasureNoticeService {
     return recipient.hasPassword ? 'you' : 'support';
   }
 
-  private async send(input: SendInput): Promise<void> {
+  /** `queued` is how many recipients got a job; enqueue failures are logged and counted out, never thrown. */
+  private async send(input: SendInput): Promise<{ queued: number }> {
+    let queued = 0;
     const loginUrl = `${(this.configService.get<string>('FRONTEND_URL') ?? '').replace(/\/$/, '')}/login`;
 
     for (const recipient of input.recipients) {
@@ -204,11 +221,13 @@ export class ErasureNoticeService {
       };
       try {
         await this.queueManager.addErasureNoticeEmailJob(JobName.ERASURE_NOTICE_EMAIL, job);
+        queued += 1;
       } catch (error) {
         this.logger.warn(
           `Could not queue the erasure ${input.kind} email for a recipient: ${(error as Error).message}`
         );
       }
     }
+    return { queued };
   }
 }
