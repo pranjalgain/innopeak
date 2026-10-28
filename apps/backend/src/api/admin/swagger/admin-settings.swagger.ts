@@ -294,7 +294,8 @@ export function ApiUpdatePlatformSettings(): ReturnType<typeof applyDecorators> 
       description:
         'Partial update — any field omitted is left unchanged. Controls which login methods tenants are offered ' +
         '(enforced on the server, not only on the sign-in screens: Microsoft and Google are refused for tenant sign-in, ' +
-        'sign-up and invites while off; the password switch covers new email/password sign-ups only), whether tenant ' +
+        'sign-up and invites while off; the password switch refuses email/password sign-up, sign-in, the sign-up code and ' +
+        'password invitations while off, and does not affect platform admins or sessions that already exist), whether tenant ' +
         'Settings > Members can send invites and whether tenant Settings offers notification preferences (`true` is refused ' +
         'until email/Teams exist). Takes effect immediately for every visitor; no redeploy required. Refused with 400 when ' +
         'the patch would leave every method disabled, leave no method that is both enabled and set up on this server ' +
@@ -338,7 +339,10 @@ export function ApiUpdatePlatformSettings(): ReturnType<typeof applyDecorators> 
     ApiResponse({
       status: HttpStatus.UNPROCESSABLE_ENTITY,
       description:
-        'notificationSettingsEnabled: true was sent, but email/Teams notifications are not implemented yet (NOTIFICATION_CHANNELS_NOT_IMPLEMENTED). false is always accepted',
+        'notificationSettingsEnabled: true was sent, but email/Teams notifications are not implemented yet (NOTIFICATION_CHANNELS_NOT_IMPLEMENTED); ' +
+        'or passwordLoginEnabled was switched from off to on while no email service is set up on this server, so sign-up codes and ' +
+        'invitations could not be delivered (PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE; not enforced on a local development machine). ' +
+        'false is always accepted, and so is sending passwordLoginEnabled: true while it is already on',
     }),
     ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Missing or invalid token' }),
     ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not a platform admin' })

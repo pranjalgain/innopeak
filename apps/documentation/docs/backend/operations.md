@@ -6,6 +6,8 @@ sidebar_position: 2
 
 What an operator needs that the feature docs do not say: what must be set, what to probe, what must be running, how to migrate, what to
 alert on. Container, CI/CD and cluster manifests are owned by the platform team; this page is the application's side of that contract.
+For the infrastructure itself (sizing, environments, secrets, monitoring, releases) see the [Infrastructure](../infrastructure/overview.md)
+section, and for every environment variable the [Configuration reference](../services/configuration-reference.md).
 
 ## Processes
 
@@ -14,11 +16,12 @@ Two processes from one codebase, both required:
 | Process | Start | Does |
 |---|---|---|
 | API | `node dist/main.js` (`pnpm api:start:prod`) | HTTP under `/v1` |
-| Worker | `node dist/worker.main.js` (`pnpm worker:start:prod`) | Cron ticks, the review-sync, AI-draft and review-post queues, email, dead-letter handling |
+| Worker | `node dist/worker.main.js` (`pnpm worker:start:prod`) | Cron ticks, the review-sync queue (which also drafts replies), the review-post queue, email, dead-letter handling |
 
 **Without a running worker nothing polls Google, drafts replies or posts them**, and the API still looks healthy. Run the worker as its own
 deployment. Cron ticks carry a per-minute job id, so several worker replicas collapse into one job per tick on BullMQ (on SQS standard queues
-duplicates are possible and tolerated: a repeated poll is wasted quota, not corrupted data).
+duplicates are possible and tolerated: a repeated poll is wasted quota, not corrupted data). The worker has no HTTP port, so it has no
+probe endpoint. Set `TZ=UTC` on it: the API pins UTC in code, the worker does not, and it fires the schedule.
 
 ## Required environment (production)
 
@@ -63,23 +66,13 @@ Run the migration **before** the new version takes traffic and **once** per rele
 
 - **Logs**: console only (no log files). Collect container stdout. Production logs at `warn` and above; a 4xx is one `warn` line, a 5xx an
   `error` with a stack.
-- **Metrics**: Prometheus text at `/metrics` (token required in production): request counts, durations, errors, concurrency, plus Node defaults.
-- **Error IDs**: every error response carries a `traceId` (a per-error UUID) that matches the `[ErrorID: …]` log line. There is no distributed tracing, request-metrics middleware, health page or dev-tools UI; the app is small enough that logs plus `/metrics` suffice.
-- **Queues**: Bull Board at `/admin/queues` (platform admins only); failed jobs land in the dead-letter queue.
+- **Metrics**: Prometheus text at `/metrics` (token required in production). It carries the Node process defaults and one custom counter,
+  `platform_activity_dropped_total`. **There are no request counts, durations, error rates or concurrency metrics.**
+- **Error IDs**: every error response carries a `traceId` (a per-error UUID) that matches the `[ErrorID: …]` log line. There is no distributed tracing, request-metrics middleware, health page or dev-tools UI.
+- **Queues**: Bull Board at `/admin/queues` (platform admins only, read-only outside local development); failed jobs land in the dead-letter queue.
 
-### Alerts worth having
-
-The infrastructure alerts (CPU, memory, disk, endpoint down) do not see application failure. Add:
-
-| Signal | Why |
-|---|---|
-| 5xx rate on the API | The API is up but failing |
-| `/health/ready` failing | Instance cannot reach PostgreSQL or Redis |
-| Dead-letter queue depth > 0 | A job exhausted its retries (a poll, a post, an email) |
-| Review-sync jobs failing or no poll completing in 30 min | The worker is down or Google is rejecting us |
-| Connections in `needs_reauth` rising | Owners have to reconnect Google; reviews stop importing |
-| Stripe webhook non-2xx | Plan changes are not landing; Stripe retries for days, then stops |
-| Redis or PostgreSQL connection saturation | Pools are exhausted |
+The monitoring stack, the full signal list and the alerts worth having, with the source each can use today, are on
+[Observability](../infrastructure/observability.md).
 
 ## Failure handling at the edges
 
@@ -147,8 +140,10 @@ their OTP payload. Now: **cron** 1 attempt, no failed job kept; **review-post** 
 ## Backups and recovery
 
 Not something the application can do for you, and easy to forget: enable PostgreSQL point-in-time recovery, test a restore, and write down the
-recovery point and time objectives. Redis holds queue state and rate-limit counters only; losing it drops queued jobs (the next poll re-derives
-them from Google) but no business data. Secrets live outside the repository (the AWS target hydrates them from Secrets Manager at boot).
+recovery point and time objectives. Redis holds queue state, rate-limit counters and sign-out marks, and **outside production the encrypted Google
+refresh tokens**; losing it drops queued jobs (the next poll re-derives them from Google), and outside production forces every owner to reconnect
+Google, but loses no business data. Turn Redis persistence on. Secrets live outside the repository (the AWS target hydrates them from Secrets
+Manager at boot). See [Data stores](../infrastructure/data-stores.md#backups-and-recovery).
 
 ## Web app
 

@@ -352,6 +352,11 @@ export function ApiSignup(): ReturnType<typeof applyDecorators> {
 
 export function ApiVerifyEmail(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
+    ApiResponse({
+      status: 403,
+      description:
+        'The platform has email/password sign-in switched off (`passwordLoginEnabled`): PASSWORD_LOGIN_DISABLED',
+    }),
     ApiOperation({
       summary: 'Consume a signup/login verification OTP (password path only)',
       description:
@@ -479,7 +484,11 @@ export function ApiLogin(): ReturnType<typeof applyDecorators> {
         },
       },
     }),
-    ApiResponse({ status: 403, description: 'ACCOUNT_DISABLED or TENANT_SUSPENDED.' })
+    ApiResponse({
+      status: 403,
+      description:
+        'PASSWORD_LOGIN_DISABLED (the platform has email/password sign-in switched off, `passwordLoginEnabled`), ACCOUNT_DISABLED or TENANT_SUSPENDED.',
+    })
   );
 }
 
@@ -550,6 +559,11 @@ export function ApiLogout(): ReturnType<typeof applyDecorators> {
 
 export function ApiResendOtp(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
+    ApiResponse({
+      status: 403,
+      description:
+        'The platform has email/password sign-in switched off (`passwordLoginEnabled`): PASSWORD_LOGIN_DISABLED',
+    }),
     ApiOperation({
       summary: 'Resend a verification OTP',
       description:
@@ -682,6 +696,11 @@ export function ApiValidateMemberInvite(): ReturnType<typeof applyDecorators> {
 
 export function ApiAcceptMemberInvite(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
+    ApiResponse({
+      status: 403,
+      description:
+        'The platform has email/password sign-in switched off (`passwordLoginEnabled`): PASSWORD_LOGIN_DISABLED',
+    }),
     ApiOperation({
       summary: 'Accept a tenant-member invite by setting a name and password',
       description:

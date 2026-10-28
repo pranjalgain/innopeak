@@ -19,6 +19,7 @@ import { ROUTES } from "@/app/_libs/constants/routes";
 import { readReturnPath } from "@/app/_libs/utils/post-login-redirect";
 import { MicrosoftLogo } from "@/assets/icons/microsoft-logo";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/auth/use-auth";
 import { useOAuthErrorToast } from "@/hooks/auth/use-oauth-error-toast";
 import { useOtpVerification } from "@/hooks/auth/use-otp-verification";
@@ -31,10 +32,10 @@ type LoginStep = "credentials" | "otp" | "restore";
  * below the sign-up prompt, since otherwise an admin on the wrong form just sees "Invalid email or
  * password" with no path off that dead end.
  *
- * The password form is always available regardless of the microsoftLoginEnabled/googleLoginEnabled
- * settings, which gate only the buttons below it. A `pending_verification` account gets a fresh OTP
- * from the backend instead of an error, so this screen swaps to `OtpVerificationStage`; verifying
- * there issues tokens directly (the password was already proven).
+ * The password form follows `passwordLoginEnabled`: shown unless the platform is known to have it off (the server refuses a password
+ * sign-in then too, so hiding it is never the only protection). The microsoftLoginEnabled/googleLoginEnabled settings gate only the
+ * buttons below it. A `pending_verification` account gets a fresh OTP from the backend instead of an error, so this screen swaps to
+ * `OtpVerificationStage`; verifying there issues tokens directly (the password was already proven).
  *
  * When both SSO and social are enabled they share one row; a full-width row with a divider is for a
  * single SSO-like method alone.
@@ -61,6 +62,7 @@ export function LoginView() {
   const tToasts = useTranslations("auth.toasts");
   const {
     data: platformSettings,
+    isLoading: platformSettingsLoading,
     isError: platformSettingsError,
     refetch: refetchPlatformSettings,
   } = usePlatformSettings();
@@ -78,6 +80,10 @@ export function LoginView() {
   // form is fine. A failed fetch (retry: false) defaults the same way, which is worth a visible
   // retry (see `platformSettingsError` below) because an SSO-only tenant has no password and would
   // otherwise lose their only way in silently.
+  // Hidden only when the platform says so: while the settings load a placeholder holds the space (no form that then disappears), and a
+  // failed fetch keeps the form, since the server decides either way and an empty card would be a dead end.
+  const passwordEnabled = platformSettings?.passwordLoginEnabled !== false;
+  const showPasswordForm = !platformSettingsLoading && passwordEnabled;
   const ssoEnabled = platformSettings?.microsoftLoginEnabled ?? false;
   const socialEnabled = platformSettings?.googleLoginEnabled ?? false;
   const bothSsoLike = ssoEnabled && socialEnabled;
@@ -137,14 +143,24 @@ export function LoginView() {
           <>
             <h1 className="text-gradient mb-7 text-center text-xl font-semibold">{t("title")}</h1>
 
-            <PasswordAuthForm
-              isLoading={isLoading}
-              onSubmit={(email, password) => void handlePasswordSubmit(email, password)}
-            />
+            {platformSettingsLoading ? (
+              <div className="flex flex-col gap-4" data-testid="login-form-loading">
+                <Skeleton className="h-10 w-full rounded-md" />
+                <Skeleton className="h-10 w-full rounded-md" />
+                <Skeleton className="h-10 w-full rounded-md" />
+              </div>
+            ) : null}
+
+            {showPasswordForm ? (
+              <PasswordAuthForm
+                isLoading={isLoading}
+                onSubmit={(email, password) => void handlePasswordSubmit(email, password)}
+              />
+            ) : null}
 
             {anySsoLike ? (
               <>
-                <AuthDivider label={t("orDivider")} />
+                {showPasswordForm ? <AuthDivider label={t("orDivider")} /> : null}
 
                 {bothSsoLike ? (
                   <div className="grid grid-cols-2 gap-3">

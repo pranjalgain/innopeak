@@ -88,10 +88,21 @@ export class SsoSignupDisabledException extends ForbiddenException {
   }
 }
 
-/** Only new password sign-ups: existing password sign-in, password changes and invites are unaffected (see `AuthService.signup`). */
+/** A new email/password sign-up while the platform's password switch is off (see `AuthService.signup`). */
 export class PasswordSignupDisabledException extends ForbiddenException {
   constructor(message: string = MESSAGES.AUTH.PASSWORD_SIGNUP_DISABLED) {
     super({ message, code: 'PASSWORD_SIGNUP_DISABLED' });
+  }
+}
+
+/**
+ * Any other way of getting a session from an email and a password while the platform's password switch is off: sign-in, the sign-up
+ * code that completes it, and accepting an invitation with a password. Existing sessions are not touched, and platform admins sign in
+ * separately (see `AuthService.assertPasswordAuthEnabled`).
+ */
+export class PasswordLoginDisabledException extends ForbiddenException {
+  constructor(message: string = MESSAGES.AUTH.PASSWORD_LOGIN_DISABLED) {
+    super({ message, code: 'PASSWORD_LOGIN_DISABLED' });
   }
 }
 

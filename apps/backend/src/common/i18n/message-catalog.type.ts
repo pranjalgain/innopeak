@@ -12,6 +12,8 @@ export interface MessageCatalog {
     EMAIL_ALREADY_REGISTERED: string;
     /** `platform_settings.password_login_enabled` is off: new email/password sign-ups are refused. */
     PASSWORD_SIGNUP_DISABLED: string;
+    /** `platform_settings.password_login_enabled` is off: email/password sign-in, code verification and password invitations are refused. */
+    PASSWORD_LOGIN_DISABLED: string;
     /** The provider a pending single-sign-on sign-up came through was switched off before the business name step. */
     SSO_SIGNUP_DISABLED: string;
     INVALID_OR_EXPIRED_OTP: string;
@@ -306,6 +308,8 @@ export interface MessageCatalog {
     PLATFORM_SETTINGS_NO_METHOD_ENABLED: string;
     /** `notificationSettingsEnabled: true` is refused until email/Teams delivery exists. */
     NOTIFICATION_CHANNELS_NOT_IMPLEMENTED: string;
+    /** `passwordLoginEnabled: true` is refused while no email service is set up: sign-up codes and invitations could not be delivered. */
+    PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE: string;
     /** Turning Microsoft or Google off while tenant users have no other way in (no password, no other provider). */
     CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS: (provider: string, count: number) => string;
     /** The patch would leave no method that can actually be used: Microsoft and Google also need to be configured on this server. */

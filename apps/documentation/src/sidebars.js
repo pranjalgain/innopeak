@@ -18,6 +18,38 @@ const sidebars = {
     'welcome',
     {
       type: 'category',
+      label: 'Services',
+      collapsed: false,
+      items: [
+        'services/overview',
+        'services/backend-api',
+        'services/worker-and-jobs',
+        'services/web-app',
+        'services/external-services',
+        'services/configuration-reference',
+        'services/platform-settings',
+        'services/business-settings',
+        'services/roles-and-permissions',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Infrastructure',
+      collapsed: false,
+      items: [
+        'infrastructure/overview',
+        'infrastructure/environments',
+        'infrastructure/compute-and-containers',
+        'infrastructure/data-stores',
+        'infrastructure/capacity-and-scaling',
+        'infrastructure/secrets-and-access',
+        'infrastructure/observability',
+        'infrastructure/deployment-and-releases',
+        'infrastructure/open-items',
+      ],
+    },
+    {
+      type: 'category',
       label: '🚀 Applications',
       collapsed: false,
       items: [
@@ -26,6 +58,7 @@ const sidebars = {
           label: 'Backend',
           items: [
             'backend/overview',
+            'backend/operations',
             {
               type: 'category',
               label: 'Modules',
@@ -33,7 +66,14 @@ const sidebars = {
                 {
                   type: 'category',
                   label: 'Auth',
-                  items: ['backend/auth/overview', 'backend/auth/api-reference'],
+                  items: [
+                    'backend/auth/overview',
+                    'backend/auth/api-reference',
+                    'backend/auth/invite-flow-design',
+                    'backend/auth/microsoft-login-design',
+                    'backend/auth/separate-admin-login-design',
+                    'backend/auth/tenant-member-invite-design',
+                  ],
                 },
                 {
                   type: 'category',
@@ -41,6 +81,8 @@ const sidebars = {
                   items: [
                     'backend/connections/overview',
                     'backend/connections/api-reference',
+                    'backend/connections/google-api-setup',
+                    'backend/connections/real-gbp-design',
                   ],
                 },
                 {
@@ -69,7 +111,13 @@ const sidebars = {
                   items: [
                     'backend/notifications/overview',
                     'backend/notifications/api-reference',
+                    'backend/notifications/phase-one',
                   ],
+                },
+                {
+                  type: 'category',
+                  label: 'Media',
+                  items: ['backend/media/overview', 'backend/media/api-reference'],
                 },
                 {
                   type: 'category',
@@ -116,17 +164,18 @@ const sidebars = {
                 'backend/review-pipeline/overview',
               ],
             },
+            'backend/full-code-audit-2026-10',
           ],
         },
         {
           type: 'category',
           label: 'Frontend',
-          items: ['frontend/overview', 'frontend/admin-console'],
+          items: ['frontend/overview', 'frontend/admin-console', 'frontend/ui-audit-2026-10'],
         },
         {
           type: 'category',
           label: 'Shared Libraries',
-          items: ['shared/overview'],
+          items: ['shared/overview', 'shared/api-clients'],
         },
       ],
     },
@@ -136,6 +185,7 @@ const sidebars = {
       collapsed: false,
       items: [
         'meta/architecture',
+        'meta/multilingual',
         'meta/contributing',
         'meta/style-guide',
         'meta/pipeline-changes',

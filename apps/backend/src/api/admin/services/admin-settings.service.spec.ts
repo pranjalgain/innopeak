@@ -16,6 +16,7 @@ import { HashingService } from '@common/hashing/hashing.service';
 import { AdminOverviewDbService } from '@db/repositories/admin-overview/admin-overview.db-service';
 import { PlatformAdminDbService } from '@db/repositories/platform-admin/platform-admin.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
+import { EmailProvider } from '@email/providers/email.provider';
 import {
   BadRequestException,
   ConflictException,
@@ -33,6 +34,7 @@ import { AdminSettingsService } from './admin-settings.service';
 import { UserRole } from '../../auth/enums/user-role.enum';
 import {
   NotificationChannelsNotImplementedException,
+  PasswordLoginNeedsEmailServiceException,
   PlatformSettingsNoUsableMethodException,
   SsoLoginDisallowedSsoOnlyUsersException,
 } from '../exceptions/admin.exceptions';
@@ -62,6 +64,7 @@ describe('AdminSettingsService', () => {
   };
   let googleProvider: { isConfigured: jest.Mock };
   let microsoftProvider: { isConfigured: jest.Mock };
+  let emailProvider: { isConfigured: jest.Mock };
   let adminOverviewDbService: { recordActivityBestEffort: jest.Mock };
   let hashingService: { hash: jest.Mock; compare: jest.Mock };
   let queueManager: {
@@ -131,6 +134,8 @@ describe('AdminSettingsService', () => {
     // Both providers are set up by default, so the "can this method actually be used" check never gets in the way of tests about other things.
     googleProvider = { isConfigured: jest.fn().mockReturnValue(true) };
     microsoftProvider = { isConfigured: jest.fn().mockReturnValue(true) };
+    // An email service is set up by default, for the same reason.
+    emailProvider = { isConfigured: jest.fn().mockReturnValue(true) };
     platformSettingsDbService = {
       get: jest.fn(),
       update: jest.fn(),
@@ -182,6 +187,7 @@ describe('AdminSettingsService', () => {
         { provide: VerifyEmailTokenProvider, useValue: verifyEmailTokenProvider },
         { provide: GoogleIdentityProvider, useValue: googleProvider },
         { provide: MicrosoftIdentityProvider, useValue: microsoftProvider },
+        { provide: EmailProvider, useValue: emailProvider },
       ],
     }).compile();
 
@@ -868,6 +874,86 @@ describe('AdminSettingsService', () => {
         { googleLoginEnabled: false },
         admin.id
       );
+    });
+
+    // A password sign-up is completed by an emailed code and invitations are emailed, so turning the switch on with no way to send
+    // mail would offer a sign-in that cannot finish.
+    describe('turning email/password on', () => {
+      const passwordOffRow = { ...allEnabledRow, passwordLoginEnabled: false };
+      let savedFrontendUrl: string | undefined;
+
+      beforeEach(() => {
+        // `isLocalDevelopment()` reads the environment directly: a real address means this is not a developer's machine.
+        savedFrontendUrl = process.env['FRONTEND_URL'];
+        process.env['FRONTEND_URL'] = 'https://app.innopeak.test';
+        emailProvider.isConfigured.mockReturnValue(false);
+      });
+
+      afterEach(() => {
+        if (savedFrontendUrl === undefined) {
+          delete process.env['FRONTEND_URL'];
+        } else {
+          process.env['FRONTEND_URL'] = savedFrontendUrl;
+        }
+      });
+
+      it('is refused, with a message that says why, while no email service is set up', async () => {
+        platformSettingsDbService.get.mockResolvedValue(passwordOffRow);
+
+        const attempt = target.updatePlatformSettings(admin, { passwordLoginEnabled: true });
+
+        await expect(attempt).rejects.toBeInstanceOf(PasswordLoginNeedsEmailServiceException);
+        await expect(attempt).rejects.toMatchObject({
+          status: 422,
+          response: {
+            code: 'PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE',
+            message: MESSAGES.ADMIN.PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE,
+          },
+        });
+        expect(platformSettingsDbService.update).not.toHaveBeenCalled();
+      });
+
+      it('goes through once an email service is set up', async () => {
+        emailProvider.isConfigured.mockReturnValue(true);
+        platformSettingsDbService.get.mockResolvedValue(passwordOffRow);
+        platformSettingsDbService.update.mockResolvedValue(allEnabledRow);
+
+        await target.updatePlatformSettings(admin, { passwordLoginEnabled: true });
+
+        expect(platformSettingsDbService.update).toHaveBeenCalledWith(
+          { passwordLoginEnabled: true },
+          admin.id
+        );
+      });
+
+      // Only the change from off to on is held up: re-sending `true` on a platform already on must not start failing.
+      it('does not hold up a request that leaves it on', async () => {
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.update.mockResolvedValue(allEnabledRow);
+
+        await target.updatePlatformSettings(admin, { passwordLoginEnabled: true });
+
+        expect(platformSettingsDbService.update).toHaveBeenCalled();
+      });
+
+      it('never holds up turning it off', async () => {
+        platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
+        platformSettingsDbService.update.mockResolvedValue(passwordOffRow);
+
+        await target.updatePlatformSettings(admin, { passwordLoginEnabled: false });
+
+        expect(platformSettingsDbService.update).toHaveBeenCalled();
+      });
+
+      it('is allowed on a developer machine, where mail is written to the log', async () => {
+        delete process.env['FRONTEND_URL'];
+        platformSettingsDbService.get.mockResolvedValue(passwordOffRow);
+        platformSettingsDbService.update.mockResolvedValue(allEnabledRow);
+
+        await target.updatePlatformSettings(admin, { passwordLoginEnabled: true });
+
+        expect(platformSettingsDbService.update).toHaveBeenCalled();
+      });
     });
 
     // The sign-in rules have a history: which switch moved, from what to what, and by whom.

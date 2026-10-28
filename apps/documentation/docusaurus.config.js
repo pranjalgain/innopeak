@@ -1,7 +1,7 @@
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Company Name',
-  tagline: '',
+  title: 'InnoPeak',
+  tagline: 'Documentation',
   favicon: 'img/logo.png',
 
   // Set the production url of your site here
@@ -42,7 +42,7 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       navbar: {
-        title: 'Product Name Docs',
+        title: 'InnoPeak Docs',
         items: [
           {
             type: 'docSidebar',
@@ -54,7 +54,7 @@ const config = {
       },
       footer: {
         style: 'dark',
-        copyright: `Copyright © ${new Date().getFullYear()} Sample Company Name.`,
+        copyright: 'InnoPeak documentation',
       },
     }),
 };

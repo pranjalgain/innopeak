@@ -6,10 +6,15 @@ sidebar_position: 2
 
 ## How to read this document
 
-This is the **target/spec design** for the platform-admin module's HTTP surface. None of it exists
-in code: `src/api/` contains only `health` and `metrics`, and the only
-files under `apps/backend/src/` that mention `platform_admin` are the three migrations and the
-migration journal. Nothing below describes current behaviour — see the overview's
+This is the **original spec** for the platform-admin module's HTTP surface, and it is only **partly
+built**. The admin console API that exists lives in `src/api/admin/` and is documented in
+[Admin overview](../admin-overview/overview.md), [Admin management](../admin-management/overview.md),
+[Admin billing](../admin-billing/overview.md) and the admin routes of [Auth](../auth/overview.md) and
+[Settings](../settings/overview.md): business list, suspend, reactivate and erasure requests, user list
+and activation, overview and statistics, billing views, platform settings and admin invitations. What
+this spec describes and is **not built**: provisioning a business on a customer's behalf and a
+per-business inspection view. Where this document and the code disagree, the code wins. See the
+overview's
 [Gap](./overview.md#gap-between-current-code-and-target-design) for the build list, and read
 [Platform Admin Module — Overview](./overview.md) first for the data model, the
 separate-hierarchy rationale, and the flow narratives this document turns into contracts.

@@ -6,6 +6,9 @@ import { createTransport, Transporter } from 'nodemailer';
 import type Mail from 'nodemailer/lib/mailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 
+/** A setting the operator actually provided, as opposed to the default the provider falls back to. */
+const isSet = (value: string | undefined): boolean => (value ?? '').trim() !== '';
+
 @Injectable()
 export class SmtpEmailProvider extends EmailProvider implements OnModuleInit {
   private readonly logger = new Logger(SmtpEmailProvider.name);
@@ -88,5 +91,16 @@ export class SmtpEmailProvider extends EmailProvider implements OnModuleInit {
   async verify(): Promise<boolean> {
     await this.transporter.verify();
     return true;
+  }
+
+  /**
+   * A host and a sender must both be set: the host defaults to `localhost` and the sender to `noreply@example.com`, which would
+   * pass for configured while delivering nothing real.
+   */
+  isConfigured(): boolean {
+    return (
+      isSet(this.configService.get<string>('SMTP_HOST')) &&
+      isSet(this.configService.get<string>('EMAIL_FROM'))
+    );
   }
 }

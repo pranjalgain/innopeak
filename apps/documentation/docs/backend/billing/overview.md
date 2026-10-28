@@ -129,8 +129,9 @@ raw Stripe type.
 The Stripe client is built lazily, because the SDK throws on an empty key at construction. A server
 with no Stripe keys therefore still boots (Free tenants never touch billing), and any billing call
 that needs Stripe fails with `PAYMENT_NOT_CONFIGURED` (`503`). `STRIPE_SECRET_KEY` and
-`STRIPE_WEBHOOK_SECRET` are required in production and whenever `PAYMENT_FEATURE_ENABLED=true`;
-`STRIPE_PRICE_ID_PAID` names the Paid plan's price.
+`STRIPE_WEBHOOK_SECRET` are required whenever `PAYMENT_FEATURE_ENABLED=true`, in every environment
+including production, and not needed otherwise: a production install with payments off starts with no
+Stripe keys. `STRIPE_PRICE_ID_PAID` names the Paid plan's price.
 
 ## Webhook state machine
 

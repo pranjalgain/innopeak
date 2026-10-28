@@ -39,6 +39,7 @@ import type {
   PlatformSettingsPatch,
   PlatformSettingsRow,
 } from '@db/repositories/platform-settings/types/platform-settings.type';
+import { EmailProvider } from '@email/providers/email.provider';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -64,6 +65,7 @@ import {
   CannotDisableRootAdminException,
   CannotDisableSelfException,
   NotificationChannelsNotImplementedException,
+  PasswordLoginNeedsEmailServiceException,
   PlatformAdminNotFoundException,
   PlatformConfigNotFoundException,
   PlatformSettingsNoMethodEnabledException,
@@ -100,7 +102,8 @@ export class AdminSettingsService {
     private readonly loginAttemptService: LoginAttemptService,
     private readonly verifyEmailTokenProvider: VerifyEmailTokenProvider,
     private readonly googleIdentityProvider: GoogleIdentityProvider,
-    private readonly microsoftIdentityProvider: MicrosoftIdentityProvider
+    private readonly microsoftIdentityProvider: MicrosoftIdentityProvider,
+    private readonly emailProvider: EmailProvider
   ) {}
 
   async getProfile(actor: AuthUser): Promise<AdminProfileResponseDto> {
@@ -476,6 +479,17 @@ export class AdminSettingsService {
       throw new PlatformConfigNotFoundException();
     }
 
+    // Email/password needs email: a sign-up is completed by an emailed code and invitations are emailed. Only the change from off to on is
+    // refused, so a request that re-sends `true` on a platform already on, or any `false`, is never held up by this. A local development
+    // machine is exempt: there mail is written to the log and the fixed sign-up code stands in for it.
+    if (
+      patch.passwordLoginEnabled === true &&
+      !current.passwordLoginEnabled &&
+      !this.canDeliverEmail()
+    ) {
+      throw new PasswordLoginNeedsEmailServiceException();
+    }
+
     const resultingMicrosoft = patch.microsoftLoginEnabled ?? current.microsoftLoginEnabled;
     const resultingPassword = patch.passwordLoginEnabled ?? current.passwordLoginEnabled;
     const resultingGoogle = patch.googleLoginEnabled ?? current.googleLoginEnabled;
@@ -483,9 +497,9 @@ export class AdminSettingsService {
       throw new PlatformSettingsNoMethodEnabledException();
     }
 
-    // A method only counts if it can be used: Microsoft and Google also need their credentials configured on this server, and the
-    // password switch only ever offers sign-up. Without this, switching password off while Microsoft is on but unconfigured leaves
-    // nobody able to sign up, and nothing would say why. Scoped to patches that touch a method, so an unrelated change on a platform
+    // A method only counts if it can be used: Microsoft and Google also need their credentials configured on this server, while the
+    // password switch always works. Without this, switching password off while Microsoft is on but unconfigured leaves nobody able
+    // to sign in or sign up, and nothing would say why. Scoped to patches that touch a method, so an unrelated change on a platform
     // already in that state is not refused.
     const touchesMethod =
       patch.microsoftLoginEnabled !== undefined ||
@@ -589,6 +603,11 @@ export class AdminSettingsService {
       actorEmail: input.admin.email,
       details: { changes, ...(input.lockoutConfirmed ? { lockoutConfirmed: true } : {}) },
     });
+  }
+
+  /** Whether an email sent now would reach its recipient, or this is a developer's machine where the log stands in for it. */
+  private canDeliverEmail(): boolean {
+    return isLocalDevelopment() || this.emailProvider.isConfigured();
   }
 
   /**

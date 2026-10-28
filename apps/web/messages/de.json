@@ -1410,7 +1410,7 @@
       },
       "password": {
         "label": "E-Mail & Passwort",
-        "helper": "E-Mail/Passwort für Registrierung und Passwortverwaltung von Mandanten anbieten – die Anmeldung mit einem vorhandenen Passwort ist immer möglich."
+        "helper": "Unternehmen die Registrierung und Anmeldung mit E-Mail und Passwort ermöglichen. Wenn deaktiviert, wird das Formular ausgeblendet und der Server lehnt es ab, sodass Unternehmen, die nur ein Passwort haben, sich nicht anmelden können. Plattform-Admins und bereits angemeldete Personen sind nicht betroffen."
       },
       "google": {
         "label": "Google-Anmeldung",

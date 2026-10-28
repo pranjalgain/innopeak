@@ -96,6 +96,17 @@ export class NotificationChannelsNotImplementedException extends UnprocessableEn
   }
 }
 
+/**
+ * Turning the password switch on needs an email service: a password sign-up is completed by an emailed code, and invitations are emailed.
+ * 422 for the same reason as above: the request is well formed, the server just cannot honour it yet. Only the change from off to on is
+ * refused (see `AdminSettingsService.updatePlatformSettings`), and never on a local development machine, where mail is written to the log.
+ */
+export class PasswordLoginNeedsEmailServiceException extends UnprocessableEntityException {
+  constructor(message: string = MESSAGES.ADMIN.PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE) {
+    super({ message, code: 'PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE' });
+  }
+}
+
 export class BusinessNotFoundException extends NotFoundException {
   constructor(message: string = MESSAGES.ADMIN.BUSINESS_NOT_FOUND) {
     super({ message, code: 'BUSINESS_NOT_FOUND' });

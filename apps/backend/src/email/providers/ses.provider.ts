@@ -5,6 +5,9 @@ import { EmailProvider } from '@email/providers/email.provider';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+/** A setting the operator actually provided, as opposed to the default the provider falls back to. */
+const isSet = (value: string | undefined): boolean => (value ?? '').trim() !== '';
+
 @Injectable()
 export class SesEmailProvider extends EmailProvider {
   private readonly logger = new Logger(SesEmailProvider.name);
@@ -90,6 +93,11 @@ export class SesEmailProvider extends EmailProvider {
     this.logger.debug(`Email sent via SES: messageId=${messageId}`);
 
     return { messageId };
+  }
+
+  /** The sender must be set: it defaults to `noreply@example.com`, which no SES identity is verified for. */
+  isConfigured(): boolean {
+    return isSet(this.configService.get<string>('EMAIL_FROM'));
   }
 
   verify(): Promise<boolean> {

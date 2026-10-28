@@ -1,5 +1,9 @@
 # Jaeger Tracing Guide for NestJS Application
 
+> **Not used by InnoPeak.** The application emits no traces: there is no OpenTelemetry code, and the `OTEL_*`
+> and `JAEGER_*` settings in `.env.example` are read by nothing. This guide is left over from the starter
+> template. What monitoring exists is described in `apps/documentation/docs/infrastructure/observability.md`.
+
 ## Overview
 
 This guide explains how to use Jaeger distributed tracing with your NestJS application, including how to view traces, understand the database setup, and test tracing functionality.

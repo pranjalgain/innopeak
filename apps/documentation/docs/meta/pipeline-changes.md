@@ -4,6 +4,13 @@ sidebar_position: 2
 
 # PipeLine Changes
 
+:::warning This page describes the starter template's pipeline
+The `.gitlab-ci.yml` in the repository root is the template this project started from. It does not match
+the current repository: it runs `yarn` and `prisma:setup`, refers to `apps/frontend`, and its deploy
+jobs only print a message. The state of the automation, and what a working pipeline needs, are on
+[Deployment and releases](../infrastructure/deployment-and-releases.md#state-of-the-automation).
+:::
+
 **Updates to `.gitlab-ci.yml` After Adding an App**
 
 When adding new applications to the monorepo, you need to make corresponding changes to the `.gitlab-ci.yml` file to ensure the CI/CD pipeline recognizes and processes the new apps correctly. Below are the changes you need to implement:

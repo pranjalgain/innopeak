@@ -315,7 +315,7 @@ that surfaces them belongs to a different module.
 | `404` | `CHECKOUT_SESSION_TENANT_MISMATCH` | `POST /v1/billing/checkout/reconcile` | The Checkout Session's `metadata.tenantId` isn't the caller's tenant, **or Stripe has no such session** — a made-up id is indistinguishable from someone else's, and never a `500` echoing Stripe's own wording. |
 | `400` | `Validation Error` | `POST /v1/billing/checkout/reconcile` | `checkoutSessionId` isn't 1–255 characters of `A–Z a–z 0–9 _ -`. |
 | `400` | `PAYMENT_METHOD_NOT_USABLE` | `PUT /v1/billing/payment-method` | Stripe rejected the id: it doesn't exist, or isn't attached to this tenant's customer. (A body that isn't a `pm_…` id at all is a `400 Validation Error` before Stripe is called.) |
-| `503` | `PAYMENT_NOT_CONFIGURED` | Any route that calls Stripe (checkout, reconcile, cancel, profile, card) | `STRIPE_SECRET_KEY` is empty. Only possible while `PAYMENT_FEATURE_ENABLED` is off and outside production. |
+| `503` | `PAYMENT_NOT_CONFIGURED` | Any route that calls Stripe (checkout, reconcile, cancel, profile, card) | `STRIPE_SECRET_KEY` is empty. Only possible while `PAYMENT_FEATURE_ENABLED` is off, in production too. |
 | `400` | `LOCATION_NOT_ELIGIBLE_FOR_ACTIVATION` | `PUT /v1/billing/active-location` | The given `locationId` isn't this tenant's own, or isn't `status = 'active'` (disconnected). |
 | `400` | `Validation Error` | `PUT /v1/billing/active-location` | `locationId` missing or not a UUID. `message` is the comma-joined list of violations. |
 | `401` | `Unauthorized` | Every `BillingController` route | Missing, malformed, or expired access token. |

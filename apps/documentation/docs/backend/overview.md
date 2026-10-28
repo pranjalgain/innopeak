@@ -41,22 +41,23 @@ contracts). The pipeline has no HTTP surface, so it has an overview only.
 
 Two things to know before relying on any of them.
 
-**They document the target design, not shipped code.** `apps/backend/src/` is still largely the
-generic NestJS boilerplate this project started from: none of the modules above exist yet, the
-InnoPeak migrations are written but `src/db/drizzle/schema.ts` has not been regenerated from them,
-and the only working auth is the boilerplate's. Every module doc carries a "Gap between current
-code and target design" section listing exactly what has to be built or changed. Start there
-before writing code against any contract.
+**They describe the code as built, with the gaps called out.** The modules above exist in
+`apps/backend/src/api/`, and `src/db/drizzle/schema.ts` is generated from the migrations. Each
+`api-reference.md` opens by saying whether it documents the implemented behaviour or an original
+spec, and module overviews end with a "Gap between current code and target design" or "Known
+limitations" section listing what is not built. Platform Admin is the one module whose spec is still
+only partly built. Read that section before writing code against a contract.
 
 **Every schema claim is checkable.** Table, column, enum, index and constraint references point at
 `apps/backend/src/db/drizzle/migrations/*.sql`, and where a module needs something the schema does
 not have, the doc says so explicitly and specifies the follow-up migration rather than assuming
-it. Those follow-ups are not yet consolidated into a single numbered plan — several modules
-propose migrations against tables another module owns.
+it.
 
 ## Cross-cutting behaviour
 
 Running it in production (processes, required variables, probes, migrating, alerts) is in [Operations](./operations.md).
+What each service does, every environment variable and every setting is in [Services](../services/overview.md). Servers, sizing, secrets,
+monitoring and releases are in [Infrastructure](../infrastructure/overview.md).
 
 - **Localized messages.** Every user-facing string, including validation errors, is rendered in the caller's locale at the response edge
   ([Multilingual](../meta/multilingual.md)); both `messages.en.ts` and `messages.de.ts` are required.
