@@ -18,6 +18,8 @@ export const messagesDe: MessageCatalog = {
       'Die Registrierung mit diesem Anbieter ist auf dieser Plattform deaktiviert. Verwenden Sie eine andere Anmeldemethode.',
     PASSWORD_SIGNUP_DISABLED:
       'Die Registrierung mit E-Mail und Passwort ist auf dieser Plattform deaktiviert. Verwenden Sie eine andere Anmeldemethode.',
+    PASSWORD_LOGIN_DISABLED:
+      'Die Anmeldung mit E-Mail und Passwort ist auf dieser Plattform deaktiviert. Verwenden Sie eine andere Anmeldemethode.',
     INVALID_OR_EXPIRED_OTP: 'Ungültiger oder abgelaufener Bestätigungscode.',
     TOO_MANY_OTP_ATTEMPTS:
       'Zu viele Bestätigungsversuche. Fordern Sie einen neuen Code an und versuchen Sie es in Kürze erneut.',
@@ -336,6 +338,8 @@ export const messagesDe: MessageCatalog = {
       'Mindestens eine Anmeldemethode (Microsoft, E-Mail/Passwort oder Google) muss aktiviert bleiben.',
     NOTIFICATION_CHANNELS_NOT_IMPLEMENTED:
       'E-Mail- und Teams-Benachrichtigungen sind noch nicht umgesetzt, daher können die Benachrichtigungseinstellungen nicht aktiviert werden.',
+    PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE:
+      'Die Anmeldung mit E-Mail und Passwort kann noch nicht aktiviert werden: Auf diesem Server ist kein E-Mail-Dienst eingerichtet, daher könnten Registrierungscodes und Einladungen nicht zugestellt werden. Richten Sie zuerst den E-Mail-Versand ein und versuchen Sie es dann erneut.',
     CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS: (provider: string, count: number): string => {
       if (count === 1) {
         return `${provider} ist die einzige Anmeldemöglichkeit für einen Benutzer. Wird es deaktiviert, ist er ausgesperrt, bis es wieder aktiviert wird. Bestätigen Sie, um es trotzdem zu deaktivieren.`;

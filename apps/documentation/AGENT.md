@@ -25,8 +25,12 @@ This is the **Docusaurus documentation application** within the monorepo. It ser
    ├── web/               # Web application docs  
    ├── mobile/            # Mobile application docs
    ├── shared/            # Shared libraries docs
+   ├── services/          # Cross-app: deployed services, configuration and settings
+   ├── infrastructure/    # Cross-app: infrastructure, sizing, secrets, monitoring, releases
    └── meta/              # Project-wide documentation
    ```
+
+   `services/` and `infrastructure/` span the API, worker, web app and docs site, so they sit beside the per-app folders rather than inside one. Keep one source per fact: the environment variable reference lives in `services/configuration-reference.md` and the capacity numbers in `infrastructure/capacity-and-scaling.md`; link to them instead of copying their tables.
 
 2. **Required Files per App Folder**:
    - `overview.md` - App introduction and purpose

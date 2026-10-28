@@ -1410,7 +1410,7 @@
       },
       "password": {
         "label": "Email & password",
-        "helper": "Offer email/password for tenant sign-up and password management — existing password sign-in is always available."
+        "helper": "Let businesses sign up and sign in with an email and password. When off, the form is hidden and the server refuses it, so businesses that only have a password cannot sign in. Platform admins and people already signed in are not affected."
       },
       "google": {
         "label": "Google sign-in",

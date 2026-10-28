@@ -22,4 +22,9 @@ export class NoopEmailProvider extends EmailProvider {
   verify(): Promise<boolean> {
     return Promise.resolve(true);
   }
+
+  /** It logs instead of sending, so no recipient is ever reached. */
+  isConfigured(): boolean {
+    return false;
+  }
 }

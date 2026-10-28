@@ -81,4 +81,26 @@ describe('SesEmailProvider', () => {
       await expect(target.verify()).resolves.toBe(true);
     });
   });
+
+  // The sender defaults to noreply@example.com, which no SES identity is verified for.
+  describe('isConfigured', () => {
+    const withSender = (sender: string | undefined): void => {
+      configService.get.mockImplementation((key: string) => {
+        return key === 'EMAIL_FROM' ? sender : undefined;
+      });
+    };
+
+    it('is true when a sender is set', () => {
+      withSender('noreply@innopeak.test');
+      expect(target.isConfigured()).toBe(true);
+    });
+
+    it('is false without a sender, or with a blank one', () => {
+      withSender(undefined);
+      expect(target.isConfigured()).toBe(false);
+
+      withSender(' ');
+      expect(target.isConfigured()).toBe(false);
+    });
+  });
 });

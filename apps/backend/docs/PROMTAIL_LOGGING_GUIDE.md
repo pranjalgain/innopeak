@@ -1,5 +1,9 @@
 # Promtail Logging Flow - Complete Guide
 
+> **Not used by InnoPeak as configured.** The application writes logs to standard output only and never
+> creates log files, so a Promtail that tails `./logs/*.log` ships nothing. This guide is left over from the
+> starter template. See `apps/documentation/docs/infrastructure/observability.md` for how logs are collected.
+
 ## Overview
 
 Promtail is a log aggregation agent that collects logs from your NestJS application and sends them to Loki for storage and Grafana for visualization.

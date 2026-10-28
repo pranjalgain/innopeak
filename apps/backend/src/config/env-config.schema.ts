@@ -96,26 +96,19 @@ export const validationSchema = Joi.object({
   GBP_STATE_SECRET: Joi.string().min(32).allow(null, ''),
   CREDENTIAL_ENCRYPTION_KEY: Joi.string().base64().allow(null, ''),
   PAYMENT_FEATURE_ENABLED: Joi.string().valid('true', 'false').allow(null, ''),
-  // Required in production, and in any environment that turns payments on: without the webhook secret `StripePaymentProvider`
-  // defaults to an empty string and rejects every real delivery with no boot-time signal. Optional otherwise, so an install
-  // that never takes payments needs no Stripe keys (its client is created on first use).
-  STRIPE_SECRET_KEY: Joi.when('NODE_ENV', {
-    is: 'production',
+  // Required in any environment that turns payments on, production included: without the webhook secret `StripePaymentProvider`
+  // defaults to an empty string and rejects every real delivery with no boot-time signal. Optional otherwise, production too, so an
+  // install that does not take payments yet needs no Stripe keys: the client is created on first use, nothing calls Stripe for a
+  // business with no Stripe customer, and the payment routes answer 503 PAYMENT_NOT_CONFIGURED.
+  STRIPE_SECRET_KEY: Joi.when('PAYMENT_FEATURE_ENABLED', {
+    is: 'true',
     then: Joi.string().required(),
-    otherwise: Joi.when('PAYMENT_FEATURE_ENABLED', {
-      is: 'true',
-      then: Joi.string().required(),
-      otherwise: Joi.string().allow(null, ''),
-    }),
+    otherwise: Joi.string().allow(null, ''),
   }),
-  STRIPE_WEBHOOK_SECRET: Joi.when('NODE_ENV', {
-    is: 'production',
+  STRIPE_WEBHOOK_SECRET: Joi.when('PAYMENT_FEATURE_ENABLED', {
+    is: 'true',
     then: Joi.string().required(),
-    otherwise: Joi.when('PAYMENT_FEATURE_ENABLED', {
-      is: 'true',
-      then: Joi.string().required(),
-      otherwise: Joi.string().allow(null, ''),
-    }),
+    otherwise: Joi.string().allow(null, ''),
   }),
   STRIPE_PRICE_ID_PAID: Joi.string().allow(null, ''),
   // Optional in every environment: providers validate their own config lazily on first call (a missing key fails that

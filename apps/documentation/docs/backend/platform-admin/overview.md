@@ -4,6 +4,16 @@ sidebar_position: 1
 
 # Platform Admin Module
 
+:::note Status
+This is the original design for the platform-admin module, and it is only **partly built**. The
+admin console that exists (businesses, users, overview, statistics, billing views, platform settings,
+admin invitations) is documented in [Admin overview](../admin-overview/overview.md),
+[Admin management](../admin-management/overview.md), [Admin billing](../admin-billing/overview.md)
+and [Roles and permissions](../../services/roles-and-permissions.md). Not built: provisioning a
+business on a customer's behalf and a per-business inspection view. Where this document and the code
+disagree, the code wins.
+:::
+
 ## Overview
 
 The platform-admin module is the only module in this backend whose principal is **not** scoped to

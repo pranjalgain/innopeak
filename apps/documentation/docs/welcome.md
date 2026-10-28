@@ -2,55 +2,32 @@
 sidebar_position: 1
 ---
 
-# Welcome to App Boilerplate
+# Welcome to InnoPeak
 
-![Project Logo](../assets/logo.png)
+InnoPeak helps a business keep up with its Google reviews. It reads each new review from the
+business's Google Business Profile, decides whether it needs a person, drafts replies with AI, holds
+them for the owner's approval (automatic posting is off by default), and posts the approved reply back to Google. Risky reviews are escalated
+to a responsible person instead of getting an automatic answer.
 
-Welcome to the **App Boilerplate** documentation hub! 🚀
+This site documents how it is built, what is deployed, how it is configured, and what is needed to run
+it.
 
-This comprehensive guide is designed to help developers, teams, and AI assistants navigate and contribute to our modern monorepo application boilerplate. Whether you're setting up your first application or scaling to multiple services, you'll find everything you need here.
+## Start here
 
-## What You'll Find Here
+| If you want to know | Read |
+|---|---|
+| What is deployed, and what each service does | [Services](./services/overview.md) |
+| Every setting: environment variables, platform switches, business settings, roles | [Configuration reference](./services/configuration-reference.md), [Platform settings](./services/platform-settings.md), [Business settings](./services/business-settings.md), [Roles and permissions](./services/roles-and-permissions.md) |
+| What infrastructure it needs, how big, and what is still missing | [Infrastructure](./infrastructure/overview.md) and [Open items](./infrastructure/open-items.md) |
+| How to run it in production | [Operations](./backend/operations.md), [Deployment and releases](./infrastructure/deployment-and-releases.md) |
 
-This documentation is organized by application type for easy navigation:
+## For developers
 
-### 📱 Applications
+- **[Backend](./backend/overview.md):** the NestJS API and background worker, with a page per module
+  and its API reference.
+- **[Frontend](./frontend/overview.md):** the Next.js business and admin consoles.
+- **[Shared libraries](./shared/overview.md):** the generated API client.
+- **[Architecture](./meta/architecture.md):** how the pieces fit together.
+- **[Contributing](./meta/contributing.md)** and the **[style guide](./meta/style-guide.md)**.
 
-- **[Backend](./backend/overview.md)** - Server-side applications (NestJS, Express, FastAPI)
-- **[Frontend](./frontend/overview.md)** - Client-side applications (Next.js, React, Vue, Angular)
-- **[Shared Libraries](./shared/overview.md)** - Reusable code and utilities
-
-### 📚 Project Information
-
-- **[Architecture](./meta/architecture.md)** - System design and technology decisions
-- **[Contributing](./meta/contributing.md)** - How to contribute to the project
-- **[Style Guide](./meta/style-guide.md)** - Documentation standards and best practices
-- **[Pipeline Changes](./meta/pipeline-changes.md)** - CI/CD configuration guide
-
-## Quick Start
-
-Ready to begin? Here's how to get started:
-
-1. **📥 Setup**: Install dependencies with `pnpm install` from the project root
-2. **📖 Explore**: Browse the application-specific documentation
-3. **🔧 Develop**: Add your applications following our guidelines
-4. **📝 Document**: Keep documentation updated as you build
-
-## Key Features
-
-- ✅ **pnpm Workspaces**: Efficient package management
-- ✅ **TypeScript**: Type-safe development across all apps
-- ✅ **Modern Tooling**: ESLint, Prettier, Playwright pre-configured
-- ✅ **AI-Friendly**: Structured for both human and AI collaboration
-- ✅ **Scalable**: Designed to grow with your project needs
-
-## Need Help?
-
-- 🤖 **AI Assistants**: Reference the `claude.md` file for comprehensive context
-- 📚 **Documentation**: Explore the sections above for detailed information
-- 🔧 **Issues**: Check the troubleshooting guides in each application section
-- 💬 **Community**: Follow our [contributing guidelines](./meta/contributing.md)
-
----
-
-Happy building! This boilerplate is designed to accelerate your development journey. 🎉
+Run the documentation locally with `pnpm docs:dev` from the repository root.

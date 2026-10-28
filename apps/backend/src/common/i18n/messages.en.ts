@@ -12,6 +12,8 @@ export const messagesEn: MessageCatalog = {
       'Signing up with this provider is turned off for this platform. Use another sign-in method.',
     PASSWORD_SIGNUP_DISABLED:
       'Signing up with an email and password is turned off for this platform. Use another sign-in method.',
+    PASSWORD_LOGIN_DISABLED:
+      'Signing in with an email and password is turned off for this platform. Use another sign-in method.',
     // Same message whether the code never existed, was used, or expired (no enumeration).
     INVALID_OR_EXPIRED_OTP: 'Invalid or expired verification code.',
     // The counter is keyed on the submitted address either way, so this doesn't reveal whether an account matches.
@@ -306,6 +308,8 @@ export const messagesEn: MessageCatalog = {
       'At least one sign-in method (Microsoft, email/password, or Google) must stay enabled.',
     NOTIFICATION_CHANNELS_NOT_IMPLEMENTED:
       'Email and Teams notifications are not implemented yet, so notification settings cannot be turned on.',
+    PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE:
+      'Email and password sign-in cannot be turned on yet: no email service is set up on this server, so sign-up codes and invitations could not be delivered. Set up email delivery first, then try again.',
     CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS: (provider: string, count: number): string => {
       const who = count === 1 ? 'one user' : `${count} users`;
       return `${provider} is the only way ${who} can sign in. Turning it off locks them out until it is turned back on. Confirm to turn it off anyway.`;

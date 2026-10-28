@@ -58,6 +58,7 @@ import {
   NewPasswordSameAsCurrentException,
   NoPasswordSetException,
   PasswordAlreadySetException,
+  PasswordLoginDisabledException,
   PasswordSignupDisabledException,
   SsoPendingSignupExpiredException,
   SsoSignupDisabledException,
@@ -146,9 +147,8 @@ export class AuthService {
    * `AdminSettingsService.sendInvite` has no mirror guard either.
    */
   async signup(dto: SignupDto): Promise<SignupIssuanceResult> {
-    // The platform's password switch, enforced here and not only by hiding the form. It covers new sign-ups only: someone who already
-    // has a password still signs in, changes it and accepts invites, so switching it off never locks anyone out.
-    if (!(await this.isPasswordSignupEnabled())) {
+    // The platform's password switch, enforced here and not only by hiding the form.
+    if (!(await this.isPasswordAuthEnabled())) {
       throw new PasswordSignupDisabledException();
     }
 
@@ -189,6 +189,7 @@ export class AuthService {
     dto: VerifyEmailDto,
     signupBinding: string | undefined
   ): Promise<TokenIssuanceResult> {
+    await this.assertPasswordAuthEnabled();
     const email = normalizeEmail(dto.email);
 
     // Before the budget is touched: a stranger without this browser's binding gets the wrong-code answer without spending the address's
@@ -233,6 +234,9 @@ export class AuthService {
    * /v1/admin/auth/login`.
    */
   async login(dto: LoginDto): Promise<PendingVerificationLoginResult | TokenIssuanceResult> {
+    // First, before the attempt budget or any lookup: with the switch off nobody signs in by password, so the answer cannot depend on
+    // the address and a wrong password must not be counted against it.
+    await this.assertPasswordAuthEnabled();
     const email = normalizeEmail(dto.email);
 
     // Per-account ceiling, checked before any DB work: the per-IP throttle doesn't stop credential
@@ -322,6 +326,7 @@ export class AuthService {
    * acknowledgement to prevent email enumeration.
    */
   async resendOtp(dto: ResendOtpDto): Promise<{ message: string }> {
+    await this.assertPasswordAuthEnabled();
     const email = normalizeEmail(dto.email);
     const user = await this.authDbService.findUserForLogin(email);
 
@@ -593,6 +598,8 @@ export class AuthService {
    * `name`, since the invite form is email-only.
    */
   async acceptMemberInvite(dto: AcceptMemberInviteDto): Promise<TokenIssuanceResult> {
+    // Accepting with a password is a password sign-in; the invite is not spent while the switch is off (Google acceptance has its own check).
+    await this.assertPasswordAuthEnabled();
     // Checked before redemption so a suspended tenant doesn't burn the invite (member activated,
     // token consumed) before `assertGoodStanding` refuses at the end.
     await this.assertMemberInviteTenantActive(hashToken(dto.token));
@@ -1031,10 +1038,21 @@ export class AuthService {
     return settings?.googleLoginEnabled !== false;
   }
 
-  /** The same rule for new email/password sign-ups; a missing row reads as on. */
-  private async isPasswordSignupEnabled(): Promise<boolean> {
+  /**
+   * `platform_settings.password_login_enabled` is the platform's email/password switch, enforced here and not only by hiding the form.
+   * Off, it refuses every way of getting a session from an email and a password: sign-up, sign-in, the code that completes a sign-up,
+   * and accepting an invitation with a password. It does not end sessions that already exist, and platform admins sign in through
+   * `PlatformAdminAuthService`, which never consults it. A missing row reads as on (the column default).
+   */
+  private async isPasswordAuthEnabled(): Promise<boolean> {
     const settings = await this.platformSettingsDbService.get();
     return settings?.passwordLoginEnabled !== false;
+  }
+
+  private async assertPasswordAuthEnabled(): Promise<void> {
+    if (!(await this.isPasswordAuthEnabled())) {
+      throw new PasswordLoginDisabledException();
+    }
   }
 
   /**

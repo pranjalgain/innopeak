@@ -135,4 +135,27 @@ describe('SmtpEmailProvider', () => {
       await expect(target.onModuleInit()).resolves.toBeUndefined();
     });
   });
+
+  // The host defaults to localhost and the sender to noreply@example.com, which would pass for configured while delivering nothing real.
+  describe('isConfigured', () => {
+    const only = (values: Record<string, string>) =>
+      configService.get.mockImplementation((key: string) => values[key]);
+
+    it('is true when a host and a sender are both set', () => {
+      expect(target.isConfigured()).toBe(true);
+    });
+
+    it('is false without a host', () => {
+      only({ EMAIL_FROM: 'noreply@innopeak.test' });
+      expect(target.isConfigured()).toBe(false);
+    });
+
+    it('is false without a sender, or with a blank one', () => {
+      only({ SMTP_HOST: 'smtp.example.com' });
+      expect(target.isConfigured()).toBe(false);
+
+      only({ SMTP_HOST: 'smtp.example.com', EMAIL_FROM: '   ' });
+      expect(target.isConfigured()).toBe(false);
+    });
+  });
 });

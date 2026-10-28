@@ -1,5 +1,9 @@
 # Jaeger Debug Guide - Service Name Issue
 
+> **Not used by InnoPeak.** The application emits no traces: there is no OpenTelemetry code, and the `OTEL_*`
+> and `JAEGER_*` settings in `.env.example` are read by nothing. This guide is left over from the starter
+> template. What monitoring exists is described in `apps/documentation/docs/infrastructure/observability.md`.
+
 ## Problem
 
 Traces are being generated but showing as `jaeger-all-in-one` instead of `nestjs-app` in Jaeger UI.

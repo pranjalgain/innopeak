@@ -12,7 +12,7 @@ Browser ──► apps/web (Next.js 16) ──/v1/* rewrite──► apps/backen
                        PostgreSQL (Drizzle, SQL-first) ◄┘   └─► Redis ─► BullMQ / SQS queues ─► worker (same codebase)
                                                                                    │
         Google Business Profile ◄── poll, backfill, reply ─────────────────────────┤
-        OpenRouter (LLM drafts) ◄── generate ──────────────────────────────────────┤
+        AI provider (Azure OpenAI, EU region; or OpenRouter) ◄── generate ─────────┤
         Stripe (Checkout, Portal, webhooks) ◄──► API        Cloudinary (avatars, direct upload) ◄──► API
 ```
 
@@ -36,7 +36,7 @@ Browser ──► apps/web (Next.js 16) ──/v1/* rewrite──► apps/backen
 - **Backend**: NestJS 11, Drizzle ORM over PostgreSQL (raw SQL migrations first), Redis, BullMQ locally and SQS in the AWS-emulated
   target (`DEPLOYMENT_TARGET`), Joi-validated environment
 - **Web**: Next.js 16 App Router, React 19, TanStack Query, react-hook-form + zod, next-intl (English and German), Tailwind and Radix
-- **Integrations**: Google Business Profile (OAuth, reviews, replies), OpenRouter (LLM), Stripe, Cloudinary, SMTP/SES email
+- **Integrations**: Google Business Profile (OAuth, reviews, replies), Azure OpenAI by default or OpenRouter (LLM), Stripe, Cloudinary, SMTP/SES email
 - **Documentation**: Docusaurus (this site)
 
 ### Development Tools
@@ -91,10 +91,14 @@ Browser ──► apps/web (Next.js 16) ──/v1/* rewrite──► apps/backen
 
 ## Deployment Strategy
 
-- **Applications**: Can be deployed independently
-- **Shared Libraries**: Bundled with consuming applications
-- **Documentation**: Static site deployment
-- **CI/CD**: Automated testing and deployment pipelines
+- **Processes**: the API and the worker are one backend image started with two commands, and the web app is deployed on its own.
+  The documentation site is static files. The migration job runs once per release, before the new version takes traffic.
+- **Shared Libraries**: bundled with consuming applications (`libs/client_sdk`).
+- **State**: PostgreSQL 18 or newer and Redis, both required. Redis is not disposable: it holds queued jobs and sign-out marks.
+- **Status**: the repository defines a local stack, an emulated AWS stack for testing and Kubernetes templates, but no production
+  infrastructure, working CI/CD pipeline or web image yet. What exists, what is missing and what needs a decision are on
+  [Infrastructure](../infrastructure/overview.md) and [Open items](../infrastructure/open-items.md). What each service does is on
+  [Services](../services/overview.md).
 
 ## Quality Assurance
 
@@ -113,6 +117,12 @@ Browser ──► apps/web (Next.js 16) ──/v1/* rewrite──► apps/backen
 - Documentation testing for accuracy
 
 ## Scalability Considerations
+
+### Running at scale
+
+The API and web app are stateless and scale by adding replicas. The worker scales for availability rather than speed, because Google's
+quota limits review sync. Database connections are the first hard limit: connections needed are (API replicas + worker replicas)
+x `DB_POOL_MAX`. See [Capacity and scaling](../infrastructure/capacity-and-scaling.md).
 
 ### Adding New Applications
 

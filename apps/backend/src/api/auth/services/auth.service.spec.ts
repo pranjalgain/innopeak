@@ -32,7 +32,10 @@ import { OtpScope } from '../enums/otp-scope.enum';
 import { TenantStatus } from '../enums/tenant-status.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
-import { PasswordSignupDisabledException } from '../exceptions/auth.exceptions';
+import {
+  PasswordLoginDisabledException,
+  PasswordSignupDisabledException,
+} from '../exceptions/auth.exceptions';
 import { GoogleIdentityProvider } from '../providers/google-identity.provider';
 import { MicrosoftIdentityProvider } from '../providers/microsoft-identity.provider';
 import { VerifyEmailTokenProvider } from '../providers/verify-email-token.provider';
@@ -311,6 +314,63 @@ describe('AuthService', () => {
         body: { tenantId: 'tenant-1' },
       });
       expect(authDbService.signup).toHaveBeenCalled();
+    });
+  });
+
+  // The platform's password switch is not only a sign-up switch: with no way to deliver email there is no sign-in by password either.
+  // Each entry point must refuse before it reads an account, spends an attempt budget or consumes an invitation.
+  describe('with the platform’s email/password switch off', () => {
+    beforeEach(() => {
+      platformSettingsDbService.get.mockResolvedValue({ passwordLoginEnabled: false });
+    });
+
+    it('refuses to sign in, before the attempt budget or any account lookup', async () => {
+      await expect(
+        target.login({ email: 'jane@thecoffeehouse.com', password: 'StrongP@ss1' })
+      ).rejects.toBeInstanceOf(PasswordLoginDisabledException);
+
+      expect(loginAttemptService.isLockedOut).not.toHaveBeenCalled();
+      expect(loginAttemptService.recordFailure).not.toHaveBeenCalled();
+      expect(authDbService.findUserForLogin).not.toHaveBeenCalled();
+    });
+
+    it('refuses the code that completes a password sign-up', async () => {
+      await expect(
+        target.verifyEmail({ email: 'jane@thecoffeehouse.com', otp: '123456' }, 'binding-token')
+      ).rejects.toBeInstanceOf(PasswordLoginDisabledException);
+
+      expect(otpAttemptService.consumeAttempt).not.toHaveBeenCalled();
+      expect(authDbService.verifyEmail).not.toHaveBeenCalled();
+    });
+
+    it('refuses to resend that code', async () => {
+      await expect(target.resendOtp({ email: 'jane@thecoffeehouse.com' })).rejects.toBeInstanceOf(
+        PasswordLoginDisabledException
+      );
+
+      expect(authDbService.findUserForLogin).not.toHaveBeenCalled();
+    });
+
+    it('refuses to accept an invitation with a password, leaving the invitation unspent', async () => {
+      await expect(
+        target.acceptMemberInvite({
+          token: 'raw-token-1',
+          name: 'Sam Rivera',
+          password: 'NewStr0ng@Pass',
+        })
+      ).rejects.toBeInstanceOf(PasswordLoginDisabledException);
+
+      expect(authDbService.acceptMemberInviteWithPassword).not.toHaveBeenCalled();
+    });
+
+    it('signs in again once the switch is back on', async () => {
+      platformSettingsDbService.get.mockResolvedValue({ passwordLoginEnabled: true });
+      authDbService.findUserForLogin.mockResolvedValue(null);
+
+      await expect(target.login({ email: 'nobody@example.com', password: 'x' })).rejects.toThrow(
+        UnauthorizedException
+      );
+      expect(authDbService.findUserForLogin).toHaveBeenCalled();
     });
   });
 

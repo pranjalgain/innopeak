@@ -111,4 +111,34 @@ describe('production-only environment requirements', () => {
       expect(complainsAbout('METRICS_TOKEN', { NODE_ENV: 'development' })).toBe(false);
     });
   });
+
+  // Stripe is not needed until payments are: a production install with them off must start without any Stripe key.
+  describe.each(['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'])('%s', key => {
+    it('is optional in production while payments are off or unset', () => {
+      expect(complainsAbout(key, { NODE_ENV: 'production' })).toBe(false);
+      expect(
+        complainsAbout(key, { NODE_ENV: 'production', PAYMENT_FEATURE_ENABLED: 'false' })
+      ).toBe(false);
+    });
+
+    it('is required in production once payments are switched on', () => {
+      expect(complainsAbout(key, { NODE_ENV: 'production', PAYMENT_FEATURE_ENABLED: 'true' })).toBe(
+        true
+      );
+      expect(
+        complainsAbout(key, {
+          NODE_ENV: 'production',
+          PAYMENT_FEATURE_ENABLED: 'true',
+          [key]: 'sk_test_value',
+        })
+      ).toBe(false);
+    });
+
+    it('is required outside production too once payments are switched on, and optional otherwise', () => {
+      expect(
+        complainsAbout(key, { NODE_ENV: 'development', PAYMENT_FEATURE_ENABLED: 'true' })
+      ).toBe(true);
+      expect(complainsAbout(key, { NODE_ENV: 'development' })).toBe(false);
+    });
+  });
 });
