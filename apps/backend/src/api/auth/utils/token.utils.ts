@@ -8,7 +8,7 @@ export function hashToken(rawToken: string): string {
 }
 
 /**
- * Bound to the admin id because `platform_admin_invites.token_hash` is table-wide UNIQUE and a
+ * Bound to the admin id because `platform_admin_auth_tokens.token_hash` is table-wide UNIQUE and a
  * 6-digit OTP collides across admins (always in dev, with its fixed code). `consumeSetPasswordOtp`
  * recomputes it from `(platform_admin_id, token_hash)`.
  */

@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS platform_admin_identities (
 CREATE INDEX idx_platform_admin_identities_platform_admin_id ON platform_admin_identities(platform_admin_id);
 CREATE UNIQUE INDEX idx_platform_admin_identities_provider_provider_user_id ON platform_admin_identities(provider, provider_user_id);
 
-CREATE TABLE IF NOT EXISTS platform_admin_invites (
+CREATE TABLE IF NOT EXISTS platform_admin_auth_tokens (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     platform_admin_id UUID NOT NULL REFERENCES platform_admins(id) ON DELETE CASCADE,
     token_hash VARCHAR(255) NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS platform_admin_invites (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_platform_admin_invites_platform_admin_id ON platform_admin_invites(platform_admin_id);
-CREATE UNIQUE INDEX idx_platform_admin_invites_token_hash ON platform_admin_invites(token_hash);
+CREATE INDEX idx_platform_admin_auth_tokens_platform_admin_id ON platform_admin_auth_tokens(platform_admin_id);
+CREATE UNIQUE INDEX idx_platform_admin_auth_tokens_token_hash ON platform_admin_auth_tokens(token_hash);
 -- One live row per (admin, purpose): a resent code updates it.
-CREATE UNIQUE INDEX idx_platform_admin_invites_platform_admin_id_purpose ON platform_admin_invites(platform_admin_id, purpose);
+CREATE UNIQUE INDEX idx_platform_admin_auth_tokens_platform_admin_id_purpose ON platform_admin_auth_tokens(platform_admin_id, purpose);

@@ -1,0 +1,33 @@
+# Docker builds use the repository root as context (see apps/backend/Dockerfile and
+# apps/web/Dockerfile). Keep the workspace lockfile and every workspace package.json in context;
+# everything generated or local-only is excluded.
+
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/.turbo
+**/.swc
+**/*.tsbuildinfo
+**/.eslintcache
+
+.git
+.claude
+.github
+.vscode
+.idea
+
+.env
+.env.*
+!.env.example
+
+**/logs
+**/data
+**/test-results
+**/playwright-report
+**/allure-results
+**/artillery
+
+infra
+k3s
+apps/documentation

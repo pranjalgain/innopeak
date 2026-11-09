@@ -86,6 +86,7 @@ import {
   ApiGoogleAuthorize,
   ApiGoogleCallback,
   ApiInviteGoogleAuthorize,
+  ApiInviteMicrosoftAuthorize,
   ApiLogin,
   ApiLogout,
   ApiMe,
@@ -523,6 +524,33 @@ export class AuthController {
       GOOGLE_AUTH_SID_COOKIE_NAME,
       redirect.sid,
       buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS)
+    );
+    res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
+  }
+
+  /**
+   * Microsoft counterpart of the Google invite route: own route for the same reason, completing at
+   * the shared Microsoft callback via `OAuthIntent.INVITE`.
+   */
+  @Get(RouteNames.INVITE_MICROSOFT)
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiInviteMicrosoftAuthorize()
+  async inviteMicrosoftAuthorize(
+    @Param('token') token: string,
+    @Res() res: Response
+  ): Promise<void> {
+    const redirect = await this.authService.buildMemberInviteMicrosoftRedirect(token);
+
+    if (!redirect.ok) {
+      res.redirect(HttpStatus.FOUND, redirect.redirectUrl);
+      return;
+    }
+
+    res.cookie(
+      MICROSOFT_AUTH_SID_COOKIE_NAME,
+      redirect.sid,
+      buildCookieOptions(MICROSOFT_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS)
     );
     res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }

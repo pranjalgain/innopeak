@@ -1,5 +1,6 @@
 .gitignore
 .npmignore
+.openapi-generator-ignore
 README.md
 api.ts
 api/admin-auth-api.ts
@@ -93,8 +94,10 @@ models/pagination-meta-dto.ts
 models/payment-method-response-dto.ts
 models/pending-account-dto.ts
 models/pending-accounts-response-dto.ts
+models/platform-activity-details-dto.ts
 models/platform-activity-list-response-dto.ts
 models/platform-activity-response-dto.ts
+models/platform-setting-change-dto.ts
 models/platform-settings-response-dto.ts
 models/post-erasure-charge-response-dto.ts
 models/post-queued-response-dto.ts

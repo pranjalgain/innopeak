@@ -65,7 +65,7 @@ Fixed security headers (frame protection, MIME sniffing, referrer, permissions a
 | Build and start | `next build`, then `next start` (development runs on port 3002) |
 | Health | `GET /api/health` returns `{"status":"ok", ...}` with the uptime. It checks nothing else, so it is a liveness check, not a readiness check |
 | Error reporting | Sentry, enabled by `NEXT_PUBLIC_SENTRY_DSN`. Uploading source maps during the build also needs `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` and `SENTRY_PROJECT` together. The backend has no Sentry |
-| Container | There is no Dockerfile for the web app yet, and `next.config.ts` does not set `output: 'standalone'`. See [Compute and containers](../infrastructure/compute-and-containers.md) |
+| Container | `apps/web/Dockerfile` builds a standalone Next.js runtime image from the repository root. See [Compute and containers](../infrastructure/compute-and-containers.md#the-web-image) |
 | Languages | English and German. Every user-facing string needs both (`apps/web/messages/en.json` and `de.json`) |
 
 Environment variables (`apps/web/env.ts`) are listed in the

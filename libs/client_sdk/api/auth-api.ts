@@ -441,6 +441,56 @@ export const AuthApiAxiosParamCreator = function (
       };
     },
     /**
+     * The Microsoft alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/microsoft` login, since a first-time invitee has no `user_identities` row yet for that callback branch to find. Re-validates the token (unexpired, unused) and the `microsoft_login_enabled` switch before ever redirecting, so a dead link or a switched-off provider fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/microsoft/callback`: the verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Microsoft account from redeeming this link.
+     * @summary Accept a tenant-member invite via Microsoft
+     * @param {string} token The raw invite token from the accept-invite link
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerInviteMicrosoftAuthorizeV1: async (
+      token: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'token' is not null or undefined
+      assertParamExists(
+        'authControllerInviteMicrosoftAuthorizeV1',
+        'token',
+        token,
+      );
+      const localVarPath = `/v1/auth/invite/{token}/microsoft`.replace(
+        '{token}',
+        encodeURIComponent(String(token)),
+      );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * Tenant-user login only — platform admins have their own route, `POST /v1/admin/auth/login` (see `separate-admin-login-design.md` for why the two were split apart). A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts fail with 403. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Password login
      * @param {LoginDto} loginDto
@@ -1515,6 +1565,37 @@ export const AuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * The Microsoft alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/microsoft` login, since a first-time invitee has no `user_identities` row yet for that callback branch to find. Re-validates the token (unexpired, unused) and the `microsoft_login_enabled` switch before ever redirecting, so a dead link or a switched-off provider fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/microsoft/callback`: the verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Microsoft account from redeeming this link.
+     * @summary Accept a tenant-member invite via Microsoft
+     * @param {string} token The raw invite token from the accept-invite link
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async authControllerInviteMicrosoftAuthorizeV1(
+      token: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.authControllerInviteMicrosoftAuthorizeV1(
+          token,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AuthApi.authControllerInviteMicrosoftAuthorizeV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Tenant-user login only — platform admins have their own route, `POST /v1/admin/auth/login` (see `separate-admin-login-design.md` for why the two were split apart). A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts fail with 403. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Password login
      * @param {LoginDto} loginDto
@@ -2173,6 +2254,24 @@ export const AuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * The Microsoft alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/microsoft` login, since a first-time invitee has no `user_identities` row yet for that callback branch to find. Re-validates the token (unexpired, unused) and the `microsoft_login_enabled` switch before ever redirecting, so a dead link or a switched-off provider fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/microsoft/callback`: the verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Microsoft account from redeeming this link.
+     * @summary Accept a tenant-member invite via Microsoft
+     * @param {AuthApiAuthControllerInviteMicrosoftAuthorizeV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    authControllerInviteMicrosoftAuthorizeV1(
+      requestParameters: AuthApiAuthControllerInviteMicrosoftAuthorizeV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .authControllerInviteMicrosoftAuthorizeV1(
+          requestParameters.token,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Tenant-user login only — platform admins have their own route, `POST /v1/admin/auth/login` (see `separate-admin-login-design.md` for why the two were split apart). A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts fail with 403. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
      * @summary Password login
      * @param {AuthApiAuthControllerLoginV1Request} requestParameters Request parameters.
@@ -2512,6 +2611,18 @@ export interface AuthApiInterface {
   ): AxiosPromise<void>;
 
   /**
+   * The Microsoft alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/microsoft` login, since a first-time invitee has no `user_identities` row yet for that callback branch to find. Re-validates the token (unexpired, unused) and the `microsoft_login_enabled` switch before ever redirecting, so a dead link or a switched-off provider fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/microsoft/callback`: the verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Microsoft account from redeeming this link.
+   * @summary Accept a tenant-member invite via Microsoft
+   * @param {AuthApiAuthControllerInviteMicrosoftAuthorizeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  authControllerInviteMicrosoftAuthorizeV1(
+    requestParameters: AuthApiAuthControllerInviteMicrosoftAuthorizeV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
+
+  /**
    * Tenant-user login only — platform admins have their own route, `POST /v1/admin/auth/login` (see `separate-admin-login-design.md` for why the two were split apart). A still-`pending_verification` account is not an error here: credentials are checked first, and on success a fresh OTP is sent and a `pending_verification` result is returned instead of tokens — the frontend renders the same OTP stepper the signup wizard uses. `disabled`/`suspended` accounts fail with 403. The refresh token is set as an httpOnly `refresh_token` cookie (scoped to `/v1/auth`), never in the JSON body.
    * @summary Password login
    * @param {AuthApiAuthControllerLoginV1Request} requestParameters Request parameters.
@@ -2749,6 +2860,16 @@ export interface AuthApiAuthControllerInviteGoogleAuthorizeV1Request {
 }
 
 /**
+ * Request parameters for authControllerInviteMicrosoftAuthorizeV1 operation in AuthApi.
+ */
+export interface AuthApiAuthControllerInviteMicrosoftAuthorizeV1Request {
+  /**
+   * The raw invite token from the accept-invite link
+   */
+  readonly token: string;
+}
+
+/**
  * Request parameters for authControllerLoginV1 operation in AuthApi.
  */
 export interface AuthApiAuthControllerLoginV1Request {
@@ -2945,6 +3066,25 @@ export class AuthApi extends BaseAPI implements AuthApiInterface {
   ) {
     return AuthApiFp(this.configuration)
       .authControllerInviteGoogleAuthorizeV1(requestParameters.token, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * The Microsoft alternative to `POST /v1/auth/invite/accept` — deliberately not the same route as `GET /v1/auth/microsoft` login, since a first-time invitee has no `user_identities` row yet for that callback branch to find. Re-validates the token (unexpired, unused) and the `microsoft_login_enabled` switch before ever redirecting, so a dead link or a switched-off provider fails fast on this screen rather than after the round trip. Completion happens back at the shared `GET /v1/auth/microsoft/callback`: the verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed) — the check that stops someone else\'s Microsoft account from redeeming this link.
+   * @summary Accept a tenant-member invite via Microsoft
+   * @param {AuthApiAuthControllerInviteMicrosoftAuthorizeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public authControllerInviteMicrosoftAuthorizeV1(
+    requestParameters: AuthApiAuthControllerInviteMicrosoftAuthorizeV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AuthApiFp(this.configuration)
+      .authControllerInviteMicrosoftAuthorizeV1(
+        requestParameters.token,
+        options,
+      )
       .then((request) => request(this.axios, this.basePath));
   }
 

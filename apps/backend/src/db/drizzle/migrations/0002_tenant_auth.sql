@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     -- Set when erasure is requested; NULL = none pending. The tenant is suspended meanwhile and
     -- anonymized only after the grace period.
     erasure_requested_at TIMESTAMPTZ,
-    -- NULL for a platform admin's request. No FK: users is created after tenants, and the value is
+    -- NULL for a platform admin's request. No FK: users are created after tenants, and the value is
     -- only compared for equality.
     erasure_requested_by_user_id UUID,
     -- Set once the 'N days left' reminder is claimed; cleared when an erasure is requested or
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS user_identities (
 CREATE INDEX idx_user_identities_user_id ON user_identities(user_id);
 CREATE UNIQUE INDEX idx_user_identities_provider_provider_user_id ON user_identities(provider, provider_user_id);
 
-CREATE TABLE IF NOT EXISTS password_reset_tokens (
+CREATE TABLE IF NOT EXISTS user_auth_tokens (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash VARCHAR(255) NOT NULL,
@@ -129,5 +129,5 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
-CREATE UNIQUE INDEX idx_password_reset_tokens_token_hash ON password_reset_tokens(token_hash);
+CREATE INDEX idx_user_auth_tokens_user_id ON user_auth_tokens(user_id);
+CREATE UNIQUE INDEX idx_user_auth_tokens_token_hash ON user_auth_tokens(token_hash);

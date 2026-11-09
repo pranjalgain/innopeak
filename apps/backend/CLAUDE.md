@@ -48,8 +48,8 @@ The project uses maximum strictness. Key implications:
 | Migration | Tables |
 |-----------|--------|
 | `0000_foundation` | No tables — shared enum types only. Used to also carry a generic, trigger-populated `audit_logs` table (`log_db_changes()`, on every domain table); removed entirely (dropped table, indexes, both plpgsql functions, and the `audit_operation_type` enum) since it had no reader anywhere in the product. `token_purpose` gained a `set_password` member (the step-up OTP for adding a password to an SSO-only account) — **recreate your local DB after pulling that change**, see the file's own header |
-| `0001_platform_admin` | platform_admins, platform_admin_identities, platform_admin_invites |
-| `0002_tenant_auth` | tenants, tenant_identity_providers, users, tenant_settings, blocklist_terms, user_identities, password_reset_tokens |
+| `0001_platform_admin` | platform_admins, platform_admin_identities, platform_admin_auth_tokens |
+| `0002_tenant_auth` | tenants, tenant_identity_providers, users, tenant_settings, blocklist_terms, user_identities, user_auth_tokens |
 | `0003_review_provider_locations` | review_provider_connections, notification_recipients, locations, user_locations |
 | `0004_reviews` | reviews, sync_runs, review_responses |
 | `0005_notifications` | notifications |
@@ -254,7 +254,7 @@ contract: `apps/documentation/docs/backend/auth/`.
 - `invite/:token` (preview) + `invite/accept` (password) + `invite/:token/google` (SSO) —
   platform-admin invite acceptance. `AdminSettingsService.sendInvite` (`/v1/admin/settings/invites`,
   bearer, admin-only) mints the token and emails/dev-logs the link; these three are the public
-  redemption side, against `platform_admin_invites`/`platform_admins`, not the tenant tables. The
+  redemption side, against `platform_admin_auth_tokens`/`platform_admins`, not the tenant tables. The
   Google path is its own route rather than reusing `/v1/auth/google` login, since a first-time
   invitee has no `platform_admin_identities` row yet for that callback branch to find — completion
   happens at the shared `GET /v1/auth/google/callback` via a third `OAuthIntent.ADMIN_INVITE`,

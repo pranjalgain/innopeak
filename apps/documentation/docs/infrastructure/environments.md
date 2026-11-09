@@ -62,6 +62,7 @@ be treated as a template for production. Two things to know before relying on it
 | `NODE_ENV` | `development` | `development` | `development` | `production` |
 | `DEPLOYMENT_TARGET` | `local` | `aws` | `local` or `aws` | `local` or `aws` |
 | **Email is actually sent** | No (logged) | No (logged) | **No (logged)** | Yes |
+| **Email/password sign-in can be enabled** | No (no-op provider) | No (no-op provider) | No (no-op provider) | Only with `EMAIL_DELIVERY_ENABLED=true` and a configured provider |
 | Where Google tokens are stored | Redis, encrypted with `CREDENTIAL_ENCRYPTION_KEY` | Secrets Manager | Redis | Secrets Manager |
 | Queue transport | BullMQ | SQS (except `review-sync`) | BullMQ or SQS | BullMQ or SQS |
 | Settings loaded from Secrets Manager | No | Yes | Only when `aws` | Only when `aws` |

@@ -187,6 +187,56 @@ export const AdminAuthApiAxiosParamCreator = function (
       };
     },
     /**
+     * The Microsoft alternative to `POST /v1/admin/auth/invite/accept` — deliberately not the same route as `GET /v1/admin/auth/microsoft` login, since a first-time invitee has no `platform_admin_identities` row yet for that callback to find. Re-validates the token (unexpired, unused) and the admin Microsoft configuration before ever redirecting. The round trip is pinned to `ADMIN_MICROSOFT_TENANT_ID`; the shared `GET /v1/auth/microsoft/callback` completes it only when the verified email exactly matches the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed).
+     * @summary Accept a platform-admin invite via Microsoft
+     * @param {string} token The raw invite token from the accept-invite link
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    platformAdminAuthControllerInviteMicrosoftAuthorizeV1: async (
+      token: string,
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      // verify required parameter 'token' is not null or undefined
+      assertParamExists(
+        'platformAdminAuthControllerInviteMicrosoftAuthorizeV1',
+        'token',
+        token,
+      );
+      const localVarPath = `/v1/admin/auth/invite/{token}/microsoft`.replace(
+        '{token}',
+        encodeURIComponent(String(token)),
+      );
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
      * Its own route, not the shared tenant `POST /v1/auth/login` — queries `platform_admins` directly, with nothing left to disambiguate (see `separate-admin-login-design.md`). Only the `admin_access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why this principal type has no refresh token.
      * @summary Platform-admin password login
      * @param {LoginDto} loginDto
@@ -235,6 +285,45 @@ export const AdminAuthApiAxiosParamCreator = function (
         localVarRequestOptions,
         configuration,
       );
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
+    /**
+     * The Microsoft button on the admin sign-in screen. Sign-in only: platform admins are invite-only, so this never creates or invites one. Its own route and `OAuthIntent.ADMIN_LOGIN`, pinned to the directory in `ADMIN_MICROSOFT_TENANT_ID`; the returned identity is resolved against `platform_admin_identities` (by the Entra `sub`, else linked by verified email to an existing active admin on first use) and never reaches the tenant tables. Completion happens at the shared `GET /v1/auth/microsoft/callback`; failures land on `/admin-login?error=…&provider=microsoft`.
+     * @summary Start a platform-admin Microsoft sign-in
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    platformAdminAuthControllerMicrosoftLoginV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/admin/auth/microsoft`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
 
       return {
         url: toPathString(localVarUrlObj),
@@ -394,6 +483,37 @@ export const AdminAuthApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
+     * The Microsoft alternative to `POST /v1/admin/auth/invite/accept` — deliberately not the same route as `GET /v1/admin/auth/microsoft` login, since a first-time invitee has no `platform_admin_identities` row yet for that callback to find. Re-validates the token (unexpired, unused) and the admin Microsoft configuration before ever redirecting. The round trip is pinned to `ADMIN_MICROSOFT_TENANT_ID`; the shared `GET /v1/auth/microsoft/callback` completes it only when the verified email exactly matches the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed).
+     * @summary Accept a platform-admin invite via Microsoft
+     * @param {string} token The raw invite token from the accept-invite link
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async platformAdminAuthControllerInviteMicrosoftAuthorizeV1(
+      token: string,
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.platformAdminAuthControllerInviteMicrosoftAuthorizeV1(
+          token,
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminAuthApi.platformAdminAuthControllerInviteMicrosoftAuthorizeV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
      * Its own route, not the shared tenant `POST /v1/auth/login` — queries `platform_admins` directly, with nothing left to disambiguate (see `separate-admin-login-design.md`). Only the `admin_access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why this principal type has no refresh token.
      * @summary Platform-admin password login
      * @param {LoginDto} loginDto
@@ -416,6 +536,34 @@ export const AdminAuthApiFp = function (configuration?: Configuration) {
         operationServerMap['AdminAuthApi.platformAdminAuthControllerLoginV1']?.[
           localVarOperationServerIndex
         ]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
+    /**
+     * The Microsoft button on the admin sign-in screen. Sign-in only: platform admins are invite-only, so this never creates or invites one. Its own route and `OAuthIntent.ADMIN_LOGIN`, pinned to the directory in `ADMIN_MICROSOFT_TENANT_ID`; the returned identity is resolved against `platform_admin_identities` (by the Entra `sub`, else linked by verified email to an existing active admin on first use) and never reaches the tenant tables. Completion happens at the shared `GET /v1/auth/microsoft/callback`; failures land on `/admin-login?error=…&provider=microsoft`.
+     * @summary Start a platform-admin Microsoft sign-in
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async platformAdminAuthControllerMicrosoftLoginV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.platformAdminAuthControllerMicrosoftLoginV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'AdminAuthApi.platformAdminAuthControllerMicrosoftLoginV1'
+        ]?.[localVarOperationServerIndex]?.url;
       return (axios, basePath) =>
         createRequestFunction(
           localVarAxiosArgs,
@@ -521,6 +669,24 @@ export const AdminAuthApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
+     * The Microsoft alternative to `POST /v1/admin/auth/invite/accept` — deliberately not the same route as `GET /v1/admin/auth/microsoft` login, since a first-time invitee has no `platform_admin_identities` row yet for that callback to find. Re-validates the token (unexpired, unused) and the admin Microsoft configuration before ever redirecting. The round trip is pinned to `ADMIN_MICROSOFT_TENANT_ID`; the shared `GET /v1/auth/microsoft/callback` completes it only when the verified email exactly matches the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed).
+     * @summary Accept a platform-admin invite via Microsoft
+     * @param {AdminAuthApiPlatformAdminAuthControllerInviteMicrosoftAuthorizeV1Request} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    platformAdminAuthControllerInviteMicrosoftAuthorizeV1(
+      requestParameters: AdminAuthApiPlatformAdminAuthControllerInviteMicrosoftAuthorizeV1Request,
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .platformAdminAuthControllerInviteMicrosoftAuthorizeV1(
+          requestParameters.token,
+          options,
+        )
+        .then((request) => request(axios, basePath));
+    },
+    /**
      * Its own route, not the shared tenant `POST /v1/auth/login` — queries `platform_admins` directly, with nothing left to disambiguate (see `separate-admin-login-design.md`). Only the `admin_access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why this principal type has no refresh token.
      * @summary Platform-admin password login
      * @param {AdminAuthApiPlatformAdminAuthControllerLoginV1Request} requestParameters Request parameters.
@@ -533,6 +699,19 @@ export const AdminAuthApiFactory = function (
     ): AxiosPromise<void> {
       return localVarFp
         .platformAdminAuthControllerLoginV1(requestParameters.loginDto, options)
+        .then((request) => request(axios, basePath));
+    },
+    /**
+     * The Microsoft button on the admin sign-in screen. Sign-in only: platform admins are invite-only, so this never creates or invites one. Its own route and `OAuthIntent.ADMIN_LOGIN`, pinned to the directory in `ADMIN_MICROSOFT_TENANT_ID`; the returned identity is resolved against `platform_admin_identities` (by the Entra `sub`, else linked by verified email to an existing active admin on first use) and never reaches the tenant tables. Completion happens at the shared `GET /v1/auth/microsoft/callback`; failures land on `/admin-login?error=…&provider=microsoft`.
+     * @summary Start a platform-admin Microsoft sign-in
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    platformAdminAuthControllerMicrosoftLoginV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .platformAdminAuthControllerMicrosoftLoginV1(options)
         .then((request) => request(axios, basePath));
     },
     /**
@@ -595,6 +774,18 @@ export interface AdminAuthApiInterface {
   ): AxiosPromise<void>;
 
   /**
+   * The Microsoft alternative to `POST /v1/admin/auth/invite/accept` — deliberately not the same route as `GET /v1/admin/auth/microsoft` login, since a first-time invitee has no `platform_admin_identities` row yet for that callback to find. Re-validates the token (unexpired, unused) and the admin Microsoft configuration before ever redirecting. The round trip is pinned to `ADMIN_MICROSOFT_TENANT_ID`; the shared `GET /v1/auth/microsoft/callback` completes it only when the verified email exactly matches the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed).
+   * @summary Accept a platform-admin invite via Microsoft
+   * @param {AdminAuthApiPlatformAdminAuthControllerInviteMicrosoftAuthorizeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  platformAdminAuthControllerInviteMicrosoftAuthorizeV1(
+    requestParameters: AdminAuthApiPlatformAdminAuthControllerInviteMicrosoftAuthorizeV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
+
+  /**
    * Its own route, not the shared tenant `POST /v1/auth/login` — queries `platform_admins` directly, with nothing left to disambiguate (see `separate-admin-login-design.md`). Only the `admin_access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why this principal type has no refresh token.
    * @summary Platform-admin password login
    * @param {AdminAuthApiPlatformAdminAuthControllerLoginV1Request} requestParameters Request parameters.
@@ -603,6 +794,16 @@ export interface AdminAuthApiInterface {
    */
   platformAdminAuthControllerLoginV1(
     requestParameters: AdminAuthApiPlatformAdminAuthControllerLoginV1Request,
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
+
+  /**
+   * The Microsoft button on the admin sign-in screen. Sign-in only: platform admins are invite-only, so this never creates or invites one. Its own route and `OAuthIntent.ADMIN_LOGIN`, pinned to the directory in `ADMIN_MICROSOFT_TENANT_ID`; the returned identity is resolved against `platform_admin_identities` (by the Entra `sub`, else linked by verified email to an existing active admin on first use) and never reaches the tenant tables. Completion happens at the shared `GET /v1/auth/microsoft/callback`; failures land on `/admin-login?error=…&provider=microsoft`.
+   * @summary Start a platform-admin Microsoft sign-in
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  platformAdminAuthControllerMicrosoftLoginV1(
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<void>;
 
@@ -630,6 +831,16 @@ export interface AdminAuthApiPlatformAdminAuthControllerAcceptAdminInviteV1Reque
  * Request parameters for platformAdminAuthControllerInviteGoogleAuthorizeV1 operation in AdminAuthApi.
  */
 export interface AdminAuthApiPlatformAdminAuthControllerInviteGoogleAuthorizeV1Request {
+  /**
+   * The raw invite token from the accept-invite link
+   */
+  readonly token: string;
+}
+
+/**
+ * Request parameters for platformAdminAuthControllerInviteMicrosoftAuthorizeV1 operation in AdminAuthApi.
+ */
+export interface AdminAuthApiPlatformAdminAuthControllerInviteMicrosoftAuthorizeV1Request {
   /**
    * The raw invite token from the accept-invite link
    */
@@ -710,6 +921,25 @@ export class AdminAuthApi extends BaseAPI implements AdminAuthApiInterface {
   }
 
   /**
+   * The Microsoft alternative to `POST /v1/admin/auth/invite/accept` — deliberately not the same route as `GET /v1/admin/auth/microsoft` login, since a first-time invitee has no `platform_admin_identities` row yet for that callback to find. Re-validates the token (unexpired, unused) and the admin Microsoft configuration before ever redirecting. The round trip is pinned to `ADMIN_MICROSOFT_TENANT_ID`; the shared `GET /v1/auth/microsoft/callback` completes it only when the verified email exactly matches the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left unconsumed).
+   * @summary Accept a platform-admin invite via Microsoft
+   * @param {AdminAuthApiPlatformAdminAuthControllerInviteMicrosoftAuthorizeV1Request} requestParameters Request parameters.
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public platformAdminAuthControllerInviteMicrosoftAuthorizeV1(
+    requestParameters: AdminAuthApiPlatformAdminAuthControllerInviteMicrosoftAuthorizeV1Request,
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminAuthApiFp(this.configuration)
+      .platformAdminAuthControllerInviteMicrosoftAuthorizeV1(
+        requestParameters.token,
+        options,
+      )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
    * Its own route, not the shared tenant `POST /v1/auth/login` — queries `platform_admins` directly, with nothing left to disambiguate (see `separate-admin-login-design.md`). Only the `admin_access_token` cookie is set — see `TokenService.signPlatformAdminAccessToken` for why this principal type has no refresh token.
    * @summary Platform-admin password login
    * @param {AdminAuthApiPlatformAdminAuthControllerLoginV1Request} requestParameters Request parameters.
@@ -722,6 +952,20 @@ export class AdminAuthApi extends BaseAPI implements AdminAuthApiInterface {
   ) {
     return AdminAuthApiFp(this.configuration)
       .platformAdminAuthControllerLoginV1(requestParameters.loginDto, options)
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * The Microsoft button on the admin sign-in screen. Sign-in only: platform admins are invite-only, so this never creates or invites one. Its own route and `OAuthIntent.ADMIN_LOGIN`, pinned to the directory in `ADMIN_MICROSOFT_TENANT_ID`; the returned identity is resolved against `platform_admin_identities` (by the Entra `sub`, else linked by verified email to an existing active admin on first use) and never reaches the tenant tables. Completion happens at the shared `GET /v1/auth/microsoft/callback`; failures land on `/admin-login?error=…&provider=microsoft`.
+   * @summary Start a platform-admin Microsoft sign-in
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public platformAdminAuthControllerMicrosoftLoginV1(
+    options?: RawAxiosRequestConfig,
+  ) {
+    return AdminAuthApiFp(this.configuration)
+      .platformAdminAuthControllerMicrosoftLoginV1(options)
       .then((request) => request(this.axios, this.basePath));
   }
 

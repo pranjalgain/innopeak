@@ -2,11 +2,15 @@
 /* tslint:disable */
 /* eslint-disable */
 
+// May contain unused imports in some cases
+// @ts-ignore
+import type { PlatformActivityDetailsDto } from './platform-activity-details-dto';
+
 export interface PlatformActivityResponseDto {
   id: string;
   type: PlatformActivityResponseDtoTypeEnum;
   /**
-   * Who did it: the platform admin; the business owner\'s email for business_joined; the label "owner (self-service)" for an owner\'s own erasure request or cancellation; or the system actor for the nightly erasure.
+   * Who did it: the platform admin; the business owner\'s email for business_joined; the label \"owner (self-service)\" for an owner\'s own erasure request or cancellation; or the system actor for the nightly erasure.
    */
   actorEmail: string;
   /**
@@ -22,23 +26,6 @@ export interface PlatformActivityResponseDto {
    */
   details?: PlatformActivityDetailsDto | null;
   occurredAt: string;
-}
-
-export interface PlatformSettingChangeDto {
-  /**
-   * The platform setting that changed, as its API field name.
-   */
-  field: string;
-  from: boolean;
-  to: boolean;
-}
-
-export interface PlatformActivityDetailsDto {
-  changes: PlatformSettingChangeDto[];
-  /**
-   * Present when the admin confirmed switching a provider off although users could then only sign in with it.
-   */
-  lockoutConfirmed?: boolean;
 }
 
 export const PlatformActivityResponseDtoTypeEnum = {

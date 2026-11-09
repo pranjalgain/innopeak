@@ -9,7 +9,7 @@ changed along the way.
 
 - **Revoke vs. accept deadlock risk.** `AuthRepository.deleteInvitedMember` originally deleted
   straight from `users` and relied on `ON DELETE CASCADE` to remove the matching
-  `password_reset_tokens` row — the opposite lock order from the accept path
+  `user_auth_tokens` row — the opposite lock order from the accept path
   (`lockLiveMemberInvite` locks the token row first, then updates `users`). Two transactions
   taking the same two locks in opposite orders is Postgres's textbook deadlock shape: an owner
   revoking an invite at the exact moment the invitee is mid-accept could abort one side with a raw
@@ -124,11 +124,11 @@ where that flag starts meaning something server-side.
 ## The pattern being mirrored, and where it diverges
 
 The admin invite flow (`PlatformAdminAuthService`, `AdminSettingsService.sendInvite`,
-`platform_admin_invites`) is the closest sibling and the template for most of this. Concretely:
+`platform_admin_auth_tokens`) is the closest sibling and the template for most of this. Concretely:
 
 | | Platform admin | Tenant member |
 |---|---|---|
-| Invite row lives on | dedicated `platform_admin_invites` table | **reuses `password_reset_tokens`, `purpose = 'invite'`** — see below |
+| Invite row lives on | dedicated `platform_admin_auth_tokens` table | **reuses `user_auth_tokens`, `purpose = 'invite'`** — see below |
 | Invitee row created at | send-time, `status = 'invited'`, no `password_hash` | same |
 | Token shape | `randomBytes(32).toString('base64url')`, hashed with `hashToken()` (SHA-256) | same — `hashToken`'s own doc comment already reads *"raw verify/invite/reset token"*, anticipating this reuse |
 | Expiry | 7 days (`INVITE_TTL_DAYS`) | same constant, same default |
@@ -139,7 +139,7 @@ The admin invite flow (`PlatformAdminAuthService`, `AdminSettingsService.sendInv
 | Re-invite while pending | 409 (`EMAIL_ALREADY_INVITED`); lapsed invites replace silently | same — mirrors the existing UI, which has a Revoke action but no Resend |
 | Revoke | `DELETE /v1/admin/settings/invites/:inviteId` | `DELETE /v1/settings/members/:memberId` |
 
-**Reusing `password_reset_tokens` instead of a new table** is the one structural departure from the
+**Reusing `user_auth_tokens` instead of a new table** is the one structural departure from the
 admin pattern, and it's not an invention — the schema was already built for it.
 `TokenPurpose.INVITE` exists in the enum with a doc comment calling out "a future invite... flow,
 not yet built," and `0007_auth_hardening.sql` already shaped this table around multiple purposes
@@ -158,7 +158,7 @@ since nothing about this feature needs the uniqueness that index doesn't provide
 
 ## Backend plan
 
-**Migration**: none for `users`/`password_reset_tokens` (both already shaped correctly).
+**Migration**: none for `users`/`user_auth_tokens` (both already shaped correctly).
 `platform_settings.invite_members_enabled` already exists; this work adds its first real
 consumer.
 
@@ -194,7 +194,7 @@ src/api/auth/                          # accept-invite is auth-domain, same as a
 
 Data access extends the **existing** `AuthRepository`/`AuthDbService`
 (`src/db/repositories/auth/`) rather than a new repository domain — this is the same `users` +
-`password_reset_tokens` tables that domain already owns exclusively; no other module reads them.
+`user_auth_tokens` tables that domain already owns exclusively; no other module reads them.
 New methods, mirroring `platform-admin.repository.ts`'s invite methods:
 
 - `insertInvitedMember(tx, { tenantId, email, invitedByUserId })` → inserts `users` row,
@@ -233,7 +233,7 @@ its own hook mirroring `useAcceptAdminInvite`, with the added name field per Dec
    invite-send form (`MembersSettingsSection`) stays email-only, as already built — no
    `InviteMemberDto.name` field. `users.name` is populated at accept time, same moment
    `password_hash` is, inside the same compare-and-swap `UPDATE`.
-2. **Token storage reuses `password_reset_tokens`, `purpose = 'invite'`.** No new table. See "The
+2. **Token storage reuses `user_auth_tokens`, `purpose = 'invite'`.** No new table. See "The
    pattern being mirrored" above for why the schema was already shaped this way —
    `TokenPurpose.INVITE`, `hashToken`'s own doc comment, and the `(user_id, purpose)` unique index
    all predate this branch and anticipate exactly this reuse.
@@ -242,18 +242,19 @@ its own hook mirroring `useAcceptAdminInvite`, with the added name field per Dec
    its invite row is unused and unexpired. A lapsed invite (past `expires_at`) replaces silently,
    same as admin's `sendInvite`. No separate "resend" endpoint — matches the mocked UI, which has
    Revoke and no Resend.
-4. **Google SSO ships in this branch, alongside password accept.** A new `OAuthIntent.INVITE`
+4. **Google and Microsoft SSO ship alongside password accept.** A new `OAuthIntent.INVITE`
    (tenant-member accept — distinct from `OAuthIntent.ADMIN_INVITE`, which stays admin-only),
-   composing into the shared `GET /v1/auth/google/callback` the same way the admin one does:
+   composing into the shared provider callbacks the same way the admin one does:
    `AuthService` resolves the intent, validates the invite token, checks the IdP-verified email
    against the invited address (`INVITE_EMAIL_MISMATCH` on mismatch, token left unconsumed), links
-   a `user_identities` row, and signs the member in. `GET /v1/auth/invite/:token/google` is the new
-   route (`RouteNames.INVITE_GOOGLE`, reused). Unlike the admin case, no
+   a `user_identities` row under the provider (`google` or `entra_id`), and signs the member in.
+   `GET /v1/auth/invite/:token/google` and `GET /v1/auth/invite/:token/microsoft` are the routes
+   (`RouteNames.INVITE_GOOGLE` / `RouteNames.INVITE_MICROSOFT`). Unlike the admin case, no
    lockout guard is needed on `updatePlatformSettings` (admins no longer have one either) — a
-   Google-accepted tenant member still has `set-password/request-otp` + `set-password` available
-   to add a password afterward (the tenant flow, unlike the admin one, already has this), so
-   turning `googleLoginEnabled` off later never permanently strands them the way it would an
-   admin.
+   Google- or Microsoft-accepted tenant member still has `set-password/request-otp` +
+   `set-password` available to add a password afterward (the tenant flow, unlike the admin one,
+   already has this), so turning `googleLoginEnabled` or `microsoftLoginEnabled` off later never
+   permanently strands them the way it would an admin.
 5. **Accept-invite routes live directly on `AuthController`/`AuthService`.** No new sibling
    controller — `validateMemberInvite`, `acceptMemberInvite`, `inviteGoogleAuthorize` (or a
    distinctly-named method if `AuthController` already has a Google-authorize method for

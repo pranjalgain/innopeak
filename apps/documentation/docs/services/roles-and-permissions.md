@@ -61,8 +61,8 @@ There are two kinds of admin:
 
 - **The root admin** is the one account created by the seed job (`pnpm db:seed:admin:prod`). It is the
   only admin with no inviter.
-- **Invited admins** join by an emailed link (`/accept-invite/<token>`), choosing a password or
-  Google.
+- **Invited admins** join by an emailed link (`/accept-invite/<token>`), choosing a password,
+  Google, or Microsoft (the Microsoft option is pinned to the configured admin Entra directory).
 
 Any active admin can invite, revoke, enable and disable other admins. Because admins are peers, the
 system only protects against locking everyone out:

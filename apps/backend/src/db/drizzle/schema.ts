@@ -222,8 +222,8 @@ export const platformAdminIdentities = pgTable(
   ]
 );
 
-export const platformAdminInvites = pgTable(
-  'platform_admin_invites',
+export const platformAdminAuthTokens = pgTable(
+  'platform_admin_auth_tokens',
   {
     id: uuid()
       .default(sql`uuidv7()`)
@@ -242,15 +242,15 @@ export const platformAdminInvites = pgTable(
       .notNull(),
   },
   table => [
-    index('idx_platform_admin_invites_platform_admin_id').using(
+    index('idx_platform_admin_auth_tokens_platform_admin_id').using(
       'btree',
       table.platformAdminId.asc().nullsLast().op('uuid_ops')
     ),
-    uniqueIndex('idx_platform_admin_invites_token_hash').using(
+    uniqueIndex('idx_platform_admin_auth_tokens_token_hash').using(
       'btree',
       table.tokenHash.asc().nullsLast().op('text_ops')
     ),
-    uniqueIndex('idx_platform_admin_invites_platform_admin_id_purpose').using(
+    uniqueIndex('idx_platform_admin_auth_tokens_platform_admin_id_purpose').using(
       'btree',
       table.platformAdminId.asc().nullsLast().op('uuid_ops'),
       table.purpose.asc().nullsLast().op('enum_ops')
@@ -258,7 +258,7 @@ export const platformAdminInvites = pgTable(
     foreignKey({
       columns: [table.platformAdminId],
       foreignColumns: [platformAdmins.id],
-      name: 'platform_admin_invites_platform_admin_id_fkey',
+      name: 'platform_admin_auth_tokens_platform_admin_id_fkey',
     }).onDelete('cascade'),
   ]
 );
@@ -534,8 +534,8 @@ export const userIdentities = pgTable(
   ]
 );
 
-export const passwordResetTokens = pgTable(
-  'password_reset_tokens',
+export const userAuthTokens = pgTable(
+  'user_auth_tokens',
   {
     id: uuid()
       .default(sql`uuidv7()`)
@@ -554,15 +554,15 @@ export const passwordResetTokens = pgTable(
       .notNull(),
   },
   table => [
-    index('idx_password_reset_tokens_token_hash').using(
+    index('idx_user_auth_tokens_token_hash').using(
       'btree',
       table.tokenHash.asc().nullsLast().op('text_ops')
     ),
-    index('idx_password_reset_tokens_user_id').using(
+    index('idx_user_auth_tokens_user_id').using(
       'btree',
       table.userId.asc().nullsLast().op('uuid_ops')
     ),
-    uniqueIndex('idx_password_reset_tokens_user_id_purpose').using(
+    uniqueIndex('idx_user_auth_tokens_user_id_purpose').using(
       'btree',
       table.userId.asc().nullsLast().op('uuid_ops'),
       table.purpose.asc().nullsLast().op('enum_ops')
@@ -570,7 +570,7 @@ export const passwordResetTokens = pgTable(
     foreignKey({
       columns: [table.userId],
       foreignColumns: [users.id],
-      name: 'password_reset_tokens_user_id_fkey',
+      name: 'user_auth_tokens_user_id_fkey',
     }).onDelete('cascade'),
   ]
 );
@@ -1284,7 +1284,7 @@ export const platformSettings = pgTable(
   {
     id: smallint().default(1).primaryKey().notNull(),
     microsoftLoginEnabled: boolean('microsoft_login_enabled').default(true).notNull(),
-    passwordLoginEnabled: boolean('password_login_enabled').default(true).notNull(),
+    passwordLoginEnabled: boolean('password_login_enabled').default(false).notNull(),
     googleLoginEnabled: boolean('google_login_enabled').default(true).notNull(),
     inviteMembersEnabled: boolean('invite_members_enabled').default(true).notNull(),
     notificationSettingsEnabled: boolean('notification_settings_enabled').default(false).notNull(),

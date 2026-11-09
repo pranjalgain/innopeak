@@ -46,7 +46,7 @@ As of October 2026.
 | # | Item | Notes | Owner | Priority |
 |---|---|---|---|---|
 | M1 | **Production infrastructure as code:** network, PostgreSQL 18 or newer, Redis with persistence, secrets, IAM | The only Terraform is the emulator test stack in `infra/floci`. See [Overview](./overview.md#recommended-production-shape) | Devops | Blocker |
-| M2 | **Web app image** (Node 24 or newer, `output: 'standalone'`), and a hosting plan for the documentation site | No Dockerfile exists. `API_URL` is fixed at build time, so each environment needs its own build | Devops, app team | Blocker |
+| M2 | **Hosting plan for the documentation site** | The web app image now exists (`apps/web/Dockerfile`, standalone output). The documentation site still has no image; it builds to static files. `API_URL` is fixed at build time, so each environment needs its own web build | Devops, app team | Blocker |
 | M3 | **Worker deployment** | A second workload on the backend image, started with `node dist/worker.main.js`, with no HTTP probe | Devops | Blocker |
 | M4 | **Image registry and a working CI/CD pipeline** that builds, tests, migrates and rolls out | See [Deployment and releases](./deployment-and-releases.md#state-of-the-automation) | Devops | Blocker |
 | M5 | **Ingress, TLS and DNS** | Nothing is defined. The web app's headers and cookies assume HTTPS | Devops | Blocker |
@@ -63,10 +63,10 @@ Things that exist in the repository but are wrong, listed with the fix.
 
 | # | Defect | Fix | Priority |
 |---|---|---|---|
-| F1 | The Dockerfile copies `apps/backend/pnpm-lock.yaml`, which is git-ignored, so a clean checkout cannot build the image. It also activates pnpm 8.15.0 while the repository root declares `pnpm@10.15.0` | Build from the repository root with the tracked lockfile, and align the pnpm version | Blocker |
-| F2 | The image's `HEALTHCHECK` calls the API's `/health`, so a worker started from it is always unhealthy under plain Docker | Override or remove the health check for the worker | Before launch |
-| F3 | The final image contains the development dependencies | Prune to production dependencies | Soon |
-| F4 | Node versions disagree: backend 20, web 24, root `.nvmrc` 20 | Pick per-app versions and use them in the images and CI | Before launch |
+| F1 | ~~The Dockerfile copies `apps/backend/pnpm-lock.yaml`, which is git-ignored, so a clean checkout cannot build the image. It also activates pnpm 8.15.0 while the repository root declares `pnpm@10.15.0`~~ | Resolved: both Dockerfiles build from the repository root with the tracked lockfile and activate pnpm 10.15.0 | Done |
+| F2 | ~~The image's `HEALTHCHECK` calls the API's `/health`, so a worker started from it is always unhealthy under plain Docker~~ | Resolved: documented that the worker must override or disable the health check; Kubernetes uses its own probes | Done |
+| F3 | ~~The final image contains the development dependencies~~ | Resolved: a separate `prod-deps` stage installs production dependencies only | Done |
+| F4 | ~~Node versions disagree: backend 20, web 24, root `.nvmrc` 20~~ | Resolved: every runtime and CI pin is now Node 24.22.1 (patched for the October 2026 CVEs) | Done |
 
 ### Monitoring and alerting
 

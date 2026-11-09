@@ -76,4 +76,6 @@ export enum SsoAuthFailure {
   INVITE_EMAIL_MISMATCH = 'INVITE_EMAIL_MISMATCH',
   /** `ADMIN_INVITE`/`INVITE`: this Google account is already linked to a *different* admin/member. */
   GOOGLE_IDENTITY_ALREADY_LINKED = 'GOOGLE_IDENTITY_ALREADY_LINKED',
+  /** `ADMIN_INVITE`/`INVITE`: this Microsoft account is already linked to a *different* admin/member. */
+  MICROSOFT_IDENTITY_ALREADY_LINKED = 'MICROSOFT_IDENTITY_ALREADY_LINKED',
 }

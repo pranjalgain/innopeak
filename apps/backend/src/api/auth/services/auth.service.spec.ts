@@ -3,6 +3,7 @@ import { MESSAGES } from '@common/constants/messages.constants';
 import { HashingService } from '@common/hashing/hashing.service';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
+import { EmailProvider } from '@email/providers/email.provider';
 import { MediaService } from '@media/media.service';
 import {
   BadRequestException,
@@ -30,6 +31,7 @@ import { JwtTokenType } from '../enums/jwt-token-type.enum';
 import { OAuthIntent } from '../enums/oauth-intent.enum';
 import { OtpScope } from '../enums/otp-scope.enum';
 import { TenantStatus } from '../enums/tenant-status.enum';
+import { UserIdentityProvider } from '../enums/user-identity-provider.enum';
 import { UserRole } from '../enums/user-role.enum';
 import { UserStatus } from '../enums/user-status.enum';
 import {
@@ -58,8 +60,10 @@ describe('AuthService', () => {
   let platformAdminAuthService: jest.Mocked<PlatformAdminAuthService>;
   let sessionRevocationService: { revokeUser: jest.Mock };
   let signupBindingService: { issue: jest.Mock; matches: jest.Mock };
+  let emailProvider: { isConfigured: jest.Mock };
   let mediaService: jest.Mocked<MediaService>;
   let platformSettingsDbService: { get: jest.Mock };
+  let configService: { get: jest.Mock };
 
   const tokenPair = { accessToken: 'access', refreshToken: 'refresh', expiresIn: 900 };
 
@@ -85,7 +89,7 @@ describe('AuthService', () => {
       completeSsoSignup: jest.fn(),
       findMemberInviteEmailByTokenHash: jest.fn(),
       acceptMemberInviteWithPassword: jest.fn(),
-      acceptMemberInviteWithGoogleIdentity: jest.fn(),
+      acceptMemberInviteWithSsoIdentity: jest.fn(),
     } as unknown as jest.Mocked<AuthDbService>;
 
     hashingService = {
@@ -134,7 +138,7 @@ describe('AuthService', () => {
 
     platformAdminAuthService = {
       findLinkedAdmin: jest.fn().mockResolvedValue({ linked: false }),
-      completeAdminInviteGoogle: jest.fn(),
+      completeAdminInviteSso: jest.fn(),
       isAdminMicrosoftConfigured: jest.fn().mockReturnValue(true),
       adminMicrosoftTenantId: jest.fn().mockReturnValue(ADMIN_TID),
       signInWithMicrosoft: jest.fn(),
@@ -146,9 +150,12 @@ describe('AuthService', () => {
         ),
     } as unknown as jest.Mocked<PlatformAdminAuthService>;
 
-    const configService = {
-      get: jest.fn((key: string) => (key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : 10)),
-    } as unknown as ConfigService;
+    configService = {
+      get: jest.fn((key: string) => {
+        if (key === 'EMAIL_DELIVERY_ENABLED') return 'true';
+        return key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : 10;
+      }),
+    };
 
     microsoftIdentityProvider = {
       isConfigured: jest.fn().mockReturnValue(true),
@@ -187,6 +194,8 @@ describe('AuthService', () => {
     platformSettingsDbService = {
       get: jest.fn().mockResolvedValue({ microsoftLoginEnabled: true }),
     };
+    // An email service is set up by default, so the email/password switch is in effect wherever a test does not say otherwise.
+    emailProvider = { isConfigured: jest.fn().mockReturnValue(true) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -208,6 +217,7 @@ describe('AuthService', () => {
         { provide: PlatformSettingsDbService, useValue: platformSettingsDbService },
         { provide: SessionRevocationService, useValue: sessionRevocationService },
         { provide: SignupBindingService, useValue: signupBindingService },
+        { provide: EmailProvider, useValue: emailProvider },
       ],
     }).compile();
 
@@ -361,6 +371,38 @@ describe('AuthService', () => {
       ).rejects.toBeInstanceOf(PasswordLoginDisabledException);
 
       expect(authDbService.acceptMemberInviteWithPassword).not.toHaveBeenCalled();
+    });
+
+    // Regression: a fresh install stores the switch on, so with no email service a sign-up was offered whose code never arrived.
+    // Email delivery is not implemented yet; the local provider only logs the message, so this holds on a developer machine too.
+    it('is not in effect with the switch on but no email service, on any machine', async () => {
+      platformSettingsDbService.get.mockResolvedValue({ passwordLoginEnabled: true });
+      emailProvider.isConfigured.mockReturnValue(false);
+
+      await expect(
+        target.login({ email: 'jane@thecoffeehouse.com', password: 'StrongP@ss1' })
+      ).rejects.toBeInstanceOf(PasswordLoginDisabledException);
+      await expect(
+        target.signup({
+          businessName: 'The Coffee House',
+          ownerName: 'Jane Doe',
+          email: 'jane@thecoffeehouse.com',
+          password: 'StrongP@ss1',
+        })
+      ).rejects.toBeInstanceOf(PasswordSignupDisabledException);
+      expect(authDbService.findUserForLogin).not.toHaveBeenCalled();
+    });
+
+    it('is not in effect while EMAIL_DELIVERY_ENABLED is off, even with a configured provider', async () => {
+      platformSettingsDbService.get.mockResolvedValue({ passwordLoginEnabled: true });
+      configService.get.mockImplementation((key: string) => {
+        return key === 'EMAIL_DELIVERY_ENABLED' ? 'false' : 10;
+      });
+
+      await expect(
+        target.login({ email: 'jane@thecoffeehouse.com', password: 'StrongP@ss1' })
+      ).rejects.toBeInstanceOf(PasswordLoginDisabledException);
+      expect(authDbService.findUserForLogin).not.toHaveBeenCalled();
     });
 
     it('signs in again once the switch is back on', async () => {
@@ -1499,7 +1541,7 @@ describe('AuthService', () => {
             oauthStateService.consume.mockResolvedValue(stateFor(intent, 'admin-token'));
             googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
             platformAdminAuthService.findLinkedAdmin.mockResolvedValue({ linked: false });
-            platformAdminAuthService.completeAdminInviteGoogle.mockResolvedValue({
+            platformAdminAuthService.completeAdminInviteSso.mockResolvedValue({
               ok: false,
               failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
               redirectUrl: '/accept-invite',
@@ -1849,7 +1891,7 @@ describe('AuthService', () => {
       status: UserStatus.ACTIVE,
       locale: null,
     };
-    const record = (intent: OAuthIntent) => ({
+    const record = (intent: OAuthIntent, inviteToken?: string) => ({
       ok: true as const,
       record: {
         provider: SsoProvider.MICROSOFT,
@@ -1857,6 +1899,7 @@ describe('AuthService', () => {
         codeVerifier: 'verifier',
         intent,
         sidHash: 'h',
+        ...(inviteToken === undefined ? {} : { inviteToken }),
       },
     });
     const callback = (overrides: Record<string, string | undefined> = {}) =>
@@ -1976,17 +2019,79 @@ describe('AuthService', () => {
         expect(microsoftIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
       });
 
-      it.each([OAuthIntent.ADMIN_INVITE, OAuthIntent.INVITE])(
-        'refuses a state whose intent (%s) is not one the Microsoft routes mint',
-        async intent => {
-          oauthStateService.consume.mockResolvedValue(record(intent));
+      it('delegates ADMIN_INVITE to the shared admin invite completion, pinned to the admin directory', async () => {
+        oauthStateService.consume.mockResolvedValue(
+          record(OAuthIntent.ADMIN_INVITE, 'raw-token-1')
+        );
+        microsoftIdentityProvider.fetchIdentity.mockResolvedValue({
+          ...identity,
+          tenantId: ADMIN_TID,
+        });
+        const tokens = { admin: true as const, body: { accessToken: 'admin-access' } };
+        platformAdminAuthService.completeAdminInviteSso.mockResolvedValue({
+          ok: true,
+          tokens: tokens as never,
+        });
 
-          await expect(callback()).resolves.toMatchObject({
-            failure: SsoAuthFailure.INVALID_STATE,
-          });
-          expect(microsoftIdentityProvider.fetchIdentity).not.toHaveBeenCalled();
-        }
-      );
+        const outcome = await callback();
+
+        expect(platformAdminAuthService.completeAdminInviteSso).toHaveBeenCalledWith(
+          SsoProvider.MICROSOFT,
+          'raw-token-1',
+          expect.objectContaining({ providerUserId: 'ms-sub-1', tenantId: ADMIN_TID })
+        );
+        expect(outcome).toEqual({ ok: true, kind: 'admin_signed_in', tokens });
+        expect(authDbService.findSsoIdentityBySub).not.toHaveBeenCalled();
+      });
+
+      it('delegates INVITE to member invite redemption, storing the identity under entra_id', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.INVITE, 'raw-token-1'));
+        microsoftIdentityProvider.fetchIdentity.mockResolvedValue(identity);
+        authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+          email: 'owner@acme.test',
+          tenantId: 'tenant-1',
+        });
+        authDbService.findTenantStatus.mockResolvedValue(activeTenant);
+        authDbService.acceptMemberInviteWithSsoIdentity.mockResolvedValue({
+          outcome: 'accepted',
+          id: 'user-1',
+          tenantId: 'tenant-1',
+          email: 'owner@acme.test',
+          name: 'Jane Doe',
+        });
+
+        const outcome = await callback();
+
+        expect(authDbService.acceptMemberInviteWithSsoIdentity).toHaveBeenCalledWith({
+          tokenHash: expect.any(String) as string,
+          provider: UserIdentityProvider.ENTRA_ID,
+          providerUserId: 'ms-sub-1',
+          email: 'Owner@Acme.test',
+          name: 'Jane Doe',
+        });
+        expect(outcome).toMatchObject({ ok: true, kind: 'signed_in' });
+      });
+
+      it('leaves a member invite unconsumed when the Microsoft email does not match', async () => {
+        oauthStateService.consume.mockResolvedValue(record(OAuthIntent.INVITE, 'raw-token-1'));
+        microsoftIdentityProvider.fetchIdentity.mockResolvedValue({
+          ...identity,
+          email: 'someone-else@acme.test',
+        });
+        authDbService.findMemberInviteEmailByTokenHash.mockResolvedValue({
+          email: 'owner@acme.test',
+          tenantId: 'tenant-1',
+        });
+
+        const outcome = await callback();
+
+        expect(outcome).toMatchObject({
+          ok: false,
+          failure: SsoAuthFailure.INVITE_EMAIL_MISMATCH,
+          redirectUrl: expect.stringContaining('/accept-invite/raw-token-1'),
+        });
+        expect(authDbService.acceptMemberInviteWithSsoIdentity).not.toHaveBeenCalled();
+      });
 
       describe('platform-admin sign-in (ADMIN_LOGIN)', () => {
         const adminTokens = { admin: true as const, body: { accessToken: 'admin-access' } };
@@ -2410,7 +2515,7 @@ describe('AuthService', () => {
         email: 'sam.rivera@thecoffeehouse.com',
         tenantId: 'tenant-1',
       });
-      authDbService.acceptMemberInviteWithGoogleIdentity.mockResolvedValue({
+      authDbService.acceptMemberInviteWithSsoIdentity.mockResolvedValue({
         outcome: 'accepted',
         id: 'user-1',
         tenantId: 'tenant-1',
@@ -2429,8 +2534,9 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(authDbService.acceptMemberInviteWithGoogleIdentity).toHaveBeenCalledWith({
+      expect(authDbService.acceptMemberInviteWithSsoIdentity).toHaveBeenCalledWith({
         tokenHash: expect.any(String) as string,
+        provider: UserIdentityProvider.GOOGLE,
         providerUserId: 'google-sub-1',
         email: 'Sam.Rivera@TheCoffeeHouse.com',
         name: 'Sam Rivera',
@@ -2456,7 +2562,7 @@ describe('AuthService', () => {
         failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
         redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.INVALID_OR_EXPIRED_INVITE}&provider=google`,
       });
-      expect(authDbService.acceptMemberInviteWithGoogleIdentity).not.toHaveBeenCalled();
+      expect(authDbService.acceptMemberInviteWithSsoIdentity).not.toHaveBeenCalled();
     });
 
     /**
@@ -2482,11 +2588,11 @@ describe('AuthService', () => {
         failure: SsoAuthFailure.INVITE_EMAIL_MISMATCH,
         redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.INVITE_EMAIL_MISMATCH}&provider=google`,
       });
-      expect(authDbService.acceptMemberInviteWithGoogleIdentity).not.toHaveBeenCalled();
+      expect(authDbService.acceptMemberInviteWithSsoIdentity).not.toHaveBeenCalled();
     });
 
     /**
-     * Refused as a redirect before `acceptMemberInviteWithGoogleIdentity` runs, never as a thrown
+     * Refused as a redirect before `acceptMemberInviteWithSsoIdentity` runs, never as a thrown
      * 403 (browser is mid-navigation); the invite must survive.
      */
     it("redirects with ACCOUNT_UNAVAILABLE for a suspended tenant's invite, leaving it unconsumed", async () => {
@@ -2512,7 +2618,7 @@ describe('AuthService', () => {
         failure: SsoAuthFailure.ACCOUNT_UNAVAILABLE,
         redirectUrl: `https://app.innopeak.test/accept-invite/raw-token-1?error=${SsoAuthFailure.ACCOUNT_UNAVAILABLE}&provider=google`,
       });
-      expect(authDbService.acceptMemberInviteWithGoogleIdentity).not.toHaveBeenCalled();
+      expect(authDbService.acceptMemberInviteWithSsoIdentity).not.toHaveBeenCalled();
     });
 
     it('reports an already-linked Google identity distinctly, without a second guess about the token', async () => {
@@ -2521,7 +2627,7 @@ describe('AuthService', () => {
         email: 'sam.rivera@thecoffeehouse.com',
         tenantId: 'tenant-1',
       });
-      authDbService.acceptMemberInviteWithGoogleIdentity.mockResolvedValue({
+      authDbService.acceptMemberInviteWithSsoIdentity.mockResolvedValue({
         outcome: 'identity_already_linked',
       });
 
@@ -2705,7 +2811,7 @@ describe('AuthService', () => {
           admin: { id: 'admin-1', email: 'priya.ops@innopeak.com', locale: null },
         },
       };
-      platformAdminAuthService.completeAdminInviteGoogle.mockResolvedValue({ ok: true, tokens });
+      platformAdminAuthService.completeAdminInviteSso.mockResolvedValue({ ok: true, tokens });
 
       const outcome = await target.handleGoogleCallback({
         code: 'auth-code',
@@ -2714,7 +2820,8 @@ describe('AuthService', () => {
         sid: 'raw-sid',
       });
 
-      expect(platformAdminAuthService.completeAdminInviteGoogle).toHaveBeenCalledWith(
+      expect(platformAdminAuthService.completeAdminInviteSso).toHaveBeenCalledWith(
+        SsoProvider.GOOGLE,
         'raw-token-1',
         identity
       );
@@ -2735,7 +2842,7 @@ describe('AuthService', () => {
         },
       });
       googleIdentityProvider.fetchIdentity.mockResolvedValue(identity);
-      platformAdminAuthService.completeAdminInviteGoogle.mockResolvedValue({
+      platformAdminAuthService.completeAdminInviteSso.mockResolvedValue({
         ok: false,
         failure: SsoAuthFailure.INVITE_EMAIL_MISMATCH,
         redirectUrl: 'https://app.innopeak.test/invite/raw-token-1?error=INVITE_EMAIL_MISMATCH',
@@ -2789,7 +2896,7 @@ describe('AuthService', () => {
         failure: SsoAuthFailure.EMAIL_NOT_VERIFIED,
         redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${SsoAuthFailure.EMAIL_NOT_VERIFIED}&provider=google`,
       });
-      expect(platformAdminAuthService.completeAdminInviteGoogle).not.toHaveBeenCalled();
+      expect(platformAdminAuthService.completeAdminInviteSso).not.toHaveBeenCalled();
     });
 
     // An admin and a tenant user may share an address (an admin can own a separate business), so the tenant buttons never consult admin

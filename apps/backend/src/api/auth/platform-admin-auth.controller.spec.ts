@@ -146,3 +146,54 @@ describe('PlatformAdminAuthController.microsoftLogin', () => {
     );
   });
 });
+
+describe('PlatformAdminAuthController.inviteMicrosoftAuthorize', () => {
+  let controller: PlatformAdminAuthController;
+  const buildAdminInviteMicrosoftRedirect = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [PlatformAdminAuthController],
+      providers: [
+        { provide: PlatformAdminAuthService, useValue: { buildAdminInviteMicrosoftRedirect } },
+      ],
+    }).compile();
+
+    controller = moduleRef.get(PlatformAdminAuthController);
+  });
+
+  it('sets the Microsoft binding cookie and redirects to Microsoft on success', async () => {
+    buildAdminInviteMicrosoftRedirect.mockResolvedValue({
+      ok: true,
+      authorizationUrl: 'https://login.microsoftonline.com/tid/oauth2/v2.0/authorize?x=1',
+      sid: 'raw-sid',
+    });
+    const res = mockResponse();
+
+    await controller.inviteMicrosoftAuthorize('raw-token-1', res);
+
+    expect(res.cookie).toHaveBeenCalledWith('microsoft_auth_sid', 'raw-sid', expect.anything());
+    expect(res.redirect).toHaveBeenCalledWith(
+      302,
+      'https://login.microsoftonline.com/tid/oauth2/v2.0/authorize?x=1'
+    );
+  });
+
+  it('redirects to the accept page with an error, setting no cookie, for a dead token', async () => {
+    buildAdminInviteMicrosoftRedirect.mockResolvedValue({
+      ok: false,
+      redirectUrl: 'https://app.innopeak.test/invite/bad-token?error=INVALID_OR_EXPIRED_INVITE',
+    });
+    const res = mockResponse();
+
+    await controller.inviteMicrosoftAuthorize('bad-token', res);
+
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(
+      302,
+      'https://app.innopeak.test/invite/bad-token?error=INVALID_OR_EXPIRED_INVITE'
+    );
+  });
+});

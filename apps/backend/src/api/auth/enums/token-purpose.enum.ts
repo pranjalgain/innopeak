@@ -1,5 +1,5 @@
 /**
- * `password_reset_tokens.purpose`. `INVITE`/`RESET` are reserved for flows not yet built.
+ * `user_auth_tokens.purpose`. `INVITE`/`RESET` are reserved for flows not yet built.
  *
  * `SET_PASSWORD` is separate from `RESET` (the public forgot-password route): sharing a value
  * would let the `(user_id, purpose)` upsert invalidate the other token, and a code minted by the

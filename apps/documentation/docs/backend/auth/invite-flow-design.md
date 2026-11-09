@@ -5,7 +5,7 @@
 ## Why
 
 `AdminSettingsService.sendInvite` already creates the invited admin's row and its
-`platform_admin_invites` token row, but throws the raw token away instead of emailing it, and
+`platform_admin_auth_tokens` token row, but throws the raw token away instead of emailing it, and
 nothing exists to redeem it. An invited admin sits in the roster forever with no way to finish
 onboarding. This closes that gap: the invite gets emailed, a public accept screen lets the
 invitee set a password, and the admin becomes `active`.
@@ -15,13 +15,13 @@ the server log**, so the flow is exercisable locally without a working mailbox �
 as `NoopEmailProvider`, which already logs "would have sent to X" in every non-production
 environment.
 
-No database migration is needed. `platform_admin_invites` (token_hash, purpose, expires_at,
+No database migration is needed. `platform_admin_auth_tokens` (token_hash, purpose, expires_at,
 used_at) and `platform_admins.status` already support this end to end.
 
 ## Scope
 
 Platform admin → platform admin invites only (`/v1/admin/settings/invites`). Tenant/team-member
-invites are a separate, not-yet-built feature (`TokenPurpose.INVITE` on `password_reset_tokens`
+invites are a separate, not-yet-built feature (`TokenPurpose.INVITE` on `user_auth_tokens`
 has zero usages) and are out of scope here.
 
 Backend endpoints + web accept page, both in this branch.
@@ -83,18 +83,18 @@ New repository methods, alongside the existing `insertInviteToken`/`findByEmail`
 ```ts
 // Repository
 async findInviteEmailByTokenHash(tokenHash: string): Promise<{ email: string } | null>
-// SELECT platform_admins.email FROM platform_admin_invites JOIN platform_admins ...
+// SELECT platform_admins.email FROM platform_admin_auth_tokens JOIN platform_admins ...
 // WHERE token_hash = $1 AND purpose = 'invite' AND used_at IS NULL AND expires_at > now()
 
 async acceptInvite(input: { tokenHash: string; passwordHash: string }): Promise<AcceptInviteOutcome>
 // transaction:
-//  1. SELECT id, platform_admin_id FROM platform_admin_invites
+//  1. SELECT id, platform_admin_id FROM platform_admin_auth_tokens
 //     WHERE token_hash = $1 AND purpose = 'invite' AND used_at IS NULL AND expires_at > now()
 //     FOR UPDATE   -- not found -> { outcome: 'invalid' }
 //  2. UPDATE platform_admins SET password_hash = $2, status = 'active', updated_at = now()
 //     WHERE id = $platformAdminId AND status = 'invited'
 //     RETURNING id, email                          -- 0 rows -> { outcome: 'invalid' } (race)
-//  3. UPDATE platform_admin_invites SET used_at = now(), updated_at = now() WHERE id = $inviteId
+//  3. UPDATE platform_admin_auth_tokens SET used_at = now(), updated_at = now() WHERE id = $inviteId
 //  4. return { outcome: 'accepted', id, email }
 ```
 
@@ -242,7 +242,7 @@ private async assertEmailNotAPlatformAdmin(email: string): Promise<void> {
 Confirmed with the user: the accept screen also offers "Continue with Google" as an alternative
 to setting a password, using `platform_admin_identities` (schema existed, with zero usages
 anywhere, before this). Tenant/team-member invites (`TokenPurpose.INVITE` on
-`password_reset_tokens`, currently mock-only on web) are explicitly **out of scope** for this
+`user_auth_tokens`, currently mock-only on web) are explicitly **out of scope** for this
 branch — tracked as a separate follow-up task.
 
 **Writing that identity row is only half of it.** Nothing read `platform_admin_identities`, so the

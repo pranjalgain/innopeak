@@ -283,7 +283,7 @@ export interface PlatformAdminProfile {
   hasPassword: boolean;
 }
 
-/** Mirrors `platform_admins` (status) joined with its own `platform_admin_invites` row. */
+/** Mirrors `platform_admins` (status) joined with its own `platform_admin_auth_tokens` row. */
 export interface PlatformAdminInvite {
   id: string;
   email: string;
@@ -449,6 +449,12 @@ export interface PlatformSettings {
   adminMicrosoftLoginAvailable?: boolean;
   /** Whether the admin sign-in page offers "Continue with Google": the backend's Google client is configured. Deploy-level; independent of `googleLoginEnabled`, the tenant switch. */
   adminGoogleLoginAvailable?: boolean;
+  /**
+   * Whether this server can deliver email. Email/password needs it (a sign-up is completed by an emailed code), so while it is
+   * false the password switch is not in effect and cannot be turned on. Deploy-level, not writable; requires
+   * `EMAIL_DELIVERY_ENABLED=true` on the backend as well as a configured provider.
+   */
+  emailDeliveryAvailable?: boolean;
 }
 
 /** A change to the platform settings. `confirmLockout` is not a setting: it acknowledges, for this request only, that switching Microsoft or Google off locks out the users who can only sign in with it. */

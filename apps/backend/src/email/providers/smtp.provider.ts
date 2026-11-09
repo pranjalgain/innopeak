@@ -1,13 +1,11 @@
 import { EmailSendResult, SendEmailOptions } from '@email/interfaces/email.interface';
 import { EmailProvider } from '@email/providers/email.provider';
+import { isSettingProvided } from '@email/utils/email-config.util';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createTransport, Transporter } from 'nodemailer';
 import type Mail from 'nodemailer/lib/mailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
-
-/** A setting the operator actually provided, as opposed to the default the provider falls back to. */
-const isSet = (value: string | undefined): boolean => (value ?? '').trim() !== '';
 
 @Injectable()
 export class SmtpEmailProvider extends EmailProvider implements OnModuleInit {
@@ -99,8 +97,8 @@ export class SmtpEmailProvider extends EmailProvider implements OnModuleInit {
    */
   isConfigured(): boolean {
     return (
-      isSet(this.configService.get<string>('SMTP_HOST')) &&
-      isSet(this.configService.get<string>('EMAIL_FROM'))
+      isSettingProvided(this.configService.get<string>('SMTP_HOST')) &&
+      isSettingProvided(this.configService.get<string>('EMAIL_FROM'))
     );
   }
 }

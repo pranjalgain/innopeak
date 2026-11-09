@@ -6,7 +6,7 @@ import type { Locale } from '@common/i18n/locale';
 
 export interface PurgeStaleTokensResult {
   /**
-   * Spent/expired `password_reset_tokens` rows across every purpose (see
+   * Spent/expired `user_auth_tokens` rows across every purpose (see
    * `AuthRepository.deleteStaleOtpTokens`).
    */
   otpTokens: number;

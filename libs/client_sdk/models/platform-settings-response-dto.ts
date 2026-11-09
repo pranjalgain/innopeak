@@ -8,7 +8,7 @@ export interface PlatformSettingsResponseDto {
    */
   microsoftLoginEnabled: boolean;
   /**
-   * Whether the sign-in/sign-up screens offer email/password.
+   * Whether email/password sign-in and sign-up are in effect: the stored switch, and an email service this server can deliver through. Off when either is missing, so a server with no email service never offers a sign-up whose code cannot be sent.
    */
   passwordLoginEnabled: boolean;
   /**
@@ -39,4 +39,8 @@ export interface PlatformSettingsResponseDto {
    * Whether the admin sign-in page offers \"Continue with Google\": the Google OAuth client is configured on this deploy. Independent of `googleLoginEnabled`, which governs tenant sign-in only (an admin who accepted an invite with Google has no password, so the switch must not take their way in away); a pure reflection of the environment, not writable.
    */
   adminGoogleLoginAvailable: boolean;
+  /**
+   * Whether this server has an email service it can deliver through. Email/password needs it (a sign-up is completed by an emailed code), so while it is false the stored password switch is not in effect and the admin cannot turn it on. Requires `EMAIL_DELIVERY_ENABLED=true` as well as a configured provider.
+   */
+  emailDeliveryAvailable: boolean;
 }

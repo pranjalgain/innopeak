@@ -7,7 +7,7 @@ Built with [Docusaurus](https://docusaurus.io/) for modern, searchable, and main
 
 ### 🛠️ Prerequisites
 
-- **Node.js**: >= 20.0 (specified in root `.nvmrc`)
+- **Node.js**: >= 24.22.1 (specified in root `.nvmrc`)
 - **pnpm**: Used automatically via `packageManager` field
 - **Workspace**: Run commands from the root directory
 

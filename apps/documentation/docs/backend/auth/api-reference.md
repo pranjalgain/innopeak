@@ -108,7 +108,7 @@ vars) — **every other row in this table is net-new**, not just the Microsoft o
 | `MICROSOFT_CALLBACK_URL` | Yes (this engagement) | Must exactly match the redirect URI registered on the Entra app. |
 | `MICROSOFT_TENANT_ID` | No, default `common` | Restricts which Entra directories can complete the OAuth handshake at the provider level. `common` accepts any organizational or personal Microsoft account — use a specific directory ID here only if *every* InnoPeak tenant should be restricted to one Entra org, which is not this engagement's case. Per-tenant directory restriction is instead enforced in application code via `tenant_identity_providers.provider_tenant_id` — see [`GET /v1/auth/microsoft/callback`](#get-v1authmicrosoftcallback). |
 | `FRONTEND_URL` | Yes | Base URL the OAuth callback routes redirect back to with the token pair (or error code) appended. |
-| `INVITE_TOKEN_TTL_HOURS` | No, default `72` | Expiry window written to `password_reset_tokens.expires_at` / `platform_admin_invites.expires_at` for `purpose = 'invite'`. |
+| `INVITE_TOKEN_TTL_HOURS` | No, default `72` | Expiry window written to `user_auth_tokens.expires_at` / `platform_admin_auth_tokens.expires_at` for `purpose = 'invite'`. |
 | `RESET_TOKEN_TTL_HOURS` | No, default `1` | Same, for `purpose = 'reset'`. |
 | `VERIFY_EMAIL_OTP_TTL_MINUTES` | No, default `10` | Expiry window for the 6-digit signup/login verification OTP (tenant users only — platform admins have no email-verification step, see [Data model quick reference](#data-model-quick-reference)). In **minutes**, not hours — this is a short numeric code, not a long-lived link. |
 | `OAUTH_STATE_TTL_MINUTES` | No, default `10` | How long a signed OAuth `state` payload (see [`GET /v1/auth/microsoft/callback`](#get-v1authmicrosoftcallback)) is accepted after issuance — bounds how long an abandoned OAuth redirect can be resumed. |
@@ -125,7 +125,7 @@ platform-admin login doesn't exist in this codebase yet. Not yet present: a self
 "the pair this already-rotated token was replaced by" rather than just that it's revoked) — a
 follow-up migration alongside that feature, not assumed here.
 
-**Housekeeping**: neither `refresh_tokens` nor `password_reset_tokens` is ever read for a
+**Housekeeping**: neither `refresh_tokens` nor `user_auth_tokens` is ever read for a
 revoked/used or expired row again (`findActiveRefreshToken` and `consumeVerifyEmailToken` both
 exclude them), so without a purge both tables only grow — one `refresh_tokens` row per session ever
 started. The worker's `CronJobName.AUTH_TOKEN_CLEANUP` job (`CronScheduler`, daily at 03:00 — off
@@ -166,7 +166,7 @@ is the one place auth code writes to it.
 `users.email` if changed later at the provider), `created_at`, `updated_at`. Unique on `(provider,
 provider_user_id)` — one external account can only ever back one app user, across all tenants.
 
-**`password_reset_tokens`** — `id`, `user_id`, `token_hash` (never store the raw token — see
+**`user_auth_tokens`** — `id`, `user_id`, `token_hash` (never store the raw token — see
 [Security considerations](#security-considerations)), `purpose` (`token_purpose`: `verify_email` \|
 `invite` \| `reset`), `expires_at`, `used_at` (nullable, single-use), `created_at`, `updated_at`.
 
@@ -183,7 +183,7 @@ hierarchy, differentiated only by invite lineage, not by permission level.
 persist the email the IdP reported at link time. Adding it is a required follow-up migration if
 that value needs to be retained.
 
-**`platform_admin_invites`** — mirrors `password_reset_tokens`, but `purpose` is
+**`platform_admin_auth_tokens`** — mirrors `user_auth_tokens`, but `purpose` is
 `platform_admin_invite_purpose` (`invite` \| `reset` — no `verify_email`, since a platform admin
 is always invited by another admin and never self-registers).
 
@@ -293,9 +293,9 @@ A missing settings row reads as on, like the column default. Beyond refusing the
 
 - A pending single-sign-on sign-up (the business-name step, up to 15 minutes after the callback) is re-checked against its provider's switch when it completes, since that step is what creates the tenant (`POST /v1/auth/sso/complete-signup` answers 403 `SSO_SIGNUP_DISABLED`).
 - `PATCH /v1/admin/settings/platform-config` refuses with 400 `SSO_LOGIN_DISALLOWED_SSO_ONLY_USERS` to turn Microsoft or Google off while active tenant users could then only sign in with it (no password, no other provider), because there is no way to give such a user a password. Unlike the platform-admin guard it can be overridden: repeating the request with `confirmLockout: true` (the admin console asks for confirmation first) switches the provider off and locks those users out until it is switched back on. The override exists because switching a provider off is also the emergency lever when it is compromised or down, and that must work however many people use it. The flag is never stored, and the override is logged as a warning with the number of users affected.
-- It also refuses, with 400 `PLATFORM_SETTINGS_NO_USABLE_METHOD`, a change that would leave no sign-up method both enabled and set up on the server (Microsoft and Google also need credentials; password counts as always set up). An unrelated change on a platform already in that state is not refused.
-- **Switching the password back on needs an email service.** `PATCH /v1/admin/settings/platform-config` answers 422 `PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE` for a change from off to on while the server cannot deliver email (not in production, or no `EMAIL_FROM`, or for SMTP no `SMTP_HOST`). A developer's machine is exempt, and re-sending `true` on a platform already on is not refused.
-- **Switching the password off has no stranded-user confirmation.** Unlike Microsoft and Google, businesses whose only way in is a password cannot sign in while it is off, and `PATCH` does not warn about them or ask for `confirmLockout`. The switch exists for platforms with no email service, where sign-up codes cannot be delivered; turn it back on to restore their access.
+- It also refuses, with 400 `PLATFORM_SETTINGS_NO_USABLE_METHOD`, a change that would leave no sign-up method both enabled and set up on the server (Microsoft and Google also need credentials; email/password also needs a working email service).
+- **Switching email/password on needs an email service.** `PATCH /v1/admin/settings/platform-config` answers 422 `PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE` for `passwordLoginEnabled: true` while the server cannot deliver email: `EMAIL_DELIVERY_ENABLED` is not `true`, or the provider is not configured (no `EMAIL_FROM`, or for SES no credentials and not the AWS deployment target, or for SMTP no `SMTP_HOST`). There is no developer-machine exemption: the local provider only logs the message. `false` is always accepted.
+- **Switching the password off has no stranded-user confirmation.** Unlike Microsoft and Google, businesses whose only way in is a password cannot sign in while it is off, and `PATCH` does not warn about them or ask for `confirmLockout`. While no email service is configured the switch is not in effect for anyone, so switching the stored value off strands nobody new.
 - The web Settings screen keeps the Profile tab (password change or set) whatever the password switch says, since the server leaves that unaffected.
 
 #### `POST /v1/auth/signup`
@@ -612,7 +612,7 @@ Request: `{ "email": "jane@thecoffeehouse.com", "otp": "482913" }` — a 6-digit
 link**. A link's token could be silently consumed by an email security scanner or link-preview
 bot prefetching the URL before the real user ever saw it; a code the user has to read and type by
 hand into the frontend's OTP stepper doesn't have that exposure. Looks up
-`password_reset_tokens WHERE user_id = <resolved from email> AND token_hash = hash(otp) AND
+`user_auth_tokens WHERE user_id = <resolved from email> AND token_hash = hash(otp) AND
 purpose = 'verify_email' AND used_at IS NULL AND expires_at > now()`; on match, sets
 `users.email_verified_at = now()`, `users.status = 'active'`, and the token's `used_at`. Password
 path only — SSO signups never create a `verify_email` token, see [Auth
@@ -645,7 +645,7 @@ Request: `{ "email": "jane@thecoffeehouse.com" }` (existing `ForgotPasswordDto`)
 
 Success `200` **always**, regardless of whether the email matches a `users` row:
 `{ "message": "If an account exists for this email, a reset link has been sent." }`. If a match
-exists, creates a `password_reset_tokens` row (`purpose = 'reset'`) and sends the email; if not,
+exists, creates a `user_auth_tokens` row (`purpose = 'reset'`) and sends the email; if not,
 does nothing but still returns the same response and takes comparable time (see [Security
 considerations](#security-considerations) — enumeration prevention).
 
@@ -721,7 +721,7 @@ missing/expired access token.
 
 Bearer, tenant user only. Throttle 5 / minute. No request body — the account is taken from the
 access token. Mails a 6-digit code to that account's own address and stores its sha256 in
-`password_reset_tokens` with `purpose = 'set_password'`, upserted on `(user_id, purpose)` so
+`user_auth_tokens` with `purpose = 'set_password'`, upserted on `(user_id, purpose)` so
 issuing a new code replaces the live one.
 
 This exists because [`set-password`](#post-v1authset-password) has no current password to demand
@@ -854,17 +854,16 @@ business" prompt.
 | `GET` | `/v1/auth/invite/:token/microsoft` | Public | 30 / min |
 | `GET` | `/v1/auth/invite/:token/google` | Public | 30 / min |
 
-Not exercised by this client's Microsoft-only, single-user scope-down (see the overview's
-[Frontend / backend boundary](./overview.md#frontend--backend-boundary)) —
-documented because the schema (`user_role.member`, `token_purpose.invite`) and backend fully
-support it; only the frontend currently has no screen for it.
+The accept screen offers the password form plus Google and Microsoft, gated by
+`googleLoginEnabled` and `microsoftLoginEnabled` respectively. The backend enforces both switches on
+the invite routes as well as hiding the buttons.
 
 #### `POST /v1/auth/invite`
 
 Owner-only. Request: `{ "email": "member@thecoffeehouse.com" }`. Creates a `users` row
 (`role = 'member'`, `status = 'invited'`, no `password_hash`, `invited_by_user_id` set to the
 calling owner's own `id` — taken from the authenticated request, never from the request body, so
-it can't be spoofed) and a `password_reset_tokens` row (`purpose = 'invite'`), sends the invite
+it can't be spoofed) and a `user_auth_tokens` row (`purpose = 'invite'`), sends the invite
 email.
 
 Success `201`: `{ "userId": "...", "email": "member@thecoffeehouse.com", "status": "invited" }`.
@@ -888,7 +887,7 @@ token the same way as [`/v1/auth/verify-email`](#post-v1authverify-email) (`purp
 sets `password_hash`, `UPDATE users SET status = 'active', email_verified_at = now()` — clicking a
 token emailed to this specific address is proof of ownership regardless of which method finishes
 the invite, so this is set here unconditionally, not only on the SSO path below (`PLAN.md` §4.3b)
-— and consumes the token via the guarded compare-and-swap `UPDATE password_reset_tokens SET
+— and consumes the token via the guarded compare-and-swap `UPDATE user_auth_tokens SET
 used_at = now() WHERE id = ? AND used_at IS NULL` (`PLAN.md` §8.7 — closes the double-tab
 double-submit race, not just a courtesy check).
 
@@ -907,46 +906,39 @@ document tried routing invite-acceptance through the plain login callback; it do
 that callback only ever looks up by an identity that doesn't exist yet for a first-time SSO user —
 see `PLAN.md` §4.3b).
 
-First validates the token is unexpired and unused — read-only, does not consume it — so a dead
-invite link fails fast with `400 INVALID_OR_EXPIRED_TOKEN` before ever redirecting to Microsoft.
-If valid, signs `{ intent: 'invite', inviteToken: token }` into `state` and redirects (`302`) to
-Microsoft's consent screen. Completion happens back at [`GET
-/v1/auth/microsoft/callback`](#get-v1authmicrosoftcallback)'s `invite` branch:
+First validates the token is unexpired and unused — read-only, does not consume it — and checks
+the Microsoft client plus `microsoft_login_enabled`, so a dead invite link or a switched-off
+provider fails fast on the accept screen. If valid, signs `{ intent: 'invite', inviteToken: token }`
+into `state` and redirects (`302`) to Microsoft's consent screen. Completion happens back at
+[`GET /v1/auth/microsoft/callback`](#get-v1authmicrosoftcallback)'s `invite` branch:
 
 - Decodes `inviteToken` from `state`, re-validates it's still unexpired/unused, and loads the
   `invited`-status `users` row it belongs to.
-- **Runs the directory check** described at the top of
-  [`GET /v1/auth/microsoft/callback`](#get-v1authmicrosoftcallback) against the invitee's
-  tenant, before looking at the email at all. An invite is a way into an *existing* tenant, so it
-  is bound by that tenant's directory policy exactly like a login is; `?error=DIRECTORY_MISMATCH`,
-  token not consumed.
-- **Confirms the IdP-verified email from this OAuth completion exactly matches that user's
-  `email`** — both sides normalized per [Email normalization](#email-normalization). If it
-  doesn't, the request is rejected as `400 INVITE_EMAIL_MISMATCH` and the token is **not**
-  consumed — this is the check that stops someone other than the invited person from accepting
-  the link with their own unrelated Microsoft account; see [Security
-  considerations](#security-considerations). The two checks are not redundant: the directory check
-  asks "is this the tenant's IdP?", the email check asks "is this the invited person?" — a tenant
-  without a directory policy only gets the second, a tenant with one needs both.
-- On a match: `INSERT user_identities`, `UPDATE users SET status = 'active', email_verified_at =
-  now()`, consume the token with the same guarded compare-and-swap as the password path above,
-  issue tokens, `302` to `${FRONTEND_URL}/dashboard?access_token=...&refresh_token=...`.
+- Requires a verified email (`xms_edov` for Microsoft), then **confirms it exactly matches that
+  user's `email`** — both sides normalized per [Email normalization](#email-normalization). A
+  mismatch redirects back to the accept page with `?error=INVITE_EMAIL_MISMATCH` and leaves the
+  token **unconsumed**; this is the check that stops someone other than the invited person from
+  accepting the link with their own unrelated Microsoft account.
+- Refuses a suspended or erased tenant with `?error=ACCOUNT_UNAVAILABLE` before redemption.
+- On a match: inserts a `user_identities` row under `entra_id`, activates the member, consumes the
+  token with the same guarded compare-and-swap as the password path above, sets the session
+  cookies and redirects to `${FRONTEND_URL}/dashboard`.
 
 `GET /v1/auth/invite/:token/google` is the same shape, `provider = 'google'`.
 
 ## Platform admin API
 
 Structurally identical to the tenant user API above, against `platform_admins` /
-`platform_admin_identities` / `platform_admin_invites` instead of `users` /
-`user_identities` / `password_reset_tokens` — see [Auth flows](./overview.md#auth-flows) item 6.
+`platform_admin_identities` / `platform_admin_auth_tokens` instead of `users` /
+`user_identities` / `user_auth_tokens` — see [Auth flows](./overview.md#auth-flows) item 6.
 Differences called out explicitly; everywhere else, substitute table names and re-read the
 matching tenant-user section above.
 
 > **What's actually implemented, as of the platform-admin invite flow:** the invite/accept pair
 > below is real, but under `/v1/auth/invite/*` and `/v1/auth/login` — **not** a separate
-> `/v1/platform-admin/auth/*` namespace, and **no Microsoft, no forgot/reset-password for
-> admins**. The route table and the rest of this section below are the original forward design and
-> still describe a larger surface than what exists. The actually-shipped shape:
+> `/v1/platform-admin/auth/*` namespace, and **no forgot/reset-password for admins**. The route
+> table and the rest of this section below are the original forward design and still describe a
+> larger surface than what exists. The actually-shipped shape:
 >
 > | Method | Path | Auth | Throttle |
 > |---|---|---|---|
@@ -954,7 +946,9 @@ matching tenant-user section above.
 > | `GET` | `/v1/auth/invite/:token` | Public | 20 / min — preview only, **is** offered (see caveat below) |
 > | `POST` | `/v1/auth/invite/accept` | Public | 5 / min — password path |
 > | `GET` | `/v1/auth/invite/:token/google` | Public | 10 / min — Google path, own route (not `/v1/auth/google`), since a first-time invitee has no `platform_admin_identities` row for the login callback to find |
+> | `GET` | `/v1/auth/invite/:token/microsoft` | Public | 10 / min — Microsoft path, own route for the same reason; pinned to `ADMIN_MICROSOFT_TENANT_ID` |
 > | `GET` | `/v1/auth/google/callback` | Public | shared with tenant login/signup — dispatches on a third `OAuthIntent.ADMIN_INVITE`, and `OAuthIntent.ADMIN_LOGIN` (the admin sign-in page's Google button, which resolves `platform_admin_identities` only). On tenant `login`/`signup` it never consults admin identities: the same address may be both an admin and a tenant user |
+> | `GET` | `/v1/auth/microsoft/callback` | Public | shared with tenant Microsoft sign-in/sign-up — dispatches on `OAuthIntent.ADMIN_INVITE` and `OAuthIntent.ADMIN_LOGIN`; every admin intent is pinned to the configured Entra directory |
 >
 > `POST /v1/admin/settings/invites` (bearer, platform-admin-only) is what actually sends the
 > invite — see the admin module's own API reference, not this one; `AuthController` only owns
@@ -1000,8 +994,8 @@ Differences from the tenant-user surface:
   /v1/platform-admin/auth/invite/:token/microsoft` signs `{ intent: 'invite', inviteToken: token
   }` into `state`; the callback's `invite` branch requires the IdP-verified email to match the
   invited `platform_admins.email` exactly (`400 INVITE_EMAIL_MISMATCH` otherwise, token left
-  unconsumed) and consumes `platform_admin_invites.used_at` via the same guarded compare-and-swap
-  as `password_reset_tokens` (`PLAN.md` §8.7's fix "applies identically... it's the same mechanic
+  unconsumed) and consumes `platform_admin_auth_tokens.used_at` via the same guarded compare-and-swap
+  as `user_auth_tokens` (`PLAN.md` §8.7's fix "applies identically... it's the same mechanic
   one level up").
 - **No `/verify-email` route.** `platform_admin_invite_purpose` has no `verify_email` value —
   an invited admin's email is trusted because it came from another already-authenticated admin,
@@ -1013,7 +1007,7 @@ Differences from the tenant-user surface:
   surface the same `INVALID_OR_EXPIRED_TOKEN` error inline rather than pre-checking.
 - **`PLAN.md` §4.3d (support-assisted tenant creation) has no endpoint here, deliberately.** The
   *acceptance* side of that flow is already fully covered — the platform admin's invite creates an
-  ordinary `users` row (`role = 'owner'`, `status = 'invited'`) and a `password_reset_tokens` row
+  ordinary `users` row (`role = 'owner'`, `status = 'invited'`) and a `user_auth_tokens` row
   exactly like a member invite, so [`POST
   /v1/auth/invite/accept`](#post-v1authinviteaccept) and [`GET
   /v1/auth/invite/:token/microsoft`](#get-v1authinvitetokenmicrosoft) work unmodified. What's
@@ -1115,7 +1109,7 @@ see [Conventions](#conventions)):
   entropy the 20 req/min preview endpoint below is irrelevant to brute force — the ceiling is the
   randomness, not the rate limit — which is the point of fixing the size here rather than leaning
   on the throttler.
-- **Token storage** — `password_reset_tokens.token_hash` and `platform_admin_invites.token_hash`
+- **Token storage** — `user_auth_tokens.token_hash` and `platform_admin_auth_tokens.token_hash`
   store a hash of the token, never the raw value (mirrors how `password_hash` is never the raw
   password). The hash is **SHA-256, hex** (64 chars, fits `VARCHAR(255)`, and deterministic so the
   unique index on `token_hash` is the lookup key) — *not* bcrypt/argon2: those exist to slow down
@@ -1181,7 +1175,7 @@ see [Conventions](#conventions)):
   rejects (without consuming the token) if it doesn't. The password-path equivalent needs no such
   check — setting a password against a specific token *is* the identity proof there.
 - **Token consumption is a compare-and-swap, not a check-then-write** — every endpoint that spends
-  a `password_reset_tokens`/`platform_admin_invites` row (`verify-email`, `reset-password`,
+  a `user_auth_tokens`/`platform_admin_auth_tokens` row (`verify-email`, `reset-password`,
   `invite/accept`, the `invite` branch of the OAuth callback) does so via `UPDATE ... SET
   used_at = now() WHERE id = ? AND used_at IS NULL`, not a `SELECT` followed by a separate
   `UPDATE`. Two tabs submitting the same link at once make the second call see zero rows affected

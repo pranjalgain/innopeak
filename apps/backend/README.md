@@ -1,6 +1,6 @@
 # NestJS Enterprise Boilerplate
 
-[![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D24.22.1-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![pnpm](https://img.shields.io/badge/pnpm-%3E%3D8.0.0-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
@@ -47,7 +47,7 @@ pre-commit gates, so it's ready to build on rather than clean up first.
 
 ## Prerequisites
 
-- **Node.js**: `>=20.0.0`
+- **Node.js**: `>=24.22.1`
 - **pnpm**: `>=8.0.0`
 - **Docker Engine**: Docker Desktop / Podman / Rancher Desktop / OrbStack
 - **Gitleaks** and **Trivy** — required for the pre-commit hook (`brew install gitleaks trivy`,
@@ -203,7 +203,9 @@ src/db/repositories/<module>/         # Data access (centralized)
 > `DBModule` exports all repositories, so any module can inject any repository without
 > cross-module coupling.
 
-See `docs/conventions/` for detailed patterns.
+See `docs/conventions/` for detailed patterns. Schema and migration notes live in
+[`docs/conventions/sql-first-workflow.md`](./docs/conventions/sql-first-workflow.md), with known
+deviations tracked in [`docs/database-schema-review.md`](./docs/database-schema-review.md).
 
 ---
 
@@ -260,8 +262,14 @@ pnpm test:artillery:stress      # Stress test
 pnpm db:dev:up           # Start all Docker containers
 pnpm db:dev:rm           # Stop & remove containers
 pnpm generate:prometheus # Generate Prometheus config
-docker build -t app .    # Build production Docker image (non-root user + HEALTHCHECK)
+docker build -f apps/backend/Dockerfile -t innopeak-backend .  # Production image; run from the repo root
 ```
+
+The backend image uses the repository-root `pnpm-lock.yaml` (the per-app copy is git-ignored), installs
+production dependencies only in its final stage, runs as the unprivileged `node` user and carries a
+`HEALTHCHECK` against the API's `/health`. Start the worker from the same image with
+`CMD ["node", "dist/worker.main.js"]`; override or disable the health check for that container, since
+the worker has no HTTP server.
 
 See [AWS-Emulated Local Stack (Floci)](#aws-emulated-local-stack-floci) for the
 `db:aws:up`/`infra:floci:up`/`local:aws:up` equivalents.

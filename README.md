@@ -62,7 +62,7 @@ This modern boilerplate includes:
 
 ### Prerequisites
 
-- **Node.js**: >= 20.0 (check with `node --version`)
+- **Node.js**: >= 24.22.1 (check with `node --version`)
 - **pnpm**: This project uses pnpm workspaces (installed automatically via `packageManager` field)
 
 ### Step 1: 📥 Clone and Setup

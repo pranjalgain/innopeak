@@ -82,24 +82,58 @@ describe('SesEmailProvider', () => {
     });
   });
 
-  // The sender defaults to noreply@example.com, which no SES identity is verified for.
+  // The sender defaults to noreply@example.com, which no SES identity is verified for, and a sender alone sends nothing without
+  // credentials: a key pair, or the AWS deployment target's role.
   describe('isConfigured', () => {
-    const withSender = (sender: string | undefined): void => {
+    const withSettings = (values: Record<string, string>): void => {
       configService.get.mockImplementation((key: string) => {
-        return key === 'EMAIL_FROM' ? sender : undefined;
+        return values[key];
       });
     };
+    let savedTarget: string | undefined;
 
-    it('is true when a sender is set', () => {
-      withSender('noreply@innopeak.test');
+    beforeEach(() => {
+      savedTarget = process.env['DEPLOYMENT_TARGET'];
+      delete process.env['DEPLOYMENT_TARGET'];
+    });
+
+    afterEach(() => {
+      if (savedTarget === undefined) {
+        delete process.env['DEPLOYMENT_TARGET'];
+      } else {
+        process.env['DEPLOYMENT_TARGET'] = savedTarget;
+      }
+    });
+
+    it('is true with a sender and a key pair', () => {
+      withSettings({
+        EMAIL_FROM: 'noreply@innopeak.test',
+        AWS_ACCESS_KEY_ID: 'AKIA-TEST',
+        AWS_SECRET_ACCESS_KEY: 'secret',
+      });
       expect(target.isConfigured()).toBe(true);
     });
 
-    it('is false without a sender, or with a blank one', () => {
-      withSender(undefined);
+    it('is false with a sender but no credentials, outside the AWS target', () => {
+      withSettings({ EMAIL_FROM: 'noreply@innopeak.test' });
+      expect(target.isConfigured()).toBe(false);
+    });
+
+    it('is true with a sender on the AWS target, where the role supplies credentials', () => {
+      process.env['DEPLOYMENT_TARGET'] = 'aws';
+      withSettings({ EMAIL_FROM: 'noreply@innopeak.test' });
+      expect(target.isConfigured()).toBe(true);
+    });
+
+    it('is false without a sender, or with a blank one, even with credentials', () => {
+      withSettings({ AWS_ACCESS_KEY_ID: 'AKIA-TEST', AWS_SECRET_ACCESS_KEY: 'secret' });
       expect(target.isConfigured()).toBe(false);
 
-      withSender(' ');
+      withSettings({
+        EMAIL_FROM: ' ',
+        AWS_ACCESS_KEY_ID: 'AKIA-TEST',
+        AWS_SECRET_ACCESS_KEY: 'secret',
+      });
       expect(target.isConfigured()).toBe(false);
     });
   });

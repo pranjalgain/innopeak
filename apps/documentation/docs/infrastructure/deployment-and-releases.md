@@ -14,14 +14,14 @@ this page describes the procedure to automate as much as the automation that exi
 | Artifact | Command | Output |
 |---|---|---|
 | Backend (API and worker) | `pnpm run build:api` in `apps/backend` | `dist/`, including `dist/main.js` and `dist/worker.main.js`, with views and assets copied in |
-| Backend, in a container | `docker build` with `apps/backend/Dockerfile` | One image for the API, worker and migration job. **It currently cannot be built from a clean checkout.** See [Compute and containers](./compute-and-containers.md#problems-to-fix-before-using-it) |
+| Backend, in a container | `docker build -f apps/backend/Dockerfile -t innopeak-backend .` from the repository root | One image for the API, worker and migration job. See [Compute and containers](./compute-and-containers.md#the-backend-image) |
 | Web app | `pnpm --filter web build` (`next build`) | `.next/`. **Set `API_URL` for the target environment first**: it is baked into the build |
+| Web app, in a container | `docker build -f apps/web/Dockerfile ... .` from the repository root | A standalone Next.js runtime image. See [Compute and containers](./compute-and-containers.md#the-web-image) |
 | Documentation | `pnpm docs:build` | Static files in `apps/documentation/build`. The build fails on a broken link |
 | Generated API client | `pnpm generate:sdk` | `libs/client_sdk`. Regenerate whenever the backend's request or response shapes change |
 
-Use `pnpm install --frozen-lockfile`. The repository root declares `pnpm@10.15.0`, while the backend
-Dockerfile activates pnpm 8.15.0 and the backend and web declare different Node versions (20 and 24).
-Align these when the images are written.
+Use `pnpm install --frozen-lockfile`. Every runtime and CI pin is Node 24.22.1 and the images activate
+the root-declared pnpm 10.15.0.
 
 ## Release order
 

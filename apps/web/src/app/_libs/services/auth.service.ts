@@ -422,6 +422,12 @@ export class AuthService {
     window.location.assign(`/v1/admin/auth/invite/${encodeURIComponent(token)}/google`);
   }
 
+  /** Full-page navigation to the admin invite Microsoft route. */
+  static startAdminInviteMicrosoft(token: string): void {
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(`/v1/admin/auth/invite/${encodeURIComponent(token)}/microsoft`);
+  }
+
   static async validateMemberInvite(token: string): Promise<MemberInvitePreview> {
     const response = await authApi.authControllerValidateMemberInviteV1(
       { token },
@@ -449,5 +455,11 @@ export class AuthService {
   static startMemberInviteGoogle(token: string): void {
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`/v1/auth/invite/${encodeURIComponent(token)}/google`);
+  }
+
+  /** Full-page navigation to the member invite Microsoft route. */
+  static startMemberInviteMicrosoft(token: string): void {
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(`/v1/auth/invite/${encodeURIComponent(token)}/microsoft`);
   }
 }

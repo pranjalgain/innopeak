@@ -312,6 +312,8 @@ export interface MessageCatalog {
     PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE: string;
     /** Turning Microsoft or Google off while tenant users have no other way in (no password, no other provider). */
     CANNOT_DISABLE_SSO_LOGIN_SSO_ONLY_USERS: (provider: string, count: number) => string;
+    /** Turning email/password off while tenant users have no other way in (a password and no single sign-on identity). */
+    CANNOT_DISABLE_PASSWORD_LOGIN_PASSWORD_ONLY_USERS: (count: number) => string;
     /** The patch would leave no method that can actually be used: Microsoft and Google also need to be configured on this server. */
     PLATFORM_SETTINGS_NO_USABLE_METHOD: string;
     ADMIN_NOT_FOUND: string;

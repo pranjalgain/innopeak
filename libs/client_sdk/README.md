@@ -54,7 +54,9 @@ Class | Method | HTTP request | Description
 *AdminAuthApi* | [**platformAdminAuthControllerAcceptAdminInviteV1**](docs/AdminAuthApi.md#platformadminauthcontrolleracceptadmininvitev1) | **POST** /v1/admin/auth/invite/accept | Accept a platform-admin invite by setting a password
 *AdminAuthApi* | [**platformAdminAuthControllerGoogleLoginV1**](docs/AdminAuthApi.md#platformadminauthcontrollergoogleloginv1) | **GET** /v1/admin/auth/google | Start a platform-admin Google sign-in
 *AdminAuthApi* | [**platformAdminAuthControllerInviteGoogleAuthorizeV1**](docs/AdminAuthApi.md#platformadminauthcontrollerinvitegoogleauthorizev1) | **GET** /v1/admin/auth/invite/{token}/google | Accept a platform-admin invite via Google
+*AdminAuthApi* | [**platformAdminAuthControllerInviteMicrosoftAuthorizeV1**](docs/AdminAuthApi.md#platformadminauthcontrollerinvitemicrosoftauthorizev1) | **GET** /v1/admin/auth/invite/{token}/microsoft | Accept a platform-admin invite via Microsoft
 *AdminAuthApi* | [**platformAdminAuthControllerLoginV1**](docs/AdminAuthApi.md#platformadminauthcontrollerloginv1) | **POST** /v1/admin/auth/login | Platform-admin password login
+*AdminAuthApi* | [**platformAdminAuthControllerMicrosoftLoginV1**](docs/AdminAuthApi.md#platformadminauthcontrollermicrosoftloginv1) | **GET** /v1/admin/auth/microsoft | Start a platform-admin Microsoft sign-in
 *AdminAuthApi* | [**platformAdminAuthControllerValidateAdminInviteV1**](docs/AdminAuthApi.md#platformadminauthcontrollervalidateadmininvitev1) | **GET** /v1/admin/auth/invite/{token} | Preview a platform-admin invite
 *AdminBillingApi* | [**adminBillingControllerGetSummaryV1**](docs/AdminBillingApi.md#adminbillingcontrollergetsummaryv1) | **GET** /v1/admin/billing/summary | Platform-wide billing statistics
 *AdminBillingApi* | [**adminBillingControllerHasPaidTenantsV1**](docs/AdminBillingApi.md#adminbillingcontrollerhaspaidtenantsv1) | **GET** /v1/admin/billing/has-paid-tenants | Whether any tenant is currently on the Paid plan
@@ -92,6 +94,7 @@ Class | Method | HTTP request | Description
 *AuthApi* | [**authControllerGoogleAuthorizeV1**](docs/AuthApi.md#authcontrollergoogleauthorizev1) | **GET** /v1/auth/google | Start Google sign-in or signup
 *AuthApi* | [**authControllerGoogleCallbackV1**](docs/AuthApi.md#authcontrollergooglecallbackv1) | **GET** /v1/auth/google/callback | Google sign-in callback
 *AuthApi* | [**authControllerInviteGoogleAuthorizeV1**](docs/AuthApi.md#authcontrollerinvitegoogleauthorizev1) | **GET** /v1/auth/invite/{token}/google | Accept a tenant-member invite via Google
+*AuthApi* | [**authControllerInviteMicrosoftAuthorizeV1**](docs/AuthApi.md#authcontrollerinvitemicrosoftauthorizev1) | **GET** /v1/auth/invite/{token}/microsoft | Accept a tenant-member invite via Microsoft
 *AuthApi* | [**authControllerLoginV1**](docs/AuthApi.md#authcontrollerloginv1) | **POST** /v1/auth/login | Password login
 *AuthApi* | [**authControllerLogoutV1**](docs/AuthApi.md#authcontrollerlogoutv1) | **POST** /v1/auth/logout | Revoke every refresh token for the current user
 *AuthApi* | [**authControllerMeV1**](docs/AuthApi.md#authcontrollermev1) | **GET** /v1/auth/me | The signed-in tenant user
@@ -140,6 +143,7 @@ Class | Method | HTTP request | Description
 *NotificationsApi* | [**notificationsControllerListV1**](docs/NotificationsApi.md#notificationscontrollerlistv1) | **GET** /v1/notifications | List the caller’s notifications
 *NotificationsApi* | [**notificationsControllerMarkAllReadV1**](docs/NotificationsApi.md#notificationscontrollermarkallreadv1) | **PATCH** /v1/notifications/read-all | Mark the caller’s whole feed read
 *NotificationsApi* | [**notificationsControllerMarkReadV1**](docs/NotificationsApi.md#notificationscontrollermarkreadv1) | **PATCH** /v1/notifications/{notificationId}/read | Mark one notification read
+*NotificationsApi* | [**notificationsControllerStreamV1**](docs/NotificationsApi.md#notificationscontrollerstreamv1) | **GET** /v1/notifications/stream | Stream \&quot;something new\&quot; events (server-sent events)
 *PromptsApi* | [**promptsControllerCreateVersionV1**](docs/PromptsApi.md#promptscontrollercreateversionv1) | **POST** /v1/prompts/{promptId}/versions | Append a prompt version
 *PromptsApi* | [**promptsControllerGetVersionStatsBatchV1**](docs/PromptsApi.md#promptscontrollergetversionstatsbatchv1) | **POST** /v1/prompts/stats/batch | Get prompt analytics for many (promptId, version) pairs
 *PromptsApi* | [**promptsControllerGetVersionStatsV1**](docs/PromptsApi.md#promptscontrollergetversionstatsv1) | **GET** /v1/prompts/{promptId}/stats | Get prompt analytics
@@ -240,8 +244,10 @@ Class | Method | HTTP request | Description
  - [PaymentMethodResponseDto](docs/PaymentMethodResponseDto.md)
  - [PendingAccountDto](docs/PendingAccountDto.md)
  - [PendingAccountsResponseDto](docs/PendingAccountsResponseDto.md)
+ - [PlatformActivityDetailsDto](docs/PlatformActivityDetailsDto.md)
  - [PlatformActivityListResponseDto](docs/PlatformActivityListResponseDto.md)
  - [PlatformActivityResponseDto](docs/PlatformActivityResponseDto.md)
+ - [PlatformSettingChangeDto](docs/PlatformSettingChangeDto.md)
  - [PlatformSettingsResponseDto](docs/PlatformSettingsResponseDto.md)
  - [PostErasureChargeResponseDto](docs/PostErasureChargeResponseDto.md)
  - [PostQueuedResponseDto](docs/PostQueuedResponseDto.md)

@@ -466,6 +466,59 @@ describe('AuthController.inviteGoogleAuthorize', () => {
   });
 });
 
+describe('AuthController.inviteMicrosoftAuthorize', () => {
+  let controller: AuthController;
+  const buildMemberInviteMicrosoftRedirect = jest.fn();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [AuthController],
+      providers: [
+        { provide: AuthService, useValue: { buildMemberInviteMicrosoftRedirect } },
+        { provide: AccountDeletionService, useValue: {} },
+      ],
+    }).compile();
+
+    controller = moduleRef.get(AuthController);
+  });
+
+  it('redirects to the accept page with an error, setting no cookie, for a dead token', async () => {
+    buildMemberInviteMicrosoftRedirect.mockResolvedValue({
+      ok: false,
+      redirectUrl:
+        'https://app.innopeak.test/accept-invite/bad-token?error=INVALID_OR_EXPIRED_INVITE',
+    });
+    const res = mockResponse();
+
+    await controller.inviteMicrosoftAuthorize('bad-token', res);
+
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(
+      302,
+      'https://app.innopeak.test/accept-invite/bad-token?error=INVALID_OR_EXPIRED_INVITE'
+    );
+  });
+
+  it('sets the Microsoft binding cookie and redirects to Microsoft on success', async () => {
+    buildMemberInviteMicrosoftRedirect.mockResolvedValue({
+      ok: true,
+      authorizationUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?...',
+      sid: 'sid-value',
+    });
+    const res = mockResponse();
+
+    await controller.inviteMicrosoftAuthorize('raw-token-1', res);
+
+    expect(res.cookie).toHaveBeenCalledWith('microsoft_auth_sid', 'sid-value', expect.anything());
+    expect(res.redirect).toHaveBeenCalledWith(
+      302,
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?...'
+    );
+  });
+});
+
 describe('AuthController — Microsoft sign-in', () => {
   let controller: AuthController;
   const buildMicrosoftAuthorizeRedirect = jest.fn();

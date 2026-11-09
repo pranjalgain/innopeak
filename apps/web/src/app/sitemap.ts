@@ -6,6 +6,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = env.NEXT_PUBLIC_APP_URL;
   const publicRoutes = [
     { path: "/", priority: 1 },
+    { path: "/privacy", priority: 0.3 },
     { path: "/login", priority: 0.5 },
     { path: "/onboarding/signup", priority: 0.6 },
   ] as const;

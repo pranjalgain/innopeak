@@ -163,7 +163,7 @@ export const AdminBusinessesApiAxiosParamCreator = function (
       };
     },
     /**
-     * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
+     * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses. Asking again while an admin request is already pending changes nothing: the response is the same, but no second activity entry or owner email is produced and the grace period is not restarted.
      * @summary Request erasure of a whole tenant
      * @param {string} tenantId The tenant to erase
      * @param {*} [options] Override http request option.
@@ -220,7 +220,7 @@ export const AdminBusinessesApiAxiosParamCreator = function (
       };
     },
     /**
-     * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`.
+     * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`. Setting the status a tenant already has is a no-op: same response, no activity entry.
      * @summary Suspend or reactivate a tenant
      * @param {string} tenantId
      * @param {UpdateBusinessStatusDto} updateBusinessStatusDto
@@ -374,7 +374,7 @@ export const AdminBusinessesApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
+     * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses. Asking again while an admin request is already pending changes nothing: the response is the same, but no second activity entry or owner email is produced and the grace period is not restarted.
      * @summary Request erasure of a whole tenant
      * @param {string} tenantId The tenant to erase
      * @param {*} [options] Override http request option.
@@ -408,7 +408,7 @@ export const AdminBusinessesApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`.
+     * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`. Setting the status a tenant already has is a no-op: same response, no activity entry.
      * @summary Suspend or reactivate a tenant
      * @param {string} tenantId
      * @param {UpdateBusinessStatusDto} updateBusinessStatusDto
@@ -496,7 +496,7 @@ export const AdminBusinessesApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
+     * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses. Asking again while an admin request is already pending changes nothing: the response is the same, but no second activity entry or owner email is produced and the grace period is not restarted.
      * @summary Request erasure of a whole tenant
      * @param {AdminBusinessesApiAdminBusinessesControllerRequestErasureV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -514,7 +514,7 @@ export const AdminBusinessesApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`.
+     * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`. Setting the status a tenant already has is a no-op: same response, no activity entry.
      * @summary Suspend or reactivate a tenant
      * @param {AdminBusinessesApiAdminBusinessesControllerUpdateStatusV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -564,7 +564,7 @@ export interface AdminBusinessesApiInterface {
   ): AxiosPromise<AdminBusinessListResponseDto>;
 
   /**
-   * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
+   * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses. Asking again while an admin request is already pending changes nothing: the response is the same, but no second activity entry or owner email is produced and the grace period is not restarted.
    * @summary Request erasure of a whole tenant
    * @param {AdminBusinessesApiAdminBusinessesControllerRequestErasureV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -576,7 +576,7 @@ export interface AdminBusinessesApiInterface {
   ): AxiosPromise<AdminBusinessResponseDto>;
 
   /**
-   * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`.
+   * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`. Setting the status a tenant already has is a no-op: same response, no activity entry.
    * @summary Suspend or reactivate a tenant
    * @param {AdminBusinessesApiAdminBusinessesControllerUpdateStatusV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -682,7 +682,7 @@ export class AdminBusinessesApi
   }
 
   /**
-   * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses.
+   * Platform-admin only (support/legal request) — never tenant-owner self-service. Suspends the tenant immediately, so every user in it loses access now; the actual anonymization of every user runs later, in a nightly job, once `ERASURE_GRACE_PERIOD_DAYS` has elapsed. Reviews, replies, locations, connections, and billing records are never touched — no PII lives in them once every user is anonymized. Cancellable any time before the grace period elapses. Asking again while an admin request is already pending changes nothing: the response is the same, but no second activity entry or owner email is produced and the grace period is not restarted.
    * @summary Request erasure of a whole tenant
    * @param {AdminBusinessesApiAdminBusinessesControllerRequestErasureV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -701,7 +701,7 @@ export class AdminBusinessesApi
   }
 
   /**
-   * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`.
+   * Reactivating always lands the real tenant_status on `active`, never back on `pending_activation`. Setting the status a tenant already has is a no-op: same response, no activity entry.
    * @summary Suspend or reactivate a tenant
    * @param {AdminBusinessesApiAdminBusinessesControllerUpdateStatusV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.

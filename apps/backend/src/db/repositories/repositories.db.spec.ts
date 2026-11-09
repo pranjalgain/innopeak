@@ -1601,7 +1601,7 @@ describeWithDb('repositories against a real database', () => {
         [userId]
       );
       await pool.query(
-        `INSERT INTO password_reset_tokens (user_id, token_hash, purpose, expires_at)
+        `INSERT INTO user_auth_tokens (user_id, token_hash, purpose, expires_at)
          VALUES ($1, 'h2', 'verify_email', now() + interval '1 day')`,
         [userId]
       );
@@ -1610,7 +1610,7 @@ describeWithDb('repositories against a real database', () => {
 
       const counts = await pool.query(
         `SELECT (SELECT count(*) FROM refresh_tokens WHERE user_id = $1)::int AS refresh,
-                (SELECT count(*) FROM password_reset_tokens WHERE user_id = $1)::int AS reset`,
+                (SELECT count(*) FROM user_auth_tokens WHERE user_id = $1)::int AS reset`,
         [userId]
       );
       expect(counts.rows[0]).toEqual({ refresh: 0, reset: 0 });
@@ -2171,7 +2171,7 @@ describeWithDb('repositories against a real database', () => {
     it('reads one roster row by id, with its invite dates, exactly as the full roster lists it', async () => {
       const admin = await newAdmin('active');
       await pool.query(
-        `INSERT INTO platform_admin_invites (platform_admin_id, token_hash, purpose, expires_at)
+        `INSERT INTO platform_admin_auth_tokens (platform_admin_id, token_hash, purpose, expires_at)
          VALUES ($1, $2, 'invite', now() + interval '7 days')`,
         [admin.id, `hash-${Math.random().toString(36).slice(2)}`]
       );

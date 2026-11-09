@@ -159,8 +159,11 @@ retried (the SMTP sender falls back to `localhost`). See [Open items](../infrast
 - **In production,** `EMAIL_PROVIDER` is `smtp` (the default: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
   `SMTP_PASSWORD`) or `ses` (`AWS_REGION` and AWS credentials). `EMAIL_FROM` is the sender.
 - **What counts as "set up".** Email/password sign-in can only be switched on in the admin console
-  when the provider really sends: production, `EMAIL_FROM` set (it defaults to `noreply@example.com`),
-  and for SMTP `SMTP_HOST` set (it defaults to `localhost`). See [Platform settings](./platform-settings.md).
+  when `EMAIL_DELIVERY_ENABLED=true` **and** the provider really sends: production, `EMAIL_FROM` set
+  (it defaults to `noreply@example.com`), and for SMTP `SMTP_HOST` set (it defaults to `localhost`).
+  The env flag is off by default, so a deployment that has not been wired up for email stays
+  password-free without relying on a stored switch. See
+  [Platform settings](./platform-settings.md).
 - **If SMTP is unreachable at start-up:** the failure is logged ("Emails may not be sent") and the
   process still starts.
 

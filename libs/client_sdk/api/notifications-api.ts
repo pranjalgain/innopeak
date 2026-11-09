@@ -198,6 +198,49 @@ export const NotificationsApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
+    /**
+     * One long response (`text/event-stream`) that stays open and receives an event whenever a notification is created for the caller: `event: notification` with `{ id }` (the notification id), plus `ready` on connect and `heartbeat` every 25 seconds. Events carry ids only; fetch the notice with `GET /v1/notifications`. Authenticated by the session cookie (a browser `EventSource` cannot set headers). The stream ends when the access token expires (at most 30 minutes) and the client reconnects; at most 3 streams per user (the oldest is closed). Not part of the generated client.
+     * @summary Stream \"something new\" events (server-sent events)
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    notificationsControllerStreamV1: async (
+      options: RawAxiosRequestConfig = {},
+    ): Promise<RequestArgs> => {
+      const localVarPath = `/v1/notifications/stream`;
+      // use dummy base URL string because the URL constructor only accepts absolute URLs.
+      const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+      let baseOptions;
+      if (configuration) {
+        baseOptions = configuration.baseOptions;
+      }
+
+      const localVarRequestOptions = {
+        method: 'GET',
+        ...baseOptions,
+        ...options,
+      };
+      const localVarHeaderParameter = {} as any;
+      const localVarQueryParameter = {} as any;
+
+      // authentication bearer required
+      // http bearer authentication required
+      await setBearerAuthToObject(localVarHeaderParameter, configuration);
+
+      setSearchParams(localVarUrlObj, localVarQueryParameter);
+      let headersFromBaseOptions =
+        baseOptions && baseOptions.headers ? baseOptions.headers : {};
+      localVarRequestOptions.headers = {
+        ...localVarHeaderParameter,
+        ...headersFromBaseOptions,
+        ...options.headers,
+      };
+
+      return {
+        url: toPathString(localVarUrlObj),
+        options: localVarRequestOptions,
+      };
+    },
   };
 };
 
@@ -310,6 +353,34 @@ export const NotificationsApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
+    /**
+     * One long response (`text/event-stream`) that stays open and receives an event whenever a notification is created for the caller: `event: notification` with `{ id }` (the notification id), plus `ready` on connect and `heartbeat` every 25 seconds. Events carry ids only; fetch the notice with `GET /v1/notifications`. Authenticated by the session cookie (a browser `EventSource` cannot set headers). The stream ends when the access token expires (at most 30 minutes) and the client reconnects; at most 3 streams per user (the oldest is closed). Not part of the generated client.
+     * @summary Stream \"something new\" events (server-sent events)
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    async notificationsControllerStreamV1(
+      options?: RawAxiosRequestConfig,
+    ): Promise<
+      (axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>
+    > {
+      const localVarAxiosArgs =
+        await localVarAxiosParamCreator.notificationsControllerStreamV1(
+          options,
+        );
+      const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+      const localVarOperationServerBasePath =
+        operationServerMap[
+          'NotificationsApi.notificationsControllerStreamV1'
+        ]?.[localVarOperationServerIndex]?.url;
+      return (axios, basePath) =>
+        createRequestFunction(
+          localVarAxiosArgs,
+          globalAxios,
+          BASE_PATH,
+          configuration,
+        )(axios, localVarOperationServerBasePath || basePath);
+    },
   };
 };
 
@@ -373,6 +444,19 @@ export const NotificationsApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
+    /**
+     * One long response (`text/event-stream`) that stays open and receives an event whenever a notification is created for the caller: `event: notification` with `{ id }` (the notification id), plus `ready` on connect and `heartbeat` every 25 seconds. Events carry ids only; fetch the notice with `GET /v1/notifications`. Authenticated by the session cookie (a browser `EventSource` cannot set headers). The stream ends when the access token expires (at most 30 minutes) and the client reconnects; at most 3 streams per user (the oldest is closed). Not part of the generated client.
+     * @summary Stream \"something new\" events (server-sent events)
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    notificationsControllerStreamV1(
+      options?: RawAxiosRequestConfig,
+    ): AxiosPromise<void> {
+      return localVarFp
+        .notificationsControllerStreamV1(options)
+        .then((request) => request(axios, basePath));
+    },
   };
 };
 
@@ -413,6 +497,16 @@ export interface NotificationsApiInterface {
     requestParameters: NotificationsApiNotificationsControllerMarkReadV1Request,
     options?: RawAxiosRequestConfig,
   ): AxiosPromise<NotificationReadResponseDto>;
+
+  /**
+   * One long response (`text/event-stream`) that stays open and receives an event whenever a notification is created for the caller: `event: notification` with `{ id }` (the notification id), plus `ready` on connect and `heartbeat` every 25 seconds. Events carry ids only; fetch the notice with `GET /v1/notifications`. Authenticated by the session cookie (a browser `EventSource` cannot set headers). The stream ends when the access token expires (at most 30 minutes) and the client reconnects; at most 3 streams per user (the oldest is closed). Not part of the generated client.
+   * @summary Stream \"something new\" events (server-sent events)
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  notificationsControllerStreamV1(
+    options?: RawAxiosRequestConfig,
+  ): AxiosPromise<void>;
 }
 
 /**
@@ -489,6 +583,18 @@ export class NotificationsApi
         requestParameters.notificationId,
         options,
       )
+      .then((request) => request(this.axios, this.basePath));
+  }
+
+  /**
+   * One long response (`text/event-stream`) that stays open and receives an event whenever a notification is created for the caller: `event: notification` with `{ id }` (the notification id), plus `ready` on connect and `heartbeat` every 25 seconds. Events carry ids only; fetch the notice with `GET /v1/notifications`. Authenticated by the session cookie (a browser `EventSource` cannot set headers). The stream ends when the access token expires (at most 30 minutes) and the client reconnects; at most 3 streams per user (the oldest is closed). Not part of the generated client.
+   * @summary Stream \"something new\" events (server-sent events)
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   */
+  public notificationsControllerStreamV1(options?: RawAxiosRequestConfig) {
+    return NotificationsApiFp(this.configuration)
+      .notificationsControllerStreamV1(options)
       .then((request) => request(this.axios, this.basePath));
   }
 }

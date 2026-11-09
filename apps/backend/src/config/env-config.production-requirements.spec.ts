@@ -7,6 +7,25 @@ function complainsAbout(key: string, env: Record<string, string>): boolean {
 }
 
 describe('production-only environment requirements', () => {
+  describe('EMAIL_DELIVERY_ENABLED', () => {
+    // Email/password is opt-in: an unset flag must not fail boot, and anything other than the two documented strings must.
+    it('is optional and accepts only true or false', () => {
+      expect(complainsAbout('EMAIL_DELIVERY_ENABLED', { NODE_ENV: 'production' })).toBe(false);
+      expect(
+        complainsAbout('EMAIL_DELIVERY_ENABLED', {
+          NODE_ENV: 'production',
+          EMAIL_DELIVERY_ENABLED: 'true',
+        })
+      ).toBe(false);
+      expect(
+        complainsAbout('EMAIL_DELIVERY_ENABLED', {
+          NODE_ENV: 'production',
+          EMAIL_DELIVERY_ENABLED: 'yes',
+        })
+      ).toBe(true);
+    });
+  });
+
   describe('TRUST_PROXY_HOPS', () => {
     // Left unset behind a load balancer, every caller shares one rate-limit bucket; it must be a conscious answer.
     it('is required in production', () => {

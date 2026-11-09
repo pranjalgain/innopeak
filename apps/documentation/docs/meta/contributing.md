@@ -8,7 +8,7 @@ Thank you for your interest in contributing to this project! This guide will hel
 
 ### Prerequisites
 
-- **Node.js**: >= 20.0 (check `.nvmrc` file)
+- **Node.js**: >= 24.22.1 (check `.nvmrc` file)
 - **pnpm**: Automatically managed via `packageManager` field
 - **Git**: For version control and collaboration
 

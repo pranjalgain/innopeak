@@ -35,6 +35,26 @@ existing database. That is harmless while only disposable local databases exist 
 
 After the first release, never run `db:migrations:lock` to make a failure go away: put the change in a new numbered migration instead.
 
+## Schema artifacts and their owners
+
+| Artifact | Owner | Rule |
+|---|---|---|
+| `src/db/drizzle/migrations/*.sql` | Migrations | **Source of truth.** All DDL changes go here. |
+| `src/db/drizzle/schema.ts` | Introspection | Generated from the live DB. Do not hand-edit table definitions; re-run `pnpm db:introspect`, then add relations. |
+| `docs/schema.dbml` | Hand-maintained | A diagram export of the migrations. Update it in the same change as a migration. |
+| `docs/database-schema-review.md` | Hand-maintained | Known deviations, open findings and remediation guidance. |
+
+DDL always comes from the migration files. `drizzle-kit generate`/`push` are **not** part of this workflow — the introspected `schema.ts`
+is a query-typing artifact, not a migration source. It currently contains opclass mismatches that would make generated DDL invalid, so
+keep using `pnpm db:create-migration` + raw SQL.
+
+### `updated_at` is application-maintained
+
+There are no database triggers on `updated_at`. Every repository must set it explicitly on update (`updatedAt: sql\`now()\``). Raw SQL
+migrations and scripts that update a row must do the same, or the timestamp silently goes stale. Tables that intentionally have no
+`updated_at` (`refresh_tokens`, `stripe_webhook_events`, `billing_receipts`, `prompt_versions`, `platform_activity_log`) are immutable
+or append-only.
+
 In a deployed environment use `pnpm db:migrate:prod` (and `pnpm db:seed:admin:prod` for the first platform admin). They run on plain `node`
 against the built output; the SQL files are copied next to the compiled script by the build.
 
@@ -141,13 +161,15 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
 
 | File | Purpose |
 |---|---|
-| `src/db/drizzle/schema.ts` | All table definitions and relations |
-| `src/db/drizzle/migrations/*.sql` | Raw SQL migration files |
+| `src/db/drizzle/schema.ts` | All table definitions and relations (introspected — do not hand-edit) |
+| `src/db/drizzle/migrations/*.sql` | Raw SQL migration files (source of truth) |
 | `src/db/drizzle/migrations/meta/_journal.json` | Migration journal (auto-managed) |
 | `src/db/drizzle/migrate.ts` | Migration runner script |
 | `src/db/db.service.ts` | DB connection, exposes `db` property |
 | `scripts/create-migration.js` | Migration scaffolding script |
 | `drizzle.config.ts` | Drizzle Kit config for introspect/studio |
+| `docs/schema.dbml` | DBML diagram export, updated by hand with each migration |
+| `docs/database-schema-review.md` | Known schema deviations and remediation guidance |
 
 ## DrizzleDB Type
 

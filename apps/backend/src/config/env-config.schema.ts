@@ -96,6 +96,9 @@ export const validationSchema = Joi.object({
   GBP_STATE_SECRET: Joi.string().min(32).allow(null, ''),
   CREDENTIAL_ENCRYPTION_KEY: Joi.string().base64().allow(null, ''),
   PAYMENT_FEATURE_ENABLED: Joi.string().valid('true', 'false').allow(null, ''),
+  // Deploy-level master switch for email/password. Explicitly opt-in: a deployment that has not finished its email setup must not start
+  // offering a sign-up whose code cannot be sent, even if provider credentials are left in the environment.
+  EMAIL_DELIVERY_ENABLED: Joi.string().valid('true', 'false').allow(null, '').default('false'),
   // Required in any environment that turns payments on, production included: without the webhook secret `StripePaymentProvider`
   // defaults to an empty string and rejects every real delivery with no boot-time signal. Optional otherwise, production too, so an
   // install that does not take payments yet needs no Stripe keys: the client is created on first use, nothing calls Stripe for a

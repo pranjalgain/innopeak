@@ -263,7 +263,7 @@ export class AuthRepository {
     input: PutVerifyEmailTokenInput
   ): Promise<void> {
     await tx
-      .insert(schema.passwordResetTokens)
+      .insert(schema.userAuthTokens)
       .values({
         userId: input.userId,
         tokenHash: input.tokenHash,
@@ -271,7 +271,7 @@ export class AuthRepository {
         expiresAt: input.expiresAt,
       })
       .onConflictDoUpdate({
-        target: [schema.passwordResetTokens.userId, schema.passwordResetTokens.purpose],
+        target: [schema.userAuthTokens.userId, schema.userAuthTokens.purpose],
         set: {
           tokenHash: input.tokenHash,
           expiresAt: input.expiresAt,
@@ -291,18 +291,18 @@ export class AuthRepository {
     input: { userId: string; tokenHash: string }
   ): Promise<boolean> {
     const rows = await tx
-      .update(schema.passwordResetTokens)
+      .update(schema.userAuthTokens)
       .set({ usedAt: sql`now()`, updatedAt: sql`now()` })
       .where(
         and(
-          eq(schema.passwordResetTokens.userId, input.userId),
-          eq(schema.passwordResetTokens.tokenHash, input.tokenHash),
-          eq(schema.passwordResetTokens.purpose, TokenPurpose.VERIFY_EMAIL),
-          isNull(schema.passwordResetTokens.usedAt),
-          gt(schema.passwordResetTokens.expiresAt, sql`now()`)
+          eq(schema.userAuthTokens.userId, input.userId),
+          eq(schema.userAuthTokens.tokenHash, input.tokenHash),
+          eq(schema.userAuthTokens.purpose, TokenPurpose.VERIFY_EMAIL),
+          isNull(schema.userAuthTokens.usedAt),
+          gt(schema.userAuthTokens.expiresAt, sql`now()`)
         )
       )
-      .returning({ id: schema.passwordResetTokens.id });
+      .returning({ id: schema.userAuthTokens.id });
 
     return rows.length > 0;
   }
@@ -345,11 +345,11 @@ export class AuthRepository {
    */
   async deleteVerifyEmailTokensForUser(tx: DrizzleTransaction, userId: string): Promise<void> {
     await tx
-      .delete(schema.passwordResetTokens)
+      .delete(schema.userAuthTokens)
       .where(
         and(
-          eq(schema.passwordResetTokens.userId, userId),
-          eq(schema.passwordResetTokens.purpose, TokenPurpose.VERIFY_EMAIL)
+          eq(schema.userAuthTokens.userId, userId),
+          eq(schema.userAuthTokens.purpose, TokenPurpose.VERIFY_EMAIL)
         )
       );
   }
@@ -396,7 +396,7 @@ export class AuthRepository {
     input: PutVerifyEmailTokenInput
   ): Promise<void> {
     await tx
-      .insert(schema.passwordResetTokens)
+      .insert(schema.userAuthTokens)
       .values({
         userId: input.userId,
         tokenHash: input.tokenHash,
@@ -404,7 +404,7 @@ export class AuthRepository {
         expiresAt: input.expiresAt,
       })
       .onConflictDoUpdate({
-        target: [schema.passwordResetTokens.userId, schema.passwordResetTokens.purpose],
+        target: [schema.userAuthTokens.userId, schema.userAuthTokens.purpose],
         set: {
           tokenHash: input.tokenHash,
           expiresAt: input.expiresAt,
@@ -420,18 +420,18 @@ export class AuthRepository {
     input: { userId: string; tokenHash: string }
   ): Promise<boolean> {
     const rows = await tx
-      .update(schema.passwordResetTokens)
+      .update(schema.userAuthTokens)
       .set({ usedAt: sql`now()`, updatedAt: sql`now()` })
       .where(
         and(
-          eq(schema.passwordResetTokens.userId, input.userId),
-          eq(schema.passwordResetTokens.tokenHash, input.tokenHash),
-          eq(schema.passwordResetTokens.purpose, purpose),
-          isNull(schema.passwordResetTokens.usedAt),
-          gt(schema.passwordResetTokens.expiresAt, sql`now()`)
+          eq(schema.userAuthTokens.userId, input.userId),
+          eq(schema.userAuthTokens.tokenHash, input.tokenHash),
+          eq(schema.userAuthTokens.purpose, purpose),
+          isNull(schema.userAuthTokens.usedAt),
+          gt(schema.userAuthTokens.expiresAt, sql`now()`)
         )
       )
-      .returning({ id: schema.passwordResetTokens.id });
+      .returning({ id: schema.userAuthTokens.id });
 
     return rows.length > 0;
   }
@@ -592,17 +592,17 @@ export class AuthRepository {
   /** Returns the number of rows removed. */
   async deleteStaleOtpTokens(tx: DrizzleTransaction): Promise<number> {
     const rows = await tx
-      .delete(schema.passwordResetTokens)
+      .delete(schema.userAuthTokens)
       .where(
         and(
-          inArray(schema.passwordResetTokens.purpose, PURGEABLE_OTP_PURPOSES),
+          inArray(schema.userAuthTokens.purpose, PURGEABLE_OTP_PURPOSES),
           or(
-            isNotNull(schema.passwordResetTokens.usedAt),
-            lt(schema.passwordResetTokens.expiresAt, sql`now()`)
+            isNotNull(schema.userAuthTokens.usedAt),
+            lt(schema.userAuthTokens.expiresAt, sql`now()`)
           )
         )
       )
-      .returning({ id: schema.passwordResetTokens.id });
+      .returning({ id: schema.userAuthTokens.id });
 
     return rows.length;
   }
@@ -708,7 +708,7 @@ export class AuthRepository {
 
   /**
    * Creates the invited member's `users` row (`status: invited`, no password); the invite token
-   * goes into `password_reset_tokens` via `insertMemberInviteToken` in the same transaction.
+   * goes into `user_auth_tokens` via `insertMemberInviteToken` in the same transaction.
    */
   async insertInvitedMember(
     tx: DrizzleTransaction,
@@ -741,7 +741,7 @@ export class AuthRepository {
     tx: DrizzleTransaction,
     input: InsertMemberInviteTokenInput
   ): Promise<void> {
-    await tx.insert(schema.passwordResetTokens).values({
+    await tx.insert(schema.userAuthTokens).values({
       userId: input.userId,
       tokenHash: input.tokenHash,
       purpose: TokenPurpose.INVITE,
@@ -760,14 +760,14 @@ export class AuthRepository {
         id: schema.users.id,
         tenantId: schema.users.tenantId,
         status: schema.users.status,
-        inviteExpiresAt: schema.passwordResetTokens.expiresAt,
+        inviteExpiresAt: schema.userAuthTokens.expiresAt,
       })
       .from(schema.users)
       .leftJoin(
-        schema.passwordResetTokens,
+        schema.userAuthTokens,
         and(
-          eq(schema.passwordResetTokens.userId, schema.users.id),
-          eq(schema.passwordResetTokens.purpose, TokenPurpose.INVITE)
+          eq(schema.userAuthTokens.userId, schema.users.id),
+          eq(schema.userAuthTokens.purpose, TokenPurpose.INVITE)
         )
       )
       .where(and(eq(schema.users.email, email), isNull(schema.users.anonymizedAt)))
@@ -786,14 +786,14 @@ export class AuthRepository {
   ): Promise<{ email: string; tenantId: string } | null> {
     const rows = await this.dbService.db
       .select({ email: schema.users.email, tenantId: schema.users.tenantId })
-      .from(schema.passwordResetTokens)
-      .innerJoin(schema.users, eq(schema.users.id, schema.passwordResetTokens.userId))
+      .from(schema.userAuthTokens)
+      .innerJoin(schema.users, eq(schema.users.id, schema.userAuthTokens.userId))
       .where(
         and(
-          eq(schema.passwordResetTokens.tokenHash, tokenHash),
-          eq(schema.passwordResetTokens.purpose, TokenPurpose.INVITE),
-          isNull(schema.passwordResetTokens.usedAt),
-          gt(schema.passwordResetTokens.expiresAt, sql`now()`)
+          eq(schema.userAuthTokens.tokenHash, tokenHash),
+          eq(schema.userAuthTokens.purpose, TokenPurpose.INVITE),
+          isNull(schema.userAuthTokens.usedAt),
+          gt(schema.userAuthTokens.expiresAt, sql`now()`)
         )
       )
       .limit(1);
@@ -851,13 +851,14 @@ export class AuthRepository {
   }
 
   /**
-   * Google variant of invite redemption; `AuthService.completeMemberInviteGoogle` has already
-   * confirmed the verified email matches. A plain insert, not `upsertUserIdentity`: its
-   * `onConflictDoUpdate` would silently steal a Google identity linked to a different user instead
-   * of reporting `identity_already_linked`.
+   * SSO variant of invite redemption (Google or Microsoft); the caller has already confirmed the
+   * verified email matches. A plain insert, not `upsertUserIdentity`: its `onConflictDoUpdate`
+   * would silently steal an identity linked to a different user instead of reporting
+   * `identity_already_linked`.
    */
-  async acceptMemberInviteWithGoogleIdentity(input: {
+  async acceptMemberInviteWithSsoIdentity(input: {
     tokenHash: string;
+    provider: UserIdentityProvider;
     providerUserId: string;
     email: string;
     name: string;
@@ -892,13 +893,13 @@ export class AuthRepository {
       try {
         await tx.insert(schema.userIdentities).values({
           userId: member.id,
-          provider: UserIdentityProvider.GOOGLE,
+          provider: input.provider,
           providerUserId: input.providerUserId,
           email: input.email,
         });
       } catch (error) {
         if (isUniqueViolation(error)) {
-          // This Google account is already linked to a different user; rolls back with the
+          // This SSO account is already linked to a different user; rolls back with the
           // transaction so the member is not left half-activated.
           return { outcome: 'identity_already_linked' };
         }
@@ -927,14 +928,14 @@ export class AuthRepository {
     tokenHash: string
   ): Promise<{ id: string; userId: string } | null> {
     const rows = await tx
-      .select({ id: schema.passwordResetTokens.id, userId: schema.passwordResetTokens.userId })
-      .from(schema.passwordResetTokens)
+      .select({ id: schema.userAuthTokens.id, userId: schema.userAuthTokens.userId })
+      .from(schema.userAuthTokens)
       .where(
         and(
-          eq(schema.passwordResetTokens.tokenHash, tokenHash),
-          eq(schema.passwordResetTokens.purpose, TokenPurpose.INVITE),
-          isNull(schema.passwordResetTokens.usedAt),
-          gt(schema.passwordResetTokens.expiresAt, sql`now()`)
+          eq(schema.userAuthTokens.tokenHash, tokenHash),
+          eq(schema.userAuthTokens.purpose, TokenPurpose.INVITE),
+          isNull(schema.userAuthTokens.usedAt),
+          gt(schema.userAuthTokens.expiresAt, sql`now()`)
         )
       )
       .for('update')
@@ -945,9 +946,9 @@ export class AuthRepository {
 
   private async consumeMemberInvite(tx: DrizzleTransaction, inviteId: string): Promise<void> {
     await tx
-      .update(schema.passwordResetTokens)
+      .update(schema.userAuthTokens)
       .set({ usedAt: sql`now()`, updatedAt: sql`now()` })
-      .where(eq(schema.passwordResetTokens.id, inviteId));
+      .where(eq(schema.userAuthTokens.id, inviteId));
   }
 
   /**
@@ -967,11 +968,11 @@ export class AuthRepository {
     memberId: string
   ): Promise<RevokeMemberInviteOutcome> {
     return this.dbService.db.transaction(async tx => {
-      await tx.delete(schema.passwordResetTokens).where(
+      await tx.delete(schema.userAuthTokens).where(
         and(
-          eq(schema.passwordResetTokens.purpose, TokenPurpose.INVITE),
+          eq(schema.userAuthTokens.purpose, TokenPurpose.INVITE),
           inArray(
-            schema.passwordResetTokens.userId,
+            schema.userAuthTokens.userId,
             tx
               .select({ id: schema.users.id })
               .from(schema.users)
@@ -1022,11 +1023,11 @@ export class AuthRepository {
   async deleteExpiredMemberInvite(id: string): Promise<void> {
     await this.dbService.db.transaction(async tx => {
       await tx
-        .delete(schema.passwordResetTokens)
+        .delete(schema.userAuthTokens)
         .where(
           and(
-            eq(schema.passwordResetTokens.userId, id),
-            eq(schema.passwordResetTokens.purpose, TokenPurpose.INVITE)
+            eq(schema.userAuthTokens.userId, id),
+            eq(schema.userAuthTokens.purpose, TokenPurpose.INVITE)
           )
         );
 
@@ -1197,9 +1198,7 @@ export class AuthRepository {
       // unconsumed OTP/invite/reset token (access tokens are stateless and lapse within
       // `ACCESS_TOKEN_TTL_SECONDS`).
       await tx.delete(schema.refreshTokens).where(eq(schema.refreshTokens.userId, userId));
-      await tx
-        .delete(schema.passwordResetTokens)
-        .where(eq(schema.passwordResetTokens.userId, userId));
+      await tx.delete(schema.userAuthTokens).where(eq(schema.userAuthTokens.userId, userId));
 
       return { outcome: 'anonymized' };
     });

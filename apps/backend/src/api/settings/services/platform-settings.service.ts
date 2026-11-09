@@ -3,6 +3,8 @@ import { isAdminMicrosoftLoginAvailable } from '@auth/utils/admin-microsoft.util
 import { getErasureGracePeriodDays } from '@common/constants/erasure.constants';
 import type { EnvConfig } from '@config/env.config';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
+import { EmailProvider } from '@email/providers/email.provider';
+import { canDeliverEmail } from '@email/utils/email-config.util';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -14,7 +16,8 @@ export class PlatformSettingsService {
   constructor(
     private readonly platformSettingsDbService: PlatformSettingsDbService,
     private readonly configService: ConfigService<EnvConfig>,
-    private readonly googleIdentityProvider: GoogleIdentityProvider
+    private readonly googleIdentityProvider: GoogleIdentityProvider,
+    private readonly emailProvider: EmailProvider
   ) {}
 
   /** Public: the sign-in/sign-up screens call this before a session exists. */
@@ -31,6 +34,7 @@ export class PlatformSettingsService {
       erasureGracePeriodDays: getErasureGracePeriodDays(this.configService),
       adminMicrosoftLoginAvailable: isAdminMicrosoftLoginAvailable(this.configService),
       adminGoogleLoginAvailable: this.googleIdentityProvider.isConfigured(),
+      emailDeliveryAvailable: canDeliverEmail(this.emailProvider, this.configService),
     });
   }
 }

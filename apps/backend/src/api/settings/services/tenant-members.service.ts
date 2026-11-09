@@ -41,7 +41,7 @@ import {
 const INVITE_TTL_DAYS = 7;
 
 /**
- * Invite tokens live on `password_reset_tokens` (`purpose = 'invite'`), not a dedicated table.
+ * Invite tokens live on `user_auth_tokens` (`purpose = 'invite'`), not a dedicated table.
  * Accepting an invite is `AuthService`'s job: the invitee has no session, so it can't sit behind
  * this owner-gated controller.
  */

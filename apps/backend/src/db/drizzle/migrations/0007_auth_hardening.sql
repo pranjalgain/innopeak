@@ -6,12 +6,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_active
 
 -- token_hash is not unique: a 6-digit OTP can collide between users. The real invariant is one live
 -- token per (user, purpose).
-DROP INDEX IF EXISTS idx_password_reset_tokens_token_hash;
-CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token_hash
-    ON password_reset_tokens(token_hash);
+DROP INDEX IF EXISTS idx_user_auth_tokens_token_hash;
+CREATE INDEX IF NOT EXISTS idx_user_auth_tokens_token_hash
+    ON user_auth_tokens(token_hash);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id_purpose
-    ON password_reset_tokens(user_id, purpose);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_auth_tokens_user_id_purpose
+    ON user_auth_tokens(user_id, purpose);
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id UUID PRIMARY KEY DEFAULT uuidv7(),

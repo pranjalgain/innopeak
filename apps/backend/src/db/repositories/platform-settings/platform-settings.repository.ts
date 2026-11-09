@@ -3,7 +3,7 @@ import { UserStatus } from '@auth/enums/user-status.enum';
 import { DBService } from '@db/db.service';
 import * as schema from '@db/drizzle/schema';
 import { Injectable } from '@nestjs/common';
-import { and, eq, isNull, ne, notExists, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, ne, notExists, sql } from 'drizzle-orm';
 
 import type { PlatformSettingsPatch, PlatformSettingsRow } from './types/platform-settings.type';
 
@@ -79,6 +79,32 @@ export class PlatformSettingsRepository {
           isNull(schema.users.anonymizedAt),
           isNull(schema.users.passwordHash),
           notExists(otherIdentity)
+        )
+      );
+
+    return rows[0]?.value ?? 0;
+  }
+
+  /**
+   * Active tenant users whose only way in is a password: a password and no single-sign-on identity at all. Backs the password lockout
+   * guard in `updatePlatformSettings`, like `countActiveSsoOnlyTenantUsers` does for the providers. Invited, disabled, pending and
+   * anonymized users are excluded.
+   */
+  async countActivePasswordOnlyTenantUsers(): Promise<number> {
+    const anyIdentity = this.dbService.db
+      .select({ one: sql`1` })
+      .from(schema.userIdentities)
+      .where(eq(schema.userIdentities.userId, schema.users.id));
+
+    const rows = await this.dbService.db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(schema.users)
+      .where(
+        and(
+          eq(schema.users.status, UserStatus.ACTIVE),
+          isNull(schema.users.anonymizedAt),
+          isNotNull(schema.users.passwordHash),
+          notExists(anyIdentity)
         )
       );
 

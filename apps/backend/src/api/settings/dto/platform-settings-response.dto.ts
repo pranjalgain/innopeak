@@ -7,6 +7,12 @@ export interface PlatformDeploySettings {
   erasureGracePeriodDays: number;
   adminMicrosoftLoginAvailable: boolean;
   adminGoogleLoginAvailable: boolean;
+  /**
+   * Whether this server can deliver email (`canDeliverEmail`): `EMAIL_DELIVERY_ENABLED` is on and the provider is configured. Not a field
+   * of its own: email/password needs it (a sign-up is completed by an emailed code), so it decides whether the stored password switch is in
+   * effect.
+   */
+  emailDeliveryAvailable: boolean;
 }
 
 export class PlatformSettingsResponseDto {
@@ -18,7 +24,9 @@ export class PlatformSettingsResponseDto {
 
   @ApiProperty({
     example: false,
-    description: 'Whether the sign-in/sign-up screens offer email/password.',
+    description:
+      'Whether email/password sign-in and sign-up are in effect: the stored switch, and an email service this server can deliver ' +
+      'through. Off when either is missing, so a server with no email service never offers a sign-up whose code cannot be sent.',
   })
   passwordLoginEnabled!: boolean;
 
@@ -82,13 +90,22 @@ export class PlatformSettingsResponseDto {
   })
   adminGoogleLoginAvailable!: boolean;
 
+  @ApiProperty({
+    example: false,
+    description:
+      "Whether this server has an email service it can deliver through. Email/password needs it (a sign-up is completed by an " +
+      "emailed code), so while it is false the stored password switch is not in effect and the admin cannot turn it on. Requires " +
+      '`EMAIL_DELIVERY_ENABLED=true` as well as a configured provider.',
+  })
+  emailDeliveryAvailable!: boolean;
+
   static from(
     row: PlatformSettingsRow,
     deploy: PlatformDeploySettings
   ): PlatformSettingsResponseDto {
     const dto = new PlatformSettingsResponseDto();
     dto.microsoftLoginEnabled = row.microsoftLoginEnabled;
-    dto.passwordLoginEnabled = row.passwordLoginEnabled;
+    dto.passwordLoginEnabled = row.passwordLoginEnabled && deploy.emailDeliveryAvailable;
     dto.googleLoginEnabled = row.googleLoginEnabled;
     dto.inviteMembersEnabled = row.inviteMembersEnabled;
     dto.notificationSettingsEnabled = row.notificationSettingsEnabled;
@@ -96,6 +113,7 @@ export class PlatformSettingsResponseDto {
     dto.erasureGracePeriodDays = deploy.erasureGracePeriodDays;
     dto.adminMicrosoftLoginAvailable = deploy.adminMicrosoftLoginAvailable;
     dto.adminGoogleLoginAvailable = deploy.adminGoogleLoginAvailable;
+    dto.emailDeliveryAvailable = deploy.emailDeliveryAvailable;
     return dto;
   }
 }

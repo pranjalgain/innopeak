@@ -16,11 +16,17 @@ work/school (Entra ID) and personal (outlook.com, hotmail.com, live.com, Xbox) a
 handling, session issuance, web buttons, config, docs, tests. There is no dev stand-in: Microsoft
 sign-in only ever runs against Microsoft.
 
-**Out of scope (deliberately, can follow):** accepting a member or admin invite with Microsoft
-(`/invite/:token/microsoft`), platform-admin *sign-up* with Microsoft (admins are invite-only), and any
-Microsoft Graph access. Platform-admin **sign-in** is covered by [its own section](#platform-admin-sign-in-with-microsoft-sign-in-only). The
-sign-in client requests only `openid email profile` and stores **no Microsoft token** — same
-discipline as the Google sign-in client.
+**In scope:** tenant sign-in, tenant sign-up, member invite acceptance, platform-admin sign-in and
+platform-admin invite acceptance, linking by verified email, disabled/suspended handling, session
+issuance, web buttons, config, docs, tests. There is no dev stand-in: Microsoft sign-in only ever runs
+against Microsoft.
+
+**Out of scope:** platform-admin *sign-up* with Microsoft (admins are invite-only) and any Microsoft
+Graph access. Platform-admin **sign-in** is covered by [its own
+section](#platform-admin-sign-in-with-microsoft-sign-in-only); invite acceptance is covered by
+[the invite section](#accepting-member-and-admin-invites-with-microsoft). The sign-in client requests
+only `openid email profile` and stores **no Microsoft token** — same discipline as the Google sign-in
+client.
 
 ## The one thing that is not like Google: Microsoft does not verify the email claim
 
@@ -74,7 +80,7 @@ dual-identity decision). Admin sign-in has its own entry route and intent, below
 ## Platform-admin sign-in with Microsoft (sign-in only)
 
 The admin sign-in page (`/admin-login`) offers "Continue with Microsoft" next to the password form.
-**Sign-in only**: platform admins are invite-only (`platform_admin_invites`), so there is no admin
+**Sign-in only**: platform admins are invite-only (`platform_admin_auth_tokens`), so there is no admin
 sign-up with Microsoft and Microsoft can neither create an admin nor accept an invite.
 
 - **Entry:** `GET /v1/admin/auth/microsoft` (public, throttled 10/min, like the admin Google route). It
@@ -101,6 +107,31 @@ sign-up with Microsoft and Microsoft can neither create an admin nor accept an i
   `platform_admin_identities (provider, provider_user_id)` already holds `entra_id` identities.
 - **Azure:** the same app registration; for a single-organization directory the app must be allowed to sign
   in users of that directory (the default multi-tenant registration does).
+
+## Accepting member and admin invites with Microsoft
+
+Invites use their own provider routes rather than the generic callbacks, because a first-time invitee
+has no `user_identities` / `platform_admin_identities` row for the login callback to find.
+
+- **Member invite:** `GET /v1/auth/invite/:token/microsoft` validates the token read-only, checks the
+  Microsoft client and `microsoft_login_enabled`, mints `{ intent: invite, inviteToken }`, and
+  redirects to Microsoft. The shared callback completes it: the verified email must match the invited
+  `users.email` (otherwise `INVITE_EMAIL_MISMATCH`, token left unconsumed), the tenant must still be
+  active, and the identity is inserted under `entra_id`.
+- **Admin invite:** `GET /v1/admin/auth/invite/:token/microsoft` validates the token read-only and
+  requires the admin Microsoft configuration (`MICROSOFT_*` plus `ADMIN_MICROSOFT_TENANT_ID`). It mints
+  `{ intent: admin_invite, inviteToken }` pinned to that directory. The callback completes it only when
+  the ID token's `tid` is the pinned directory and its verified email matches the invited
+  `platform_admins.email`; otherwise the token is left unconsumed.
+- **Switches:** member invites follow `microsoft_login_enabled`, like tenant sign-in. Admin invites
+  follow the deploy-level admin Microsoft availability, like admin sign-in; the tenant switch never
+  affects them.
+- **Web:** both accept screens show "Continue with Microsoft" from the same settings the backend
+  enforces (`microsoftLoginEnabled` for members, `adminMicrosoftLoginAvailable` for admins), next to
+  the existing Google button.
+- **Failure codes:** invite-specific failures redirect back to the accept page with
+  `?error=INVALID_OR_EXPIRED_INVITE`, `INVITE_EMAIL_MISMATCH` or `MICROSOFT_IDENTITY_ALREADY_LINKED`,
+  plus `&provider=microsoft`, so the existing toast hook picks Microsoft-specific wording.
 
 ## Security properties (and why)
 

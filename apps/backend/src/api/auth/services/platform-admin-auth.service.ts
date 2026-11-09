@@ -11,7 +11,12 @@ import { LoginAttemptScope, LoginAttemptService } from './login-attempt.service'
 import { OAuthStateService } from './oauth-state.service';
 import { TokenService } from './token.service';
 
-import { SSO_REDIRECT, SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
+import {
+  IDENTITY_PROVIDER_FOR,
+  SSO_REDIRECT,
+  SsoAuthFailure,
+  SsoProvider,
+} from '../constants/sso-auth.constants';
 import { AcceptAdminInviteDto } from '../dto/accept-admin-invite.dto';
 import { AdminInvitePreviewDto } from '../dto/admin-invite-preview.dto';
 import { LoginDto } from '../dto/login.dto';
@@ -176,6 +181,52 @@ export class PlatformAdminAuthService {
   }
 
   /**
+   * Microsoft counterpart of `buildAdminInviteGoogleRedirect`, pinned to the configured admin
+   * directory like `buildAdminLoginMicrosoftRedirect`. Validates the token and configuration
+   * read-only; never throws, since the browser is mid-navigation.
+   */
+  async buildAdminInviteMicrosoftRedirect(inviteToken: string): Promise<SsoAuthorizeRedirect> {
+    const invite = await this.platformAdminDbService.findInviteEmailByTokenHash(
+      hashToken(inviteToken)
+    );
+    if (!invite) {
+      return {
+        ok: false,
+        redirectUrl: this.adminInviteFailureUrl(
+          inviteToken,
+          SsoAuthFailure.INVALID_OR_EXPIRED_INVITE
+        ),
+      };
+    }
+
+    const tenantId = getAdminMicrosoftTenantId(this.configService);
+    if (tenantId === undefined || !this.isAdminMicrosoftConfigured()) {
+      return {
+        ok: false,
+        redirectUrl: this.adminInviteFailureUrl(inviteToken, SsoAuthFailure.NOT_CONFIGURED),
+      };
+    }
+
+    const minted = await this.oauthStateService.mint({
+      provider: SsoProvider.MICROSOFT,
+      intent: OAuthIntent.ADMIN_INVITE,
+      inviteToken,
+      pkce: true,
+    });
+
+    return {
+      ok: true,
+      authorizationUrl: this.microsoftIdentityProvider.buildAuthorizationUrl({
+        state: minted.state,
+        nonce: minted.nonce,
+        codeChallenge: minted.codeChallenge ?? '',
+        tenantId,
+      }),
+      sid: minted.sid,
+    };
+  }
+
+  /**
    * An admin who accepted their invite through Google has no `password_hash`, so Google is their
    * only way back in. Uses `OAuthIntent.ADMIN_LOGIN`, not `LOGIN` (see the enum). Never throws; the
    * browser is mid-navigation.
@@ -319,9 +370,11 @@ export class PlatformAdminAuthService {
   /**
    * Never throws: called from the shared callback, with the browser mid-navigation. `inviteToken`
    * is only undefined if the state record lost it; handled defensively since there is no token to
-   * build a targeted redirect from.
+   * build a targeted redirect from. Microsoft is checked against the pinned directory first, the
+   * same rule as `signInWithMicrosoft`.
    */
-  async completeAdminInviteGoogle(
+  async completeAdminInviteSso(
+    provider: SsoProvider,
     inviteToken: string | undefined,
     identity: SsoIdentity
   ): Promise<
@@ -352,7 +405,21 @@ export class PlatformAdminAuthService {
       };
     }
 
-    // Stops someone else from redeeming this link with their own Google account: the token alone
+    if (provider === SsoProvider.MICROSOFT) {
+      const pinned = getAdminMicrosoftTenantId(this.configService);
+      if (pinned === undefined || identity.tenantId !== pinned) {
+        this.logger.warn(
+          `Admin Microsoft invite refused: directory ${identity.tenantId ?? 'unknown'} is not the configured one`
+        );
+        return {
+          ok: false,
+          failure: SsoAuthFailure.NO_ACCOUNT,
+          redirectUrl: this.adminInviteFailureUrl(inviteToken, SsoAuthFailure.NO_ACCOUNT),
+        };
+      }
+    }
+
+    // Stops someone else from redeeming this link with their own SSO account: the token alone
     // proves nothing about whose account completes it. Token is left unconsumed on a mismatch.
     if (normalizeEmail(identity.email) !== normalizeEmail(invite.email)) {
       return {
@@ -362,19 +429,21 @@ export class PlatformAdminAuthService {
       };
     }
 
-    const result = await this.platformAdminDbService.acceptInviteWithGoogleIdentity({
+    const result = await this.platformAdminDbService.acceptInviteWithSsoIdentity({
       tokenHash: hashToken(inviteToken),
+      provider: IDENTITY_PROVIDER_FOR[provider],
       providerUserId: identity.providerUserId,
     });
 
     if (result.outcome === 'identity_already_linked') {
+      const failure =
+        provider === SsoProvider.MICROSOFT
+          ? SsoAuthFailure.MICROSOFT_IDENTITY_ALREADY_LINKED
+          : SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED;
       return {
         ok: false,
-        failure: SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
-        redirectUrl: this.adminInviteFailureUrl(
-          inviteToken,
-          SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED
-        ),
+        failure,
+        redirectUrl: this.adminInviteFailureUrl(inviteToken, failure),
       };
     }
     if (result.outcome !== 'accepted') {

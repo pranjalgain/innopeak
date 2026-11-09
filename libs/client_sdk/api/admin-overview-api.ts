@@ -98,7 +98,7 @@ export const AdminOverviewApiAxiosParamCreator = function (
       };
     },
     /**
-     * The purpose-built admin-action log (`platform_activity_log`: business suspend/reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized `business_joined` entries (a signup has no platform-admin actor, so it was never added to that log) into one time-sorted, capped feed. Previously two endpoints stitched together client-side; this is the one response the Overview activity panel now needs. See `ApiListPlatformActivity` for the paginated, real-log-only view instead.
+     * The newest entries of the platform activity log (`platform_activity_log`): business suspend/reactivate, erasure requested/cancelled/erased (by an admin, by the owner, or by the nightly purge), a new business joining, admin invite send/revoke, admin/user enable-disable and platform settings changes. The Overview page\'s glance feed; `ApiListPlatformActivity` is the paginated, filterable view of the same rows.
      * @summary Recent platform activity — the Overview page’s glance feed
      * @param {number} [limit]
      * @param {*} [options] Override http request option.
@@ -403,7 +403,7 @@ export const AdminOverviewApiFp = function (configuration?: Configuration) {
         )(axios, localVarOperationServerBasePath || basePath);
     },
     /**
-     * The purpose-built admin-action log (`platform_activity_log`: business suspend/reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized `business_joined` entries (a signup has no platform-admin actor, so it was never added to that log) into one time-sorted, capped feed. Previously two endpoints stitched together client-side; this is the one response the Overview activity panel now needs. See `ApiListPlatformActivity` for the paginated, real-log-only view instead.
+     * The newest entries of the platform activity log (`platform_activity_log`): business suspend/reactivate, erasure requested/cancelled/erased (by an admin, by the owner, or by the nightly purge), a new business joining, admin invite send/revoke, admin/user enable-disable and platform settings changes. The Overview page\'s glance feed; `ApiListPlatformActivity` is the paginated, filterable view of the same rows.
      * @summary Recent platform activity — the Overview page’s glance feed
      * @param {number} [limit]
      * @param {*} [options] Override http request option.
@@ -607,7 +607,7 @@ export const AdminOverviewApiFactory = function (
         .then((request) => request(axios, basePath));
     },
     /**
-     * The purpose-built admin-action log (`platform_activity_log`: business suspend/reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized `business_joined` entries (a signup has no platform-admin actor, so it was never added to that log) into one time-sorted, capped feed. Previously two endpoints stitched together client-side; this is the one response the Overview activity panel now needs. See `ApiListPlatformActivity` for the paginated, real-log-only view instead.
+     * The newest entries of the platform activity log (`platform_activity_log`): business suspend/reactivate, erasure requested/cancelled/erased (by an admin, by the owner, or by the nightly purge), a new business joining, admin invite send/revoke, admin/user enable-disable and platform settings changes. The Overview page\'s glance feed; `ApiListPlatformActivity` is the paginated, filterable view of the same rows.
      * @summary Recent platform activity — the Overview page’s glance feed
      * @param {AdminOverviewApiAdminOverviewControllerGetRecentActivityV1Request} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -713,7 +713,7 @@ export interface AdminOverviewApiInterface {
   ): AxiosPromise<Array<AdminBusinessResponseDto>>;
 
   /**
-   * The purpose-built admin-action log (`platform_activity_log`: business suspend/reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized `business_joined` entries (a signup has no platform-admin actor, so it was never added to that log) into one time-sorted, capped feed. Previously two endpoints stitched together client-side; this is the one response the Overview activity panel now needs. See `ApiListPlatformActivity` for the paginated, real-log-only view instead.
+   * The newest entries of the platform activity log (`platform_activity_log`): business suspend/reactivate, erasure requested/cancelled/erased (by an admin, by the owner, or by the nightly purge), a new business joining, admin invite send/revoke, admin/user enable-disable and platform settings changes. The Overview page\'s glance feed; `ApiListPlatformActivity` is the paginated, filterable view of the same rows.
    * @summary Recent platform activity — the Overview page’s glance feed
    * @param {AdminOverviewApiAdminOverviewControllerGetRecentActivityV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.
@@ -840,7 +840,7 @@ export class AdminOverviewApi
   }
 
   /**
-   * The purpose-built admin-action log (`platform_activity_log`: business suspend/reactivate, admin invite send/revoke, admin/user enable-disable) merged with synthesized `business_joined` entries (a signup has no platform-admin actor, so it was never added to that log) into one time-sorted, capped feed. Previously two endpoints stitched together client-side; this is the one response the Overview activity panel now needs. See `ApiListPlatformActivity` for the paginated, real-log-only view instead.
+   * The newest entries of the platform activity log (`platform_activity_log`): business suspend/reactivate, erasure requested/cancelled/erased (by an admin, by the owner, or by the nightly purge), a new business joining, admin invite send/revoke, admin/user enable-disable and platform settings changes. The Overview page\'s glance feed; `ApiListPlatformActivity` is the paginated, filterable view of the same rows.
    * @summary Recent platform activity — the Overview page’s glance feed
    * @param {AdminOverviewApiAdminOverviewControllerGetRecentActivityV1Request} requestParameters Request parameters.
    * @param {*} [options] Override http request option.

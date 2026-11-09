@@ -114,8 +114,49 @@
       "tagline": "AI-assisted replies for Google Business Profile reviews — always reviewed by a human before they go out.",
       "signIn": "Sign in",
       "getStarted": "Get started",
+      "privacyPolicy": "Privacy policy",
       "copyright": "© {year} InnoPeak. All rights reserved."
     }
+  },
+  "privacy": {
+    "title": "Privacy policy",
+    "description": "How InnoPeak collects, uses, stores, and protects your data.",
+    "lastUpdated": "Last updated: March 2026",
+    "intro": "InnoPeak helps businesses manage Google Business Profile reviews. This policy explains what data we collect, how we use it, and the choices available to you.",
+    "sections": [
+      {
+        "heading": "Data we collect",
+        "body": "We collect account and business information you provide, review content retrieved from connected Google Business Profiles, generated reply drafts, approval decisions, and basic usage and audit logs needed to operate the service."
+      },
+      {
+        "heading": "Google Business Profile data",
+        "body": "When you connect a Google Business Profile, we access review and location data required to draft and publish replies. We request only the scopes needed for that workflow and do not access unrelated Google data."
+      },
+      {
+        "heading": "AI processing",
+        "body": "Review text and business context may be sent to our AI provider to generate draft replies. Drafts are not published automatically; a human reviews them first. We do not use your data to train models."
+      },
+      {
+        "heading": "Cookies and sessions",
+        "body": "We use essential cookies and session tokens to authenticate you, keep you signed in, and protect your account. We do not use advertising or tracking cookies."
+      },
+      {
+        "heading": "Data retention",
+        "body": "We retain data for as long as your account is active and as needed to provide the service, comply with legal obligations, resolve disputes, and enforce our agreements."
+      },
+      {
+        "heading": "Deletion",
+        "body": "You can request deletion of your account and associated business data through the settings area. Some records may be retained where required by law or for security and fraud prevention."
+      },
+      {
+        "heading": "Your rights",
+        "body": "Depending on your location, you may have rights to access, correct, export, or delete your personal data. Contact us to exercise these rights."
+      },
+      {
+        "heading": "Contact",
+        "body": "Questions about this policy or your data can be sent through the support channel provided in your account."
+      }
+    ]
   },
   "pageTitles": {
     "acceptInvite": "Accept Invite",
@@ -230,12 +271,15 @@
       "title": "You're invited",
       "invitedAs": "Set a password to finish setting up {email}.",
       "invitedAsWithGoogle": "Set a password to finish setting up {email}, or continue with Google.",
+      "invitedAsWithMicrosoft": "Set a password to finish setting up {email}, or continue with Microsoft.",
+      "invitedAsWithSso": "Set a password to finish setting up {email}, or continue with Google or Microsoft.",
       "passwordLabel": "Password",
       "confirmPasswordLabel": "Confirm password",
       "submit": "Accept invite",
       "submitting": "Accepting…",
       "orDivider": "or",
       "continueWithGoogle": "Continue with Google",
+      "continueWithMicrosoft": "Continue with Microsoft",
       "invalidTitle": "This invite isn't valid",
       "invalidDescription": "This link is invalid or has expired. Ask whoever invited you to send a new one.",
       "backToLogin": "Back to sign in",
@@ -254,6 +298,8 @@
       "title": "You're invited",
       "invitedAs": "Set up your account to join as {email}.",
       "invitedAsWithGoogle": "Set up your account to join as {email}, or continue with Google.",
+      "invitedAsWithMicrosoft": "Set up your account to join as {email}, or continue with Microsoft.",
+      "invitedAsWithSso": "Set up your account to join as {email}, or continue with Google or Microsoft.",
       "nameLabel": "Your name",
       "passwordLabel": "Password",
       "confirmPasswordLabel": "Confirm password",
@@ -261,6 +307,7 @@
       "submitting": "Accepting…",
       "orDivider": "or",
       "continueWithGoogle": "Continue with Google",
+      "continueWithMicrosoft": "Continue with Microsoft",
       "invalidTitle": "This invite isn't valid",
       "invalidDescription": "This link is invalid or has expired. Ask whoever invited you to send a new one.",
       "unavailableTitle": "Something went wrong",
@@ -310,6 +357,7 @@
       "INVALID_OR_EXPIRED_INVITE": "This invite link is invalid or has expired.",
       "INVITE_EMAIL_MISMATCH": "That Google account's email doesn't match the invited address. Sign in to Google with the address the invite was sent to.",
       "GOOGLE_IDENTITY_ALREADY_LINKED": "That Google account is already linked to a different account.",
+      "MICROSOFT_IDENTITY_ALREADY_LINKED": "That Microsoft account is already linked to a different account.",
       "google": {
         "NO_ACCOUNT": "No account found for that Google address. Sign up first.",
         "ACCESS_DENIED": "Google sign-in was cancelled.",
@@ -324,6 +372,8 @@
         "EMAIL_NOT_VERIFIED": "Microsoft did not confirm a verified email address for this account. Ask your Microsoft admin to set and verify the account's email, or use email and password.",
         "PROVIDER_ERROR": "Could not complete sign-in with Microsoft. Please try again.",
         "NOT_CONFIGURED": "Microsoft sign-in is not available right now. Try another way to sign in.",
+        "INVITE_EMAIL_MISMATCH": "That Microsoft account's email doesn't match the invited address. Sign in to Microsoft with the address the invite was sent to.",
+        "MICROSOFT_IDENTITY_ALREADY_LINKED": "That Microsoft account is already linked to a different account.",
         "fallback": "Microsoft sign-in did not complete. Please try again."
       },
       "admin": {
